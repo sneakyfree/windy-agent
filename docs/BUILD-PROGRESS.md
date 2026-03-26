@@ -14,13 +14,13 @@
   - [x] Write Part 4: Phase 5 (Dashboard, Ecosystem Map, File Index, Codon Checklist)
   - [x] User review and approval
 
-- [/] Phase 0 — Python Agent Loop
-  - [/] Step 0.1: Initialize Repository
-  - [ ] Step 0.2: Config System
-  - [ ] Step 0.3: Database Layer
-  - [ ] Step 0.4: Personality Engine
-  - [ ] Step 0.5: LLM Provider Abstraction
-  - [ ] Step 0.6: Core Agent Loop
-  - [ ] Step 0.7: CLI Interface
-  - [ ] Step 0.8: Tests
-  - [ ] Step 0.9: Commit and Tag
+- [x] Phase 0 — Python Agent Loop
+  - [x] Step 0.1: Initialize Repository
+  - [x] Step 0.2: Config System
+  - [x] Step 0.3: Database Layer
+  - [x] Step 0.4: Personality Engine
+  - [x] Step 0.5: LLM Provider Abstraction
+  - [x] Step 0.6: Core Agent Loop
+  - [x] Step 0.7: CLI Interface
+  - [x] Step 0.8: Tests (49/49 passing)
+  - [x] Step 0.9: Commit and Tag
