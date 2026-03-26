@@ -45,3 +45,11 @@
   - [x] Step 3.3: Intent System (migration v2, CRUD, detector, decay)
   - [x] Step 3.4: Emotional Awareness (stress/excitement detection + trends)
   - [x] Step 3.5: Tests (163/163 passing) + Commit + Tag
+
+- [x] Phase 4 — Bun Gateway + Advanced Features
+  - [x] Step 4.1: UDS Bridge (6 methods over JSON-per-line protocol)
+  - [x] Step 4.2: Cognitive Decay (decay scores, speculate, prune, archive)
+  - [x] Step 4.3: Conflict Resolution (detect, resolve, user-choice)
+  - [x] Step 4.4: Sub-Agent Orchestration (isolated context, token budget)
+  - [x] Step 4.5: Offline Mode (Ollama fallback, queue notice)
+  - [x] Step 4.6: Tests (179/179 passing) + Commit + Tag

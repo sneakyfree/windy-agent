@@ -1,0 +1,90 @@
+"""Sub-agent orchestration — spawn isolated specialist agents.
+
+V1: Pseudo sub-agents using isolated LLM calls with token budgets.
+Depth limit: 1 (sub-agents cannot spawn sub-agents).
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+from windyfly.agent.models import call_llm, estimate_cost
+from windyfly.memory.cost_ledger import log_cost
+from windyfly.memory.database import Database
+from windyfly.memory.write_queue import Priority, WriteQueue
+
+logger = logging.getLogger(__name__)
+
+
+def spawn_sub_agent(
+    config: dict[str, Any],
+    db: Database,
+    write_queue: WriteQueue,
+    task: str,
+    *,
+    token_budget: int = 2000,
+    model: str | None = None,
+) -> str:
+    """Spawn an isolated sub-agent and return its result.
+
+    The sub-agent has:
+    - No access to parent conversation history
+    - Its own system prompt focused on the task
+    - A token budget (max_tokens)
+    - Its cost logged separately with task_type='sub_agent'
+
+    Args:
+        config: Config dict.
+        db: Database instance.
+        write_queue: WriteQueue for cost logging.
+        task: Task description for the sub-agent.
+        token_budget: Max response tokens.
+        model: LLM model to use (defaults to config default).
+
+    Returns:
+        The sub-agent's response text.
+    """
+    if model is None:
+        model = config.get("agent", {}).get("default_model", "gpt-4o-mini")
+
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are a specialist sub-agent. Your task is described below. "
+                "Respond with your findings only. Be concise and focused. "
+                f"Budget: {token_budget} tokens."
+            ),
+        },
+        {
+            "role": "user",
+            "content": task,
+        },
+    ]
+
+    result = call_llm(
+        messages,
+        model=model,
+        temperature=0.3,  # Lower temp for focused tasks
+        max_tokens=token_budget,
+        config=config,
+    )
+
+    response_text = result["content"]
+    cost_usd = estimate_cost(model, result["input_tokens"], result["output_tokens"])
+
+    # Log cost separately as sub_agent task type
+    write_queue.enqueue(
+        Priority.MEDIUM,
+        log_cost,
+        db, model, result["input_tokens"], result["output_tokens"],
+        cost_usd,
+    )
+
+    logger.info(
+        "Sub-agent completed: %.4f USD, %d tokens",
+        cost_usd, result["output_tokens"],
+    )
+
+    return response_text
