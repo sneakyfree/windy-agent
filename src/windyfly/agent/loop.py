@@ -49,6 +49,23 @@ def agent_respond(
     # 1. Assemble prompt
     messages = assemble_prompt(config, db, user_message, session_id)
 
+    # 1.5. Friction detection (Never Wrong Twice)
+    from windyfly.agent.failure_detector import detect_friction, handle_friction
+    from windyfly.memory.episodes import get_recent_episodes
+
+    recent = get_recent_episodes(db, limit=1, session_id=session_id)
+    prev_agent_msg = None
+    for ep in recent:
+        if ep["role"] == "assistant":
+            prev_agent_msg = ep["content"]
+            break
+
+    friction = detect_friction(user_message, prev_agent_msg)
+    if friction:
+        extra_instruction = handle_friction(db, write_queue, friction)
+        if extra_instruction:
+            messages.insert(1, {"role": "system", "content": extra_instruction})
+
     # 2. Call LLM
     model = config.get("agent", {}).get("default_model", "gpt-4o-mini")
     temperature = config.get("agent", {}).get("temperature", 0.7)

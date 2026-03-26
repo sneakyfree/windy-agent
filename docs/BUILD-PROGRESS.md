@@ -31,3 +31,10 @@
   - [x] Step 1.3: Offline Queue + Reconnection
   - [x] Step 1.4: Windy Pro API Tools (4 tools)
   - [x] Step 1.5: Tests (77/77 passing) + Commit + Tag
+
+- [x] Phase 2 — Soul Continuity + Control Panel + Truth Layer
+  - [x] Step 2.1: Soul Import Parsers (OpenClaw, Hermes, ChatGPT, Orchestrator, Preview)
+  - [x] Step 2.2: Control Panel (3 presets, 7 sliders, cost estimation)
+  - [x] Step 2.3: Truth Layer + Epistemic Status
+  - [x] Step 2.4: Never Wrong Twice Failure Detector
+  - [x] Step 2.5: Tests (120/120 passing) + Commit + Tag
