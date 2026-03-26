@@ -50,7 +50,7 @@ class TestDatabaseCreation:
         db = _make_db()
         row = db.fetchone("SELECT MAX(version) as v FROM schema_version")
         assert row is not None
-        assert row["v"] == 1
+        assert row["v"] == 2
         db.close()
 
     def test_wal_mode(self):

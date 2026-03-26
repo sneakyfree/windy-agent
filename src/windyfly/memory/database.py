@@ -114,6 +114,61 @@ _MIGRATIONS: dict[int, tuple[str, str]] = {
             VALUES (1, 'Phase 0: 6 core tables + FTS');
         """,
     ),
+    2: (
+        "Phase 3: intents, edges, conflicts, soul_history",
+        """
+        CREATE TABLE IF NOT EXISTS intents (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL DEFAULT 'default',
+            scope_id TEXT DEFAULT 'personal',
+            description TEXT NOT NULL,
+            status TEXT DEFAULT 'active',
+            priority INTEGER DEFAULT 5,
+            origin TEXT DEFAULT 'user_said',
+            autonomy_policy TEXT DEFAULT 'inform',
+            decay_score REAL DEFAULT 1.0,
+            linked_nodes JSON,
+            last_touched DATETIME DEFAULT CURRENT_TIMESTAMP,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS edges (
+            id TEXT PRIMARY KEY,
+            source_id TEXT NOT NULL,
+            target_id TEXT NOT NULL,
+            relation TEXT NOT NULL,
+            strength REAL DEFAULT 1.0,
+            confidence REAL DEFAULT 1.0,
+            timestamp_weight REAL DEFAULT 1.0,
+            source_weight REAL DEFAULT 1.0,
+            decay_score REAL DEFAULT 1.0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS conflicts (
+            id TEXT PRIMARY KEY,
+            node_id TEXT,
+            old_value TEXT,
+            new_value TEXT,
+            resolution_status TEXT DEFAULT 'unresolved',
+            user_resolved BOOLEAN DEFAULT FALSE,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            resolved_at DATETIME
+        );
+
+        CREATE TABLE IF NOT EXISTS soul_history (
+            id TEXT PRIMARY KEY,
+            soul_id TEXT NOT NULL,
+            old_value TEXT,
+            new_value TEXT,
+            changed_by TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        INSERT OR IGNORE INTO schema_version (version, description)
+            VALUES (2, 'Phase 3: intents, edges, conflicts, soul_history');
+        """,
+    ),
 }
 
 

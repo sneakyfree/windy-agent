@@ -38,3 +38,10 @@
   - [x] Step 2.3: Truth Layer + Epistemic Status
   - [x] Step 2.4: Never Wrong Twice Failure Detector
   - [x] Step 2.5: Tests (120/120 passing) + Commit + Tag
+
+- [x] Phase 3 — Skill Engine + Cost Ledger + Intent System
+  - [x] Step 3.1: Skill Engine (manager, sandbox, evaluator with 3 gates)
+  - [x] Step 3.2: Cost Tracker with budget enforcement
+  - [x] Step 3.3: Intent System (migration v2, CRUD, detector, decay)
+  - [x] Step 3.4: Emotional Awareness (stress/excitement detection + trends)
+  - [x] Step 3.5: Tests (163/163 passing) + Commit + Tag
