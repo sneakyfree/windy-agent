@@ -58,9 +58,25 @@ def main() -> None:
         from windyfly.channels.cli import run_cli
         run_cli(config)
     elif args.channel == "matrix":
-        # Matrix bot will be implemented in Phase 1
-        print("Matrix channel not yet implemented. Coming in Phase 1.")
-        sys.exit(0)
+        import asyncio
+
+        from windyfly.channels.matrix_bot import WindyFlyMatrixBot
+        from windyfly.memory.database import Database
+        from windyfly.memory.write_queue import WriteQueue
+
+        db_path = config.get("memory", {}).get("db_path", "data/windyfly.db")
+        db = Database(db_path)
+        write_queue = WriteQueue()
+        write_queue.start()
+
+        bot = WindyFlyMatrixBot(config, db, write_queue)
+        try:
+            asyncio.run(bot.start())
+        except KeyboardInterrupt:
+            asyncio.run(bot.stop())
+        finally:
+            write_queue.stop()
+            db.close()
 
 
 if __name__ == "__main__":

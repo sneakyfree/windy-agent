@@ -24,3 +24,10 @@
   - [x] Step 0.7: CLI Interface
   - [x] Step 0.8: Tests (49/49 passing)
   - [x] Step 0.9: Commit and Tag
+
+- [x] Phase 1 — Matrix Bot + Windy Chat
+  - [x] Step 1.1: Matrix Bot Channel
+  - [x] Step 1.2: Typing Indicators + Presence
+  - [x] Step 1.3: Offline Queue + Reconnection
+  - [x] Step 1.4: Windy Pro API Tools (4 tools)
+  - [x] Step 1.5: Tests (77/77 passing) + Commit + Tag
