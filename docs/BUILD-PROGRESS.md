@@ -53,3 +53,11 @@
   - [x] Step 4.4: Sub-Agent Orchestration (isolated context, token budget)
   - [x] Step 4.5: Offline Mode (Ollama fallback, queue notice)
   - [x] Step 4.6: Tests (179/179 passing) + Commit + Tag
+
+- [x] Phase 5 — Dashboard + Observability + Polish
+  - [x] Step 5.1: Trust Dashboard (full agent state summary)
+  - [x] Step 5.2: Personality Versioning (snapshots, drift detection, rollback)
+  - [x] Step 5.3: Golden Test Runner (regression suite for promoted skills)
+  - [x] Step 5.4: Observability (structured event logging, 30-day pruning)
+  - [x] Step 5.5: Bun Gateway (bridge.ts, server.ts, websocket.ts)
+  - [x] Step 5.6: Tests (198/198 passing) + Commit + Tag v1.0.0

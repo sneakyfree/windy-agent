@@ -1,0 +1,13 @@
+{
+  "name": "windyfly-gateway",
+  "version": "0.1.0",
+  "module": "src/server.ts",
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --watch src/server.ts",
+    "start": "bun run src/server.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}

@@ -169,6 +169,20 @@ _MIGRATIONS: dict[int, tuple[str, str]] = {
             VALUES (2, 'Phase 3: intents, edges, conflicts, soul_history');
         """,
     ),
+    3: (
+        "Phase 5: events table for observability",
+        """
+        CREATE TABLE IF NOT EXISTS events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_type TEXT NOT NULL,
+            data JSON,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        INSERT OR IGNORE INTO schema_version (version, description)
+            VALUES (3, 'Phase 5: events table for observability');
+        """,
+    ),
 }
 
 

@@ -91,5 +91,5 @@ class TestMigrationV2:
     def test_schema_version_is_2(self):
         db = Database(":memory:")
         row = db.fetchone("SELECT MAX(version) as v FROM schema_version")
-        assert row["v"] == 2
+        assert row["v"] == 3
         db.close()
