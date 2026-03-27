@@ -2,7 +2,7 @@
 
 Handles the full cycle: prompt assembly → budget check → LLM call →
 tool execution → episode save → cost logging → fact extraction →
-intent detection.
+intent detection → relationship moments → context header.
 """
 
 from __future__ import annotations
@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from windyfly.agent.context_header import maybe_prepend_header
 from windyfly.agent.emotion_detector import detect_emotional_context, get_emotional_trend
 from windyfly.agent.intent_detector import detect_intent
 from windyfly.agent.models import call_llm, estimate_cost
@@ -24,9 +25,13 @@ from windyfly.memory.intents import create_intent
 from windyfly.memory.nodes import upsert_node
 from windyfly.memory.write_queue import Priority, WriteQueue
 from windyfly.observability.events import log_event
+from windyfly.personality.engine import apply_adaptive_overrides
 from windyfly.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
+
+# Session-level token accumulator (reset on process restart)
+_session_tokens_used: int = 0
 
 # Default tool re-loop rounds (overridden by slider)
 _DEFAULT_TOOL_ROUNDS = 3
@@ -98,6 +103,9 @@ def agent_respond(
         emotional_trend = get_emotional_trend(db, session_id, window=emo_window)
     else:
         emotional_trend = "neutral"  # Slider at 0 → ignore emotions
+
+    # 1.65. Adaptive mode — override sliders based on emotion
+    loop_sliders = apply_adaptive_overrides(loop_sliders, emotional_context, emotional_trend)
 
     if emotional_trend == "sustained_stress":
         messages.insert(1, {
@@ -263,6 +271,19 @@ def agent_respond(
         "emotional_context": emotional_context,
     })
 
+    # 7.5. Relationship moments — extract emotional snapshots
+    warmth = loop_sliders.get("warmth", 5)
+    if emotional_context != "neutral" and warmth >= 3:
+        _extract_relationship_moment(
+            db, write_queue, config, user_message, response_text,
+            emotional_context, session_id,
+        )
+
+    # 8. Context gas tank header (signature feature)
+    global _session_tokens_used
+    _session_tokens_used += input_tokens + output_tokens
+    response_text = maybe_prepend_header(response_text, _session_tokens_used)
+
     return response_text
 
 
@@ -308,3 +329,61 @@ def _extract_and_store_facts(
                     source=source,
                     epistemic_status="user_stated",
                 )
+
+
+def _extract_relationship_moment(
+    db: Database,
+    write_queue: WriteQueue,
+    config: dict[str, Any],
+    user_message: str,
+    response_text: str,
+    emotional_context: str,
+    session_id: str,
+) -> None:
+    """Extract a relationship moment from an emotional interaction.
+
+    Creates a one-line emotional snapshot like:
+      "User was frustrated → we debugged together → solved it → relief"
+
+    Stored as type=relationship_moment for future prompt injection.
+    """
+    try:
+        moment_prompt = (
+            "Summarize this interaction as a one-line emotional snapshot of a shared "
+            "experience between friends. Format: 'emotion → what happened → outcome'. "
+            "Keep it under 25 words.\n\n"
+            f"User ({emotional_context}): {user_message[:300]}\n"
+            f"Agent: {response_text[:300]}"
+        )
+
+        result = call_llm(
+            [
+                {"role": "system", "content": "You write brief emotional summaries."},
+                {"role": "user", "content": moment_prompt},
+            ],
+            model=config.get("agent", {}).get("default_model", "gpt-4o-mini"),
+            temperature=0.3,
+            max_tokens=50,
+            config=config,
+        )
+
+        moment = result["content"].strip().strip('"')
+        if moment and len(moment) > 10:
+            write_queue.enqueue(
+                Priority.LOW,
+                upsert_node,
+                db,
+                "relationship_moment",
+                f"moment:{moment[:200]}",
+                metadata={
+                    "session_id": session_id,
+                    "emotional_context": emotional_context,
+                    "summary": moment,
+                },
+                source="agent_observed",
+                epistemic_status="verified",
+            )
+            logger.debug("Relationship moment saved: %s", moment[:80])
+
+    except Exception as e:
+        logger.debug("Relationship moment extraction failed: %s", e)

@@ -1,0 +1,105 @@
+"""Tests for the context gas tank header."""
+
+from unittest.mock import patch
+
+from windyfly.agent.context_header import ContextTracker, maybe_prepend_header
+
+
+class TestContextTracker:
+    """Test the ContextTracker class."""
+
+    def test_pct_remaining_full(self) -> None:
+        tracker = ContextTracker(max_context_tokens=200_000)
+        assert tracker.pct_remaining == 100.0
+
+    def test_pct_remaining_half(self) -> None:
+        tracker = ContextTracker(max_context_tokens=200_000)
+        tracker.tokens_used = 100_000
+        assert tracker.pct_remaining == 50.0
+
+    def test_pct_remaining_empty(self) -> None:
+        tracker = ContextTracker(max_context_tokens=200_000)
+        tracker.tokens_used = 200_000
+        assert tracker.pct_remaining == 0.0
+
+    def test_pct_remaining_over(self) -> None:
+        tracker = ContextTracker(max_context_tokens=200_000)
+        tracker.tokens_used = 250_000
+        assert tracker.pct_remaining == 0.0  # Clamped to 0
+
+    def test_should_show_header_first_time(self) -> None:
+        """First response always shows header (time delta > 1h from epoch)."""
+        tracker = ContextTracker()
+        assert tracker.should_show_header() is True
+
+    def test_should_show_header_after_10pct_delta(self) -> None:
+        """Header shows after 10%+ context delta."""
+        tracker = ContextTracker(max_context_tokens=200_000)
+        # Show first header at 100%
+        tracker.format_header()
+        # Use 10% of context
+        tracker.tokens_used = 20_001  # Just over 10%
+        # Should trigger because delta > 10%
+        with patch("windyfly.agent.context_header.time") as mock_time:
+            mock_time.time.return_value = tracker._last_header_time + 30  # 30 sec later
+            assert tracker.should_show_header() is True
+
+    def test_no_header_rapid_fire(self) -> None:
+        """No header on rapid messages with < 10% delta."""
+        tracker = ContextTracker(max_context_tokens=200_000)
+        # Show first header
+        tracker.format_header()
+        # Small token use (< 10%)
+        tracker.tokens_used = 10_000  # 5%
+        with patch("windyfly.agent.context_header.time") as mock_time:
+            mock_time.time.return_value = tracker._last_header_time + 30  # 30 sec later
+            assert tracker.should_show_header() is False
+
+    def test_header_after_one_hour(self) -> None:
+        """Header shows after 1h+ even with < 10% delta."""
+        tracker = ContextTracker(max_context_tokens=200_000)
+        tracker.format_header()
+        tracker.tokens_used = 5_000  # Only 2.5%
+        with patch("windyfly.agent.context_header.time") as mock_time:
+            mock_time.time.return_value = tracker._last_header_time + 3601  # 1h+1s
+            assert tracker.should_show_header() is True
+
+    def test_format_header_green(self) -> None:
+        tracker = ContextTracker(max_context_tokens=200_000)
+        tracker.tokens_used = 0  # 100% remaining
+        header = tracker.format_header()
+        assert "🟢" in header
+        assert "100%" in header
+        assert "Windy Fly" in header
+
+    def test_format_header_yellow(self) -> None:
+        tracker = ContextTracker(max_context_tokens=200_000)
+        tracker.tokens_used = 140_000  # 30% remaining
+        header = tracker.format_header()
+        assert "🟡" in header
+        assert "30%" in header
+
+    def test_format_header_red(self) -> None:
+        tracker = ContextTracker(max_context_tokens=200_000)
+        tracker.tokens_used = 190_000  # 5% remaining
+        header = tracker.format_header()
+        assert "🔴" in header
+        assert "5%" in header
+
+
+class TestMaybePrependHeader:
+    """Test the maybe_prepend_header convenience function."""
+
+    def test_prepends_on_first_call(self) -> None:
+        # Reset singleton
+        import windyfly.agent.context_header as ch
+        ch._tracker = None
+        result = maybe_prepend_header("Hello!", 0)
+        assert result.startswith("[🪰 Windy Fly")
+        assert "Hello!" in result
+
+    def test_header_contains_response(self) -> None:
+        import windyfly.agent.context_header as ch
+        ch._tracker = None
+        result = maybe_prepend_header("Test response text", 0)
+        assert "Test response text" in result

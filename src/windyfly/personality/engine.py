@@ -114,3 +114,46 @@ def get_mode_override(mode: str) -> str | None:
         "neutral": "You are in neutral mode. No humor, no personality flair. Pure information.",
     }
     return overrides.get(mode)
+
+
+def apply_adaptive_overrides(
+    sliders: dict,
+    emotional_context: str,
+    emotional_trend: str,
+) -> dict:
+    """Apply temporary slider overrides based on detected emotion.
+
+    The agent "reads the room" and adjusts its personality to match
+    the moment. Originals in DB are never modified — these are
+    session-only overrides.
+
+    Args:
+        sliders: Current slider values dict.
+        emotional_context: Current message emotion ('stressed', 'excited', 'neutral').
+        emotional_trend: Session trend ('sustained_stress', 'excited', 'neutral').
+
+    Returns:
+        New slider dict with emotion-adapted values.
+    """
+    if emotional_context == "neutral" and emotional_trend == "neutral":
+        return sliders  # No override needed
+
+    adapted = dict(sliders)  # Shallow copy, don't mutate original
+
+    if emotional_trend == "sustained_stress":
+        # Multi-message stress: go full supportive mode
+        adapted["humor"] = 0
+        adapted["proactivity"] = min(adapted.get("proactivity", 5), 2)
+        adapted["warmth"] = 10
+        adapted["verbosity"] = min(adapted.get("verbosity", 5), 3)
+    elif emotional_context == "stressed":
+        # Single-message stress: soften but don't overreact
+        adapted["humor"] = min(adapted.get("humor", 5), 1)
+        adapted["warmth"] = max(adapted.get("warmth", 5), 9)
+        adapted["verbosity"] = min(adapted.get("verbosity", 5), 4)
+    elif emotional_context == "excited" or emotional_trend == "excited":
+        # Match their energy
+        adapted["humor"] = min(adapted.get("humor", 5) + 2, 10)
+        adapted["warmth"] = max(adapted.get("warmth", 5), 8)
+
+    return adapted

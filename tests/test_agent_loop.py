@@ -15,6 +15,7 @@ from windyfly.agent.prompt import _extract_keywords, assemble_prompt
 from windyfly.memory.database import Database
 from windyfly.memory.episodes import get_recent_episodes
 from windyfly.memory.write_queue import WriteQueue
+import windyfly.agent.context_header as _ch
 
 
 def _make_config() -> dict:
@@ -110,6 +111,7 @@ class TestAssemblePrompt:
 class TestAgentRespond:
     @patch("windyfly.agent.loop.call_llm")
     def test_returns_response(self, mock_llm):
+        _ch._tracker = None  # Reset context header singleton
         mock_llm.return_value = _LLM_RESPONSE.copy()
 
         config = _make_config()
@@ -118,7 +120,7 @@ class TestAgentRespond:
         wq.start()
 
         response = agent_respond(config, db, wq, "Hi there!", "test-session")
-        assert response == "Hello! I'm Windy Fly."
+        assert "Hello! I'm Windy Fly." in response
         assert mock_llm.called
 
         wq.stop()
@@ -239,7 +241,7 @@ class TestBudgetEnforcement:
         # LLM should still be called
         assert mock_llm.called
         # Response should be from LLM, not budget block
-        assert response == "Hello! I'm Windy Fly."
+        assert "Hello! I'm Windy Fly." in response
 
         wq.stop()
         db.close()
@@ -409,7 +411,7 @@ class TestToolExecution:
         wq.start()
 
         response = agent_respond(config, db, wq, "What's the weather?", "test-session", registry)
-        assert response == "The weather is 72F!"
+        assert "The weather is 72F!" in response
         assert mock_llm.call_count == 2  # Initial + after tool
 
         wq.stop()

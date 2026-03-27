@@ -7,12 +7,13 @@ relevant knowledge nodes, and the user's current message.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from windyfly.control_panel import get_sliders
 from windyfly.memory.database import Database
 from windyfly.memory.episodes import get_recent_episodes
-from windyfly.memory.nodes import search_nodes
+from windyfly.memory.nodes import get_nodes_by_type, search_nodes
 from windyfly.personality.engine import build_personality_block, get_mode_override, load_soul
 
 
@@ -62,6 +63,23 @@ def assemble_prompt(
         "content": "\n\n".join(system_parts),
     })
 
+    # 1.5. Turnover letter — load the most recent one on session start
+    turnover_letters = get_nodes_by_type(db, "turnover_letter", limit=1)
+    if turnover_letters:
+        letter = turnover_letters[0]
+        meta = letter.get("metadata", "{}")
+        if isinstance(meta, str):
+            try:
+                meta = json.loads(meta)
+            except (json.JSONDecodeError, TypeError):
+                meta = {}
+        summary = meta.get("summary", letter.get("name", "")) if isinstance(meta, dict) else str(meta)
+        if summary:
+            messages.append({
+                "role": "system",
+                "content": f"## Last Session Handoff\n{summary}",
+            })
+
     # 2. Memory context: relevant knowledge nodes
     max_nodes = config.get("memory", {}).get("max_nodes_per_context", 10)
 
@@ -99,6 +117,26 @@ def assemble_prompt(
             messages.append({
                 "role": "system",
                 "content": "\n".join(node_lines),
+            })
+
+    # 2.5. Relationship moments — shared emotional experiences
+    moments = get_nodes_by_type(db, "relationship_moment", limit=10)
+    if moments:
+        moment_lines = ["## Shared Experiences:"]
+        for m in moments:
+            meta = m.get("metadata", "{}")
+            if isinstance(meta, str):
+                try:
+                    meta = json.loads(meta)
+                except (json.JSONDecodeError, TypeError):
+                    meta = {}
+            summary = meta.get("summary", m.get("name", "")) if isinstance(meta, dict) else str(meta)
+            if summary:
+                moment_lines.append(f"- {summary}")
+        if len(moment_lines) > 1:
+            messages.append({
+                "role": "system",
+                "content": "\n".join(moment_lines),
             })
 
     # 3. Conversation history: recent episodes from this session
