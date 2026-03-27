@@ -1,7 +1,8 @@
 """Core agent loop — the ReAct reasoning cycle.
 
-Handles the full cycle: prompt assembly → LLM call → episode save →
-cost logging → fact extraction.
+Handles the full cycle: prompt assembly → budget check → LLM call →
+tool execution → episode save → cost logging → fact extraction →
+intent detection.
 """
 
 from __future__ import annotations
@@ -9,15 +10,26 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from windyfly.agent.emotion_detector import detect_emotional_context, get_emotional_trend
+from windyfly.agent.intent_detector import detect_intent
 from windyfly.agent.models import call_llm, estimate_cost
+from windyfly.agent.offline import get_offline_response, is_online
 from windyfly.agent.prompt import assemble_prompt
+from windyfly.control_panel import get_sliders
 from windyfly.memory.cost_ledger import log_cost
+from windyfly.memory.cost_tracker import check_budget
 from windyfly.memory.database import Database
-from windyfly.memory.episodes import save_episode
+from windyfly.memory.episodes import get_recent_episodes, save_episode
+from windyfly.memory.intents import create_intent
 from windyfly.memory.nodes import upsert_node
 from windyfly.memory.write_queue import Priority, WriteQueue
+from windyfly.observability.events import log_event
+from windyfly.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
+
+# Default tool re-loop rounds (overridden by slider)
+_DEFAULT_TOOL_ROUNDS = 3
 
 
 def agent_respond(
@@ -26,15 +38,22 @@ def agent_respond(
     write_queue: WriteQueue,
     user_message: str,
     session_id: str,
+    tool_registry: ToolRegistry | None = None,
 ) -> str:
     """Process a user message and return the agent's response.
 
-    1. Assemble prompt (personality + memory + context + user message)
-    2. Call LLM
-    3. Save episodes (user + assistant) via write queue
-    4. Log cost via write queue
-    5. Extract facts and upsert nodes via write queue
-    6. Return the agent's response text
+    Full pipeline:
+      1. Assemble prompt (personality + memory + context + user message)
+      1.5. Friction detection (Never Wrong Twice)
+      1.6. Emotional awareness (stress/excitement detection + trend injection)
+      1.75. Budget enforcement (check daily budget before LLM call)
+      2. Call LLM (with tool schemas if registry provided)
+      2.5. Tool-call re-loop (execute tools, feed results back, up to 3 rounds)
+      3. Save episodes (user + assistant) via write queue
+      4. Log cost via write queue
+      5. Extract facts and upsert nodes via write queue
+      6. Detect and store intents via write queue
+      7. Return the agent's response text
 
     Args:
         config: Loaded config dict.
@@ -42,6 +61,7 @@ def agent_respond(
         write_queue: WriteQueue for async DB writes.
         user_message: The user's message.
         session_id: Current session ID.
+        tool_registry: Optional ToolRegistry for function calling.
 
     Returns:
         The agent's response text.
@@ -51,7 +71,6 @@ def agent_respond(
 
     # 1.5. Friction detection (Never Wrong Twice)
     from windyfly.agent.failure_detector import detect_friction, handle_friction
-    from windyfly.memory.episodes import get_recent_episodes
 
     recent = get_recent_episodes(db, limit=1, session_id=session_id)
     prev_agent_msg = None
@@ -66,22 +85,131 @@ def agent_respond(
         if extra_instruction:
             messages.insert(1, {"role": "system", "content": extra_instruction})
 
-    # 2. Call LLM
+    # 1.6. Emotional awareness
+    emotional_context = detect_emotional_context(user_message)
+
+    # Read emotional_sensitivity slider (0=ignore, 10=hyper-attuned)
+    personality_config = config.get("personality", {})
+    loop_sliders = get_sliders(db, config_defaults=personality_config)
+    emo_sensitivity = loop_sliders.get("emotional_sensitivity", 5)
+
+    if emo_sensitivity > 0:
+        emo_window = max(1, emo_sensitivity)
+        emotional_trend = get_emotional_trend(db, session_id, window=emo_window)
+    else:
+        emotional_trend = "neutral"  # Slider at 0 → ignore emotions
+
+    if emotional_trend == "sustained_stress":
+        messages.insert(1, {
+            "role": "system",
+            "content": (
+                "The user seems stressed. Be extra concise and supportive. "
+                "Don't suggest new things right now. Focus on what they're asking."
+            ),
+        })
+    elif emotional_trend == "excited":
+        messages.insert(1, {
+            "role": "system",
+            "content": "The user is excited! Match their enthusiasm and energy.",
+        })
+
+    # 1.75. Budget enforcement
     model = config.get("agent", {}).get("default_model", "gpt-4o-mini")
-    temperature = config.get("agent", {}).get("temperature", 0.7)
-    max_tokens = config.get("agent", {}).get("max_response_tokens", 2000)
+
+    # Creativity slider → LLM temperature (0→0.0, 10→1.0)
+    creativity = loop_sliders.get("creativity", 5)
+    temperature = round(creativity / 10.0, 2)
+
+    # Response length slider → max_tokens (0→250, 10→4000)
+    response_length = loop_sliders.get("response_length", 5)
+    max_tokens = 250 + (response_length * 375)
+
+    # 1.8. Offline detection — fall back to local model if API unreachable
+    if not is_online():
+        logger.warning("LLM API unreachable — entering offline mode")
+        context = [{"role": m["role"], "content": m["content"]} for m in messages[-5:]]
+        offline_response = get_offline_response(user_message, context)
+        # Still save episodes so history is preserved
+        write_queue.enqueue(Priority.HIGH, save_episode, db, "user", user_message, session_id=session_id)
+        write_queue.enqueue(Priority.HIGH, save_episode, db, "assistant", offline_response, session_id=session_id)
+        log_event(db, write_queue, "offline.fallback", {"message": user_message[:100]})
+        return offline_response
+
+    estimated_input_tokens = len(user_message.split()) * 3  # rough estimate
+    proposed_cost = estimate_cost(model, estimated_input_tokens, max_tokens // 2)
+    budget = check_budget(db, config, proposed_cost)
+
+    if not budget["allowed"]:
+        return (
+            f"I've hit my daily budget "
+            f"(${budget['daily_spend']:.2f} of ${budget['daily_budget']:.2f}). "
+            f"Want me to proceed anyway?"
+        )
+
+    if budget["warning"]:
+        messages.insert(1, {
+            "role": "system",
+            "content": (
+                f"⚠️ Budget warning: ${budget['daily_spend']:.2f} of "
+                f"${budget['daily_budget']:.2f} daily budget used. "
+                "Be concise to save tokens."
+            ),
+        })
+
+    # 2. Call LLM (with tools if registry provided)
+    tools = tool_registry.get_schemas() if tool_registry else None
 
     result = call_llm(
         messages,
         model=model,
         temperature=temperature,
         max_tokens=max_tokens,
+        tools=tools,
         config=config,
     )
 
     response_text = result["content"]
     input_tokens = result["input_tokens"]
     output_tokens = result["output_tokens"]
+    tool_calls = result.get("tool_calls")
+
+    # 2.5. Tool-call re-loop (ReAct cycle)
+    if tool_calls and tool_registry:
+        max_tool_rounds = loop_sliders.get("tool_reloop_rounds", _DEFAULT_TOOL_ROUNDS)
+        for _round in range(max_tool_rounds):
+            # Execute each tool call
+            tool_results = []
+            for tc in tool_calls:
+                fn_name = tc["function"]["name"]
+                fn_args = tc["function"]["arguments"]
+                logger.info("Executing tool: %s (round %d)", fn_name, _round + 1)
+                tool_result = tool_registry.execute(fn_name, fn_args)
+                tool_results.append({
+                    "role": "tool",
+                    "tool_call_id": tc["id"],
+                    "content": tool_result,
+                })
+
+            # Append assistant tool_call message + tool results
+            messages.append({
+                "role": "assistant",
+                "content": response_text or "",
+                "tool_calls": tool_calls,
+            })
+            messages.extend(tool_results)
+
+            # Call LLM again with tool results
+            result = call_llm(
+                messages, model=model, temperature=temperature,
+                max_tokens=max_tokens, tools=tools, config=config,
+            )
+            response_text = result["content"]
+            input_tokens += result["input_tokens"]
+            output_tokens += result["output_tokens"]
+            tool_calls = result.get("tool_calls")
+
+            if not tool_calls:
+                break
 
     # 3. Save episodes via write queue (HIGH priority)
     cost_usd = estimate_cost(model, input_tokens, output_tokens)
@@ -91,6 +219,7 @@ def agent_respond(
         save_episode,
         db, "user", user_message,
         session_id=session_id,
+        emotional_context=emotional_context,
     )
     write_queue.enqueue(
         Priority.HIGH,
@@ -110,6 +239,29 @@ def agent_respond(
 
     # 5. Extract facts and upsert nodes (MEDIUM priority)
     _extract_and_store_facts(db, write_queue, user_message)
+
+    # 6. Intent detection (MEDIUM priority) — regex fast-path + LLM fallback
+    proactivity = loop_sliders.get("proactivity", 5)
+    intent = detect_intent(user_message, config=config, proactivity=proactivity)
+    if intent and intent.get("has_intent"):
+        write_queue.enqueue(
+            Priority.MEDIUM,
+            create_intent,
+            db,
+            intent["description"],
+            origin=intent["origin"],
+        )
+
+    # 7. Log event for observability
+    log_event(db, write_queue, "agent.respond", {
+        "session_id": session_id,
+        "model": model,
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "cost_usd": cost_usd,
+        "had_tool_calls": bool(tool_calls),
+        "emotional_context": emotional_context,
+    })
 
     return response_text
 

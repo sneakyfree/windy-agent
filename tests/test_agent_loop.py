@@ -1,11 +1,13 @@
 """Tests for the agent loop with mocked LLM.
 
 Tests prompt assembly, agent_respond flow, episode saving,
-cost logging, and fact extraction.
+cost logging, fact extraction, tool execution, budget enforcement,
+emotional context, intent detection, and epistemic filtering.
 """
 
 from __future__ import annotations
 
+import time
 from unittest.mock import MagicMock, patch
 
 from windyfly.agent.loop import _extract_and_store_facts, agent_respond
@@ -38,11 +40,24 @@ def _make_config() -> dict:
             "autonomy": 3,
             "epistemic_strictness": 5,
         },
+        "costs": {
+            "daily_budget_usd": 5.0,
+            "warn_at_usd": 3.0,
+        },
     }
 
 
 def _make_db() -> Database:
     return Database(":memory:")
+
+
+_LLM_RESPONSE = {
+    "content": "Hello! I'm Windy Fly.",
+    "model": "gpt-4o-mini",
+    "input_tokens": 100,
+    "output_tokens": 20,
+    "tool_calls": None,
+}
 
 
 class TestExtractKeywords:
@@ -95,13 +110,7 @@ class TestAssemblePrompt:
 class TestAgentRespond:
     @patch("windyfly.agent.loop.call_llm")
     def test_returns_response(self, mock_llm):
-        mock_llm.return_value = {
-            "content": "Hello! I'm Windy Fly.",
-            "model": "gpt-4o-mini",
-            "input_tokens": 100,
-            "output_tokens": 20,
-            "tool_calls": None,
-        }
+        mock_llm.return_value = _LLM_RESPONSE.copy()
 
         config = _make_config()
         db = _make_db()
@@ -147,7 +156,6 @@ class TestFactExtraction:
 
         _extract_and_store_facts(db, wq, "My name is Grant")
 
-        import time
         time.sleep(0.5)
         wq.stop()
 
@@ -162,7 +170,6 @@ class TestFactExtraction:
 
         _extract_and_store_facts(db, wq, "I live in San Francisco")
 
-        import time
         time.sleep(0.5)
         wq.stop()
 
@@ -177,10 +184,260 @@ class TestFactExtraction:
 
         _extract_and_store_facts(db, wq, "I love dark mode")
 
-        import time
         time.sleep(0.5)
         wq.stop()
 
         nodes = db.fetchall("SELECT * FROM nodes WHERE type = 'preference'")
         assert len(nodes) >= 1
+        db.close()
+
+
+class TestBudgetEnforcement:
+    """R2: Budget enforcement should block when daily budget exceeded."""
+
+    @patch("windyfly.agent.loop.call_llm")
+    @patch("windyfly.agent.loop.check_budget")
+    def test_blocks_when_over_budget(self, mock_budget, mock_llm):
+        mock_budget.return_value = {
+            "allowed": False,
+            "daily_spend": 5.50,
+            "daily_budget": 5.0,
+            "warning": True,
+            "monthly_spend": 10.0,
+        }
+
+        config = _make_config()
+        db = _make_db()
+        wq = WriteQueue()
+        wq.start()
+
+        response = agent_respond(config, db, wq, "Hi", "test-session")
+        assert "budget" in response.lower()
+        assert not mock_llm.called
+
+        wq.stop()
+        db.close()
+
+    @patch("windyfly.agent.loop.call_llm")
+    @patch("windyfly.agent.loop.check_budget")
+    def test_warns_when_near_budget(self, mock_budget, mock_llm):
+        mock_budget.return_value = {
+            "allowed": True,
+            "daily_spend": 3.50,
+            "daily_budget": 5.0,
+            "warning": True,
+            "monthly_spend": 10.0,
+        }
+        mock_llm.return_value = _LLM_RESPONSE.copy()
+
+        config = _make_config()
+        db = _make_db()
+        wq = WriteQueue()
+        wq.start()
+
+        response = agent_respond(config, db, wq, "Hi", "test-session")
+        # LLM should still be called
+        assert mock_llm.called
+        # Response should be from LLM, not budget block
+        assert response == "Hello! I'm Windy Fly."
+
+        wq.stop()
+        db.close()
+
+
+class TestEmotionalContextIntegration:
+    """R3: Emotional context should be detected and stored on episodes."""
+
+    @patch("windyfly.agent.loop.call_llm")
+    def test_emotional_context_passed_to_episode(self, mock_llm):
+        mock_llm.return_value = _LLM_RESPONSE.copy()
+
+        config = _make_config()
+        db = _make_db()
+        wq = WriteQueue()
+        wq.start()
+
+        agent_respond(
+            config, db, wq,
+            "UGH this is SO FRUSTRATING!!!",
+            "test-session",
+        )
+        time.sleep(0.5)
+        wq.stop()
+
+        episodes = db.fetchall(
+            "SELECT * FROM episodes WHERE session_id = 'test-session'"
+        )
+        user_eps = [e for e in episodes if e["role"] == "user"]
+        assert len(user_eps) >= 1
+        assert any(e.get("emotional_context") == "stressed" for e in user_eps)
+
+        db.close()
+
+    @patch("windyfly.agent.loop.call_llm")
+    def test_neutral_context_for_normal_message(self, mock_llm):
+        mock_llm.return_value = _LLM_RESPONSE.copy()
+
+        config = _make_config()
+        db = _make_db()
+        wq = WriteQueue()
+        wq.start()
+
+        agent_respond(config, db, wq, "Hello there", "test-session")
+        time.sleep(0.5)
+        wq.stop()
+
+        episodes = db.fetchall(
+            "SELECT * FROM episodes WHERE session_id = 'test-session'"
+        )
+        user_eps = [e for e in episodes if e["role"] == "user"]
+        assert len(user_eps) >= 1
+        assert any(e.get("emotional_context") == "neutral" for e in user_eps)
+
+        db.close()
+
+
+class TestIntentDetectionIntegration:
+    """R4: Intents should be detected and stored from user messages."""
+
+    @patch("windyfly.agent.loop.call_llm")
+    def test_intent_saved_from_message(self, mock_llm):
+        mock_llm.return_value = _LLM_RESPONSE.copy()
+
+        config = _make_config()
+        db = _make_db()
+        wq = WriteQueue()
+        wq.start()
+
+        agent_respond(
+            config, db, wq,
+            "I want to learn French",
+            "test-session",
+        )
+        time.sleep(0.5)
+        wq.stop()
+
+        intents = db.fetchall("SELECT * FROM intents")
+        assert len(intents) >= 1
+        # The extracted description should contain learn/French
+        descriptions = " ".join(i["description"] for i in intents)
+        assert "learn" in descriptions.lower() or "french" in descriptions.lower()
+
+        db.close()
+
+    @patch("windyfly.agent.loop.call_llm")
+    def test_no_intent_for_greeting(self, mock_llm):
+        mock_llm.return_value = _LLM_RESPONSE.copy()
+
+        config = _make_config()
+        db = _make_db()
+        wq = WriteQueue()
+        wq.start()
+
+        agent_respond(config, db, wq, "Hello!", "test-session")
+        time.sleep(0.5)
+        wq.stop()
+
+        intents = db.fetchall("SELECT * FROM intents")
+        assert len(intents) == 0
+
+        db.close()
+
+
+class TestToolExecution:
+    """R1/R9: Tool schemas should be passed to LLM and tool_calls executed."""
+
+    @patch("windyfly.agent.loop.call_llm")
+    def test_tools_passed_to_llm(self, mock_llm):
+        mock_llm.return_value = _LLM_RESPONSE.copy()
+
+        from windyfly.tools.registry import ToolRegistry
+        registry = ToolRegistry()
+        registry.register("test_tool", "A test tool", {"type": "object", "properties": {}}, lambda: "ok")
+
+        config = _make_config()
+        db = _make_db()
+        wq = WriteQueue()
+        wq.start()
+
+        agent_respond(config, db, wq, "Hi", "test-session", registry)
+
+        call_args = mock_llm.call_args
+        assert call_args is not None
+        # tools kwarg should contain the registered tool
+        _, kwargs = call_args
+        assert kwargs.get("tools") is not None
+        assert len(kwargs["tools"]) == 1
+
+        wq.stop()
+        db.close()
+
+    @patch("windyfly.agent.loop.call_llm")
+    def test_tool_reloop_executes_tools(self, mock_llm):
+        """When LLM returns tool_calls, agent executes and calls LLM again."""
+        from windyfly.tools.registry import ToolRegistry
+        registry = ToolRegistry()
+        registry.register(
+            "get_weather", "Get weather", {"type": "object", "properties": {}},
+            lambda: '{"temp": "72F"}',
+        )
+
+        # First call returns tool_calls, second call returns final response
+        mock_llm.side_effect = [
+            {
+                "content": "",
+                "model": "gpt-4o-mini",
+                "input_tokens": 50,
+                "output_tokens": 10,
+                "tool_calls": [{
+                    "id": "call_123",
+                    "function": {"name": "get_weather", "arguments": {}},
+                }],
+            },
+            {
+                "content": "The weather is 72F!",
+                "model": "gpt-4o-mini",
+                "input_tokens": 80,
+                "output_tokens": 15,
+                "tool_calls": None,
+            },
+        ]
+
+        config = _make_config()
+        db = _make_db()
+        wq = WriteQueue()
+        wq.start()
+
+        response = agent_respond(config, db, wq, "What's the weather?", "test-session", registry)
+        assert response == "The weather is 72F!"
+        assert mock_llm.call_count == 2  # Initial + after tool
+
+        wq.stop()
+        db.close()
+
+
+class TestEpistemicFiltering:
+    """R6: Epistemic strictness should filter nodes in prompt assembly."""
+
+    def test_high_strictness_filters_inferred(self):
+        config = _make_config()
+        config["personality"]["epistemic_strictness"] = 8
+        db = _make_db()
+
+        # Insert nodes with different epistemic statuses
+        from windyfly.memory.nodes import upsert_node
+        upsert_node(db, "fact", "test_verified", epistemic_status="verified")
+        upsert_node(db, "fact", "test_inferred", epistemic_status="inferred")
+        upsert_node(db, "fact", "test_speculative", epistemic_status="speculative")
+
+        messages = assemble_prompt(config, db, "test topic", "test-session")
+
+        # Find knowledge section in messages
+        knowledge_msgs = [m for m in messages if "Relevant Knowledge" in m.get("content", "")]
+        if knowledge_msgs:
+            content = knowledge_msgs[0]["content"]
+            # Inferred and speculative should be filtered out at strictness > 7
+            assert "[INFERRED]" not in content
+            assert "[SPECULATIVE]" not in content
+
         db.close()

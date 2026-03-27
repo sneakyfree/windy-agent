@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Windy Fly — Trust Dashboard</title>
+  <meta name="description" content="Trust Dashboard for the Windy Fly AI agent — memory, costs, skills, personality cockpit.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0a0e17;
+      --bg-card: rgba(255,255,255,0.04);
+      --bg-card-hover: rgba(255,255,255,0.07);
+      --text: #e4e8f0;
+      --text-dim: #7b8494;
+      --accent: #00d4aa;
+      --accent-glow: rgba(0,212,170,0.15);
+      --warning: #ffb347;
+      --danger: #ff6b6b;
+      --purple: #a78bfa;
+      --blue: #60a5fa;
+      --border: rgba(255,255,255,0.06);
+      --radius: 12px;
+      --font: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      line-height: 1.5;
+    }
+
+    /* NAV */
+    nav {
+      position: sticky; top: 0; z-index: 100;
+      display: flex; align-items: center; gap: 8px;
+      padding: 12px 24px;
+      background: rgba(10,14,23,0.85);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+    }
+    nav .logo { font-size: 1.25rem; font-weight: 700; margin-right: 24px; }
+    nav .logo span { color: var(--accent); }
+    nav button {
+      background: none; border: 1px solid transparent; color: var(--text-dim);
+      padding: 6px 16px; border-radius: 8px; cursor: pointer;
+      font-family: var(--font); font-size: 0.85rem; font-weight: 500;
+      transition: all 0.2s;
+    }
+    nav button:hover { color: var(--text); background: var(--bg-card); }
+    nav button.active { color: var(--accent); border-color: var(--accent); background: var(--accent-glow); }
+    nav .status { margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: 0.8rem; }
+    nav .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); }
+    nav .dot.connected { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+
+    /* LAYOUT */
+    .page { display: none; padding: 24px; max-width: 1200px; margin: 0 auto; }
+    .page.active { display: block; }
+
+    /* GRID */
+    .grid { display: grid; gap: 16px; }
+    .grid-2 { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+    .grid-3 { grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); }
+    .grid-4 { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+
+    /* CARDS */
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+      transition: all 0.2s;
+    }
+    .card:hover { background: var(--bg-card-hover); }
+    .card h3 { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-dim); margin-bottom: 8px; }
+    .card .value { font-size: 2rem; font-weight: 700; }
+    .card .sub { font-size: 0.8rem; color: var(--text-dim); margin-top: 4px; }
+    .card.accent .value { color: var(--accent); }
+    .card.purple .value { color: var(--purple); }
+    .card.blue .value { color: var(--blue); }
+    .card.warning .value { color: var(--warning); }
+
+    h2 { font-size: 1.1rem; font-weight: 600; margin: 24px 0 12px; color: var(--text-dim); }
+    h2:first-child { margin-top: 0; }
+
+    /* PROGRESS BAR */
+    .progress { height: 6px; background: rgba(255,255,255,0.06); border-radius: 3px; overflow: hidden; margin-top: 8px; }
+    .progress-fill { height: 100%; border-radius: 3px; transition: width 0.6s ease; }
+    .progress-fill.green { background: linear-gradient(90deg, #00d4aa, #00f0c0); }
+    .progress-fill.purple { background: linear-gradient(90deg, #a78bfa, #c4b5fd); }
+    .progress-fill.warning { background: linear-gradient(90deg, #ffb347, #ffcc80); }
+
+    /* TABLE */
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    th { text-align: left; color: var(--text-dim); font-weight: 500; padding: 8px 0; border-bottom: 1px solid var(--border); }
+    td { padding: 8px 0; border-bottom: 1px solid var(--border); }
+
+    /* CHAT */
+    #chat-messages {
+      flex: 1; overflow-y: auto; padding: 16px;
+      display: flex; flex-direction: column; gap: 12px;
+    }
+    .msg { max-width: 75%; padding: 12px 16px; border-radius: 16px; font-size: 0.9rem; line-height: 1.5; animation: fadeIn 0.3s; }
+    .msg.user { align-self: flex-end; background: linear-gradient(135deg, #00d4aa, #00b894); color: #0a0e17; border-bottom-right-radius: 4px; }
+    .msg.assistant { align-self: flex-start; background: var(--bg-card); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
+    .msg.system { align-self: center; color: var(--text-dim); font-size: 0.8rem; font-style: italic; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+    #chat-box { display: flex; flex-direction: column; height: calc(100vh - 80px); }
+    #chat-input-bar { display: flex; gap: 8px; padding: 16px; border-top: 1px solid var(--border); }
+    #chat-input {
+      flex: 1; background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px;
+      padding: 12px 16px; color: var(--text); font-family: var(--font); font-size: 0.9rem;
+      outline: none; transition: border 0.2s;
+    }
+    #chat-input:focus { border-color: var(--accent); }
+    #chat-send {
+      background: linear-gradient(135deg, #00d4aa, #00b894); border: none;
+      padding: 12px 24px; border-radius: 12px; color: #0a0e17;
+      font-family: var(--font); font-weight: 600; cursor: pointer;
+      transition: transform 0.1s, box-shadow 0.2s;
+    }
+    #chat-send:hover { transform: scale(1.02); box-shadow: 0 4px 16px rgba(0,212,170,0.3); }
+    #chat-send:active { transform: scale(0.98); }
+
+    /* SLIDERS */
+    .slider-group { margin-bottom: 20px; }
+    .slider-group label { display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 6px; }
+    .slider-group label span { color: var(--accent); font-weight: 600; }
+    .slider-group .desc { font-size: 0.75rem; color: var(--text-dim); margin-bottom: 4px; }
+    .slider-group .impact { font-size: 0.7rem; color: var(--purple); margin-top: 2px; }
+    input[type="range"] {
+      width: 100%; height: 6px; -webkit-appearance: none; appearance: none;
+      background: rgba(255,255,255,0.08); border-radius: 3px; outline: none;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none; appearance: none;
+      width: 18px; height: 18px; border-radius: 50%;
+      background: var(--accent); cursor: pointer;
+      box-shadow: 0 0 8px rgba(0,212,170,0.4);
+      transition: transform 0.1s;
+    }
+    input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.2); }
+
+    .presets { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 24px; }
+    .presets button {
+      background: var(--bg-card); border: 1px solid var(--border);
+      padding: 8px 16px; border-radius: 8px; color: var(--text);
+      font-family: var(--font); font-size: 0.8rem; cursor: pointer;
+      transition: all 0.2s;
+    }
+    .presets button:hover { border-color: var(--accent); color: var(--accent); }
+    .presets button.active { background: var(--accent-glow); border-color: var(--accent); color: var(--accent); }
+
+    .cost-estimate {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 16px; margin-top: 16px;
+      display: flex; align-items: center; gap: 12px;
+    }
+    .cost-estimate .label { font-size: 0.8rem; color: var(--text-dim); }
+    .cost-estimate .amount { font-size: 1.5rem; font-weight: 700; color: var(--accent); }
+
+    /* SCROLLBAR */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+
+    /* LOADING */
+    .loading { text-align: center; padding: 48px; color: var(--text-dim); }
+    .spinner { display: inline-block; width: 24px; height: 24px; border: 2px solid var(--border); border-top: 2px solid var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+<nav>
+  <div class="logo">🪰 <span>Windy Fly</span></div>
+  <button class="active" onclick="showPage('dashboard')" id="nav-dashboard">Dashboard</button>
+  <button onclick="showPage('chat')" id="nav-chat">Chat</button>
+  <button onclick="showPage('sliders')" id="nav-sliders">Sliders</button>
+  <div class="status">
+    <div class="dot" id="status-dot"></div>
+    <span id="status-text">Connecting...</span>
+  </div>
+</nav>
+
+<!-- ========== DASHBOARD ========== -->
+<div class="page active" id="page-dashboard">
+  <h2>📊 Overview</h2>
+  <div class="grid grid-4" id="overview-cards">
+    <div class="loading"><div class="spinner"></div></div>
+  </div>
+
+  <h2>💰 Cost Breakdown</h2>
+  <div class="grid grid-3" id="cost-cards"></div>
+
+  <h2>🛡️ Failure Analysis</h2>
+  <div class="grid grid-3" id="failure-cards"></div>
+
+  <h2>🧩 Skills</h2>
+  <div class="grid grid-2" id="skill-cards"></div>
+
+  <h2>🎯 Intents</h2>
+  <div class="grid grid-3" id="intent-cards"></div>
+
+  <h2>🧬 Personality</h2>
+  <div class="card" id="personality-card"></div>
+</div>
+
+<!-- ========== CHAT ========== -->
+<div class="page" id="page-chat">
+  <div id="chat-box">
+    <div id="chat-messages">
+      <div class="msg system">Connected to Windy Fly. Start chatting below.</div>
+    </div>
+    <div id="chat-input-bar">
+      <input type="text" id="chat-input" placeholder="Type a message..." autocomplete="off">
+      <button id="chat-send" onclick="sendMessage()">Send</button>
+    </div>
+  </div>
+</div>
+
+<!-- ========== SLIDERS ========== -->
+<div class="page" id="page-sliders">
+  <h2>🎛️ Presets</h2>
+  <div class="presets" id="preset-buttons"></div>
+
+  <h2>🎚️ Mixing Board</h2>
+  <div id="slider-list"></div>
+
+  <div class="cost-estimate">
+    <div class="label">Estimated Monthly Cost</div>
+    <div class="amount" id="cost-amount">$0.00</div>
+  </div>
+</div>
+
+<script>
+const API = window.location.origin;
+const WS_URL = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/chat`;
+let ws = null;
+let sessionId = crypto.randomUUID();
+
+// ===== NAV =====
+function showPage(name) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+  document.getElementById(`page-${name}`).classList.add('active');
+  document.getElementById(`nav-${name}`).classList.add('active');
+  if (name === 'dashboard') loadDashboard();
+  if (name === 'sliders') loadSliders();
+}
+
+// ===== HEALTH =====
+async function checkHealth() {
+  try {
+    const r = await fetch(`${API}/api/health`);
+    const d = await r.json();
+    const dot = document.getElementById('status-dot');
+    const txt = document.getElementById('status-text');
+    if (d.brain_connected) {
+      dot.classList.add('connected');
+      txt.textContent = 'Brain connected';
+    } else {
+      dot.classList.remove('connected');
+      txt.textContent = 'Brain offline';
+    }
+  } catch {
+    document.getElementById('status-dot').classList.remove('connected');
+    document.getElementById('status-text').textContent = 'Disconnected';
+  }
+}
+
+// ===== DASHBOARD =====
+async function loadDashboard() {
+  try {
+    const r = await fetch(`${API}/api/dashboard`);
+    const { dashboard: d } = await r.json();
+
+    // Overview
+    document.getElementById('overview-cards').innerHTML = `
+      <div class="card accent"><h3>Memory Nodes</h3><div class="value">${d.memory.total_nodes}</div><div class="sub">${Object.keys(d.memory.by_scope || {}).length} scopes</div></div>
+      <div class="card blue"><h3>Episodes</h3><div class="value">${d.memory.total_episodes}</div></div>
+      <div class="card purple"><h3>Skills</h3><div class="value">${d.skills.total}</div><div class="sub">${d.skills.promoted} promoted</div></div>
+      <div class="card"><h3>Active Intents</h3><div class="value">${d.intents.active}</div><div class="sub">${d.intents.completed} completed</div></div>
+    `;
+
+    // Costs
+    document.getElementById('cost-cards').innerHTML = `
+      <div class="card accent"><h3>Today</h3><div class="value">$${d.costs.today_usd.toFixed(4)}</div></div>
+      <div class="card blue"><h3>This Week</h3><div class="value">$${d.costs.this_week_usd.toFixed(4)}</div></div>
+      <div class="card purple"><h3>This Month</h3><div class="value">$${d.costs.this_month_usd.toFixed(4)}</div></div>
+    `;
+
+    // Failures
+    const impRate = (d.failures.improvement_rate * 100).toFixed(0);
+    document.getElementById('failure-cards').innerHTML = `
+      <div class="card ${d.failures.unresolved > 0 ? 'warning' : 'accent'}"><h3>Unresolved</h3><div class="value">${d.failures.unresolved}</div></div>
+      <div class="card accent"><h3>Resolved</h3><div class="value">${d.failures.resolved}</div></div>
+      <div class="card blue"><h3>Improvement Rate</h3><div class="value">${impRate}%</div>
+        <div class="progress"><div class="progress-fill green" style="width:${impRate}%"></div></div></div>
+    `;
+
+    // Skills
+    const topSkills = d.skills.top_5_by_usage.map(s =>
+      `<tr><td>${s.name}</td><td>${s.usage_count}</td><td>${(s.success_rate*100).toFixed(0)}%</td></tr>`
+    ).join('') || '<tr><td colspan="3" style="color:var(--text-dim)">No promoted skills yet</td></tr>';
+    document.getElementById('skill-cards').innerHTML = `
+      <div class="card"><h3>Top Skills</h3><table><tr><th>Name</th><th>Uses</th><th>Success</th></tr>${topSkills}</table></div>
+      <div class="card accent"><h3>Promoted</h3><div class="value">${d.skills.promoted}<span style="font-size:0.8rem;color:var(--text-dim)"> / ${d.skills.total}</span></div>
+        <div class="progress"><div class="progress-fill purple" style="width:${d.skills.total?((d.skills.promoted/d.skills.total)*100):0}%"></div></div></div>
+    `;
+
+    // Intents
+    document.getElementById('intent-cards').innerHTML = `
+      <div class="card accent"><h3>Active</h3><div class="value">${d.intents.active}</div></div>
+      <div class="card blue"><h3>Completed</h3><div class="value">${d.intents.completed}</div></div>
+      <div class="card"><h3>Abandoned</h3><div class="value">${d.intents.abandoned}</div></div>
+    `;
+
+    // Personality
+    const sliderHtml = Object.entries(d.personality.sliders).map(([k, v]) =>
+      `<span style="display:inline-block;margin:2px 6px;font-size:0.8rem;color:var(--text-dim)">${k}: <b style="color:var(--accent)">${v}</b></span>`
+    ).join('');
+    document.getElementById('personality-card').innerHTML = `
+      <h3>Current Preset: <span style="color:var(--accent);text-transform:capitalize">${d.personality.preset}</span></h3>
+      <div style="margin:8px 0">${sliderHtml}</div>
+      <div class="sub">Est. monthly: $${d.personality.estimated_monthly_cost.toFixed(2)}</div>
+    `;
+  } catch (e) {
+    document.getElementById('overview-cards').innerHTML = `<div class="card"><h3>Error</h3><div class="sub">${e.message}</div></div>`;
+  }
+}
+
+// ===== CHAT =====
+function connectWS() {
+  ws = new WebSocket(WS_URL);
+  ws.onmessage = (e) => {
+    const data = JSON.parse(e.data);
+    if (data.type === 'response') addMsg('assistant', data.content);
+    else if (data.type === 'error') addMsg('system', `Error: ${data.error}`);
+  };
+  ws.onclose = () => setTimeout(connectWS, 2000);
+}
+
+function addMsg(role, text) {
+  const el = document.createElement('div');
+  el.className = `msg ${role}`;
+  el.textContent = text;
+  document.getElementById('chat-messages').appendChild(el);
+  el.scrollIntoView({ behavior: 'smooth' });
+}
+
+function sendMessage() {
+  const input = document.getElementById('chat-input');
+  const text = input.value.trim();
+  if (!text || !ws || ws.readyState !== 1) return;
+  addMsg('user', text);
+  ws.send(JSON.stringify({ type: 'message', content: text, session_id: sessionId }));
+  input.value = '';
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && document.getElementById('page-chat').classList.contains('active')) sendMessage();
+});
+
+// ===== SLIDERS =====
+let sliderInfo = {};
+async function loadSliders() {
+  try {
+    // Load current values
+    const valR = await fetch(`${API}/api/sliders`);
+    const valData = await valR.json();
+    const sliders = valData.sliders || {};
+
+    // Try to load metadata
+    let info = {};
+    try {
+      const infoR = await fetch(`${API}/api/sliders/info`);
+      const infoData = await infoR.json();
+      info = infoData.info || {};
+    } catch {}
+    sliderInfo = info;
+
+    const list = document.getElementById('slider-list');
+    list.innerHTML = '';
+    for (const [name, value] of Object.entries(sliders)) {
+      const meta = info[name] || {};
+      const div = document.createElement('div');
+      div.className = 'slider-group';
+      div.innerHTML = `
+        <label><span>${meta.label || name}</span> <span id="val-${name}">${value}</span></label>
+        ${meta.description ? `<div class="desc">${meta.description}</div>` : ''}
+        <input type="range" min="0" max="10" value="${value}" data-name="${name}"
+               oninput="updateSlider('${name}', this.value)">
+        ${meta.impact_low && meta.impact_high ? `<div class="impact">0 → ${meta.impact_low} · 10 → ${meta.impact_high}</div>` : ''}
+      `;
+      list.appendChild(div);
+    }
+
+    // Presets
+    const presets = ['buddy', 'engineer', 'powerhouse', 'coder', 'friend', 'writer', 'researcher', 'silent'];
+    document.getElementById('preset-buttons').innerHTML = presets.map(p =>
+      `<button onclick="applyPreset('${p}')">${p}</button>`
+    ).join('');
+
+  } catch (e) {
+    document.getElementById('slider-list').innerHTML = `<div class="card"><div class="sub">Failed to load: ${e.message}</div></div>`;
+  }
+}
+
+async function updateSlider(name, value) {
+  document.getElementById(`val-${name}`).textContent = value;
+  try {
+    await fetch(`${API}/api/sliders/${name}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value: parseInt(value) }),
+    });
+  } catch {}
+}
+
+async function applyPreset(name) {
+  // Fetch sliders, re-read, re-render
+  try {
+    // The preset logic is server-side; we'd need an endpoint.
+    // For now, show which preset is selected
+    document.querySelectorAll('.presets button').forEach(b => b.classList.remove('active'));
+    event.target.classList.add('active');
+  } catch {}
+}
+
+// ===== INIT =====
+checkHealth();
+setInterval(checkHealth, 10000);
+loadDashboard();
+connectWS();
+</script>
+</body>
+</html>

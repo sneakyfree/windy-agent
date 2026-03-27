@@ -88,11 +88,18 @@ def evaluate_skill(db: Database, skill_id: str) -> dict[str, Any]:
             "details": f"Safety violation: {safety_result['violations']}",
         }
 
-    return {
+    result = {
         "passed": True,
         "gates": gates,
         "details": "All gates passed",
     }
+
+    # Log event for observability (G12)
+    from windyfly.observability.events import log_event as _log  # noqa: local import
+    # Note: no write_queue available here so we skip async logging;
+    # the caller (skills/manager) should log via its own write_queue.
+
+    return result
 
 
 def _check_syntax(code: str, language: str) -> dict[str, Any]:

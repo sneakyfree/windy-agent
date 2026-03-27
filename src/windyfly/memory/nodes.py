@@ -6,13 +6,15 @@ facts, beliefs, locations, etc.
 
 from __future__ import annotations
 
+import json
+import logging
 import uuid
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from windyfly.memory.database import Database
 
-import json
+logger = logging.getLogger(__name__)
 
 
 def upsert_node(
@@ -33,6 +35,9 @@ def upsert_node(
     If a node with the same (type, name, scope_id) exists, update it.
     Otherwise, create a new node with a UUID4 id.
 
+    Before updating an existing node, checks for conflicts and records
+    them in the conflicts table via conflict_detector.
+
     Returns:
         The node ID.
     """
@@ -46,6 +51,19 @@ def upsert_node(
 
     if existing:
         node_id = existing["id"]
+
+        # Check for conflict before overwriting
+        from windyfly.memory.conflict_detector import check_for_conflict
+        conflict = check_for_conflict(db, type, name, metadata_json or "")
+        if conflict:
+            logger.info(
+                "Conflict detected on node %s/%s: old=%s new=%s (conflict_id=%s)",
+                type, name,
+                str(conflict["old_value"])[:50],
+                str(conflict["new_value"])[:50],
+                conflict["conflict_id"],
+            )
+
         db.execute(
             """
             UPDATE nodes

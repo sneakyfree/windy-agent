@@ -76,13 +76,13 @@ class TestSliders:
 
     def test_value_too_low(self):
         db = Database(":memory:")
-        with pytest.raises(ValueError, match="1–10"):
-            set_slider(db, "personality", 0)
+        with pytest.raises(ValueError, match="0–10"):
+            set_slider(db, "personality", -1)
         db.close()
 
     def test_value_too_high(self):
         db = Database(":memory:")
-        with pytest.raises(ValueError, match="1–10"):
+        with pytest.raises(ValueError, match="0–10"):
             set_slider(db, "personality", 11)
         db.close()
 

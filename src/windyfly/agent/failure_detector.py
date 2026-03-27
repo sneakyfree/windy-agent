@@ -77,6 +77,13 @@ def handle_friction(
         description,
     )
 
+    # Log event for observability (G12)
+    from windyfly.observability.events import log_event
+    log_event(db, write_queue, "failure.detect", {
+        "fault_type": fault_type,
+        "pattern": friction.get("pattern_matched", ""),
+    })
+
     # Check for recurring failure
     is_recurring = check_recurring_failure(db, fault_type, description)
 

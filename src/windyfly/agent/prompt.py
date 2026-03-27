@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from windyfly.control_panel import get_sliders
 from windyfly.memory.database import Database
 from windyfly.memory.episodes import get_recent_episodes
 from windyfly.memory.nodes import search_nodes
@@ -63,10 +64,30 @@ def assemble_prompt(
 
     # 2. Memory context: relevant knowledge nodes
     max_nodes = config.get("memory", {}).get("max_nodes_per_context", 10)
+
+    # Read epistemic strictness slider for node filtering
+    sliders = get_sliders(db, config_defaults=personality_config)
+    strictness = sliders.get("epistemic_strictness", 5)
+
     # Extract keywords from user message for node search
     keywords = _extract_keywords(user_message)
     if keywords:
         relevant_nodes = search_nodes(db, keywords, limit=max_nodes)
+
+        # Filter nodes by epistemic strictness
+        if relevant_nodes and strictness > 9:
+            # Only verified and user_stated
+            relevant_nodes = [
+                n for n in relevant_nodes
+                if n.get("epistemic_status") in ("verified", "user_stated")
+            ]
+        elif relevant_nodes and strictness > 7:
+            # Exclude speculative and inferred
+            relevant_nodes = [
+                n for n in relevant_nodes
+                if n.get("epistemic_status") not in ("speculative", "inferred")
+            ]
+
         if relevant_nodes:
             node_lines = ["## Relevant Knowledge:"]
             for node in relevant_nodes:
@@ -81,7 +102,9 @@ def assemble_prompt(
             })
 
     # 3. Conversation history: recent episodes from this session
-    max_episodes = config.get("memory", {}).get("max_episodes_per_context", 20)
+    # context_window slider: 0 → 5 episodes, 10 → 55 episodes
+    context_window = sliders.get("context_window", 5)
+    max_episodes = 5 + (context_window * 5)
     recent = get_recent_episodes(db, limit=max_episodes, session_id=session_id)
 
     # Episodes come back most-recent-first; reverse for chronological order

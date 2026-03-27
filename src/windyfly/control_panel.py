@@ -1,9 +1,13 @@
-"""Control Panel — \"The Cockpit\".
+"""Control Panel — "The Cockpit".
 
 Manages personality presets, individual sliders, and cost estimation.
-Three presets: buddy, engineer, powerhouse. Seven sliders: personality,
-reasoning_depth, memory_depth, proactivity, autonomy, verbosity,
-epistemic_strictness.
+Three tiers: 8 presets, 15 sliders (0–10), and per-slider cost model.
+
+Sliders:
+  personality, humor, formality, reasoning_depth, creativity,
+  memory_depth, context_window, proactivity, autonomy, verbosity,
+  response_length, epistemic_strictness, tool_reloop_rounds,
+  emotional_sensitivity, memory_retention.
 """
 
 from __future__ import annotations
@@ -13,46 +17,263 @@ from typing import Any
 from windyfly.memory.database import Database
 from windyfly.memory.soul import get_all_soul, get_soul, upsert_soul
 
-# Pre-defined presets
-PRESETS: dict[str, dict[str, int]] = {
-    "buddy": {
-        "personality": 8,
-        "reasoning_depth": 5,
-        "memory_depth": 6,
-        "proactivity": 7,
-        "autonomy": 4,
-        "verbosity": 6,
-        "epistemic_strictness": 4,
+# ---------------------------------------------------------------------------
+# Slider metadata — label, description, impact at low/high ends
+# ---------------------------------------------------------------------------
+SLIDER_INFO: dict[str, dict[str, str]] = {
+    "personality": {
+        "label": "Personality",
+        "description": "How much warmth, character, and soul the agent puts into responses.",
+        "impact_low": "Robotic, clinical responses. Zero flair. Saves ~3% of tokens.",
+        "impact_high": "Full SOUL.md personality, warm, human-like. Costs ~3% more tokens on personality injection.",
     },
-    "engineer": {
-        "personality": 3,
-        "reasoning_depth": 8,
-        "memory_depth": 7,
-        "proactivity": 3,
-        "autonomy": 5,
-        "verbosity": 4,
-        "epistemic_strictness": 7,
+    "humor": {
+        "label": "Humor",
+        "description": "How much humor, wit, and playfulness the agent brings.",
+        "impact_low": "Stick-in-the-mud. No jokes, no riffing. Pure business.",
+        "impact_high": "Jim Carrey energy. Cracks jokes, riffs on your style, keeps it fun. Minimal extra token cost.",
     },
-    "powerhouse": {
-        "personality": 9,
-        "reasoning_depth": 9,
-        "memory_depth": 9,
-        "proactivity": 8,
-        "autonomy": 7,
-        "verbosity": 7,
-        "epistemic_strictness": 6,
+    "formality": {
+        "label": "Formality",
+        "description": "Tone register — from casual texting to boardroom professional.",
+        "impact_low": "\"yo what's good\" — relaxed, slang-friendly, abbreviations.",
+        "impact_high": "\"Dear esteemed colleague\" — proper grammar, no contractions, corporate-ready.",
+    },
+    "reasoning_depth": {
+        "label": "Reasoning Depth",
+        "description": "How much the agent shows its thinking process.",
+        "impact_low": "Quick gut-reaction answers. Fast but no explanation.",
+        "impact_high": "Full chain-of-thought reasoning. You see exactly how it got there. ~20% more tokens.",
+    },
+    "creativity": {
+        "label": "Creativity",
+        "description": "Controls LLM temperature — how predictable vs. imaginative responses are.",
+        "impact_low": "Precise, deterministic. Same question = same answer. Best for code and facts.",
+        "impact_high": "Wild, varied, surprising responses. Great for brainstorming. May hallucinate more.",
+    },
+    "memory_depth": {
+        "label": "Memory Depth",
+        "description": "How many knowledge facts about you are injected into every conversation.",
+        "impact_low": "Remembers almost nothing about you. Light and fast.",
+        "impact_high": "Full life-graph recall — your name, preferences, history. Costs ~5-10% of your token budget.",
+    },
+    "context_window": {
+        "label": "Context Window",
+        "description": "How many past messages the agent carries in the conversation.",
+        "impact_low": "5 recent messages. Short memory within a chat. Very cheap.",
+        "impact_high": "50 recent messages. Full conversation recall. Burns ~15% of token budget on history.",
+    },
+    "proactivity": {
+        "label": "Proactivity",
+        "description": "Whether the agent volunteers ideas or only answers what's asked.",
+        "impact_low": "Only answers your exact question. Never suggests, never nudges.",
+        "impact_high": "Actively suggests ideas, flags things you might have missed, anticipates your needs.",
+    },
+    "autonomy": {
+        "label": "Autonomy",
+        "description": "How much the agent acts on its own vs. asking permission first.",
+        "impact_low": "Always asks before doing anything. Maximum control.",
+        "impact_high": "Takes initiative — executes tasks, makes calls, acts independently. Use with caution.",
+    },
+    "verbosity": {
+        "label": "Verbosity",
+        "description": "Response style — from terse one-liners to thorough explanations.",
+        "impact_low": "Bullet points and one-liners. Maximum density.",
+        "impact_high": "Rich, detailed responses with examples and context. ~30% more tokens.",
+    },
+    "response_length": {
+        "label": "Response Length",
+        "description": "Hard cap on how long each response can be (token limit).",
+        "impact_low": "250 token cap (~2 paragraphs max). Fast and cheap.",
+        "impact_high": "4,000 token cap (~3 pages). Full essays when needed. Directly scales cost.",
+    },
+    "epistemic_strictness": {
+        "label": "Epistemic Strictness",
+        "description": "How much the agent trusts its own memory vs. only citing verified facts.",
+        "impact_low": "Uses everything it remembers, even hunches. More helpful, less precise.",
+        "impact_high": "Only cites verified facts. Refuses to guess. Safer but may miss context.",
+    },
+    "tool_reloop_rounds": {
+        "label": "Tool Use Depth",
+        "description": "Max rounds of tool execution per response (web search, API calls, etc.).",
+        "impact_low": "1 round — one tool call, then answers. Fast.",
+        "impact_high": "10 rounds — deep research, chaining tool calls. Burns 2-10x tokens per response.",
+    },
+    "emotional_sensitivity": {
+        "label": "Emotional Sensitivity",
+        "description": "How attuned the agent is to your emotional state (stress, excitement).",
+        "impact_low": "Ignores your mood entirely. Pure information.",
+        "impact_high": "Detects frustration, adjusts tone, offers support. Scans last 10 messages for patterns. Minimal cost.",
+    },
+    "memory_retention": {
+        "label": "Memory Retention",
+        "description": "How long the agent holds onto old memories before they fade.",
+        "impact_low": "Goldfish \U0001f420 — aggressive forgetting, old facts decay fast. Saves ~1% of token budget.",
+        "impact_high": "Elephant \U0001f418 — never forgets. Old memories maintained indefinitely. Costs ~10% of token budget on retention.",
     },
 }
 
+# ---------------------------------------------------------------------------
+# Pre-defined presets (8 total)
+# ---------------------------------------------------------------------------
+PRESETS: dict[str, dict[str, int]] = {
+    "buddy": {
+        "personality": 8,
+        "humor": 7,
+        "formality": 4,
+        "reasoning_depth": 5,
+        "creativity": 6,
+        "memory_depth": 6,
+        "context_window": 5,
+        "proactivity": 7,
+        "autonomy": 4,
+        "verbosity": 6,
+        "response_length": 5,
+        "epistemic_strictness": 4,
+        "tool_reloop_rounds": 2,
+        "emotional_sensitivity": 6,
+        "memory_retention": 6,
+    },
+    "engineer": {
+        "personality": 3,
+        "humor": 1,
+        "formality": 5,
+        "reasoning_depth": 8,
+        "creativity": 3,
+        "memory_depth": 7,
+        "context_window": 7,
+        "proactivity": 3,
+        "autonomy": 5,
+        "verbosity": 4,
+        "response_length": 7,
+        "epistemic_strictness": 7,
+        "tool_reloop_rounds": 5,
+        "emotional_sensitivity": 2,
+        "memory_retention": 7,
+    },
+    "powerhouse": {
+        "personality": 9,
+        "humor": 7,
+        "formality": 5,
+        "reasoning_depth": 9,
+        "creativity": 7,
+        "memory_depth": 9,
+        "context_window": 9,
+        "proactivity": 8,
+        "autonomy": 7,
+        "verbosity": 7,
+        "response_length": 9,
+        "epistemic_strictness": 6,
+        "tool_reloop_rounds": 8,
+        "emotional_sensitivity": 7,
+        "memory_retention": 9,
+    },
+    "coder": {
+        "personality": 1,
+        "humor": 0,
+        "formality": 2,
+        "reasoning_depth": 10,
+        "creativity": 4,
+        "memory_depth": 6,
+        "context_window": 8,
+        "proactivity": 3,
+        "autonomy": 5,
+        "verbosity": 3,
+        "response_length": 10,
+        "epistemic_strictness": 8,
+        "tool_reloop_rounds": 6,
+        "emotional_sensitivity": 0,
+        "memory_retention": 8,
+    },
+    "friend": {
+        "personality": 10,
+        "humor": 3,
+        "formality": 2,
+        "reasoning_depth": 3,
+        "creativity": 5,
+        "memory_depth": 8,
+        "context_window": 8,
+        "proactivity": 8,
+        "autonomy": 3,
+        "verbosity": 7,
+        "response_length": 6,
+        "epistemic_strictness": 3,
+        "tool_reloop_rounds": 1,
+        "emotional_sensitivity": 10,
+        "memory_retention": 9,
+    },
+    "writer": {
+        "personality": 7,
+        "humor": 5,
+        "formality": 5,
+        "reasoning_depth": 6,
+        "creativity": 10,
+        "memory_depth": 5,
+        "context_window": 6,
+        "proactivity": 6,
+        "autonomy": 4,
+        "verbosity": 9,
+        "response_length": 9,
+        "epistemic_strictness": 3,
+        "tool_reloop_rounds": 3,
+        "emotional_sensitivity": 5,
+        "memory_retention": 5,
+    },
+    "researcher": {
+        "personality": 2,
+        "humor": 0,
+        "formality": 7,
+        "reasoning_depth": 10,
+        "creativity": 3,
+        "memory_depth": 9,
+        "context_window": 9,
+        "proactivity": 5,
+        "autonomy": 4,
+        "verbosity": 7,
+        "response_length": 8,
+        "epistemic_strictness": 9,
+        "tool_reloop_rounds": 8,
+        "emotional_sensitivity": 1,
+        "memory_retention": 9,
+    },
+    "silent": {
+        "personality": 1,
+        "humor": 0,
+        "formality": 5,
+        "reasoning_depth": 4,
+        "creativity": 3,
+        "memory_depth": 3,
+        "context_window": 3,
+        "proactivity": 1,
+        "autonomy": 2,
+        "verbosity": 1,
+        "response_length": 2,
+        "epistemic_strictness": 5,
+        "tool_reloop_rounds": 1,
+        "emotional_sensitivity": 1,
+        "memory_retention": 3,
+    },
+}
+
+# ---------------------------------------------------------------------------
 # Cost model (approximate USD per month per slider point)
+# ---------------------------------------------------------------------------
 _COST_PER_POINT: dict[str, float] = {
     "personality": 0.30,
+    "humor": 0.20,
+    "formality": 0.00,       # Style, not cost
     "reasoning_depth": 0.50,
+    "creativity": 0.10,
     "memory_depth": 0.80,
+    "context_window": 0.60,
     "proactivity": 0.50,
-    "autonomy": 0.0,  # Risk, not cost
+    "autonomy": 0.00,        # Risk, not cost
     "verbosity": 0.20,
-    "epistemic_strictness": 0.0,  # Filtering, not cost
+    "response_length": 0.70,
+    "epistemic_strictness": 0.00,  # Filtering, not cost
+    "tool_reloop_rounds": 0.40,
+    "emotional_sensitivity": 0.10,
+    "memory_retention": 0.50,
 }
 
 VALID_SLIDERS = set(_COST_PER_POINT.keys())
@@ -67,7 +288,7 @@ def apply_preset(
 
     Args:
         db: Database instance.
-        preset_name: One of 'buddy', 'engineer', 'powerhouse'.
+        preset_name: One of the preset names (buddy, engineer, etc.).
         user_id: User ID.
 
     Returns:
@@ -97,7 +318,7 @@ def set_slider(
     Args:
         db: Database instance.
         slider_name: Slider name (must be a valid slider).
-        value: Slider value (1–10).
+        value: Slider value (0–10).
         user_id: User ID.
 
     Raises:
@@ -105,8 +326,8 @@ def set_slider(
     """
     if slider_name not in VALID_SLIDERS:
         raise ValueError(f"Unknown slider '{slider_name}'. Must be one of: {VALID_SLIDERS}")
-    if not (1 <= value <= 10):
-        raise ValueError(f"Slider value must be 1–10, got {value}")
+    if not (0 <= value <= 10):
+        raise ValueError(f"Slider value must be 0–10, got {value}")
 
     upsert_soul(db, key=f"slider_{slider_name}", value=str(value), source="control_panel", user_id=user_id)
 
@@ -139,6 +360,40 @@ def get_sliders(
             sliders[slider_name] = defaults.get(slider_name, 5)
 
     return sliders
+
+
+def get_slider_info(
+    db: Database,
+    user_id: str = "default",
+    config_defaults: dict[str, Any] | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Get all slider metadata including current values, descriptions, and cost impact.
+
+    This is what the UI/dashboard uses to render the slider panel.
+
+    Args:
+        db: Database instance.
+        user_id: User ID.
+        config_defaults: Optional config personality section for fallback values.
+
+    Returns:
+        Dict of slider name → {label, description, impact_low, impact_high, value, cost_per_point}.
+    """
+    current_values = get_sliders(db, user_id=user_id, config_defaults=config_defaults)
+    result: dict[str, dict[str, Any]] = {}
+
+    for slider_name in VALID_SLIDERS:
+        info = SLIDER_INFO.get(slider_name, {})
+        result[slider_name] = {
+            "label": info.get("label", slider_name),
+            "description": info.get("description", ""),
+            "impact_low": info.get("impact_low", ""),
+            "impact_high": info.get("impact_high", ""),
+            "value": current_values.get(slider_name, 5),
+            "cost_per_point": _COST_PER_POINT.get(slider_name, 0.0),
+        }
+
+    return result
 
 
 def estimate_monthly_cost(sliders: dict[str, int]) -> dict[str, Any]:

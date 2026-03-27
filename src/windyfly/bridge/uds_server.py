@@ -14,7 +14,8 @@ import uuid
 from typing import Any
 
 from windyfly.agent.loop import agent_respond
-from windyfly.control_panel import get_sliders, set_slider
+from windyfly.control_panel import get_slider_info, get_sliders, set_slider
+from windyfly.dashboard.data import get_dashboard_summary
 from windyfly.memory.cost_ledger import get_daily_spend
 from windyfly.memory.database import Database
 from windyfly.memory.intents import surface_pending_intents
@@ -87,8 +88,12 @@ class UDSBridge:
             "memory.search": self._handle_search,
             "sliders.get": self._handle_sliders_get,
             "sliders.set": self._handle_sliders_set,
+            "sliders.info": self._handle_sliders_info,
             "cost.daily": self._handle_cost_daily,
             "intents.list": self._handle_intents_list,
+            "dashboard.summary": self._handle_dashboard_summary,
+            "soul.preview": self._handle_soul_preview,
+            "soul.import": self._handle_soul_import,
         }
 
         handler = handlers.get(method)
@@ -123,6 +128,10 @@ class UDSBridge:
         set_slider(self.db, name, value)
         return {"success": True}
 
+    async def _handle_sliders_info(self, params: dict) -> dict:
+        info = get_slider_info(self.db)
+        return {"sliders": info}
+
     async def _handle_cost_daily(self, params: dict) -> dict:
         spend = get_daily_spend(self.db)
         return {"daily_spend": spend}
@@ -130,6 +139,28 @@ class UDSBridge:
     async def _handle_intents_list(self, params: dict) -> dict:
         intents = surface_pending_intents(self.db)
         return {"intents": intents}
+
+    async def _handle_dashboard_summary(self, params: dict) -> dict:
+        user_id = params.get("user_id", "default")
+        summary = get_dashboard_summary(self.db, user_id=user_id)
+        return {"dashboard": summary}
+
+    async def _handle_soul_preview(self, params: dict) -> dict:
+        from windyfly.soul_import.orchestrator import import_soul
+        export_path = params.get("export_path", "")
+        source_type = params.get("source_type")
+        result = import_soul(self.db, export_path, source_type, user_approved=False)
+        # Don't send parsed_data over the wire — just the preview text
+        result.pop("parsed_data", None)
+        return result
+
+    async def _handle_soul_import(self, params: dict) -> dict:
+        from windyfly.soul_import.orchestrator import import_soul
+        export_path = params.get("export_path", "")
+        source_type = params.get("source_type")
+        result = import_soul(self.db, export_path, source_type, user_approved=True)
+        result.pop("parsed_data", None)
+        return result
 
     async def _send_error(
         self,

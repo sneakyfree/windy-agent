@@ -9,10 +9,44 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+import threading
+import time
 
 from dotenv import load_dotenv
 
 from windyfly.config import load_config
+
+logger = logging.getLogger(__name__)
+
+_DECAY_INTERVAL_SECONDS = 24 * 60 * 60  # 24 hours
+
+
+def _start_decay_scheduler(
+    config: dict,
+    db_path: str,
+) -> threading.Thread:
+    """Start a daemon thread that runs cognitive decay every 24 hours."""
+    from windyfly.memory.database import Database
+    from windyfly.memory.decay import run_decay
+    from windyfly.memory.write_queue import WriteQueue
+
+    def _decay_loop() -> None:
+        # Use a dedicated DB connection for the decay thread
+        decay_db = Database(db_path)
+        decay_wq = WriteQueue()
+        decay_wq.start()
+        logger.info("Decay scheduler started (interval: 24h)")
+        while True:
+            try:
+                counts = run_decay(decay_db, decay_wq, config)
+                logger.info("Decay cycle complete: %s", counts)
+            except Exception as e:
+                logger.error("Decay cycle failed: %s", e)
+            time.sleep(_DECAY_INTERVAL_SECONDS)
+
+    t = threading.Thread(target=_decay_loop, daemon=True, name="decay-scheduler")
+    t.start()
+    return t
 
 
 def main() -> None:
@@ -53,6 +87,10 @@ def main() -> None:
         datefmt="%H:%M:%S",
     )
 
+    # Start background decay scheduler (G7)
+    db_path = config.get("memory", {}).get("db_path", "data/windyfly.db")
+    _start_decay_scheduler(config, db_path)
+
     # Launch channel
     if args.channel == "cli":
         from windyfly.channels.cli import run_cli
@@ -63,13 +101,23 @@ def main() -> None:
         from windyfly.channels.matrix_bot import WindyFlyMatrixBot
         from windyfly.memory.database import Database
         from windyfly.memory.write_queue import WriteQueue
+        from windyfly.tools.registry import ToolRegistry
+        from windyfly.tools.web_search import register_web_search_tool
+        from windyfly.tools.windy_api import register_windy_tools
 
-        db_path = config.get("memory", {}).get("db_path", "data/windyfly.db")
         db = Database(db_path)
         write_queue = WriteQueue()
         write_queue.start()
 
-        bot = WindyFlyMatrixBot(config, db, write_queue)
+        tool_registry = ToolRegistry()
+        register_windy_tools(tool_registry)
+        register_web_search_tool(tool_registry)
+
+        # Register sub-agent tool (G11)
+        from windyfly.agent.sub_agents import register_sub_agent_tool
+        register_sub_agent_tool(tool_registry, config, db, write_queue)
+
+        bot = WindyFlyMatrixBot(config, db, write_queue, tool_registry)
         try:
             asyncio.run(bot.start())
         except KeyboardInterrupt:

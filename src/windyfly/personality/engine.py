@@ -34,28 +34,43 @@ def build_personality_block(soul_text: str, sliders: dict) -> str:
     Args:
         soul_text: Raw SOUL.md text.
         sliders: Dict of slider values from config/control panel.
-            Keys: humor_level, formality, proactivity, verbosity,
+            Keys: personality, humor, formality, proactivity, verbosity,
                   reasoning_depth, autonomy, epistemic_strictness.
 
     Returns:
         Final personality prompt block (targeted under 600 tokens).
     """
     lines = soul_text.strip().split("\n")
-    humor_level = sliders.get("humor_level", 5)
+    # "humor" slider (0–10), fallback to legacy "humor_level" key
+    humor = sliders.get("humor", sliders.get("humor_level", 5))
     formality = sliders.get("formality", 5)
     verbosity = sliders.get("verbosity", 5)
+    personality = sliders.get("personality", 5)
 
     # Filter humor-related lines if humor is low
-    if humor_level < 3:
+    if humor < 3:
         lines = [
             line for line in lines
             if not any(word in line.lower() for word in ["witty", "humor", "joke", "funny"])
+        ]
+
+    # Filter warmth/character lines if personality is very low
+    if personality < 2:
+        lines = [
+            line for line in lines
+            if not any(word in line.lower() for word in ["warm", "friend", "caring", "empathetic"])
         ]
 
     result = "\n".join(lines)
 
     # Add modifier instructions based on sliders
     modifiers: list[str] = []
+
+    if humor > 7:
+        modifiers.append(
+            "Be witty and crack jokes when appropriate. Riff on the user's humor style. "
+            "Keep it fun — you're part comedian."
+        )
 
     if formality > 7:
         modifiers.append("Be formal and professional in your communication.")

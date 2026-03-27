@@ -2,18 +2,24 @@
  * Bun HTTP + WebSocket server for Windy Fly gateway.
  *
  * Routes:
- *   GET  /api/health        → { status: "ok" }
- *   GET  /api/sliders       → proxy to UDS sliders.get
- *   PUT  /api/sliders/:name → proxy to UDS sliders.set
- *   GET  /api/cost/daily    → proxy to UDS cost.daily
- *   GET  /api/intents       → proxy to UDS intents.list
- *   WS   /ws/chat           → WebSocket chat
+ *   GET  /                   → Trust Dashboard (index.html)
+ *   GET  /api/health         → { status: "ok" }
+ *   GET  /api/sliders        → proxy to UDS sliders.get
+ *   GET  /api/sliders/info   → proxy to UDS sliders.info
+ *   PUT  /api/sliders/:name  → proxy to UDS sliders.set
+ *   GET  /api/cost/daily     → proxy to UDS cost.daily
+ *   GET  /api/intents        → proxy to UDS intents.list
+ *   GET  /api/dashboard      → proxy to UDS dashboard.summary
+ *   GET  /api/memory/search  → proxy to UDS memory.search
+ *   WS   /ws/chat            → WebSocket chat
  */
 
+import { resolve } from "path";
 import { bridge } from "./bridge";
 import { handleClose, handleMessage, handleWebSocket } from "./websocket";
 
 const PORT = 3000;
+const PUBLIC_DIR = resolve(import.meta.dir, "../public");
 
 async function handleRequest(req: Request): Promise<Response> {
   const url = new URL(req.url);
@@ -63,6 +69,12 @@ async function handleRequest(req: Request): Promise<Response> {
       return Response.json(result, { headers });
     }
 
+    // Sliders INFO (metadata with descriptions, impact, cost)
+    if (path === "/api/sliders/info" && req.method === "GET") {
+      const result = await bridge.call("sliders.info");
+      return Response.json(result, { headers });
+    }
+
     // Cost daily
     if (path === "/api/cost/daily" && req.method === "GET") {
       const result = await bridge.call("cost.daily");
@@ -75,12 +87,46 @@ async function handleRequest(req: Request): Promise<Response> {
       return Response.json(result, { headers });
     }
 
+    // Dashboard summary (G3)
+    if (path === "/api/dashboard" && req.method === "GET") {
+      const result = await bridge.call("dashboard.summary");
+      return Response.json(result, { headers });
+    }
+
     // Memory search
     if (path === "/api/memory/search" && req.method === "GET") {
       const query = url.searchParams.get("q") || "";
       const limit = parseInt(url.searchParams.get("limit") || "10");
       const result = await bridge.call("memory.search", { query, limit });
       return Response.json(result, { headers });
+    }
+
+    // Soul preview
+    if (path === "/api/soul/preview" && req.method === "POST") {
+      const body = (await req.json()) as { export_path: string; source_type?: string };
+      const result = await bridge.call("soul.preview", body);
+      return Response.json(result, { headers });
+    }
+
+    // Soul import
+    if (path === "/api/soul/import" && req.method === "POST") {
+      const body = (await req.json()) as { export_path: string; source_type?: string };
+      const result = await bridge.call("soul.import", body);
+      return Response.json(result, { headers });
+    }
+
+    // Static files — serve from public/
+    if (!path.startsWith("/api/")) {
+      const filePath = path === "/" ? "index.html" : path.slice(1);
+      const file = Bun.file(resolve(PUBLIC_DIR, filePath));
+      if (await file.exists()) {
+        return new Response(file);
+      }
+      // SPA fallback — serve index.html for unknown routes
+      const index = Bun.file(resolve(PUBLIC_DIR, "index.html"));
+      if (await index.exists()) {
+        return new Response(index);
+      }
     }
 
     return Response.json({ error: "Not found" }, { status: 404, headers });

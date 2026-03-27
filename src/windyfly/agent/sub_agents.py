@@ -88,3 +88,51 @@ def spawn_sub_agent(
     )
 
     return response_text
+
+
+def register_sub_agent_tool(
+    registry: "ToolRegistry",
+    config: dict[str, Any],
+    db: Database,
+    write_queue: WriteQueue,
+) -> None:
+    """Register the sub-agent as a callable tool in the registry.
+
+    Args:
+        registry: ToolRegistry instance.
+        config: Config dict.
+        db: Database instance.
+        write_queue: WriteQueue instance.
+    """
+    from windyfly.tools.registry import ToolRegistry  # noqa: F811
+
+    def _sub_agent_tool(task: str, token_budget: int = 2000) -> str:
+        """Delegate to a specialist sub-agent."""
+        from windyfly.observability.events import log_event
+        log_event(db, write_queue, "sub_agent.spawn", {"task": task[:100], "budget": token_budget})
+        return spawn_sub_agent(config, db, write_queue, task, token_budget=token_budget)
+
+    registry.register(
+        name="delegate_to_specialist",
+        description=(
+            "Delegate a focused task to a specialist sub-agent. "
+            "The sub-agent has no conversation history — it only sees the task. "
+            "Use for research, analysis, or complex reasoning that benefits from a clean context. "
+            "Returns the sub-agent's findings."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "task": {
+                    "type": "string",
+                    "description": "Task description for the specialist sub-agent",
+                },
+                "token_budget": {
+                    "type": "integer",
+                    "description": "Maximum response tokens for the sub-agent (default: 2000)",
+                },
+            },
+            "required": ["task"],
+        },
+        fn=_sub_agent_tool,
+    )

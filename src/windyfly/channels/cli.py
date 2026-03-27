@@ -15,6 +15,9 @@ from rich.theme import Theme
 from windyfly.agent.loop import agent_respond
 from windyfly.memory.database import Database
 from windyfly.memory.write_queue import WriteQueue
+from windyfly.tools.registry import ToolRegistry
+from windyfly.tools.web_search import register_web_search_tool
+from windyfly.tools.windy_api import register_windy_tools
 
 theme = Theme({
     "fly": "bold cyan",
@@ -38,6 +41,15 @@ def run_cli(config: dict[str, Any]) -> None:
     write_queue = WriteQueue()
     write_queue.start()
 
+    # Initialize tool registry
+    tool_registry = ToolRegistry()
+    register_windy_tools(tool_registry)
+    register_web_search_tool(tool_registry)
+
+    # Register sub-agent tool (G11)
+    from windyfly.agent.sub_agents import register_sub_agent_tool
+    register_sub_agent_tool(tool_registry, config, db, write_queue)
+
     session_id = str(uuid.uuid4())
 
     console.print()
@@ -59,7 +71,7 @@ def run_cli(config: dict[str, Any]) -> None:
                 break
 
             try:
-                response = agent_respond(config, db, write_queue, user_input, session_id)
+                response = agent_respond(config, db, write_queue, user_input, session_id, tool_registry)
                 console.print(f"[fly]Fly:[/fly] {response}")
                 console.print()
             except Exception as e:

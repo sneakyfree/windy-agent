@@ -213,10 +213,12 @@ class TestUDSBridge:
         bridge = UDSBridge(config, db, wq)
 
         import pytest
+        loop = asyncio.new_event_loop()
         with pytest.raises(ValueError, match="Unknown method"):
-            asyncio.get_event_loop().run_until_complete(
+            loop.run_until_complete(
                 bridge._dispatch("nonexistent.method", {})
             )
+        loop.close()
         db.close()
 
     def test_dispatch_sliders_get(self):
