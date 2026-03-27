@@ -105,7 +105,7 @@ class TestSliderMetadata:
         """get_slider_info() should return all metadata fields for all sliders."""
         db = Database(":memory:")
         info = get_slider_info(db)
-        assert len(info) == 15, f"Expected 15 sliders, got {len(info)}"
+        assert len(info) == 18, f"Expected 18 sliders, got {len(info)}"
 
         for name, data in info.items():
             assert "label" in data, f"Slider '{name}' missing 'label'"

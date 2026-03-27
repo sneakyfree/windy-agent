@@ -111,6 +111,24 @@ SLIDER_INFO: dict[str, dict[str, str]] = {
         "impact_low": "Goldfish \U0001f420 — aggressive forgetting, old facts decay fast. Saves ~1% of token budget.",
         "impact_high": "Elephant \U0001f418 — never forgets. Old memories maintained indefinitely. Costs ~10% of token budget on retention.",
     },
+    "warmth": {
+        "label": "Warmth",
+        "description": "How emotionally warm and supportive the agent is.",
+        "impact_low": "Clinical, detached. Facts only.",
+        "impact_high": "Warm, caring, empathetic. Like a close friend.",
+    },
+    "adaptive_mode": {
+        "label": "Adaptive Mode",
+        "description": "When ON, the agent reads your mood and temporarily adjusts its personality to match.",
+        "impact_low": "Sliders stay exactly where you set them. Full manual control.",
+        "impact_high": "Agent 'reads the room' — softens when you're stressed, matches energy when you're excited.",
+    },
+    "shape_shift_bias": {
+        "label": "Shape-Shift Bias",
+        "description": "When specialist work is needed, controls whether the agent reconfigures itself (shape-shift) or spawns an isolated sub-agent.",
+        "impact_low": "Always spawns a separate sub-agent. Clean slate, zero memory bleed, but costs 2x tokens.",
+        "impact_high": "Always shape-shifts in place. Keeps all memory and context, half the token cost. Your best friend becomes the specialist.",
+    },
 }
 
 # ---------------------------------------------------------------------------
@@ -133,6 +151,9 @@ PRESETS: dict[str, dict[str, int]] = {
         "tool_reloop_rounds": 2,
         "emotional_sensitivity": 6,
         "memory_retention": 6,
+        "warmth": 7,
+        "adaptive_mode": 8,
+        "shape_shift_bias": 8,
     },
     "engineer": {
         "personality": 3,
@@ -150,6 +171,9 @@ PRESETS: dict[str, dict[str, int]] = {
         "tool_reloop_rounds": 5,
         "emotional_sensitivity": 2,
         "memory_retention": 7,
+        "warmth": 3,
+        "adaptive_mode": 2,
+        "shape_shift_bias": 4,
     },
     "powerhouse": {
         "personality": 9,
@@ -167,6 +191,9 @@ PRESETS: dict[str, dict[str, int]] = {
         "tool_reloop_rounds": 8,
         "emotional_sensitivity": 7,
         "memory_retention": 9,
+        "warmth": 7,
+        "adaptive_mode": 7,
+        "shape_shift_bias": 7,
     },
     "coder": {
         "personality": 1,
@@ -184,6 +211,9 @@ PRESETS: dict[str, dict[str, int]] = {
         "tool_reloop_rounds": 6,
         "emotional_sensitivity": 0,
         "memory_retention": 8,
+        "warmth": 1,
+        "adaptive_mode": 0,
+        "shape_shift_bias": 3,
     },
     "friend": {
         "personality": 10,
@@ -201,6 +231,9 @@ PRESETS: dict[str, dict[str, int]] = {
         "tool_reloop_rounds": 1,
         "emotional_sensitivity": 10,
         "memory_retention": 9,
+        "warmth": 10,
+        "adaptive_mode": 10,
+        "shape_shift_bias": 10,
     },
     "writer": {
         "personality": 7,
@@ -218,6 +251,9 @@ PRESETS: dict[str, dict[str, int]] = {
         "tool_reloop_rounds": 3,
         "emotional_sensitivity": 5,
         "memory_retention": 5,
+        "warmth": 6,
+        "adaptive_mode": 5,
+        "shape_shift_bias": 7,
     },
     "researcher": {
         "personality": 2,
@@ -235,6 +271,9 @@ PRESETS: dict[str, dict[str, int]] = {
         "tool_reloop_rounds": 8,
         "emotional_sensitivity": 1,
         "memory_retention": 9,
+        "warmth": 2,
+        "adaptive_mode": 1,
+        "shape_shift_bias": 3,
     },
     "silent": {
         "personality": 1,
@@ -252,6 +291,9 @@ PRESETS: dict[str, dict[str, int]] = {
         "tool_reloop_rounds": 1,
         "emotional_sensitivity": 1,
         "memory_retention": 3,
+        "warmth": 3,
+        "adaptive_mode": 0,
+        "shape_shift_bias": 5,
     },
 }
 
@@ -274,6 +316,9 @@ _COST_PER_POINT: dict[str, float] = {
     "tool_reloop_rounds": 0.40,
     "emotional_sensitivity": 0.10,
     "memory_retention": 0.50,
+    "warmth": 0.10,
+    "adaptive_mode": 0.05,
+    "shape_shift_bias": 0.00,  # Strategy, not cost — shifts are free vs sub-agents
 }
 
 VALID_SLIDERS = set(_COST_PER_POINT.keys())

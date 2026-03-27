@@ -119,7 +119,7 @@ class TestDispatchRoundtrips:
         wq = WriteQueue()
         bridge = UDSBridge({}, db, wq)
         result = _run(bridge._dispatch("sliders.info", {}))
-        assert len(result["sliders"]) == 15
+        assert len(result["sliders"]) == 18
         for name, info in result["sliders"].items():
             assert "label" in info
             assert "description" in info

@@ -94,6 +94,14 @@ class UDSBridge:
             "dashboard.summary": self._handle_dashboard_summary,
             "soul.preview": self._handle_soul_preview,
             "soul.import": self._handle_soul_import,
+            "sms.inbound": self._handle_sms_inbound,
+            "sms.send": self._handle_sms_send,
+            "email.inbound": self._handle_email_inbound,
+            "email.send": self._handle_email_send,
+            "journal.list": self._handle_journal_list,
+            "assessment.run": self._handle_assessment_run,
+            "shape_shift.execute": self._handle_shape_shift,
+            "shape_shift.restore": self._handle_shape_shift_restore,
         }
 
         handler = handlers.get(method)
@@ -146,6 +154,7 @@ class UDSBridge:
         return {"dashboard": summary}
 
     async def _handle_soul_preview(self, params: dict) -> dict:
+        """Soul Passport preview — parse and preview without writing."""
         from windyfly.soul_import.orchestrator import import_soul
         export_path = params.get("export_path", "")
         source_type = params.get("source_type")
@@ -155,12 +164,93 @@ class UDSBridge:
         return result
 
     async def _handle_soul_import(self, params: dict) -> dict:
+        """Soul Passport import — parse, preview, and write to database."""
         from windyfly.soul_import.orchestrator import import_soul
         export_path = params.get("export_path", "")
         source_type = params.get("source_type")
         result = import_soul(self.db, export_path, source_type, user_approved=True)
         result.pop("parsed_data", None)
         return result
+
+    async def _handle_sms_inbound(self, params: dict) -> dict:
+        from windyfly.channels.sms import WindyFlySMS
+        sms = WindyFlySMS(self.config, self.db, self.write_queue)
+        response = sms.handle_inbound(
+            params.get("From", ""),
+            params.get("Body", ""),
+        )
+        return {"twiml": f"<Response><Message>{response}</Message></Response>"}
+
+    async def _handle_sms_send(self, params: dict) -> dict:
+        from windyfly.channels.sms import WindyFlySMS
+        sms = WindyFlySMS(self.config, self.db, self.write_queue)
+        result = sms.send_sms(params.get("to", ""), params.get("message", ""))
+        return result
+
+    async def _handle_email_inbound(self, params: dict) -> dict:
+        from windyfly.channels.email import WindyFlyEmail
+        email = WindyFlyEmail(self.config, self.db, self.write_queue)
+        response = email.handle_inbound(
+            params.get("from", ""),
+            params.get("subject", ""),
+            params.get("text", params.get("body", "")),
+        )
+        return {"response": response}
+
+    async def _handle_email_send(self, params: dict) -> dict:
+        from windyfly.channels.email import WindyFlyEmail
+        email = WindyFlyEmail(self.config, self.db, self.write_queue)
+        result = email.send_email(
+            params.get("to", ""),
+            params.get("subject", ""),
+            params.get("body", ""),
+        )
+        return result
+
+    async def _handle_journal_list(self, params: dict) -> dict:
+        from windyfly.memory.nodes import get_nodes_by_type
+        import json
+        entries = get_nodes_by_type(self.db, "journal_entry", limit=20)
+        result = []
+        for e in entries:
+            meta = e.get("metadata", "{}")
+            if isinstance(meta, str):
+                try:
+                    meta = json.loads(meta)
+                except (json.JSONDecodeError, TypeError):
+                    meta = {}
+            result.append({
+                "entry": meta.get("entry", e.get("name", "")),
+                "created_at": e.get("created_at", ""),
+            })
+        return {"journal": result}
+
+    async def _handle_assessment_run(self, params: dict) -> dict:
+        from windyfly.agent.self_assessment import run_self_assessment
+        report = run_self_assessment(self.db)
+        return {"assessment": report}
+
+    async def _handle_shape_shift(self, params: dict) -> dict:
+        from windyfly.agent.shape_shift import get_shift_announcement
+        from windyfly.control_panel import apply_preset, get_sliders
+        preset = params.get("preset", "buddy")
+        autonomy = get_sliders(self.db).get("autonomy", 5)
+        announcement = get_shift_announcement(autonomy, preset)
+        saved = get_sliders(self.db)
+        applied = apply_preset(self.db, preset)
+        return {
+            "shifted_to": preset,
+            "announcement": announcement,
+            "saved_sliders": saved,
+            "applied": applied,
+        }
+
+    async def _handle_shape_shift_restore(self, params: dict) -> dict:
+        from windyfly.control_panel import set_slider
+        sliders = params.get("sliders", {})
+        for k, v in sliders.items():
+            set_slider(self.db, k, int(v))
+        return {"restored": True}
 
     async def _send_error(
         self,

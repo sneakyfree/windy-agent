@@ -36,6 +36,8 @@ def get_dashboard_summary(
         "skills": _get_skill_stats(db),
         "intents": _get_intent_stats(db, user_id),
         "personality": _get_personality_stats(db, user_id),
+        "journal": _get_journal_entries(db, user_id),
+        "self_assessment": _get_latest_assessment(db),
     }
 
 
@@ -193,3 +195,39 @@ def _get_personality_stats(db: Database, user_id: str) -> dict[str, Any]:
         "preset": preset,
         "estimated_monthly_cost": cost["estimated_usd"],
     }
+
+
+def _get_journal_entries(db: Database, user_id: str) -> list[dict]:
+    """Get recent journal entries for the dashboard."""
+    from windyfly.memory.nodes import get_nodes_by_type
+    entries = get_nodes_by_type(db, "journal_entry", limit=20)
+    result = []
+    for e in entries:
+        metadata = e.get("metadata", "{}")
+        if isinstance(metadata, str):
+            import json
+            try:
+                metadata = json.loads(metadata)
+            except (json.JSONDecodeError, TypeError):
+                metadata = {}
+        result.append({
+            "entry": metadata.get("entry", e.get("name", "")),
+            "emotional_context": metadata.get("emotional_context", "neutral"),
+            "created_at": e.get("created_at", ""),
+        })
+    return result
+
+
+def _get_latest_assessment(db: Database) -> dict[str, Any] | None:
+    """Get the most recent self-assessment."""
+    from windyfly.memory.nodes import get_nodes_by_type
+    assessments = get_nodes_by_type(db, "self_assessment", limit=1)
+    if assessments:
+        import json
+        meta = assessments[0].get("metadata", "{}")
+        if isinstance(meta, str):
+            try:
+                return json.loads(meta)
+            except (json.JSONDecodeError, TypeError):
+                pass
+    return None

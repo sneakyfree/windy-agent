@@ -56,7 +56,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Windy Fly — AI agent brain")
     parser.add_argument(
         "--channel",
-        choices=["cli", "matrix"],
+        choices=["cli", "matrix", "sms"],
         default="cli",
         help="Channel to run (default: cli)",
     )
@@ -122,6 +122,27 @@ def main() -> None:
             asyncio.run(bot.start())
         except KeyboardInterrupt:
             asyncio.run(bot.stop())
+        finally:
+            write_queue.stop()
+            db.close()
+    elif args.channel == "sms":
+        import asyncio
+        from windyfly.channels.sms import WindyFlySMS
+        from windyfly.memory.database import Database
+        from windyfly.memory.write_queue import WriteQueue
+
+        db = Database(db_path)
+        write_queue = WriteQueue()
+        write_queue.start()
+
+        sms = WindyFlySMS(config, db, write_queue)
+        logger.info("SMS channel initialized with number %s", sms.phone_number)
+        # SMS channel runs via gateway webhooks, not a standalone loop.
+        # Keep the process alive for the UDS bridge.
+        try:
+            asyncio.get_event_loop().run_forever()
+        except KeyboardInterrupt:
+            pass
         finally:
             write_queue.stop()
             db.close()

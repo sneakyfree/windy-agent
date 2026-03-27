@@ -115,10 +115,13 @@ def register_sub_agent_tool(
     registry.register(
         name="delegate_to_specialist",
         description=(
-            "Delegate a focused task to a specialist sub-agent. "
-            "The sub-agent has no conversation history — it only sees the task. "
-            "Use for research, analysis, or complex reasoning that benefits from a clean context. "
-            "Returns the sub-agent's findings."
+            "Delegate a focused task to an isolated specialist sub-agent. "
+            "The sub-agent has NO conversation history or memory — it only sees the task. "
+            "Costs 2x tokens vs shape_shift because context is duplicated. "
+            "KEY BENEFIT: the user can keep talking to you while the sub-agent works independently. "
+            "Use when: (1) the user wants a clean-slate, unbiased analysis, or "
+            "(2) the task is long-running and the user wants to keep chatting. "
+            "Check shape_shift_bias slider: if low (0-3), user prefers this approach."
         ),
         parameters={
             "type": "object",
@@ -136,3 +139,7 @@ def register_sub_agent_tool(
         },
         fn=_sub_agent_tool,
     )
+
+    # Also register shape-shift tools (coexist, LLM picks the best one)
+    from windyfly.agent.shape_shift import register_shape_shift_tool
+    register_shape_shift_tool(registry, config, db, write_queue)

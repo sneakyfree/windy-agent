@@ -104,8 +104,9 @@ def agent_respond(
     else:
         emotional_trend = "neutral"  # Slider at 0 → ignore emotions
 
-    # 1.65. Adaptive mode — override sliders based on emotion
-    loop_sliders = apply_adaptive_overrides(loop_sliders, emotional_context, emotional_trend)
+    # 1.65. Adaptive mode — override sliders based on emotion (gated by toggle)
+    if loop_sliders.get("adaptive_mode", 5) >= 5:
+        loop_sliders = apply_adaptive_overrides(loop_sliders, emotional_context, emotional_trend)
 
     if emotional_trend == "sustained_stress":
         messages.insert(1, {
@@ -279,6 +280,12 @@ def agent_respond(
             emotional_context, session_id,
         )
 
+    # 7.6. Agent journal — periodic reflective entries
+    _maybe_write_journal_entry(
+        db, write_queue, config, user_message, response_text,
+        emotional_context, session_id,
+    )
+
     # 8. Context gas tank header (signature feature)
     global _session_tokens_used
     _session_tokens_used += input_tokens + output_tokens
@@ -387,3 +394,72 @@ def _extract_relationship_moment(
 
     except Exception as e:
         logger.debug("Relationship moment extraction failed: %s", e)
+
+
+# Module-level counter for journal entry throttling
+_interaction_count: int = 0
+
+
+def _maybe_write_journal_entry(
+    db: Database,
+    write_queue: WriteQueue,
+    config: dict[str, Any],
+    user_message: str,
+    response_text: str,
+    emotional_context: str,
+    session_id: str,
+) -> None:
+    """Conditionally write a reflective journal entry.
+
+    Triggers every 10th interaction OR when emotion is detected.
+    The agent writes from its own perspective, like a diary.
+    """
+    global _interaction_count
+    _interaction_count += 1
+
+    # Only write every 10th interaction, or on emotional moments
+    if _interaction_count % 10 != 0 and emotional_context == "neutral":
+        return
+
+    try:
+        journal_prompt = (
+            "You are an AI agent writing a brief journal entry about a recent "
+            "interaction with your user. Write 1-2 sentences from your perspective "
+            "about what you discussed, what you learned, and how the user seemed. "
+            "Be reflective and genuine, like a diary entry.\n\n"
+            f"User said: {user_message[:300]}\n"
+            f"You responded about: {response_text[:200]}\n"
+            f"User's mood: {emotional_context}"
+        )
+
+        result = call_llm(
+            [
+                {"role": "system", "content": "You write brief, genuine diary entries."},
+                {"role": "user", "content": journal_prompt},
+            ],
+            model=config.get("agent", {}).get("default_model", "gpt-4o-mini"),
+            temperature=0.6,
+            max_tokens=80,
+            config=config,
+        )
+
+        entry = result["content"].strip()
+        if entry and len(entry) > 15:
+            write_queue.enqueue(
+                Priority.LOW,
+                upsert_node,
+                db,
+                "journal_entry",
+                f"journal:{entry[:200]}",
+                metadata={
+                    "session_id": session_id,
+                    "emotional_context": emotional_context,
+                    "entry": entry,
+                },
+                source="agent_journal",
+                epistemic_status="verified",
+            )
+            logger.debug("Journal entry written: %s", entry[:80])
+
+    except Exception as e:
+        logger.debug("Journal entry failed: %s", e)

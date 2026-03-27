@@ -29,7 +29,7 @@ async function handleRequest(req: Request): Promise<Response> {
   const headers = {
     "Content-Type": "application/json",
     "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET, PUT, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, PUT, POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type",
   };
 
@@ -101,17 +101,73 @@ async function handleRequest(req: Request): Promise<Response> {
       return Response.json(result, { headers });
     }
 
-    // Soul preview
+    // Soul Passport preview
     if (path === "/api/soul/preview" && req.method === "POST") {
       const body = (await req.json()) as { export_path: string; source_type?: string };
       const result = await bridge.call("soul.preview", body);
       return Response.json(result, { headers });
     }
 
-    // Soul import
+    // Soul Passport import
     if (path === "/api/soul/import" && req.method === "POST") {
       const body = (await req.json()) as { export_path: string; source_type?: string };
       const result = await bridge.call("soul.import", body);
+      return Response.json(result, { headers });
+    }
+
+    // SMS webhook (Twilio inbound)
+    if (path === "/api/sms/webhook" && req.method === "POST") {
+      const body = await req.json();
+      const result = await bridge.call("sms.inbound", body);
+      return new Response(result.twiml || "", {
+        headers: { "Content-Type": "text/xml", ...headers },
+      });
+    }
+
+    // SMS send (outbound)
+    if (path === "/api/sms/send" && req.method === "POST") {
+      const body = (await req.json()) as { to: string; message: string };
+      const result = await bridge.call("sms.send", body);
+      return Response.json(result, { headers });
+    }
+
+    // Email webhook (SendGrid Inbound Parse)
+    if (path === "/api/email/webhook" && req.method === "POST") {
+      const body = await req.json();
+      const result = await bridge.call("email.inbound", body);
+      return Response.json(result, { headers });
+    }
+
+    // Email send (outbound)
+    if (path === "/api/email/send" && req.method === "POST") {
+      const body = (await req.json()) as { to: string; subject: string; body: string };
+      const result = await bridge.call("email.send", body);
+      return Response.json(result, { headers });
+    }
+
+    // Journal entries
+    if (path === "/api/journal" && req.method === "GET") {
+      const result = await bridge.call("journal.list");
+      return Response.json(result, { headers });
+    }
+
+    // Self-assessment
+    if (path === "/api/assessment" && req.method === "POST") {
+      const result = await bridge.call("assessment.run");
+      return Response.json(result, { headers });
+    }
+
+    // Shape-shift execute
+    if (path === "/api/shape-shift" && req.method === "POST") {
+      const body = (await req.json()) as { preset: string };
+      const result = await bridge.call("shape_shift.execute", body);
+      return Response.json(result, { headers });
+    }
+
+    // Shape-shift restore
+    if (path === "/api/shape-shift/restore" && req.method === "POST") {
+      const body = (await req.json()) as { sliders?: Record<string, number> };
+      const result = await bridge.call("shape_shift.restore", body);
       return Response.json(result, { headers });
     }
 

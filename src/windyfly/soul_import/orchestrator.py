@@ -1,7 +1,7 @@
-"""Soul import orchestrator.
+"""Soul Passport orchestrator — bring your soul from another agent.
 
 Coordinates the full import flow: detect source, parse, preview,
-and (on approval) write to database.
+and (on approval) write to database. Branded as 'Soul Passport'.
 """
 
 from __future__ import annotations

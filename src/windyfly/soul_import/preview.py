@@ -1,4 +1,4 @@
-"""Soul Preview formatter for Soul Continuity.
+"""Soul Passport preview formatter for Soul Continuity.
 
 Generates a human-readable preview of imported data for user approval
 before any data is written to the database.

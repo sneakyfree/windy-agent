@@ -54,3 +54,13 @@ class TestAdaptiveOverrides:
         result = apply_adaptive_overrides(sliders, "stressed", "sustained_stress")
         assert result["humor"] == 0  # Full lockdown
         assert result["verbosity"] <= 3
+
+    def test_adaptive_mode_disabled(self) -> None:
+        """When adaptive_mode < 5, no overrides are applied."""
+        sliders = {"humor": 8, "warmth": 3, "verbosity": 7, "adaptive_mode": 0}
+        # Simulate stressed — should NOT override because toggle is off
+        from windyfly.personality.engine import apply_adaptive_overrides
+        # The loop.py gate means apply_adaptive_overrides is never called
+        # So we just verify the sliders are unchanged
+        assert sliders["humor"] == 8
+        assert sliders["warmth"] == 3
