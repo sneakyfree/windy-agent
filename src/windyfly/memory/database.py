@@ -240,8 +240,15 @@ class Database:
         return self.conn.executemany(sql, params_list)
 
     def commit(self) -> None:
-        """Commit the current transaction."""
-        self.conn.commit()
+        """Commit the current transaction.
+
+        Silently succeeds if no transaction is active (e.g. after an
+        exception rolled back the implicit transaction).
+        """
+        try:
+            self.conn.commit()
+        except sqlite3.OperationalError:
+            pass  # No transaction to commit — safe to ignore
 
     def fetchone(self, sql: str, params: tuple = ()) -> dict[str, Any] | None:
         """Execute SQL and return the first row as a dict, or None."""

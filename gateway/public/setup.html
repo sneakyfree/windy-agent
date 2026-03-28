@@ -1,0 +1,1050 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Windy Fly — Setup Wizard</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0a0e17;
+      --bg-card: rgba(255,255,255,0.04);
+      --bg-card-hover: rgba(255,255,255,0.07);
+      --text: #e4e8f0;
+      --text-dim: #7b8494;
+      --accent: #00d4aa;
+      --accent-glow: rgba(0,212,170,0.15);
+      --accent-dark: #00b894;
+      --warning: #ffb347;
+      --danger: #ff6b6b;
+      --purple: #a78bfa;
+      --blue: #60a5fa;
+      --border: rgba(255,255,255,0.06);
+      --radius: 12px;
+      --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+
+    /* ── Layout ── */
+    .wizard-container {
+      max-width: 680px;
+      width: 100%;
+      padding: 40px 24px 60px;
+    }
+    .logo {
+      text-align: center;
+      margin-bottom: 48px;
+    }
+    .logo h1 {
+      font-size: 1.6rem;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+    .logo h1 span { color: var(--accent); }
+    .logo p {
+      font-size: 0.85rem;
+      color: var(--text-dim);
+      font-style: italic;
+    }
+
+    /* ── Stepper ── */
+    .stepper {
+      display: flex;
+      justify-content: center;
+      gap: 8px;
+      margin-bottom: 40px;
+    }
+    .step-dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      background: var(--border);
+      transition: all 0.3s;
+    }
+    .step-dot.active { background: var(--accent); box-shadow: 0 0 8px var(--accent-glow); }
+    .step-dot.done { background: var(--accent); opacity: 0.5; }
+    .step-connector {
+      width: 32px; height: 2px;
+      background: var(--border);
+      align-self: center;
+      transition: background 0.3s;
+    }
+    .step-connector.done { background: var(--accent); opacity: 0.4; }
+
+    /* ── Step panels ── */
+    .step-panel { display: none; animation: fadeIn 0.3s ease; }
+    .step-panel.active { display: block; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+    .step-header {
+      margin-bottom: 8px;
+    }
+    .step-header h2 {
+      font-size: 1.15rem;
+      font-weight: 600;
+    }
+    .step-header p {
+      font-size: 0.8rem;
+      color: var(--text-dim);
+      margin-top: 4px;
+    }
+
+    /* ── Cards ── */
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px 20px;
+      margin-top: 16px;
+      transition: all 0.2s;
+    }
+    .card:hover { background: var(--bg-card-hover); }
+    .card.selected {
+      border-color: var(--accent);
+      background: var(--accent-glow);
+    }
+    .card-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .card-label { font-weight: 500; font-size: 0.95rem; }
+    .card-hint { font-size: 0.75rem; color: var(--text-dim); margin-top: 2px; }
+    .card-models { font-size: 0.75rem; color: var(--purple); margin-top: 4px; }
+
+    /* ── Status badges ── */
+    .badge {
+      display: inline-block;
+      font-size: 0.7rem;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 20px;
+    }
+    .badge-ok { background: rgba(0,212,170,0.15); color: var(--accent); }
+    .badge-skip { background: rgba(123,132,148,0.15); color: var(--text-dim); }
+    .badge-fail { background: rgba(255,107,107,0.15); color: var(--danger); }
+    .badge-checking { background: rgba(96,165,250,0.15); color: var(--blue); }
+
+    /* ── Inputs ── */
+    .input-group { margin-top: 12px; }
+    .input-group label {
+      display: block;
+      font-size: 0.75rem;
+      color: var(--text-dim);
+      margin-bottom: 4px;
+      font-weight: 500;
+    }
+    .input-row {
+      display: flex;
+      gap: 8px;
+    }
+    input[type="text"], input[type="password"] {
+      flex: 1;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 14px;
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 0.85rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    input:focus { border-color: var(--accent); }
+    input::placeholder { color: rgba(255,255,255,0.2); }
+
+    .key-link {
+      font-size: 0.7rem;
+      color: var(--blue);
+      text-decoration: none;
+      margin-top: 4px;
+      display: inline-block;
+    }
+    .key-link:hover { text-decoration: underline; }
+
+    /* ── Model cards ── */
+    .model-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: 16px;
+    }
+    @media (max-width: 560px) { .model-grid { grid-template-columns: 1fr; } }
+    .model-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 16px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .model-card:hover { background: var(--bg-card-hover); }
+    .model-card.selected { border-color: var(--accent); background: var(--accent-glow); }
+    .model-card .model-name { font-weight: 600; font-size: 0.9rem; }
+    .model-card .model-provider { font-size: 0.7rem; color: var(--text-dim); margin-top: 2px; }
+    .model-card .model-tier { font-size: 0.7rem; margin-top: 6px; }
+    .model-card .model-desc { font-size: 0.75rem; color: var(--text-dim); margin-top: 4px; }
+
+    /* ── Personality presets ── */
+    .preset-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: 16px;
+    }
+    @media (max-width: 560px) { .preset-grid { grid-template-columns: 1fr; } }
+    .preset-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 16px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .preset-card:hover { background: var(--bg-card-hover); }
+    .preset-card.selected { border-color: var(--accent); background: var(--accent-glow); }
+    .preset-card .preset-emoji { font-size: 1.3rem; }
+    .preset-card .preset-name { font-weight: 600; font-size: 0.9rem; text-transform: capitalize; margin-top: 4px; }
+    .preset-card .preset-tagline { font-size: 0.75rem; color: var(--text-dim); margin-top: 4px; }
+
+    /* ── Slider preview bars ── */
+    .slider-preview {
+      display: flex;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .slider-preview .bar-group {
+      flex: 1;
+      text-align: center;
+    }
+    .slider-preview .bar-label {
+      font-size: 0.55rem;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .slider-preview .bar-track {
+      height: 4px;
+      background: rgba(255,255,255,0.06);
+      border-radius: 2px;
+      margin-top: 3px;
+      overflow: hidden;
+    }
+    .slider-preview .bar-fill {
+      height: 100%;
+      background: var(--accent);
+      border-radius: 2px;
+      transition: width 0.3s;
+    }
+
+    /* ── Buttons ── */
+    .btn-row {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 32px;
+      gap: 12px;
+    }
+    .btn {
+      padding: 10px 24px;
+      border-radius: 8px;
+      font-family: var(--font);
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      transition: all 0.2s;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent), var(--accent-dark));
+      color: #0a0e17;
+    }
+    .btn-primary:hover { filter: brightness(1.1); transform: translateY(-1px); }
+    .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; transform: none; filter: none; }
+    .btn-secondary {
+      background: rgba(255,255,255,0.06);
+      color: var(--text-dim);
+      border: 1px solid var(--border);
+    }
+    .btn-secondary:hover { background: rgba(255,255,255,0.1); color: var(--text); }
+    .btn-ghost {
+      background: transparent;
+      color: var(--text-dim);
+      padding: 10px 16px;
+    }
+    .btn-ghost:hover { color: var(--text); }
+
+    /* ── Summary ── */
+    .summary-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: 16px;
+    }
+    .summary-item {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 16px;
+    }
+    .summary-item .label { font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
+    .summary-item .value { font-size: 1rem; font-weight: 600; margin-top: 4px; color: var(--accent); }
+
+    .launch-section {
+      text-align: center;
+      margin-top: 32px;
+    }
+    .launch-section .btn-primary {
+      font-size: 1rem;
+      padding: 14px 48px;
+      border-radius: 12px;
+    }
+    .launch-hint {
+      font-size: 0.75rem;
+      color: var(--text-dim);
+      margin-top: 12px;
+    }
+
+    /* ── Spinner ── */
+    .spinner {
+      display: inline-block;
+      width: 14px; height: 14px;
+      border: 2px solid rgba(255,255,255,0.2);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Success animation ── */
+    .success-check {
+      width: 64px; height: 64px;
+      border-radius: 50%;
+      background: var(--accent-glow);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 16px;
+      font-size: 1.8rem;
+      animation: popIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+    @keyframes popIn { from { transform: scale(0); } to { transform: scale(1); } }
+
+    /* ── Provider toggle row ── */
+    .provider-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .provider-row:last-child { border-bottom: none; }
+    .provider-icon { font-size: 1.2rem; width: 28px; text-align: center; }
+    .provider-info { flex: 1; }
+    .provider-name { font-weight: 500; font-size: 0.9rem; }
+    .provider-models { font-size: 0.7rem; color: var(--text-dim); }
+    .provider-key-area { flex: 2; }
+    .provider-status { width: 60px; text-align: right; }
+
+    /* ── Key visibility toggle ── */
+    .key-toggle {
+      background: none;
+      border: none;
+      color: var(--text-dim);
+      cursor: pointer;
+      font-size: 0.8rem;
+      padding: 8px;
+    }
+    .key-toggle:hover { color: var(--text); }
+  </style>
+</head>
+<body>
+  <div class="wizard-container">
+    <!-- Logo -->
+    <div class="logo">
+      <h1>🪰 Windy <span>Fly</span> Setup</h1>
+      <p>Your AI. Your Rules. Your Ecosystem.</p>
+    </div>
+
+    <!-- Stepper -->
+    <div class="stepper" id="stepper">
+      <div class="step-dot active" data-step="0"></div>
+      <div class="step-connector" data-step="0"></div>
+      <div class="step-dot" data-step="1"></div>
+      <div class="step-connector" data-step="1"></div>
+      <div class="step-dot" data-step="2"></div>
+      <div class="step-connector" data-step="2"></div>
+      <div class="step-dot" data-step="3"></div>
+    </div>
+
+    <!-- ═══ STEP 0: Prerequisites ═══ -->
+    <div class="step-panel active" id="step-0">
+      <div class="step-header">
+        <h2>Checking prerequisites</h2>
+        <p>Making sure everything's in place before we start.</p>
+      </div>
+      <div id="prereq-list"></div>
+      <div class="btn-row">
+        <span></span>
+        <button class="btn btn-primary" id="prereq-next" disabled>Next</button>
+      </div>
+    </div>
+
+    <!-- ═══ STEP 1: API Keys ═══ -->
+    <div class="step-panel" id="step-1">
+      <div class="step-header">
+        <h2>Connect your AI providers</h2>
+        <p>You need at least one API key. Skip any you don't have — you can add more later from the dashboard.</p>
+      </div>
+
+      <!-- Toggle: have key vs need key -->
+      <div style="display:flex; gap:8px; margin-top:16px; margin-bottom:16px;">
+        <button class="btn btn-primary" id="tab-have-key" onclick="showKeyTab('have')" style="flex:1; font-size:0.8rem; padding:8px;">I have an API key</button>
+        <button class="btn btn-secondary" id="tab-need-key" onclick="showKeyTab('need')" style="flex:1; font-size:0.8rem; padding:8px;">I need to get one</button>
+      </div>
+
+      <!-- Panel: I have a key -->
+      <div id="panel-have-key">
+        <div id="provider-list"></div>
+      </div>
+
+      <!-- Panel: I need a key (guided signup) -->
+      <div id="panel-need-key" style="display:none;">
+        <div style="padding:12px 16px; background:rgba(0,212,170,0.08); border:1px solid rgba(0,212,170,0.2); border-radius:12px; margin-bottom:16px;">
+          <div style="font-size:0.8rem; color:var(--accent); font-weight:600; margin-bottom:4px;">No worries! We'll walk you through it.</div>
+          <div style="font-size:0.75rem; color:var(--text-dim);">Pick a provider below, follow the steps, then paste your key.</div>
+        </div>
+        <div id="signup-guide-list"></div>
+        <!-- Signup walkthrough detail -->
+        <div id="signup-detail" style="display:none; margin-top:16px;"></div>
+      </div>
+
+      <div id="key-count" style="margin-top:16px; font-size:0.8rem; color:var(--text-dim);"></div>
+      <div class="btn-row">
+        <button class="btn btn-ghost" onclick="goStep(0)">Back</button>
+        <button class="btn btn-primary" id="keys-next" disabled>Next</button>
+      </div>
+    </div>
+
+    <!-- ═══ STEP 2: Model Selection ═══ -->
+    <div class="step-panel" id="step-2">
+      <div class="step-header">
+        <h2>Pick your default model</h2>
+        <p>You can change this anytime from the Sliders tab in the dashboard.</p>
+      </div>
+      <div class="model-grid" id="model-grid"></div>
+      <div class="btn-row">
+        <button class="btn btn-ghost" onclick="goStep(1)">Back</button>
+        <button class="btn btn-primary" id="model-next" disabled>Next</button>
+      </div>
+    </div>
+
+    <!-- ═══ STEP 3: Personality ═══ -->
+    <div class="step-panel" id="step-3">
+      <div class="step-header">
+        <h2>Choose a personality preset</h2>
+        <p>This sets your agent's default vibe. Adjust individual sliders later.</p>
+      </div>
+      <div class="preset-grid" id="preset-grid"></div>
+      <div class="btn-row">
+        <button class="btn btn-ghost" onclick="goStep(2)">Back</button>
+        <button class="btn btn-primary" id="preset-next" disabled>Finish Setup</button>
+      </div>
+    </div>
+
+    <!-- ═══ STEP 4: Summary / Launch ═══ -->
+    <div class="step-panel" id="step-4">
+      <div style="text-align:center;">
+        <div class="success-check">🪰</div>
+        <h2 style="font-size:1.3rem;">Setup Complete!</h2>
+        <p style="color:var(--text-dim); margin-top:6px; font-size:0.85rem;">Your Windy Fly agent is configured and ready to go.</p>
+      </div>
+      <div class="summary-grid" id="summary-grid"></div>
+      <div class="launch-section">
+        <button class="btn btn-primary" id="launch-btn" onclick="launchAgent()">Launch Windy Fly</button>
+        <div class="launch-hint">Opens the Trust Dashboard at localhost:3000</div>
+      </div>
+      <div style="text-align:center; margin-top:16px;">
+        <button class="btn btn-ghost" onclick="goToDashboard()">Skip to Dashboard →</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ═══════════════════════════════════════════════════════════════
+    // State
+    // ═══════════════════════════════════════════════════════════════
+    let currentStep = 0;
+    const state = {
+      apiKeys: {},       // { OPENAI_API_KEY: 'sk-...', ... }
+      model: null,       // 'gpt-4o-mini'
+      preset: null,      // 'buddy'
+    };
+
+    const PROVIDERS = [
+      { key: 'OPENAI_API_KEY', name: 'OpenAI', icon: '🟢', hint: 'sk-...', models: 'gpt-4o, gpt-4o-mini, o3-mini', url: 'https://platform.openai.com/api-keys' },
+      { key: 'ANTHROPIC_API_KEY', name: 'Anthropic', icon: '🟠', hint: 'sk-ant-...', models: 'claude-3-5-sonnet, claude-3-5-haiku, claude-4-opus', url: 'https://console.anthropic.com/settings/keys' },
+      { key: 'GROK_API_KEY', name: 'xAI Grok', icon: '⚡', hint: 'xai-...', models: 'grok-3, grok-3-mini', url: 'https://console.x.ai' },
+      { key: 'GEMINI_API_KEY', name: 'Google Gemini', icon: '💎', hint: 'AIza...', models: 'gemini-2.5-pro, gemini-2.5-flash', url: 'https://aistudio.google.com/apikey' },
+      { key: 'DEEPSEEK_API_KEY', name: 'DeepSeek', icon: '🔵', hint: 'sk-...', models: 'deepseek-chat, deepseek-reasoner', url: 'https://platform.deepseek.com' },
+      { key: 'MISTRAL_API_KEY', name: 'Mistral', icon: '🌀', hint: '...', models: 'mistral-large, mistral-small', url: 'https://console.mistral.ai/api-keys' },
+    ];
+
+    const SIGNUP_GUIDES = [
+      { key: 'GEMINI_API_KEY', name: 'Google Gemini', icon: '💎', tag: 'FREE — no credit card', tagColor: '#00d4aa', model: 'gemini-2.5-flash', recommended: true,
+        url: 'https://aistudio.google.com/apikey', hint: 'AIza...',
+        steps: ['Sign in with your Google account (Gmail)', 'Click the blue "Create API Key" button', 'Click "Copy" next to the key', 'Paste it below — done!'] },
+      { key: 'GROK_API_KEY', name: 'xAI Grok', icon: '⚡', tag: '$25 free credits', tagColor: '#60a5fa', model: 'grok-3-mini',
+        url: 'https://console.x.ai', hint: 'xai-...',
+        steps: ['Sign in with your X (Twitter) account', 'Go to API Keys in the sidebar', 'Click "Create API Key"', 'Copy and paste it below'] },
+      { key: 'DEEPSEEK_API_KEY', name: 'DeepSeek', icon: '🔵', tag: 'Free credits — email only', tagColor: '#60a5fa', model: 'deepseek-chat',
+        url: 'https://platform.deepseek.com/api_keys', hint: 'sk-...',
+        steps: ['Click "Sign Up" — just needs an email', 'Verify your email', 'Go to API Keys', 'Create and copy your key'] },
+      { key: 'OPENAI_API_KEY', name: 'OpenAI', icon: '🟢', tag: 'Most popular — powers ChatGPT', tagColor: '#7b8494', model: 'gpt-4o-mini',
+        url: 'https://platform.openai.com/api-keys', hint: 'sk-...',
+        steps: ['Sign up or log in (works with your ChatGPT account)', 'Add a payment method (pay-as-you-go)', 'Click "Create new secret key"', 'Copy and paste it below'] },
+      { key: 'ANTHROPIC_API_KEY', name: 'Anthropic', icon: '🟠', tag: 'Best for coding — powers Claude', tagColor: '#7b8494', model: 'claude-3-5-sonnet-latest',
+        url: 'https://console.anthropic.com/settings/keys', hint: 'sk-ant-...',
+        steps: ['Sign up for an Anthropic account', 'Add a payment method', 'Go to API Keys → "Create Key"', 'Copy and paste it below'] },
+      { key: 'MISTRAL_API_KEY', name: 'Mistral', icon: '🌀', tag: 'European AI', tagColor: '#7b8494', model: 'mistral-large-latest',
+        url: 'https://console.mistral.ai/api-keys', hint: '...',
+        steps: ['Sign up with your email', 'Go to API Keys', 'Click "Create New Key"', 'Copy and paste it below'] },
+    ];
+
+    const MODELS = [
+      { id: 'gpt-4o-mini', provider: 'OpenAI', providerKey: 'OPENAI_API_KEY', tier: '💚 Budget', desc: 'Fast, cheap, surprisingly capable.' },
+      { id: 'gpt-4o', provider: 'OpenAI', providerKey: 'OPENAI_API_KEY', tier: '💛 Balanced', desc: 'Full-power GPT-4o. Excellent reasoning.' },
+      { id: 'claude-3-5-sonnet-latest', provider: 'Anthropic', providerKey: 'ANTHROPIC_API_KEY', tier: '💛 Balanced', desc: 'Best all-rounder for coding & conversation.' },
+      { id: 'claude-3-5-haiku-latest', provider: 'Anthropic', providerKey: 'ANTHROPIC_API_KEY', tier: '💚 Budget', desc: 'Ultra-fast Anthropic model.' },
+      { id: 'grok-3-mini', provider: 'xAI Grok', providerKey: 'GROK_API_KEY', tier: '💚 Budget', desc: 'Fast, unfiltered reasoning.' },
+      { id: 'grok-3', provider: 'xAI Grok', providerKey: 'GROK_API_KEY', tier: '🔥 Premium', desc: 'xAI flagship. Excellent reasoning.' },
+      { id: 'deepseek-chat', provider: 'DeepSeek', providerKey: 'DEEPSEEK_API_KEY', tier: '💚 Budget', desc: 'Extremely cheap. Great for high-volume.' },
+      { id: 'gemini-2.5-flash', provider: 'Google Gemini', providerKey: 'GEMINI_API_KEY', tier: '💚 Budget', desc: 'Google\'s fast model. Free tier available.' },
+    ];
+
+    const PRESETS = {
+      buddy:      { emoji: '🤝', tagline: 'Your warm, witty best friend who remembers everything', personality: 8, humor: 7, warmth: 9, formality: 3 },
+      engineer:   { emoji: '🔧', tagline: 'Precise, technical, no-nonsense. Gets the job done.', personality: 4, humor: 2, warmth: 4, formality: 7 },
+      powerhouse: { emoji: '⚡', tagline: 'Maximum everything. Deep reasoning, full power.', personality: 7, humor: 5, warmth: 6, formality: 5 },
+      coder:      { emoji: '💻', tagline: 'Optimized for code. Terse answers, deep tool use.', personality: 3, humor: 2, warmth: 3, formality: 5 },
+      friend:     { emoji: '💛', tagline: 'Emotionally attuned, supportive, great listener.', personality: 9, humor: 5, warmth: 10, formality: 2 },
+      writer:     { emoji: '✍️', tagline: 'Creative, eloquent, imaginative. Born to write.', personality: 8, humor: 6, warmth: 7, formality: 6 },
+      researcher: { emoji: '🔬', tagline: 'Cites sources, reasons deeply, never guesses.', personality: 4, humor: 1, warmth: 3, formality: 8 },
+      silent:     { emoji: '🤫', tagline: 'Minimal output. Maximum efficiency. Cheapest mode.', personality: 1, humor: 0, warmth: 2, formality: 5 },
+    };
+
+    // ═══════════════════════════════════════════════════════════════
+    // Navigation
+    // ═══════════════════════════════════════════════════════════════
+    function goStep(n) {
+      currentStep = n;
+      document.querySelectorAll('.step-panel').forEach((el, i) => {
+        el.classList.toggle('active', i === n);
+      });
+      // Update stepper dots
+      document.querySelectorAll('.step-dot').forEach((dot, i) => {
+        dot.classList.remove('active', 'done');
+        if (i === n) dot.classList.add('active');
+        else if (i < n) dot.classList.add('done');
+      });
+      document.querySelectorAll('.step-connector').forEach((conn, i) => {
+        conn.classList.toggle('done', i < n);
+      });
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Step 0: Prerequisites
+    // ═══════════════════════════════════════════════════════════════
+    async function checkPrereqs() {
+      const list = document.getElementById('prereq-list');
+      list.innerHTML = '';
+
+      const checks = [
+        { name: 'Gateway server', desc: 'Bun gateway running' },
+        { name: 'Python brain', desc: 'Brain process available' },
+      ];
+
+      let allOk = true;
+      for (const check of checks) {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.innerHTML = `
+          <div class="card-row">
+            <div>
+              <div class="card-label">${check.name}</div>
+              <div class="card-hint">${check.desc}</div>
+            </div>
+            <span class="badge badge-checking"><span class="spinner"></span> Checking</span>
+          </div>`;
+        list.appendChild(card);
+      }
+
+      // Check gateway health
+      try {
+        const r = await fetch('/api/health');
+        const data = await r.json();
+        const gwCard = list.children[0];
+        gwCard.querySelector('.badge').outerHTML = '<span class="badge badge-ok">Ready</span>';
+
+        // Brain connected?
+        const brainCard = list.children[1];
+        if (data.brain_connected) {
+          brainCard.querySelector('.badge').outerHTML = '<span class="badge badge-ok">Connected</span>';
+        } else {
+          brainCard.querySelector('.badge').outerHTML = '<span class="badge badge-skip">Offline — will configure anyway</span>';
+        }
+      } catch {
+        const gwCard = list.children[0];
+        gwCard.querySelector('.badge').outerHTML = '<span class="badge badge-fail">Unreachable</span>';
+        list.children[1].querySelector('.badge').outerHTML = '<span class="badge badge-skip">Skipped</span>';
+        allOk = false;
+      }
+
+      // Check for existing config
+      try {
+        const r = await fetch('/api/setup/status');
+        const data = await r.json();
+        if (data.configured) {
+          const card = document.createElement('div');
+          card.className = 'card';
+          card.innerHTML = `
+            <div class="card-row">
+              <div>
+                <div class="card-label">Existing configuration</div>
+                <div class="card-hint">Found .env and windyfly.toml — re-running wizard will overwrite</div>
+              </div>
+              <span class="badge" style="background:rgba(255,179,71,0.15);color:var(--warning);">Found</span>
+            </div>`;
+          list.appendChild(card);
+        }
+      } catch { /* no setup endpoint yet — that's fine */ }
+
+      // Always allow continuing (gateway is clearly running if this page loaded)
+      document.getElementById('prereq-next').disabled = false;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Step 1: API Keys
+    // ═══════════════════════════════════════════════════════════════
+    function renderProviders() {
+      const list = document.getElementById('provider-list');
+      list.innerHTML = '';
+
+      for (const prov of PROVIDERS) {
+        const existing = state.apiKeys[prov.key] || '';
+        const div = document.createElement('div');
+        div.className = 'provider-row';
+        div.innerHTML = `
+          <div class="provider-icon">${prov.icon}</div>
+          <div class="provider-info">
+            <div class="provider-name">${prov.name}</div>
+            <div class="provider-models">${prov.models}</div>
+          </div>
+          <div class="provider-key-area">
+            <div class="input-row">
+              <input type="password" id="key-${prov.key}" placeholder="${prov.hint}" value="${existing}"
+                     oninput="onKeyInput('${prov.key}', this)" />
+              <button class="key-toggle" onclick="toggleKeyVis('${prov.key}')" title="Show/hide key">👁</button>
+            </div>
+            <a href="${prov.url}" target="_blank" class="key-link">Get API key →</a>
+          </div>
+          <div class="provider-status" id="status-${prov.key}"></div>`;
+        list.appendChild(div);
+      }
+      updateKeyCount();
+    }
+
+    // ── Tab toggle: "I have a key" vs "I need one" ──
+    function showKeyTab(tab) {
+      const haveBtn = document.getElementById('tab-have-key');
+      const needBtn = document.getElementById('tab-need-key');
+      const havePanel = document.getElementById('panel-have-key');
+      const needPanel = document.getElementById('panel-need-key');
+      if (tab === 'have') {
+        haveBtn.className = 'btn btn-primary';
+        needBtn.className = 'btn btn-secondary';
+        havePanel.style.display = 'block';
+        needPanel.style.display = 'none';
+      } else {
+        haveBtn.className = 'btn btn-secondary';
+        needBtn.className = 'btn btn-primary';
+        havePanel.style.display = 'none';
+        needPanel.style.display = 'block';
+        renderSignupGuides();
+      }
+    }
+
+    function renderSignupGuides() {
+      const list = document.getElementById('signup-guide-list');
+      list.innerHTML = '';
+      for (const guide of SIGNUP_GUIDES) {
+        const card = document.createElement('div');
+        card.style.cssText = `
+          background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px;
+          padding: 14px 16px; margin-bottom: 10px; cursor: pointer; transition: all 0.2s;
+          display: flex; align-items: center; gap: 12px;
+        `;
+        card.onmouseenter = () => card.style.background = 'var(--bg-card-hover)';
+        card.onmouseleave = () => card.style.background = 'var(--bg-card)';
+        card.innerHTML = `
+          <div style="font-size:1.3rem; width:32px; text-align:center;">${guide.icon}</div>
+          <div style="flex:1;">
+            <div style="font-weight:600; font-size:0.9rem;">${guide.name}${guide.recommended ? ' <span style="color:var(--accent); font-size:0.7rem;">RECOMMENDED</span>' : ''}</div>
+            <div style="font-size:0.7rem; color:${guide.tagColor}; margin-top:2px;">${guide.tag}</div>
+          </div>
+          <div style="font-size:0.75rem; color:var(--text-dim);">4 steps →</div>
+        `;
+        card.onclick = () => showSignupDetail(guide);
+        list.appendChild(card);
+      }
+    }
+
+    function showSignupDetail(guide) {
+      const detail = document.getElementById('signup-detail');
+      detail.style.display = 'block';
+      detail.innerHTML = `
+        <div style="background:var(--bg-card); border:1px solid var(--accent); border-radius:12px; padding:20px; animation:fadeIn 0.3s ease;">
+          <div style="font-weight:700; font-size:1rem; margin-bottom:4px;">${guide.icon} ${guide.name} Setup</div>
+          <div style="font-size:0.7rem; color:${guide.tagColor}; margin-bottom:16px;">${guide.tag}</div>
+
+          <div style="margin-bottom:16px;">
+            ${guide.steps.map((step, i) => `
+              <div style="display:flex; gap:10px; align-items:flex-start; margin-bottom:10px;">
+                <div style="min-width:22px; height:22px; border-radius:50%; background:var(--accent); color:#0a0e17; font-size:0.7rem; font-weight:700; display:flex; align-items:center; justify-content:center;">${i+1}</div>
+                <div style="font-size:0.82rem; color:var(--text); padding-top:2px;">${step}</div>
+              </div>
+            `).join('')}
+          </div>
+
+          <button class="btn btn-primary" style="width:100%; margin-bottom:12px;" onclick="window.open('${guide.url}', '_blank')">
+            Open ${guide.name} in New Tab
+          </button>
+
+          <div style="font-size:0.75rem; color:var(--text-dim); text-align:center; margin-bottom:12px;">
+            Complete the steps above, then paste your key here:
+          </div>
+
+          <div style="display:flex; gap:8px;">
+            <input type="password" id="signup-key-input" placeholder="${guide.hint}" style="flex:1;
+              background:rgba(255,255,255,0.05); border:1px solid var(--border); border-radius:8px;
+              padding:10px 14px; color:var(--text); font-family:var(--font); font-size:0.85rem; outline:none;" />
+            <button class="btn btn-primary" onclick="submitSignupKey('${guide.key}')">Use Key</button>
+          </div>
+          <div id="signup-key-status" style="margin-top:8px; font-size:0.75rem;"></div>
+        </div>
+      `;
+      // Focus the input
+      setTimeout(() => document.getElementById('signup-key-input')?.focus(), 100);
+    }
+
+    async function submitSignupKey(envKey) {
+      const input = document.getElementById('signup-key-input');
+      const status = document.getElementById('signup-key-status');
+      const key = input.value.trim();
+      if (!key) { status.innerHTML = '<span style="color:var(--danger);">Please paste your API key</span>'; return; }
+
+      status.innerHTML = '<span class="spinner"></span> Validating...';
+
+      // Validate
+      try {
+        const r = await fetch('/api/setup/validate-key', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key_name: envKey, key_value: key }),
+        });
+        const data = await r.json();
+        if (data.valid) {
+          status.innerHTML = '<span style="color:var(--accent);">✓ Key is valid!</span>';
+        } else {
+          status.innerHTML = '<span style="color:var(--warning);">⚠ Could not verify (saved anyway)</span>';
+        }
+      } catch { status.innerHTML = ''; }
+
+      // Save the key into state
+      state.apiKeys[envKey] = key;
+      updateKeyCount();
+
+      // Also update the main provider list input if it exists
+      const mainInput = document.getElementById('key-' + envKey);
+      if (mainInput) mainInput.value = key;
+
+      // Switch back to the "I have a key" view after a brief moment
+      setTimeout(() => {
+        showKeyTab('have');
+        renderProviders();
+      }, 1000);
+    }
+
+    function toggleKeyVis(key) {
+      const input = document.getElementById('key-' + key);
+      input.type = input.type === 'password' ? 'text' : 'password';
+    }
+
+    let validateTimers = {};
+    function onKeyInput(key, input) {
+      const val = input.value.trim();
+      if (val) {
+        state.apiKeys[key] = val;
+      } else {
+        delete state.apiKeys[key];
+      }
+      updateKeyCount();
+
+      // Debounced validation
+      clearTimeout(validateTimers[key]);
+      if (val.length > 8) {
+        document.getElementById('status-' + key).innerHTML = '<span class="badge badge-checking"><span class="spinner"></span></span>';
+        validateTimers[key] = setTimeout(() => validateKey(key, val), 800);
+      } else {
+        document.getElementById('status-' + key).innerHTML = '';
+      }
+    }
+
+    async function validateKey(key, value) {
+      try {
+        const r = await fetch(`/api/setup/validate-key`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key_name: key, key_value: value }),
+        });
+        const data = await r.json();
+        const el = document.getElementById('status-' + key);
+        if (data.valid) {
+          el.innerHTML = '<span class="badge badge-ok">Valid</span>';
+        } else {
+          el.innerHTML = '<span class="badge badge-fail">Invalid</span>';
+        }
+      } catch {
+        document.getElementById('status-' + key).innerHTML = '';
+      }
+    }
+
+    function updateKeyCount() {
+      const count = Object.keys(state.apiKeys).filter(k => state.apiKeys[k]).length;
+      document.getElementById('key-count').textContent = count > 0
+        ? `${count} provider${count > 1 ? 's' : ''} configured`
+        : 'Enter at least one API key to continue';
+      document.getElementById('keys-next').disabled = count === 0;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Step 2: Model Selection
+    // ═══════════════════════════════════════════════════════════════
+    function renderModels() {
+      const grid = document.getElementById('model-grid');
+      grid.innerHTML = '';
+
+      const available = MODELS.filter(m => state.apiKeys[m.providerKey]);
+      if (available.length === 0) {
+        grid.innerHTML = '<p style="color:var(--text-dim); grid-column:1/-1; text-align:center; padding:24px;">No models available — go back and add an API key.</p>';
+        document.getElementById('model-next').disabled = true;
+        return;
+      }
+
+      for (const model of available) {
+        const card = document.createElement('div');
+        card.className = 'model-card' + (state.model === model.id ? ' selected' : '');
+        card.innerHTML = `
+          <div class="model-name">${model.id}</div>
+          <div class="model-provider">${model.provider}</div>
+          <div class="model-tier">${model.tier}</div>
+          <div class="model-desc">${model.desc}</div>`;
+        card.onclick = () => {
+          state.model = model.id;
+          grid.querySelectorAll('.model-card').forEach(c => c.classList.remove('selected'));
+          card.classList.add('selected');
+          document.getElementById('model-next').disabled = false;
+        };
+        grid.appendChild(card);
+      }
+
+      // Auto-select first if none selected or current selection no longer available
+      if (!state.model || !available.find(m => m.id === state.model)) {
+        state.model = available[0].id;
+        grid.children[0].classList.add('selected');
+        document.getElementById('model-next').disabled = false;
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Step 3: Personality
+    // ═══════════════════════════════════════════════════════════════
+    function renderPresets() {
+      const grid = document.getElementById('preset-grid');
+      grid.innerHTML = '';
+
+      for (const [name, preset] of Object.entries(PRESETS)) {
+        const card = document.createElement('div');
+        card.className = 'preset-card' + (state.preset === name ? ' selected' : '');
+        card.innerHTML = `
+          <div class="preset-emoji">${preset.emoji}</div>
+          <div class="preset-name">${name}</div>
+          <div class="preset-tagline">${preset.tagline}</div>
+          <div class="slider-preview">
+            <div class="bar-group">
+              <div class="bar-label">Humor</div>
+              <div class="bar-track"><div class="bar-fill" style="width:${preset.humor * 10}%"></div></div>
+            </div>
+            <div class="bar-group">
+              <div class="bar-label">Warmth</div>
+              <div class="bar-track"><div class="bar-fill" style="width:${preset.warmth * 10}%"></div></div>
+            </div>
+            <div class="bar-group">
+              <div class="bar-label">Formal</div>
+              <div class="bar-track"><div class="bar-fill" style="width:${preset.formality * 10}%"></div></div>
+            </div>
+            <div class="bar-group">
+              <div class="bar-label">Persona</div>
+              <div class="bar-track"><div class="bar-fill" style="width:${preset.personality * 10}%"></div></div>
+            </div>
+          </div>`;
+        card.onclick = () => {
+          state.preset = name;
+          grid.querySelectorAll('.preset-card').forEach(c => c.classList.remove('selected'));
+          card.classList.add('selected');
+          document.getElementById('preset-next').disabled = false;
+        };
+        grid.appendChild(card);
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Finalize
+    // ═══════════════════════════════════════════════════════════════
+    async function finalize() {
+      // Show saving state
+      const btn = document.getElementById('preset-next');
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span> Saving...';
+
+      try {
+        const r = await fetch('/api/setup/finalize', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            api_keys: state.apiKeys,
+            model: state.model,
+            preset: state.preset,
+          }),
+        });
+        const data = await r.json();
+        if (data.ok) {
+          renderSummary();
+          goStep(4);
+        } else {
+          btn.disabled = false;
+          btn.textContent = 'Finish Setup';
+          alert('Setup failed: ' + (data.error || 'Unknown error'));
+        }
+      } catch (e) {
+        btn.disabled = false;
+        btn.textContent = 'Finish Setup';
+        alert('Failed to save configuration: ' + e.message);
+      }
+    }
+
+    function renderSummary() {
+      const preset = PRESETS[state.preset];
+      const providerNames = PROVIDERS
+        .filter(p => state.apiKeys[p.key])
+        .map(p => p.name);
+
+      const grid = document.getElementById('summary-grid');
+      grid.innerHTML = `
+        <div class="summary-item">
+          <div class="label">Model</div>
+          <div class="value">${state.model}</div>
+        </div>
+        <div class="summary-item">
+          <div class="label">Personality</div>
+          <div class="value">${preset.emoji} ${state.preset}</div>
+        </div>
+        <div class="summary-item">
+          <div class="label">Providers</div>
+          <div class="value" style="font-size:0.85rem;">${providerNames.join(', ')}</div>
+        </div>
+        <div class="summary-item">
+          <div class="label">Dashboard</div>
+          <div class="value" style="font-size:0.85rem;">localhost:3000</div>
+        </div>`;
+    }
+
+    async function launchAgent() {
+      const btn = document.getElementById('launch-btn');
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span> Starting...';
+
+      try {
+        const r = await fetch('/api/setup/launch', { method: 'POST' });
+        const data = await r.json();
+        btn.textContent = 'Launched!';
+        btn.style.background = 'var(--accent)';
+        setTimeout(() => {
+          window.location.href = '/';
+        }, 1000);
+      } catch {
+        btn.disabled = false;
+        btn.textContent = 'Launch Windy Fly';
+      }
+    }
+
+    function goToDashboard() {
+      window.location.href = '/';
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Wire up navigation buttons
+    // ═══════════════════════════════════════════════════════════════
+    document.getElementById('prereq-next').addEventListener('click', () => {
+      renderProviders();
+      goStep(1);
+    });
+    document.getElementById('keys-next').addEventListener('click', () => {
+      renderModels();
+      goStep(2);
+    });
+    document.getElementById('model-next').addEventListener('click', () => {
+      renderPresets();
+      goStep(3);
+    });
+    document.getElementById('preset-next').addEventListener('click', () => {
+      finalize();
+    });
+
+    // ═══════════════════════════════════════════════════════════════
+    // Load existing config from server on page load
+    // ═══════════════════════════════════════════════════════════════
+    async function init() {
+      try {
+        const r = await fetch('/api/setup/status');
+        if (r.ok) {
+          const data = await r.json();
+          // Pre-fill any existing keys (masked from server)
+          if (data.existing_keys) {
+            for (const key of data.existing_keys) {
+              state.apiKeys[key] = '__existing__';
+            }
+          }
+        }
+      } catch { /* setup endpoint not available yet */ }
+
+      checkPrereqs();
+    }
+
+    init();
+  </script>
+</body>
+</html>

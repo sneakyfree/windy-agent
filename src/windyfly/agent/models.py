@@ -1,7 +1,9 @@
 """LLM provider abstraction.
 
-Supports OpenAI (gpt-*) and Anthropic (claude-*) models with
-automatic routing, retry logic, and cost estimation.
+Routes to any provider via the provider registry. Anthropic uses its own
+SDK (different API format). Everything else goes through the OpenAI SDK
+with a swappable base_url — works for Grok, Gemini, DeepSeek, Mistral,
+Ollama, and any future OpenAI-compatible lab.
 """
 
 from __future__ import annotations
@@ -9,6 +11,8 @@ from __future__ import annotations
 import logging
 import time
 from typing import Any
+
+from windyfly.agent.providers import get_provider_for_model
 
 logger = logging.getLogger(__name__)
 
@@ -20,30 +24,24 @@ COST_MAP: dict[str, dict[str, float]] = {
     "claude-haiku": {"input": 0.00025, "output": 0.00125},
     "claude-3-5-sonnet": {"input": 0.003, "output": 0.015},
     "claude-3-5-haiku": {"input": 0.00025, "output": 0.00125},
+    "grok-3": {"input": 0.003, "output": 0.015},
+    "grok-3-mini": {"input": 0.0003, "output": 0.0005},
+    "gemini-2.5-pro": {"input": 0.00125, "output": 0.01},
+    "gemini-2.5-flash": {"input": 0.00015, "output": 0.0006},
+    "deepseek-chat": {"input": 0.00014, "output": 0.00028},
+    "deepseek-reasoner": {"input": 0.00055, "output": 0.00219},
 }
 
 
 def estimate_cost(model: str, input_tokens: int, output_tokens: int) -> float:
-    """Estimate the USD cost for a given model and token counts.
-
-    Args:
-        model: Model name.
-        input_tokens: Number of input tokens.
-        output_tokens: Number of output tokens.
-
-    Returns:
-        Estimated cost in USD.
-    """
-    # Find best matching cost map entry
+    """Estimate the USD cost for a given model and token counts."""
     costs = COST_MAP.get(model)
     if not costs:
-        # Try prefix matching
         for key in COST_MAP:
             if model.startswith(key):
                 costs = COST_MAP[key]
                 break
     if not costs:
-        # Default to gpt-4o-mini pricing
         costs = COST_MAP["gpt-4o-mini"]
 
     return (input_tokens / 1000) * costs["input"] + (output_tokens / 1000) * costs["output"]
@@ -58,37 +56,29 @@ def call_llm(
     tools: list[dict] | None = None,
     config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Call an LLM provider (OpenAI or Anthropic) based on the model name.
+    """Call an LLM provider based on the model name.
 
-    Args:
-        messages: List of message dicts with 'role' and 'content'.
-        model: Model name. Defaults to config default or 'gpt-4o-mini'.
-        temperature: Sampling temperature.
-        max_tokens: Max response tokens.
-        tools: Optional tool schemas for function calling.
-        config: Optional config dict for defaults.
-
-    Returns:
-        Dict with: content, model, input_tokens, output_tokens, tool_calls.
-
-    Raises:
-        RuntimeError: If all retries are exhausted.
+    Automatically routes to the correct provider using the registry.
+    Anthropic uses its own SDK; everything else uses the OpenAI SDK
+    with a provider-specific base_url.
     """
     if model is None:
         model = (config or {}).get("agent", {}).get("default_model", "gpt-4o-mini")
+
+    provider = get_provider_for_model(model, config)
+    provider_type = provider.get("type", "openai")
+    api_key = provider.get("api_key", "")
 
     max_retries = 3
     last_error: Exception | None = None
 
     for attempt in range(max_retries):
         try:
-            if model.startswith(("gpt", "o1", "o3")):
-                return _call_openai(messages, model, temperature, max_tokens, tools)
-            elif model.startswith("claude"):
-                return _call_anthropic(messages, model, temperature, max_tokens, tools)
+            if provider_type == "anthropic":
+                return _call_anthropic(messages, model, temperature, max_tokens, tools, api_key)
             else:
-                # Default to OpenAI-compatible
-                return _call_openai(messages, model, temperature, max_tokens, tools)
+                base_url = provider.get("base_url", "https://api.openai.com/v1")
+                return _call_openai(messages, model, temperature, max_tokens, tools, base_url, api_key)
         except Exception as e:
             last_error = e
             if attempt < max_retries - 1:
@@ -108,9 +98,21 @@ def _call_openai(
     temperature: float,
     max_tokens: int,
     tools: list[dict] | None,
+    base_url: str = "https://api.openai.com/v1",
+    api_key: str = "",
 ) -> dict[str, Any]:
-    """Call OpenAI ChatCompletion API."""
+    """Call any OpenAI-compatible API (OpenAI, Grok, Gemini, DeepSeek, etc.)."""
     import openai
+
+    client_kwargs: dict[str, Any] = {}
+    if base_url:
+        client_kwargs["base_url"] = base_url
+    if api_key:
+        client_kwargs["api_key"] = api_key
+
+    # For local providers (Ollama) that don't need a key
+    if not api_key and "localhost" in base_url:
+        client_kwargs["api_key"] = "ollama"
 
     kwargs: dict[str, Any] = {
         "model": model,
@@ -122,7 +124,7 @@ def _call_openai(
         kwargs["tools"] = tools
         kwargs["tool_choice"] = "auto"
 
-    client = openai.OpenAI()
+    client = openai.OpenAI(**client_kwargs)
     response = client.chat.completions.create(**kwargs)
 
     choice = response.choices[0]
@@ -156,6 +158,7 @@ def _call_anthropic(
     temperature: float,
     max_tokens: int,
     tools: list[dict] | None,
+    api_key: str = "",
 ) -> dict[str, Any]:
     """Call Anthropic Messages API."""
     import anthropic
@@ -180,7 +183,16 @@ def _call_anthropic(
     if tools:
         kwargs["tools"] = tools
 
-    client = anthropic.Anthropic()
+    # Use OAuth token if available, else explicit key, else env default
+    from windyfly.agent.oauth import get_oauth_manager
+
+    oauth = get_oauth_manager()
+    if oauth:
+        client = anthropic.Anthropic(api_key=oauth.access_token)
+    elif api_key:
+        client = anthropic.Anthropic(api_key=api_key)
+    else:
+        client = anthropic.Anthropic()
     response = client.messages.create(**kwargs)
 
     content = ""

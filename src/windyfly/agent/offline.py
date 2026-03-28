@@ -92,3 +92,59 @@ def _call_ollama(
     except Exception as e:
         logger.error("Ollama call failed: %s", e)
         return f"Local model error: {e}. Message queued for online processing."
+
+
+# ---------------------------------------------------------------------------
+# Persistent offline message queue
+# ---------------------------------------------------------------------------
+
+import json
+import os
+from pathlib import Path
+
+_QUEUE_PATH = Path(os.environ.get(
+    "WINDYFLY_OFFLINE_QUEUE",
+    "data/offline_queue.json",
+))
+
+
+def queue_message(user_message: str, session_id: str = "") -> None:
+    """Queue a message for processing when connectivity returns.
+
+    Args:
+        user_message: The user's message.
+        session_id: Session ID for continuity.
+    """
+    _QUEUE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    queue = _load_queue()
+    queue.append({
+        "message": user_message,
+        "session_id": session_id,
+        "queued_at": __import__("datetime").datetime.now().isoformat(),
+    })
+    _QUEUE_PATH.write_text(json.dumps(queue, indent=2))
+    logger.info("Queued offline message (%d in queue)", len(queue))
+
+
+def get_queued_messages() -> list[dict[str, str]]:
+    """Return all queued messages."""
+    return _load_queue()
+
+
+def clear_queue() -> int:
+    """Clear the queue and return how many were cleared."""
+    count = len(_load_queue())
+    if _QUEUE_PATH.exists():
+        _QUEUE_PATH.unlink()
+    return count
+
+
+def _load_queue() -> list[dict[str, str]]:
+    """Load the queue from disk."""
+    if _QUEUE_PATH.exists():
+        try:
+            return json.loads(_QUEUE_PATH.read_text())
+        except (json.JSONDecodeError, OSError):
+            pass
+    return []
+

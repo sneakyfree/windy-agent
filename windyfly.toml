@@ -12,13 +12,15 @@ max_nodes_per_context = 10
 
 [personality]
 soul_path = "SOUL.md"
+preset = "buddy"
 humor_level = 7
-formality = 4
+formality = 3
 proactivity = 5
 verbosity = 5
 reasoning_depth = 6
 autonomy = 3
 epistemic_strictness = 5
+warmth = 9
 
 [costs]
 daily_budget_usd = 5.0

@@ -201,7 +201,8 @@ class TestUDSBridge:
 
         from windyfly.bridge.uds_server import UDSBridge
         bridge = UDSBridge(config, db, wq)
-        assert bridge.socket_path == "/tmp/windyfly.sock"
+        from windyfly.platform import get_ipc_path
+        assert bridge.ipc.socket_path == get_ipc_path()
         db.close()
 
     def test_dispatch_unknown_method(self):

@@ -136,8 +136,11 @@ def agent_respond(
     # 1.8. Offline detection — fall back to local model if API unreachable
     if not is_online():
         logger.warning("LLM API unreachable — entering offline mode")
+        from windyfly.agent.offline import queue_message
         context = [{"role": m["role"], "content": m["content"]} for m in messages[-5:]]
         offline_response = get_offline_response(user_message, context)
+        # Queue message for processing when back online
+        queue_message(user_message, session_id)
         # Still save episodes so history is preserved
         write_queue.enqueue(Priority.HIGH, save_episode, db, "user", user_message, session_id=session_id)
         write_queue.enqueue(Priority.HIGH, save_episode, db, "assistant", offline_response, session_id=session_id)

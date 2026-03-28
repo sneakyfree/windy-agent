@@ -44,6 +44,9 @@ def load_config(path: str = "windyfly.toml") -> dict[str, Any]:
         "MATRIX_BOT_PASSWORD": (["matrix", "bot_password"], str),
         "WINDY_API_URL": (["windy_api", "base_url"], str),
         "WINDY_JWT": (["windy_api", "jwt"], str),
+        "ANTHROPIC_OAUTH_ACCESS_TOKEN": (["anthropic_oauth_access_token"], str),
+        "ANTHROPIC_OAUTH_REFRESH_TOKEN": (["anthropic_oauth_refresh_token"], str),
+        "ANTHROPIC_OAUTH_EXPIRES_AT": (["anthropic_oauth_expires_at"], str),
     }
 
     for env_key, (key_path, value_type) in env_overrides.items():

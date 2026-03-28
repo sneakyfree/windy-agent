@@ -1,15 +1,48 @@
 /**
- * UDS Bridge client — connects to the Python brain over Unix Domain Socket.
+ * IPC Bridge client — connects to the Python brain over UDS or TCP.
  *
- * Protocol: JSON-per-line over UDS at /tmp/windyfly.sock
+ * Protocol: JSON-per-line over stream connection.
  * Each request: { id, method, params }
  * Each response: { id, result, error }
+ *
+ * Transport:
+ *   - macOS / Linux: Unix Domain Socket (default)
+ *   - Windows / override: TCP on localhost
+ *
+ * Environment variables:
+ *   WINDYFLY_IPC_MODE  — "uds" or "tcp" (auto-detected from OS if unset)
+ *   WINDYFLY_IPC_PATH  — custom UDS socket path
+ *   WINDYFLY_IPC_HOST  — TCP host (default: 127.0.0.1)
+ *   WINDYFLY_IPC_PORT  — TCP port (default: 4001)
  */
 
 import { randomUUID } from "crypto";
 import net from "net";
+import os from "os";
 
-const SOCKET_PATH = "/tmp/windyfly.sock";
+// ── IPC configuration ───────────────────────────────────────────────
+
+type IPCMode = "uds" | "tcp";
+
+function getIPCMode(): IPCMode {
+  const override = (process.env.WINDYFLY_IPC_MODE || "").toLowerCase();
+  if (override === "uds" || override === "tcp") return override;
+  return os.platform() === "win32" ? "tcp" : "uds";
+}
+
+function getIPCPath(): string {
+  return process.env.WINDYFLY_IPC_PATH || `${os.tmpdir()}/windyfly.sock`;
+}
+
+function getIPCHost(): string {
+  return process.env.WINDYFLY_IPC_HOST || "127.0.0.1";
+}
+
+function getIPCPort(): number {
+  return parseInt(process.env.WINDYFLY_IPC_PORT || "4001", 10);
+}
+
+// ── Types ───────────────────────────────────────────────────────────
 
 interface BridgeRequest {
   id: string;
@@ -29,19 +62,37 @@ type PendingResolve = {
   timer: ReturnType<typeof setTimeout>;
 };
 
+// ── Client ──────────────────────────────────────────────────────────
+
 export class UDSClient {
   private socket: net.Socket | null = null;
   private pending = new Map<string, PendingResolve>();
   private buffer = "";
   private connected = false;
+  private ipcMode: IPCMode;
+
+  constructor() {
+    this.ipcMode = getIPCMode();
+  }
 
   async connect(): Promise<void> {
     return new Promise((resolve, reject) => {
-      this.socket = net.createConnection(SOCKET_PATH, () => {
-        this.connected = true;
-        console.log("[bridge] Connected to Python brain");
-        resolve();
-      });
+      if (this.ipcMode === "uds") {
+        const socketPath = getIPCPath();
+        this.socket = net.createConnection(socketPath, () => {
+          this.connected = true;
+          console.log(`[bridge] Connected to Python brain (UDS: ${socketPath})`);
+          resolve();
+        });
+      } else {
+        const host = getIPCHost();
+        const port = getIPCPort();
+        this.socket = net.createConnection({ host, port }, () => {
+          this.connected = true;
+          console.log(`[bridge] Connected to Python brain (TCP: ${host}:${port})`);
+          resolve();
+        });
+      }
 
       this.socket.on("data", (data) => {
         this.buffer += data.toString();

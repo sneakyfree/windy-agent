@@ -1,0 +1,14 @@
+{
+  "name": "windy-remote",
+  "version": "0.1.0",
+  "description": "Lightweight remote agent daemon for Windy Fly Mission Control",
+  "module": "src/daemon.ts",
+  "type": "module",
+  "scripts": {
+    "start": "bun run src/daemon.ts",
+    "dev": "bun run --watch src/daemon.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}

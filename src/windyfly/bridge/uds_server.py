@@ -1,7 +1,8 @@
-"""UDS Bridge — Unix Domain Socket server for Bun gateway communication.
+"""IPC Bridge — JSON-over-stream server for Bun gateway communication.
 
-Exposes the Python brain's capabilities over a JSON protocol on a
-Unix Domain Socket at /tmp/windyfly.sock.
+Exposes the Python brain's capabilities over a JSON protocol.
+Uses Unix Domain Sockets on Mac/Linux and TCP on Windows.
+The IPC mode and paths are resolved via :mod:`windyfly.platform`.
 """
 
 from __future__ import annotations
@@ -21,26 +22,38 @@ from windyfly.memory.database import Database
 from windyfly.memory.intents import surface_pending_intents
 from windyfly.memory.nodes import search_nodes
 from windyfly.memory.write_queue import WriteQueue
+from windyfly.platform import get_ipc_config, IPCConfig
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_SOCKET_PATH = "/tmp/windyfly.sock"
-
 
 class UDSBridge:
-    """JSON-over-UDS server for gateway communication."""
+    """JSON-over-stream IPC server for gateway communication.
+
+    Despite the class name (kept for backward compatibility), this now
+    supports both UDS and TCP transports based on platform detection.
+    """
 
     def __init__(
         self,
         config: dict[str, Any],
         db: Database,
         write_queue: WriteQueue,
-        socket_path: str = DEFAULT_SOCKET_PATH,
+        socket_path: str | None = None,
+        ipc_config: IPCConfig | None = None,
     ) -> None:
         self.config = config
         self.db = db
         self.write_queue = write_queue
-        self.socket_path = socket_path
+        self.ipc = ipc_config or get_ipc_config()
+        # Legacy socket_path arg overrides platform detection for UDS mode
+        if socket_path is not None:
+            self.ipc = IPCConfig(
+                mode="uds",
+                socket_path=socket_path,
+                tcp_host=self.ipc.tcp_host,
+                tcp_port=self.ipc.tcp_port,
+            )
         self._server: asyncio.AbstractServer | None = None
 
     async def _handle_client(
@@ -102,6 +115,36 @@ class UDSBridge:
             "assessment.run": self._handle_assessment_run,
             "shape_shift.execute": self._handle_shape_shift,
             "shape_shift.restore": self._handle_shape_shift_restore,
+            "providers.list": self._handle_providers_list,
+            "providers.update": self._handle_providers_update,
+            "providers.add": self._handle_providers_add,
+            "providers.remove": self._handle_providers_remove,
+            "providers.set_model": self._handle_providers_set_model,
+            "providers.set_key": self._handle_providers_set_key,
+            # --- Group 1: Personality versioning ---
+            "personality.history": self._handle_personality_history,
+            "personality.snapshot": self._handle_personality_snapshot,
+            "personality.drift": self._handle_personality_drift,
+            "personality.rollback": self._handle_personality_rollback,
+            # --- Group 2: Skills management ---
+            "skills.list": self._handle_skills_list,
+            "skills.create": self._handle_skills_create,
+            "skills.evaluate": self._handle_skills_evaluate,
+            "skills.promote": self._handle_skills_promote,
+            "skills.rollback": self._handle_skills_rollback,
+            "skills.golden_tests": self._handle_skills_golden_tests,
+            "skills.regression": self._handle_skills_regression,
+            # --- Group 3: Decay, conflicts, moments, failures ---
+            "decay.run": self._handle_decay_run,
+            "conflicts.list": self._handle_conflicts_list,
+            "conflicts.resolve": self._handle_conflicts_resolve,
+            "moments.list": self._handle_moments_list,
+            "failures.list": self._handle_failures_list,
+            # --- Group 4: Mode, offline, events ---
+            "mode.get": self._handle_mode_get,
+            "mode.set": self._handle_mode_set,
+            "offline.status": self._handle_offline_status,
+            "events.list": self._handle_events_list,
         }
 
         handler = handlers.get(method)
@@ -252,6 +295,214 @@ class UDSBridge:
             set_slider(self.db, k, int(v))
         return {"restored": True}
 
+    async def _handle_providers_list(self, params: dict) -> dict:
+        from windyfly.agent.providers import get_provider_summary
+        summary = get_provider_summary(self.config)
+        active_model = self.config.get("agent", {}).get("default_model", "gpt-4o-mini")
+        return {"providers": summary, "active_model": active_model}
+
+    async def _handle_providers_update(self, params: dict) -> dict:
+        from windyfly.agent.providers import set_provider_override
+        key = params.get("key", "")
+        data = params.get("data", {})
+        set_provider_override(key, data)
+        return {"success": True}
+
+    async def _handle_providers_add(self, params: dict) -> dict:
+        from windyfly.agent.providers import add_custom_provider
+        key = params.get("key", "")
+        data = params.get("data", {})
+        add_custom_provider(key, data)
+        return {"success": True}
+
+    async def _handle_providers_remove(self, params: dict) -> dict:
+        from windyfly.agent.providers import remove_custom_provider
+        removed = remove_custom_provider(params.get("key", ""))
+        return {"success": removed}
+
+    async def _handle_providers_set_model(self, params: dict) -> dict:
+        from windyfly.agent.providers import set_active_model
+        model = params.get("model", "")
+        set_active_model(self.config, model)
+        return {"success": True, "active_model": model}
+
+    async def _handle_providers_set_key(self, params: dict) -> dict:
+        """Set an API key for a provider at runtime (stored in overrides, also set in env)."""
+        import os
+        from windyfly.agent.providers import set_provider_override
+        key = params.get("key", "")
+        api_key = params.get("api_key", "")
+        set_provider_override(key, {"api_key": api_key})
+        # Also set in env so SDK picks it up immediately
+        env_var = params.get("api_key_env", "")
+        if env_var:
+            os.environ[env_var] = api_key
+        return {"success": True}
+
+    # ------------------------------------------------------------------
+    # Group 1: Personality versioning
+    # ------------------------------------------------------------------
+
+    async def _handle_personality_history(self, params: dict) -> dict:
+        from windyfly.personality.versioning import get_personality_history
+        limit = params.get("limit", 20)
+        history = get_personality_history(self.db, limit=limit)
+        return {"history": history}
+
+    async def _handle_personality_snapshot(self, params: dict) -> dict:
+        from windyfly.personality.versioning import snapshot_personality
+        user_id = params.get("user_id", "default")
+        changed_by = params.get("changed_by", "user")
+        batch_id = snapshot_personality(self.db, user_id=user_id, changed_by=changed_by)
+        return {"batch_id": batch_id}
+
+    async def _handle_personality_drift(self, params: dict) -> dict:
+        from windyfly.personality.versioning import detect_drift
+        user_id = params.get("user_id", "default")
+        drift = detect_drift(self.db, user_id=user_id)
+        return {"drift": drift}
+
+    async def _handle_personality_rollback(self, params: dict) -> dict:
+        from windyfly.personality.versioning import rollback_personality
+        snapshot_date = params.get("snapshot_date", "")
+        user_id = params.get("user_id", "default")
+        restored = rollback_personality(self.db, snapshot_date, user_id=user_id)
+        return {"restored_count": restored}
+
+    # ------------------------------------------------------------------
+    # Group 2: Skills management
+    # ------------------------------------------------------------------
+
+    async def _handle_skills_list(self, params: dict) -> dict:
+        from windyfly.memory.skills import list_skills
+        promoted_only = params.get("promoted_only", False)
+        skills = list_skills(self.db, promoted_only=promoted_only)
+        return {"skills": skills}
+
+    async def _handle_skills_create(self, params: dict) -> dict:
+        from windyfly.skills.manager import create_skill
+        skill_id = create_skill(
+            self.db,
+            name=params.get("name", ""),
+            code=params.get("code", ""),
+            language=params.get("language", "python"),
+        )
+        return {"skill_id": skill_id}
+
+    async def _handle_skills_evaluate(self, params: dict) -> dict:
+        from windyfly.skills.evaluator import evaluate_skill
+        skill_id = params.get("skill_id", "")
+        result = evaluate_skill(self.db, skill_id)
+        return {"evaluation": result}
+
+    async def _handle_skills_promote(self, params: dict) -> dict:
+        from windyfly.skills.manager import promote_skill
+        skill_id = params.get("skill_id", "")
+        promote_skill(self.db, skill_id)
+        return {"promoted": True, "skill_id": skill_id}
+
+    async def _handle_skills_rollback(self, params: dict) -> dict:
+        from windyfly.skills.manager import rollback_skill
+        skill_id = params.get("skill_id", "")
+        rollback_skill(self.db, skill_id)
+        return {"rolled_back": True, "skill_id": skill_id}
+
+    async def _handle_skills_golden_tests(self, params: dict) -> dict:
+        from windyfly.skills.golden_tests import run_golden_tests
+        skill_id = params.get("skill_id", "")
+        result = run_golden_tests(self.db, skill_id)
+        return {"golden_tests": result}
+
+    async def _handle_skills_regression(self, params: dict) -> dict:
+        from windyfly.skills.golden_tests import run_regression_suite
+        result = run_regression_suite(self.db)
+        return {"regression": result}
+
+    # ------------------------------------------------------------------
+    # Group 3: Decay, conflicts, moments, failures
+    # ------------------------------------------------------------------
+
+    async def _handle_decay_run(self, params: dict) -> dict:
+        from windyfly.memory.decay import run_decay
+        counts = run_decay(self.db, self.write_queue, config=self.config)
+        return {"decay": counts}
+
+    async def _handle_conflicts_list(self, params: dict) -> dict:
+        from windyfly.memory.conflict_detector import get_unresolved_conflicts
+        conflicts = get_unresolved_conflicts(self.db)
+        return {"conflicts": conflicts}
+
+    async def _handle_conflicts_resolve(self, params: dict) -> dict:
+        from windyfly.memory.conflict_detector import resolve_conflict
+        conflict_id = params.get("conflict_id", "")
+        resolution = params.get("resolution", "")
+        keep_new = params.get("keep_new", True)
+        resolve_conflict(self.db, conflict_id, resolution, keep_new)
+        return {"resolved": True, "conflict_id": conflict_id}
+
+    async def _handle_moments_list(self, params: dict) -> dict:
+        from windyfly.memory.nodes import get_nodes_by_type
+        import json as _json
+        limit = params.get("limit", 20)
+        nodes = get_nodes_by_type(self.db, "relationship_moment", limit=limit)
+        result = []
+        for n in nodes:
+            meta = n.get("metadata", "{}")
+            if isinstance(meta, str):
+                try:
+                    meta = _json.loads(meta)
+                except (ValueError, TypeError):
+                    meta = {}
+            result.append({
+                "summary": meta.get("summary", n.get("name", "")),
+                "emotional_context": meta.get("emotional_context", "neutral"),
+                "session_id": meta.get("session_id", ""),
+                "created_at": n.get("created_at", ""),
+            })
+        return {"moments": result}
+
+    async def _handle_failures_list(self, params: dict) -> dict:
+        limit = params.get("limit", 20)
+        rows = self.db.fetchall(
+            "SELECT * FROM failures ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        )
+        return {"failures": rows}
+
+    # ------------------------------------------------------------------
+    # Group 4: Mode, offline, events
+    # ------------------------------------------------------------------
+
+    async def _handle_mode_get(self, params: dict) -> dict:
+        from windyfly.memory.soul import get_soul
+        user_id = params.get("user_id", "default")
+        row = get_soul(self.db, "agent_mode", user_id=user_id)
+        mode = row["value"] if row else "companion"
+        return {"mode": mode}
+
+    async def _handle_mode_set(self, params: dict) -> dict:
+        from windyfly.personality.mode import validate_mode
+        from windyfly.memory.soul import upsert_soul
+        user_id = params.get("user_id", "default")
+        mode = validate_mode(params.get("mode", "companion"))
+        upsert_soul(self.db, key="agent_mode", value=mode, source="control_panel", user_id=user_id)
+        return {"mode": mode}
+
+    async def _handle_offline_status(self, params: dict) -> dict:
+        from windyfly.agent.offline import is_online, is_ollama_available
+        return {
+            "online": is_online(),
+            "ollama_available": is_ollama_available(),
+        }
+
+    async def _handle_events_list(self, params: dict) -> dict:
+        from windyfly.observability.events import get_recent_events, get_event_counts
+        event_type = params.get("event_type")
+        limit = params.get("limit", 50)
+        events = get_recent_events(self.db, event_type=event_type, limit=limit)
+        counts = get_event_counts(self.db, since_hours=24)
+        return {"events": events, "counts_24h": counts}
+
     async def _send_error(
         self,
         writer: asyncio.StreamWriter,
@@ -263,22 +514,35 @@ class UDSBridge:
         await writer.drain()
 
     async def start(self) -> None:
-        """Start the UDS server."""
-        # Remove existing socket file
-        if os.path.exists(self.socket_path):
-            os.unlink(self.socket_path)
-
-        self._server = await asyncio.start_unix_server(
-            self._handle_client,
-            path=self.socket_path,
-        )
-        logger.info("UDS Bridge listening on %s", self.socket_path)
+        """Start the IPC server (UDS or TCP based on platform)."""
+        if self.ipc.mode == "uds":
+            # Remove stale socket file
+            if os.path.exists(self.ipc.socket_path):
+                os.unlink(self.ipc.socket_path)
+            self._server = await asyncio.start_unix_server(
+                self._handle_client,
+                path=self.ipc.socket_path,
+            )
+            logger.info("IPC Bridge listening on UDS %s", self.ipc.socket_path)
+        else:
+            # TCP mode — works everywhere including Windows
+            self._server = await asyncio.start_server(
+                self._handle_client,
+                host=self.ipc.tcp_host,
+                port=self.ipc.tcp_port,
+            )
+            logger.info(
+                "IPC Bridge listening on TCP %s:%d",
+                self.ipc.tcp_host,
+                self.ipc.tcp_port,
+            )
 
     async def stop(self) -> None:
-        """Stop the UDS server."""
+        """Stop the IPC server."""
         if self._server:
             self._server.close()
             await self._server.wait_closed()
-        if os.path.exists(self.socket_path):
-            os.unlink(self.socket_path)
-        logger.info("UDS Bridge stopped")
+        # Clean up socket file (UDS only)
+        if self.ipc.mode == "uds" and os.path.exists(self.ipc.socket_path):
+            os.unlink(self.ipc.socket_path)
+        logger.info("IPC Bridge stopped")

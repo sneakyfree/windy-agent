@@ -35,9 +35,10 @@ def _run(coro):
 
 class TestBridgeLifecycle:
     def test_start_creates_socket_file(self):
+        import tempfile
         db = Database(":memory:")
         wq = WriteQueue()
-        sock = "/tmp/windyfly_test_lifecycle.sock"
+        sock = os.path.join(tempfile.gettempdir(), "windyfly_test_lifecycle.sock")
         bridge = UDSBridge({}, db, wq, socket_path=sock)
         try:
             _run(bridge.start())
@@ -47,9 +48,10 @@ class TestBridgeLifecycle:
             db.close()
 
     def test_stop_removes_socket_file(self):
+        import tempfile
         db = Database(":memory:")
         wq = WriteQueue()
-        sock = "/tmp/windyfly_test_stop.sock"
+        sock = os.path.join(tempfile.gettempdir(), "windyfly_test_stop.sock")
         bridge = UDSBridge({}, db, wq, socket_path=sock)
         _run(bridge.start())
         _run(bridge.stop())
@@ -57,9 +59,10 @@ class TestBridgeLifecycle:
         db.close()
 
     def test_double_stop_is_safe(self):
+        import tempfile
         db = Database(":memory:")
         wq = WriteQueue()
-        sock = "/tmp/windyfly_test_dblstop.sock"
+        sock = os.path.join(tempfile.gettempdir(), "windyfly_test_dblstop.sock")
         bridge = UDSBridge({}, db, wq, socket_path=sock)
         _run(bridge.start())
         _run(bridge.stop())

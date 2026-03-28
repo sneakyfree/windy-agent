@@ -373,13 +373,18 @@
 
 ---
 
-**🧬 END OF DNA STRAND MASTER PLAN**
+**🧬 END OF DNA STRAND MASTER PLAN (Parts 1–4)**
 
-**Total Codons:** 59
+**Total Codons (P0–P5):** 59
 **Total Source Files:** ~47
-**Total Phases:** 6 (0–5)
+**Total Phases (P0–P5):** 6 (0–5)
 **Estimated Timeline:** 18 weeks to v1.0.0
 **Verification Method:** Codon checklist gap analysis after each phase
 
+> **📌 See [Part 5](WINDY_FLY_DNA_STRAND_PART5.md) for the Beyond-Blueprint Amendment**
+> — 34 additional codons documenting shape-shift engine, provider management,
+> Mission Control, extended AI features, and the full API surface gap closure.
+
 > *"If you have one copy of the DNA, you can recreate the entire organism."*
 > *This document is that copy. Every ribosome gets the same instructions. Every cell builds the same Windy Fly.*
+

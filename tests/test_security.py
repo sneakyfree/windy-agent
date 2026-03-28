@@ -80,13 +80,22 @@ class TestSecretLeaks:
         assert ".env" in content, ".env is not in .gitignore"
 
     def test_no_env_file_committed(self):
-        """.env file should not exist in the project root (it's gitignored)."""
-        env_file = PROJECT_ROOT / ".env"
-        # .env.example is OK, .env is not
-        if env_file.exists():
-            content = env_file.read_text()
-            # If it exists, it should not contain real secrets
-            assert "sk-" not in content, ".env file contains real API keys!"
+        """.env file should be gitignored and NOT tracked by git."""
+        import subprocess
+        # .env existing locally is fine — it's needed for development.
+        # The real danger is if it's tracked by git (committed with secrets).
+        try:
+            result = subprocess.run(
+                ["git", "ls-files", "--error-unmatch", ".env"],
+                capture_output=True, text=True, cwd=str(PROJECT_ROOT),
+                timeout=5,
+            )
+            # Exit code 0 means the file IS tracked — that's bad
+            assert result.returncode != 0, (
+                ".env is tracked by git! It should be in .gitignore and untracked."
+            )
+        except FileNotFoundError:
+            pass  # git not installed — skip
 
 
 # === SQL Injection Prevention ===

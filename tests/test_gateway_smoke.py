@@ -56,7 +56,8 @@ def _run(coro):
 class TestHealthRoute:
     def test_bridge_reports_connected_state(self):
         bridge, db, _ = _make_bridge()
-        assert bridge.socket_path == "/tmp/windyfly.sock"
+        from windyfly.platform import get_ipc_path
+        assert bridge.ipc.socket_path == get_ipc_path()
         db.close()
 
 

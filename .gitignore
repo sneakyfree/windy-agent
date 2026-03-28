@@ -2,9 +2,16 @@ __pycache__/
 *.pyc
 *.pyo
 .env
+.windy.pid
 data/*.db
 data/*.db-wal
 data/*.db-shm
+data/.anthropic_oauth.json
+data/providers.json
+data/provider_keys.json
+data/provider_notes.json
+data/machines.json
+data/sounds/
 .venv/
 venv/
 node_modules/
