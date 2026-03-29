@@ -370,6 +370,7 @@ def cmd_go(args: Any) -> None:
         write_quick_config(provider_info["env_var"], api_key, provider_info["model"])
         console.print(f"  [green]✓[/green] Config written — {provider_info['provider']} / {provider_info['model']} / 🤝 buddy preset")
         _try_matrix_provision()
+        _try_mail_provision()
         _install_deps()
         _launch(args)
         return
@@ -421,6 +422,9 @@ def cmd_go(args: Any) -> None:
 
     # Auto-provision Matrix bot (Windy Chat)
     _try_matrix_provision()
+
+    # Auto-provision Windy Mail inbox
+    _try_mail_provision()
 
     # Install deps and launch
     _install_deps()
@@ -493,6 +497,9 @@ def _go_noninteractive(args: Any) -> None:
     # Auto-provision Matrix bot (Windy Chat)
     _try_matrix_provision()
 
+    # Auto-provision Windy Mail inbox
+    _try_mail_provision()
+
     # Install deps
     _install_deps()
 
@@ -508,6 +515,31 @@ def _try_matrix_provision() -> None:
     except Exception:
         # Matrix provisioning is a nice-to-have, never a blocker
         console.print("  [dim]○ Windy Chat — skipped[/dim]")
+
+
+def _try_mail_provision() -> None:
+    """Attempt to auto-provision a Windy Mail inbox."""
+    try:
+        import asyncio
+        from windyfly.mail_provision import provision_mail
+
+        agent_name = os.environ.get("WINDYFLY_AGENT_NAME", "windyfly")
+        eternitas_passport = os.environ.get("ETERNITAS_PASSPORT", "")
+        owner_id = os.environ.get("WINDY_OWNER_ID", "")
+
+        if not eternitas_passport:
+            console.print("  [dim]○ Windy Mail — skipped (no Eternitas passport)[/dim]")
+            return
+
+        console.print("  [cyan]Provisioning Windy Mail inbox...[/cyan]")
+        result = asyncio.run(provision_mail(agent_name, eternitas_passport, owner_id))
+        if result:
+            console.print(f"  [green]✓[/green] Windy Mail — {result['email']} provisioned")
+        else:
+            console.print("  [dim]○ Windy Mail — skipped[/dim]")
+    except Exception:
+        # Mail provisioning is a nice-to-have, never a blocker
+        console.print("  [dim]○ Windy Mail — skipped[/dim]")
 
 
 def _try_clipboard_or_paste(provider: dict) -> tuple[str, dict[str, str]] | None:

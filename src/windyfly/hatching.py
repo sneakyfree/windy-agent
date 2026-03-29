@@ -197,14 +197,17 @@ def show_ecosystem_status() -> None:
     else:
         capabilities.append(("📱", "SMS — add Twilio creds to enable", False))
 
-    # ── Email (SendGrid) ──
+    # ── Email (Windy Mail or SendGrid) ──
+    windymail_addr = os.environ.get("WINDYMAIL_EMAIL", "")
     sendgrid_key = os.environ.get("SENDGRID_API_KEY", "")
     email_addr = os.environ.get("WINDYFLY_EMAIL_ADDRESS", "")
-    if sendgrid_key:
+    if windymail_addr:
+        capabilities.append(("📧", f"Windy Mail — {windymail_addr}", True))
+    elif sendgrid_key:
         addr_display = email_addr or "configured"
         capabilities.append(("📧", f"Email — ready at {addr_display}", True))
     else:
-        capabilities.append(("📧", "Email — add SendGrid key to enable", False))
+        capabilities.append(("📧", "Email — add Windy Mail or SendGrid to enable", False))
 
     # ── LLM Provider ──
     model = os.environ.get("DEFAULT_MODEL", "")

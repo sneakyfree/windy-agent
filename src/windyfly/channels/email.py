@@ -27,6 +27,114 @@ from windyfly.tools.registry import ToolRegistry
 logger = logging.getLogger(__name__)
 
 
+# ═══════════════════════════════════════════════════════════════════════
+# Windy Mail adapter — JMAP-backed inboxes via Windy Mail API
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class WindyMailAdapter:
+    """Send and receive email via the Windy Mail API (Stalwart JMAP)."""
+
+    def __init__(self) -> None:
+        self.email = os.environ.get("WINDYMAIL_EMAIL", "")
+        self.jmap_token = os.environ.get("WINDYMAIL_JMAP_TOKEN", "")
+        self.api_url = os.environ.get("WINDYMAIL_API_URL", "https://api.windymail.ai")
+
+        if not self.email or not self.jmap_token:
+            raise RuntimeError(
+                "WindyMailAdapter requires WINDYMAIL_EMAIL and WINDYMAIL_JMAP_TOKEN in .env"
+            )
+
+    def send_email(self, to: str, subject: str, body: str) -> dict[str, Any]:
+        """Send an email via Windy Mail API.
+
+        Args:
+            to: Recipient email address.
+            subject: Email subject.
+            body: Plain text body.
+
+        Returns:
+            Dict with status and message_id on success.
+        """
+        import httpx as _httpx
+
+        try:
+            resp = _httpx.post(
+                f"{self.api_url}/api/v1/send",
+                json={"from": self.email, "to": to, "subject": subject, "body": body},
+                headers={"Authorization": f"Bearer {self.jmap_token}"},
+                timeout=30.0,
+            )
+            if resp.status_code in (200, 201, 202):
+                data = resp.json()
+                logger.info("Windy Mail sent to %s — %s", to, subject)
+                return {"status": "sent", "message_id": data.get("message_id")}
+            else:
+                logger.warning("Windy Mail send failed: %s %s", resp.status_code, resp.text)
+                return {"status": "failed", "error": resp.text}
+        except Exception as e:
+            logger.error("Windy Mail send error: %s", e)
+            return {"status": "failed", "error": str(e)}
+
+    def check_inbox(self, unread_only: bool = True) -> list[dict[str, Any]]:
+        """Fetch messages from the Windy Mail inbox.
+
+        Args:
+            unread_only: If True, return only unread messages.
+
+        Returns:
+            List of message dicts (from, subject, body, date, …).
+        """
+        import httpx as _httpx
+
+        params: dict[str, Any] = {}
+        if unread_only:
+            params["unread"] = "true"
+
+        try:
+            resp = _httpx.get(
+                f"{self.api_url}/api/v1/inbox",
+                params=params,
+                headers={"Authorization": f"Bearer {self.jmap_token}"},
+                timeout=30.0,
+            )
+            if resp.status_code == 200:
+                return resp.json().get("messages", [])
+            else:
+                logger.warning("Windy Mail inbox fetch failed: %s", resp.status_code)
+                return []
+        except Exception as e:
+            logger.error("Windy Mail inbox error: %s", e)
+            return []
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Adapter factory — pick the best available email backend
+# ═══════════════════════════════════════════════════════════════════════
+
+
+def get_email_adapter() -> WindyMailAdapter | None:
+    """Return the best available email adapter, or None.
+
+    Priority:
+        1. Windy Mail (WINDYMAIL_EMAIL set)
+        2. SendGrid   (SENDGRID_API_KEY set) — returns None here;
+           callers use WindyFlyEmail directly for the SendGrid path.
+    """
+    if os.environ.get("WINDYMAIL_EMAIL"):
+        try:
+            return WindyMailAdapter()
+        except RuntimeError:
+            logger.warning("WINDYMAIL_EMAIL set but adapter init failed — falling back")
+    # SendGrid path is handled by WindyFlyEmail class (legacy / HiFly)
+    return None
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# SendGrid adapter — original WindyFlyEmail (HiFly / legacy)
+# ═══════════════════════════════════════════════════════════════════════
+
+
 class WindyFlyEmail:
     """Windy Fly email channel via SendGrid."""
 
@@ -108,6 +216,7 @@ class WindyFlyEmail:
         subject: str,
         body: str,
         reply_to: str | None = None,
+        html_body: str | None = None,
     ) -> dict[str, Any]:
         """Send outbound email via SendGrid.
 
@@ -116,6 +225,7 @@ class WindyFlyEmail:
             subject: Email subject.
             body: Plain text body.
             reply_to: Optional reply-to address.
+            html_body: Optional HTML body (sent alongside plain text).
 
         Returns:
             Dict with status.
@@ -123,11 +233,14 @@ class WindyFlyEmail:
         import urllib.request
 
         url = "https://api.sendgrid.com/v3/mail/send"
+        content = [{"type": "text/plain", "value": body}]
+        if html_body:
+            content.append({"type": "text/html", "value": html_body})
         payload = {
             "personalizations": [{"to": [{"email": to_email}]}],
             "from": {"email": self.from_email, "name": self.from_name},
             "subject": subject,
-            "content": [{"type": "text/plain", "value": body}],
+            "content": content,
         }
         if reply_to:
             payload["reply_to"] = {"email": reply_to}
