@@ -10,15 +10,16 @@ import re
 from typing import Any
 
 from windyfly.memory.database import Database
-from windyfly.memory.failures import check_recurring_failure, log_failure
+from windyfly.memory.failures import check_recurring_failure, get_recent_failures, log_failure
 from windyfly.memory.write_queue import Priority, WriteQueue
 
 # Pattern → fault_type classification
+# Uses negative lookahead to avoid false positives on agreement phrases
 FRICTION_PATTERNS: list[tuple[str, str]] = [
-    (r"(?i)(no|wrong|incorrect|that'?s not|actually)", "factual_error"),
-    (r"(?i)(what i meant was|let me clarify)", "ambiguity_mishandled"),
-    (r"(?i)(i (said|told you|meant))", "preference_miss"),
-    (r"(?i)(try again|redo|retry|one more time)", "execution_failure"),
+    (r"(?i)^(?!.*(no\s+(problem|worries|thanks|that'?s\s+(fine|great|good|perfect|right|correct)))).*\b(no,?\s+(?:that'?s\s+)?(?:wrong|incorrect|not\s+(?:right|what|correct)))\b", "factual_error"),
+    (r"(?i)\b(what i meant was|let me clarify|i didn'?t mean)\b", "ambiguity_mishandled"),
+    (r"(?i)\b(i (?:already )?(?:said|told you|asked you|meant))\b(?!.*(?:thanks|great|perfect))", "preference_miss"),
+    (r"(?i)\b(try again|redo|retry|one more time|do it (?:again|over))\b", "execution_failure"),
 ]
 
 
@@ -38,6 +39,10 @@ def detect_friction(
     Returns:
         Friction dict if detected, None otherwise.
     """
+    # Short messages are rarely corrections — avoid false positives
+    if len(user_message.strip()) < 10:
+        return None
+
     for pattern, fault_type in FRICTION_PATTERNS:
         if re.search(pattern, user_message):
             return {
@@ -88,8 +93,14 @@ def handle_friction(
     is_recurring = check_recurring_failure(db, fault_type, description)
 
     if is_recurring:
+        # Fetch specific failure history so the agent knows what to avoid
+        recent = get_recent_failures(db, fault_type=fault_type, limit=3)
+        history = " | ".join(
+            f.get("description", "")[:80] for f in recent
+        ) if recent else ""
         return (
-            "⚠️ RECURRING ISSUE: The user has corrected you on a similar issue recently. "
+            f"⚠️ RECURRING ISSUE ({fault_type}): The user has corrected you on "
+            f"similar issues recently. Recent examples: {history[:300]}. "
             "Be extra careful and precise. Double-check your response before sending."
         )
     else:

@@ -6,7 +6,9 @@ Depth limit: 1 (sub-agents cannot spawn sub-agents).
 
 from __future__ import annotations
 
+import hashlib
 import logging
+import time
 from typing import Any
 
 from windyfly.agent.models import call_llm, estimate_cost
@@ -15,6 +17,10 @@ from windyfly.memory.database import Database
 from windyfly.memory.write_queue import Priority, WriteQueue
 
 logger = logging.getLogger(__name__)
+
+# Cache recent sub-agent results (up to 16 entries, keyed by task hash)
+_result_cache: dict[str, tuple[str, float]] = {}  # hash -> (result, timestamp)
+_CACHE_TTL = 300  # 5 minutes
 
 
 def spawn_sub_agent(
@@ -47,6 +53,13 @@ def spawn_sub_agent(
     """
     if model is None:
         model = config.get("agent", {}).get("default_model", "gpt-4o-mini")
+
+    # Check cache for identical tasks
+    task_hash = hashlib.sha256(task.encode()).hexdigest()[:16]
+    cached = _result_cache.get(task_hash)
+    if cached and (time.time() - cached[1]) < _CACHE_TTL:
+        logger.info("Sub-agent cache hit for task: %s", task[:60])
+        return cached[0]
 
     messages = [
         {
@@ -86,6 +99,13 @@ def spawn_sub_agent(
         "Sub-agent completed: %.4f USD, %d tokens",
         cost_usd, result["output_tokens"],
     )
+
+    # Cache the result
+    _result_cache[task_hash] = (response_text, time.time())
+    # Evict old entries
+    if len(_result_cache) > 16:
+        oldest = min(_result_cache, key=lambda k: _result_cache[k][1])
+        del _result_cache[oldest]
 
     return response_text
 

@@ -137,5 +137,7 @@ def run_decay(
             counts["pruned"], counts["archived"],
         )
 
-    write_queue.enqueue(Priority.LOW, _do_decay)
+    # Execute synchronously when user-triggered (via API/dashboard)
+    # so the returned counts reflect actual work done
+    _do_decay()
     return counts

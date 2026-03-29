@@ -43,7 +43,16 @@ def check_for_conflict(
         old_value = json.dumps(old_value)
 
     # Simple conflict: values differ
-    if old_value and old_value != new_value and new_value:
+    if old_value and new_value and old_value != new_value:
+        # Semantic check: if word overlap > 70%, likely same fact expressed differently
+        old_words = set(old_value.lower().split())
+        new_words = set(new_value.lower().split())
+        if old_words and new_words:
+            overlap = len(old_words & new_words) / max(len(old_words), len(new_words))
+            if overlap > 0.7:
+                # Similar enough — update silently, no conflict
+                return None
+
         conflict_id = str(uuid.uuid4())
         db.execute(
             """

@@ -123,3 +123,46 @@ def decay_intents(db: Database, write_queue: WriteQueue) -> None:
         db.commit()
 
     write_queue.enqueue(Priority.LOW, _decay)
+
+
+def find_similar_intent(
+    db: Database,
+    description: str,
+    *,
+    user_id: str = "default",
+    threshold: int = 3,
+) -> dict[str, Any] | None:
+    """Find an active intent with very similar description (prevent duplicates).
+
+    Uses word-overlap heuristic — if 60%+ of words overlap with an existing
+    active intent, it's considered a duplicate.
+
+    Args:
+        db: Database instance.
+        description: New intent description to check.
+        user_id: User ID.
+        threshold: Minimum word overlap count.
+
+    Returns:
+        Existing similar intent dict, or None.
+    """
+    active = db.fetchall(
+        "SELECT * FROM intents WHERE status = 'active' AND user_id = ? "
+        "ORDER BY created_at DESC LIMIT 20",
+        (user_id,),
+    )
+    desc_lower = description.lower().strip()
+    desc_words = set(desc_lower.split())
+    if not desc_words:
+        return None
+
+    for intent in active:
+        existing = (intent.get("description") or "").lower().strip()
+        existing_words = set(existing.split())
+        if not existing_words:
+            continue
+        overlap = len(desc_words & existing_words)
+        if overlap >= threshold and overlap >= len(desc_words) * 0.6:
+            return intent
+
+    return None

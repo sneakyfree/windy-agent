@@ -25,9 +25,19 @@ EVENT_TYPES = frozenset({
     "conflict.detect",
     "decay.run",
     "matrix.message",
+    "matrix.reconnect",
     "personality.change",
     "offline.fallback",
     "sub_agent.spawn",
+    "shape_shift.enter",
+    "shape_shift.exit",
+    "shape_shift.tool",
+    "shape_shift.restore",
+    "sms.inbound",
+    "sms.outbound",
+    "sms.optout",
+    "email.inbound",
+    "email.outbound",
 })
 
 
@@ -46,6 +56,8 @@ def log_event(
         data: Event data dict.
     """
     def _write():
+        if event_type not in EVENT_TYPES:
+            logger.warning("Unknown event type: %s — consider adding to EVENT_TYPES", event_type)
         db.execute(
             "INSERT INTO events (event_type, data) VALUES (?, ?)",
             (event_type, json.dumps(data)),

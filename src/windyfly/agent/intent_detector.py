@@ -113,9 +113,18 @@ def _detect_intent_llm(
         )
 
         content = result["content"].strip()
-        # Strip markdown code fences if present
+        # Strip markdown code fences
         if content.startswith("```"):
             content = content.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+        # Strip leading/trailing non-JSON chars (safety net for chatty LLMs)
+        if not content.startswith("{"):
+            idx = content.find("{")
+            if idx >= 0:
+                content = content[idx:]
+        if not content.endswith("}"):
+            idx = content.rfind("}")
+            if idx >= 0:
+                content = content[:idx + 1]
 
         data = json.loads(content)
 

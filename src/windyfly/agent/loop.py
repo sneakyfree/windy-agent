@@ -256,13 +256,17 @@ def agent_respond(
     proactivity = loop_sliders.get("proactivity", 5)
     intent = detect_intent(user_message, config=config, proactivity=proactivity)
     if intent and intent.get("has_intent"):
-        write_queue.enqueue(
-            Priority.MEDIUM,
-            create_intent,
-            db,
-            intent["description"],
-            origin=intent["origin"],
-        )
+        # Dedup: don't create if a similar active intent already exists
+        from windyfly.memory.intents import find_similar_intent
+        existing = find_similar_intent(db, intent["description"])
+        if not existing:
+            write_queue.enqueue(
+                Priority.MEDIUM,
+                create_intent,
+                db,
+                intent["description"],
+                origin=intent["origin"],
+            )
 
     # 7. Log event for observability
     log_event(db, write_queue, "agent.respond", {

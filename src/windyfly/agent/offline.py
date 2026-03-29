@@ -111,6 +111,8 @@ _QUEUE_PATH = Path(os.environ.get(
 def queue_message(user_message: str, session_id: str = "") -> None:
     """Queue a message for processing when connectivity returns.
 
+    Uses atomic write (temp file + rename) to prevent corruption.
+
     Args:
         user_message: The user's message.
         session_id: Session ID for continuity.
@@ -122,7 +124,10 @@ def queue_message(user_message: str, session_id: str = "") -> None:
         "session_id": session_id,
         "queued_at": __import__("datetime").datetime.now().isoformat(),
     })
-    _QUEUE_PATH.write_text(json.dumps(queue, indent=2))
+    # Atomic write: write to temp file then rename
+    tmp = _QUEUE_PATH.with_suffix(".tmp")
+    tmp.write_text(json.dumps(queue, indent=2))
+    tmp.rename(_QUEUE_PATH)
     logger.info("Queued offline message (%d in queue)", len(queue))
 
 
@@ -139,6 +144,46 @@ def clear_queue() -> int:
     return count
 
 
+def replay_queued_messages(
+    config: dict,
+    db: "Database",
+    write_queue: "WriteQueue",
+    tool_registry: "ToolRegistry | None" = None,
+) -> int:
+    """Replay all queued messages now that we're back online.
+
+    Args:
+        config: Config dict.
+        db: Database instance.
+        write_queue: WriteQueue.
+        tool_registry: Optional tool registry.
+
+    Returns:
+        Number of messages successfully replayed.
+    """
+    queue = get_queued_messages()
+    if not queue:
+        return 0
+
+    from windyfly.agent.loop import agent_respond
+
+    replayed = 0
+    for msg in queue:
+        try:
+            agent_respond(
+                config, db, write_queue,
+                msg["message"], msg.get("session_id", "offline"),
+                tool_registry,
+            )
+            replayed += 1
+        except Exception as e:
+            logger.error("Failed to replay queued message: %s", e)
+
+    clear_queue()
+    logger.info("Replayed %d/%d queued messages", replayed, len(queue))
+    return replayed
+
+
 def _load_queue() -> list[dict[str, str]]:
     """Load the queue from disk."""
     if _QUEUE_PATH.exists():
@@ -147,4 +192,5 @@ def _load_queue() -> list[dict[str, str]]:
         except (json.JSONDecodeError, OSError):
             pass
     return []
+
 
