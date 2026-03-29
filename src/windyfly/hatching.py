@@ -167,11 +167,15 @@ def _try_play_audio() -> None:
 # "Born Into" — Ecosystem Status Display
 # ═══════════════════════════════════════════════════════════════════════
 
-def show_ecosystem_status() -> None:
+def show_ecosystem_status(hatch_result=None) -> None:
     """Show what the agent was born with — the ecosystem power moment.
 
     For Windy Fly: full ecosystem manifest (Chat, SMS, Email, Translation, etc.)
     For HiFly: simplified status (model, dashboard, memory).
+
+    Args:
+        hatch_result: Optional HatchResult from the hatch orchestrator.
+            If provided, uses real provisioned data instead of env var checks.
     """
     from dotenv import load_dotenv
     from windyfly.branding import HAS_ECOSYSTEM, BRAND_NAME, BRAND_EMOJI
@@ -179,38 +183,53 @@ def show_ecosystem_status() -> None:
 
     capabilities: list[tuple[str, str, bool]] = []
 
+    # ── Eternitas (identity) ──
+    passport_id = getattr(hatch_result, "passport_id", "") or os.environ.get("ETERNITAS_PASSPORT", "")
+    if passport_id:
+        capabilities.append(("🪪", f"Eternitas — verified ({passport_id})", True))
+    else:
+        capabilities.append(("🪪", "Eternitas — not registered", False))
+
     # ── Windy Chat (Matrix) ──
-    matrix_token = os.environ.get("MATRIX_BOT_TOKEN", "")
-    matrix_password = os.environ.get("MATRIX_BOT_PASSWORD", "")
-    matrix_ready = bool(matrix_token) or bool(matrix_password)
-    homeserver = os.environ.get("MATRIX_HOMESERVER", "chat.windypro.com")
-    if matrix_ready:
-        capabilities.append(("💬", f"Windy Chat — live on {homeserver}", True))
+    matrix_user = getattr(hatch_result, "matrix_user_id", "") if hatch_result else ""
+    if not matrix_user:
+        matrix_token = os.environ.get("MATRIX_BOT_TOKEN", "")
+        matrix_password = os.environ.get("MATRIX_BOT_PASSWORD", "")
+        matrix_ready = bool(matrix_token) or bool(matrix_password)
+        homeserver = os.environ.get("MATRIX_HOMESERVER", "chat.windypro.com")
+        if matrix_ready:
+            capabilities.append(("💬", f"Windy Chat — connected to {homeserver}", True))
+        else:
+            capabilities.append(("💬", "Windy Chat — ready to connect", False))
     else:
-        capabilities.append(("💬", "Windy Chat — ready to connect", False))
+        capabilities.append(("💬", f"Windy Chat — {matrix_user}", True))
 
-    # ── SMS (Twilio) ──
-    twilio_sid = os.environ.get("TWILIO_ACCOUNT_SID", "")
-    twilio_phone = os.environ.get("TWILIO_PHONE_NUMBER", "")
-    if twilio_sid and twilio_phone:
-        capabilities.append(("📱", f"SMS — ready at {twilio_phone}", True))
+    # ── Email (Windy Mail) ──
+    email_addr = getattr(hatch_result, "email_address", "") if hatch_result else ""
+    if not email_addr:
+        email_addr = os.environ.get("WINDYMAIL_EMAIL", "") or os.environ.get("WINDYFLY_EMAIL_ADDRESS", "")
+    if email_addr:
+        capabilities.append(("📧", f"Windy Mail — {email_addr}", True))
+    elif os.environ.get("SENDGRID_API_KEY"):
+        capabilities.append(("📧", "Email — SendGrid configured", True))
     else:
-        capabilities.append(("📱", "SMS — add Twilio creds to enable", False))
+        capabilities.append(("📧", "Windy Mail — pending", False))
 
-    # ── Email (Windy Mail or SendGrid) ──
-    windymail_addr = os.environ.get("WINDYMAIL_EMAIL", "")
-    sendgrid_key = os.environ.get("SENDGRID_API_KEY", "")
-    email_addr = os.environ.get("WINDYFLY_EMAIL_ADDRESS", "")
-    if windymail_addr:
-        capabilities.append(("📧", f"Windy Mail — {windymail_addr}", True))
-    elif sendgrid_key:
-        addr_display = email_addr or "configured"
-        capabilities.append(("📧", f"Email — ready at {addr_display}", True))
+    # ── Phone / SMS ──
+    phone = getattr(hatch_result, "phone_number", "") if hatch_result else ""
+    phone_mock = getattr(hatch_result, "phone_is_mock", False) if hatch_result else False
+    if not phone:
+        phone = os.environ.get("TWILIO_PHONE_NUMBER", "")
+    if phone:
+        tag = " (local)" if phone_mock else ""
+        capabilities.append(("📱", f"Phone — {phone}{tag}", True))
     else:
-        capabilities.append(("📧", "Email — add Windy Mail or SendGrid to enable", False))
+        capabilities.append(("📱", "Phone — add Twilio creds to enable", False))
 
     # ── LLM Provider ──
-    model = os.environ.get("DEFAULT_MODEL", "")
+    model = getattr(hatch_result, "model_id", "") if hatch_result else ""
+    if not model:
+        model = os.environ.get("DEFAULT_MODEL", "")
     if model:
         capabilities.append(("🧠", f"AI Brain — {model}", True))
 
@@ -228,6 +247,12 @@ def show_ecosystem_status() -> None:
     # ── Memory ──
     capabilities.append(("🧬", "Memory — SQLite + vector search active", True))
 
+    # ── Birth Certificate ──
+    cert_num = getattr(hatch_result, "certificate_number", "") if hatch_result else ""
+    cert_path = getattr(hatch_result, "birth_certificate_path", "") if hatch_result else ""
+    if cert_num:
+        capabilities.append(("📜", f"Birth Certificate — {cert_num}", True))
+
     # ── Build the display ──
     console.print()
     lines = []
@@ -243,4 +268,9 @@ def show_ecosystem_status() -> None:
         border_style="cyan",
         padding=(1, 2),
     ))
+
+    # Show birth certificate path if generated
+    if cert_path:
+        console.print(f"  [dim]📜 Birth certificate saved: {cert_path}[/dim]")
+
     console.print()

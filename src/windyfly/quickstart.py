@@ -369,8 +369,7 @@ def cmd_go(args: Any) -> None:
         console.print()
         write_quick_config(provider_info["env_var"], api_key, provider_info["model"])
         console.print(f"  [green]✓[/green] Config written — {provider_info['provider']} / {provider_info['model']} / 🤝 buddy preset")
-        _try_matrix_provision()
-        _try_mail_provision()
+        _try_hatch_provisioning()
         _install_deps()
         _launch(args)
         return
@@ -420,11 +419,8 @@ def cmd_go(args: Any) -> None:
     write_quick_config(provider_info["env_var"], api_key, provider_info["model"])
     console.print(f"  [green]✓[/green] Config written — {provider_info['provider']} / {provider_info['model']} / 🤝 buddy preset")
 
-    # Auto-provision Matrix bot (Windy Chat)
-    _try_matrix_provision()
-
-    # Auto-provision Windy Mail inbox
-    _try_mail_provision()
+    # Run full ecosystem provisioning (Eternitas + Mail + Phone + Birth Cert)
+    _try_hatch_provisioning()
 
     # Install deps and launch
     _install_deps()
@@ -494,11 +490,8 @@ def _go_noninteractive(args: Any) -> None:
     write_quick_config(env_var, key, model, preset)
     console.print(f"  [green]✓[/green] Configuration written")
 
-    # Auto-provision Matrix bot (Windy Chat)
-    _try_matrix_provision()
-
-    # Auto-provision Windy Mail inbox
-    _try_mail_provision()
+    # Run full ecosystem provisioning (Eternitas + Mail + Phone + Birth Cert)
+    _try_hatch_provisioning()
 
     # Install deps
     _install_deps()
@@ -540,6 +533,78 @@ def _try_mail_provision() -> None:
     except Exception:
         # Mail provisioning is a nice-to-have, never a blocker
         console.print("  [dim]○ Windy Mail — skipped[/dim]")
+
+
+def _try_hatch_provisioning() -> None:
+    """Run the full hatch orchestrator — Eternitas, Mail, Phone, Birth Cert.
+
+    Replaces the separate _try_matrix_provision() + _try_mail_provision()
+    calls with a unified flow. Falls back to the old individual calls if
+    the orchestrator encounters an unexpected error.
+    """
+    try:
+        from windyfly.hatch_orchestrator import run_hatch
+        from windyfly.memory.database import Database
+        from windyfly.birth_certificate import render_birth_certificate_terminal
+        from rich.panel import Panel
+
+        agent_name = os.environ.get("WINDYFLY_AGENT_NAME", "windyfly")
+        owner_id = os.environ.get("WINDY_OWNER_ID", "")
+        owner_name = os.environ.get("WINDY_OWNER_NAME", "")
+        db_path = os.environ.get("WINDYFLY_DB_PATH", "data/windyfly.db")
+
+        console.print()
+        console.print("  [bold cyan]Provisioning ecosystem identity...[/bold cyan]")
+
+        db = Database(db_path)
+        try:
+            result = run_hatch(
+                agent_name=agent_name,
+                owner_id=owner_id,
+                owner_name=owner_name,
+                db=db,
+            )
+        finally:
+            db.close()
+
+        # Display results
+        if result.passport_id:
+            console.print(f"  [green]✓[/green] 🪪  Eternitas — verified ({result.passport_id})")
+        else:
+            console.print("  [dim]○ 🪪  Eternitas — skipped[/dim]")
+
+        if result.matrix_provisioned:
+            console.print(f"  [green]✓[/green] 💬  Windy Chat — {result.matrix_user_id}")
+        else:
+            # Fall back to old Matrix provisioning
+            _try_matrix_provision()
+
+        if result.mail_provisioned:
+            console.print(f"  [green]✓[/green] 📧  Windy Mail — {result.email_address}")
+        else:
+            console.print("  [dim]○ 📧  Windy Mail — skipped[/dim]")
+
+        if result.phone_provisioned:
+            mock_tag = " (local)" if result.phone_is_mock else ""
+            console.print(f"  [green]✓[/green] 📱  Phone — {result.phone_number}{mock_tag}")
+        else:
+            console.print("  [dim]○ 📱  Phone — skipped[/dim]")
+
+        if result.birth_certificate_path:
+            console.print(f"  [green]✓[/green] 📜  Birth Certificate — {result.certificate_number}")
+            console.print(f"       [dim]Saved to {result.birth_certificate_path}[/dim]")
+
+        if result.errors:
+            for err in result.errors:
+                console.print(f"  [dim]  note: {err}[/dim]")
+
+        console.print()
+
+    except Exception as exc:
+        # If the orchestrator itself fails, fall back to old individual calls
+        console.print(f"  [dim]Orchestrator error ({exc}), falling back...[/dim]")
+        _try_matrix_provision()
+        _try_mail_provision()
 
 
 def _try_clipboard_or_paste(provider: dict) -> tuple[str, dict[str, str]] | None:
