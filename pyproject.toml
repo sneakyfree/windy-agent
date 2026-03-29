@@ -12,6 +12,7 @@ dependencies = [
     "matrix-nio>=0.24",
     "sqlite-vec>=0.1",
     "python-dotenv>=1.0",
+    "fpdf2>=2.7",
 ]
 
 [project.scripts]

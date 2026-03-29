@@ -19,12 +19,26 @@ import hashlib
 import hmac
 import os
 import secrets
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from rich.console import Console
 
 console = Console()
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+
+
+@dataclass
+class MatrixProvisionResult:
+    """Result of Matrix bot provisioning."""
+
+    success: bool
+    user_id: str = ""
+    access_token: str = ""
+    device_id: str = ""
+    password: str = ""
+    homeserver: str = ""
+    error: str = ""
 
 
 def provision_matrix_bot(
@@ -156,6 +170,40 @@ def _generate_mac(
         msg.encode("utf-8"),
         hashlib.sha1,
     ).hexdigest()
+
+
+def provision_matrix(
+    homeserver: str | None = None,
+    bot_username: str = "windyfly",
+    display_name: str = "Windy Fly 🪰",
+) -> MatrixProvisionResult:
+    """Provision Matrix bot and return structured result.
+
+    Used by the hatch orchestrator. Never raises — failures are captured
+    in the result object.
+    """
+    hs = homeserver or os.environ.get(
+        "MATRIX_HOMESERVER", "https://chat.windypro.com"
+    )
+    raw = provision_matrix_bot(
+        homeserver=hs,
+        bot_username=bot_username,
+        display_name=display_name,
+    )
+    if raw is None:
+        return MatrixProvisionResult(
+            success=False,
+            homeserver=hs,
+            error="No Synapse registration secret or provisioning failed",
+        )
+    return MatrixProvisionResult(
+        success=True,
+        user_id=raw["user_id"],
+        access_token=raw["access_token"],
+        device_id=raw.get("device_id", ""),
+        password=raw.get("password", ""),
+        homeserver=hs,
+    )
 
 
 def auto_provision_and_save() -> bool:
