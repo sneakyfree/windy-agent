@@ -315,7 +315,56 @@ def cmd_doctor(_args: argparse.Namespace) -> None:
     else:
         _doc_row("Matrix homeserver", "not configured", True)
 
+    # Windy Mail
+    mail_url = os.environ.get("WINDYMAIL_API_URL", "")
+    if mail_url:
+        try:
+            import httpx
+            r = httpx.get(f"{mail_url}/health", timeout=3)
+            reachable = r.status_code < 500
+            _doc_row("Windy Mail", mail_url, reachable,
+                     "API returned error" if not reachable else None)
+        except Exception:
+            _doc_row("Windy Mail", mail_url, False,
+                     "Unreachable — check WINDYMAIL_API_URL")
+            warnings.append("Windy Mail unreachable")
+    else:
+        _doc_row("Windy Mail", "not configured", True)
+
+    # Windy Cloud
+    cloud_url = os.environ.get("WINDY_CLOUD_URL", "")
+    if cloud_url:
+        try:
+            import httpx
+            r = httpx.get(f"{cloud_url}/api/storage/health", timeout=3)
+            reachable = r.status_code < 500
+            _doc_row("Windy Cloud", cloud_url, reachable,
+                     "API returned error" if not reachable else None)
+        except Exception:
+            _doc_row("Windy Cloud", cloud_url, False,
+                     "Unreachable — check WINDY_CLOUD_URL")
+            warnings.append("Windy Cloud unreachable")
+    else:
+        _doc_row("Windy Cloud", "not configured", True)
+
     console.print()
+
+    # ── 8. Provisioning recovery ─────────────────────────────────
+    recovery_file = PROJECT_ROOT / "data" / "provision_recovery.json"
+    if recovery_file.exists():
+        console.print("[bold]Provisioning Recovery[/bold]")
+        try:
+            import json
+            recovery = json.loads(recovery_file.read_text())
+            failed = recovery.get("failed_steps", [])
+            retries = recovery.get("retry_count", 0)
+            _doc_row("Failed steps", ", ".join(failed), False,
+                     f"Retry count: {retries}")
+            warnings.append(f"Provisioning recovery pending: {', '.join(failed)}")
+            console.print("  [dim]Run [bold]windy ecosystem[/bold] to retry provisioning.[/dim]")
+        except Exception:
+            _doc_row("Recovery file", "corrupt", False, "Delete data/provision_recovery.json")
+        console.print()
 
     # ── Summary ──────────────────────────────────────────────────
     total_checks = len(issues) + len(warnings)

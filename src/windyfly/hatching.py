@@ -170,107 +170,101 @@ def _try_play_audio() -> None:
 def show_ecosystem_status(hatch_result=None) -> None:
     """Show what the agent was born with — the ecosystem power moment.
 
-    For Windy Fly: full ecosystem manifest (Chat, SMS, Email, Translation, etc.)
-    For HiFly: simplified status (model, dashboard, memory).
+    Displays a rich table of all ecosystem products and their provisioning
+    status. Uses real data from HatchResult if available, otherwise checks
+    environment variables.
 
     Args:
         hatch_result: Optional HatchResult from the hatch orchestrator.
-            If provided, uses real provisioned data instead of env var checks.
     """
     from dotenv import load_dotenv
-    from windyfly.branding import HAS_ECOSYSTEM, BRAND_NAME, BRAND_EMOJI
+    from rich.table import Table
+
+    from windyfly.branding import BRAND_EMOJI
+
     load_dotenv(PROJECT_ROOT / ".env")
 
-    capabilities: list[tuple[str, str, bool]] = []
+    table = Table(
+        title=f"{BRAND_EMOJI} Windy Fly \u2014 Born Into the Ecosystem",
+        title_style="bold cyan",
+        border_style="cyan",
+        show_lines=True,
+        padding=(0, 1),
+    )
+    table.add_column("Product", style="bold", min_width=12)
+    table.add_column("Status", min_width=9)
+    table.add_column("Details", min_width=30)
 
-    # ── Eternitas (identity) ──
+    # ── Eternitas ──
     passport_id = getattr(hatch_result, "passport_id", "") or os.environ.get("ETERNITAS_PASSPORT", "")
     if passport_id:
-        capabilities.append(("🪪", f"Eternitas — verified ({passport_id})", True))
+        table.add_row("Eternitas", "[green]Active[/green]", f"{passport_id} (trust: 70)")
     else:
-        capabilities.append(("🪪", "Eternitas — not registered", False))
+        table.add_row("Eternitas", "[dim]Pending[/dim]", "Not registered")
 
-    # ── Windy Chat (Matrix) ──
+    # ── Windy Chat ──
     matrix_user = getattr(hatch_result, "matrix_user_id", "") if hatch_result else ""
     if not matrix_user:
-        matrix_token = os.environ.get("MATRIX_BOT_TOKEN", "")
-        matrix_password = os.environ.get("MATRIX_BOT_PASSWORD", "")
-        matrix_ready = bool(matrix_token) or bool(matrix_password)
+        matrix_ready = bool(os.environ.get("MATRIX_BOT_TOKEN") or os.environ.get("MATRIX_BOT_PASSWORD"))
         homeserver = os.environ.get("MATRIX_HOMESERVER", "chat.windypro.com")
         if matrix_ready:
-            capabilities.append(("💬", f"Windy Chat — connected to {homeserver}", True))
+            table.add_row("Windy Chat", "[green]Active[/green]", f"@windyfly:{homeserver.replace('https://', '')}")
         else:
-            capabilities.append(("💬", "Windy Chat — ready to connect", False))
+            table.add_row("Windy Chat", "[dim]Pending[/dim]", "Ready to connect")
     else:
-        capabilities.append(("💬", f"Windy Chat — {matrix_user}", True))
+        table.add_row("Windy Chat", "[green]Active[/green]", matrix_user)
 
-    # ── Email (Windy Mail) ──
+    # ── Windy Mail ──
     email_addr = getattr(hatch_result, "email_address", "") if hatch_result else ""
     if not email_addr:
         email_addr = os.environ.get("WINDYMAIL_EMAIL", "") or os.environ.get("WINDYFLY_EMAIL_ADDRESS", "")
     if email_addr:
-        capabilities.append(("📧", f"Windy Mail — {email_addr}", True))
-    elif os.environ.get("SENDGRID_API_KEY"):
-        capabilities.append(("📧", "Email — SendGrid configured", True))
+        table.add_row("Windy Mail", "[green]Active[/green]", email_addr)
     else:
-        capabilities.append(("📧", "Windy Mail — pending", False))
+        table.add_row("Windy Mail", "[dim]Pending[/dim]", "Run hatch to provision")
 
-    # ── Phone / SMS ──
+    # ── Phone ──
     phone = getattr(hatch_result, "phone_number", "") if hatch_result else ""
     phone_mock = getattr(hatch_result, "phone_is_mock", False) if hatch_result else False
     if not phone:
         phone = os.environ.get("TWILIO_PHONE_NUMBER", "")
     if phone:
-        tag = " (local)" if phone_mock else ""
-        capabilities.append(("📱", f"Phone — {phone}{tag}", True))
+        tag = " (placeholder)" if phone_mock else ""
+        status = "[yellow]Stub[/yellow]" if phone_mock else "[green]Active[/green]"
+        table.add_row("Phone", status, f"{phone}{tag}")
     else:
-        capabilities.append(("📱", "Phone — add Twilio creds to enable", False))
-
-    # ── LLM Provider ──
-    model = getattr(hatch_result, "model_id", "") if hatch_result else ""
-    if not model:
-        model = os.environ.get("DEFAULT_MODEL", "")
-    if model:
-        capabilities.append(("🧠", f"AI Brain — {model}", True))
-
-    # ── Translation (Windy Pro API) ──
-    windy_jwt = os.environ.get("WINDY_JWT", "")
-    windy_api = os.environ.get("WINDY_API_URL", "")
-    if windy_jwt and windy_api:
-        capabilities.append(("🌍", "199 languages — Windy Traveler connected", True))
-    else:
-        capabilities.append(("🌍", "Translation — connect Windy Pro to enable", False))
-
-    # ── Trust Dashboard ──
-    capabilities.append(("🎛️", "Trust Dashboard — http://localhost:3000", True))
-
-    # ── Memory ──
-    capabilities.append(("🧬", "Memory — SQLite + vector search active", True))
+        table.add_row("Phone", "[dim]Pending[/dim]", "Add Twilio creds to enable")
 
     # ── Birth Certificate ──
     cert_num = getattr(hatch_result, "certificate_number", "") if hatch_result else ""
     cert_path = getattr(hatch_result, "birth_certificate_path", "") if hatch_result else ""
     if cert_num:
-        capabilities.append(("📜", f"Birth Certificate — {cert_num}", True))
+        detail = cert_path if cert_path else cert_num
+        table.add_row("Certificate", "[green]Ready[/green]", detail)
+    else:
+        table.add_row("Certificate", "[dim]Pending[/dim]", "Generated on hatch")
 
-    # ── Build the display ──
+    # ── Windy Word ──
+    windy_jwt = os.environ.get("WINDY_JWT", "")
+    windy_api = os.environ.get("WINDY_API_URL", "")
+    if windy_jwt and windy_api:
+        table.add_row("Windy Word", "[green]Linked[/green]", "Recordings + translations")
+    else:
+        table.add_row("Windy Word", "[dim]N/A[/dim]", "Connect Windy Pro to enable")
+
+    # ── Windy Cloud ──
+    cloud_url = os.environ.get("WINDY_CLOUD_URL", "")
+    if cloud_url:
+        table.add_row("Windy Cloud", "[green]Linked[/green]", "Backup + sync available")
+    else:
+        table.add_row("Windy Cloud", "[dim]N/A[/dim]", "Set WINDY_CLOUD_URL to enable")
+
+    # ── Windy Clone ──
+    if windy_jwt and windy_api:
+        table.add_row("Windy Clone", "[yellow]N/A[/yellow]", "Voice clone service available")
+    else:
+        table.add_row("Windy Clone", "[dim]N/A[/dim]", "Connect Windy Pro to enable")
+
     console.print()
-    lines = []
-    for icon, desc, active in capabilities:
-        if active:
-            lines.append(f"  [green]✓[/green] {icon}  {desc}")
-        else:
-            lines.append(f"  [dim]○[/dim] {icon}  [dim]{desc}[/dim]")
-
-    console.print(Panel(
-        "\n".join(lines),
-        title=f"[bold cyan]{BRAND_EMOJI} {'Born Into the Windy Ecosystem' if HAS_ECOSYSTEM else f'{BRAND_NAME} Status'}[/bold cyan]",
-        border_style="cyan",
-        padding=(1, 2),
-    ))
-
-    # Show birth certificate path if generated
-    if cert_path:
-        console.print(f"  [dim]📜 Birth certificate saved: {cert_path}[/dim]")
-
+    console.print(table)
     console.print()

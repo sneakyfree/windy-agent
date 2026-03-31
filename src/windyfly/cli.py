@@ -330,6 +330,9 @@ def main() -> None:
     # windy test — self-test
     sub.add_parser("test", help="Run self-test to verify the agent works")
 
+    # windy ecosystem — show ecosystem connections
+    sub.add_parser("ecosystem", help="Show ecosystem connection status")
+
     # windy go — the one-command quickstart
     go_parser = sub.add_parser("go", help="One-command quickstart — paste a key and go")
     go_parser.add_argument(
@@ -388,6 +391,7 @@ def main() -> None:
         "version": cmd_version,
         "chat": _cmd_chat,
         "test": _cmd_test,
+        "ecosystem": _cmd_ecosystem,
     }
 
     handler = commands.get(args.command)
@@ -408,6 +412,94 @@ def _cmd_test(_args: argparse.Namespace) -> None:
     """Run the agent self-test."""
     from windyfly.cli_selftest import run_self_test
     run_self_test()
+
+
+def _cmd_ecosystem(_args: argparse.Namespace) -> None:
+    """Show the agent's current ecosystem connections."""
+    from windyfly.hatching import show_ecosystem_status
+    from dotenv import load_dotenv
+
+    load_dotenv(PROJECT_ROOT / ".env")
+    show_ecosystem_status()
+
+    # Also show connectivity checks
+    _check_ecosystem_connectivity()
+
+
+def _check_ecosystem_connectivity() -> None:
+    """Check live connectivity to ecosystem services."""
+    import os
+
+    from rich.table import Table
+
+    table = Table(
+        title="Ecosystem Connectivity",
+        title_style="bold",
+        border_style="dim",
+        show_lines=True,
+    )
+    table.add_column("Service", style="bold", min_width=14)
+    table.add_column("Endpoint", min_width=30)
+    table.add_column("Status", min_width=8)
+    table.add_column("Latency", min_width=8)
+
+    checks = []
+
+    # Eternitas
+    passport = os.environ.get("ETERNITAS_PASSPORT", "")
+    eternitas_url = os.environ.get("ETERNITAS_API_URL", "")
+    if eternitas_url and passport:
+        checks.append(("Eternitas", f"{eternitas_url}/api/v1/registry/verify/{passport}"))
+    elif eternitas_url:
+        checks.append(("Eternitas", f"{eternitas_url}/health"))
+
+    # Windy Pro
+    windy_api = os.environ.get("WINDY_API_URL", "")
+    if windy_api:
+        checks.append(("Windy Pro", f"{windy_api}/health"))
+
+    # Matrix
+    matrix_hs = os.environ.get("MATRIX_HOMESERVER", "")
+    if matrix_hs:
+        checks.append(("Matrix", f"{matrix_hs}/_matrix/client/versions"))
+
+    # Windy Mail
+    mail_url = os.environ.get("WINDYMAIL_API_URL", "")
+    if mail_url:
+        checks.append(("Windy Mail", f"{mail_url}/health"))
+
+    # Windy Cloud
+    cloud_url = os.environ.get("WINDY_CLOUD_URL", "")
+    if cloud_url:
+        checks.append(("Windy Cloud", f"{cloud_url}/api/storage/health"))
+
+    if not checks:
+        console.print("  [dim]No ecosystem services configured. Set env vars to enable checks.[/dim]")
+        console.print()
+        return
+
+    import time
+    try:
+        import httpx
+    except ImportError:
+        console.print("  [dim]httpx not available for connectivity checks[/dim]")
+        return
+
+    for name, url in checks:
+        start = time.time()
+        try:
+            r = httpx.get(url, timeout=5)
+            elapsed = (time.time() - start) * 1000
+            if r.status_code < 500:
+                table.add_row(name, url, "[green]PASS[/green]", f"{elapsed:.0f}ms")
+            else:
+                table.add_row(name, url, "[red]FAIL[/red]", f"{r.status_code}")
+        except Exception as e:
+            elapsed = (time.time() - start) * 1000
+            table.add_row(name, url, "[red]FAIL[/red]", f"{elapsed:.0f}ms")
+
+    console.print(table)
+    console.print()
 
 
 if __name__ == "__main__":

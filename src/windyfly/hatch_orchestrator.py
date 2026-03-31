@@ -98,6 +98,9 @@ async def orchestrate_hatch(
     # Step 6: SMS-on-hatch
     await _step_hatch_sms(result)
 
+    # Save recovery file if any provisioning steps failed
+    _save_recovery(result)
+
     return result
 
 
@@ -275,3 +278,127 @@ def run_hatch(
     return asyncio.run(
         orchestrate_hatch(agent_name, owner_id, owner_name, config, db)
     )
+
+
+# ---------------------------------------------------------------------------
+# Provisioning recovery
+# ---------------------------------------------------------------------------
+
+import json
+from pathlib import Path
+from datetime import datetime, timezone
+
+_RECOVERY_PATH = Path("data/provision_recovery.json")
+
+
+def _save_recovery(result: HatchResult) -> None:
+    """Save a recovery file if any provisioning steps failed."""
+    failed_steps: list[str] = []
+
+    if not result.passport_id:
+        failed_steps.append("eternitas")
+    if not result.matrix_provisioned:
+        # Matrix failure is expected without Synapse secret — only track
+        # if it was attempted and failed with a real error
+        matrix_errors = [e for e in result.errors if e.startswith("Matrix:") and "not set" not in e.lower()]
+        if matrix_errors:
+            failed_steps.append("matrix")
+    if not result.mail_provisioned:
+        mail_errors = [e for e in result.errors if e.startswith("Mail:") and "no credentials" not in e.lower()]
+        if mail_errors:
+            failed_steps.append("mail")
+    if not result.phone_provisioned:
+        phone_errors = [e for e in result.errors if e.startswith("Phone:")]
+        if phone_errors:
+            failed_steps.append("phone")
+
+    if not failed_steps:
+        # All good — remove recovery file if it exists
+        _RECOVERY_PATH.unlink(missing_ok=True)
+        return
+
+    # Read existing retry count
+    retry_count = 0
+    if _RECOVERY_PATH.exists():
+        try:
+            existing = json.loads(_RECOVERY_PATH.read_text())
+            retry_count = existing.get("retry_count", 0)
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    _RECOVERY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _RECOVERY_PATH.write_text(json.dumps({
+        "failed_steps": failed_steps,
+        "last_attempt": datetime.now(timezone.utc).isoformat(),
+        "retry_count": retry_count,
+        "agent_name": result.agent_name,
+        "passport_id": result.passport_id,
+        "errors": result.errors,
+    }, indent=2))
+    logger.info("Provisioning recovery saved: %s", failed_steps)
+
+
+async def retry_failed_provisioning(db=None) -> HatchResult | None:
+    """Retry provisioning steps that failed during hatch.
+
+    Reads data/provision_recovery.json, retries each failed step,
+    removes steps that succeed, and deletes the file when all pass.
+
+    Returns:
+        Updated HatchResult or None if no recovery needed.
+    """
+    if not _RECOVERY_PATH.exists():
+        return None
+
+    try:
+        recovery = json.loads(_RECOVERY_PATH.read_text())
+    except (json.JSONDecodeError, OSError):
+        _RECOVERY_PATH.unlink(missing_ok=True)
+        return None
+
+    failed_steps = recovery.get("failed_steps", [])
+    if not failed_steps:
+        _RECOVERY_PATH.unlink(missing_ok=True)
+        return None
+
+    agent_name = recovery.get("agent_name", "")
+    passport_id = recovery.get("passport_id", "")
+
+    result = HatchResult(
+        agent_name=agent_name,
+        passport_id=passport_id,
+        passport_status="active" if passport_id else "",
+    )
+
+    # Retry each failed step
+    if "eternitas" in failed_steps:
+        await _step_eternitas(result, agent_name, "", "", db)
+        if result.passport_id:
+            failed_steps.remove("eternitas")
+
+    if "matrix" in failed_steps:
+        await _step_matrix(result)
+        if result.matrix_provisioned:
+            failed_steps.remove("matrix")
+
+    if "mail" in failed_steps:
+        await _step_mail(result, agent_name, db)
+        if result.mail_provisioned:
+            failed_steps.remove("mail")
+
+    if "phone" in failed_steps:
+        await _step_phone(result, agent_name, db)
+        if result.phone_provisioned:
+            failed_steps.remove("phone")
+
+    if not failed_steps:
+        _RECOVERY_PATH.unlink(missing_ok=True)
+        logger.info("All provisioning steps recovered successfully")
+    else:
+        recovery["failed_steps"] = failed_steps
+        recovery["retry_count"] = recovery.get("retry_count", 0) + 1
+        recovery["last_attempt"] = datetime.now(timezone.utc).isoformat()
+        _RECOVERY_PATH.write_text(json.dumps(recovery, indent=2))
+        logger.warning("Provisioning recovery incomplete: %s still failing", failed_steps)
+
+    return result
