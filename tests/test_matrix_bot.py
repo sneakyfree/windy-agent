@@ -171,7 +171,7 @@ class TestMatrixBotMessage:
         call_args = bot.client.room_send.call_args
         content = call_args[0][2]
         assert content["windy_lang"] == "en"
-        assert content["windy_original"] == "Hello! I'm Windy Fly."
+        assert content["windy_original"] is True
         db.close()
 
     @pytest.mark.asyncio

@@ -25,7 +25,8 @@ class TestMockMailProvisioning:
         result = await server.provision_inbox("test-fly", "ET-L00001")
         assert result["email"] == "test-fly@windymail.ai"
         assert result["jmap_token"].startswith("mock-jmap-")
-        assert result["password"] != ""
+        assert result["smtp_password"] != ""
+        assert result["imap_password"] != ""
 
     async def test_provision_idempotent(self, server):
         r1 = await server.provision_inbox("fly", "ET-L00001")

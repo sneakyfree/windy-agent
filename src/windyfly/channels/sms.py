@@ -141,8 +141,9 @@ class WindyFlySMS:
         import urllib.request
         import urllib.parse
 
-        # Truncate to SMS limit
+        # Truncate to SMS limit with warning
         if len(message) > 1600:
+            logger.warning("SMS message truncated from %d to 1600 chars", len(message))
             message = message[:1597] + "..."
 
         url = f"https://api.twilio.com/2010-04-01/Accounts/{self.account_sid}/Messages.json"
@@ -221,3 +222,36 @@ def create_webhook_handler(sms: WindyFlySMS):
         # Return TwiML response
         return f"<Response><Message>{response}</Message></Response>"
     return handle_twilio_webhook
+
+
+def verify_twilio_signature(
+    auth_token: str,
+    url: str,
+    params: dict[str, str],
+    signature: str,
+) -> bool:
+    """Verify a Twilio webhook signature to prevent spoofing.
+
+    Twilio signs every webhook request. This function recomputes the
+    expected signature and compares it to the provided one.
+
+    Args:
+        auth_token: Twilio auth token (the signing secret).
+        url: The full webhook URL that Twilio called.
+        params: POST parameters as a dict.
+        signature: The X-Twilio-Signature header value.
+
+    Returns:
+        True if the signature is valid.
+    """
+    import base64
+
+    # Build the validation string: URL + sorted POST params
+    data = url + "".join(f"{k}{params[k]}" for k in sorted(params))
+    computed = hmac.new(
+        auth_token.encode(),
+        data.encode(),
+        hashlib.sha1,
+    ).digest()
+    expected = base64.b64encode(computed).decode()
+    return hmac.compare_digest(expected, signature)

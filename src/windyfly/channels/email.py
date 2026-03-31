@@ -48,6 +48,9 @@ class WindyMailAdapter:
     def send_email(self, to: str, subject: str, body: str) -> dict[str, Any]:
         """Send an email via Windy Mail API.
 
+        POST /api/v1/send
+        Auth: Authorization: Bearer <jmap_token>
+
         Args:
             to: Recipient email address.
             subject: Email subject.
@@ -61,9 +64,14 @@ class WindyMailAdapter:
         try:
             resp = _httpx.post(
                 f"{self.api_url}/api/v1/send",
-                json={"from": self.email, "to": to, "subject": subject, "body": body},
+                json={
+                    "to": [to],
+                    "subject": subject,
+                    "body": body,
+                    "mode": "independent",
+                },
                 headers={"Authorization": f"Bearer {self.jmap_token}"},
-                timeout=30.0,
+                timeout=10.0,
             )
             if resp.status_code in (200, 201, 202):
                 data = resp.json()

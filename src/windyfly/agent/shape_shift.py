@@ -84,6 +84,12 @@ def shape_shift(
         yield shifted
     finally:
         # 3. Pop and restore original sliders
+        # Clear any pending transaction state (e.g. after an exception
+        # inside the context manager left SQLite mid-transaction).
+        try:
+            db.conn.rollback()
+        except Exception:
+            pass
         if _saved_sliders:
             restore = _saved_sliders.pop()
         else:

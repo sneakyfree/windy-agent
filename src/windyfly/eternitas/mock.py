@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS eternitas_registry (
     owner_id TEXT DEFAULT '',
     owner_name TEXT DEFAULT '',
     status TEXT DEFAULT 'active',
+    trust_score INTEGER DEFAULT 70,
     provisioned_services JSON DEFAULT '{}',
     credentials JSON DEFAULT '{}',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -66,10 +67,12 @@ class MockEternitasClient:
 
     async def register(self, request: RegistrationRequest) -> EternitasPassport:
         """Register a new bot locally."""
+        agent_name = request.name
+
         # Check for existing registration
         existing = self.db.fetchone(
             "SELECT * FROM eternitas_registry WHERE agent_name = ? AND status = 'active'",
-            (request.agent_name,),
+            (agent_name,),
         )
         if existing:
             return self._row_to_passport(existing)
@@ -80,20 +83,21 @@ class MockEternitasClient:
 
         self.db.execute(
             """INSERT INTO eternitas_registry
-               (id, passport_id, agent_name, owner_id, owner_name, status, created_at)
-               VALUES (?, ?, ?, ?, ?, 'active', ?)""",
-            (row_id, passport_id, request.agent_name, request.owner_id,
+               (id, passport_id, agent_name, owner_id, owner_name, status, trust_score, created_at)
+               VALUES (?, ?, ?, ?, ?, 'active', 70, ?)""",
+            (row_id, passport_id, agent_name, request.owner_id,
              request.owner_name, now.isoformat()),
         )
         self.db.commit()
-        logger.info("Mock Eternitas: registered %s as %s", request.agent_name, passport_id)
+        logger.info("Mock Eternitas: registered %s as %s", agent_name, passport_id)
 
         return EternitasPassport(
             passport_id=passport_id,
-            agent_name=request.agent_name,
-            owner_id=request.owner_id,
-            owner_name=request.owner_name,
+            name=agent_name,
+            ept_token=f"mock-ept-{row_id}",
+            api_key=f"et_live_mock_{row_id[:8]}",
             status="active",
+            trust_score=70,
             issued_at=now,
         )
 
@@ -181,10 +185,11 @@ class MockEternitasClient:
         credentials = json.loads(row.get("credentials", "{}") or "{}")
         return EternitasPassport(
             passport_id=row["passport_id"],
-            agent_name=row["agent_name"],
-            owner_id=row.get("owner_id", ""),
-            owner_name=row.get("owner_name", ""),
+            name=row["agent_name"],
+            ept_token=f"mock-ept-{row['id']}",
+            api_key=f"et_live_mock_{row['id'][:8]}",
             status=row["status"],
+            trust_score=row.get("trust_score", 70),
             issued_at=row.get("created_at", datetime.now(timezone.utc)),
             provisioned_services=services,
             credentials=credentials,

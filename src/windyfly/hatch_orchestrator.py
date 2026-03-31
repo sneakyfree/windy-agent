@@ -116,7 +116,11 @@ async def _step_eternitas(
         client = get_eternitas_client(db=db)
         passport = await client.register(
             RegistrationRequest(
-                agent_name=agent_name,
+                name=agent_name,
+                description=f"Windy Fly agent for {owner_name or owner_id or 'user'}",
+                bot_type="personal_assistant",
+                contact_email=os.environ.get("OWNER_EMAIL", ""),
+                intended_platforms=["windy_chat", "windy_mail"],
                 owner_id=owner_id,
                 owner_name=owner_name,
                 model_id=os.environ.get("DEFAULT_MODEL", ""),
@@ -169,7 +173,8 @@ async def _step_mail(result: HatchResult, agent_name: str, db) -> None:
         from windyfly.mail_provision import provision_mail
 
         mail_result = await provision_mail(
-            agent_name, result.passport_id, ""
+            agent_name, result.passport_id, owner_id,
+            windy_identity_id=os.environ.get("WINDY_IDENTITY_ID", owner_id),
         )
         if mail_result:
             result.email_address = mail_result.get("email", "")

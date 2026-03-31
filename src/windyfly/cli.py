@@ -181,43 +181,9 @@ def cmd_stop(_args: argparse.Namespace) -> None:
 
 
 def cmd_status(_args: argparse.Namespace) -> None:
-    """Show status of Windy Fly processes."""
-    from rich.table import Table
-
-    table = Table(title="🪰 Windy Fly Status", border_style="cyan")
-    table.add_column("Component", style="bold")
-    table.add_column("PID", style="dim")
-    table.add_column("Status")
-
-    if PID_FILE.exists():
-        pids = PID_FILE.read_text().strip().split("\n")
-        labels = ["Brain", "Gateway"]
-        for i, pid_str in enumerate(pids):
-            try:
-                pid = int(pid_str.strip())
-                alive = process_alive(pid)
-                label = labels[i] if i < len(labels) else f"Process {i}"
-                status = "[green]● Running[/green]" if alive else "[red]● Stopped[/red]"
-                table.add_row(label, str(pid), status)
-            except ValueError:
-                pass
-    else:
-        table.add_row("Brain", "-", "[red]● Not started[/red]")
-        table.add_row("Gateway", "-", "[red]● Not started[/red]")
-
-    # Check if gateway is reachable
-    try:
-        import httpx
-        r = httpx.get("http://localhost:3000/api/health", timeout=2)
-        if r.status_code == 200:
-            data = r.json()
-            brain_status = "[green]● Connected[/green]" if data.get("brain_connected") else "[yellow]● Disconnected[/yellow]"
-            table.add_row("Brain ↔ Gateway", "", brain_status)
-            table.add_row("Dashboard", "", "[green]● http://localhost:3000[/green]")
-    except Exception:
-        table.add_row("Dashboard", "", "[red]● Unreachable[/red]")
-
-    console.print(table)
+    """Show comprehensive agent status using the rich tree display."""
+    from windyfly.cli_status import print_status
+    print_status()
 
 
 def cmd_setup(_args: argparse.Namespace) -> None:

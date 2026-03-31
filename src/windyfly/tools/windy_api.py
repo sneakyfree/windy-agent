@@ -52,29 +52,43 @@ def get_translation_history(limit: int = 10) -> dict[str, Any]:
         )
         response.raise_for_status()
         return response.json()
+    except httpx.ConnectError as e:
+        logger.error("Windy Pro is not available: %s", e)
+        return {"error": "Windy Pro is not available right now", "translations": []}
     except httpx.HTTPError as e:
         logger.error("Failed to get translation history: %s", e)
         return {"error": str(e), "translations": []}
 
 
-def get_recordings(limit: int = 10) -> dict[str, Any]:
+def get_recordings(limit: int = 10, query: str = "") -> dict[str, Any]:
     """Get recent voice recordings from Windy Pro.
 
     Args:
         limit: Maximum number of recordings to return.
+        query: Optional search query to filter recordings.
 
     Returns:
-        Dict with recordings data.
+        Dict with recordings data. Returns empty list if no cloud-synced
+        recordings are available (desktop recordings are local SQLite).
     """
     try:
+        params: dict[str, Any] = {"limit": limit}
+        if query:
+            params["q"] = query
         response = httpx.get(
             f"{_get_api_url()}/api/v1/recordings/list",
             headers=_get_auth_headers(),
-            params={"limit": limit},
+            params=params,
             timeout=_TIMEOUT,
         )
         response.raise_for_status()
-        return response.json()
+        data = response.json()
+        if not data.get("recordings"):
+            return {"recordings": [], "message": "No cloud-synced recordings found. Desktop recordings are stored locally."}
+        return data
+    except httpx.ConnectError as e:
+        logger.error("Windy Pro is not available: %s", e)
+        return {"error": "Windy Pro is not available right now", "recordings": []}
     except httpx.HTTPError as e:
         logger.error("Failed to get recordings: %s", e)
         return {"error": str(e), "recordings": []}
@@ -85,6 +99,7 @@ def get_clone_status() -> dict[str, Any]:
 
     Returns:
         Dict with clone readiness, phoneme coverage, hours recorded.
+        Returns a friendly message if the clone service is not yet available.
     """
     try:
         response = httpx.get(
@@ -94,9 +109,18 @@ def get_clone_status() -> dict[str, Any]:
         )
         response.raise_for_status()
         return response.json()
+    except httpx.ConnectError:
+        logger.info("Clone service not available (connection error)")
+        return {"message": "Clone service is not available right now", "available": False}
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            logger.info("Clone service endpoint not found — service may not be deployed yet")
+            return {"message": "Clone service is not available yet", "available": False}
+        logger.error("Failed to get clone status: %s", e)
+        return {"error": str(e), "available": False}
     except httpx.HTTPError as e:
         logger.error("Failed to get clone status: %s", e)
-        return {"error": str(e)}
+        return {"message": "Clone service is not available right now", "available": False}
 
 
 def translate_text(
@@ -127,6 +151,9 @@ def translate_text(
         )
         response.raise_for_status()
         return response.json()
+    except httpx.ConnectError as e:
+        logger.error("Windy Pro is not available: %s", e)
+        return {"error": "Windy Pro is not available right now"}
     except httpx.HTTPError as e:
         logger.error("Failed to translate text: %s", e)
         return {"error": str(e)}
@@ -161,7 +188,8 @@ def register_windy_tools(registry: ToolRegistry) -> None:
         name="get_recordings",
         description=(
             "Get the user's recent voice recordings from Windy Pro. "
-            "Returns a list of recordings with timestamps and durations."
+            "Returns a list of recordings with timestamps and durations. "
+            "Note: desktop recordings are local — only cloud-synced recordings appear here."
         ),
         parameters={
             "type": "object",
@@ -169,6 +197,10 @@ def register_windy_tools(registry: ToolRegistry) -> None:
                 "limit": {
                     "type": "integer",
                     "description": "Maximum number of recordings to return (default: 10)",
+                },
+                "query": {
+                    "type": "string",
+                    "description": "Optional search query to filter recordings",
                 },
             },
             "required": [],
@@ -180,7 +212,8 @@ def register_windy_tools(registry: ToolRegistry) -> None:
         name="get_clone_status",
         description=(
             "Get the user's voice clone training status from Windy Pro. "
-            "Returns clone readiness, phoneme coverage percentage, and hours recorded."
+            "Returns clone readiness, phoneme coverage percentage, and hours recorded. "
+            "May return 'not available' if the clone service is not yet deployed."
         ),
         parameters={
             "type": "object",

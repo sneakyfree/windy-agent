@@ -72,7 +72,11 @@ async def _do_provision(
 
     # Register new bot
     request = RegistrationRequest(
-        agent_name=agent_name,
+        name=agent_name,
+        description=f"Windy Fly agent for {owner_name or owner_id or 'user'}",
+        bot_type="personal_assistant",
+        contact_email=os.environ.get("OWNER_EMAIL", ""),
+        intended_platforms=["windy_chat", "windy_mail"],
         owner_id=owner_id,
         owner_name=owner_name,
         model_id=os.environ.get("DEFAULT_MODEL", ""),

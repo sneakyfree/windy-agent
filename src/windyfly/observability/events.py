@@ -27,6 +27,7 @@ EVENT_TYPES = frozenset({
     "matrix.message",
     "matrix.reconnect",
     "personality.change",
+    "personality_drift",
     "offline.fallback",
     "sub_agent.spawn",
     "shape_shift.enter",

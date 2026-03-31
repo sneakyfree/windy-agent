@@ -139,6 +139,16 @@ class TestWindyToolRegistration:
         assert "source_lang" in params["required"]
         assert "target_lang" in params["required"]
 
+    def test_recordings_schema_has_query_param(self):
+        registry = ToolRegistry()
+        register_windy_tools(registry)
+        schemas = registry.get_schemas()
+        rec_schema = next(
+            s for s in schemas if s["function"]["name"] == "get_recordings"
+        )
+        params = rec_schema["function"]["parameters"]
+        assert "query" in params["properties"]
+
 
 # === Windy API Tool Implementations (mocked) ===
 
@@ -160,12 +170,36 @@ class TestWindyApiTools:
     @patch("windyfly.tools.windy_api.httpx.get")
     def test_get_recordings(self, mock_get):
         mock_response = MagicMock()
-        mock_response.json.return_value = {"recordings": []}
+        mock_response.json.return_value = {"recordings": [{"id": "r1"}]}
         mock_response.raise_for_status = MagicMock()
         mock_get.return_value = mock_response
 
         result = get_recordings()
         assert "recordings" in result
+
+    @patch("windyfly.tools.windy_api.httpx.get")
+    def test_get_recordings_empty(self, mock_get):
+        """Empty recordings returns friendly message about local storage."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"recordings": []}
+        mock_response.raise_for_status = MagicMock()
+        mock_get.return_value = mock_response
+
+        result = get_recordings()
+        assert result["recordings"] == []
+        assert "local" in result.get("message", "").lower()
+
+    @patch("windyfly.tools.windy_api.httpx.get")
+    def test_get_recordings_with_query(self, mock_get):
+        """Recordings search passes query parameter."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"recordings": []}
+        mock_response.raise_for_status = MagicMock()
+        mock_get.return_value = mock_response
+
+        get_recordings(query="meeting")
+        call_kwargs = mock_get.call_args
+        assert "q" in call_kwargs.kwargs.get("params", {}) or "q" in (call_kwargs[1].get("params", {}))
 
     @patch("windyfly.tools.windy_api.httpx.get")
     def test_get_clone_status(self, mock_get):
@@ -178,6 +212,28 @@ class TestWindyApiTools:
 
         result = get_clone_status()
         assert "ready" in result
+
+    @patch("windyfly.tools.windy_api.httpx.get")
+    def test_get_clone_status_not_available(self, mock_get):
+        """Clone status returns friendly message when service unavailable."""
+        import httpx
+        mock_get.side_effect = httpx.ConnectError("Connection refused")
+
+        result = get_clone_status()
+        assert result["available"] is False
+        assert "not available" in result.get("message", "")
+
+    @patch("windyfly.tools.windy_api.httpx.get")
+    def test_get_clone_status_404(self, mock_get):
+        """Clone status returns friendly message when endpoint doesn't exist."""
+        import httpx
+        mock_response = MagicMock()
+        mock_response.status_code = 404
+        response = httpx.Response(404, request=httpx.Request("GET", "http://test"))
+        mock_get.side_effect = httpx.HTTPStatusError("Not found", request=response.request, response=response)
+
+        result = get_clone_status()
+        assert result["available"] is False
 
     @patch("windyfly.tools.windy_api.httpx.post")
     def test_translate_text(self, mock_post):
@@ -196,3 +252,29 @@ class TestWindyApiTools:
 
         result = get_translation_history()
         assert "error" in result
+        assert "not available" in result["error"].lower()
+
+    @patch("windyfly.tools.windy_api.httpx.get")
+    def test_register_adds_to_registry(self, mock_get):
+        """Verify tools are callable through the registry."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"translations": []}
+        mock_response.raise_for_status = MagicMock()
+        mock_get.return_value = mock_response
+
+        registry = ToolRegistry()
+        register_windy_tools(registry)
+        result = registry.execute("get_translation_history", {"limit": 5})
+        assert "translations" in result
+
+    @patch("windyfly.tools.windy_api.httpx.get")
+    def test_respects_limit(self, mock_get):
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"translations": []}
+        mock_response.raise_for_status = MagicMock()
+        mock_get.return_value = mock_response
+
+        get_translation_history(limit=3)
+        call_kwargs = mock_get.call_args
+        params = call_kwargs.kwargs.get("params", call_kwargs[1].get("params", {}))
+        assert params["limit"] == 3

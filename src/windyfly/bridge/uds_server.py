@@ -233,10 +233,18 @@ class UDSBridge:
     async def _handle_email_inbound(self, params: dict) -> dict:
         from windyfly.channels.email import WindyFlyEmail
         email = WindyFlyEmail(self.config, self.db, self.write_queue)
+        # SendGrid sends: from, subject, text (or html)
+        # Also handle: envelope → from, subject, plain
+        from_addr = params.get("from", params.get("sender", ""))
+        if isinstance(from_addr, str) and "<" in from_addr:
+            # Extract email from "Name <email>" format
+            import re
+            match = re.search(r"<(.+?)>", from_addr)
+            from_addr = match.group(1) if match else from_addr
         response = email.handle_inbound(
-            params.get("from", ""),
+            from_addr,
             params.get("subject", ""),
-            params.get("text", params.get("body", "")),
+            params.get("text", params.get("plain", params.get("body", ""))),
         )
         return {"response": response}
 
@@ -357,9 +365,9 @@ class UDSBridge:
         return {"batch_id": batch_id}
 
     async def _handle_personality_drift(self, params: dict) -> dict:
-        from windyfly.personality.versioning import detect_drift
+        from windyfly.personality.versioning import detect_and_log_drift
         user_id = params.get("user_id", "default")
-        drift = detect_drift(self.db, user_id=user_id)
+        drift = detect_and_log_drift(self.db, self.write_queue, user_id=user_id)
         return {"drift": drift}
 
     async def _handle_personality_rollback(self, params: dict) -> dict:

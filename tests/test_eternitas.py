@@ -30,30 +30,32 @@ def client(db):
 
 class TestRegistration:
     async def test_register_new_bot(self, client):
-        req = RegistrationRequest(agent_name="test-fly", owner_id="owner-1")
+        req = RegistrationRequest(name="test-fly", owner_id="owner-1")
         passport = await client.register(req)
 
         assert passport.passport_id.startswith("ET-L")
         assert passport.agent_name == "test-fly"
-        assert passport.owner_id == "owner-1"
         assert passport.status == "active"
+        assert passport.trust_score == 70
+        assert passport.ept_token != ""
+        assert passport.api_key.startswith("et_live_")
 
     async def test_register_idempotent(self, client):
         """Registering the same agent twice returns the same passport."""
-        req = RegistrationRequest(agent_name="same-fly")
+        req = RegistrationRequest(name="same-fly")
         p1 = await client.register(req)
         p2 = await client.register(req)
         assert p1.passport_id == p2.passport_id
 
     async def test_register_different_agents(self, client):
         """Different agents get different passport IDs."""
-        p1 = await client.register(RegistrationRequest(agent_name="fly-a"))
-        p2 = await client.register(RegistrationRequest(agent_name="fly-b"))
+        p1 = await client.register(RegistrationRequest(name="fly-a"))
+        p2 = await client.register(RegistrationRequest(name="fly-b"))
         assert p1.passport_id != p2.passport_id
 
     async def test_passport_id_format(self, client):
         """Passport IDs have the format ET-LXXXXX."""
-        req = RegistrationRequest(agent_name="format-test")
+        req = RegistrationRequest(name="format-test")
         passport = await client.register(req)
         assert passport.passport_id.startswith("ET-L")
         # The numeric part should be zero-padded to 5 digits
@@ -61,10 +63,25 @@ class TestRegistration:
         assert len(num_part) == 5
         assert num_part.isdigit()
 
+    async def test_registration_request_api_payload(self, client):
+        """API payload should contain the correct fields."""
+        req = RegistrationRequest(
+            name="payload-fly",
+            description="Test bot",
+            bot_type="personal_assistant",
+            contact_email="test@test.com",
+            intended_platforms=["windy_chat"],
+        )
+        payload = req.to_api_payload()
+        assert payload["name"] == "payload-fly"
+        assert payload["bot_type"] == "personal_assistant"
+        assert payload["contact_email"] == "test@test.com"
+        assert payload["intended_platforms"] == ["windy_chat"]
+
 
 class TestVerify:
     async def test_verify_active_passport(self, client):
-        req = RegistrationRequest(agent_name="verify-fly")
+        req = RegistrationRequest(name="verify-fly")
         passport = await client.register(req)
 
         verified = await client.verify(passport.passport_id)
@@ -77,7 +94,7 @@ class TestVerify:
         assert result is None
 
     async def test_verify_revoked(self, client):
-        req = RegistrationRequest(agent_name="revoke-verify-fly")
+        req = RegistrationRequest(name="revoke-verify-fly")
         passport = await client.register(req)
         await client.revoke(passport.passport_id)
 
@@ -88,7 +105,7 @@ class TestVerify:
 
 class TestLookup:
     async def test_lookup_existing(self, client):
-        req = RegistrationRequest(agent_name="lookup-fly", owner_id="owner-x")
+        req = RegistrationRequest(name="lookup-fly", owner_id="owner-x")
         await client.register(req)
 
         identity = await client.lookup("lookup-fly")
@@ -103,7 +120,7 @@ class TestLookup:
 
 class TestRevocation:
     async def test_revoke_active(self, client):
-        req = RegistrationRequest(agent_name="revoke-fly")
+        req = RegistrationRequest(name="revoke-fly")
         passport = await client.register(req)
 
         result = await client.revoke(passport.passport_id)
@@ -117,7 +134,7 @@ class TestRevocation:
 
     async def test_revoke_cascade_reports_services(self, client):
         """Revocation should report which services were torn down."""
-        req = RegistrationRequest(agent_name="cascade-fly")
+        req = RegistrationRequest(name="cascade-fly")
         passport = await client.register(req)
 
         # Add some services
@@ -133,7 +150,7 @@ class TestRevocation:
 
     async def test_lookup_after_revoke_returns_none(self, client):
         """Revoked bots should not appear in lookup."""
-        req = RegistrationRequest(agent_name="gone-fly")
+        req = RegistrationRequest(name="gone-fly")
         passport = await client.register(req)
         await client.revoke(passport.passport_id)
 
@@ -143,7 +160,7 @@ class TestRevocation:
 
 class TestUpdateServices:
     async def test_update_services(self, client):
-        req = RegistrationRequest(agent_name="service-fly")
+        req = RegistrationRequest(name="service-fly")
         passport = await client.register(req)
 
         updated = await client.update_services(passport.passport_id, {
@@ -153,7 +170,7 @@ class TestUpdateServices:
 
     async def test_update_services_merge(self, client):
         """Subsequent updates should merge, not replace."""
-        req = RegistrationRequest(agent_name="merge-fly")
+        req = RegistrationRequest(name="merge-fly")
         passport = await client.register(req)
 
         await client.update_services(passport.passport_id, {"matrix": "user1"})
@@ -171,12 +188,30 @@ class TestModels:
     def test_registration_request_validation(self):
         """Agent name is required and non-empty."""
         with pytest.raises(Exception):
-            RegistrationRequest(agent_name="")
+            RegistrationRequest(name="")
 
     def test_passport_defaults(self):
-        p = EternitasPassport(passport_id="ET-L00001", agent_name="test")
+        p = EternitasPassport(passport_id="ET-L00001", name="test")
         assert p.status == "active"
+        assert p.trust_score == 70
         assert p.provisioned_services == {}
+        assert p.agent_name == "test"
+
+    def test_passport_from_api_response(self):
+        data = {
+            "passport": "ET-00482",
+            "name": "test-bot",
+            "ept_token": "JWT...",
+            "api_key": "et_live_XXXXX",
+            "status": "active",
+            "trust_score": 70,
+        }
+        p = EternitasPassport.from_api_response(data)
+        assert p.passport_id == "ET-00482"
+        assert p.name == "test-bot"
+        assert p.ept_token == "JWT..."
+        assert p.api_key == "et_live_XXXXX"
+        assert p.trust_score == 70
 
     def test_revocation_result_defaults(self):
         r = RevocationResult(passport_id="ET-L00001")

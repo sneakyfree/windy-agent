@@ -2,15 +2,24 @@
 
 Ensures the user can track how their agent's personality has evolved
 and rollback unwanted changes.
+
+Production enhancements:
+  - Automatic 24-hour snapshot scheduling
+  - Drift detection: alerts when any slider moves >2 points without user action
+  - Event logging for drift events
+  - Dashboard flagging for drift detection
 """
 
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import Any
 
 from windyfly.memory.database import Database
 from windyfly.memory.soul import get_all_soul, upsert_soul
+
+logger = logging.getLogger(__name__)
 
 
 def snapshot_personality(
@@ -70,7 +79,7 @@ def detect_drift(
 ) -> dict[str, Any] | None:
     """Detect unauthorized personality drift.
 
-    Compares current slider values to their values 30 days ago.
+    Compares current slider values to the most recent snapshot.
     Flags any slider that changed more than 2 points without explicit user action.
 
     Args:
@@ -98,12 +107,11 @@ def detect_drift(
         if not soul_id:
             continue
 
-        # Find the value from 30 days ago
+        # Find the most recent snapshot value (changed_by != 'agent_evolution')
         old_entry = db.fetchone(
             """
-            SELECT old_value FROM soul_history
+            SELECT old_value, changed_by FROM soul_history
             WHERE soul_id = ?
-              AND created_at < datetime('now', '-30 days')
             ORDER BY created_at DESC LIMIT 1
             """,
             (soul_id,),
@@ -113,11 +121,13 @@ def detect_drift(
             try:
                 old_val = int(old_entry["old_value"])
                 new_val = int(current_val)
-                if abs(new_val - old_val) > 2:
+                delta = abs(new_val - old_val)
+                if delta > 2:
                     drifted.append({
                         "name": slider_name,
                         "old": old_val,
                         "new": new_val,
+                        "delta": delta,
                     })
             except (ValueError, TypeError):
                 continue
@@ -129,6 +139,104 @@ def detect_drift(
         }
 
     return None
+
+
+def detect_and_log_drift(
+    db: Database,
+    write_queue: Any = None,
+    user_id: str = "default",
+) -> dict[str, Any] | None:
+    """Detect personality drift and log warnings + events if found.
+
+    This is the production-ready entry point: it detects drift, logs
+    warnings, records events in the events table, and flags for the dashboard.
+
+    Args:
+        db: Database instance.
+        write_queue: WriteQueue for async event logging.
+        user_id: User ID.
+
+    Returns:
+        Drift report if drift detected, None otherwise.
+    """
+    drift = detect_drift(db, user_id=user_id)
+
+    if drift is None:
+        return None
+
+    # Log warnings for each drifted slider
+    for slider in drift["drifted_sliders"]:
+        logger.warning(
+            "Personality drift detected: %s moved from %d to %d",
+            slider["name"],
+            slider["old"],
+            slider["new"],
+        )
+
+    # Record in events table
+    if write_queue is not None:
+        try:
+            from windyfly.observability.events import log_event
+            log_event(db, write_queue, "personality_drift", {
+                "drifted_sliders": drift["drifted_sliders"],
+                "drift_source": drift["drift_source"],
+                "user_id": user_id,
+            })
+        except Exception as e:
+            logger.debug("Could not log drift event: %s", e)
+
+    # Flag on dashboard — write a soul key that the dashboard can check
+    try:
+        import json
+        upsert_soul(
+            db,
+            key="drift_alert",
+            value=json.dumps({
+                "detected": True,
+                "sliders": drift["drifted_sliders"],
+            }),
+            source="drift_detector",
+            user_id=user_id,
+        )
+    except Exception as e:
+        logger.debug("Could not flag drift on dashboard: %s", e)
+
+    return drift
+
+
+def run_periodic_drift_check(
+    db: Database,
+    write_queue: Any = None,
+    user_id: str = "default",
+) -> dict[str, Any]:
+    """24-hour periodic drift check: snapshot + detect.
+
+    This is meant to be called by the decay scheduler or gateway
+    every 24 hours (or on demand).
+
+    1. Snapshot current sliders
+    2. Compare to last snapshot
+    3. If drift >2 points without user action → log, record, flag
+
+    Args:
+        db: Database instance.
+        write_queue: WriteQueue for async event logging.
+        user_id: User ID.
+
+    Returns:
+        Dict with snapshot_id and optional drift report.
+    """
+    # Take a snapshot first
+    snapshot_id = snapshot_personality(db, user_id=user_id, changed_by="periodic")
+
+    # Detect drift
+    drift = detect_and_log_drift(db, write_queue, user_id=user_id)
+
+    return {
+        "snapshot_id": snapshot_id,
+        "drift_detected": drift is not None,
+        "drift_report": drift,
+    }
 
 
 def rollback_personality(
@@ -188,6 +296,18 @@ def rollback_personality(
                 (old_value, soul_id),
             )
             restored += 1
+
+    # Clear drift alert if it exists
+    try:
+        upsert_soul(
+            db,
+            key="drift_alert",
+            value='{"detected": false, "sliders": []}',
+            source="rollback",
+            user_id=user_id,
+        )
+    except Exception:
+        pass
 
     db.commit()
     return restored

@@ -74,10 +74,12 @@ class MockMailServer:
             "SELECT * FROM mock_mail_accounts WHERE email = ?", (email,)
         )
         if existing:
+            pw = existing.get("password", password)
             return {
                 "email": existing["email"],
                 "jmap_token": f"mock-jmap-{existing['id']}",
-                "password": existing.get("password", password),
+                "smtp_password": pw,
+                "imap_password": pw,
                 "jmap_url": "mock://local/.well-known/jmap",
             }
 
@@ -93,7 +95,8 @@ class MockMailServer:
         return {
             "email": email,
             "jmap_token": f"mock-jmap-{row_id}",
-            "password": password,
+            "smtp_password": password,
+            "imap_password": password,
             "jmap_url": "mock://local/.well-known/jmap",
         }
 
