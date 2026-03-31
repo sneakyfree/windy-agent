@@ -97,6 +97,9 @@ def print_status(config: dict[str, Any] | None = None) -> None:
     node_count = 0
     episode_count = 0
     active_intents = 0
+    promoted_skills = 0
+    total_skills = 0
+    unresolved_failures = 0
     daily_spend = 0.0
     daily_budget = _safe_get(config, "costs", "daily_budget_usd", default=5.0)
     preset = _safe_get(config, "personality", "preset", default="unknown")
@@ -119,6 +122,16 @@ def print_status(config: dict[str, Any] | None = None) -> None:
 
             row = db.fetchone("SELECT COUNT(*) as c FROM intents WHERE status = 'active'")
             active_intents = row["c"] if row else 0
+
+            # Skills counts
+            row = db.fetchone("SELECT COUNT(*) as c FROM skills WHERE promoted = TRUE")
+            promoted_skills = row["c"] if row else 0
+            row = db.fetchone("SELECT COUNT(*) as c FROM skills")
+            total_skills = row["c"] if row else 0
+
+            # Unresolved failures
+            row = db.fetchone("SELECT COUNT(*) as c FROM failures WHERE resolved_at IS NULL")
+            unresolved_failures = row["c"] if row else 0
 
             # Cost tracking
             row = db.fetchone(
@@ -147,7 +160,8 @@ def print_status(config: dict[str, Any] | None = None) -> None:
 
     # Matrix
     matrix_homeserver = _safe_get(config, "matrix", "homeserver", default="not configured")
-    matrix_status = "not configured"
+    matrix_status = "disconnected"
+    room_count = 0
     if matrix_homeserver and matrix_homeserver != "not configured":
         has_token = bool(os.environ.get("MATRIX_BOT_TOKEN"))
         has_password = bool(os.environ.get("MATRIX_BOT_PASSWORD"))
@@ -157,12 +171,17 @@ def print_status(config: dict[str, Any] | None = None) -> None:
             try:
                 import httpx
                 r = httpx.get("http://localhost:3000/api/health", timeout=1)
-                if r.status_code == 200 and r.json().get("brain_connected"):
-                    matrix_status = f"connected to {host}"
+                if r.status_code == 200:
+                    data = r.json()
+                    if data.get("brain_connected"):
+                        matrix_status = f"connected ({host})"
+                        room_count = data.get("room_count", 0)
             except Exception:
                 pass
         else:
             matrix_status = "credentials not set"
+    else:
+        matrix_status = "not configured"
 
     # Mail
     email = os.environ.get("AGENT_EMAIL", "")
@@ -220,14 +239,16 @@ def print_status(config: dict[str, Any] | None = None) -> None:
     )
 
     tree.add(f"[bold]Agent:[/bold] {agent_name} v{version}")
-    tree.add(f"[bold]Model:[/bold] {model} (budget: ${daily_spend:.2f}/${daily_budget:.2f} today)")
+    tree.add(f"[bold]Model:[/bold] {model} (${daily_spend:.2f}/${daily_budget:.2f} today)")
     tree.add(f"[bold]Memory:[/bold] {node_count} nodes, {episode_count} episodes, {active_intents} active intents")
-    tree.add(f"[bold]Personality:[/bold] {preset} preset (warmth={warmth}, humor={humor})")
-    tree.add(f"[bold]Matrix:[/bold] {matrix_status}")
+    tree.add(f"[bold]Personality:[/bold] {preset} (warmth={warmth}, humor={humor})")
+    tree.add(f"[bold]Skills:[/bold] {promoted_skills} promoted, {total_skills} total")
+    tree.add(f"[bold]Matrix:[/bold] {matrix_status} ({room_count} rooms)")
     tree.add(f"[bold]Mail:[/bold] {email_status}")
     tree.add(f"[bold]Phone:[/bold] {phone_display}")
     tree.add(f"[bold]Eternitas:[/bold] {eternitas_status}")
     tree.add(f"[bold]Database:[/bold] {db_size_str}")
+    tree.add(f"[bold]Failures:[/bold] {unresolved_failures} unresolved")
     tree.add(f"[bold]Uptime:[/bold] {uptime_str}")
 
     console.print()

@@ -105,6 +105,23 @@ _MIGRATIONS: dict[int, tuple[str, str]] = {
         CREATE VIRTUAL TABLE IF NOT EXISTS episodes_fts
             USING fts5(content, summary, content='episodes', content_rowid='rowid');
 
+        CREATE TRIGGER IF NOT EXISTS episodes_fts_insert AFTER INSERT ON episodes BEGIN
+            INSERT INTO episodes_fts(rowid, content, summary)
+            VALUES (NEW.rowid, NEW.content, NEW.summary);
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS episodes_fts_delete AFTER DELETE ON episodes BEGIN
+            INSERT INTO episodes_fts(episodes_fts, rowid, content, summary)
+            VALUES ('delete', OLD.rowid, OLD.content, OLD.summary);
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS episodes_fts_update AFTER UPDATE ON episodes BEGIN
+            INSERT INTO episodes_fts(episodes_fts, rowid, content, summary)
+            VALUES ('delete', OLD.rowid, OLD.content, OLD.summary);
+            INSERT INTO episodes_fts(rowid, content, summary)
+            VALUES (NEW.rowid, NEW.content, NEW.summary);
+        END;
+
         CREATE TABLE IF NOT EXISTS schema_version (
             version INTEGER PRIMARY KEY,
             applied_at DATETIME DEFAULT CURRENT_TIMESTAMP,

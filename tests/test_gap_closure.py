@@ -348,9 +348,9 @@ class TestDispatchRegistry:
         "sms.inbound", "sms.send", "email.inbound", "email.send",
         "journal.list", "assessment.run",
         "shape_shift.execute", "shape_shift.restore",
-        "providers.list", "providers.update", "providers.add",
-        "providers.remove", "providers.set_model", "providers.set_key",
+        # Providers handled gateway-side (TypeScript), not in Python dispatch
         # Gap closure additions
+        "cost.monthly",
         "personality.history", "personality.snapshot",
         "personality.drift", "personality.rollback",
         "skills.list", "skills.create", "skills.evaluate",
@@ -387,6 +387,6 @@ class TestDispatchRegistry:
         """Verify total dispatch method count matches expectations."""
         bridge, db, _ = _make_bridge()
         # The dispatch table is built in _dispatch(), we can count by inspecting
-        # We expect 39 total methods (18 original + 21 gap closure)
-        assert len(self.REQUIRED_METHODS) == 44  # 24 original + 20 new (events.list was bonus)
+        # 6 provider methods removed (handled gateway-side), 1 cost.monthly added
+        assert len(self.REQUIRED_METHODS) == 39
         db.close()

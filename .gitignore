@@ -6,6 +6,8 @@ __pycache__/
 data/*.db
 data/*.db-wal
 data/*.db-shm
+data/*.pdf
+data/offline_queue.json
 data/.anthropic_oauth.json
 data/providers.json
 data/provider_keys.json

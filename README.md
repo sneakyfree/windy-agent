@@ -71,16 +71,43 @@ The DNA Strand was synthesized from extensive research across 6 AI reviewers:
 
 ---
 
-## Quick Start (Phase 0 — Coming Soon)
+## 5-Minute Quickstart
+
+Get a fully working AI agent in 5 minutes:
 
 ```bash
-git clone https://github.com/sneakyfree/windy-agent.git
-cd windy-agent
+# 1. Clone
+git clone https://github.com/sneakyfree/windy-agent && cd windy-agent
+
+# 2. Install
 uv sync
-cp .env.example .env
-# Edit .env with your API keys
-uv run python -m windyfly.main
+
+# 3. Configure
+cp .env.example .env && edit .env  # Add your OPENAI_API_KEY
+
+# 4. Hatch — interactive setup wizard
+uv run windy go
+
+# 5. Chat — start talking to your agent
+uv run windy chat
+
+# 6. Status — check everything
+uv run windy status
+
+# 7. Doctor — diagnose issues
+uv run windy doctor
 ```
+
+### Additional Commands
+
+| Command | Description |
+|---|---|
+| `uv run windy start` | Start brain + gateway (opens dashboard) |
+| `uv run windy stop` | Stop all Windy Fly processes |
+| `uv run windy test` | Self-test (verify agent works) |
+| `uv run windy logs` | Tail brain/gateway logs |
+| `uv run windy config show` | View current configuration |
+| `uv run windy version` | Show version and environment info |
 
 ---
 

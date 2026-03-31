@@ -103,6 +103,7 @@ class UDSBridge:
             "sliders.set": self._handle_sliders_set,
             "sliders.info": self._handle_sliders_info,
             "cost.daily": self._handle_cost_daily,
+            "cost.monthly": self._handle_cost_monthly,
             "intents.list": self._handle_intents_list,
             "dashboard.summary": self._handle_dashboard_summary,
             "soul.preview": self._handle_soul_preview,
@@ -115,12 +116,6 @@ class UDSBridge:
             "assessment.run": self._handle_assessment_run,
             "shape_shift.execute": self._handle_shape_shift,
             "shape_shift.restore": self._handle_shape_shift_restore,
-            "providers.list": self._handle_providers_list,
-            "providers.update": self._handle_providers_update,
-            "providers.add": self._handle_providers_add,
-            "providers.remove": self._handle_providers_remove,
-            "providers.set_model": self._handle_providers_set_model,
-            "providers.set_key": self._handle_providers_set_key,
             # --- Group 1: Personality versioning ---
             "personality.history": self._handle_personality_history,
             "personality.snapshot": self._handle_personality_snapshot,
@@ -186,6 +181,24 @@ class UDSBridge:
     async def _handle_cost_daily(self, params: dict) -> dict:
         spend = get_daily_spend(self.db)
         return {"daily_spend": spend}
+
+    async def _handle_cost_monthly(self, params: dict) -> dict:
+        from datetime import datetime
+        rows = self.db.fetchall(
+            """
+            SELECT model, COALESCE(SUM(cost_usd), 0.0) as total
+            FROM cost_ledger
+            WHERE created_at >= date('now', 'start of month')
+            GROUP BY model
+            """
+        )
+        by_model = {r["model"]: round(r["total"], 4) for r in rows}
+        total = sum(by_model.values())
+        return {
+            "month": datetime.now().strftime("%Y-%m"),
+            "total_usd": round(total, 4),
+            "by_model": by_model,
+        }
 
     async def _handle_intents_list(self, params: dict) -> dict:
         intents = surface_pending_intents(self.db)
@@ -302,50 +315,6 @@ class UDSBridge:
         for k, v in sliders.items():
             set_slider(self.db, k, int(v))
         return {"restored": True}
-
-    async def _handle_providers_list(self, params: dict) -> dict:
-        from windyfly.agent.providers import get_provider_summary
-        summary = get_provider_summary(self.config)
-        active_model = self.config.get("agent", {}).get("default_model", "gpt-4o-mini")
-        return {"providers": summary, "active_model": active_model}
-
-    async def _handle_providers_update(self, params: dict) -> dict:
-        from windyfly.agent.providers import set_provider_override
-        key = params.get("key", "")
-        data = params.get("data", {})
-        set_provider_override(key, data)
-        return {"success": True}
-
-    async def _handle_providers_add(self, params: dict) -> dict:
-        from windyfly.agent.providers import add_custom_provider
-        key = params.get("key", "")
-        data = params.get("data", {})
-        add_custom_provider(key, data)
-        return {"success": True}
-
-    async def _handle_providers_remove(self, params: dict) -> dict:
-        from windyfly.agent.providers import remove_custom_provider
-        removed = remove_custom_provider(params.get("key", ""))
-        return {"success": removed}
-
-    async def _handle_providers_set_model(self, params: dict) -> dict:
-        from windyfly.agent.providers import set_active_model
-        model = params.get("model", "")
-        set_active_model(self.config, model)
-        return {"success": True, "active_model": model}
-
-    async def _handle_providers_set_key(self, params: dict) -> dict:
-        """Set an API key for a provider at runtime (stored in overrides, also set in env)."""
-        import os
-        from windyfly.agent.providers import set_provider_override
-        key = params.get("key", "")
-        api_key = params.get("api_key", "")
-        set_provider_override(key, {"api_key": api_key})
-        # Also set in env so SDK picks it up immediately
-        env_var = params.get("api_key_env", "")
-        if env_var:
-            os.environ[env_var] = api_key
-        return {"success": True}
 
     # ------------------------------------------------------------------
     # Group 1: Personality versioning

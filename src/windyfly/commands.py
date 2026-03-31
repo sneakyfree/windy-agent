@@ -90,10 +90,30 @@ def cmd_doctor(_args: argparse.Namespace) -> None:
     _doc_row("windyfly.toml", str(toml_file.relative_to(PROJECT_ROOT)), toml_file.exists(),
              "Missing — run `windy init`" if not toml_file.exists() else None)
 
+    soul_file = PROJECT_ROOT / "SOUL.md"
+    _doc_row("SOUL.md", str(soul_file.relative_to(PROJECT_ROOT)), soul_file.exists(),
+             "Missing — defines agent personality" if not soul_file.exists() else None)
+
+    # Validate windyfly.toml parses correctly
+    toml_parse_ok = False
+    if toml_file.exists():
+        try:
+            import tomllib
+            with open(toml_file, "rb") as f:
+                tomllib.load(f)
+            toml_parse_ok = True
+            _doc_row("TOML parse", "valid", True)
+        except Exception as e:
+            _doc_row("TOML parse", f"error: {e}", False,
+                     "Fix syntax errors in windyfly.toml")
+            issues.append(f"windyfly.toml parse error: {e}")
+
     if not env_file.exists():
         issues.append(".env missing — run `windy init`")
     if not toml_file.exists():
         issues.append("windyfly.toml missing — run `windy init`")
+    if not soul_file.exists():
+        warnings.append("SOUL.md missing")
 
     # Check .env has at least one API key
     if env_file.exists():
@@ -227,6 +247,73 @@ def cmd_doctor(_args: argparse.Namespace) -> None:
              "Run `cd gateway && bun install`" if not gateway_nm.exists() else None)
     if not gateway_nm.exists():
         issues.append("Gateway dependencies not installed")
+
+    console.print()
+
+    # ── 7. External services reachability ─────────────────────────
+    console.print("[bold]External Services[/bold]")
+
+    # Eternitas API
+    eternitas_url = os.environ.get("ETERNITAS_API_URL", "")
+    if eternitas_url:
+        try:
+            import httpx
+            r = httpx.get(f"{eternitas_url}/health", timeout=3)
+            reachable = r.status_code < 500
+            _doc_row("Eternitas API", eternitas_url, reachable,
+                     "API returned error" if not reachable else None)
+        except Exception:
+            _doc_row("Eternitas API", eternitas_url, False,
+                     "Unreachable — check ETERNITAS_API_URL")
+            warnings.append("Eternitas API unreachable")
+    else:
+        _doc_row("Eternitas API", "not configured", True, "Set ETERNITAS_API_URL to enable")
+
+    # Windy Pro API
+    windy_api_url = os.environ.get("WINDY_API_URL", "")
+    if not windy_api_url:
+        try:
+            from windyfly.config import load_config
+            _cfg = load_config()
+            windy_api_url = _cfg.get("windy_api", {}).get("base_url", "")
+        except Exception:
+            pass
+    if windy_api_url:
+        try:
+            import httpx
+            r = httpx.get(f"{windy_api_url}/health", timeout=3)
+            reachable = r.status_code < 500
+            _doc_row("Windy Pro API", windy_api_url, reachable,
+                     "API returned error" if not reachable else None)
+        except Exception:
+            _doc_row("Windy Pro API", windy_api_url, False,
+                     "Unreachable — is Windy Pro running?")
+            warnings.append("Windy Pro API unreachable")
+    else:
+        _doc_row("Windy Pro API", "not configured", True)
+
+    # Matrix homeserver
+    matrix_hs = os.environ.get("MATRIX_HOMESERVER", "")
+    if not matrix_hs:
+        try:
+            from windyfly.config import load_config
+            _cfg = load_config()
+            matrix_hs = _cfg.get("matrix", {}).get("homeserver", "")
+        except Exception:
+            pass
+    if matrix_hs:
+        try:
+            import httpx
+            r = httpx.get(f"{matrix_hs}/_matrix/client/versions", timeout=3)
+            reachable = r.status_code == 200
+            _doc_row("Matrix homeserver", matrix_hs, reachable,
+                     "Unreachable — check homeserver URL" if not reachable else None)
+        except Exception:
+            _doc_row("Matrix homeserver", matrix_hs, False,
+                     "Unreachable — check network and URL")
+            warnings.append("Matrix homeserver unreachable")
+    else:
+        _doc_row("Matrix homeserver", "not configured", True)
 
     console.print()
 

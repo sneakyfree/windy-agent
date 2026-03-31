@@ -72,7 +72,11 @@ class ToolRegistry:
             raise KeyError(f"Unknown tool: {name}")
 
         if isinstance(arguments, str):
-            arguments = json.loads(arguments)
+            try:
+                arguments = json.loads(arguments)
+            except json.JSONDecodeError as e:
+                logger.error("Tool '%s' received malformed JSON: %s", name, e)
+                return json.dumps({"error": f"Malformed arguments: {e}"})
 
         try:
             result = self._tools[name](**arguments)

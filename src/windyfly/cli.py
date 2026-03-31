@@ -7,10 +7,12 @@ Commands::
     windy setup            — Browser-based setup wizard (opens localhost)
     windy start            — Start brain + gateway (opens dashboard)
     windy start --cli      — Start brain in CLI chat mode (no gateway)
+    windy chat             — Start CLI chat mode (alias for start --cli)
     windy stop             — Stop all Windy Fly processes
     windy restart          — Stop + start in one shot
     windy status           — Show what's running
     windy doctor           — Diagnose your installation
+    windy test             — Run self-test (verify agent works)
     windy update           — Pull latest code + sync dependencies
     windy logs [component] — Tail brain/gateway logs
     windy config show      — View current configuration
@@ -322,6 +324,12 @@ def main() -> None:
     # windy version
     sub.add_parser("version", help="Show version and environment info")
 
+    # windy chat — alias for start --cli
+    sub.add_parser("chat", help="Start CLI chat mode (alias for start --cli)")
+
+    # windy test — self-test
+    sub.add_parser("test", help="Run self-test to verify the agent works")
+
     # windy go — the one-command quickstart
     go_parser = sub.add_parser("go", help="One-command quickstart — paste a key and go")
     go_parser.add_argument(
@@ -378,6 +386,8 @@ def main() -> None:
         "logs": cmd_logs,
         "config": cmd_config,
         "version": cmd_version,
+        "chat": _cmd_chat,
+        "test": _cmd_test,
     }
 
     handler = commands.get(args.command)
@@ -385,6 +395,19 @@ def main() -> None:
         handler(args)
     else:
         parser.print_help()
+
+
+def _cmd_chat(args: argparse.Namespace) -> None:
+    """Start CLI chat mode (alias for `windy start --cli`)."""
+    args.cli = True
+    args.no_browser = True
+    cmd_start(args)
+
+
+def _cmd_test(_args: argparse.Namespace) -> None:
+    """Run the agent self-test."""
+    from windyfly.cli_selftest import run_self_test
+    run_self_test()
 
 
 if __name__ == "__main__":

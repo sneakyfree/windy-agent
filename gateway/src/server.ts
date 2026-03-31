@@ -190,6 +190,16 @@ async function handleRequest(req: Request): Promise<Response> {
       }
     }
 
+    // Cost monthly
+    if (path === "/api/cost/monthly" && req.method === "GET") {
+      try {
+        const result = await bridge.call("cost.monthly");
+        return Response.json(result, { headers });
+      } catch {
+        return Response.json({ month: "", total_usd: 0, by_model: {}, _offline: true }, { headers });
+      }
+    }
+
     // Intents list
     if (path === "/api/intents" && req.method === "GET") {
       try {

@@ -421,6 +421,18 @@ class WindyFlyMatrixBot:
         self._connected = False
         logger.info("Graceful shutdown complete. Windy Fly is offline. 🪰")
 
+    async def _replay_offline_queue(self) -> None:
+        """Replay messages that were queued while offline."""
+        try:
+            from windyfly.agent.offline import replay_queued_messages
+            count = replay_queued_messages(
+                self.config, self.db, self.write_queue, self.tool_registry,
+            )
+            if count > 0:
+                logger.info("Replayed %d offline-queued messages on reconnect", count)
+        except Exception as e:
+            logger.debug("Offline queue replay: %s", e)
+
     async def start(self) -> None:
         """Start the bot: login, register callbacks, sync forever with reconnection."""
         await self.login()
@@ -469,6 +481,9 @@ class WindyFlyMatrixBot:
 
                     # Re-trust devices on reconnect
                     await self._auto_trust_devices()
+
+                    # Replay offline-queued messages on reconnect
+                    await self._replay_offline_queue()
 
                     await self.client.sync_forever(
                         timeout=30000,

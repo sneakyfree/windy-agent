@@ -29,19 +29,28 @@ def _start_decay_scheduler(
     from windyfly.memory.database import Database
     from windyfly.memory.decay import run_decay
     from windyfly.memory.write_queue import WriteQueue
+    from windyfly.personality.versioning import run_periodic_drift_check
 
     def _decay_loop() -> None:
         # Use a dedicated DB connection for the decay thread
         decay_db = Database(db_path)
         decay_wq = WriteQueue()
         decay_wq.start()
-        logger.info("Decay scheduler started (interval: 24h)")
+        logger.info("Decay + drift scheduler started (interval: 24h)")
         while True:
             try:
                 counts = run_decay(decay_db, decay_wq, config)
                 logger.info("Decay cycle complete: %s", counts)
             except Exception as e:
                 logger.error("Decay cycle failed: %s", e)
+            try:
+                drift = run_periodic_drift_check(decay_db, decay_wq)
+                if drift.get("drift_detected"):
+                    logger.warning("Personality drift detected: %s", drift["drift_report"])
+                else:
+                    logger.info("Drift check complete: no drift detected")
+            except Exception as e:
+                logger.error("Drift check failed: %s", e)
             time.sleep(_DECAY_INTERVAL_SECONDS)
 
     t = threading.Thread(target=_decay_loop, daemon=True, name="decay-scheduler")
@@ -54,6 +63,9 @@ def main() -> None:
     load_dotenv()
 
     parser = argparse.ArgumentParser(description="Windy Fly — AI agent brain")
+    sub = parser.add_subparsers(dest="subcommand")
+
+    # Legacy --channel mode
     parser.add_argument(
         "--channel",
         choices=["cli", "matrix", "sms"],
@@ -70,7 +82,27 @@ def main() -> None:
         default=None,
         help="Log level (DEBUG, INFO, WARNING, ERROR)",
     )
+
+    # Subcommands
+    sub.add_parser("status", help="Show agent status")
+    sub.add_parser("doctor", help="Diagnose installation")
+    sub.add_parser("test", help="Run self-test")
+
     args = parser.parse_args()
+
+    # Handle subcommands first
+    if args.subcommand == "status":
+        from windyfly.cli_status import print_status
+        print_status()
+        return
+    elif args.subcommand == "doctor":
+        from windyfly.commands import cmd_doctor
+        cmd_doctor(args)
+        return
+    elif args.subcommand == "test":
+        from windyfly.cli_selftest import run_self_test
+        run_self_test()
+        return
 
     # Load config
     try:
