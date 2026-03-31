@@ -23,7 +23,7 @@ def get_version() -> str:
         from importlib.metadata import version
         return version("windyfly")
     except Exception:
-        return "1.0.0"
+        return "0.1.0"
 
 
 def _fmt_phone(raw: str) -> str:

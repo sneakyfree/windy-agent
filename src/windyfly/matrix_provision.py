@@ -147,8 +147,8 @@ def _login_existing_bot(
                 "device_id": data.get("device_id", ""),
                 "password": password,
             }
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Matrix bot login failed: %s", e)
     return None
 
 

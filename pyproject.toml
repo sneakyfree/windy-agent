@@ -1,6 +1,6 @@
 [project]
 name = "windyfly"
-version = "0.0.1"
+version = "0.1.0"
 description = "Windy Fly — AI agent brain of the Windy ecosystem"
 requires-python = ">=3.12"
 dependencies = [

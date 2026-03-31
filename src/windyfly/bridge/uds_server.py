@@ -104,6 +104,7 @@ class UDSBridge:
             "sliders.info": self._handle_sliders_info,
             "cost.daily": self._handle_cost_daily,
             "cost.monthly": self._handle_cost_monthly,
+            "config.reload": self._handle_config_reload,
             "intents.list": self._handle_intents_list,
             "dashboard.summary": self._handle_dashboard_summary,
             "soul.preview": self._handle_soul_preview,
@@ -199,6 +200,17 @@ class UDSBridge:
             "total_usd": round(total, 4),
             "by_model": by_model,
         }
+
+    async def _handle_config_reload(self, params: dict) -> dict:
+        """Reload config from disk. Called by gateway after setup wizard."""
+        try:
+            from windyfly.config import load_config
+            new_config = load_config()
+            self.config.update(new_config)
+            return {"success": True}
+        except Exception as e:
+            logger.warning("Config reload failed: %s", e)
+            return {"success": False, "error": str(e)}
 
     async def _handle_intents_list(self, params: dict) -> dict:
         intents = surface_pending_intents(self.db)

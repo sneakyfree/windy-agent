@@ -128,11 +128,18 @@ class EternitasClient:
         self, passport_id: str, services: dict[str, str]
     ) -> EternitasPassport:
         """Update the provisioned services record for a passport."""
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            resp = await client.patch(
-                f"{self.api_url}/api/v1/passport/{passport_id}/services",
-                json=services,
-                headers=self._admin_headers(),
-            )
-            resp.raise_for_status()
-            return EternitasPassport.from_api_response(resp.json())
+        try:
+            async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+                resp = await client.patch(
+                    f"{self.api_url}/api/v1/passport/{passport_id}/services",
+                    json=services,
+                    headers=self._admin_headers(),
+                )
+                resp.raise_for_status()
+                return EternitasPassport.from_api_response(resp.json())
+        except httpx.ConnectError as e:
+            logger.error("Eternitas update_services connection error: %s", e)
+            raise
+        except httpx.HTTPStatusError as e:
+            logger.error("Eternitas update_services failed: %s", e)
+            raise

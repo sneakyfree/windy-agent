@@ -348,9 +348,8 @@ class TestDispatchRegistry:
         "sms.inbound", "sms.send", "email.inbound", "email.send",
         "journal.list", "assessment.run",
         "shape_shift.execute", "shape_shift.restore",
-        # Providers handled gateway-side (TypeScript), not in Python dispatch
         # Gap closure additions
-        "cost.monthly",
+        "cost.monthly", "config.reload",
         "personality.history", "personality.snapshot",
         "personality.drift", "personality.rollback",
         "skills.list", "skills.create", "skills.evaluate",
@@ -388,5 +387,5 @@ class TestDispatchRegistry:
         bridge, db, _ = _make_bridge()
         # The dispatch table is built in _dispatch(), we can count by inspecting
         # 6 provider methods removed (handled gateway-side), 1 cost.monthly added
-        assert len(self.REQUIRED_METHODS) == 39
+        assert len(self.REQUIRED_METHODS) == 40
         db.close()

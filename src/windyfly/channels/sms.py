@@ -163,7 +163,7 @@ class WindyFlySMS:
         req.add_header("Authorization", f"Basic {credentials}")
 
         try:
-            with urllib.request.urlopen(req) as resp:
+            with urllib.request.urlopen(req, timeout=10) as resp:
                 import json
                 result = json.loads(resp.read().decode())
                 self._outbound_today += 1

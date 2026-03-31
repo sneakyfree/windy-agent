@@ -259,7 +259,7 @@ class WindyFlyEmail:
         req.add_header("Content-Type", "application/json")
 
         try:
-            with urllib.request.urlopen(req) as resp:
+            with urllib.request.urlopen(req, timeout=10) as resp:
                 status = resp.status
                 log_event(self.db, self.write_queue, "email.outbound", {
                     "to": to_email, "subject": subject, "status": status,

@@ -22,7 +22,7 @@ _TIMEOUT = 10.0
 
 def _get_api_url() -> str:
     """Get the Windy Pro API base URL."""
-    return os.environ.get("WINDY_API_URL", "http://localhost:8098")
+    return os.environ.get("WINDY_API_URL", "http://localhost:8098").rstrip("/")
 
 
 def _get_auth_headers() -> dict[str, str]:
