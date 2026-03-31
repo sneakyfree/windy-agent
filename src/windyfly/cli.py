@@ -333,6 +333,9 @@ def main() -> None:
     # windy ecosystem — show ecosystem connections
     sub.add_parser("ecosystem", help="Show ecosystem connection status")
 
+    # windy channels — show configured messaging channels
+    sub.add_parser("channels", help="Show configured messaging channels")
+
     # windy go — the one-command quickstart
     go_parser = sub.add_parser("go", help="One-command quickstart — paste a key and go")
     go_parser.add_argument(
@@ -392,6 +395,7 @@ def main() -> None:
         "chat": _cmd_chat,
         "test": _cmd_test,
         "ecosystem": _cmd_ecosystem,
+        "channels": _cmd_channels,
     }
 
     handler = commands.get(args.command)
@@ -500,6 +504,73 @@ def _check_ecosystem_connectivity() -> None:
 
     console.print(table)
     console.print()
+
+
+def _cmd_channels(_args: argparse.Namespace) -> None:
+    """Show which messaging channels are configured."""
+    import os
+
+    from dotenv import load_dotenv
+    from rich.tree import Tree
+
+    load_dotenv(PROJECT_ROOT / ".env")
+
+    tree = Tree("[bold cyan]Windy Fly Channels[/bold cyan]")
+
+    channels = [
+        ("CLI", None, None, "Always on"),
+        ("Matrix", "MATRIX_BOT_TOKEN", "MATRIX_BOT_PASSWORD", "@windyfly:chat.windypro.com"),
+        ("Telegram", "TELEGRAM_BOT_TOKEN", None, "@BotFather token"),
+        ("Discord", "DISCORD_BOT_TOKEN", None, "discord.com/developers"),
+        ("Slack", "SLACK_BOT_TOKEN", "SLACK_APP_TOKEN", "api.slack.com/apps"),
+        ("WhatsApp", "TWILIO_WHATSAPP_NUMBER", None, "Twilio WhatsApp API"),
+        ("Signal", "SIGNAL_PHONE_NUMBER", None, "signal-cli-rest-api"),
+        ("Teams", "TEAMS_APP_ID", None, "dev.teams.microsoft.com"),
+        ("IRC", "IRC_SERVER", None, "No credentials needed"),
+    ]
+
+    for name, env1, env2, hint in channels:
+        if env1 is None:
+            # CLI — always active
+            tree.add(f"[green]{name}[/green]  [green]Active[/green] [dim]({hint})[/dim]")
+        elif os.environ.get(env1) or (env2 and os.environ.get(env2)):
+            tree.add(f"[green]{name}[/green]  [green]Active[/green] [dim](token set)[/dim]")
+        else:
+            env_hint = env1
+            tree.add(f"[dim]{name}[/dim]  [dim]Not configured[/dim] [dim](set {env_hint})[/dim]")
+
+    console.print()
+    console.print(tree)
+    console.print()
+
+
+def auto_detect_channels() -> list[str]:
+    """Return names of channels that have credentials configured.
+
+    Used by the channel manager to auto-register adapters.
+    """
+    import os
+
+    detected = ["cli"]  # Always available
+
+    if os.environ.get("MATRIX_BOT_TOKEN") or os.environ.get("MATRIX_BOT_PASSWORD"):
+        detected.append("matrix")
+    if os.environ.get("TELEGRAM_BOT_TOKEN"):
+        detected.append("telegram")
+    if os.environ.get("DISCORD_BOT_TOKEN"):
+        detected.append("discord")
+    if os.environ.get("SLACK_BOT_TOKEN") and os.environ.get("SLACK_APP_TOKEN"):
+        detected.append("slack")
+    if os.environ.get("TWILIO_ACCOUNT_SID") and os.environ.get("TWILIO_WHATSAPP_NUMBER"):
+        detected.append("whatsapp")
+    if os.environ.get("SIGNAL_PHONE_NUMBER"):
+        detected.append("signal")
+    if os.environ.get("TEAMS_APP_ID"):
+        detected.append("teams")
+    if os.environ.get("IRC_SERVER"):
+        detected.append("irc")
+
+    return detected
 
 
 if __name__ == "__main__":
