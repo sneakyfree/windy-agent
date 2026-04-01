@@ -53,12 +53,21 @@ class DiscordChannel(ChannelAdapter):
             if message.guild and not adapter._client.user.mentioned_in(message):
                 return
 
+            text = message.content
+
+            # Unified command detection
+            from windyfly.channels.base import handle_incoming
+            was_command, cmd_response = await handle_incoming(text, {"platform": "discord"})
+            if was_command:
+                await message.reply(cmd_response)
+                return
+
             msg = IncomingMessage(
                 platform="discord",
                 channel_id=str(message.channel.id),
                 sender_id=str(message.author.id),
                 sender_name=message.author.display_name,
-                text=message.content,
+                text=text,
             )
             response = await adapter.on_message(msg)
             await message.reply(response)

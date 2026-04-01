@@ -61,3 +61,13 @@ class ChannelAdapter(ABC):
 
     # Set by the channel manager before start()
     on_message: Callable[[IncomingMessage], Awaitable[str]] | None = None
+
+
+async def handle_incoming(text: str, context: dict | None = None) -> tuple[bool, str]:
+    """Check if text is a command and execute it. Returns (was_command, response)."""
+    from windyfly.commands.registry import registry, is_command, parse_command
+
+    if is_command(text):
+        response = await registry.execute(parse_command(text), context)
+        return True, response
+    return False, ""

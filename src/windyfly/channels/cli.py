@@ -70,6 +70,17 @@ def run_cli(config: dict[str, Any]) -> None:
             if user_input.lower() in ("quit", "exit"):
                 break
 
+            # Command detection — /commands work in terminal chat too
+            if user_input.startswith("/") or user_input.startswith("!"):
+                import asyncio
+                from windyfly.commands.registry import registry
+                response = asyncio.get_event_loop().run_until_complete(
+                    registry.execute(user_input.lstrip("/!"), {"platform": "terminal"})
+                )
+                console.print(f"[fly]Fly:[/fly] {response}")
+                console.print()
+                continue
+
             try:
                 response = agent_respond(config, db, write_queue, user_input, session_id, tool_registry)
                 console.print(f"[fly]Fly:[/fly] {response}")

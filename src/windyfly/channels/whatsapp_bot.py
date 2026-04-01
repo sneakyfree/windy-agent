@@ -51,12 +51,26 @@ class WhatsAppChannel(ChannelAdapter):
 
         @app.route("/whatsapp/webhook", methods=["POST"])
         def webhook():
+            text = request.form.get("Body", "")
+
+            # Unified command detection (sync wrapper for Flask)
+            from windyfly.commands.registry import registry, is_command, parse_command
+            if is_command(text):
+                import asyncio as _aio
+                cmd_response = _aio.run_coroutine_threadsafe(
+                    registry.execute(parse_command(text), {"platform": "whatsapp"}), loop
+                ).result(timeout=15)
+                from twilio.twiml.messaging_response import MessagingResponse
+                resp = MessagingResponse()
+                resp.message(cmd_response)
+                return str(resp)
+
             msg = IncomingMessage(
                 platform="whatsapp",
                 channel_id=request.form.get("From", ""),
                 sender_id=request.form.get("From", ""),
                 sender_name=request.form.get("ProfileName", "User"),
-                text=request.form.get("Body", ""),
+                text=text,
             )
             future = asyncio.run_coroutine_threadsafe(adapter.on_message(msg), loop)
             response_text = future.result(timeout=30)

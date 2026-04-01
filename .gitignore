@@ -28,3 +28,4 @@ build/
 *.log
 .idea/
 .vscode/settings.json
+data/audio/

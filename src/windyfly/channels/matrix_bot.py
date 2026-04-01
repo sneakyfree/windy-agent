@@ -206,6 +206,20 @@ class WindyFlyMatrixBot:
             display_name, room_id, body[:100],
         )
 
+        # Unified command detection (Matrix uses ! prefix)
+        from windyfly.channels.base import handle_incoming
+        was_command, cmd_response = await handle_incoming(body, {"platform": "matrix"})
+        if was_command:
+            try:
+                await self.client.room_send(
+                    room_id,
+                    "m.room.message",
+                    {"msgtype": "m.text", "body": cmd_response, "windy_original": True},
+                )
+            except Exception as e:
+                logger.error("Failed to send command response to %s: %s", room_id, e)
+            return
+
         # Get or create session for this room
         if room_id not in self._room_sessions:
             self._room_sessions[room_id] = str(uuid.uuid4())

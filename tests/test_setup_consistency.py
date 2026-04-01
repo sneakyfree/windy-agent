@@ -186,7 +186,7 @@ class TestTomlConsistency:
 class TestKeyMasking:
     def test_config_show_masks_api_keys(self, tmp_path: Path, monkeypatch, capsys):
         """windy config show should mask API keys in output."""
-        monkeypatch.setattr("windyfly.commands.PROJECT_ROOT", tmp_path)
+        monkeypatch.setattr("windyfly.commands._legacy.PROJECT_ROOT", tmp_path)
         env_file = tmp_path / ".env"
         env_file.write_text("OPENAI_API_KEY=sk-super-secret-key-123\n")
         toml_file = tmp_path / "windyfly.toml"

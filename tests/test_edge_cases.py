@@ -64,7 +64,7 @@ class TestKeyEdgeCases:
 class TestConfigSetEdgeCases:
     def test_value_with_spaces(self, tmp_path: Path, monkeypatch):
         """_config_set() should handle values with spaces."""
-        monkeypatch.setattr("windyfly.commands.PROJECT_ROOT", tmp_path)
+        monkeypatch.setattr("windyfly.commands._legacy.PROJECT_ROOT", tmp_path)
         toml_file = tmp_path / "windyfly.toml"
         toml_file.write_text('[agent]\nname = "Windy Fly"\n')
         _config_set("agent.name", "My Custom Agent")
@@ -73,7 +73,7 @@ class TestConfigSetEdgeCases:
 
     def test_value_with_quotes(self, tmp_path: Path, monkeypatch):
         """_config_set() should handle values with quote characters."""
-        monkeypatch.setattr("windyfly.commands.PROJECT_ROOT", tmp_path)
+        monkeypatch.setattr("windyfly.commands._legacy.PROJECT_ROOT", tmp_path)
         toml_file = tmp_path / "windyfly.toml"
         toml_file.write_text('[agent]\nname = "Test"\n')
         _config_set("agent.name", "Agent 'the fly' Bot")
@@ -176,14 +176,14 @@ class TestProcessEdgeCases:
 class TestLoggingEdgeCases:
     def test_logs_when_files_dont_exist(self, tmp_path: Path, monkeypatch):
         """windy logs should not crash when log files don't exist."""
-        monkeypatch.setattr("windyfly.commands.PROJECT_ROOT", tmp_path)
+        monkeypatch.setattr("windyfly.commands._legacy.PROJECT_ROOT", tmp_path)
         from windyfly.commands import cmd_logs
         args = argparse.Namespace(component="all", follow=False, lines=50)
         cmd_logs(args)  # Should not crash
 
     def test_logs_when_files_are_empty(self, tmp_path: Path, monkeypatch):
         """windy logs should handle empty log files."""
-        monkeypatch.setattr("windyfly.commands.PROJECT_ROOT", tmp_path)
+        monkeypatch.setattr("windyfly.commands._legacy.PROJECT_ROOT", tmp_path)
         data_dir = tmp_path / "data"
         data_dir.mkdir()
         (data_dir / "brain.log").write_text("")
@@ -201,8 +201,8 @@ class TestLoggingEdgeCases:
 class TestDoctorEdgeCases:
     def test_doctor_when_nothing_installed(self, tmp_path: Path, monkeypatch):
         """windy doctor should not crash when mocking everything as missing."""
-        monkeypatch.setattr("windyfly.commands.PROJECT_ROOT", tmp_path)
-        with patch("windyfly.commands.can_run", return_value=False):
+        monkeypatch.setattr("windyfly.commands._legacy.PROJECT_ROOT", tmp_path)
+        with patch("windyfly.commands._legacy.can_run", return_value=False):
             from windyfly.commands import cmd_doctor
             args = argparse.Namespace()
             cmd_doctor(args)  # Should not crash
@@ -216,7 +216,7 @@ class TestDoctorEdgeCases:
 class TestUpdateEdgeCases:
     def test_update_when_not_git_repo(self, tmp_path: Path, monkeypatch):
         """windy update should handle not being in a git repo."""
-        monkeypatch.setattr("windyfly.commands.PROJECT_ROOT", tmp_path)
+        monkeypatch.setattr("windyfly.commands._legacy.PROJECT_ROOT", tmp_path)
         from windyfly.commands import cmd_update
         args = argparse.Namespace()
         cmd_update(args)  # Should not crash

@@ -42,12 +42,21 @@ class SlackChannel(ChannelAdapter):
 
         @self._app.message("")
         async def handle_message(message, say):
+            text = message.get("text", "")
+
+            # Unified command detection
+            from windyfly.channels.base import handle_incoming
+            was_command, cmd_response = await handle_incoming(text, {"platform": "slack"})
+            if was_command:
+                await say(cmd_response)
+                return
+
             msg = IncomingMessage(
                 platform="slack",
                 channel_id=message.get("channel", ""),
                 sender_id=message.get("user", ""),
                 sender_name=message.get("user", "User"),
-                text=message.get("text", ""),
+                text=text,
             )
             response = await adapter.on_message(msg)
             await say(response)

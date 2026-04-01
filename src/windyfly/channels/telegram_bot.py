@@ -33,7 +33,7 @@ class TelegramChannel(ChannelAdapter):
 
         self._app = ApplicationBuilder().token(token).build()
         self._app.add_handler(
-            MessageHandler(filters.TEXT & ~filters.COMMAND, self._handle)
+            MessageHandler(filters.TEXT, self._handle)
         )
 
         await self._app.initialize()
@@ -45,12 +45,22 @@ class TelegramChannel(ChannelAdapter):
     async def _handle(self, update, context) -> None:
         if not update.message or not update.message.text:
             return
+
+        text = update.message.text
+
+        # Unified command detection
+        from windyfly.channels.base import handle_incoming
+        was_command, cmd_response = await handle_incoming(text, {"platform": "telegram"})
+        if was_command:
+            await update.message.reply_text(cmd_response)
+            return
+
         msg = IncomingMessage(
             platform="telegram",
             channel_id=str(update.message.chat_id),
             sender_id=str(update.message.from_user.id),
             sender_name=update.message.from_user.first_name or "User",
-            text=update.message.text,
+            text=text,
         )
         response = await self.on_message(msg)
         await update.message.reply_text(response)

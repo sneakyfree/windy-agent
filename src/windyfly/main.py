@@ -111,6 +111,10 @@ def main() -> None:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
 
+    # Initialize unified command registry (140 commands)
+    from windyfly.commands.setup import init_all_commands
+    init_all_commands(config=config)
+
     # Configure logging
     log_level = args.log_level or config.get("log_level", "INFO")
     logging.basicConfig(

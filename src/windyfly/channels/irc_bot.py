@@ -49,6 +49,19 @@ class IRCChannel(ChannelAdapter):
             text = event.arguments[0]
             if nickname.lower() not in text.lower():
                 return
+
+            # Unified command detection (sync wrapper for threaded IRC)
+            from windyfly.commands.registry import registry, is_command, parse_command
+            if is_command(text):
+                try:
+                    cmd_response = asyncio.run_coroutine_threadsafe(
+                        registry.execute(parse_command(text), {"platform": "irc"}), loop
+                    ).result(timeout=15)
+                    connection.privmsg(event.target, cmd_response)
+                except Exception as exc:
+                    logger.error("IRC command error: %s", exc)
+                return
+
             msg = IncomingMessage(
                 platform="irc",
                 channel_id=event.target,

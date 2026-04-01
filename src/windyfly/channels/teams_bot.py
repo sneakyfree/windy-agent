@@ -44,12 +44,23 @@ class TeamsChannel(ChannelAdapter):
 
         async def on_turn(turn_context: TurnContext) -> None:
             if turn_context.activity.type == "message":
+                text = turn_context.activity.text or ""
+
+                # Unified command detection
+                from windyfly.channels.base import handle_incoming
+                was_command, cmd_response = await handle_incoming(
+                    text, {"platform": "teams"}
+                )
+                if was_command:
+                    await turn_context.send_activity(cmd_response)
+                    return
+
                 msg = IncomingMessage(
                     platform="teams",
                     channel_id=turn_context.activity.conversation.id,
                     sender_id=turn_context.activity.from_property.id,
                     sender_name=turn_context.activity.from_property.name or "User",
-                    text=turn_context.activity.text or "",
+                    text=text,
                 )
                 response = await channel_adapter.on_message(msg)
                 await turn_context.send_activity(response)

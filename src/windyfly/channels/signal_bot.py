@@ -62,12 +62,28 @@ class SignalChannel(ChannelAdapter):
                             envelope = item.get("envelope", {})
                             data = envelope.get("dataMessage", {})
                             if data.get("message"):
+                                text = data["message"]
+
+                                # Unified command detection
+                                from windyfly.channels.base import handle_incoming
+                                was_command, cmd_response = await handle_incoming(
+                                    text, {"platform": "signal"}
+                                )
+                                if was_command:
+                                    await self.send(
+                                        OutgoingMessage(
+                                            text=cmd_response,
+                                            channel_id=envelope.get("source", ""),
+                                        )
+                                    )
+                                    continue
+
                                 msg = IncomingMessage(
                                     platform="signal",
                                     channel_id=envelope.get("source", ""),
                                     sender_id=envelope.get("source", ""),
                                     sender_name=envelope.get("sourceName", "User"),
-                                    text=data["message"],
+                                    text=text,
                                 )
                                 response = await self.on_message(msg)
                                 await self.send(
