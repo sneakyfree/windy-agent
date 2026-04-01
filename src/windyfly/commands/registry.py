@@ -70,6 +70,22 @@ class CommandRegistry:
         if not cmd:
             return f"Unknown command: {name}. Type /help for available commands."
 
+        # Dangerous command gating — require explicit confirmation
+        if cmd.dangerous:
+            confirmed = (
+                "--confirm" in args_list
+                or "CONFIRM" in args_list
+                or "yes" in args_list
+            )
+            platform = (context or {}).get("platform", "terminal")
+            if not confirmed:
+                return (
+                    f"⚠ /{cmd.name} is a dangerous command that may cause data loss.\n"
+                    f"To confirm, type: /{cmd.name} --confirm"
+                )
+            # Remove confirmation tokens from args
+            args_list = [a for a in args_list if a not in ("--confirm", "CONFIRM", "yes")]
+
         try:
             ctx = context or {}
             ctx["_args"] = args_list

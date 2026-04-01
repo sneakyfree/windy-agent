@@ -274,6 +274,9 @@ class TestSourceQuality:
                     # Allow print in sandbox (it's testing output)
                     if "sandbox.py" in str(py_file):
                         continue
+                    # Allow print in botfather (it's a CLI __main__ script)
+                    if "botfather.py" in str(py_file):
+                        continue
                     violations.append(f"{py_file.name}:{i}")
         # Allow a few (some may be intentional)
         assert len(violations) <= 3, (
