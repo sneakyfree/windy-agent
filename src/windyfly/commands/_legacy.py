@@ -40,10 +40,10 @@ from windyfly.platform import (
 )
 
 console = Console()
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 
 # Current version — bump on release
-VERSION = "0.1.0"
+VERSION = "0.4.0"
 
 
 # ─── Helpers ────────────────────────────────────────────────────────────
