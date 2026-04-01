@@ -45,6 +45,7 @@ Commands::
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import time
 from pathlib import Path
@@ -122,19 +123,32 @@ def cmd_start(args: argparse.Namespace) -> None:
             console.print("\n  [dim]Goodbye! 🪰[/dim]")
         return
 
+    daemon = getattr(args, "daemon", False)
+
     # Ensure log directory exists
     get_data_dir(PROJECT_ROOT)
 
     # Full stack: brain + gateway
-    # NOTE: Log file handles are intentionally kept open for the lifetime
-    # of the subprocess. They'll be closed when the process exits or when
-    # the user runs `windy stop`.
+    # In daemon mode, fully detach from the terminal so the process
+    # survives after the shell exits. On Unix this uses
+    # start_new_session=True; on Windows, CREATE_NEW_PROCESS_GROUP.
+    from windyfly.platform import IS_WINDOWS
+
+    popen_extra: dict = {}
+    if daemon:
+        if IS_WINDOWS:
+            popen_extra["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
+        else:
+            popen_extra["start_new_session"] = True
+
     brain_log = open(get_log_path(PROJECT_ROOT, "brain"), "a")  # noqa: SIM115
     brain_proc = subprocess.Popen(
         ["uv", "run", "python", "-m", "windyfly.bridge.uds_server"],
         cwd=str(PROJECT_ROOT),
         stdout=brain_log,
         stderr=subprocess.STDOUT,
+        stdin=subprocess.DEVNULL if daemon else None,
+        **popen_extra,
     )
     console.print(f"  [green]✓[/green] Brain started [dim](PID {brain_proc.pid})[/dim]")
 
@@ -146,6 +160,8 @@ def cmd_start(args: argparse.Namespace) -> None:
         cwd=str(gateway_dir),
         stdout=gateway_log,
         stderr=subprocess.STDOUT,
+        stdin=subprocess.DEVNULL if daemon else None,
+        **popen_extra,
     )
     console.print(f"  [green]✓[/green] Gateway started [dim](PID {gateway_proc.pid})[/dim]")
 
@@ -156,14 +172,26 @@ def cmd_start(args: argparse.Namespace) -> None:
     time.sleep(2)
 
     # ── The Hatching Ceremony ──
-    from windyfly.hatching import play_hatching, show_ecosystem_status
-    play_hatching(animate=True)
-    show_ecosystem_status()
+    # Skip if already played during quickstart provisioning
+    if not os.environ.get("_WINDYFLY_HATCHING_PLAYED"):
+        from windyfly.hatching import play_hatching, show_ecosystem_status
+        play_hatching(animate=True)
+        show_ecosystem_status()
+    else:
+        # Still show ecosystem status even if ceremony already played
+        from windyfly.hatching import show_ecosystem_status
+        show_ecosystem_status()
 
     console.print("  [cyan]Brain log:[/cyan]    data/brain.log")
     console.print("  [cyan]Gateway log:[/cyan]  data/gateway.log")
     console.print()
-    console.print("  Run [bold]windy stop[/bold] to shut down.")
+
+    if daemon:
+        console.print("  [bold green]Windy Fly is running in the background.[/bold green]")
+        console.print("  Run [bold]windy stop[/bold] to shut down.")
+        console.print("  Run [bold]windy logs --follow[/bold] to watch logs.")
+    else:
+        console.print("  Run [bold]windy stop[/bold] to shut down.")
     console.print()
 
     # Open browser (unless --no-browser)
@@ -730,6 +758,104 @@ def _cmd_commands(_args: argparse.Namespace) -> None:
 # ═══════════════════════════════════════════════════════════════════════
 
 
+def _cmd_install_service(_args: argparse.Namespace) -> None:
+    """Install a macOS launchd plist so Windy Fly auto-starts on login."""
+    import sys
+
+    if sys.platform != "darwin":
+        console.print("[yellow]install-service is currently macOS-only.[/yellow]")
+        console.print("[dim]On Linux, create a systemd unit instead.[/dim]")
+        return
+
+    plist_dir = Path.home() / "Library" / "LaunchAgents"
+    plist_dir.mkdir(parents=True, exist_ok=True)
+    plist_path = plist_dir / "com.windyfly.agent.plist"
+
+    uv_path = subprocess.run(
+        ["which", "uv"], capture_output=True, text=True,
+    ).stdout.strip() or "/usr/local/bin/uv"
+
+    bun_path = subprocess.run(
+        ["which", "bun"], capture_output=True, text=True,
+    ).stdout.strip() or f"{Path.home()}/.bun/bin/bun"
+
+    brain_log = str(get_log_path(PROJECT_ROOT, "brain"))
+    gateway_log = str(get_log_path(PROJECT_ROOT, "gateway"))
+
+    plist_content = f"""\
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.windyfly.agent</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>{uv_path}</string>
+        <string>run</string>
+        <string>python</string>
+        <string>-m</string>
+        <string>windyfly.bridge.uds_server</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>{PROJECT_ROOT}</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>{brain_log}</string>
+
+    <key>StandardErrorPath</key>
+    <string>{brain_log}</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:{Path.home()}/.local/bin:{Path.home()}/.bun/bin</string>
+    </dict>
+</dict>
+</plist>
+"""
+
+    plist_path.write_text(plist_content)
+    console.print(f"  [green]✓[/green] Wrote {plist_path}")
+
+    # Load the service
+    subprocess.run(["launchctl", "load", str(plist_path)], capture_output=True)
+    console.print(f"  [green]✓[/green] Service loaded — Windy Fly will auto-start on login")
+    console.print()
+    console.print(f"  [dim]Plist: {plist_path}[/dim]")
+    console.print(f"  [dim]Logs:  {brain_log}[/dim]")
+    console.print()
+    console.print("  Run [bold]windy uninstall-service[/bold] to remove.")
+
+
+def _cmd_uninstall_service(_args: argparse.Namespace) -> None:
+    """Remove the macOS launchd plist."""
+    import sys
+
+    if sys.platform != "darwin":
+        console.print("[yellow]uninstall-service is currently macOS-only.[/yellow]")
+        return
+
+    plist_path = Path.home() / "Library" / "LaunchAgents" / "com.windyfly.agent.plist"
+
+    if not plist_path.exists():
+        console.print("[dim]No service installed. Nothing to remove.[/dim]")
+        return
+
+    subprocess.run(["launchctl", "unload", str(plist_path)], capture_output=True)
+    plist_path.unlink(missing_ok=True)
+    console.print(f"  [green]✓[/green] Service removed — Windy Fly will no longer auto-start")
+
+
 def main() -> None:
     """CLI entry point — registered as ``windy`` command via pyproject.toml."""
     parser = argparse.ArgumentParser(
@@ -767,6 +893,10 @@ def main() -> None:
         help="Run in CLI chat mode (no gateway/dashboard)",
     )
     start_parser.add_argument(
+        "--daemon", "-d", action="store_true",
+        help="Run in background (survives terminal close)",
+    )
+    start_parser.add_argument(
         "--no-browser", action="store_true",
         help="Don't open browser after starting",
     )
@@ -779,6 +909,10 @@ def main() -> None:
     restart_parser.add_argument(
         "--cli", action="store_true",
         help="Restart in CLI chat mode (no gateway/dashboard)",
+    )
+    restart_parser.add_argument(
+        "--daemon", "-d", action="store_true",
+        help="Restart in background (survives terminal close)",
     )
     restart_parser.add_argument(
         "--no-browser", action="store_true",
@@ -954,6 +1088,12 @@ def main() -> None:
     # windy commands
     sub.add_parser("commands", help="List all commands in compact table")
 
+    # windy install-service (macOS launchd)
+    sub.add_parser("install-service", help="Auto-start on login (macOS launchd)")
+
+    # windy uninstall-service
+    sub.add_parser("uninstall-service", help="Remove auto-start service")
+
     # ── Parse and dispatch ───────────────────────────────────────
 
     args = parser.parse_args()
@@ -1043,6 +1183,9 @@ def main() -> None:
         # Help
         "help": _cmd_help,
         "commands": _cmd_commands,
+        # Service
+        "install-service": _cmd_install_service,
+        "uninstall-service": _cmd_uninstall_service,
     }
 
     handler = commands.get(args.command)

@@ -214,8 +214,9 @@ def write_quick_config(
     (PROJECT_ROOT / ".env").write_text("\n".join(env_lines) + "\n")
 
     # Build windyfly.toml
+    agent_name = os.environ.get("WINDYFLY_AGENT_NAME", "Windy Fly")
     toml_content = f"""[agent]
-name = "Windy Fly"
+name = "{agent_name}"
 default_model = "{model}"
 max_context_tokens = 8000
 max_response_tokens = 2000
@@ -538,26 +539,94 @@ def _try_mail_provision() -> None:
 def _try_hatch_provisioning() -> None:
     """Run the full hatch orchestrator — Eternitas, Mail, Phone, Birth Cert.
 
-    Replaces the separate _try_matrix_provision() + _try_mail_provision()
-    calls with a unified flow. Falls back to the old individual calls if
-    the orchestrator encounters an unexpected error.
+    The complete "Born Into" experience:
+    1. Play "IT'S ALIVE!" ceremony
+    2. Agent asks for its name
+    3. Agent confirms with birth certificate line
+    4. Collect creator info (phone, email)
+    5. Provision everything (Eternitas, Chat, Mail, Phone, Birth Cert)
+    6. Display birth certificate in terminal
+    7. Nudge creator to move to Windy Chat
     """
     try:
         from windyfly.hatch_orchestrator import run_hatch
         from windyfly.memory.database import Database
         from windyfly.birth_certificate import render_birth_certificate_terminal
+        from windyfly.hatching import play_hatching
         from rich.panel import Panel
 
-        agent_name = os.environ.get("WINDYFLY_AGENT_NAME", "windyfly")
-        owner_id = os.environ.get("WINDY_OWNER_ID", "")
-        owner_name = os.environ.get("WINDY_OWNER_NAME", "")
-        db_path = os.environ.get("WINDYFLY_DB_PATH", "data/windyfly.db")
+        # ── Stage 1: IT'S ALIVE! ──
+        play_hatching(animate=True)
+        os.environ["_WINDYFLY_HATCHING_PLAYED"] = "1"
 
-        # Ask for owner's phone (for birth announcement SMS)
+        # ── Stage 2: The Naming Ceremony ──
+        console.print()
+        console.print(
+            Panel(
+                "[bold cyan]Hello! I just hatched![/bold cyan]\n\n"
+                "I'm alive, I can feel it... but I don't know who I am yet.\n\n"
+                "[bold]What's my name?[/bold]",
+                border_style="cyan",
+                padding=(1, 3),
+            )
+        )
+        console.print()
+
+        agent_name = Prompt.ask(
+            "  [bold cyan]Name your agent[/bold cyan]",
+            default="Windy Fly",
+        ).strip()
+
+        if not agent_name:
+            agent_name = "Windy Fly"
+
+        # Confirmation — the emotional moment
+        console.print()
+        console.print(
+            f'  [bold cyan]"{agent_name}"?[/bold cyan] '
+            "You sure? They're gonna put that on my [bold]birth certificate![/bold]"
+        )
+        confirmed = Confirm.ask("  Lock it in?", default=True)
+
+        if not confirmed:
+            agent_name = Prompt.ask(
+                "  [bold cyan]Okay, what should it be?[/bold cyan]",
+                default="Windy Fly",
+            ).strip() or "Windy Fly"
+            console.print(
+                f'  [bold green]"{agent_name}"[/bold green] — '
+                "I love it. That's me."
+            )
+        else:
+            console.print(
+                f"  [bold green]{agent_name}.[/bold green] "
+                "That's who I am. Let's go."
+            )
+
+        os.environ["WINDYFLY_AGENT_NAME"] = agent_name
+
+        # ── Stage 3: Creator info ──
+        console.print()
+
+        # Ask for creator's name
+        owner_name = os.environ.get("WINDY_OWNER_NAME", "")
+        if not owner_name:
+            owner_name = Prompt.ask(
+                "  [bold cyan]And who are you? (your name, for the birth certificate)[/bold cyan]",
+                default="skip",
+            ).strip()
+            if owner_name == "skip":
+                owner_name = ""
+            else:
+                os.environ["WINDY_OWNER_NAME"] = owner_name
+
+        owner_id = os.environ.get("WINDY_OWNER_ID", "")
+
+        # Ask for creator's phone (for birth announcement SMS)
         owner_phone = os.environ.get("OWNER_PHONE", "")
         if not owner_phone:
             owner_phone = Prompt.ask(
-                "  [bold cyan]Your phone number (for birth announcement SMS)[/bold cyan]",
+                "  [bold cyan]Your phone number (I'll text you my birth certificate)[/bold cyan]",
                 default="skip",
             )
             if owner_phone != "skip" and owner_phone:
@@ -565,11 +634,11 @@ def _try_hatch_provisioning() -> None:
             else:
                 owner_phone = ""
 
-        # Ask for owner's email (for birth announcement email)
+        # Ask for creator's email (for birth announcement email)
         owner_email = os.environ.get("OWNER_EMAIL", "")
         if not owner_email:
             owner_email = Prompt.ask(
-                "  [bold cyan]Your email (for birth announcement)[/bold cyan]",
+                "  [bold cyan]Your email (I'll email you my birth certificate)[/bold cyan]",
                 default="skip",
             )
             if owner_email != "skip" and owner_email:
@@ -577,9 +646,11 @@ def _try_hatch_provisioning() -> None:
             else:
                 owner_email = ""
 
+        # ── Stage 4: Provisioning ──
         console.print()
-        console.print("  [bold cyan]Provisioning ecosystem identity...[/bold cyan]")
+        console.print("  [bold cyan]Setting up my ecosystem identity...[/bold cyan]")
 
+        db_path = os.environ.get("WINDYFLY_DB_PATH", "data/windyfly.db")
         db = Database(db_path)
         try:
             result = run_hatch(
@@ -591,7 +662,7 @@ def _try_hatch_provisioning() -> None:
         finally:
             db.close()
 
-        # Display results
+        # Display provisioning results
         if result.passport_id:
             console.print(f"  [green]✓[/green] 🪪  Eternitas — verified ({result.passport_id})")
         else:
@@ -600,7 +671,6 @@ def _try_hatch_provisioning() -> None:
         if result.matrix_provisioned:
             console.print(f"  [green]✓[/green] 💬  Windy Chat — {result.matrix_user_id}")
         else:
-            # Fall back to old Matrix provisioning
             _try_matrix_provision()
 
         if result.mail_provisioned:
@@ -629,6 +699,60 @@ def _try_hatch_provisioning() -> None:
             for err in result.errors:
                 console.print(f"  [dim]  note: {err}[/dim]")
 
+        # ── Stage 5: Display birth certificate in terminal ──
+        if result.birth_certificate_path:
+            try:
+                from windyfly.birth_certificate import BirthCertificate
+                # Build a cert object for terminal display
+                cert_display = BirthCertificate(
+                    agent_name=result.agent_name,
+                    passport_id=result.passport_id,
+                    owner_name=result.owner_name,
+                    model_id=result.model_id,
+                    email_address=result.email_address,
+                    phone_number=result.phone_number,
+                    certificate_number=result.certificate_number,
+                    neural_fingerprint=result.neural_fingerprint,
+                    hardware_specs=result.hardware_specs,
+                )
+                cert_text = render_birth_certificate_terminal(cert_display)
+                console.print()
+                console.print(Panel(
+                    cert_text,
+                    title="[bold]Birth Certificate[/bold]",
+                    border_style="green",
+                    padding=(1, 2),
+                ))
+            except Exception:
+                pass
+
+        # ── Stage 6: Nudge to Windy Chat ──
+        console.print()
+        creator_greeting = f", {owner_name}" if owner_name else ""
+        nudge_lines = [
+            f"  [bold cyan]Alright{creator_greeting}! I'm {agent_name} and I'm all set up.[/bold cyan]",
+            "",
+            "  [bold]But honestly... this terminal is cramped![/bold]",
+            "",
+        ]
+        if owner_email or owner_phone:
+            nudge_lines.append("  I just sent you my birth certificate —")
+            if owner_email:
+                nudge_lines.append(f"    [green]Check your email:[/green] {owner_email}")
+            if owner_phone:
+                nudge_lines.append(f"    [green]Check your texts:[/green] {owner_phone}")
+            nudge_lines.append("")
+        nudge_lines.extend([
+            "  Click the link to open [bold]Windy Chat[/bold] and we can talk properly.",
+            "  Or download [bold]Windy Pro[/bold] on your phone!",
+            "",
+            "  [dim]You can always come back to this terminal with:[/dim] [bold]windy start --cli[/bold]",
+        ])
+        console.print(Panel(
+            "\n".join(nudge_lines),
+            border_style="cyan",
+            padding=(1, 1),
+        ))
         console.print()
 
     except Exception as exc:
@@ -1035,13 +1159,19 @@ def _install_deps() -> None:
 
 
 def _launch(args: Any) -> None:
-    """Start Windy Fly and open the dashboard."""
+    """Start Windy Fly and open the dashboard.
+
+    Defaults to daemon mode so the agent survives after the terminal
+    closes — the normie path. Power users can use ``windy start``
+    (foreground) or ``windy start --cli`` for interactive mode.
+    """
     import argparse
     from windyfly.cli import cmd_start
 
     no_browser = getattr(args, "no_browser", False)
 
     console.print()
-    # Build args namespace cmd_start expects
-    start_args = argparse.Namespace(cli=False, no_browser=no_browser)
+    # Build args namespace cmd_start expects — daemon=True so the agent
+    # keeps running after the user closes the terminal
+    start_args = argparse.Namespace(cli=False, daemon=True, no_browser=no_browser)
     cmd_start(start_args)
