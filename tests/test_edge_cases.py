@@ -141,27 +141,28 @@ class TestProcessEdgeCases:
     def test_stop_when_no_processes_running(self, tmp_path: Path, monkeypatch):
         """windy stop should not crash when no PID file exists."""
         monkeypatch.setattr("windyfly.cli.PROJECT_ROOT", tmp_path)
-        monkeypatch.setattr("windyfly.cli.PID_FILE", tmp_path / ".windy.pid")
         from windyfly.cli import cmd_stop
         args = argparse.Namespace()
         cmd_stop(args)  # Should not crash
 
     def test_stop_with_invalid_pid_data(self, tmp_path: Path, monkeypatch):
         """windy stop should handle PID file with invalid data."""
-        pid_file = tmp_path / ".windy.pid"
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        pid_file = data_dir / "windyfly.pid"
         pid_file.write_text("not_a_number\n")
         monkeypatch.setattr("windyfly.cli.PROJECT_ROOT", tmp_path)
-        monkeypatch.setattr("windyfly.cli.PID_FILE", pid_file)
         from windyfly.cli import cmd_stop
         args = argparse.Namespace()
         cmd_stop(args)  # Should not crash
 
     def test_stop_with_stale_pids(self, tmp_path: Path, monkeypatch):
         """windy stop should handle PID file with already-dead processes."""
-        pid_file = tmp_path / ".windy.pid"
-        pid_file.write_text("999999\n999998\n")
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        pid_file = data_dir / "windyfly.pid"
+        pid_file.write_text("brain=999999\ngateway=999998\n")
         monkeypatch.setattr("windyfly.cli.PROJECT_ROOT", tmp_path)
-        monkeypatch.setattr("windyfly.cli.PID_FILE", pid_file)
         from windyfly.cli import cmd_stop
         args = argparse.Namespace()
         cmd_stop(args)  # Should not crash
@@ -275,7 +276,6 @@ class TestConfigParsingEdgeCases:
     def test_restart_when_nothing_running(self, tmp_path: Path, monkeypatch):
         """windy restart when nothing is running should not crash."""
         monkeypatch.setattr("windyfly.cli.PROJECT_ROOT", tmp_path)
-        monkeypatch.setattr("windyfly.cli.PID_FILE", tmp_path / ".windy.pid")
         # We can only test the stop part doesn't crash
         from windyfly.cli import cmd_stop
         args = argparse.Namespace()

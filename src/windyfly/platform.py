@@ -192,7 +192,100 @@ def get_log_path(project_root: Path, name: str) -> Path:
 
 def get_pid_path(project_root: Path) -> Path:
     """Return the PID file path."""
-    return project_root / ".windy.pid"
+    return get_data_dir(project_root) / "windyfly.pid"
+
+
+@dataclass
+class PIDInfo:
+    """Parsed PID file contents."""
+
+    brain: int | None = None
+    gateway: int | None = None
+    started: str = ""
+
+    @property
+    def brain_alive(self) -> bool:
+        return self.brain is not None and process_alive(self.brain)
+
+    @property
+    def gateway_alive(self) -> bool:
+        return self.gateway is not None and process_alive(self.gateway)
+
+    @property
+    def any_alive(self) -> bool:
+        return self.brain_alive or self.gateway_alive
+
+
+def read_pid_file(project_root: Path) -> PIDInfo | None:
+    """Read and parse the PID file. Returns None if file doesn't exist."""
+    pid_path = get_pid_path(project_root)
+    if not pid_path.exists():
+        return None
+    info = PIDInfo()
+    try:
+        for line in pid_path.read_text().strip().splitlines():
+            if "=" not in line:
+                # Legacy format: plain PID per line
+                try:
+                    pid = int(line.strip())
+                    if info.brain is None:
+                        info.brain = pid
+                    elif info.gateway is None:
+                        info.gateway = pid
+                except ValueError:
+                    pass
+                continue
+            key, val = line.split("=", 1)
+            key = key.strip()
+            val = val.strip()
+            if key == "brain":
+                info.brain = int(val)
+            elif key == "gateway":
+                info.gateway = int(val)
+            elif key == "started":
+                info.started = val
+    except Exception:
+        return None
+    return info
+
+
+def write_pid_file(
+    project_root: Path,
+    brain_pid: int | None = None,
+    gateway_pid: int | None = None,
+) -> None:
+    """Write the PID file in key=value format."""
+    from datetime import datetime, timezone
+
+    pid_path = get_pid_path(project_root)
+    lines = []
+    if brain_pid is not None:
+        lines.append(f"brain={brain_pid}")
+    if gateway_pid is not None:
+        lines.append(f"gateway={gateway_pid}")
+    lines.append(f"started={datetime.now(timezone.utc).isoformat()}")
+    pid_path.write_text("\n".join(lines) + "\n")
+
+
+def remove_pid_file(project_root: Path) -> None:
+    """Remove the PID file if it exists."""
+    get_pid_path(project_root).unlink(missing_ok=True)
+
+
+def force_kill(pid: int) -> bool:
+    """Force-kill a process (SIGKILL on POSIX, taskkill /F on Windows)."""
+    if IS_WINDOWS:
+        try:
+            subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True)
+            return True
+        except (FileNotFoundError, subprocess.SubprocessError):
+            return False
+    else:
+        try:
+            os.kill(pid, signal.SIGKILL)
+            return True
+        except (OSError, ProcessLookupError):
+            return False
 
 
 # ── Installer helpers ─────────────────────────────────────────────────

@@ -193,11 +193,11 @@ class TestPathHelpers:
         assert log_path == project / "data" / "brain.log"
 
     def test_get_pid_path_returns_correct_path(self, tmp_path: Path):
-        """get_pid_path() should return .windy.pid in project root."""
+        """get_pid_path() should return data/windyfly.pid in project root."""
         project = tmp_path / "fake_project"
         project.mkdir()
         pid_path = get_pid_path(project)
-        assert pid_path == project / ".windy.pid"
+        assert pid_path == project / "data" / "windyfly.pid"
 
     def test_get_temp_dir_returns_path(self):
         """get_temp_dir() should return a valid Path."""

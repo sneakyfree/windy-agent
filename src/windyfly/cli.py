@@ -10,16 +10,36 @@ Commands::
     windy chat             — Start CLI chat mode (alias for start --cli)
     windy stop             — Stop all Windy Fly processes
     windy restart          — Stop + start in one shot
-    windy status           — Show what's running
-    windy doctor           — Diagnose your installation
+    windy kill             — Force kill everything (emergency)
+    windy ps               — Show running processes
+    windy status           — Quick status summary
+    windy doctor           — Full health check
     windy test             — Run self-test (verify agent works)
-    windy update           — Pull latest code + sync dependencies
+    windy repl             — Developer REPL
     windy logs [component] — Tail brain/gateway logs
+    windy debug            — Verbose debug info
+    windy ecosystem        — Show ecosystem connections
+    windy channels         — Show messaging channels
+    windy passport         — Show Eternitas passport
+    windy mail             — Show mail status
+    windy phone            — Show phone status
+    windy cert             — Show birth certificate
     windy config show      — View current configuration
     windy config set K V   — Set a config value
     windy config reset     — Re-run setup wizard
     windy config path      — Show config file locations
+    windy model            — Show/change LLM model
+    windy soul             — Show/edit personality
+    windy budget           — Cost tracking
+    windy memory           — Memory operations
+    windy skills           — Skill management
+    windy update           — Pull latest code + sync dependencies
     windy version          — Show version and environment info
+    windy export           — Backup everything
+    windy import           — Restore from backup
+    windy reset            — Factory reset
+    windy help             — Show all commands grouped by category
+    windy commands         — List all commands in compact table
 """
 
 from __future__ import annotations
@@ -34,15 +54,21 @@ from rich.console import Console
 from windyfly.platform import (
     get_data_dir,
     get_log_path,
-    get_pid_path,
     kill_by_name,
     process_alive,
     process_terminate,
+    read_pid_file,
+    remove_pid_file,
+    write_pid_file,
 )
 
 console = Console()
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-PID_FILE = get_pid_path(PROJECT_ROOT)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Core commands (defined here)
+# ═══════════════════════════════════════════════════════════════════════
 
 
 def cmd_init(_args: argparse.Namespace) -> None:
@@ -68,20 +94,21 @@ def cmd_start(args: argparse.Namespace) -> None:
         return
 
     # Check if already running
-    if PID_FILE.exists():
-        pids = PID_FILE.read_text().strip().split("\n")
-        alive = [pid for pid in pids if process_alive(int(pid))]
-        if alive:
-            console.print(f"[yellow]⚠ Windy Fly is already running (PIDs: {', '.join(alive)})[/yellow]")
-            console.print("  Run [bold]windy stop[/bold] first, or [bold]windy status[/bold] to check.")
-            return
+    pid_info = read_pid_file(PROJECT_ROOT)
+    if pid_info and pid_info.any_alive:
+        alive_parts = []
+        if pid_info.brain_alive:
+            alive_parts.append(f"brain={pid_info.brain}")
+        if pid_info.gateway_alive:
+            alive_parts.append(f"gateway={pid_info.gateway}")
+        console.print(f"[yellow]⚠ Windy Fly is already running ({', '.join(alive_parts)})[/yellow]")
+        console.print("  Run [bold]windy stop[/bold] first, or [bold]windy status[/bold] to check.")
+        return
 
     console.print("[bold cyan]🪰 Starting Windy Fly...[/bold cyan]")
     console.print()
 
-    pids: list[int] = []
-
-    if args.cli:
+    if getattr(args, "cli", False):
         # CLI-only mode: run brain interactively in foreground
         console.print("  [cyan]Starting brain in CLI mode...[/cyan]")
         console.print("  [dim]Type your messages below. Ctrl+C to exit.[/dim]")
@@ -109,7 +136,6 @@ def cmd_start(args: argparse.Namespace) -> None:
         stdout=brain_log,
         stderr=subprocess.STDOUT,
     )
-    pids.append(brain_proc.pid)
     console.print(f"  [green]✓[/green] Brain started [dim](PID {brain_proc.pid})[/dim]")
 
     # Start gateway
@@ -121,11 +147,10 @@ def cmd_start(args: argparse.Namespace) -> None:
         stdout=gateway_log,
         stderr=subprocess.STDOUT,
     )
-    pids.append(gateway_proc.pid)
     console.print(f"  [green]✓[/green] Gateway started [dim](PID {gateway_proc.pid})[/dim]")
 
-    # Write PID file
-    PID_FILE.write_text("\n".join(str(p) for p in pids) + "\n")
+    # Write PID file (new key=value format)
+    write_pid_file(PROJECT_ROOT, brain_proc.pid, gateway_proc.pid)
 
     # Wait for gateway to be ready
     time.sleep(2)
@@ -151,29 +176,31 @@ def cmd_start(args: argparse.Namespace) -> None:
 
 def cmd_stop(_args: argparse.Namespace) -> None:
     """Stop all Windy Fly processes."""
-    if not PID_FILE.exists():
+    pid_info = read_pid_file(PROJECT_ROOT)
+
+    if pid_info is None:
         console.print("[dim]No PID file found. Nothing to stop.[/dim]")
         _do_kill_by_name()
         return
 
-    pids = PID_FILE.read_text().strip().split("\n")
     stopped = 0
 
-    for pid_str in pids:
+    for label, pid in [("Brain", pid_info.brain), ("Gateway", pid_info.gateway)]:
+        if pid is None:
+            continue
         try:
-            pid = int(pid_str.strip())
             if process_alive(pid):
                 if process_terminate(pid):
-                    console.print(f"  [green]✓[/green] Stopped PID {pid}")
+                    console.print(f"  [green]✓[/green] Stopped {label} (PID {pid})")
                     stopped += 1
                 else:
-                    console.print(f"  [yellow]⚠ Could not stop PID {pid}[/yellow]")
+                    console.print(f"  [yellow]⚠ Could not stop {label} (PID {pid})[/yellow]")
             else:
-                console.print(f"  [dim]PID {pid} already stopped[/dim]")
+                console.print(f"  [dim]{label} (PID {pid}) already stopped[/dim]")
         except (ValueError, OSError) as e:
-            console.print(f"  [yellow]⚠ Could not stop PID {pid_str}: {e}[/yellow]")
+            console.print(f"  [yellow]⚠ Could not stop {label} (PID {pid}): {e}[/yellow]")
 
-    PID_FILE.unlink(missing_ok=True)
+    remove_pid_file(PROJECT_ROOT)
 
     if stopped:
         console.print(f"\n  [green]✓ Stopped {stopped} process(es)[/green]")
@@ -251,158 +278,8 @@ def _do_kill_by_name() -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# Entry point
+# Lightweight handlers (delegate to other modules)
 # ═══════════════════════════════════════════════════════════════════════
-
-
-def main() -> None:
-    """CLI entry point — registered as ``windy`` command via pyproject.toml."""
-    parser = argparse.ArgumentParser(
-        prog="windy",
-        description="🪰 Windy Fly — Your AI. Your Rules. Your Ecosystem.",
-    )
-    sub = parser.add_subparsers(dest="command", help="Command to run")
-
-    # windy init
-    sub.add_parser("init", help="Run the interactive setup wizard")
-
-    # windy start
-    start_parser = sub.add_parser("start", help="Start the Windy Fly stack")
-    start_parser.add_argument(
-        "--cli", action="store_true",
-        help="Run in CLI chat mode (no gateway/dashboard)",
-    )
-
-    # windy setup
-    sub.add_parser("setup", help="Open browser-based setup wizard")
-
-    # windy stop
-    sub.add_parser("stop", help="Stop all Windy Fly processes")
-
-    # windy restart
-    restart_parser = sub.add_parser("restart", help="Stop + start in one shot")
-    restart_parser.add_argument(
-        "--cli", action="store_true",
-        help="Restart in CLI chat mode (no gateway/dashboard)",
-    )
-
-    # windy status
-    sub.add_parser("status", help="Show status of running processes")
-
-    # windy doctor
-    sub.add_parser("doctor", help="Diagnose your Windy Fly installation")
-
-    # windy update
-    sub.add_parser("update", help="Pull latest code and sync dependencies")
-
-    # windy logs
-    logs_parser = sub.add_parser("logs", help="Tail brain/gateway logs")
-    logs_parser.add_argument(
-        "component", nargs="?", default="all",
-        choices=["all", "brain", "gateway"],
-        help="Which component's logs to show (default: all)",
-    )
-    logs_parser.add_argument(
-        "-f", "--follow", action="store_true",
-        help="Follow log output in real time",
-    )
-    logs_parser.add_argument(
-        "-n", "--lines", type=int, default=50,
-        help="Number of lines to show (default: 50)",
-    )
-
-    # windy config
-    config_parser = sub.add_parser("config", help="View or edit configuration")
-    config_sub = config_parser.add_subparsers(dest="action", help="Config action")
-    config_sub.add_parser("show", help="Display current configuration")
-    config_set = config_sub.add_parser("set", help="Set a config value")
-    config_set.add_argument("key", help="Key in section.name format (e.g., agent.default_model)")
-    config_set.add_argument("value", help="New value")
-    config_sub.add_parser("reset", help="Re-run the setup wizard")
-    config_sub.add_parser("path", help="Show config file locations")
-
-    # windy version
-    sub.add_parser("version", help="Show version and environment info")
-
-    # windy chat — alias for start --cli
-    sub.add_parser("chat", help="Start CLI chat mode (alias for start --cli)")
-
-    # windy test — self-test
-    sub.add_parser("test", help="Run self-test to verify the agent works")
-
-    # windy ecosystem — show ecosystem connections
-    sub.add_parser("ecosystem", help="Show ecosystem connection status")
-
-    # windy channels — show configured messaging channels
-    sub.add_parser("channels", help="Show configured messaging channels")
-
-    # windy go — the one-command quickstart
-    go_parser = sub.add_parser("go", help="One-command quickstart — paste a key and go")
-    go_parser.add_argument(
-        "--key", "-k",
-        help="API key (auto-detects provider). Skips all prompts.",
-    )
-    go_parser.add_argument(
-        "--model", "-m",
-        help="Override default model (e.g., gpt-4o, claude-3-5-sonnet-latest)",
-    )
-    go_parser.add_argument(
-        "--preset", "-p",
-        choices=["buddy", "engineer", "powerhouse", "coder", "friend", "writer", "researcher", "silent"],
-        help="Personality preset (default: buddy)",
-    )
-    go_parser.add_argument(
-        "--no-browser", action="store_true",
-        help="Don't open browser (for headless servers)",
-    )
-
-    args = parser.parse_args()
-
-    if args.command is None:
-        # No subcommand — run quickstart if not configured, help if configured
-        env_file = PROJECT_ROOT / ".env"
-        config_file = PROJECT_ROOT / "windyfly.toml"
-        if not env_file.exists() or not config_file.exists():
-            from windyfly.quickstart import cmd_go
-            cmd_go(args)
-        else:
-            parser.print_help()
-        return
-
-    from windyfly.commands import (
-        cmd_config,
-        cmd_doctor,
-        cmd_logs,
-        cmd_restart,
-        cmd_update,
-        cmd_version,
-    )
-    from windyfly.quickstart import cmd_go
-
-    commands = {
-        "go": cmd_go,
-        "init": cmd_init,
-        "setup": cmd_setup,
-        "start": cmd_start,
-        "stop": cmd_stop,
-        "restart": cmd_restart,
-        "status": cmd_status,
-        "doctor": cmd_doctor,
-        "update": cmd_update,
-        "logs": cmd_logs,
-        "config": cmd_config,
-        "version": cmd_version,
-        "chat": _cmd_chat,
-        "test": _cmd_test,
-        "ecosystem": _cmd_ecosystem,
-        "channels": _cmd_channels,
-    }
-
-    handler = commands.get(args.command)
-    if handler:
-        handler(args)
-    else:
-        parser.print_help()
 
 
 def _cmd_chat(args: argparse.Namespace) -> None:
@@ -416,6 +293,153 @@ def _cmd_test(_args: argparse.Namespace) -> None:
     """Run the agent self-test."""
     from windyfly.cli_selftest import run_self_test
     run_self_test()
+
+
+def _cmd_repl(_args: argparse.Namespace) -> None:
+    """Start the developer REPL."""
+    from windyfly.commands import cmd_repl
+    cmd_repl(_args)
+
+
+def _cmd_kill(_args: argparse.Namespace) -> None:
+    """Force kill everything — emergency stop."""
+    from windyfly.platform import force_kill
+
+    console.print("[bold red]Force-killing all Windy Fly processes...[/bold red]")
+    console.print()
+
+    pid_info = read_pid_file(PROJECT_ROOT)
+    killed = 0
+
+    if pid_info:
+        for label, pid in [("Brain", pid_info.brain), ("Gateway", pid_info.gateway)]:
+            if pid is not None and process_alive(pid):
+                if force_kill(pid):
+                    console.print(f"  [green]✓[/green] Killed {label} (PID {pid})")
+                    killed += 1
+        remove_pid_file(PROJECT_ROOT)
+
+    # Also kill by name as fallback
+    _do_kill_by_name()
+
+    if killed:
+        console.print(f"\n  [green]✓ Force-killed {killed} process(es)[/green]")
+    else:
+        console.print("\n  [dim]No running processes found (sent kill-by-name as fallback)[/dim]")
+
+
+def _cmd_ps(_args: argparse.Namespace) -> None:
+    """Show running Windy Fly processes."""
+    from rich.table import Table
+
+    pid_info = read_pid_file(PROJECT_ROOT)
+
+    table = Table(title="Windy Fly Processes", border_style="cyan")
+    table.add_column("Component", style="bold")
+    table.add_column("PID", style="cyan")
+    table.add_column("Status")
+    table.add_column("Started", style="dim")
+
+    if pid_info is None:
+        console.print("[dim]No PID file found. Windy Fly may not be running.[/dim]")
+        return
+
+    started = pid_info.started or "unknown"
+
+    for label, pid, alive in [
+        ("Brain", pid_info.brain, pid_info.brain_alive),
+        ("Gateway", pid_info.gateway, pid_info.gateway_alive),
+    ]:
+        pid_str = str(pid) if pid else "-"
+        status = "[green]Running[/green]" if alive else "[red]Stopped[/red]"
+        table.add_row(label, pid_str, status, started)
+
+    console.print()
+    console.print(table)
+    console.print()
+
+
+def _cmd_debug(_args: argparse.Namespace) -> None:
+    """Show verbose debug information."""
+    from windyfly.commands import cmd_debug
+    cmd_debug(_args)
+
+
+def _cmd_passport(_args: argparse.Namespace) -> None:
+    """Show Eternitas passport."""
+    from windyfly.commands import cmd_passport
+    cmd_passport(_args)
+
+
+def _cmd_mail(_args: argparse.Namespace) -> None:
+    """Show mail status."""
+    from windyfly.commands import cmd_mail
+    cmd_mail(_args)
+
+
+def _cmd_phone(_args: argparse.Namespace) -> None:
+    """Show phone status."""
+    from windyfly.commands import cmd_phone
+    cmd_phone(_args)
+
+
+def _cmd_cert(_args: argparse.Namespace) -> None:
+    """Show birth certificate."""
+    from windyfly.commands import cmd_cert
+    cmd_cert(_args)
+
+
+def _cmd_model(args: argparse.Namespace) -> None:
+    """Show/change LLM model."""
+    from windyfly.commands import cmd_model
+    cmd_model(args)
+
+
+def _cmd_soul(args: argparse.Namespace) -> None:
+    """Show/edit personality."""
+    from windyfly.commands import cmd_soul
+    cmd_soul(args)
+
+
+def _cmd_budget(args: argparse.Namespace) -> None:
+    """Cost tracking."""
+    from windyfly.commands import cmd_budget
+    cmd_budget(args)
+
+
+def _cmd_memory(args: argparse.Namespace) -> None:
+    """Memory operations."""
+    from windyfly.commands import cmd_memory
+    cmd_memory(args)
+
+
+def _cmd_skills(args: argparse.Namespace) -> None:
+    """Skill management."""
+    from windyfly.commands import cmd_skills
+    cmd_skills(args)
+
+
+def _cmd_export(_args: argparse.Namespace) -> None:
+    """Backup everything."""
+    from windyfly.commands import cmd_export
+    cmd_export(_args)
+
+
+def _cmd_import(args: argparse.Namespace) -> None:
+    """Restore from backup."""
+    from windyfly.commands import cmd_import
+    cmd_import(args)
+
+
+def _cmd_reset(args: argparse.Namespace) -> None:
+    """Factory reset."""
+    from windyfly.commands import cmd_reset
+    cmd_reset(args)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Ecosystem & channels (kept verbatim)
+# ═══════════════════════════════════════════════════════════════════════
 
 
 def _cmd_ecosystem(_args: argparse.Namespace) -> None:
@@ -571,6 +595,464 @@ def auto_detect_channels() -> list[str]:
         detected.append("irc")
 
     return detected
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Help & commands display
+# ═══════════════════════════════════════════════════════════════════════
+
+# All commands organized by category for help display
+_COMMAND_CATEGORIES = [
+    ("Process Management", [
+        ("go", "One-command quickstart"),
+        ("start", "Start brain + gateway"),
+        ("stop", "Stop all processes"),
+        ("restart", "Stop + start"),
+        ("kill", "Force kill everything (emergency)"),
+        ("ps", "Show running processes"),
+    ]),
+    ("Chat & Interaction", [
+        ("chat", "Start CLI chat mode (alias for start --cli)"),
+        ("test", "Run self-test"),
+        ("repl", "Developer REPL"),
+    ]),
+    ("Diagnostics", [
+        ("doctor", "Full health check"),
+        ("status", "Quick status summary"),
+        ("logs", "Tail logs (brain/gateway)"),
+        ("debug", "Verbose debug info"),
+    ]),
+    ("Identity & Ecosystem", [
+        ("ecosystem", "Show ecosystem connections"),
+        ("channels", "Show messaging channels"),
+        ("passport", "Show Eternitas passport"),
+        ("mail", "Show mail status"),
+        ("phone", "Show phone status"),
+        ("cert", "Show birth certificate"),
+    ]),
+    ("Configuration", [
+        ("config", "View/edit configuration (show, set, reset, path)"),
+        ("model", "Show/change LLM model"),
+        ("soul", "Show/edit personality"),
+        ("budget", "Cost tracking"),
+    ]),
+    ("Memory & Skills", [
+        ("memory", "Memory operations"),
+        ("skills", "Skill management"),
+    ]),
+    ("Maintenance", [
+        ("update", "Update to latest version"),
+        ("version", "Show version info"),
+        ("export", "Backup everything"),
+        ("import", "Restore from backup"),
+        ("reset", "Factory reset"),
+    ]),
+    ("Setup", [
+        ("init", "Interactive setup wizard"),
+        ("setup", "Browser-based setup wizard"),
+    ]),
+    ("Help", [
+        ("help", "Show all commands grouped by category"),
+        ("commands", "List all commands in compact table"),
+    ]),
+]
+
+
+def _cmd_help(args: argparse.Namespace) -> None:
+    """Show all commands grouped by category, or detailed help for one command."""
+    from rich.panel import Panel
+    from rich.text import Text
+
+    cmd_name = getattr(args, "command_name", None)
+
+    if cmd_name:
+        # Show detailed help for a specific command
+        # Find it in categories
+        found = False
+        for category, cmds in _COMMAND_CATEGORIES:
+            for name, desc in cmds:
+                if name == cmd_name:
+                    console.print()
+                    console.print(f"  [bold cyan]windy {name}[/bold cyan] — {desc}")
+                    console.print(f"  [dim]Category: {category}[/dim]")
+                    console.print()
+                    found = True
+                    break
+            if found:
+                break
+        if not found:
+            console.print(f"  [yellow]Unknown command: {cmd_name}[/yellow]")
+            console.print("  Run [bold]windy help[/bold] to see all commands.")
+        return
+
+    # Show all commands grouped by category
+    console.print()
+    console.print(Panel(
+        "[bold cyan]Windy Fly[/bold cyan] — Your AI. Your Rules. Your Ecosystem.",
+        border_style="cyan",
+    ))
+    console.print()
+
+    for category, cmds in _COMMAND_CATEGORIES:
+        console.print(f"  [bold]{category}[/bold]")
+        for name, desc in cmds:
+            console.print(f"    [cyan]windy {name:<14}[/cyan] {desc}")
+        console.print()
+
+    console.print("  [dim]Run [bold]windy help <command>[/bold] for details on a specific command.[/dim]")
+    console.print()
+
+
+def _cmd_commands(_args: argparse.Namespace) -> None:
+    """Show a compact table of all commands."""
+    from rich.table import Table
+
+    table = Table(
+        title="Windy Fly Commands",
+        border_style="cyan",
+        show_lines=False,
+    )
+    table.add_column("Command", style="bold cyan", min_width=16)
+    table.add_column("Description")
+    table.add_column("Category", style="dim")
+
+    for category, cmds in _COMMAND_CATEGORIES:
+        for name, desc in cmds:
+            table.add_row(f"windy {name}", desc, category)
+
+    console.print()
+    console.print(table)
+    console.print()
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Entry point
+# ═══════════════════════════════════════════════════════════════════════
+
+
+def main() -> None:
+    """CLI entry point — registered as ``windy`` command via pyproject.toml."""
+    parser = argparse.ArgumentParser(
+        prog="windy",
+        description="Windy Fly — Your AI. Your Rules. Your Ecosystem.",
+    )
+    sub = parser.add_subparsers(dest="command", help="Command to run")
+
+    # ── Process Management ───────────────────────────────────────
+
+    # windy go
+    go_parser = sub.add_parser("go", help="One-command quickstart — paste a key and go")
+    go_parser.add_argument(
+        "--key", "-k",
+        help="API key (auto-detects provider). Skips all prompts.",
+    )
+    go_parser.add_argument(
+        "--model", "-m",
+        help="Override default model (e.g., gpt-4o, claude-3-5-sonnet-latest)",
+    )
+    go_parser.add_argument(
+        "--preset", "-p",
+        choices=["buddy", "engineer", "powerhouse", "coder", "friend", "writer", "researcher", "silent"],
+        help="Personality preset (default: buddy)",
+    )
+    go_parser.add_argument(
+        "--no-browser", action="store_true",
+        help="Don't open browser (for headless servers)",
+    )
+
+    # windy start
+    start_parser = sub.add_parser("start", help="Start brain + gateway")
+    start_parser.add_argument(
+        "--cli", action="store_true",
+        help="Run in CLI chat mode (no gateway/dashboard)",
+    )
+    start_parser.add_argument(
+        "--no-browser", action="store_true",
+        help="Don't open browser after starting",
+    )
+
+    # windy stop
+    sub.add_parser("stop", help="Stop all Windy Fly processes")
+
+    # windy restart
+    restart_parser = sub.add_parser("restart", help="Stop + start in one shot")
+    restart_parser.add_argument(
+        "--cli", action="store_true",
+        help="Restart in CLI chat mode (no gateway/dashboard)",
+    )
+    restart_parser.add_argument(
+        "--no-browser", action="store_true",
+        help="Don't open browser after restarting",
+    )
+
+    # windy kill
+    sub.add_parser("kill", help="Force kill everything (emergency)")
+
+    # windy ps
+    sub.add_parser("ps", help="Show running processes")
+
+    # ── Chat & Interaction ───────────────────────────────────────
+
+    # windy chat
+    sub.add_parser("chat", help="Start CLI chat mode (alias for start --cli)")
+
+    # windy test
+    sub.add_parser("test", help="Run self-test to verify the agent works")
+
+    # windy repl
+    sub.add_parser("repl", help="Developer REPL")
+
+    # ── Diagnostics ──────────────────────────────────────────────
+
+    # windy doctor
+    sub.add_parser("doctor", help="Full health check")
+
+    # windy status
+    sub.add_parser("status", help="Quick status summary")
+
+    # windy logs
+    logs_parser = sub.add_parser("logs", help="Tail brain/gateway logs")
+    logs_parser.add_argument(
+        "component", nargs="?", default="all",
+        choices=["all", "brain", "gateway"],
+        help="Which component's logs to show (default: all)",
+    )
+    logs_parser.add_argument(
+        "-f", "--follow", action="store_true",
+        help="Follow log output in real time",
+    )
+    logs_parser.add_argument(
+        "-n", "--lines", type=int, default=50,
+        help="Number of lines to show (default: 50)",
+    )
+    logs_parser.add_argument(
+        "--brain", action="store_const", const="brain", dest="component",
+        help="Shortcut for 'brain' component",
+    )
+    logs_parser.add_argument(
+        "--gateway", action="store_const", const="gateway", dest="component",
+        help="Shortcut for 'gateway' component",
+    )
+
+    # windy debug
+    sub.add_parser("debug", help="Verbose debug info")
+
+    # ── Identity & Ecosystem ─────────────────────────────────────
+
+    # windy ecosystem
+    sub.add_parser("ecosystem", help="Show ecosystem connections")
+
+    # windy channels
+    sub.add_parser("channels", help="Show messaging channels")
+
+    # windy passport
+    sub.add_parser("passport", help="Show Eternitas passport")
+
+    # windy mail
+    sub.add_parser("mail", help="Show mail status")
+
+    # windy phone
+    sub.add_parser("phone", help="Show phone status")
+
+    # windy cert
+    sub.add_parser("cert", help="Show birth certificate")
+
+    # ── Configuration ────────────────────────────────────────────
+
+    # windy config
+    config_parser = sub.add_parser("config", help="View/edit configuration")
+    config_sub = config_parser.add_subparsers(dest="action", help="Config action")
+    config_sub.add_parser("show", help="Display current configuration")
+    config_set = config_sub.add_parser("set", help="Set a config value")
+    config_set.add_argument("key", help="Key in section.name format (e.g., agent.default_model)")
+    config_set.add_argument("value", help="New value")
+    config_sub.add_parser("reset", help="Re-run the setup wizard")
+    config_sub.add_parser("path", help="Show config file locations")
+
+    # windy model
+    model_parser = sub.add_parser("model", help="Show/change LLM model")
+    model_sub = model_parser.add_subparsers(dest="action", help="Model action")
+    model_sub.add_parser("list", help="List available models")
+    model_set = model_sub.add_parser("set", help="Set the default model")
+    model_set.add_argument("model_name", help="Model name (e.g., gpt-4o, claude-3-5-sonnet-latest)")
+    model_sub.add_parser("test", help="Test the current model")
+
+    # windy soul
+    soul_parser = sub.add_parser("soul", help="Show/edit personality")
+    soul_sub = soul_parser.add_subparsers(dest="action", help="Soul action")
+    soul_sub.add_parser("edit", help="Edit personality interactively")
+    soul_preset = soul_sub.add_parser("preset", help="Apply a personality preset")
+    soul_preset.add_argument("name", help="Preset name (e.g., buddy, engineer, powerhouse)")
+    soul_sub.add_parser("sliders", help="Adjust personality sliders")
+
+    # windy budget
+    budget_parser = sub.add_parser("budget", help="Cost tracking")
+    budget_sub = budget_parser.add_subparsers(dest="action", help="Budget action")
+    budget_sub.add_parser("month", help="Show this month's costs")
+    budget_sub.add_parser("history", help="Show cost history")
+    budget_set = budget_sub.add_parser("set", help="Set monthly budget")
+    budget_set.add_argument("amount", type=float, help="Monthly budget amount in USD")
+
+    # ── Memory & Skills ──────────────────────────────────────────
+
+    # windy memory
+    memory_parser = sub.add_parser("memory", help="Memory operations")
+    memory_sub = memory_parser.add_subparsers(dest="action", help="Memory action")
+    memory_sub.add_parser("stats", help="Show memory statistics")
+    memory_search = memory_sub.add_parser("search", help="Search memory")
+    memory_search.add_argument("query", help="Search query")
+    memory_sub.add_parser("nodes", help="Show memory nodes")
+    memory_sub.add_parser("intents", help="Show learned intents")
+    memory_sub.add_parser("export", help="Export memory")
+    memory_clear = memory_sub.add_parser("clear", help="Clear all memory")
+    memory_clear.add_argument("--confirm", action="store_true", required=True, help="Confirm clearing memory")
+
+    # windy skills
+    skills_parser = sub.add_parser("skills", help="Skill management")
+    skills_sub = skills_parser.add_subparsers(dest="action", help="Skills action")
+    skills_sub.add_parser("all", help="List all skills")
+    skills_run = skills_sub.add_parser("run", help="Run a skill")
+    skills_run.add_argument("name", help="Skill name")
+    skills_eval = skills_sub.add_parser("eval", help="Evaluate a skill")
+    skills_eval.add_argument("name", help="Skill name")
+
+    # ── Maintenance ──────────────────────────────────────────────
+
+    # windy update
+    sub.add_parser("update", help="Update to latest version")
+
+    # windy version
+    sub.add_parser("version", help="Show version info")
+
+    # windy export
+    sub.add_parser("export", help="Backup everything")
+
+    # windy import
+    import_parser = sub.add_parser("import", help="Restore from backup")
+    import_parser.add_argument("file", help="Path to backup file")
+
+    # windy reset
+    reset_parser = sub.add_parser("reset", help="Factory reset")
+    reset_group = reset_parser.add_mutually_exclusive_group()
+    reset_group.add_argument("--soft", action="store_true", help="Soft reset (keep data, reset config)")
+    reset_group.add_argument("--hard", action="store_true", help="Hard reset (delete everything)")
+
+    # ── Setup ────────────────────────────────────────────────────
+
+    # windy init
+    sub.add_parser("init", help="Interactive setup wizard")
+
+    # windy setup
+    sub.add_parser("setup", help="Browser-based setup wizard")
+
+    # ── Help ─────────────────────────────────────────────────────
+
+    # windy help
+    help_parser = sub.add_parser("help", help="Show all commands grouped by category")
+    help_parser.add_argument("command_name", nargs="?", default=None, help="Command to get help for")
+
+    # windy commands
+    sub.add_parser("commands", help="List all commands in compact table")
+
+    # ── Parse and dispatch ───────────────────────────────────────
+
+    args = parser.parse_args()
+
+    if args.command is None:
+        # No subcommand — run quickstart if not configured, else show help
+        env_file = PROJECT_ROOT / ".env"
+        config_file = PROJECT_ROOT / "windyfly.toml"
+        if not env_file.exists() or not config_file.exists():
+            from windyfly.quickstart import cmd_go
+            cmd_go(args)
+        else:
+            _cmd_help(argparse.Namespace(command_name=None))
+        return
+
+    # Lazy imports for commands from commands.py
+    def _get_cmd_restart(a):
+        from windyfly.commands import cmd_restart
+        cmd_restart(a)
+
+    def _get_cmd_doctor(a):
+        from windyfly.commands import cmd_doctor
+        cmd_doctor(a)
+
+    def _get_cmd_update(a):
+        from windyfly.commands import cmd_update
+        cmd_update(a)
+
+    def _get_cmd_logs(a):
+        from windyfly.commands import cmd_logs
+        cmd_logs(a)
+
+    def _get_cmd_config(a):
+        from windyfly.commands import cmd_config
+        cmd_config(a)
+
+    def _get_cmd_version(a):
+        from windyfly.commands import cmd_version
+        cmd_version(a)
+
+    def _get_cmd_go(a):
+        from windyfly.quickstart import cmd_go
+        cmd_go(a)
+
+    # Dispatch table
+    commands = {
+        # Process Management
+        "go": _get_cmd_go,
+        "start": cmd_start,
+        "stop": cmd_stop,
+        "restart": _get_cmd_restart,
+        "kill": _cmd_kill,
+        "ps": _cmd_ps,
+        # Chat & Interaction
+        "chat": _cmd_chat,
+        "test": _cmd_test,
+        "repl": _cmd_repl,
+        # Diagnostics
+        "doctor": _get_cmd_doctor,
+        "status": cmd_status,
+        "logs": _get_cmd_logs,
+        "debug": _cmd_debug,
+        # Identity & Ecosystem
+        "ecosystem": _cmd_ecosystem,
+        "channels": _cmd_channels,
+        "passport": _cmd_passport,
+        "mail": _cmd_mail,
+        "phone": _cmd_phone,
+        "cert": _cmd_cert,
+        # Configuration
+        "config": _get_cmd_config,
+        "model": _cmd_model,
+        "soul": _cmd_soul,
+        "budget": _cmd_budget,
+        # Memory & Skills
+        "memory": _cmd_memory,
+        "skills": _cmd_skills,
+        # Maintenance
+        "update": _get_cmd_update,
+        "version": _get_cmd_version,
+        "export": _cmd_export,
+        "import": _cmd_import,
+        "reset": _cmd_reset,
+        # Setup
+        "init": cmd_init,
+        "setup": cmd_setup,
+        # Help
+        "help": _cmd_help,
+        "commands": _cmd_commands,
+    }
+
+    handler = commands.get(args.command)
+    if handler:
+        try:
+            handler(args)
+        except KeyboardInterrupt:
+            console.print("\n  [dim]Interrupted. Goodbye![/dim]")
+    else:
+        parser.print_help()
 
 
 if __name__ == "__main__":
