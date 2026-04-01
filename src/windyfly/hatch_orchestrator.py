@@ -48,6 +48,9 @@ class HatchResult:
     phone_provisioned: bool = False
     phone_is_mock: bool = False
 
+    # Hardware
+    hardware_specs: dict = field(default_factory=dict)
+
     # Birth certificate
     birth_certificate_path: str = ""
     certificate_number: str = ""
@@ -83,6 +86,13 @@ async def orchestrate_hatch(
         owner_name=owner_name,
         model_id=os.environ.get("DEFAULT_MODEL", ""),
     )
+
+    # Collect hardware specs early (used by birth certificate)
+    try:
+        from windyfly.birth_certificate import collect_hardware_specs
+        result.hardware_specs = collect_hardware_specs()
+    except Exception:
+        pass
 
     # Step 1: Eternitas registration (must complete before others)
     await _step_eternitas(result, agent_name, owner_id, owner_name, db)
@@ -235,6 +245,7 @@ async def _step_birth_certificate(
             owner_name=result.owner_name,
             email_address=result.email_address,
             phone_number=result.phone_number,
+            hardware_specs=result.hardware_specs or None,
         )
         result.neural_fingerprint = cert.neural_fingerprint
         result.certificate_number = cert.certificate_number
@@ -289,6 +300,8 @@ async def _step_hatch_email(result: HatchResult) -> None:
         return
 
     try:
+        import base64
+        from pathlib import Path
         from windyfly.hatch_email import format_hatch_email
         from datetime import datetime, timezone
 
@@ -304,18 +317,35 @@ async def _step_hatch_email(result: HatchResult) -> None:
             neural_fingerprint=result.neural_fingerprint,
         )
 
+        # Attach the birth certificate PDF if available
+        cert_attachment = None
+        if result.birth_certificate_path:
+            try:
+                pdf_bytes = Path(result.birth_certificate_path).read_bytes()
+                cert_attachment = base64.b64encode(pdf_bytes).decode("ascii")
+            except Exception:
+                pass
+
+        payload: dict = {
+            "to": [owner_email],
+            "subject": email_data["subject"],
+            "body_text": email_data["text"],
+            "body_html": email_data["html"],
+            "mode": "independent",
+        }
+        if cert_attachment:
+            payload["attachments"] = [{
+                "filename": f"birth_certificate_{result.agent_name}.pdf",
+                "content_base64": cert_attachment,
+                "content_type": "application/pdf",
+            }]
+
         import httpx
 
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.post(
                 f"{mail_api_url}/api/v1/send",
-                json={
-                    "to": [owner_email],
-                    "subject": email_data["subject"],
-                    "body_text": email_data["text"],
-                    "body_html": email_data["html"],
-                    "mode": "independent",
-                },
+                json=payload,
                 headers={"Authorization": f"Bearer {mail_token}"},
             )
         if resp.status_code in (200, 201):
