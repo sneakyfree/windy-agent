@@ -26,6 +26,7 @@ from typing import Any
 import nio
 
 from windyfly.agent.loop import agent_respond
+from windyfly.channels.base import ChannelAdapter, IncomingMessage, OutgoingMessage
 from windyfly.memory.database import Database
 from windyfly.memory.write_queue import WriteQueue
 from windyfly.tools.registry import ToolRegistry
@@ -38,8 +39,10 @@ _MAX_BACKOFF_S = 60
 _HEARTBEAT_INTERVAL_S = 300  # 5 minutes
 
 
-class WindyFlyMatrixBot:
+class WindyFlyMatrixBot(ChannelAdapter):
     """Windy Fly Matrix bot — lives inside Windy Chat as a contact."""
+
+    name = "matrix"
 
     def __init__(
         self,
@@ -547,6 +550,25 @@ class WindyFlyMatrixBot:
                 await heartbeat_task
             except asyncio.CancelledError:
                 pass
+
+    async def send(self, message: OutgoingMessage) -> None:
+        """Send a message to a Matrix room (ChannelAdapter interface)."""
+        try:
+            await self.client.room_send(
+                message.channel_id,
+                "m.room.message",
+                {
+                    "msgtype": "m.text",
+                    "body": message.text,
+                    "windy_original": True,
+                },
+            )
+        except Exception as e:
+            logger.error("Failed to send to %s: %s", message.channel_id, e)
+
+    def is_connected(self) -> bool:
+        """Return True if the bot is syncing with the homeserver."""
+        return self._connected
 
     async def stop(self) -> None:
         """Stop the bot gracefully."""
