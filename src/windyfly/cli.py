@@ -759,28 +759,35 @@ def _cmd_commands(_args: argparse.Namespace) -> None:
 
 
 def _cmd_install_service(_args: argparse.Namespace) -> None:
-    """Install a macOS launchd plist so Windy Fly auto-starts on login."""
-    import sys
+    """Install a system service so Windy Fly auto-starts on login.
 
-    if sys.platform != "darwin":
-        console.print("[yellow]install-service is currently macOS-only.[/yellow]")
-        console.print("[dim]On Linux, create a systemd unit instead.[/dim]")
+    macOS: launchd plist in ~/Library/LaunchAgents/
+    Linux: systemd user unit in ~/.config/systemd/user/
+    """
+    from windyfly.platform import IS_MAC, IS_LINUX, IS_WINDOWS
+
+    if IS_WINDOWS:
+        console.print("[yellow]Service install not yet supported on Windows.[/yellow]")
+        console.print("[dim]Use Task Scheduler manually, or run 'windy start --daemon'.[/dim]")
         return
 
+    import shutil
+    import sys
+
+    uv_path = shutil.which("uv") or "/usr/local/bin/uv"
+    brain_log = str(get_log_path(PROJECT_ROOT, "brain"))
+
+    if IS_MAC:
+        _install_launchd(uv_path, brain_log)
+    elif IS_LINUX:
+        _install_systemd(uv_path, brain_log)
+
+
+def _install_launchd(uv_path: str, brain_log: str) -> None:
+    """Install macOS launchd plist."""
     plist_dir = Path.home() / "Library" / "LaunchAgents"
     plist_dir.mkdir(parents=True, exist_ok=True)
     plist_path = plist_dir / "com.windyfly.agent.plist"
-
-    uv_path = subprocess.run(
-        ["which", "uv"], capture_output=True, text=True,
-    ).stdout.strip() or "/usr/local/bin/uv"
-
-    bun_path = subprocess.run(
-        ["which", "bun"], capture_output=True, text=True,
-    ).stdout.strip() or f"{Path.home()}/.bun/bin/bun"
-
-    brain_log = str(get_log_path(PROJECT_ROOT, "brain"))
-    gateway_log = str(get_log_path(PROJECT_ROOT, "gateway"))
 
     plist_content = f"""\
 <?xml version="1.0" encoding="UTF-8"?>
@@ -827,9 +834,8 @@ def _cmd_install_service(_args: argparse.Namespace) -> None:
     plist_path.write_text(plist_content)
     console.print(f"  [green]✓[/green] Wrote {plist_path}")
 
-    # Load the service
     subprocess.run(["launchctl", "load", str(plist_path)], capture_output=True)
-    console.print(f"  [green]✓[/green] Service loaded — Windy Fly will auto-start on login")
+    console.print("  [green]✓[/green] Service loaded — Windy Fly will auto-start on login")
     console.print()
     console.print(f"  [dim]Plist: {plist_path}[/dim]")
     console.print(f"  [dim]Logs:  {brain_log}[/dim]")
@@ -837,23 +843,88 @@ def _cmd_install_service(_args: argparse.Namespace) -> None:
     console.print("  Run [bold]windy uninstall-service[/bold] to remove.")
 
 
+def _install_systemd(uv_path: str, brain_log: str) -> None:
+    """Install Linux systemd user service."""
+    unit_dir = Path.home() / ".config" / "systemd" / "user"
+    unit_dir.mkdir(parents=True, exist_ok=True)
+    unit_path = unit_dir / "windyfly.service"
+
+    # Build EnvironmentFile line if .env exists
+    env_file = PROJECT_ROOT / ".env"
+    env_line = f"EnvironmentFile={env_file}" if env_file.exists() else ""
+
+    unit_content = f"""\
+[Unit]
+Description=Windy Fly AI Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory={PROJECT_ROOT}
+ExecStart={uv_path} run python -m windyfly.bridge.uds_server
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:{brain_log}
+StandardError=append:{brain_log}
+{env_line}
+
+# Generous shutdown timeout for graceful cleanup
+TimeoutStopSec=15
+
+[Install]
+WantedBy=default.target
+"""
+
+    unit_path.write_text(unit_content)
+    console.print(f"  [green]✓[/green] Wrote {unit_path}")
+
+    subprocess.run(
+        ["systemctl", "--user", "daemon-reload"],
+        capture_output=True,
+    )
+    console.print("  [green]✓[/green] Reloaded systemd user units")
+
+    subprocess.run(
+        ["systemctl", "--user", "enable", "windyfly"],
+        capture_output=True,
+    )
+    console.print("  [green]✓[/green] Service enabled — Windy Fly will auto-start on login")
+    console.print()
+    console.print(f"  [dim]Unit:  {unit_path}[/dim]")
+    console.print(f"  [dim]Logs:  {brain_log}[/dim]")
+    console.print()
+    console.print("  Run [bold]systemctl --user start windyfly[/bold] to start now.")
+    console.print("  Run [bold]windy uninstall-service[/bold] to remove.")
+
+
 def _cmd_uninstall_service(_args: argparse.Namespace) -> None:
-    """Remove the macOS launchd plist."""
-    import sys
+    """Remove the auto-start service (launchd on macOS, systemd on Linux)."""
+    from windyfly.platform import IS_MAC, IS_LINUX, IS_WINDOWS
 
-    if sys.platform != "darwin":
-        console.print("[yellow]uninstall-service is currently macOS-only.[/yellow]")
+    if IS_WINDOWS:
+        console.print("[yellow]Service install not yet supported on Windows.[/yellow]")
         return
 
-    plist_path = Path.home() / "Library" / "LaunchAgents" / "com.windyfly.agent.plist"
+    if IS_MAC:
+        plist_path = Path.home() / "Library" / "LaunchAgents" / "com.windyfly.agent.plist"
+        if not plist_path.exists():
+            console.print("[dim]No service installed. Nothing to remove.[/dim]")
+            return
+        subprocess.run(["launchctl", "unload", str(plist_path)], capture_output=True)
+        plist_path.unlink(missing_ok=True)
+        console.print("  [green]✓[/green] Service removed — Windy Fly will no longer auto-start")
 
-    if not plist_path.exists():
-        console.print("[dim]No service installed. Nothing to remove.[/dim]")
-        return
-
-    subprocess.run(["launchctl", "unload", str(plist_path)], capture_output=True)
-    plist_path.unlink(missing_ok=True)
-    console.print(f"  [green]✓[/green] Service removed — Windy Fly will no longer auto-start")
+    elif IS_LINUX:
+        unit_path = Path.home() / ".config" / "systemd" / "user" / "windyfly.service"
+        if not unit_path.exists():
+            console.print("[dim]No service installed. Nothing to remove.[/dim]")
+            return
+        subprocess.run(["systemctl", "--user", "stop", "windyfly"], capture_output=True)
+        subprocess.run(["systemctl", "--user", "disable", "windyfly"], capture_output=True)
+        unit_path.unlink(missing_ok=True)
+        subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
+        console.print("  [green]✓[/green] Service stopped, disabled, and removed")
 
 
 def main() -> None:
