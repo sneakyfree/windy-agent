@@ -43,7 +43,7 @@ console = Console()
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 
 # Current version — bump on release
-VERSION = "0.4.0"
+VERSION = "0.5.0"
 
 
 # ─── Helpers ────────────────────────────────────────────────────────────
