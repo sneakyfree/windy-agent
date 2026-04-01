@@ -84,10 +84,18 @@ async function handleRequest(req: Request): Promise<Response> {
   const url = new URL(req.url);
   const path = url.pathname;
 
-  // CORS headers
+  // CORS headers — allow dashboard + local dev
+  const allowedOrigins = [
+    "https://windypro.thewindstorm.uk",
+    "http://localhost:5173",
+    "http://localhost:8098",
+    "http://localhost:3000",
+  ];
+  const origin = req.headers.get("Origin") || "*";
+  const corsOrigin = allowedOrigins.includes(origin) ? origin : allowedOrigins[0];
   const headers = {
     "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Origin": corsOrigin,
     "Access-Control-Allow-Methods": "GET, PUT, POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type",
   };
@@ -108,6 +116,30 @@ async function handleRequest(req: Request): Promise<Response> {
         },
         { headers }
       );
+    }
+
+    // Chat API — send a message to the brain and get a response
+    if (path === "/api/chat" && req.method === "POST") {
+      const body = (await req.json()) as { message?: string; user_id?: string };
+      const message = body.message;
+      if (!message || typeof message !== "string") {
+        return Response.json(
+          { error: "Missing 'message' field" },
+          { status: 400, headers }
+        );
+      }
+      try {
+        const response = await bridge.call("agent.respond", {
+          message,
+          session_id: `web:${body.user_id || "anonymous"}`,
+        });
+        return Response.json({ response: response.result }, { headers });
+      } catch {
+        return Response.json(
+          { response: "Agent is processing... try again in a moment." },
+          { headers }
+        );
+      }
     }
 
     // Sliders GET — fallback to defaults if brain offline

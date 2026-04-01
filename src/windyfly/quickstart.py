@@ -553,6 +553,30 @@ def _try_hatch_provisioning() -> None:
         owner_name = os.environ.get("WINDY_OWNER_NAME", "")
         db_path = os.environ.get("WINDYFLY_DB_PATH", "data/windyfly.db")
 
+        # Ask for owner's phone (for birth announcement SMS)
+        owner_phone = os.environ.get("OWNER_PHONE", "")
+        if not owner_phone:
+            owner_phone = Prompt.ask(
+                "  [bold cyan]Your phone number (for birth announcement SMS)[/bold cyan]",
+                default="skip",
+            )
+            if owner_phone != "skip" and owner_phone:
+                os.environ["OWNER_PHONE"] = owner_phone
+            else:
+                owner_phone = ""
+
+        # Ask for owner's email (for birth announcement email)
+        owner_email = os.environ.get("OWNER_EMAIL", "")
+        if not owner_email:
+            owner_email = Prompt.ask(
+                "  [bold cyan]Your email (for birth announcement)[/bold cyan]",
+                default="skip",
+            )
+            if owner_email != "skip" and owner_email:
+                os.environ["OWNER_EMAIL"] = owner_email
+            else:
+                owner_email = ""
+
         console.print()
         console.print("  [bold cyan]Provisioning ecosystem identity...[/bold cyan]")
 
@@ -593,6 +617,13 @@ def _try_hatch_provisioning() -> None:
         if result.birth_certificate_path:
             console.print(f"  [green]✓[/green] 📜  Birth Certificate — {result.certificate_number}")
             console.print(f"       [dim]Saved to {result.birth_certificate_path}[/dim]")
+
+        if result.hatch_sms_sent:
+            console.print(f"  [green]✓[/green] 📱  Birth SMS sent to {owner_phone}")
+        if result.hatch_email_sent:
+            console.print(f"  [green]✓[/green] 📧  Birth email sent to {owner_email}")
+
+        console.print(f"  [green]✓[/green] 🌐  Dashboard: https://windypro.thewindstorm.uk/app/fly")
 
         if result.errors:
             for err in result.errors:

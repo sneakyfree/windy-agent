@@ -56,6 +56,9 @@ class HatchResult:
     # SMS-on-hatch
     hatch_sms_sent: bool = False
 
+    # Email-on-hatch
+    hatch_email_sent: bool = False
+
     # Model
     model_id: str = ""
 
@@ -97,6 +100,9 @@ async def orchestrate_hatch(
 
     # Step 6: SMS-on-hatch
     await _step_hatch_sms(result)
+
+    # Step 7: Email birth announcement
+    await _step_hatch_email(result)
 
     # Save recovery file if any provisioning steps failed
     _save_recovery(result)
@@ -265,6 +271,61 @@ async def _step_hatch_sms(result: HatchResult) -> None:
     except Exception as exc:
         result.errors.append(f"Hatch SMS: {exc}")
         logger.warning("Hatch: SMS-on-hatch failed: %s", exc)
+
+
+async def _step_hatch_email(result: HatchResult) -> None:
+    """Send birth announcement email to owner via Windy Mail."""
+    owner_email = os.environ.get("OWNER_EMAIL", "")
+    if not owner_email:
+        return  # No owner email — skip silently
+
+    mail_api_url = os.environ.get("WINDYMAIL_API_URL", "")
+    mail_token = os.environ.get("WINDYMAIL_JMAP_TOKEN", "") or os.environ.get(
+        "WINDYMAIL_SERVICE_TOKEN", ""
+    )
+
+    if not mail_api_url or not mail_token:
+        result.errors.append("Birth email: Windy Mail not configured")
+        return
+
+    try:
+        from windyfly.hatch_email import format_hatch_email
+        from datetime import datetime, timezone
+
+        email_data = format_hatch_email(
+            agent_name=result.agent_name,
+            passport_id=result.passport_id,
+            agent_email=result.email_address,
+            agent_phone=result.phone_number,
+            model_id=result.model_id,
+            hatch_time=datetime.now(timezone.utc).strftime("%B %d, %Y at %H:%M UTC"),
+            dashboard_url="https://windypro.thewindstorm.uk/app/fly",
+            certificate_number=result.certificate_number,
+            neural_fingerprint=result.neural_fingerprint,
+        )
+
+        import httpx
+
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(
+                f"{mail_api_url}/api/v1/send",
+                json={
+                    "to": [owner_email],
+                    "subject": email_data["subject"],
+                    "body_text": email_data["text"],
+                    "body_html": email_data["html"],
+                    "mode": "independent",
+                },
+                headers={"Authorization": f"Bearer {mail_token}"},
+            )
+        if resp.status_code in (200, 201):
+            result.hatch_email_sent = True
+            logger.info("Birth announcement email sent to %s", owner_email)
+        else:
+            result.errors.append(f"Birth email: {resp.status_code}")
+    except Exception as exc:
+        result.errors.append(f"Birth email: {exc}")
+        logger.warning("Birth announcement email failed: %s", exc)
 
 
 def run_hatch(
