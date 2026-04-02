@@ -423,12 +423,11 @@ def render_birth_certificate_pdf(cert: BirthCertificate) -> bytes:
     pdf.set_text_color(0, 0, 0)
     y += 10
 
-    # Neural art
+    # Neural art — use smaller size if we're running low on space
     art_lines = generate_neural_art(cert.neural_fingerprint, size=5)
-    pdf.set_font("Courier", "", 12)
+    pdf.set_font("Courier", "", 10)
     for line in art_lines:
         pdf.set_xy(20, y)
-        # Replace symbols with ASCII-safe alternatives for PDF
         safe_line = line
         for orig, repl in [
             ("◆", "#"), ("◇", "o"), ("●", "@"), ("○", "O"),
@@ -437,33 +436,32 @@ def render_birth_certificate_pdf(cert: BirthCertificate) -> bytes:
             ("⬡", "Y"), ("⬢", "W"), ("⏣", "M"), ("⎔", "D"),
         ]:
             safe_line = safe_line.replace(orig, repl)
-        pdf.cell(170, 6, safe_line, align="C")
-        y += 6
+        pdf.cell(170, 5, safe_line, align="C")
+        y += 5
 
-    y += 5
+    y += 3
 
     # First Words section
-    pdf.set_font("Helvetica", "B", 12)
+    pdf.set_font("Helvetica", "B", 11)
     pdf.set_xy(20, y)
-    pdf.cell(170, 8, "First Words", align="C")
-    y += 10
+    pdf.cell(170, 7, "First Words", align="C")
+    y += 8
 
-    pdf.set_font("Helvetica", "I", 10)
+    pdf.set_font("Helvetica", "I", 9)
     first_words = cert.first_words
     if len(first_words) > 200:
         first_words = first_words[:197] + "..."
     pdf.set_xy(35, y)
-    pdf.multi_cell(140, 6, f'"{first_words}"', align="C")
-    y = pdf.get_y() + 5
+    pdf.multi_cell(140, 5, f'"{first_words}"', align="C")
+    y = pdf.get_y() + 3
 
     # Waveform signature section
-    pdf.set_font("Helvetica", "B", 12)
+    pdf.set_font("Helvetica", "B", 11)
     pdf.set_xy(20, y)
-    pdf.cell(170, 8, "Waveform Signature", align="C")
-    y += 10
+    pdf.cell(170, 7, "Waveform Signature", align="C")
+    y += 8
 
-    pdf.set_font("Courier", "", 10)
-    # Replace Unicode bars with ASCII-safe equivalents
+    pdf.set_font("Courier", "", 9)
     safe_wave = cert.waveform_signature
     for orig, repl in [
         ("█", "|"), ("▆", "I"), ("▅", "I"), ("▃", ":"),
@@ -471,12 +469,12 @@ def render_birth_certificate_pdf(cert: BirthCertificate) -> bytes:
     ]:
         safe_wave = safe_wave.replace(orig, repl)
     pdf.set_xy(20, y)
-    pdf.cell(170, 6, safe_wave, align="C")
+    pdf.cell(170, 5, safe_wave, align="C")
 
     # Footer
     pdf.set_font("Helvetica", "I", 8)
     pdf.set_text_color(120, 120, 120)
-    pdf.set_xy(20, 265)
+    pdf.set_xy(20, 270)
     pdf.cell(170, 5, "Issued by the Windy Fly Agent Registry | eternitas.ai", align="C")
 
     return pdf.output()
