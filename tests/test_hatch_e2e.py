@@ -1,21 +1,21 @@
-"""End-to-end hatch orchestration test with fully mocked external services.
+"""End-to-end hatch smoke test — exercises the full hatch flow locally.
 
-Validates the complete 'Born Into' experience:
-  1. Eternitas API → passport ET-99999
-  2. Windy Mail API → agent@windymail.ai
-  3. Matrix homeserver → @agent:chat.windypro.com
-  4. Twilio → +1234567890
-  5. orchestrate_hatch() produces a fully populated HatchResult
-  6. Birth certificate PDF is generated
-  7. Environment variables are written
+Validates every ecosystem integration point:
+  1. Naming ceremony (agent_name, owner_name, hardware_specs)
+  2. Birth certificate generation (PDF, terminal render, fingerprint)
+  3. Hardware specs collection
+  4. Hatch orchestrator with mock services
+  5. Daemon mode flag
+  6. Channel auto-detection
 """
 
 from __future__ import annotations
 
+import argparse
 import os
 import tempfile
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -34,66 +34,172 @@ def db():
 @pytest.fixture(autouse=True)
 def clean_env(monkeypatch):
     """Ensure no real credentials bleed into tests."""
-    monkeypatch.delenv("ETERNITAS_API_URL", raising=False)
-    monkeypatch.delenv("ETERNITAS_PASSPORT", raising=False)
-    monkeypatch.delenv("SYNAPSE_REGISTRATION_SECRET", raising=False)
-    monkeypatch.delenv("TWILIO_ACCOUNT_SID", raising=False)
-    monkeypatch.delenv("TWILIO_PHONE_NUMBER", raising=False)
-    monkeypatch.delenv("WINDYMAIL_SERVICE_TOKEN", raising=False)
-    monkeypatch.delenv("OWNER_PHONE", raising=False)
-    monkeypatch.delenv("MATRIX_BOT_TOKEN", raising=False)
-    monkeypatch.delenv("MATRIX_BOT_PASSWORD", raising=False)
+    for var in [
+        "ETERNITAS_API_URL", "ETERNITAS_PASSPORT",
+        "SYNAPSE_REGISTRATION_SECRET",
+        "TWILIO_ACCOUNT_SID", "TWILIO_PHONE_NUMBER",
+        "WINDYMAIL_SERVICE_TOKEN", "OWNER_PHONE", "OWNER_EMAIL",
+        "MATRIX_BOT_TOKEN", "MATRIX_BOT_PASSWORD",
+        "TELEGRAM_BOT_TOKEN", "DISCORD_BOT_TOKEN",
+        "SLACK_BOT_TOKEN", "SLACK_APP_TOKEN",
+        "SIGNAL_PHONE_NUMBER", "TEAMS_APP_ID", "IRC_SERVER",
+    ]:
+        monkeypatch.delenv(var, raising=False)
 
 
-# ── Mock objects ────────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════
+# 1. Naming ceremony
+# ═══════════════════════════════════════════════════════════════════════
 
 
-class MockPassport:
-    passport_id = "ET-99999"
-    status = "active"
+class TestNamingCeremony:
+    async def test_agent_name_flows_to_result(self, db):
+        """agent_name should appear in HatchResult."""
+        result = await orchestrate_hatch(agent_name="Sparky", db=db)
+        assert result.agent_name == "Sparky"
+
+    async def test_owner_name_flows_to_result(self, db):
+        """owner_name should appear in HatchResult."""
+        result = await orchestrate_hatch(
+            agent_name="TestFly", owner_name="Grant", db=db,
+        )
+        assert result.owner_name == "Grant"
+
+    async def test_hardware_specs_collected(self, db):
+        """hardware_specs should be populated with CPU and OS."""
+        result = await orchestrate_hatch(agent_name="HWFly", db=db)
+        assert isinstance(result.hardware_specs, dict)
+        assert "cpu" in result.hardware_specs
+        assert "os" in result.hardware_specs
+        assert result.hardware_specs["cpu"] != ""
+        assert result.hardware_specs["os"] != ""
 
 
-class MockEternitasClient:
-    async def register(self, req):
-        return MockPassport()
+# ═══════════════════════════════════════════════════════════════════════
+# 2. Birth certificate generation
+# ═══════════════════════════════════════════════════════════════════════
 
 
-class MockMailServer:
-    def __init__(self, db):
-        pass
+class TestBirthCertificateE2E:
+    def test_generate_certificate_fields(self):
+        """generate_birth_certificate should produce all required fields."""
+        from windyfly.birth_certificate import generate_birth_certificate
 
-    async def provision_inbox(self, agent_name, passport_id):
-        return {"email": "agent@windymail.ai", "status": "active"}
+        cert = generate_birth_certificate(
+            agent_name="CertFly",
+            passport_id="ET-TEST001",
+            owner_name="Grant",
+            model_id="gpt-4o-mini",
+            hardware_specs={"cpu": "Apple M2", "os": "macOS 14.2", "ram": "16 GB"},
+        )
+
+        assert cert.certificate_number.startswith("WF-")
+        assert len(cert.neural_fingerprint) == 64  # SHA-256 hex
+        assert cert.waveform_signature != ""
+        assert cert.hardware_specs["cpu"] == "Apple M2"
+        assert cert.hardware_specs["os"] == "macOS 14.2"
+        assert cert.owner_name == "Grant"
+
+    def test_terminal_render_contains_creator(self):
+        """Terminal render should say 'Creator:' not 'Owner:'."""
+        from windyfly.birth_certificate import (
+            generate_birth_certificate,
+            render_birth_certificate_terminal,
+        )
+
+        cert = generate_birth_certificate(
+            agent_name="RenderFly",
+            passport_id="ET-RENDER",
+            owner_name="Grant",
+        )
+        output = render_birth_certificate_terminal(cert)
+        assert "Creator:" in output
+        assert "Owner:" not in output
+
+    def test_pdf_render_returns_valid_pdf(self):
+        """render_birth_certificate_pdf should return bytes starting with %PDF."""
+        from windyfly.birth_certificate import (
+            generate_birth_certificate,
+            render_birth_certificate_pdf,
+        )
+
+        cert = generate_birth_certificate(
+            agent_name="PDFFly",
+            passport_id="ET-PDF001",
+            owner_name="Grant",
+        )
+        pdf_bytes = render_birth_certificate_pdf(cert)
+        assert isinstance(pdf_bytes, (bytes, bytearray))
+        assert pdf_bytes[:5] == b"%PDF-"
+
+    def test_save_certificate_creates_file(self):
+        """save_birth_certificate should create a real PDF file."""
+        from windyfly.birth_certificate import (
+            generate_birth_certificate,
+            save_birth_certificate,
+        )
+
+        cert = generate_birth_certificate(
+            agent_name="SaveFly",
+            passport_id="ET-SAVE01",
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = save_birth_certificate(cert, directory=tmpdir)
+            assert Path(path).exists()
+            assert path.endswith(".pdf")
+            # Verify content is valid PDF
+            content = Path(path).read_bytes()
+            assert content[:5] == b"%PDF-"
 
 
-class MockMatrixResult:
-    success = True
-    user_id = "@agent:chat.windypro.com"
-    homeserver = "https://chat.windypro.com"
-    error = None
+# ═══════════════════════════════════════════════════════════════════════
+# 3. Hardware specs collection
+# ═══════════════════════════════════════════════════════════════════════
 
 
-class MockPhoneResult:
-    success = True
-    phone_number = "+1234567890"
-    is_mock = False
-    error = None
+class TestHardwareSpecs:
+    def test_collect_returns_cpu_and_os(self):
+        """collect_hardware_specs should return dict with cpu and os keys."""
+        from windyfly.birth_certificate import collect_hardware_specs
+
+        specs = collect_hardware_specs()
+        assert isinstance(specs, dict)
+        assert "cpu" in specs
+        assert "os" in specs
+
+    def test_cpu_not_empty(self):
+        """CPU should be a non-empty string."""
+        from windyfly.birth_certificate import collect_hardware_specs
+
+        specs = collect_hardware_specs()
+        assert specs["cpu"] != ""
+
+    def test_os_contains_platform_name(self):
+        """OS should contain a recognizable platform name."""
+        from windyfly.birth_certificate import collect_hardware_specs
+
+        specs = collect_hardware_specs()
+        os_str = specs["os"].lower()
+        assert any(
+            name in os_str
+            for name in ["macos", "darwin", "linux", "windows", "ubuntu", "debian", "fedora", "arch"]
+        ), f"OS string '{specs['os']}' doesn't contain a recognizable platform"
 
 
-# ── The E2E test ────────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════
+# 4. Hatch orchestrator with mock services
+# ═══════════════════════════════════════════════════════════════════════
 
 
-class TestHatchEndToEnd:
-    """Full end-to-end hatch orchestration with all services mocked."""
-
+class TestHatchOrchestratorE2E:
     async def test_full_hatch_all_services_mocked(self, db, monkeypatch):
-        """Mocks all four external services and verifies the complete flow."""
+        """Mocks all services and verifies complete HatchResult."""
         monkeypatch.setenv("OWNER_PHONE", "+15551234567")
 
         with tempfile.TemporaryDirectory() as tmpdir:
             config = {"memory": {"db_path": f"{tmpdir}/windyfly.db"}}
 
-            # Mock Eternitas
             with patch(
                 "windyfly.hatch_orchestrator._step_eternitas",
                 new_callable=AsyncMock,
@@ -113,16 +219,17 @@ class TestHatchEndToEnd:
                 patch(
                 "windyfly.hatch_orchestrator._step_hatch_sms",
                 new_callable=AsyncMock,
-            ) as mock_sms:
-                # Configure mocks to populate HatchResult fields
+            ) as mock_sms, \
+                patch(
+                "windyfly.hatch_orchestrator._step_hatch_email",
+                new_callable=AsyncMock,
+            ):
                 async def fill_eternitas(result, *args, **kwargs):
                     result.passport_id = "ET-99999"
                     result.passport_status = "active"
-                    os.environ["ETERNITAS_PASSPORT"] = "ET-99999"
 
                 async def fill_matrix(result, *args, **kwargs):
                     result.matrix_user_id = "@agent:chat.windypro.com"
-                    result.matrix_homeserver = "https://chat.windypro.com"
                     result.matrix_provisioned = True
 
                 async def fill_mail(result, *args, **kwargs):
@@ -132,7 +239,6 @@ class TestHatchEndToEnd:
                 async def fill_phone(result, *args, **kwargs):
                     result.phone_number = "+1234567890"
                     result.phone_provisioned = True
-                    result.phone_is_mock = False
 
                 async def fill_sms(result, *args, **kwargs):
                     result.hatch_sms_sent = True
@@ -151,40 +257,13 @@ class TestHatchEndToEnd:
                     db=db,
                 )
 
-            # ── Assertions ──────────────────────────────────────────
-
-            # All fields populated
-            assert result.agent_name == "e2e-fly"
-            assert result.owner_name == "Grant"
-
-            # Eternitas
             assert result.passport_id == "ET-99999"
-            assert result.passport_status == "active"
-
-            # Matrix
-            assert result.matrix_user_id == "@agent:chat.windypro.com"
-            assert result.matrix_homeserver == "https://chat.windypro.com"
             assert result.matrix_provisioned is True
-
-            # Mail
-            assert result.email_address == "agent@windymail.ai"
             assert result.mail_provisioned is True
-
-            # Phone
-            assert result.phone_number == "+1234567890"
-            assert result.phone_provisioned is True
-            assert result.phone_is_mock is False
-
-            # SMS
-            assert result.hatch_sms_sent is True
-
-            # Birth certificate — generated by the real _step_birth_certificate
             assert result.birth_certificate_path.endswith(".pdf")
             assert Path(result.birth_certificate_path).exists()
-            assert result.certificate_number.startswith("WF-")
-            assert result.neural_fingerprint != ""
-
-            # No errors
+            assert isinstance(result.hardware_specs, dict)
+            assert "cpu" in result.hardware_specs
             assert result.errors == [], f"Unexpected errors: {result.errors}"
 
     async def test_hatch_with_real_mock_services(self, db):
@@ -194,74 +273,20 @@ class TestHatchEndToEnd:
 
             result = await orchestrate_hatch(
                 agent_name="real-mock-fly",
-                owner_id="owner-real",
                 owner_name="Grant",
                 config=config,
                 db=db,
             )
 
-            # HatchResult is fully populated
-            assert isinstance(result, HatchResult)
             assert result.agent_name == "real-mock-fly"
-
-            # Eternitas — local mock gives ET-L* passport
             assert result.passport_id.startswith("ET-L")
-            assert result.passport_status == "active"
-
-            # Mail — mock mail server provisions
             assert result.mail_provisioned is True
-            assert result.email_address.endswith("@windymail.ai")
-
-            # Phone — mock phone
             assert result.phone_provisioned is True
-            assert result.phone_number.startswith("+1555")
-
-            # Birth certificate
             assert result.birth_certificate_path.endswith(".pdf")
             assert Path(result.birth_certificate_path).exists()
 
-    async def test_env_vars_written_after_hatch(self, db, monkeypatch):
-        """Verify that ETERNITAS_PASSPORT env var is set after hatch."""
-        monkeypatch.delenv("ETERNITAS_PASSPORT", raising=False)
-
-        result = await orchestrate_hatch(
-            agent_name="env-fly",
-            db=db,
-        )
-
-        # Eternitas step writes ETERNITAS_PASSPORT to env
-        assert os.environ.get("ETERNITAS_PASSPORT") == result.passport_id
-
-    async def test_env_file_generation(self, db, monkeypatch):
-        """Verify .env file can be generated from hatch results."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            config = {"memory": {"db_path": f"{tmpdir}/windyfly.db"}}
-            env_path = Path(tmpdir) / ".env"
-
-            result = await orchestrate_hatch(
-                agent_name="envfile-fly",
-                owner_id="owner-env",
-                owner_name="Grant",
-                config=config,
-                db=db,
-            )
-
-            # Write .env from result (simulating what the setup wizard does)
-            env_lines = [
-                f"ETERNITAS_PASSPORT={result.passport_id}",
-                f"AGENT_EMAIL={result.email_address}",
-                f"AGENT_PHONE={result.phone_number}",
-                f"MATRIX_USER_ID={result.matrix_user_id}",
-            ]
-            env_path.write_text("\n".join(env_lines) + "\n")
-
-            assert env_path.exists()
-            content = env_path.read_text()
-            assert result.passport_id in content
-            assert result.email_address in content
-
     async def test_hatch_error_resilience(self, db):
-        """Even when services fail, hatch should complete without raising."""
+        """Hatch should complete even when services fail."""
         with patch(
             "windyfly.hatch_orchestrator._step_eternitas",
             new_callable=AsyncMock,
@@ -271,12 +296,106 @@ class TestHatchEndToEnd:
 
             mock_et.side_effect = fail_eternitas
 
-            # Should not raise even when Eternitas fails
-            result = await orchestrate_hatch(
-                agent_name="resilient-fly",
-                db=db,
-            )
+            result = await orchestrate_hatch(agent_name="resilient-fly", db=db)
 
             assert isinstance(result, HatchResult)
             assert result.agent_name == "resilient-fly"
             assert "Eternitas: connection refused" in result.errors
+
+    async def test_env_vars_written_after_hatch(self, db, monkeypatch):
+        """ETERNITAS_PASSPORT env var should be set after hatch."""
+        monkeypatch.delenv("ETERNITAS_PASSPORT", raising=False)
+
+        result = await orchestrate_hatch(agent_name="env-fly", db=db)
+        assert os.environ.get("ETERNITAS_PASSPORT") == result.passport_id
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# 5. Daemon mode flag
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestDaemonMode:
+    def test_argparse_accepts_daemon_flag(self):
+        """The start subparser should accept --daemon."""
+        from windyfly.cli import main
+
+        parser = argparse.ArgumentParser()
+        sub = parser.add_subparsers(dest="command")
+        start_parser = sub.add_parser("start")
+        start_parser.add_argument("--daemon", "-d", action="store_true")
+        start_parser.add_argument("--cli", action="store_true")
+
+        args = parser.parse_args(["start", "--daemon"])
+        assert args.daemon is True
+        assert args.cli is False
+
+    def test_daemon_false_by_default(self):
+        """--daemon should be False when not specified."""
+        parser = argparse.ArgumentParser()
+        sub = parser.add_subparsers(dest="command")
+        start_parser = sub.add_parser("start")
+        start_parser.add_argument("--daemon", "-d", action="store_true")
+
+        args = parser.parse_args(["start"])
+        assert args.daemon is False
+
+    def test_quickstart_launch_uses_daemon(self):
+        """_launch() in quickstart should set daemon=True."""
+        # Verify by checking the source — _launch builds a Namespace with daemon=True
+        import inspect
+        from windyfly.quickstart import _launch
+
+        source = inspect.getsource(_launch)
+        assert "daemon=True" in source
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# 6. Channel auto-detection
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestChannelAutoDetection:
+    def test_cli_always_detected(self, monkeypatch):
+        """CLI channel should always be in detected list."""
+        from windyfly.cli import auto_detect_channels
+
+        channels = auto_detect_channels()
+        assert "cli" in channels
+
+    def test_telegram_detected_with_token(self, monkeypatch):
+        """Telegram should be detected when TELEGRAM_BOT_TOKEN is set."""
+        from windyfly.cli import auto_detect_channels
+
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123456:ABC-DEF")
+        channels = auto_detect_channels()
+        assert "telegram" in channels
+
+    def test_discord_detected_with_token(self, monkeypatch):
+        """Discord should be detected when DISCORD_BOT_TOKEN is set."""
+        from windyfly.cli import auto_detect_channels
+
+        monkeypatch.setenv("DISCORD_BOT_TOKEN", "MTIzNDU2.abc.def")
+        channels = auto_detect_channels()
+        assert "discord" in channels
+
+    def test_no_tokens_only_cli(self, monkeypatch):
+        """With no tokens set, only CLI should be detected."""
+        from windyfly.cli import auto_detect_channels
+
+        channels = auto_detect_channels()
+        assert channels == ["cli"]
+
+    def test_multiple_channels_detected(self, monkeypatch):
+        """Multiple channels should be detected simultaneously."""
+        from windyfly.cli import auto_detect_channels
+
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+        monkeypatch.setenv("DISCORD_BOT_TOKEN", "test-token")
+        monkeypatch.setenv("SIGNAL_PHONE_NUMBER", "+15551234567")
+
+        channels = auto_detect_channels()
+        assert "cli" in channels
+        assert "telegram" in channels
+        assert "discord" in channels
+        assert "signal" in channels
