@@ -18,8 +18,10 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 
+from windyfly.platform import get_project_root
+
 console = Console()
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+PROJECT_ROOT = get_project_root()
 
 
 # ═══════════════════════════════════════════════════════════════════════

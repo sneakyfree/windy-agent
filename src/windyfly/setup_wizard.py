@@ -24,7 +24,8 @@ from rich.text import Text
 console = Console()
 
 # ── Paths ──────────────────────────────────────────────────────────────
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+from windyfly.platform import get_project_root
+PROJECT_ROOT = get_project_root()
 ENV_EXAMPLE = PROJECT_ROOT / ".env.example"
 ENV_FILE = PROJECT_ROOT / ".env"
 CONFIG_FILE = PROJECT_ROOT / "windyfly.toml"

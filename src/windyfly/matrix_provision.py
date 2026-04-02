@@ -24,8 +24,10 @@ from pathlib import Path
 
 from rich.console import Console
 
+from windyfly.platform import get_project_root
+
 console = Console()
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+PROJECT_ROOT = get_project_root()
 
 
 @dataclass

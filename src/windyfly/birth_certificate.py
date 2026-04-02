@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import hashlib
 import math
+import os
+import platform
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -25,6 +27,7 @@ class BirthCertificate:
     hatch_timezone: str = ""
     model_id: str = ""
     machine_id: str = ""
+    hardware_specs: dict = field(default_factory=dict)
     email_address: str = ""
     phone_number: str = ""
     first_words: str = ""
@@ -117,6 +120,85 @@ def generate_neural_art(fingerprint: str, size: int = 7) -> list[str]:
     return rows
 
 
+def collect_hardware_specs() -> dict:
+    """Collect hardware specs for the birth certificate."""
+    specs: dict[str, str] = {}
+
+    # CPU
+    cpu = platform.processor()
+    if not cpu or cpu == "":
+        # macOS often returns empty string; try machine type
+        cpu = platform.machine()
+    # Try to get a nicer name on macOS
+    if platform.system() == "Darwin":
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["sysctl", "-n", "machdep.cpu.brand_string"],
+                capture_output=True, text=True, timeout=2,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                cpu = result.stdout.strip()
+        except Exception:
+            pass
+    specs["cpu"] = cpu or platform.machine() or "Unknown"
+
+    # RAM
+    try:
+        import shutil
+        if hasattr(os, "sysconf"):
+            pages = os.sysconf("SC_PHYS_PAGES")
+            page_size = os.sysconf("SC_PAGE_SIZE")
+            if pages > 0 and page_size > 0:
+                ram_gb = round((pages * page_size) / (1024 ** 3), 1)
+                specs["ram"] = f"{ram_gb} GB"
+        if "ram" not in specs and platform.system() == "Darwin":
+            import subprocess
+            result = subprocess.run(
+                ["sysctl", "-n", "hw.memsize"],
+                capture_output=True, text=True, timeout=2,
+            )
+            if result.returncode == 0:
+                ram_gb = round(int(result.stdout.strip()) / (1024 ** 3), 1)
+                specs["ram"] = f"{ram_gb} GB"
+    except Exception:
+        pass
+
+    # OS
+    system = platform.system()
+    if system == "Darwin":
+        ver = platform.mac_ver()[0]
+        specs["os"] = f"macOS {ver}" if ver else "macOS"
+    elif system == "Windows":
+        ver = platform.version()
+        specs["os"] = f"Windows {ver}"
+    else:
+        try:
+            import distro  # type: ignore[import-untyped]
+            specs["os"] = distro.name(pretty=True)
+        except ImportError:
+            specs["os"] = f"{system} {platform.release()}"
+
+    # GPU (best effort)
+    if system == "Darwin":
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["system_profiler", "SPDisplaysDataType", "-detailLevel", "mini"],
+                capture_output=True, text=True, timeout=5,
+            )
+            for line in result.stdout.splitlines():
+                if "Chipset Model" in line or "Chip" in line:
+                    gpu = line.split(":", 1)[-1].strip()
+                    if gpu:
+                        specs["gpu"] = gpu
+                        break
+        except Exception:
+            pass
+
+    return specs
+
+
 def generate_birth_certificate(
     agent_name: str,
     passport_id: str,
@@ -127,11 +209,23 @@ def generate_birth_certificate(
     owner_name: str = "",
     email_address: str = "",
     phone_number: str = "",
-    hatch_timezone: str = "UTC",
+    hatch_timezone: str = "",
+    hardware_specs: dict | None = None,
 ) -> BirthCertificate:
     """Generate a complete birth certificate for a newly hatched agent."""
     now = datetime.now(timezone.utc)
     timestamp_str = now.isoformat()
+
+    # Auto-detect timezone if not provided
+    if not hatch_timezone:
+        try:
+            hatch_timezone = now.astimezone().tzname() or "UTC"
+        except Exception:
+            hatch_timezone = "UTC"
+
+    # Collect hardware specs if not provided
+    if hardware_specs is None:
+        hardware_specs = collect_hardware_specs()
 
     fingerprint = generate_neural_fingerprint(
         first_prompt=first_prompt or "Hello, I'm your new agent.",
@@ -152,6 +246,7 @@ def generate_birth_certificate(
         hatch_timezone=hatch_timezone,
         model_id=model_id,
         machine_id=machine_id,
+        hardware_specs=hardware_specs,
         email_address=email_address,
         phone_number=phone_number,
         first_words=first_words or "(awaiting first interaction)",
@@ -183,13 +278,22 @@ def render_birth_certificate_terminal(cert: BirthCertificate) -> str:
     ]
 
     if cert.owner_name:
-        lines.append(f"  Owner: {cert.owner_name}")
+        lines.append(f"  Creator: {cert.owner_name}")
     if cert.email_address:
         lines.append(f"  Email: {cert.email_address}")
     if cert.phone_number:
         lines.append(f"  Phone: {cert.phone_number}")
     if cert.model_id:
         lines.append(f"  Brain: {cert.model_id}")
+    if cert.hardware_specs:
+        if cert.hardware_specs.get("cpu"):
+            lines.append(f"  CPU: {cert.hardware_specs['cpu']}")
+        if cert.hardware_specs.get("ram"):
+            lines.append(f"  RAM: {cert.hardware_specs['ram']}")
+        if cert.hardware_specs.get("gpu"):
+            lines.append(f"  GPU: {cert.hardware_specs['gpu']}")
+        if cert.hardware_specs.get("os"):
+            lines.append(f"  OS: {cert.hardware_specs['os']}")
 
     lines += [
         "",
@@ -268,14 +372,23 @@ def render_birth_certificate_pdf(cert: BirthCertificate) -> bytes:
         ("Time Zone", cert.hatch_timezone or "UTC"),
     ]
     if cert.owner_name:
-        details.append(("Owner", cert.owner_name))
+        details.append(("Creator", cert.owner_name))
     if cert.email_address:
         details.append(("Email", cert.email_address))
     if cert.phone_number:
         details.append(("Phone", cert.phone_number))
     if cert.model_id:
         details.append(("AI Brain", cert.model_id))
-    if cert.machine_id:
+    if cert.hardware_specs:
+        if cert.hardware_specs.get("cpu"):
+            details.append(("CPU", cert.hardware_specs["cpu"]))
+        if cert.hardware_specs.get("ram"):
+            details.append(("RAM", cert.hardware_specs["ram"]))
+        if cert.hardware_specs.get("gpu"):
+            details.append(("GPU", cert.hardware_specs["gpu"]))
+        if cert.hardware_specs.get("os"):
+            details.append(("OS", cert.hardware_specs["os"]))
+    elif cert.machine_id:
         details.append(("Machine ID", cert.machine_id[:20]))
 
     for label, value in details:

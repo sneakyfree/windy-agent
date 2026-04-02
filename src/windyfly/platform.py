@@ -173,6 +173,37 @@ def kill_by_name(patterns: list[str]) -> None:
 
 # ── Path helpers ──────────────────────────────────────────────────────
 
+def get_project_root() -> Path:
+    """Return the Windy Fly project/working directory.
+
+    Resolution order:
+      1. WINDYFLY_HOME env var (explicit override)
+      2. Git repo root (if running from source checkout)
+      3. Current working directory (pip-installed package)
+
+    This handles both ``git clone`` + ``uv run`` development and
+    ``pip install windyfly && windy go`` production use.
+    """
+    # 1. Explicit override
+    home = os.environ.get("WINDYFLY_HOME")
+    if home:
+        return Path(home).resolve()
+
+    # 2. Try to find a git repo or windyfly.toml upward from CWD
+    cwd = Path.cwd()
+    for marker in ("windyfly.toml", ".env", "pyproject.toml"):
+        if (cwd / marker).exists():
+            return cwd
+
+    # 3. Check if __file__ is inside a source checkout (dev mode)
+    source_root = Path(__file__).resolve().parent.parent.parent
+    if (source_root / "pyproject.toml").exists():
+        return source_root
+
+    # 4. Default to CWD — pip-installed, first run
+    return cwd
+
+
 def get_temp_dir() -> Path:
     """Return the system temp directory as a Path."""
     return Path(tempfile.gettempdir())

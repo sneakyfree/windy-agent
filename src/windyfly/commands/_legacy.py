@@ -32,6 +32,7 @@ from windyfly.platform import (
     get_ipc_config,
     get_log_path,
     get_pid_path,
+    get_project_root,
     process_alive,
     read_pid_file,
     remove_pid_file,
@@ -40,10 +41,10 @@ from windyfly.platform import (
 )
 
 console = Console()
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+PROJECT_ROOT = get_project_root()
 
 # Current version — bump on release
-VERSION = "0.5.0"
+VERSION = "0.5.1"
 
 
 # ─── Helpers ────────────────────────────────────────────────────────────

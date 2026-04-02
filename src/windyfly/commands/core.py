@@ -13,7 +13,8 @@ from datetime import datetime, timezone
 from windyfly.commands.registry import Command, registry
 
 logger = logging.getLogger(__name__)
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+from windyfly.platform import get_project_root
+PROJECT_ROOT = get_project_root()
 
 _db = None
 _config = None

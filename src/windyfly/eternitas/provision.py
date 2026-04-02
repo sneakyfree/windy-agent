@@ -18,9 +18,11 @@ from rich.console import Console
 
 from windyfly.eternitas.models import EternitasPassport, RegistrationRequest
 
+from windyfly.platform import get_project_root
+
 logger = logging.getLogger(__name__)
 console = Console()
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+PROJECT_ROOT = get_project_root()
 
 
 @dataclass

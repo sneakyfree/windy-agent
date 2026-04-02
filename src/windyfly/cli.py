@@ -55,6 +55,7 @@ from rich.console import Console
 from windyfly.platform import (
     get_data_dir,
     get_log_path,
+    get_project_root,
     kill_by_name,
     process_alive,
     process_terminate,
@@ -64,7 +65,7 @@ from windyfly.platform import (
 )
 
 console = Console()
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+PROJECT_ROOT = get_project_root()
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -152,21 +153,30 @@ def cmd_start(args: argparse.Namespace) -> None:
     )
     console.print(f"  [green]✓[/green] Brain started [dim](PID {brain_proc.pid})[/dim]")
 
-    # Start gateway
+    # Start gateway (optional — only available in source checkout with Bun)
     gateway_dir = PROJECT_ROOT / "gateway"
-    gateway_log = open(get_log_path(PROJECT_ROOT, "gateway"), "a")  # noqa: SIM115
-    gateway_proc = subprocess.Popen(
-        ["bun", "run", "src/server.ts"],
-        cwd=str(gateway_dir),
-        stdout=gateway_log,
-        stderr=subprocess.STDOUT,
-        stdin=subprocess.DEVNULL if daemon else None,
-        **popen_extra,
-    )
-    console.print(f"  [green]✓[/green] Gateway started [dim](PID {gateway_proc.pid})[/dim]")
+    gateway_pid = None
+    if gateway_dir.exists() and (gateway_dir / "src" / "server.ts").exists():
+        import shutil
+        if shutil.which("bun"):
+            gateway_log = open(get_log_path(PROJECT_ROOT, "gateway"), "a")  # noqa: SIM115
+            gateway_proc = subprocess.Popen(
+                ["bun", "run", "src/server.ts"],
+                cwd=str(gateway_dir),
+                stdout=gateway_log,
+                stderr=subprocess.STDOUT,
+                stdin=subprocess.DEVNULL if daemon else None,
+                **popen_extra,
+            )
+            gateway_pid = gateway_proc.pid
+            console.print(f"  [green]✓[/green] Gateway started [dim](PID {gateway_pid})[/dim]")
+        else:
+            console.print("  [dim]○ Gateway skipped (Bun not installed)[/dim]")
+    else:
+        console.print("  [dim]○ Gateway skipped (not available in pip install)[/dim]")
 
     # Write PID file (new key=value format)
-    write_pid_file(PROJECT_ROOT, brain_proc.pid, gateway_proc.pid)
+    write_pid_file(PROJECT_ROOT, brain_proc.pid, gateway_pid)
 
     # Wait for gateway to be ready
     time.sleep(2)
@@ -262,10 +272,21 @@ def cmd_setup(_args: argparse.Namespace) -> None:
         pass
 
     # Gateway not running — start it first
+    gateway_dir = PROJECT_ROOT / "gateway"
+    if not gateway_dir.exists() or not (gateway_dir / "src" / "server.ts").exists():
+        console.print("[yellow]Gateway not available (pip install does not include it).[/yellow]")
+        console.print("[dim]Use 'windy go' for quickstart, or clone the repo for the full dashboard.[/dim]")
+        return
+
+    import shutil
+    if not shutil.which("bun"):
+        console.print("[yellow]Bun not installed — gateway requires Bun to run.[/yellow]")
+        console.print("[dim]Install: https://bun.sh[/dim]")
+        return
+
     console.print("[bold cyan]🪰 Starting gateway for browser setup...[/bold cyan]")
     console.print()
 
-    gateway_dir = PROJECT_ROOT / "gateway"
     get_data_dir(PROJECT_ROOT)
     gateway_log = open(get_log_path(PROJECT_ROOT, "gateway"), "a")
     gateway_proc = subprocess.Popen(

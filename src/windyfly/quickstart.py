@@ -32,10 +32,10 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
 
-from windyfly.platform import IS_WINDOWS, can_run, get_data_dir
+from windyfly.platform import IS_WINDOWS, can_run, get_data_dir, get_project_root
 
 console = Console()
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+PROJECT_ROOT = get_project_root()
 
 
 # ═══════════════════════════════════════════════════════════════════════
