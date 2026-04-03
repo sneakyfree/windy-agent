@@ -306,8 +306,8 @@ def rollback_personality(
             source="rollback",
             user_id=user_id,
         )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Could not clear drift alert on rollback: %s", e)
 
     db.commit()
     return restored

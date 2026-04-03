@@ -94,8 +94,8 @@ class WriteQueue:
                         medium_batch.clear()
                     fn(*args, **kwargs)
 
-            except Exception:
-                logger.exception("WriteQueue: error processing item (priority=%s)", priority)
+            except Exception as e:
+                logger.exception("WriteQueue: error processing item (priority=%s): %s", priority, e)
             finally:
                 self._queue.task_done()
 
@@ -109,8 +109,8 @@ class WriteQueue:
         for fn, args, kwargs in batch:
             try:
                 fn(*args, **kwargs)
-            except Exception:
-                logger.exception("WriteQueue: error in batch item")
+            except Exception as e:
+                logger.exception("WriteQueue: error in batch item: %s", e)
 
     def start(self) -> None:
         """Start the background worker thread."""

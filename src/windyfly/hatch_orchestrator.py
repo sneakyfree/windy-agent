@@ -15,10 +15,12 @@ the hatch from completing.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 from dataclasses import dataclass, field
-from typing import Any
+from datetime import datetime, timezone
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -91,8 +93,8 @@ async def orchestrate_hatch(
     try:
         from windyfly.birth_certificate import collect_hardware_specs
         result.hardware_specs = collect_hardware_specs()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Hardware spec collection failed: %s", e)
 
     # Step 1: Eternitas registration (must complete before others)
     await _step_eternitas(result, agent_name, owner_id, owner_name, db)
@@ -100,7 +102,7 @@ async def orchestrate_hatch(
     # Steps 2/3/4: Concurrent provisioning
     await asyncio.gather(
         _step_matrix(result),
-        _step_mail(result, agent_name, db),
+        _step_mail(result, agent_name, db, owner_id),
         _step_phone(result, agent_name, db),
         return_exceptions=True,
     )
@@ -172,7 +174,7 @@ async def _step_matrix(result: HatchResult) -> None:
         logger.warning("Hatch: Matrix provisioning failed: %s", exc)
 
 
-async def _step_mail(result: HatchResult, agent_name: str, db) -> None:
+async def _step_mail(result: HatchResult, agent_name: str, db, owner_id: str = "") -> None:
     """Provision Windy Mail inbox."""
     try:
         from windyfly.mail_mock import MockMailServer
@@ -323,8 +325,8 @@ async def _step_hatch_email(result: HatchResult) -> None:
             try:
                 pdf_bytes = Path(result.birth_certificate_path).read_bytes()
                 cert_attachment = base64.b64encode(pdf_bytes).decode("ascii")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("PDF attachment read failed: %s", e)
 
         payload: dict = {
             "to": [owner_email],
@@ -374,10 +376,6 @@ def run_hatch(
 # ---------------------------------------------------------------------------
 # Provisioning recovery
 # ---------------------------------------------------------------------------
-
-import json
-from pathlib import Path
-from datetime import datetime, timezone
 
 _RECOVERY_PATH = Path("data/provision_recovery.json")
 

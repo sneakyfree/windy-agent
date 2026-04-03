@@ -9,9 +9,14 @@ from __future__ import annotations
 import re
 from typing import Any
 
+import logging
+
 from windyfly.memory.database import Database
 from windyfly.memory.failures import check_recurring_failure, get_recent_failures, log_failure
+from windyfly.memory.skills import save_skill
 from windyfly.memory.write_queue import Priority, WriteQueue
+
+logger = logging.getLogger(__name__)
 
 # Pattern → fault_type classification
 # Uses negative lookahead to avoid false positives on agreement phrases
@@ -73,13 +78,33 @@ def handle_friction(
     fault_type = friction["fault_type"]
     description = f"User: {friction['user_message'][:200]} | Agent: {friction['agent_message'][:200]}"
 
-    # Log the failure (HIGH priority)
+    # Check for recurring failure before logging
+    is_recurring = check_recurring_failure(db, fault_type, description)
+
+    # Create a correction skill for recurring failures
+    correction_skill_id = None
+    if is_recurring:
+        try:
+            correction_code = _build_correction_code(fault_type, friction)
+            correction_skill_id = save_skill(
+                db,
+                name=f"correction-{fault_type}",
+                code=correction_code,
+                language="python",
+                description=f"Auto-generated correction for recurring {fault_type}",
+                risk_level="low",
+            )
+        except Exception as e:
+            logger.debug("Could not create correction skill: %s", e)
+
+    # Log the failure with linked skill (HIGH priority)
     write_queue.enqueue(
         Priority.HIGH,
         log_failure,
         db,
         fault_type,
         description,
+        correction_skill_id=correction_skill_id,
     )
 
     # Log event for observability (G12)
@@ -87,10 +112,8 @@ def handle_friction(
     log_event(db, write_queue, "failure.detect", {
         "fault_type": fault_type,
         "pattern": friction.get("pattern_matched", ""),
+        "correction_skill_id": correction_skill_id,
     })
-
-    # Check for recurring failure
-    is_recurring = check_recurring_failure(db, fault_type, description)
 
     if is_recurring:
         # Fetch specific failure history so the agent knows what to avoid
@@ -108,3 +131,25 @@ def handle_friction(
             "The user just corrected you. Acknowledge the correction gracefully, "
             "review what went wrong, and provide the right answer."
         )
+
+
+def _build_correction_code(fault_type: str, friction: dict[str, Any]) -> str:
+    """Generate correction skill code from a friction event.
+
+    Creates a simple rule-based skill that can be applied to future
+    prompts to avoid the same class of mistakes.
+    """
+    user_msg = friction.get("user_message", "")[:150]
+    agent_msg = friction.get("agent_message", "")[:150]
+
+    return (
+        f"# Auto-generated correction skill for: {fault_type}\n"
+        f"# Triggered by user feedback: {user_msg!r}\n"
+        f"# Agent's incorrect response: {agent_msg!r}\n"
+        f"\n"
+        f"FAULT_TYPE = {fault_type!r}\n"
+        f"CORRECTION = (\n"
+        f"    'When handling {fault_type} situations, '\n"
+        f"    'double-check facts and acknowledge user corrections promptly.'\n"
+        f")\n"
+    )
