@@ -97,6 +97,9 @@ class TestTomlConsistency:
         """Both paths should create windyfly.toml with the same sections."""
         import tomllib
 
+        monkeypatch.delenv("WINDYFLY_AGENT_NAME", raising=False)
+        monkeypatch.delenv("WINDY_OWNER_NAME", raising=False)
+
         # Generate via quickstart
         qs_dir = tmp_path / "qs"
         qs_dir.mkdir()
@@ -127,6 +130,10 @@ class TestTomlConsistency:
         """Both paths should write identical [agent] sections."""
         import tomllib
 
+        # Clear env vars that affect agent name in toml output
+        monkeypatch.delenv("WINDYFLY_AGENT_NAME", raising=False)
+        monkeypatch.delenv("WINDY_OWNER_NAME", raising=False)
+
         qs_dir = tmp_path / "qs"
         qs_dir.mkdir()
         monkeypatch.setattr("windyfly.quickstart.PROJECT_ROOT", qs_dir)
@@ -151,6 +158,9 @@ class TestTomlConsistency:
     def test_same_personality_for_all_presets(self, tmp_path: Path, monkeypatch):
         """All presets should produce identical personality values via both paths."""
         import tomllib
+
+        monkeypatch.delenv("WINDYFLY_AGENT_NAME", raising=False)
+        monkeypatch.delenv("WINDY_OWNER_NAME", raising=False)
 
         for preset_name in PRESETS:
             qs_dir = tmp_path / f"qs_{preset_name}"

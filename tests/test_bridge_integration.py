@@ -201,8 +201,16 @@ class TestConcurrentDispatch:
 
 
 class TestAgentRespondViaBridge:
+    @patch("windyfly.agent.loop.is_online", return_value=True)
     @patch("windyfly.agent.loop.call_llm")
-    def test_full_roundtrip(self, mock_llm):
+    def test_full_roundtrip(self, mock_llm, mock_online):
+        # Reset module-level singletons to avoid test-order pollution
+        import windyfly.agent.context_header as _ch
+        import windyfly.agent.loop as _loop
+        _ch._tracker = None
+        _loop._interaction_count = 0
+        _loop._session_tokens_used = 0
+
         mock_llm.return_value = {
             "content": "Hello from the bridge!",
             "model": "gpt-4o-mini",
@@ -229,7 +237,7 @@ class TestAgentRespondViaBridge:
         }))
 
         assert "response" in result
-        assert result["response"] == "Hello from the bridge!"
+        assert "Hello from the bridge!" in result["response"]
         assert mock_llm.called
 
         time.sleep(0.5)

@@ -760,19 +760,33 @@ class TestConcurrentOperations:
     def test_simultaneous_messages_no_deadlock(self, mock_llm, mock_online, tmp_path):
         """5 simultaneous messages → all complete (no deadlock)."""
         from windyfly.agent.loop import agent_respond
+        import windyfly.agent.context_header as _ch
+        import windyfly.agent.loop as _loop
         import threading
+
+        # Reset module-level singletons to avoid test-order pollution
+        _ch._tracker = None
+        _loop._interaction_count = 0
+        _loop._session_tokens_used = 0
 
         mock_llm.return_value = {
             "content": "OK", "input_tokens": 20, "output_tokens": 5,
         }
         config = _make_config()
         db_path = str(tmp_path / "concurrent_agent.db")
+        # Pre-initialize DB with higher busy_timeout for concurrent access
+        init_db = Database(db_path)
+        init_db.execute("PRAGMA busy_timeout=30000")
+        init_db.close()
+
         results = []
 
         def _send(i):
             import time
             thread_db = Database(db_path)
+            thread_db.execute("PRAGMA busy_timeout=30000")
             wq = WriteQueue()
+            wq.start()
             for attempt in range(3):
                 try:
                     r = agent_respond(config, thread_db, wq, f"Concurrent {i}", f"sess-{i}")
@@ -782,6 +796,7 @@ class TestConcurrentOperations:
                     if attempt == 2:
                         results.append(f"ERROR: {e}")
                     time.sleep(0.2 * (attempt + 1))
+            wq.stop()
             thread_db.close()
 
         threads = [threading.Thread(target=_send, args=(i,)) for i in range(5)]

@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.12", "3.13"]
+        python-version: ["3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v4
       - name: Install uv
@@ -23,7 +23,7 @@ jobs:
       - name: Lint
         run: uv run ruff check src/
       - name: Type check
-        run: uv run python -m py_compile src/windyfly/cli.py src/windyfly/quickstart.py src/windyfly/hatch_orchestrator.py src/windyfly/birth_certificate.py
+        run: uv run mypy src/windyfly/ --ignore-missing-imports --no-error-summary
       - name: Test
         run: uv run pytest tests/ -v --tb=short
 

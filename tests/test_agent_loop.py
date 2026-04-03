@@ -126,8 +126,10 @@ class TestAgentRespond:
         wq.stop()
         db.close()
 
+    @patch("windyfly.agent.loop.is_online", return_value=True)
     @patch("windyfly.agent.loop.call_llm")
-    def test_passes_config_to_llm(self, mock_llm):
+    def test_passes_config_to_llm(self, mock_llm, mock_online):
+        _ch._tracker = None
         mock_llm.return_value = {
             "content": "Response",
             "model": "gpt-4o-mini",
@@ -197,9 +199,16 @@ class TestFactExtraction:
 class TestBudgetEnforcement:
     """R2: Budget enforcement should block when daily budget exceeded."""
 
+    @patch("windyfly.agent.loop.is_online", return_value=True)
     @patch("windyfly.agent.loop.call_llm")
     @patch("windyfly.agent.loop.check_budget")
-    def test_blocks_when_over_budget(self, mock_budget, mock_llm):
+    def test_blocks_when_over_budget(self, mock_budget, mock_llm, mock_online):
+        # Reset module-level singletons to avoid test-order pollution
+        _ch._tracker = None
+        import windyfly.agent.loop as _loop
+        _loop._interaction_count = 0
+        _loop._session_tokens_used = 0
+
         mock_budget.return_value = {
             "allowed": False,
             "daily_spend": 5.50,
@@ -220,9 +229,13 @@ class TestBudgetEnforcement:
         wq.stop()
         db.close()
 
+    @patch("windyfly.agent.loop.is_online", return_value=True)
     @patch("windyfly.agent.loop.call_llm")
     @patch("windyfly.agent.loop.check_budget")
-    def test_warns_when_near_budget(self, mock_budget, mock_llm):
+    def test_warns_when_near_budget(self, mock_budget, mock_llm, mock_online):
+        _ch._tracker = None
+        import windyfly.agent.loop as _loop
+        _loop._interaction_count = 0
         mock_budget.return_value = {
             "allowed": True,
             "daily_spend": 3.50,
@@ -250,8 +263,10 @@ class TestBudgetEnforcement:
 class TestEmotionalContextIntegration:
     """R3: Emotional context should be detected and stored on episodes."""
 
+    @patch("windyfly.agent.loop.is_online", return_value=True)
     @patch("windyfly.agent.loop.call_llm")
-    def test_emotional_context_passed_to_episode(self, mock_llm):
+    def test_emotional_context_passed_to_episode(self, mock_llm, mock_online):
+        _ch._tracker = None
         mock_llm.return_value = _LLM_RESPONSE.copy()
 
         config = _make_config()
@@ -276,8 +291,10 @@ class TestEmotionalContextIntegration:
 
         db.close()
 
+    @patch("windyfly.agent.loop.is_online", return_value=True)
     @patch("windyfly.agent.loop.call_llm")
-    def test_neutral_context_for_normal_message(self, mock_llm):
+    def test_neutral_context_for_normal_message(self, mock_llm, mock_online):
+        _ch._tracker = None
         mock_llm.return_value = _LLM_RESPONSE.copy()
 
         config = _make_config()
@@ -286,7 +303,7 @@ class TestEmotionalContextIntegration:
         wq.start()
 
         agent_respond(config, db, wq, "Hello there", "test-session")
-        time.sleep(0.5)
+        wq._queue.join()
         wq.stop()
 
         episodes = db.fetchall(
@@ -302,8 +319,10 @@ class TestEmotionalContextIntegration:
 class TestIntentDetectionIntegration:
     """R4: Intents should be detected and stored from user messages."""
 
+    @patch("windyfly.agent.loop.is_online", return_value=True)
     @patch("windyfly.agent.loop.call_llm")
-    def test_intent_saved_from_message(self, mock_llm):
+    def test_intent_saved_from_message(self, mock_llm, mock_online):
+        _ch._tracker = None
         mock_llm.return_value = _LLM_RESPONSE.copy()
 
         config = _make_config()
@@ -316,7 +335,7 @@ class TestIntentDetectionIntegration:
             "I want to learn French",
             "test-session",
         )
-        time.sleep(0.5)
+        wq._queue.join()  # Block until all enqueued items are processed
         wq.stop()
 
         intents = db.fetchall("SELECT * FROM intents")
@@ -327,8 +346,10 @@ class TestIntentDetectionIntegration:
 
         db.close()
 
+    @patch("windyfly.agent.loop.is_online", return_value=True)
     @patch("windyfly.agent.loop.call_llm")
-    def test_no_intent_for_greeting(self, mock_llm):
+    def test_no_intent_for_greeting(self, mock_llm, mock_online):
+        _ch._tracker = None
         mock_llm.return_value = _LLM_RESPONSE.copy()
 
         config = _make_config()
@@ -349,8 +370,10 @@ class TestIntentDetectionIntegration:
 class TestToolExecution:
     """R1/R9: Tool schemas should be passed to LLM and tool_calls executed."""
 
+    @patch("windyfly.agent.loop.is_online", return_value=True)
     @patch("windyfly.agent.loop.call_llm")
-    def test_tools_passed_to_llm(self, mock_llm):
+    def test_tools_passed_to_llm(self, mock_llm, mock_online):
+        _ch._tracker = None
         mock_llm.return_value = _LLM_RESPONSE.copy()
 
         from windyfly.tools.registry import ToolRegistry
@@ -374,9 +397,11 @@ class TestToolExecution:
         wq.stop()
         db.close()
 
+    @patch("windyfly.agent.loop.is_online", return_value=True)
     @patch("windyfly.agent.loop.call_llm")
-    def test_tool_reloop_executes_tools(self, mock_llm):
+    def test_tool_reloop_executes_tools(self, mock_llm, mock_online):
         """When LLM returns tool_calls, agent executes and calls LLM again."""
+        _ch._tracker = None
         from windyfly.tools.registry import ToolRegistry
         registry = ToolRegistry()
         registry.register(
