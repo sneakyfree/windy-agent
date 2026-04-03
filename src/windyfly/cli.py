@@ -45,6 +45,7 @@ Commands::
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import subprocess
 import time
@@ -64,6 +65,7 @@ from windyfly.platform import (
     write_pid_file,
 )
 
+logger = logging.getLogger(__name__)
 console = Console()
 PROJECT_ROOT = get_project_root()
 
@@ -208,8 +210,8 @@ def cmd_start(args: argparse.Namespace) -> None:
     if not getattr(args, "no_browser", False):
         try:
             webbrowser.open("http://localhost:3000")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Could not open browser: %s", e)
 
 
 def cmd_stop(_args: argparse.Namespace) -> None:
@@ -268,8 +270,8 @@ def cmd_setup(_args: argparse.Namespace) -> None:
             console.print()
             webbrowser.open("http://localhost:3000/setup.html")
             return
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Gateway health check failed: %s", e)
 
     # Gateway not running — start it first
     gateway_dir = PROJECT_ROOT / "gateway"
@@ -571,7 +573,7 @@ def _check_ecosystem_connectivity() -> None:
                 table.add_row(name, url, "[green]PASS[/green]", f"{elapsed:.0f}ms")
             else:
                 table.add_row(name, url, "[red]FAIL[/red]", f"{r.status_code}")
-        except Exception as e:
+        except Exception:
             elapsed = (time.time() - start) * 1000
             table.add_row(name, url, "[red]FAIL[/red]", f"{elapsed:.0f}ms")
 
@@ -710,7 +712,6 @@ _COMMAND_CATEGORIES = [
 def _cmd_help(args: argparse.Namespace) -> None:
     """Show all commands grouped by category, or detailed help for one command."""
     from rich.panel import Panel
-    from rich.text import Text
 
     cmd_name = getattr(args, "command_name", None)
 
@@ -793,7 +794,6 @@ def _cmd_install_service(_args: argparse.Namespace) -> None:
         return
 
     import shutil
-    import sys
 
     uv_path = shutil.which("uv") or "/usr/local/bin/uv"
     brain_log = str(get_log_path(PROJECT_ROOT, "brain"))

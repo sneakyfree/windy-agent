@@ -7,7 +7,6 @@ Tracks emotional trends over conversation sessions.
 from __future__ import annotations
 
 import re
-from typing import Any
 
 from windyfly.memory.database import Database
 from windyfly.memory.episodes import get_recent_episodes

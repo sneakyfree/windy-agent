@@ -3,7 +3,6 @@
 import os
 import sys
 import time
-import asyncio
 import logging
 import platform
 import subprocess
@@ -11,9 +10,9 @@ from pathlib import Path
 from datetime import datetime, timezone
 
 from windyfly.commands.registry import Command, registry
+from windyfly.platform import get_project_root
 
 logger = logging.getLogger(__name__)
-from windyfly.platform import get_project_root
 PROJECT_ROOT = get_project_root()
 
 _db = None
@@ -89,7 +88,7 @@ def _register_all():
 
     async def cmd_ps(ctx):
         result = subprocess.run(["ps", "aux"], capture_output=True, text=True)
-        lines = [l for l in result.stdout.split("\n") if "windyfly" in l.lower() and "grep" not in l]
+        lines = [line for line in result.stdout.split("\n") if "windyfly" in line.lower() and "grep" not in line]
         if not lines:
             return "No Windy Fly processes running."
         return "Running processes:\n" + "\n".join(lines)
@@ -127,8 +126,8 @@ def _register_all():
                         hours = int(delta.total_seconds() // 3600)
                         mins = int((delta.total_seconds() % 3600) // 60)
                         return f"Uptime: {hours}h {mins}m"
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Uptime parse failed: %s", e)
         return "Agent is not running (no PID file)."
     _r("uptime", "Show how long the agent has been running", "01_process", cmd_uptime)
 
@@ -228,8 +227,8 @@ def _register_all():
                                     capture_output=True, text=True)
             pkg_count = len(result.stdout.strip().split("\n")) - 2
             lines.append(f"Installed packages: {pkg_count}")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Package count failed: %s", e)
         lines.append("\nEnvironment (redacted):")
         for key in sorted(os.environ):
             if any(k in key.upper() for k in ["WINDY", "MATRIX", "ETERNITAS",
@@ -277,7 +276,7 @@ def _register_all():
         log_file = Path("data/windyfly.log")
         if log_file.exists():
             lines = log_file.read_text().strip().split("\n")
-            errors = [l for l in lines if "ERROR" in l or "CRITICAL" in l]
+            errors = [line for line in lines if "ERROR" in line or "CRITICAL" in line]
             if errors:
                 return "Recent errors:\n" + "\n".join(errors[-10:])
             return "No errors found in logs."
@@ -806,7 +805,8 @@ def _register_budget_through_help():
 
     async def cmd_ecosystem(ctx):
         try:
-            import io, contextlib
+            import io
+            import contextlib
             from windyfly.hatching import show_ecosystem_status
             f = io.StringIO()
             with contextlib.redirect_stdout(f):

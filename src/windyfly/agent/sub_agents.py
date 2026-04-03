@@ -9,7 +9,10 @@ from __future__ import annotations
 import hashlib
 import logging
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from windyfly.tools.registry import ToolRegistry
 
 from windyfly.agent.models import call_llm, estimate_cost
 from windyfly.memory.cost_ledger import log_cost
@@ -124,7 +127,6 @@ def register_sub_agent_tool(
         db: Database instance.
         write_queue: WriteQueue instance.
     """
-    from windyfly.tools.registry import ToolRegistry  # noqa: F811
 
     def _sub_agent_tool(task: str, token_budget: int = 2000) -> str:
         """Delegate to a specialist sub-agent."""

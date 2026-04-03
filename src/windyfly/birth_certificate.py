@@ -6,14 +6,16 @@ including a neural fingerprint, first words, and waveform signature.
 
 from __future__ import annotations
 
+import logging
 import hashlib
-import math
 import os
 import platform
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -139,13 +141,12 @@ def collect_hardware_specs() -> dict:
             )
             if result.returncode == 0 and result.stdout.strip():
                 cpu = result.stdout.strip()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("CPU detection failed: %s", e)
     specs["cpu"] = cpu or platform.machine() or "Unknown"
 
     # RAM
     try:
-        import shutil
         if hasattr(os, "sysconf"):
             pages = os.sysconf("SC_PHYS_PAGES")
             page_size = os.sysconf("SC_PAGE_SIZE")
@@ -161,8 +162,8 @@ def collect_hardware_specs() -> dict:
             if result.returncode == 0:
                 ram_gb = round(int(result.stdout.strip()) / (1024 ** 3), 1)
                 specs["ram"] = f"{ram_gb} GB"
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("RAM detection failed: %s", e)
 
     # OS
     system = platform.system()
@@ -193,8 +194,8 @@ def collect_hardware_specs() -> dict:
                     if gpu:
                         specs["gpu"] = gpu
                         break
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("GPU detection failed: %s", e)
 
     return specs
 
@@ -220,7 +221,8 @@ def generate_birth_certificate(
     if not hatch_timezone:
         try:
             hatch_timezone = now.astimezone().tzname() or "UTC"
-        except Exception:
+        except Exception as e:
+            logger.debug("Timezone detection failed: %s", e)
             hatch_timezone = "UTC"
 
     # Collect hardware specs if not provided

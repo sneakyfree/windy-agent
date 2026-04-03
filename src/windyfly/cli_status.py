@@ -6,6 +6,7 @@ a comprehensive snapshot of the running Windy Fly agent.
 
 from __future__ import annotations
 
+import logging
 import os
 import time
 from pathlib import Path
@@ -14,6 +15,7 @@ from typing import Any
 from rich.console import Console
 from rich.tree import Tree
 
+logger = logging.getLogger(__name__)
 console = Console()
 
 
@@ -22,7 +24,8 @@ def get_version() -> str:
     try:
         from importlib.metadata import version
         return version("windyfly")
-    except Exception:
+    except Exception as e:
+        logger.debug("Version lookup failed: %s", e)
         return "0.1.0"
 
 
@@ -87,7 +90,8 @@ def print_status(config: dict[str, Any] | None = None) -> None:
         try:
             from windyfly.config import load_config
             config = load_config()
-        except Exception:
+        except Exception as e:
+            logger.debug("Config load failed: %s", e)
             config = {}
 
     # Database info
@@ -176,8 +180,8 @@ def print_status(config: dict[str, Any] | None = None) -> None:
                     if data.get("brain_connected"):
                         matrix_status = f"connected ({host})"
                         room_count = data.get("room_count", 0)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Matrix health check failed: %s", e)
         else:
             matrix_status = "credentials not set"
     else:
@@ -191,8 +195,8 @@ def print_status(config: dict[str, Any] | None = None) -> None:
                 row = db.fetchone("SELECT value FROM soul WHERE key = 'email_address'")
                 if row:
                     email = row["value"]
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Email lookup failed: %s", e)
     email_status = f"{email} (active)" if email else "not configured"
 
     # Phone
@@ -209,8 +213,8 @@ def print_status(config: dict[str, Any] | None = None) -> None:
             p = client.lookup(passport)
             if p:
                 trust_score = str(getattr(p, "trust_score", "?"))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Trust score lookup failed: %s", e)
     eternitas_status = f"{passport} (trust: {trust_score}/100)" if passport else "not configured"
 
     # Uptime — check PID file
@@ -228,7 +232,8 @@ def print_status(config: dict[str, Any] | None = None) -> None:
                 uptime_str = _fmt_uptime(pid_creation)
             else:
                 uptime_str = "not running"
-    except Exception:
+    except Exception as e:
+        logger.debug("Uptime check failed: %s", e)
         uptime_str = "unknown"
 
     # ── Build the tree ────────────────────────────────────────────

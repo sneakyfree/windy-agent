@@ -360,8 +360,8 @@ def _register_ecosystem():
                     data = r.json()
                     score = data.get("trust_score", "?")
                     return f"🪪 {passport}\nTrust Score: {score}/100\nStatus: {data.get('status', '?')}"
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Trust score lookup failed: %s", e)
         return f"🪪 {passport} (trust score unavailable — Eternitas not reachable)"
     _re("trust", "Show Eternitas trust score and history", "18_permissions", cmd_trust)
 

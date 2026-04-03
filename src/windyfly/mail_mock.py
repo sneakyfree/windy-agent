@@ -6,11 +6,9 @@ Provides the same API shape as the real Windy Mail service.
 
 from __future__ import annotations
 
-import json
 import logging
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
 
 from windyfly.memory.database import Database
 

@@ -9,7 +9,6 @@ Telegram limits to 100 commands of max 32 chars each.
 
 from __future__ import annotations
 
-import sys
 
 
 def generate_botfather_commands() -> str:

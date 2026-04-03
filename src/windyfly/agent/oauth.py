@@ -90,8 +90,8 @@ class OAuthManager:
 
             self._save_cache()
             logger.info("OAuth token refreshed successfully.")
-        except Exception:
-            logger.exception("Failed to refresh OAuth token")
+        except Exception as e:
+            logger.exception("Failed to refresh OAuth token: %s", e)
             raise RuntimeError(
                 "Could not refresh Anthropic OAuth token. "
                 "Run 'claude auth login --claudeai' to re-authenticate."

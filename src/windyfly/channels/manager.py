@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Callable, Awaitable
+from typing import Callable, Awaitable
 
 from windyfly.channels.base import ChannelAdapter, IncomingMessage
 
@@ -63,8 +63,8 @@ class ChannelManager:
             try:
                 await ch.stop()
                 logger.info("Channel stopped: %s", name)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Channel %s stop failed: %s", name, e)
 
     def status(self) -> dict[str, bool]:
         """Return connection status of all channels."""

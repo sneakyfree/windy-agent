@@ -19,21 +19,22 @@ The user never needs to know what a TOML file is.
 
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 import subprocess
 import sys
 import time
 import webbrowser
-from pathlib import Path
 from typing import Any
 
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
 
-from windyfly.platform import IS_WINDOWS, can_run, get_data_dir, get_project_root
+from windyfly.platform import IS_WINDOWS, can_run, get_project_root
 
+logger = logging.getLogger(__name__)
 console = Console()
 PROJECT_ROOT = get_project_root()
 
@@ -139,7 +140,8 @@ def read_clipboard() -> str | None:
                     if result.returncode == 0:
                         return result.stdout.strip()
             return None
-    except Exception:
+    except Exception as e:
+        logger.debug("Clipboard read failed: %s", e)
         return None
 
 
@@ -343,7 +345,7 @@ def cmd_go(args: Any) -> None:
     for i, p in enumerate(PROVIDER_MENU, 1):
         console.print(f"    [bold]{i}[/bold]  {p['name']}")
     console.print()
-    console.print(f"    [bold]0[/bold]  I don't have a key yet — help me get one")
+    console.print("    [bold]0[/bold]  I don't have a key yet — help me get one")
     console.print()
 
     choice = Prompt.ask("  Choice", default="1")
@@ -364,9 +366,9 @@ def cmd_go(args: Any) -> None:
         console.print(f"  [cyan]Validating {provider_info['provider']} key...[/cyan]")
         valid = _validate_key(provider_info["env_var"], api_key)
         if valid:
-            console.print(f"  [green]✓[/green] Key is valid!")
+            console.print("  [green]✓[/green] Key is valid!")
         else:
-            console.print(f"  [yellow]⚠ Couldn't verify key (saving anyway — it may still work)[/yellow]")
+            console.print("  [yellow]⚠ Couldn't verify key (saving anyway — it may still work)[/yellow]")
         console.print()
         write_quick_config(provider_info["env_var"], api_key, provider_info["model"])
         console.print(f"  [green]✓[/green] Config written — {provider_info['provider']} / {provider_info['model']} / 🤝 buddy preset")
@@ -388,8 +390,8 @@ def cmd_go(args: Any) -> None:
     if Confirm.ask("  Open the API key page in your browser?", default=True):
         try:
             webbrowser.open(selected["url"])
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Could not open browser: %s", e)
         console.print()
         console.print("  [dim]Copy the key from your browser, then paste it here.[/dim]")
 
@@ -411,9 +413,9 @@ def cmd_go(args: Any) -> None:
     console.print(f"  [cyan]Validating {provider_info['provider']} key...[/cyan]")
     valid = _validate_key(provider_info["env_var"], api_key)
     if valid:
-        console.print(f"  [green]✓[/green] Key is valid!")
+        console.print("  [green]✓[/green] Key is valid!")
     else:
-        console.print(f"  [yellow]⚠ Couldn't verify key (saving anyway — it may still work)[/yellow]")
+        console.print("  [yellow]⚠ Couldn't verify key (saving anyway — it may still work)[/yellow]")
 
     # Write config
     console.print()
@@ -446,7 +448,6 @@ def _go_noninteractive(args: Any) -> None:
     key = args.key.strip()
     model_override = getattr(args, "model", None)
     preset = getattr(args, "preset", None) or "buddy"
-    no_browser = getattr(args, "no_browser", False)
 
     console.print()
     console.print("[bold cyan]🪰 Windy Fly — non-interactive setup[/bold cyan]")
@@ -471,7 +472,7 @@ def _go_noninteractive(args: Any) -> None:
         console.print(f"  [green]✓[/green] Detected provider: [bold]{provider_name}[/bold]")
     else:
         # Unrecognized key format — try to use it as OpenAI (most common)
-        console.print(f"  [yellow]⚠ Unrecognized key format — assuming OpenAI[/yellow]")
+        console.print("  [yellow]⚠ Unrecognized key format — assuming OpenAI[/yellow]")
         env_var = "OPENAI_API_KEY"
         provider_name = "OpenAI"
         model = model_override or "gpt-4o-mini"
@@ -480,16 +481,16 @@ def _go_noninteractive(args: Any) -> None:
     console.print(f"  [green]✓[/green] Preset: [bold]{preset}[/bold]")
 
     # Validate key
-    console.print(f"  [cyan]Validating key...[/cyan]")
+    console.print("  [cyan]Validating key...[/cyan]")
     valid = _validate_key(env_var, key)
     if valid:
-        console.print(f"  [green]✓[/green] Key valid")
+        console.print("  [green]✓[/green] Key valid")
     else:
-        console.print(f"  [yellow]⚠ Could not verify (saving anyway)[/yellow]")
+        console.print("  [yellow]⚠ Could not verify (saving anyway)[/yellow]")
 
     # Write config
     write_quick_config(env_var, key, model, preset)
-    console.print(f"  [green]✓[/green] Configuration written")
+    console.print("  [green]✓[/green] Configuration written")
 
     # Run full ecosystem provisioning (Eternitas + Mail + Phone + Birth Cert)
     _try_hatch_provisioning()
@@ -506,8 +507,8 @@ def _try_matrix_provision() -> None:
     try:
         from windyfly.matrix_provision import auto_provision_and_save
         auto_provision_and_save()
-    except Exception:
-        # Matrix provisioning is a nice-to-have, never a blocker
+    except Exception as e:
+        logger.debug("Matrix provisioning failed: %s", e)
         console.print("  [dim]○ Windy Chat — skipped[/dim]")
 
 
@@ -531,8 +532,8 @@ def _try_mail_provision() -> None:
             console.print(f"  [green]✓[/green] Windy Mail — {result['email']} provisioned")
         else:
             console.print("  [dim]○ Windy Mail — skipped[/dim]")
-    except Exception:
-        # Mail provisioning is a nice-to-have, never a blocker
+    except Exception as e:
+        logger.debug("Mail provisioning failed: %s", e)
         console.print("  [dim]○ Windy Mail — skipped[/dim]")
 
 
@@ -693,7 +694,7 @@ def _try_hatch_provisioning() -> None:
         if result.hatch_email_sent:
             console.print(f"  [green]✓[/green] 📧  Birth email sent to {owner_email}")
 
-        console.print(f"  [green]✓[/green] 🌐  Dashboard: https://windypro.thewindstorm.uk/app/fly")
+        console.print("  [green]✓[/green] 🌐  Dashboard: https://windypro.thewindstorm.uk/app/fly")
 
         if result.errors:
             for err in result.errors:
@@ -723,8 +724,8 @@ def _try_hatch_provisioning() -> None:
                     border_style="green",
                     padding=(1, 2),
                 ))
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Birth certificate display failed: %s", e)
 
         # ── Stage 6: Nudge to Windy Chat ──
         console.print()
@@ -925,7 +926,7 @@ def _help_get_key() -> tuple[str, dict[str, str]] | None:
         tag = f"[{guide['tag_style']}]{guide['tag']}[/{guide['tag_style']}]"
         if i == 1:
             console.print(f"    [bold green]→ {i}[/bold green]  [bold]{guide['name']}[/bold]  {tag}")
-            console.print(f"         [green]Recommended for first-time users[/green]")
+            console.print("         [green]Recommended for first-time users[/green]")
         else:
             console.print(f"      {i}   {guide['name']}  {tag}")
         console.print()
@@ -959,7 +960,8 @@ def _help_get_key() -> tuple[str, dict[str, str]] | None:
 
     try:
         webbrowser.open(guide["url"])
-    except Exception:
+    except Exception as e:
+        logger.debug("Could not open browser: %s", e)
         console.print(f"  [dim]Could not open browser. Go to: {guide['url']}[/dim]")
 
     console.print()
@@ -1085,7 +1087,8 @@ def _validate_key(env_var: str, key: str) -> bool:
         # For others, just check length
         return len(key) > 10
 
-    except Exception:
+    except Exception as e:
+        logger.debug("Key validation failed: %s", e)
         return False
 
 
@@ -1143,7 +1146,7 @@ def _install_deps() -> None:
     if result.returncode == 0:
         console.print("  [green]✓[/green] Python deps")
     else:
-        console.print(f"  [yellow]⚠ uv sync had issues[/yellow]")
+        console.print("  [yellow]⚠ uv sync had issues[/yellow]")
 
     # Gateway deps
     gateway_dir = PROJECT_ROOT / "gateway"
@@ -1155,7 +1158,7 @@ def _install_deps() -> None:
         if result.returncode == 0:
             console.print("  [green]✓[/green] Gateway deps")
         else:
-            console.print(f"  [yellow]⚠ bun install had issues[/yellow]")
+            console.print("  [yellow]⚠ bun install had issues[/yellow]")
 
 
 def _launch(args: Any) -> None:

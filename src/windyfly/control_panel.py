@@ -15,7 +15,7 @@ from __future__ import annotations
 from typing import Any
 
 from windyfly.memory.database import Database
-from windyfly.memory.soul import get_all_soul, get_soul, upsert_soul
+from windyfly.memory.soul import get_soul, upsert_soul
 
 # ---------------------------------------------------------------------------
 # Slider metadata — label, description, impact at low/high ends

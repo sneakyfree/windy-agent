@@ -5,7 +5,6 @@ Parses a Hermes agent export (SQLite sessions DB, MEMORY.md, skills/).
 
 from __future__ import annotations
 
-import json
 import logging
 import sqlite3
 from pathlib import Path

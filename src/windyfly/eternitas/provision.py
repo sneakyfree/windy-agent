@@ -12,7 +12,6 @@ import os
 import platform
 import uuid
 from dataclasses import dataclass
-from pathlib import Path
 
 from rich.console import Console
 
@@ -123,7 +122,8 @@ def _get_machine_id() -> str:
     """Get a stable machine identifier."""
     try:
         return str(uuid.getnode())
-    except Exception:
+    except Exception as e:
+        logger.debug("uuid.getnode() failed: %s", e)
         return platform.node()
 
 

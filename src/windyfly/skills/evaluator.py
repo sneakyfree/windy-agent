@@ -95,7 +95,6 @@ def evaluate_skill(db: Database, skill_id: str) -> dict[str, Any]:
     }
 
     # Log event for observability (G12)
-    from windyfly.observability.events import log_event as _log  # noqa: local import
     # Note: no write_queue available here so we skip async logging;
     # the caller (skills/manager) should log via its own write_queue.
 

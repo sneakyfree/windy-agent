@@ -26,7 +26,7 @@ from typing import Any
 import nio
 
 from windyfly.agent.loop import agent_respond
-from windyfly.channels.base import ChannelAdapter, IncomingMessage, OutgoingMessage
+from windyfly.channels.base import ChannelAdapter, OutgoingMessage
 from windyfly.memory.database import Database
 from windyfly.memory.write_queue import WriteQueue
 from windyfly.tools.registry import ToolRegistry
@@ -199,11 +199,6 @@ class WindyFlyMatrixBot(ChannelAdapter):
         sender = event.sender
         display_name = room.user_name(sender) or sender
 
-        # Extract Windy-specific metadata
-        windy_lang = None
-        if hasattr(event, "source") and event.source:
-            windy_lang = event.source.get("content", {}).get("windy_lang")
-
         logger.info(
             "Message from %s in %s: %s",
             display_name, room_id, body[:100],
@@ -231,8 +226,8 @@ class WindyFlyMatrixBot(ChannelAdapter):
         # Show typing indicator
         try:
             await self.client.room_typing(room_id, True, timeout=15000)
-        except Exception:
-            logger.debug("Failed to set typing indicator")
+        except Exception as e:
+            logger.debug("Failed to set typing indicator: %s", e)
 
         # Generate response
         try:
@@ -266,8 +261,8 @@ class WindyFlyMatrixBot(ChannelAdapter):
         # Turn off typing indicator
         try:
             await self.client.room_typing(room_id, False)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to clear typing indicator: %s", e)
 
     async def _on_encrypted_event(
         self,
@@ -536,8 +531,8 @@ class WindyFlyMatrixBot(ChannelAdapter):
                             "backoff_seconds": self._backoff,
                             "token_expired": self._is_token_expired_error(e),
                         })
-                    except Exception:
-                        pass  # Don't let event logging break reconnection
+                    except Exception as e:
+                        logger.debug("Reconnect event logging failed: %s", e)
 
                     if self._shutting_down:
                         break

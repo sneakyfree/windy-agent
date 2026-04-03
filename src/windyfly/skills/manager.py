@@ -6,7 +6,6 @@ Manages the lifecycle of self-improving code snippets.
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from windyfly.memory.database import Database
 from windyfly.memory.skills import get_skill, save_skill

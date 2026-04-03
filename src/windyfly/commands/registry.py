@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Callable, Awaitable, Any
+from typing import Callable, Awaitable
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +77,6 @@ class CommandRegistry:
                 or "CONFIRM" in args_list
                 or "yes" in args_list
             )
-            platform = (context or {}).get("platform", "terminal")
             if not confirmed:
                 return (
                     f"⚠ /{cmd.name} is a dangerous command that may cause data loss.\n"

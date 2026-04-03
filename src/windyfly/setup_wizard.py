@@ -8,11 +8,11 @@ preset, and config generation.  Run via ``windy init`` or directly::
 
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 import subprocess
 import sys
-from pathlib import Path
 from typing import Any
 
 from rich.console import Console
@@ -21,10 +21,12 @@ from rich.prompt import Confirm, Prompt
 from rich.table import Table
 from rich.text import Text
 
+from windyfly.platform import get_project_root
+
+logger = logging.getLogger(__name__)
 console = Console()
 
 # ── Paths ──────────────────────────────────────────────────────────────
-from windyfly.platform import get_project_root
 PROJECT_ROOT = get_project_root()
 ENV_EXAMPLE = PROJECT_ROOT / ".env.example"
 ENV_FILE = PROJECT_ROOT / ".env"
@@ -161,7 +163,7 @@ def _banner() -> None:
 
 def _check_prerequisites() -> dict[str, bool]:
     """Check for required tools and report status."""
-    from windyfly.platform import IS_POSIX, IS_WINDOWS, can_run, diagnose
+    from windyfly.platform import IS_WINDOWS, diagnose
 
     console.print("[bold]Step 0 of 4[/bold] · [cyan]Checking prerequisites...[/cyan]")
     console.print()
@@ -288,11 +290,11 @@ def _step_api_keys() -> dict[str, str]:
             # Validate the key
             valid = _validate_key(provider["key"], key.strip())
             if valid:
-                console.print(f"    [green]✓ Valid![/green]")
+                console.print("    [green]✓ Valid![/green]")
             else:
-                console.print(f"    [yellow]⚠ Couldn't validate (saved anyway — may work)[/yellow]")
+                console.print("    [yellow]⚠ Couldn't validate (saved anyway — may work)[/yellow]")
         else:
-            console.print(f"    [dim]Skipped[/dim]")
+            console.print("    [dim]Skipped[/dim]")
 
         console.print()
 
@@ -346,7 +348,8 @@ def _validate_key(key_name: str, key_value: str) -> bool:
         # For other providers, just check basic format
         return len(key_value) > 10
 
-    except Exception:
+    except Exception as e:
+        logger.debug("API key validation failed: %s", e)
         return False
 
 
@@ -488,7 +491,7 @@ def _step_finalize(
     ])
 
     ENV_FILE.write_text("\n".join(env_lines) + "\n")
-    console.print(f"  [green]✓[/green] .env written")
+    console.print("  [green]✓[/green] .env written")
 
     # Write windyfly.toml with personality from preset
     preset_data = PRESETS[preset]
@@ -531,7 +534,7 @@ base_url = "http://localhost:8098"
     console.print(f"  [green]✓[/green] windyfly.toml written [dim](preset: {preset})[/dim]")
 
     # Install Python deps
-    console.print(f"  [cyan]Installing Python dependencies...[/cyan]")
+    console.print("  [cyan]Installing Python dependencies...[/cyan]")
     try:
         subprocess.run(
             ["uv", "sync"],
@@ -539,14 +542,14 @@ base_url = "http://localhost:8098"
             check=True,
             capture_output=True,
         )
-        console.print(f"  [green]✓[/green] Python dependencies installed")
+        console.print("  [green]✓[/green] Python dependencies installed")
     except (subprocess.CalledProcessError, FileNotFoundError) as e:
         console.print(f"  [yellow]⚠ uv sync failed: {e}[/yellow]")
 
     # Install gateway deps
     gateway_dir = PROJECT_ROOT / "gateway"
     if gateway_dir.exists():
-        console.print(f"  [cyan]Installing gateway dependencies...[/cyan]")
+        console.print("  [cyan]Installing gateway dependencies...[/cyan]")
         try:
             subprocess.run(
                 ["bun", "install"],
@@ -554,7 +557,7 @@ base_url = "http://localhost:8098"
                 check=True,
                 capture_output=True,
             )
-            console.print(f"  [green]✓[/green] Gateway dependencies installed")
+            console.print("  [green]✓[/green] Gateway dependencies installed")
         except (subprocess.CalledProcessError, FileNotFoundError) as e:
             console.print(f"  [yellow]⚠ bun install failed: {e}[/yellow]")
 

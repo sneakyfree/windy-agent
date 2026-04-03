@@ -10,16 +10,15 @@ that people will screenshot, screen-record, and share.
 
 from __future__ import annotations
 
+import logging
 import os
 import time
-from pathlib import Path
 
 from rich.console import Console
-from rich.panel import Panel
-from rich.text import Text
 
 from windyfly.platform import get_project_root
 
+logger = logging.getLogger(__name__)
 console = Console()
 PROJECT_ROOT = get_project_root()
 
@@ -160,8 +159,8 @@ def _try_play_audio() -> None:
                                 stderr=subprocess.DEVNULL,
                             )
                             break
-            except Exception:
-                pass  # Audio is a nice-to-have, never a blocker
+            except Exception as e:
+                logger.debug("Audio playback failed: %s", e)
             return
 
 

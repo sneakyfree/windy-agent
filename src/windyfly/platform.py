@@ -13,11 +13,12 @@ Environment overrides:
     WINDYFLY_IPC_MODE   — force "uds" or "tcp" (auto-detected if unset)
     WINDYFLY_IPC_PATH   — custom UDS socket path (default: <tempdir>/windyfly.sock)
     WINDYFLY_IPC_HOST   — TCP host (default: 127.0.0.1)
-    WINDYFLY_IPC_PORT   — TCP port (default: 4001)
+    WINDYFLY_IPC_PORT   — TCP port (default: 9119)
 """
 
 from __future__ import annotations
 
+import logging
 import os
 import platform
 import signal
@@ -27,6 +28,8 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
+
+logger = logging.getLogger(__name__)
 
 # ── Platform detection ────────────────────────────────────────────────
 
@@ -275,7 +278,8 @@ def read_pid_file(project_root: Path) -> PIDInfo | None:
                 info.gateway = int(val)
             elif key == "started":
                 info.started = val
-    except Exception:
+    except Exception as e:
+        logger.debug("PID file parse failed: %s", e)
         return None
     return info
 

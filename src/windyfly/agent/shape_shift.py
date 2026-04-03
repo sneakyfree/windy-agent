@@ -17,7 +17,10 @@ from __future__ import annotations
 
 import logging
 from contextlib import contextmanager
-from typing import Any, Generator
+from typing import TYPE_CHECKING, Any, Generator
+
+if TYPE_CHECKING:
+    from windyfly.tools.registry import ToolRegistry
 
 from windyfly.control_panel import (
     PRESETS,
@@ -88,8 +91,8 @@ def shape_shift(
         # inside the context manager left SQLite mid-transaction).
         try:
             db.conn.rollback()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Rollback during shape_shift cleanup failed: %s", e)
         if _saved_sliders:
             restore = _saved_sliders.pop()
         else:
@@ -172,7 +175,6 @@ def register_shape_shift_tool(
             return announcement  # type: ignore[return-value]
 
         # Execute the shift
-        saved = get_sliders(db)
         apply_preset(db, preset)
 
         log_event(db, write_queue, "shape_shift.tool", {

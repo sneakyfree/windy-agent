@@ -12,7 +12,7 @@ from typing import Any
 
 from windyfly.control_panel import get_sliders
 from windyfly.memory.database import Database
-from windyfly.memory.write_queue import Priority, WriteQueue
+from windyfly.memory.write_queue import WriteQueue
 
 logger = logging.getLogger(__name__)
 

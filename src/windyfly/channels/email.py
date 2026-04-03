@@ -19,12 +19,16 @@ from typing import Any
 
 from windyfly.agent.loop import agent_respond
 from windyfly.memory.database import Database
-from windyfly.memory.nodes import get_nodes_by_type, upsert_node
+from windyfly.memory.nodes import upsert_node
 from windyfly.memory.write_queue import WriteQueue
 from windyfly.observability.events import log_event
 from windyfly.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
+
+
+class RateLimitedError(Exception):
+    """Raised when an outbound email is blocked by the rate limiter."""
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -35,10 +39,11 @@ logger = logging.getLogger(__name__)
 class WindyMailAdapter:
     """Send and receive email via the Windy Mail API (Stalwart JMAP)."""
 
-    def __init__(self) -> None:
+    def __init__(self, db: Database | None = None) -> None:
         self.email = os.environ.get("WINDYMAIL_EMAIL", "")
         self.jmap_token = os.environ.get("WINDYMAIL_JMAP_TOKEN", "")
         self.api_url = os.environ.get("WINDYMAIL_API_URL", "https://api.windymail.ai")
+        self.db = db
 
         if not self.email or not self.jmap_token:
             raise RuntimeError(
@@ -58,7 +63,26 @@ class WindyMailAdapter:
 
         Returns:
             Dict with status and message_id on success.
+
+        Raises:
+            RateLimitedError: If the rate limiter blocks the send.
         """
+        # Rate limit check (only if db is available)
+        if self.db is not None:
+            try:
+                from windyfly.mail_rate_limiter import MailRateLimiter
+
+                limiter = MailRateLimiter(self.db)
+                check = limiter.check_send_allowed(self.email, to, subject, body)
+                if not check.allowed:
+                    raise RateLimitedError(
+                        f"Email to {to} blocked by rate limiter: {check.reason}"
+                    )
+            except RateLimitedError:
+                raise
+            except Exception as e:
+                logger.warning("Rate limiter check failed (sending anyway): %s", e)
+
         import httpx as _httpx
 
         try:
@@ -76,6 +100,13 @@ class WindyMailAdapter:
             if resp.status_code in (200, 201, 202):
                 data = resp.json()
                 logger.info("Windy Mail sent to %s — %s", to, subject)
+                if self.db is not None:
+                    try:
+                        from windyfly.mail_rate_limiter import MailRateLimiter
+
+                        MailRateLimiter(self.db).record_send(self.email, to, body)
+                    except Exception as e:
+                        logger.warning("Rate limiter record_send failed: %s", e)
                 return {"status": "sent", "message_id": data.get("message_id")}
             else:
                 logger.warning("Windy Mail send failed: %s %s", resp.status_code, resp.text)
@@ -237,7 +268,25 @@ class WindyFlyEmail:
 
         Returns:
             Dict with status.
+
+        Raises:
+            RateLimitedError: If the rate limiter blocks the send.
         """
+        # Rate limit check
+        try:
+            from windyfly.mail_rate_limiter import MailRateLimiter
+
+            limiter = MailRateLimiter(self.db)
+            result = limiter.check_send_allowed(self.from_email, to_email, subject, body)
+            if not result.allowed:
+                raise RateLimitedError(
+                    f"Email to {to_email} blocked by rate limiter: {result.reason}"
+                )
+        except RateLimitedError:
+            raise
+        except Exception as e:
+            logger.warning("Rate limiter check failed (sending anyway): %s", e)
+
         import urllib.request
 
         url = "https://api.sendgrid.com/v3/mail/send"
@@ -264,6 +313,13 @@ class WindyFlyEmail:
                 log_event(self.db, self.write_queue, "email.outbound", {
                     "to": to_email, "subject": subject, "status": status,
                 })
+                # Record successful send for rate tracking
+                try:
+                    from windyfly.mail_rate_limiter import MailRateLimiter
+
+                    MailRateLimiter(self.db).record_send(self.from_email, to_email, body)
+                except Exception as e:
+                    logger.warning("Rate limiter record_send failed: %s", e)
                 return {"status": "sent", "http_status": status}
         except Exception as e:
             logger.error("SendGrid email failed: %s", e)

@@ -17,14 +17,16 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import logging
 import os
 import secrets
-from dataclasses import dataclass, field
-from pathlib import Path
+from dataclasses import dataclass
 
 from rich.console import Console
 
 from windyfly.platform import get_project_root
+
+logger = logging.getLogger(__name__)
 
 console = Console()
 PROJECT_ROOT = get_project_root()
@@ -114,7 +116,8 @@ def provision_matrix_bot(
 
         return None
 
-    except Exception:
+    except Exception as e:
+        logger.warning("Matrix bot provisioning failed: %s", e)
         return None
 
 

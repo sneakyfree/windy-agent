@@ -6,8 +6,16 @@ otherwise queues messages for later processing.
 
 from __future__ import annotations
 
+import json
 import logging
-from typing import Any
+import os
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from windyfly.memory.database import Database
+    from windyfly.memory.write_queue import WriteQueue
+    from windyfly.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -97,10 +105,6 @@ def _call_ollama(
 # ---------------------------------------------------------------------------
 # Persistent offline message queue
 # ---------------------------------------------------------------------------
-
-import json
-import os
-from pathlib import Path
 
 _QUEUE_PATH = Path(os.environ.get(
     "WINDYFLY_OFFLINE_QUEUE",

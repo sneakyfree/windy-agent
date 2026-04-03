@@ -10,6 +10,7 @@ them in the argparse router in ``cli.py``.
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import shutil
 import subprocess
@@ -25,10 +26,8 @@ from rich.table import Table
 from windyfly.platform import (
     SYSTEM,
     IS_WINDOWS,
-    IS_POSIX,
     can_run,
     diagnose,
-    get_data_dir,
     get_ipc_config,
     get_log_path,
     get_pid_path,
@@ -37,9 +36,9 @@ from windyfly.platform import (
     read_pid_file,
     remove_pid_file,
     force_kill,
-    write_pid_file,
 )
 
+logger = logging.getLogger(__name__)
 console = Console()
 PROJECT_ROOT = get_project_root()
 
@@ -93,7 +92,8 @@ def _format_uptime(started_iso: str) -> str:
         if not parts:
             parts.append(f"{seconds}s")
         return " ".join(parts)
-    except Exception:
+    except Exception as e:
+        logger.debug("Failed to format uptime: %s", e)
         return "unknown"
 
 
@@ -167,13 +167,11 @@ def cmd_doctor(_args: argparse.Namespace) -> None:
              "Missing — defines agent personality" if not soul_file.exists() else None)
 
     # Validate windyfly.toml parses correctly
-    toml_parse_ok = False
     if toml_file.exists():
         try:
             import tomllib
             with open(toml_file, "rb") as f:
                 tomllib.load(f)
-            toml_parse_ok = True
             _doc_row("TOML parse", "valid", True)
         except Exception as e:
             _doc_row("TOML parse", f"error: {e}", False,
@@ -274,7 +272,7 @@ def cmd_doctor(_args: argparse.Namespace) -> None:
         if not gateway_http or port != 3000:  # don't flag 3000 if our gateway owns it
             conflict = _check_port(port)
             if conflict and not (port == 3000 and gateway_alive):
-                _doc_row(f"Port {port} ({name})", f"in use", False,
+                _doc_row(f"Port {port} ({name})", "in use", False,
                          f"Port {port} occupied — may conflict")
                 warnings.append(f"Port {port} ({name}) already in use")
             else:
@@ -348,8 +346,8 @@ def cmd_doctor(_args: argparse.Namespace) -> None:
             from windyfly.config import load_config
             _cfg = load_config()
             windy_api_url = _cfg.get("windy_api", {}).get("base_url", "")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to load windy_api config: %s", e)
     if windy_api_url:
         try:
             import httpx
@@ -371,8 +369,8 @@ def cmd_doctor(_args: argparse.Namespace) -> None:
             from windyfly.config import load_config
             _cfg = load_config()
             matrix_hs = _cfg.get("matrix", {}).get("homeserver", "")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to load matrix config: %s", e)
     if matrix_hs:
         try:
             import httpx
@@ -439,7 +437,6 @@ def cmd_doctor(_args: argparse.Namespace) -> None:
         console.print()
 
     # ── Summary ──────────────────────────────────────────────────
-    total_checks = len(issues) + len(warnings)
     if not issues and not warnings:
         console.print(Panel(
             "[bold green]All checks passed![/bold green]\n"
@@ -487,7 +484,8 @@ def cmd_update(_args: argparse.Namespace) -> None:
                 ["git", "rev-parse", "--short", "HEAD"],
                 cwd=str(PROJECT_ROOT), capture_output=True, text=True,
             ).stdout.strip()
-        except Exception:
+        except (subprocess.SubprocessError, OSError) as e:
+            logger.debug("Failed to get current git commit: %s", e)
             old_commit = "unknown"
 
         console.print("  [cyan]Pulling latest code...[/cyan]")
@@ -501,7 +499,8 @@ def cmd_update(_args: argparse.Namespace) -> None:
                     ["git", "rev-parse", "--short", "HEAD"],
                     cwd=str(PROJECT_ROOT), capture_output=True, text=True,
                 ).stdout.strip()
-            except Exception:
+            except (subprocess.SubprocessError, OSError) as e:
+                logger.debug("Failed to get new git commit: %s", e)
                 new_commit = "unknown"
 
             if old_commit == new_commit:
@@ -582,7 +581,7 @@ def cmd_logs(args: argparse.Namespace) -> None:
 
     if follow:
         # Follow mode — use tail -f (POSIX) or Get-Content -Wait (Windows)
-        console.print(f"[dim]Following logs... Press Ctrl+C to stop.[/dim]")
+        console.print("[dim]Following logs... Press Ctrl+C to stop.[/dim]")
         console.print()
         paths = [str(p) for _, p in existing]
         try:
@@ -739,8 +738,8 @@ def _config_set(key: str, value: str) -> None:
         if stripped.startswith("[") and stripped.endswith("]"):
             in_section = stripped == f"[{section}]"
 
-        if in_section and stripped.startswith(f"{config_key} =") or \
-           in_section and stripped.startswith(f"{config_key}="):
+        if in_section and (stripped.startswith(f"{config_key} =") or
+                           stripped.startswith(f"{config_key}=")):
             # Try to preserve the value type
             try:
                 int(value)
@@ -764,7 +763,7 @@ def _config_set(key: str, value: str) -> None:
         console.print(f"  [green]✓[/green] Set [bold]{section}.{config_key}[/bold] = {value}")
     else:
         console.print(f"  [red]✗[/red] Key [bold]{key}[/bold] not found in windyfly.toml")
-        console.print(f"  [dim]Run [bold]windy config show[/bold] to see available keys.[/dim]")
+        console.print("  [dim]Run [bold]windy config show[/bold] to see available keys.[/dim]")
 
 
 def _config_reset() -> None:
@@ -807,10 +806,10 @@ def cmd_version(_args: argparse.Namespace) -> None:
                 ["uv", "--version"], capture_output=True, text=True,
             ).stdout.strip()
             console.print(f"  [bold]uv:[/bold]         {uv_ver}")
-        except Exception:
-            console.print(f"  [bold]uv:[/bold]         installed")
+        except (subprocess.SubprocessError, OSError):
+            console.print("  [bold]uv:[/bold]         installed")
     else:
-        console.print(f"  [bold]uv:[/bold]         [red]not found[/red]")
+        console.print("  [bold]uv:[/bold]         [red]not found[/red]")
 
     # Bun version
     if can_run("bun"):
@@ -819,10 +818,10 @@ def cmd_version(_args: argparse.Namespace) -> None:
                 ["bun", "--version"], capture_output=True, text=True,
             ).stdout.strip()
             console.print(f"  [bold]Bun:[/bold]        {bun_ver}")
-        except Exception:
-            console.print(f"  [bold]Bun:[/bold]        installed")
+        except (subprocess.SubprocessError, OSError):
+            console.print("  [bold]Bun:[/bold]        installed")
     else:
-        console.print(f"  [bold]Bun:[/bold]        [red]not found[/red]")
+        console.print("  [bold]Bun:[/bold]        [red]not found[/red]")
 
     ipc_desc = ipc.socket_path if ipc.mode == "uds" else f"{ipc.tcp_host}:{ipc.tcp_port}"
     console.print(f"  [bold]IPC:[/bold]        {ipc.mode} ({ipc_desc})")
@@ -839,8 +838,8 @@ def cmd_version(_args: argparse.Namespace) -> None:
                 cwd=str(PROJECT_ROOT), capture_output=True, text=True,
             ).stdout.strip()
             console.print(f"  [bold]Git:[/bold]        {branch} @ {commit}")
-        except Exception:
-            pass
+        except (subprocess.SubprocessError, OSError) as e:
+            logger.debug("Failed to get git info for version: %s", e)
 
     console.print(f"  [bold]Root:[/bold]       {PROJECT_ROOT}")
     console.print()
@@ -877,7 +876,7 @@ def cmd_kill(_args: argparse.Namespace) -> None:
     if ipc.mode == "uds" and os.path.exists(ipc.socket_path):
         os.unlink(ipc.socket_path)
 
-    console.print(f"[bold green]All Windy Fly processes force-killed.[/bold green]")
+    console.print("[bold green]All Windy Fly processes force-killed.[/bold green]")
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1023,7 +1022,7 @@ def cmd_debug(_args: argparse.Namespace) -> None:
             ).stdout.strip()
             lines.append(f"  Branch: {branch}")
             lines.append(f"  Commit: {commit}")
-        except Exception:
+        except (subprocess.SubprocessError, OSError):
             lines.append("  Error reading git info")
     else:
         lines.append("  git not available")
@@ -1061,8 +1060,8 @@ def cmd_passport(_args: argparse.Namespace) -> None:
                 console.print(f"  [bold]Status:[/bold]       {data.get('status', 'unknown')}")
                 console.print(f"  [bold]Trust:[/bold]        {data.get('trust_score', '?')}/100")
                 console.print(f"  [bold]Created:[/bold]      {data.get('created_at', 'unknown')}")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Failed to look up passport details: %s", e)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1089,8 +1088,8 @@ def cmd_mail(_args: argparse.Namespace) -> None:
                 row = cursor.fetchone()
                 if row:
                     email = row[0]
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Failed to query soul table for email: %s", e)
             finally:
                 conn.close()
 
@@ -1106,9 +1105,9 @@ def cmd_mail(_args: argparse.Namespace) -> None:
                 status = "[green]Connected[/green]" if r.status_code < 500 else "[red]Error[/red]"
                 console.print(f"  [bold]Mail API:[/bold]  {status}")
             except Exception:
-                console.print(f"  [bold]Mail API:[/bold]  [red]Unreachable[/red]")
+                console.print("  [bold]Mail API:[/bold]  [red]Unreachable[/red]")
         else:
-            console.print(f"  [bold]Mail API:[/bold]  [dim]Not configured[/dim]")
+            console.print("  [bold]Mail API:[/bold]  [dim]Not configured[/dim]")
     else:
         console.print("[dim]No email configured. Set WINDYFLY_EMAIL_ADDRESS or run [bold]windy go[/bold].[/dim]")
 
@@ -1130,9 +1129,9 @@ def cmd_phone(_args: argparse.Namespace) -> None:
         twilio_sid = os.environ.get("TWILIO_ACCOUNT_SID", "")
         twilio_token = os.environ.get("TWILIO_AUTH_TOKEN", "")
         if twilio_sid and twilio_token:
-            console.print(f"  [bold]Twilio:[/bold]  [green]Configured[/green]")
+            console.print("  [bold]Twilio:[/bold]  [green]Configured[/green]")
         else:
-            console.print(f"  [bold]Twilio:[/bold]  [yellow]Credentials missing[/yellow]")
+            console.print("  [bold]Twilio:[/bold]  [yellow]Credentials missing[/yellow]")
     else:
         console.print("[dim]No phone configured. Set TWILIO_PHONE_NUMBER or AGENT_PHONE.[/dim]")
 
@@ -1193,8 +1192,8 @@ def _model_show() -> None:
                 with open(toml_file, "rb") as f:
                     config = tomllib.load(f)
                 model = config.get("agent", {}).get("default_model", "")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Failed to load model config: %s", e)
 
     if model:
         console.print(f"  [bold]Current model:[/bold]  {model}")
@@ -1529,8 +1528,8 @@ def _get_daily_budget() -> float:
             with open(toml_file, "rb") as f:
                 config = tomllib.load(f)
             return float(config.get("budget", {}).get("daily_budget", 0))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to read daily budget config: %s", e)
     return 0.0
 
 
@@ -1882,7 +1881,8 @@ def _memory_export() -> None:
                 export_data[table_name] = [
                     dict(zip(columns, row)) for row in rows
                 ]
-            except Exception:
+            except Exception as e:
+                logger.debug("Failed to export table %s: %s", table_name, e)
                 export_data[table_name] = []
 
     except Exception as e:
@@ -1919,8 +1919,8 @@ def _memory_clear(confirm: bool) -> None:
         try:
             conn.execute(f"DELETE FROM [{table_name}]")
             tables_cleared.append(table_name)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to clear table %s: %s", table_name, e)
 
     conn.commit()
     conn.close()
@@ -2001,7 +2001,7 @@ def _skills_run(skill_name: str) -> None:
         console.print("[red]Usage: windy skills run <skill-name>[/red]")
         return
 
-    console.print(f"  [yellow]Skill execution not yet implemented.[/yellow]")
+    console.print("  [yellow]Skill execution not yet implemented.[/yellow]")
     console.print(f"  [dim]Skill: {skill_name}[/dim]")
 
 
@@ -2011,7 +2011,7 @@ def _skills_eval(skill_name: str) -> None:
         console.print("[red]Usage: windy skills eval <skill-name>[/red]")
         return
 
-    console.print(f"  [yellow]Skill evaluation (3-gate) not yet implemented.[/yellow]")
+    console.print("  [yellow]Skill evaluation (3-gate) not yet implemented.[/yellow]")
     console.print(f"  [dim]Skill: {skill_name}[/dim]")
 
 
@@ -2094,8 +2094,8 @@ def cmd_reset(args: argparse.Namespace) -> None:
                 try:
                     conn.execute(f"DELETE FROM [{table_name}]")
                     cleared += 1
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("Failed to clear table %s during reset: %s", table_name, e)
 
             conn.commit()
             console.print(f"  [green]✓[/green] Cleared {cleared} tables")
@@ -2231,8 +2231,8 @@ def cmd_repl(_args: argparse.Namespace) -> None:
     try:
         from windyfly.config import load_config
         ns["config"] = load_config()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Failed to load config for REPL: %s", e)
 
     try:
         from windyfly.memory.database import Database
@@ -2242,7 +2242,7 @@ def cmd_repl(_args: argparse.Namespace) -> None:
         db_path = PROJECT_ROOT / db_path_str
         if db_path.exists():
             ns["db"] = Database(str(db_path))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Failed to load database for REPL: %s", e)
 
     code.interact(banner=banner, local=ns)

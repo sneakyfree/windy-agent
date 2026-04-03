@@ -9,7 +9,6 @@ from __future__ import annotations
 from typing import Any
 
 from windyfly.control_panel import PRESETS, estimate_monthly_cost, get_sliders
-from windyfly.memory.cost_ledger import get_daily_spend
 from windyfly.memory.database import Database
 
 
