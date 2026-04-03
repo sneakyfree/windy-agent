@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.5.1
+
+### Bug Fixes
+- Fixed `matrix_provision.py` — missing `import logging` and `logger` caused NameError on provisioning failure
+- Changed bare `except Exception:` to log warnings in matrix provisioning
+
+### Tests
+- Comprehensive E2E hatch test suite (`test_hatch_e2e.py`) — 30+ tests covering orchestrator flow, naming ceremony, birth certificate generation, retry/recovery, email PDF attachment, and SMS formatting
+
+### Dead Code Cleanup
+- Removed 6 unused integration stubs from `integrations/`: windy_word, windy_cloud, contact_discovery, windy_traveler, windy_clone, push_gateway
+- Removed `test_integrations.py` (tested only dead stubs)
+- Trimmed `test_hardening_integrations.py` to keep only live `tools/windy_api` and agent loop resilience tests
+
 ## 0.5.0
 
 ### Birth & Identity
