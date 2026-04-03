@@ -266,52 +266,82 @@ async function handleRequest(req: Request): Promise<Response> {
     if (path === "/api/memory/search" && req.method === "GET") {
       const query = url.searchParams.get("q") || "";
       const limit = parseInt(url.searchParams.get("limit") || "10");
-      const result = await bridge.call("memory.search", { query, limit });
-      return Response.json(result, { headers });
+      try {
+        const result = await bridge.call("memory.search", { query, limit });
+        return Response.json(result, { headers });
+      } catch {
+        return Response.json({ results: [], _offline: true }, { headers });
+      }
     }
 
     // Soul Passport preview
     if (path === "/api/soul/preview" && req.method === "POST") {
       const body = (await req.json()) as { export_path: string; source_type?: string };
-      const result = await bridge.call("soul.preview", body);
-      return Response.json(result, { headers });
+      try {
+        const result = await bridge.call("soul.preview", body);
+        return Response.json(result, { headers });
+      } catch {
+        return Response.json({ error: "Brain offline", _offline: true }, { status: 503, headers });
+      }
     }
 
     // Soul Passport import
     if (path === "/api/soul/import" && req.method === "POST") {
       const body = (await req.json()) as { export_path: string; source_type?: string };
-      const result = await bridge.call("soul.import", body);
-      return Response.json(result, { headers });
+      try {
+        const result = await bridge.call("soul.import", body);
+        return Response.json(result, { headers });
+      } catch {
+        return Response.json({ error: "Brain offline", _offline: true }, { status: 503, headers });
+      }
     }
 
     // SMS webhook (Twilio inbound)
     if (path === "/api/sms/webhook" && req.method === "POST") {
       const body = await req.json();
-      const result = await bridge.call("sms.inbound", body);
-      return new Response(result.twiml || "", {
-        headers: { "Content-Type": "text/xml", ...headers },
-      });
+      try {
+        const result = await bridge.call("sms.inbound", body);
+        return new Response(result.twiml || "", {
+          headers: { "Content-Type": "text/xml", ...headers },
+        });
+      } catch {
+        return new Response("<Response/>", {
+          headers: { "Content-Type": "text/xml", ...headers },
+        });
+      }
     }
 
     // SMS send (outbound)
     if (path === "/api/sms/send" && req.method === "POST") {
       const body = (await req.json()) as { to: string; message: string };
-      const result = await bridge.call("sms.send", body);
-      return Response.json(result, { headers });
+      try {
+        const result = await bridge.call("sms.send", body);
+        return Response.json(result, { headers });
+      } catch {
+        return Response.json({ error: "Brain offline", _offline: true }, { status: 503, headers });
+      }
     }
 
     // Email webhook (SendGrid Inbound Parse)
     if (path === "/api/email/webhook" && req.method === "POST") {
       const body = await req.json();
-      const result = await bridge.call("email.inbound", body);
-      return Response.json(result, { headers });
+      try {
+        const result = await bridge.call("email.inbound", body);
+        return Response.json(result, { headers });
+      } catch {
+        return Response.json({ error: "Brain offline", _offline: true }, { status: 503, headers });
+      }
     }
 
     // Email send (outbound)
     if (path === "/api/email/send" && req.method === "POST") {
       const body = (await req.json()) as { to: string; subject: string; body: string };
-      const result = await bridge.call("email.send", body);
-      return Response.json(result, { headers });
+      try {
+        const result = await bridge.call("email.send", body);
+        return Response.json(result, { headers });
+      } catch {
+        return Response.json({ error: "Brain offline", _offline: true }, { status: 503, headers });
+      }
     }
 
     // Providers list — works locally, no brain needed
@@ -451,8 +481,12 @@ async function handleRequest(req: Request): Promise<Response> {
     // Sync providers to remote machines (must be before generic POST /api/machines)
     if (path === "/api/machines/sync-providers" && req.method === "POST") {
       const body = await req.json() as { machine_id?: string };
-      const results = await machines.syncProviders(body.machine_id);
-      return Response.json(results, { headers });
+      try {
+        const results = await machines.syncProviders(body.machine_id);
+        return Response.json(results, { headers });
+      } catch {
+        return Response.json({ error: "Sync failed", _offline: true }, { status: 503, headers });
+      }
     }
 
     // List all machines with status
@@ -542,28 +576,44 @@ async function handleRequest(req: Request): Promise<Response> {
 
     // Journal entries
     if (path === "/api/journal" && req.method === "GET") {
-      const result = await bridge.call("journal.list");
-      return Response.json(result, { headers });
+      try {
+        const result = await bridge.call("journal.list");
+        return Response.json(result, { headers });
+      } catch {
+        return Response.json({ entries: [], _offline: true }, { headers });
+      }
     }
 
     // Self-assessment
     if (path === "/api/assessment" && req.method === "POST") {
-      const result = await bridge.call("assessment.run");
-      return Response.json(result, { headers });
+      try {
+        const result = await bridge.call("assessment.run");
+        return Response.json(result, { headers });
+      } catch {
+        return Response.json({ error: "Brain offline", _offline: true }, { status: 503, headers });
+      }
     }
 
     // Shape-shift execute
     if (path === "/api/shape-shift" && req.method === "POST") {
       const body = (await req.json()) as { preset: string };
-      const result = await bridge.call("shape_shift.execute", body);
-      return Response.json(result, { headers });
+      try {
+        const result = await bridge.call("shape_shift.execute", body);
+        return Response.json(result, { headers });
+      } catch {
+        return Response.json({ error: "Brain offline", _offline: true }, { status: 503, headers });
+      }
     }
 
     // Shape-shift restore
     if (path === "/api/shape-shift/restore" && req.method === "POST") {
       const body = (await req.json()) as { sliders?: Record<string, number> };
-      const result = await bridge.call("shape_shift.restore", body);
-      return Response.json(result, { headers });
+      try {
+        const result = await bridge.call("shape_shift.restore", body);
+        return Response.json(result, { headers });
+      } catch {
+        return Response.json({ error: "Brain offline", _offline: true }, { status: 503, headers });
+      }
     }
 
     // ===== PERSONALITY VERSIONING =====
@@ -571,28 +621,44 @@ async function handleRequest(req: Request): Promise<Response> {
     // Personality history
     if (path === "/api/personality/history" && req.method === "GET") {
       const limit = parseInt(url.searchParams.get("limit") || "20");
-      const result = await bridge.call("personality.history", { limit });
-      return Response.json(result, { headers });
+      try {
+        const result = await bridge.call("personality.history", { limit });
+        return Response.json(result, { headers });
+      } catch {
+        return Response.json({ history: [], _offline: true }, { headers });
+      }
     }
 
     // Personality snapshot
     if (path === "/api/personality/snapshot" && req.method === "POST") {
       const body = (await req.json()) as { changed_by?: string };
-      const result = await bridge.call("personality.snapshot", body);
-      return Response.json(result, { headers });
+      try {
+        const result = await bridge.call("personality.snapshot", body);
+        return Response.json(result, { headers });
+      } catch {
+        return Response.json({ error: "Brain offline", _offline: true }, { status: 503, headers });
+      }
     }
 
     // Personality drift detection
     if (path === "/api/personality/drift" && req.method === "GET") {
-      const result = await bridge.call("personality.drift", {});
-      return Response.json(result, { headers });
+      try {
+        const result = await bridge.call("personality.drift", {});
+        return Response.json(result, { headers });
+      } catch {
+        return Response.json({ drift_detected: false, _offline: true }, { headers });
+      }
     }
 
     // Personality rollback
     if (path === "/api/personality/rollback" && req.method === "POST") {
       const body = (await req.json()) as { snapshot_date: string };
-      const result = await bridge.call("personality.rollback", body);
-      return Response.json(result, { headers });
+      try {
+        const result = await bridge.call("personality.rollback", body);
+        return Response.json(result, { headers });
+      } catch {
+        return Response.json({ error: "Brain offline", _offline: true }, { status: 503, headers });
+      }
     }
 
     // ===== SKILLS MANAGEMENT =====
@@ -600,117 +666,181 @@ async function handleRequest(req: Request): Promise<Response> {
     // Skills list
     if (path === "/api/skills" && req.method === "GET") {
       const promoted = url.searchParams.get("promoted") === "true";
-      const result = await bridge.call("skills.list", { promoted_only: promoted });
-      return Response.json(result, { headers });
+      try {
+        const result = await bridge.call("skills.list", { promoted_only: promoted });
+        return Response.json(result, { headers });
+      } catch {
+        return Response.json({ skills: [], _offline: true }, { headers });
+      }
     }
 
     // Skills create
     if (path === "/api/skills" && req.method === "POST") {
       const body = (await req.json()) as { name: string; code: string; language?: string };
-      const result = await bridge.call("skills.create", body);
-      return Response.json(result, { headers });
+      try {
+        const result = await bridge.call("skills.create", body);
+        return Response.json(result, { headers });
+      } catch {
+        return Response.json({ error: "Brain offline", _offline: true }, { status: 503, headers });
+      }
     }
 
     // Skills evaluate
     const skillEvalMatch = path.match(/^\/api\/skills\/([^/]+)\/evaluate$/);
     if (skillEvalMatch && req.method === "POST") {
-      const result = await bridge.call("skills.evaluate", { skill_id: skillEvalMatch[1] });
-      return Response.json(result, { headers });
+      try {
+        const result = await bridge.call("skills.evaluate", { skill_id: skillEvalMatch[1] });
+        return Response.json(result, { headers });
+      } catch {
+        return Response.json({ error: "Brain offline", _offline: true }, { status: 503, headers });
+      }
     }
 
     // Skills promote
     const skillPromoteMatch = path.match(/^\/api\/skills\/([^/]+)\/promote$/);
     if (skillPromoteMatch && req.method === "POST") {
-      const result = await bridge.call("skills.promote", { skill_id: skillPromoteMatch[1] });
-      return Response.json(result, { headers });
+      try {
+        const result = await bridge.call("skills.promote", { skill_id: skillPromoteMatch[1] });
+        return Response.json(result, { headers });
+      } catch {
+        return Response.json({ error: "Brain offline", _offline: true }, { status: 503, headers });
+      }
     }
 
     // Skills rollback
     const skillRollbackMatch = path.match(/^\/api\/skills\/([^/]+)\/rollback$/);
     if (skillRollbackMatch && req.method === "POST") {
-      const result = await bridge.call("skills.rollback", { skill_id: skillRollbackMatch[1] });
-      return Response.json(result, { headers });
+      try {
+        const result = await bridge.call("skills.rollback", { skill_id: skillRollbackMatch[1] });
+        return Response.json(result, { headers });
+      } catch {
+        return Response.json({ error: "Brain offline", _offline: true }, { status: 503, headers });
+      }
     }
 
     // Skills golden tests
     const skillGoldenMatch = path.match(/^\/api\/skills\/([^/]+)\/golden-tests$/);
     if (skillGoldenMatch && req.method === "POST") {
-      const result = await bridge.call("skills.golden_tests", { skill_id: skillGoldenMatch[1] });
-      return Response.json(result, { headers });
+      try {
+        const result = await bridge.call("skills.golden_tests", { skill_id: skillGoldenMatch[1] });
+        return Response.json(result, { headers });
+      } catch {
+        return Response.json({ error: "Brain offline", _offline: true }, { status: 503, headers });
+      }
     }
 
     // Skills regression suite
     if (path === "/api/skills/regression" && req.method === "POST") {
-      const result = await bridge.call("skills.regression", {});
-      return Response.json(result, { headers });
+      try {
+        const result = await bridge.call("skills.regression", {});
+        return Response.json(result, { headers });
+      } catch {
+        return Response.json({ error: "Brain offline", _offline: true }, { status: 503, headers });
+      }
     }
 
     // ===== DECAY, CONFLICTS, MOMENTS, FAILURES =====
 
     // Cognitive decay trigger
     if (path === "/api/decay/run" && req.method === "POST") {
-      const result = await bridge.call("decay.run", {});
-      return Response.json(result, { headers });
+      try {
+        const result = await bridge.call("decay.run", {});
+        return Response.json(result, { headers });
+      } catch {
+        return Response.json({ error: "Brain offline", _offline: true }, { status: 503, headers });
+      }
     }
 
     // Conflicts list
     if (path === "/api/conflicts" && req.method === "GET") {
-      const result = await bridge.call("conflicts.list", {});
-      return Response.json(result, { headers });
+      try {
+        const result = await bridge.call("conflicts.list", {});
+        return Response.json(result, { headers });
+      } catch {
+        return Response.json({ conflicts: [], _offline: true }, { headers });
+      }
     }
 
     // Conflicts resolve
     const conflictMatch = path.match(/^\/api\/conflicts\/([^/]+)\/resolve$/);
     if (conflictMatch && req.method === "POST") {
       const body = (await req.json()) as { resolution: string; keep_new: boolean };
-      const result = await bridge.call("conflicts.resolve", {
-        conflict_id: conflictMatch[1],
-        ...body,
-      });
-      return Response.json(result, { headers });
+      try {
+        const result = await bridge.call("conflicts.resolve", {
+          conflict_id: conflictMatch[1],
+          ...body,
+        });
+        return Response.json(result, { headers });
+      } catch {
+        return Response.json({ error: "Brain offline", _offline: true }, { status: 503, headers });
+      }
     }
 
     // Relationship moments
     if (path === "/api/moments" && req.method === "GET") {
       const limit = parseInt(url.searchParams.get("limit") || "20");
-      const result = await bridge.call("moments.list", { limit });
-      return Response.json(result, { headers });
+      try {
+        const result = await bridge.call("moments.list", { limit });
+        return Response.json(result, { headers });
+      } catch {
+        return Response.json({ moments: [], _offline: true }, { headers });
+      }
     }
 
     // Failures list
     if (path === "/api/failures" && req.method === "GET") {
       const limit = parseInt(url.searchParams.get("limit") || "20");
-      const result = await bridge.call("failures.list", { limit });
-      return Response.json(result, { headers });
+      try {
+        const result = await bridge.call("failures.list", { limit });
+        return Response.json(result, { headers });
+      } catch {
+        return Response.json({ failures: [], _offline: true }, { headers });
+      }
     }
 
     // ===== MODE, OFFLINE, EVENTS =====
 
     // Mode get
     if (path === "/api/mode" && req.method === "GET") {
-      const result = await bridge.call("mode.get", {});
-      return Response.json(result, { headers });
+      try {
+        const result = await bridge.call("mode.get", {});
+        return Response.json(result, { headers });
+      } catch {
+        return Response.json({ mode: "unknown", _offline: true }, { headers });
+      }
     }
 
     // Mode set
     if (path === "/api/mode" && req.method === "PUT") {
       const body = (await req.json()) as { mode: string };
-      const result = await bridge.call("mode.set", body);
-      return Response.json(result, { headers });
+      try {
+        const result = await bridge.call("mode.set", body);
+        return Response.json(result, { headers });
+      } catch {
+        return Response.json({ error: "Brain offline", _offline: true }, { status: 503, headers });
+      }
     }
 
     // Offline status
     if (path === "/api/offline/status" && req.method === "GET") {
-      const result = await bridge.call("offline.status", {});
-      return Response.json(result, { headers });
+      try {
+        const result = await bridge.call("offline.status", {});
+        return Response.json(result, { headers });
+      } catch {
+        return Response.json({ online: false, brain_connected: false, _offline: true }, { headers });
+      }
     }
 
     // Events list
     if (path === "/api/events" && req.method === "GET") {
       const eventType = url.searchParams.get("type") || undefined;
       const limit = parseInt(url.searchParams.get("limit") || "50");
-      const result = await bridge.call("events.list", { event_type: eventType, limit });
-      return Response.json(result, { headers });
+      try {
+        const result = await bridge.call("events.list", { event_type: eventType, limit });
+        return Response.json(result, { headers });
+      } catch {
+        return Response.json({ events: [], _offline: true }, { headers });
+      }
     }
 
     // ── Setup Wizard API ───────────────────────────────────────

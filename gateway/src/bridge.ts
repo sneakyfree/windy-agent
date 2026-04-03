@@ -70,6 +70,11 @@ export class UDSClient {
   private buffer = "";
   private connected = false;
   private ipcMode: IPCMode;
+  private reconnecting = false;
+  private reconnectAttempts = 0;
+  private readonly maxReconnectAttempts = 20;
+  private readonly baseDelayMs = 1000;
+  private readonly maxDelayMs = 30000;
 
   constructor() {
     this.ipcMode = getIPCMode();
@@ -81,6 +86,8 @@ export class UDSClient {
         const socketPath = getIPCPath();
         this.socket = net.createConnection(socketPath, () => {
           this.connected = true;
+          this.reconnectAttempts = 0;
+          this.reconnecting = false;
           console.log(`[bridge] Connected to Python brain (UDS: ${socketPath})`);
           resolve();
         });
@@ -89,6 +96,8 @@ export class UDSClient {
         const port = getIPCPort();
         this.socket = net.createConnection({ host, port }, () => {
           this.connected = true;
+          this.reconnectAttempts = 0;
+          this.reconnecting = false;
           console.log(`[bridge] Connected to Python brain (TCP: ${host}:${port})`);
           resolve();
         });
@@ -102,13 +111,49 @@ export class UDSClient {
       this.socket.on("error", (err) => {
         console.error("[bridge] Socket error:", err.message);
         this.connected = false;
-        reject(err);
+        if (!this.reconnecting) reject(err);
       });
 
       this.socket.on("close", () => {
         this.connected = false;
         console.log("[bridge] Disconnected from Python brain");
+        this.rejectAllPending("Connection lost");
+        this.scheduleReconnect();
       });
+    });
+  }
+
+  private rejectAllPending(reason: string): void {
+    for (const [id, p] of this.pending) {
+      clearTimeout(p.timer);
+      p.reject(new Error(reason));
+    }
+    this.pending.clear();
+  }
+
+  private scheduleReconnect(): void {
+    if (this.reconnecting) return;
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      console.error("[bridge] Max reconnect attempts reached — giving up");
+      return;
+    }
+    this.reconnecting = true;
+    const delay = Math.min(
+      this.baseDelayMs * Math.pow(2, this.reconnectAttempts) + Math.random() * 500,
+      this.maxDelayMs,
+    );
+    this.reconnectAttempts++;
+    console.log(`[bridge] Reconnecting in ${Math.round(delay)}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+    setTimeout(() => this.attemptReconnect(), delay);
+  }
+
+  private attemptReconnect(): void {
+    this.socket?.destroy();
+    this.socket = null;
+    this.buffer = "";
+    this.reconnecting = false;
+    this.connect().catch(() => {
+      // connect() rejection triggers scheduleReconnect via close event
     });
   }
 
