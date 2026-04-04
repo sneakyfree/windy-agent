@@ -2,143 +2,199 @@
 
 **Your AI. Your Rules. Your Ecosystem.**
 
-Windy Fly is the AI agent brain of the Windy ecosystem — a lifelong, self-improving, user-sovereign companion that lives inside Windy Chat and connects to every Windy product.
+Windy Fly is a personal AI agent — a lifelong, self-improving companion that remembers everything, learns your preferences, and connects to the entire Windy ecosystem. Talk to it from your terminal, phone, browser, or any messaging platform.
+
+```bash
+pip install windyfly    # Install from PyPI
+windy go                # Interactive setup + hatch ceremony
+```
+
+Your agent hatches, gets an identity, and starts chatting in under 2 minutes.
 
 ---
 
-## What Is Windy Fly?
+## Features
 
-Windy Fly is a personal AI agent built from scratch to be:
+| Category | What It Does |
+|----------|-------------|
+| 🧠 **Memory** | Remembers every conversation, extracts facts, builds a knowledge graph |
+| 🎛️ **Personality** | 10 sliders (humor, warmth, autonomy, etc.) — tune how your agent thinks and speaks |
+| 🛠️ **17+ Tools** | Weather, reminders, to-dos, news, web search, calculator, unit converter, calendar |
+| 💬 **Multi-Channel** | CLI, Matrix (Windy Chat), Telegram, Discord, Slack, WhatsApp, SMS, email |
+| 🌐 **Dashboard** | React web UI at localhost:3000 — manage everything visually, no terminal needed |
+| 🪪 **Identity** | Eternitas passport, birth certificate, trust score — your agent has a real identity |
+| 💰 **Cost Control** | Daily/monthly budgets, per-model breakdown, automatic budget enforcement |
+| 🔄 **Self-Improving** | "Never Wrong Twice" — logs corrections, creates correction skills, learns from mistakes |
+| ☁️ **Cloud Backup** | Encrypted backups to Windy Cloud — memory survives device changes |
+| 🖥️ **VPS Deploy** | `windy deploy --vps` — run your agent 24/7 on AWS |
 
-- **A lifelong companion** — witty, opinionated, emotionally attuned, remembers everything
-- **Self-improving** — "Never Wrong Twice" guarantee based on user feedback
-- **User-sovereign** — your data, your rules, your agent. No silent overwrites.
-- **Ecosystem-aware** — deeply integrated with Windy Pro, Windy Chat, Windy Cloud, and Windy Clone
+---
+
+## Quickstart
+
+### From Source (Developers)
+
+```bash
+git clone https://github.com/sneakyfree/windy-agent && cd windy-agent
+uv sync                    # Install dependencies
+uv run windy go            # Interactive setup + hatch
+```
+
+### From PyPI (Users)
+
+```bash
+pip install windyfly
+windy go                   # Setup wizard
+windy start                # Start agent + open dashboard
+```
+
+### What Happens
+
+1. **Setup** — paste your API key (OpenAI, Anthropic, xAI, or others)
+2. **Hatch** — your agent comes alive with the "IT'S ALIVE!" ceremony
+3. **Chat** — talk in terminal, or open the dashboard at `http://localhost:3000`
+4. **Enjoy** — ask about the weather, set reminders, manage to-dos, search the web
+
+---
+
+## Commands
+
+### Everyday
+
+| Command | Description |
+|---------|-------------|
+| `windy chat` | Chat in the terminal |
+| `windy start` | Start agent + gateway, open dashboard |
+| `windy stop` | Stop all processes |
+| `windy status` | Check what's running |
+
+### Tools (via chat or slash commands)
+
+| Command | Example |
+|---------|---------|
+| `/weather` | "What's the weather in Fort Anne?" |
+| `/remind` | "Remind me to call Mom at 3pm" |
+| `/todo` | "Add 'buy groceries' to my list" |
+| `/news` | "What's the latest tech news?" |
+| `/calendar` | "What's on my schedule today?" |
+
+### Agent Management
+
+| Command | Description |
+|---------|-------------|
+| `windy version` | Version + update check |
+| `windy update` | Update to latest from PyPI |
+| `windy doctor` | Diagnose issues |
+| `windy ecosystem` | Check all service connections |
+| `windy backup now` | Backup to Windy Cloud |
 
 ---
 
 ## Architecture
 
-Windy Fly uses a **dual-runtime architecture**:
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Dashboard (React + Vite + Tailwind)  ← localhost:3000      │
+├─────────────────────────────────────────────────────────────┤
+│  Gateway (Bun/TypeScript)  ← 50+ REST/WS API endpoints     │
+├─────────────────────────────────────────────────────────────┤
+│  Brain (Python 3.12+)  ← LLM orchestration, tools, memory  │
+├─────────────────────────────────────────────────────────────┤
+│  Memory (SQLite + FTS5 + sqlite-vec)  ← one file, zero ops  │
+└─────────────────────────────────────────────────────────────┘
+```
 
 | Layer | Runtime | Role |
-|---|---|---|
-| **Brain** | Python 3.12+ | Memory, reasoning, skill evolution, orchestration |
-| **Gateway** | TypeScript / Bun | Channels, WebSockets, voice, devices, UI |
-| **Memory** | SQLite + sqlite-vec + FTS5 | Single source of truth — one file, zero ops |
-| **Chat Protocol** | Matrix (via Synapse) | Bot ID: `@windyfly:chat.windypro.com` |
+|-------|---------|------|
+| **Dashboard** | React 19 + Vite + Tailwind | 8-page web UI for managing your agent |
+| **Gateway** | Bun / TypeScript | API server, WebSocket chat, static files |
+| **Brain** | Python 3.12+ | Agent loop, LLM calls, tools, personality |
+| **Memory** | SQLite | Episodes, knowledge graph, skills, costs, reminders, todos |
 
 ---
 
-## Project Status
+## Configuration
 
-> 🧬 **DNA Strand complete. Build begins at Phase 0.**
+All config lives in `windyfly.toml`:
 
-| Phase | Status | Deliverable |
-|---|---|---|
-| **0** | 🔜 Ready to build | Python agent loop + CLI + SQLite + personality |
-| **1** | ⏳ Pending | Matrix bot in Windy Chat + Windy Pro API tools |
-| **2** | ⏳ Pending | Soul Continuity + Control Panel + Truth Layer |
-| **3** | ⏳ Pending | Skills Engine + Cost Ledger + Intent System |
-| **4** | ⏳ Pending | Bun Gateway + Decay + Sub-Agents + Offline Mode |
-| **5** | ⏳ Pending | Dashboard + Personality Versioning + Observability |
+```toml
+[agent]
+name = "Windy Fly"
+default_model = "gpt-4o-mini"
 
-**Estimated timeline:** 18 weeks to v1.0.0
+[personality]
+preset = "buddy"          # buddy, engineer, powerhouse, coder, friend
+warmth = 9
+humor = 7
 
----
+[costs]
+daily_budget_usd = 5.0
 
-## DNA Strand Master Plan
+[ecosystem]
+eternitas_url = "https://api.eternitas.ai"
+windy_mail_url = "https://api.windymail.ai"
+matrix_homeserver = "https://chat.windypro.com"
+windy_cloud_url = "https://cloud.windyfly.ai"
+```
 
-The DNA Strand is the blueprint. Every build decision is already made. Every file is specified. Every function is specced. A model reads one codon, executes it, verifies it, moves to the next.
+### Environment Variables
 
-- [Part 1: Foundation + Phase 0](docs/WINDY_FLY_DNA_STRAND_PART1.md) — Repo structure, SQL schema, Python agent loop
-- [Part 2: Phases 1–2](docs/WINDY_FLY_DNA_STRAND_PART2.md) — Matrix bot, Soul Continuity, Control Panel, Truth Layer
-- [Part 3: Phases 3–4](docs/WINDY_FLY_DNA_STRAND_PART3.md) — Skills engine, cost ledger, intent system, emotional awareness, Bun gateway
-- [Part 4: Phase 5 + Ecosystem Map](docs/WINDY_FLY_DNA_STRAND_PART4.md) — Dashboard, observability, master file index, codon checklist
-
-**Total:** 59 codons · 47 source files · 6 phases · 18 weeks
-
----
-
-## Research & Architecture Docs
-
-The DNA Strand was synthesized from extensive research across 6 AI reviewers:
-
-- [Synthesized Architecture](docs/architecture/synthesized_architecture.md) — Final canonical master plan from Grok, Gemini, ChatGPT, Perplexity ×2, and AntiGravity Opus 4.6
-- [Greenfield Architecture Analysis](docs/research/greenfield_agent_architecture.md) — What a clean-slate agent improves over OpenClaw + Hermes
-- [OpenClaw/Hermes Merger Analysis](docs/research/openclaw_hermes_merger_analysis.md) — Feasibility analysis of merging both architectures
-- [Grok Analysis](docs/research/grok_plan_analysis.md) — Deep critique of the strategy session
-
----
-
-## 5-Minute Quickstart
-
-Get a fully working AI agent in 5 minutes:
+Secrets go in `.env` (never committed):
 
 ```bash
-# 1. Clone
-git clone https://github.com/sneakyfree/windy-agent && cd windy-agent
-
-# 2. Install
-uv sync
-
-# 3. Configure
-cp .env.example .env && edit .env  # Add your OPENAI_API_KEY
-
-# 4. Hatch — interactive setup wizard
-uv run windy go
-
-# 5. Chat — start talking to your agent
-uv run windy chat
-
-# 6. Status — check everything
-uv run windy status
-
-# 7. Doctor — diagnose issues
-uv run windy doctor
-```
-
-### Additional Commands
-
-| Command | Description |
-|---|---|
-| `uv run windy start` | Start brain + gateway (opens dashboard) |
-| `uv run windy stop` | Stop all Windy Fly processes |
-| `uv run windy test` | Self-test (verify agent works) |
-| `uv run windy logs` | Tail brain/gateway logs |
-| `uv run windy config show` | View current configuration |
-| `uv run windy version` | Show version and environment info |
-
----
-
-## Ecosystem Integration
-
-```
-Windy Fly ←→ Windy Chat (Matrix/Synapse)
-Windy Fly ←→ Windy Pro Desktop (account-server API)
-Windy Fly ←→ Windy Pro Mobile (same Matrix protocol)
-Windy Fly ←→ Windy Cloud (distributed file storage)
+OPENAI_API_KEY=sk-...          # Required: at least one LLM key
+ANTHROPIC_API_KEY=sk-ant-...   # Optional: for Claude models
+BRAVE_SEARCH_API_KEY=...       # Optional: better web search (free at brave.com/search/api)
 ```
 
 ---
 
-## Part of the Windy Ecosystem
+## Ecosystem
 
-| Product | Repo | Role |
-|---|---|---|
-| Windy Pro | sneakyfree/windy-pro | Desktop app (Electron + Python) |
-| Windy Pro Mobile | sneakyfree/windy-pro-mobile | Mobile app (React Native/Expo) |
-| **Windy Fly** | **sneakyfree/windy-agent** | **AI agent brain** |
-| Windy Cloud | sneakyfree/windy-pro-cloud | Distributed storage |
-| Windy Chat | (via Synapse) | Matrix homeserver |
+Windy Fly connects to the full Windy product suite:
+
+| Service | What It Does | Status |
+|---------|-------------|--------|
+| **Eternitas** | Agent identity — passport, trust score | ✅ Integrated |
+| **Windy Chat** | Matrix messaging via Synapse | ✅ Integrated |
+| **Windy Mail** | Agent email inbox | ✅ Integrated |
+| **Windy Cloud** | Backup storage, VPS deployment | ✅ Integrated |
+| **Windy Pro** | Desktop/mobile app connections | ✅ Integrated |
+
+Check connectivity: `windy ecosystem`
+
+---
+
+## Development
+
+```bash
+# Run tests (1014+)
+uv run pytest tests/ -v
+
+# Lint
+uv run ruff check src/
+
+# Build package
+uv build
+
+# Release (maintainers only)
+./scripts/release.sh 0.6.0    # Bumps version, tags, pushes → PyPI
+```
+
+### Project Stats
+
+- **1014+ tests** | 0 failures
+- **22 LLM-callable tools**
+- **101 DNA codons** | 100% implemented
+- **8-page React dashboard**
+- **9 messaging channels** supported
 
 ---
 
 ## License
 
-Proprietary — © 2026 WindyLabs. All rights reserved.
+Proprietary — (C) 2026 WindyLabs. All rights reserved.
 
 ---
 
 *"If you have one copy of the DNA, you can recreate the entire organism."*
-*This repo is that copy.*

@@ -23,6 +23,10 @@ whatsapp = ["twilio>=9.0", "flask>=3.0"]
 signal = ["httpx>=0.27"]
 teams = ["botbuilder-core>=4.15", "botbuilder-integration-aiohttp>=4.15"]
 irc = ["irc>=20.0"]
+calendar = [
+    "google-api-python-client>=2.0",
+    "google-auth-oauthlib>=1.0",
+]
 all-channels = [
     "python-telegram-bot>=21.0",
     "discord.py>=2.3",
