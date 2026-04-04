@@ -172,6 +172,10 @@ def main() -> None:
         register_news_tool(tool_registry)
         register_calendar_tools(tool_registry)
 
+        # Register utility tools (timer, convert, dice, calculate)
+        from windyfly.tools.utilities import register_utility_tools
+        register_utility_tools(tool_registry)
+
         # Start reminder background checker
         start_reminder_checker(db)
 
