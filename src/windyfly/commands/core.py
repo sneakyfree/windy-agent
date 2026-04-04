@@ -95,19 +95,17 @@ def _register_all():
     _r("ps", "Show running Windy Fly processes", "01_process", cmd_ps, aliases=["processes"])
 
     async def cmd_update(ctx):
-        result = subprocess.run([sys.executable, "-m", "pip", "install", "--upgrade", "windyfly"],
-                                capture_output=True, text=True)
-        if result.returncode == 0:
-            return "Updated successfully. Restart with /restart to use the new version."
-        return f"Update failed: {result.stderr[:200]}"
+        from windyfly.update import check_for_update, apply_update
+        info = check_for_update(force=True)
+        if info is None:
+            return "Already on latest version."
+        success, message = apply_update()
+        return message
     _r("update", "Update to latest version from PyPI", "01_process", cmd_update, aliases=["upgrade"])
 
     async def cmd_version(ctx):
-        try:
-            from importlib.metadata import version as pkg_version
-            ver = pkg_version("windyfly")
-        except Exception:
-            ver = "dev"
+        from windyfly import __version__
+        ver = __version__
         model = os.environ.get("DEFAULT_MODEL", "not set")
         budget = os.environ.get("DAILY_BUDGET_USD", "5.00")
         return (f"🪰 Windy Fly v{ver}\n"
@@ -805,17 +803,11 @@ def _register_budget_through_help():
 
     async def cmd_ecosystem(ctx):
         try:
-            import io
-            import contextlib
-            from windyfly.hatching import show_ecosystem_status
-            f = io.StringIO()
-            with contextlib.redirect_stdout(f):
-                show_ecosystem_status()
-            output = f.getvalue()
-            return output if output.strip() else "Ecosystem status unavailable."
+            from windyfly.ecosystem_health import check_ecosystem_health
+            return await check_ecosystem_health()
         except Exception as e:
             return f"Error: {e}"
-    _r("ecosystem", "Show all Windy product connections", "09_identity", cmd_ecosystem, aliases=["eco"])
+    _r("ecosystem", "Show all Windy product connections + health", "09_identity", cmd_ecosystem, aliases=["eco"])
 
     async def cmd_passport(ctx):
         passport = os.environ.get("ETERNITAS_PASSPORT", "")
@@ -904,6 +896,69 @@ def _register_budget_through_help():
     async def cmd_hatch(ctx):
         return "Run 'windy go' from terminal to re-run the hatch ceremony and re-provision ecosystem services."
     _r("hatch", "Re-run the hatch ceremony", "09_identity", cmd_hatch, aliases=["provision", "rehatch"])
+
+    # ═══════════════════════════════════════════════════════════════
+    # VPS & CLOUD (95-104)
+    # ═══════════════════════════════════════════════════════════════
+
+    async def cmd_deploy(ctx):
+        args = ctx.get("_args", [])
+        if not args or "--vps" not in args:
+            return "Usage: /deploy --vps [--region us-east-1] [--type t3.small]"
+        from windyfly.vps_deploy import deploy_vps, format_vps_status
+        region = "us-east-1"
+        itype = "t3.small"
+        for i, a in enumerate(args):
+            if a == "--region" and i + 1 < len(args):
+                region = args[i + 1]
+            if a == "--type" and i + 1 < len(args):
+                itype = args[i + 1]
+        instance = await deploy_vps(region=region, instance_type=itype)
+        return format_vps_status(instance)
+    _r("deploy", "Deploy agent to a cloud VPS", "10_cloud", cmd_deploy,
+       usage="deploy --vps [--region us-east-1] [--type t3.small]")
+
+    async def cmd_vps(ctx):
+        args = ctx.get("_args", [])
+        action = args[0] if args else "status"
+        from windyfly.vps_deploy import get_vps_status, stop_vps, destroy_vps, format_vps_status
+        if action == "stop":
+            return format_vps_status(await stop_vps())
+        if action in ("destroy", "terminate"):
+            return format_vps_status(await destroy_vps())
+        return format_vps_status(await get_vps_status())
+    _r("vps", "VPS status, stop, or destroy", "10_cloud", cmd_vps,
+       aliases=["server", "instance"], usage="vps [status | stop | destroy]")
+
+    async def cmd_backup(ctx):
+        args = ctx.get("_args", [])
+        action = args[0] if args else "status"
+        from windyfly.cloud_backup import backup_to_cloud, restore_from_cloud, list_backups, get_backup_state
+        if action == "now":
+            result = await backup_to_cloud()
+            if result.get("success"):
+                return f"\u2705 Backup complete: {result.get('backup_id', 'ok')} ({result.get('size_bytes', 0)} bytes)"
+            return f"\u274c Backup failed: {result.get('error', 'unknown')}"
+        if action == "restore":
+            backup_id = args[1] if len(args) > 1 else "latest"
+            result = await restore_from_cloud(backup_id)
+            if result.get("success"):
+                return f"\u2705 Restored from {result.get('backup_id', 'latest')} ({result.get('size_bytes', 0)} bytes)"
+            return f"\u274c Restore failed: {result.get('error', 'unknown')}"
+        if action == "list":
+            result = await list_backups()
+            if not result.get("backups"):
+                return "No backups found." + (f" ({result.get('error', '')})" if result.get("error") else "")
+            lines = ["\U0001f4be Cloud Backups:\n"]
+            for b in result["backups"]:
+                lines.append(f"  {b.get('backup_id', '?'):20s}  {b.get('timestamp', '?'):25s}  {b.get('size_bytes', 0)} bytes")
+            return "\n".join(lines)
+        # Default: show status
+        state = get_backup_state()
+        last = state.get("last_backup", "never")
+        return f"\U0001f4be Backup status: last backup at {last}\nUsage: /backup [now | list | restore [id]]"
+    _r("backup", "Cloud backup: run, list, or restore", "10_cloud", cmd_backup,
+       usage="backup [now | list | restore [backup_id] | status]")
 
     # ═══════════════════════════════════════════════════════════════
     # CONFIGURATION (87-94)

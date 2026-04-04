@@ -1,6 +1,6 @@
 [project]
 name = "windyfly"
-version = "0.5.1"
+dynamic = ["version"]
 description = "Windy Fly — AI agent brain of the Windy ecosystem"
 requires-python = ">=3.12"
 dependencies = [
@@ -39,6 +39,9 @@ windy = "windyfly.cli:main"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "src/windyfly/__init__.py"
 
 [dependency-groups]
 dev = [

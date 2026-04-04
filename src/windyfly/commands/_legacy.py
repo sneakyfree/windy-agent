@@ -38,12 +38,11 @@ from windyfly.platform import (
     force_kill,
 )
 
+from windyfly import __version__ as VERSION
+
 logger = logging.getLogger(__name__)
 console = Console()
 PROJECT_ROOT = get_project_root()
-
-# Current version — bump on release
-VERSION = "0.5.1"
 
 
 # ─── Helpers ────────────────────────────────────────────────────────────
@@ -467,90 +466,60 @@ def cmd_doctor(_args: argparse.Namespace) -> None:
 
 
 def cmd_update(_args: argparse.Namespace) -> None:
-    """Update Windy Fly — git pull + uv sync + bun install."""
-    console.print()
-    console.print("[bold cyan]🪰 Updating Windy Fly...[/bold cyan]")
-    console.print()
+    """Update Windy Fly to the latest version from PyPI."""
+    from windyfly.update import check_for_update, apply_update, get_installed_version
 
-    # Check if it's a git repo
-    git_dir = PROJECT_ROOT / ".git"
-    if not git_dir.exists():
-        console.print("[yellow]⚠ Not a git repository — skipping git pull.[/yellow]")
-        console.print("[dim]  If you installed manually, pull the latest code yourself.[/dim]")
+    console.print()
+    console.print("[bold cyan]🪰 Checking for updates...[/bold cyan]")
+
+    info = check_for_update(force=True)
+    current = get_installed_version()
+
+    if info is None:
+        console.print(f"  [green]✓[/green] Already on latest version [bold]v{current}[/bold]")
+        console.print()
+        return
+
+    console.print(f"  [yellow]Update available:[/yellow] v{current} → [bold green]v{info['latest']}[/bold green]")
+    console.print()
+    console.print("  [cyan]Downloading and installing...[/cyan]")
+
+    success, message = apply_update()
+
+    if success:
+        console.print(f"  [green]✓[/green] {message}")
+        console.print()
+
+        pid_file = get_pid_path(PROJECT_ROOT)
+        if pid_file.exists():
+            pids = pid_file.read_text().strip().split("\n")
+            alive = any(process_alive(int(p.strip())) for p in pids if p.strip().isdigit())
+            if alive:
+                console.print("  [yellow]⚠ Agent is running — restart to use new version:[/yellow]")
+                console.print("    [bold]windy restart[/bold]")
     else:
-        # Save current commit for rollback reference
-        try:
-            old_commit = subprocess.run(
-                ["git", "rev-parse", "--short", "HEAD"],
-                cwd=str(PROJECT_ROOT), capture_output=True, text=True,
-            ).stdout.strip()
-        except (subprocess.SubprocessError, OSError) as e:
-            logger.debug("Failed to get current git commit: %s", e)
-            old_commit = "unknown"
-
-        console.print("  [cyan]Pulling latest code...[/cyan]")
-        result = subprocess.run(
-            ["git", "pull", "--ff-only"],
-            cwd=str(PROJECT_ROOT), capture_output=True, text=True,
-        )
-        if result.returncode == 0:
-            try:
-                new_commit = subprocess.run(
-                    ["git", "rev-parse", "--short", "HEAD"],
-                    cwd=str(PROJECT_ROOT), capture_output=True, text=True,
-                ).stdout.strip()
-            except (subprocess.SubprocessError, OSError) as e:
-                logger.debug("Failed to get new git commit: %s", e)
-                new_commit = "unknown"
-
-            if old_commit == new_commit:
-                console.print(f"  [green]✓[/green] Already up to date [dim]({new_commit})[/dim]")
-            else:
-                console.print(f"  [green]✓[/green] Updated [dim]{old_commit} → {new_commit}[/dim]")
-        else:
-            console.print(f"  [yellow]⚠ git pull failed:[/yellow] {result.stderr.strip()}")
-            console.print("  [dim]You may have local changes. Try: git stash && windy update[/dim]")
+        console.print(f"  [red]✗[/red] {message}")
 
     console.print()
 
-    # Python deps
-    console.print("  [cyan]Syncing Python dependencies...[/cyan]")
-    result = subprocess.run(
-        ["uv", "sync"],
-        cwd=str(PROJECT_ROOT), capture_output=True, text=True,
-    )
-    if result.returncode == 0:
-        console.print("  [green]✓[/green] Python dependencies synced")
+
+def cmd_rollback(args: argparse.Namespace) -> None:
+    """Rollback to a specific previous version."""
+    from windyfly.update import rollback, get_installed_version
+
+    version = getattr(args, "version", None)
+    if not version:
+        console.print("[red]Usage: windy rollback <version>[/red]")
+        console.print("[dim]  Example: windy rollback 0.5.0[/dim]")
+        return
+
+    current = get_installed_version()
+    console.print(f"  [cyan]Rolling back v{current} → v{version}...[/cyan]")
+    success, message = rollback(version)
+    if success:
+        console.print(f"  [green]✓[/green] {message}")
     else:
-        console.print(f"  [red]✗ uv sync failed:[/red] {result.stderr.strip()[:200]}")
-        console.print("  [dim]Try running manually: uv sync[/dim]")
-
-    # Gateway deps
-    gateway_dir = PROJECT_ROOT / "gateway"
-    if gateway_dir.exists():
-        console.print("  [cyan]Syncing gateway dependencies...[/cyan]")
-        result = subprocess.run(
-            ["bun", "install"],
-            cwd=str(gateway_dir), capture_output=True, text=True,
-        )
-        if result.returncode == 0:
-            console.print("  [green]✓[/green] Gateway dependencies synced")
-        else:
-            console.print(f"  [red]✗ bun install failed:[/red] {result.stderr.strip()[:200]}")
-
-    console.print()
-    console.print("[bold green]🪰 Update complete![/bold green]")
-    console.print()
-
-    # Check if processes are running — suggest restart
-    pid_file = get_pid_path(PROJECT_ROOT)
-    if pid_file.exists():
-        pids = pid_file.read_text().strip().split("\n")
-        alive = any(process_alive(int(p.strip())) for p in pids if p.strip().isdigit())
-        if alive:
-            console.print("  [yellow]⚠ Windy Fly is running — restart to pick up changes:[/yellow]")
-            console.print("    [bold]windy restart[/bold]")
-            console.print()
+        console.print(f"  [red]✗[/red] {message}")
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -791,25 +760,15 @@ def _config_path() -> None:
 
 def cmd_version(_args: argparse.Namespace) -> None:
     """Show Windy Fly version and environment info."""
-    ipc = get_ipc_config()
+    import os as _os
 
     console.print()
     console.print(f"  [bold cyan]🪰 Windy Fly[/bold cyan]  v{VERSION}")
-    console.print()
-    console.print(f"  [bold]Platform:[/bold]   {SYSTEM}")
-    console.print(f"  [bold]Python:[/bold]     {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")
+    console.print(f"  Python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro} | {SYSTEM}")
 
-    # uv version
-    if can_run("uv"):
-        try:
-            uv_ver = subprocess.run(
-                ["uv", "--version"], capture_output=True, text=True,
-            ).stdout.strip()
-            console.print(f"  [bold]uv:[/bold]         {uv_ver}")
-        except (subprocess.SubprocessError, OSError):
-            console.print("  [bold]uv:[/bold]         installed")
-    else:
-        console.print("  [bold]uv:[/bold]         [red]not found[/red]")
+    model = _os.environ.get("DEFAULT_MODEL", "not set")
+    budget = _os.environ.get("DAILY_BUDGET_USD", "5.00")
+    console.print(f"  Brain: {model} | Budget: ${budget}/day")
 
     # Bun version
     if can_run("bun"):
@@ -817,14 +776,9 @@ def cmd_version(_args: argparse.Namespace) -> None:
             bun_ver = subprocess.run(
                 ["bun", "--version"], capture_output=True, text=True,
             ).stdout.strip()
-            console.print(f"  [bold]Bun:[/bold]        {bun_ver}")
+            console.print(f"  Gateway: Bun {bun_ver}")
         except (subprocess.SubprocessError, OSError):
-            console.print("  [bold]Bun:[/bold]        installed")
-    else:
-        console.print("  [bold]Bun:[/bold]        [red]not found[/red]")
-
-    ipc_desc = ipc.socket_path if ipc.mode == "uds" else f"{ipc.tcp_host}:{ipc.tcp_port}"
-    console.print(f"  [bold]IPC:[/bold]        {ipc.mode} ({ipc_desc})")
+            pass
 
     # Git info
     if can_run("git"):
@@ -837,11 +791,21 @@ def cmd_version(_args: argparse.Namespace) -> None:
                 ["git", "rev-parse", "--abbrev-ref", "HEAD"],
                 cwd=str(PROJECT_ROOT), capture_output=True, text=True,
             ).stdout.strip()
-            console.print(f"  [bold]Git:[/bold]        {branch} @ {commit}")
+            console.print(f"  Git: {commit} ({branch})")
         except (subprocess.SubprocessError, OSError) as e:
             logger.debug("Failed to get git info for version: %s", e)
 
-    console.print(f"  [bold]Root:[/bold]       {PROJECT_ROOT}")
+    # Update check (cached, instant)
+    try:
+        from windyfly.update import check_for_update
+        info = check_for_update()
+        if info:
+            console.print()
+            console.print(f"  [yellow]⬆ Update available: v{info['latest']}[/yellow]")
+            console.print("    Run [bold]windy update[/bold] to upgrade")
+    except Exception:
+        pass
+
     console.print()
 
 

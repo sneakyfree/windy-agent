@@ -112,6 +112,32 @@ def cmd_start(args: argparse.Namespace) -> None:
     console.print("[bold cyan]🪰 Starting Windy Fly...[/bold cyan]")
     console.print()
 
+    # Non-blocking update check (uses 24h cache, instant if cached)
+    try:
+        from windyfly.update import check_for_update, apply_update
+        from windyfly.config import load_config as _load_cfg
+        _cfg = _load_cfg()
+        _updates_cfg = _cfg.get("updates", {})
+        if _updates_cfg.get("auto_check", True):
+            _info = check_for_update()
+            if _info:
+                if _updates_cfg.get("auto_install", False):
+                    console.print("  [cyan]Auto-installing update...[/cyan]")
+                    _ok, _msg = apply_update()
+                    if _ok:
+                        console.print(f"  [green]✓[/green] {_msg}")
+                    else:
+                        console.print(f"  [yellow]⚠ Auto-update failed:[/yellow] {_msg}")
+                else:
+                    console.print(
+                        f"  [yellow]⬆ Update available:[/yellow] v{_info['current']} → "
+                        f"[bold green]v{_info['latest']}[/bold green] — "
+                        f"run [bold]windy update[/bold]"
+                    )
+                    console.print()
+    except Exception:
+        pass  # Never let update check block startup
+
     if getattr(args, "cli", False):
         # CLI-only mode: run brain interactively in foreground
         console.print("  [cyan]Starting brain in CLI mode...[/cyan]")
@@ -1147,6 +1173,10 @@ def main() -> None:
     # windy update
     sub.add_parser("update", help="Update to latest version")
 
+    # windy rollback
+    rollback_parser = sub.add_parser("rollback", help="Rollback to a specific version")
+    rollback_parser.add_argument("version", nargs="?", help="Version to rollback to (e.g. 0.5.0)")
+
     # windy version
     sub.add_parser("version", help="Show version info")
 
@@ -1214,6 +1244,10 @@ def main() -> None:
         from windyfly.commands import cmd_update
         cmd_update(a)
 
+    def _get_cmd_rollback(a):
+        from windyfly.commands._legacy import cmd_rollback
+        cmd_rollback(a)
+
     def _get_cmd_logs(a):
         from windyfly.commands import cmd_logs
         cmd_logs(a)
@@ -1265,6 +1299,7 @@ def main() -> None:
         "skills": _cmd_skills,
         # Maintenance
         "update": _get_cmd_update,
+        "rollback": _get_cmd_rollback,
         "version": _get_cmd_version,
         "export": _cmd_export,
         "import": _cmd_import,

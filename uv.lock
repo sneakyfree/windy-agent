@@ -2210,7 +2210,6 @@ wheels = [
 
 [[package]]
 name = "windyfly"
-version = "0.5.1"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
@@ -2295,7 +2294,7 @@ requires-dist = [
     { name = "twilio", marker = "extra == 'all-channels'", specifier = ">=9.0" },
     { name = "twilio", marker = "extra == 'whatsapp'", specifier = ">=9.0" },
 ]
-provides-extras = ["telegram", "discord", "slack", "whatsapp", "signal", "teams", "irc", "all-channels"]
+provides-extras = ["all-channels", "discord", "irc", "signal", "slack", "teams", "telegram", "whatsapp"]
 
 [package.metadata.requires-dev]
 dev = [
