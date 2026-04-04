@@ -159,6 +159,22 @@ def main() -> None:
         register_windy_tools(tool_registry)
         register_web_search_tool(tool_registry)
 
+        # Register everyday tools
+        from windyfly.tools.reminders import register_reminder_tools, start_reminder_checker
+        from windyfly.tools.todos import register_todo_tools
+        from windyfly.tools.weather import register_weather_tool
+        from windyfly.tools.news import register_news_tool
+        from windyfly.tools.calendar import register_calendar_tools
+
+        register_reminder_tools(tool_registry, db)
+        register_todo_tools(tool_registry, db)
+        register_weather_tool(tool_registry)
+        register_news_tool(tool_registry)
+        register_calendar_tools(tool_registry)
+
+        # Start reminder background checker
+        start_reminder_checker(db)
+
         # Register sub-agent tool (G11)
         from windyfly.agent.sub_agents import register_sub_agent_tool
         register_sub_agent_tool(tool_registry, config, db, write_queue)

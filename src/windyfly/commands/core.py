@@ -798,6 +798,95 @@ def _register_budget_through_help():
         aliases=["cost", "spend", "usage"], usage="budget [month | set <amount> | breakdown]")
 
     # ═══════════════════════════════════════════════════════════════
+    # EVERYDAY TOOLS (87-96)
+    # ═══════════════════════════════════════════════════════════════
+
+    async def cmd_remind(ctx):
+        args = ctx.get("_args", [])
+        if not args:
+            return "Usage: /remind <time> <message>\nExample: /remind in 20 minutes take medicine"
+        # Parse: first arg is time-like, rest is message
+        from windyfly.tools.reminders import set_reminder
+        from windyfly.memory.database import Database
+        _db = Database(os.environ.get("WINDYFLY_DB_PATH", "data/windyfly.db"))
+        # Find the time boundary — look for common time starters
+        text = " ".join(args)
+        for sep in ["to ", "that "]:
+            idx = text.find(sep)
+            if idx > 0:
+                time_str = text[:idx].strip()
+                message = text[idx + len(sep):].strip()
+                result = set_reminder(_db, message, time_str)
+                _db.close()
+                return result.get("message", str(result))
+        # Fallback: first 3 words are time, rest is message
+        time_str = " ".join(args[:3])
+        message = " ".join(args[3:]) or "reminder"
+        result = set_reminder(_db, message, time_str)
+        _db.close()
+        return result.get("message", str(result))
+    _r("remind", "Set a reminder", "08a_tools", cmd_remind,
+       aliases=["reminder", "timer"], usage="remind <time> <message>")
+
+    async def cmd_reminders(ctx):
+        from windyfly.tools.reminders import list_reminders
+        from windyfly.memory.database import Database
+        _db = Database(os.environ.get("WINDYFLY_DB_PATH", "data/windyfly.db"))
+        result = list_reminders(_db)
+        _db.close()
+        return result.get("message", "No reminders.")
+    _r("reminders", "List upcoming reminders", "08a_tools", cmd_reminders)
+
+    async def cmd_todo(ctx):
+        args = ctx.get("_args", [])
+        from windyfly.tools.todos import add_todo, list_todos, complete_todo, delete_todo
+        from windyfly.memory.database import Database
+        _db = Database(os.environ.get("WINDYFLY_DB_PATH", "data/windyfly.db"))
+        action = args[0] if args else "list"
+        rest = " ".join(args[1:])
+        if action == "add" and rest:
+            result = add_todo(_db, rest)
+        elif action in ("done", "complete") and rest:
+            result = complete_todo(_db, rest)
+        elif action == "delete" and rest:
+            result = delete_todo(_db, rest)
+        else:
+            result = list_todos(_db)
+        _db.close()
+        return result.get("message", str(result))
+    _r("todo", "Manage to-do list", "08a_tools", cmd_todo,
+       aliases=["todos", "task", "tasks"], usage="todo [add|done|delete] <text>")
+
+    async def cmd_weather(ctx):
+        args = ctx.get("_args", [])
+        location = " ".join(args) if args else "New York"
+        from windyfly.tools.weather import get_weather
+        result = get_weather(location)
+        return result.get("summary", result.get("error", str(result)))
+    _r("weather", "Get current weather", "08a_tools", cmd_weather, usage="weather <location>")
+
+    async def cmd_news(ctx):
+        args = ctx.get("_args", [])
+        topic = " ".join(args) if args else None
+        from windyfly.tools.news import get_news
+        result = get_news(topic)
+        return result.get("message", str(result))
+    _r("news", "Get latest headlines", "08a_tools", cmd_news,
+       aliases=["headlines"], usage="news [topic]")
+
+    async def cmd_calendar(ctx):
+        args = ctx.get("_args", [])
+        from windyfly.tools.calendar import get_today_events, get_upcoming_events
+        action = args[0] if args else "today"
+        if action == "week":
+            result = get_upcoming_events(7)
+        else:
+            result = get_today_events()
+        return result.get("message", str(result))
+    _r("calendar", "Show calendar events", "08a_tools", cmd_calendar,
+       aliases=["cal", "schedule", "events"], usage="calendar [today|week]")
+
+    # ═══════════════════════════════════════════════════════════════
     # IDENTITY & ECOSYSTEM (77-86)
     # ═══════════════════════════════════════════════════════════════
 

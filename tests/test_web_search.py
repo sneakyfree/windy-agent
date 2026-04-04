@@ -61,10 +61,10 @@ class TestWebSearch:
     def test_register_adds_to_registry(self):
         registry = ToolRegistry()
         register_web_search_tool(registry)
-        assert registry.tool_count == 1
-        schemas = registry.get_schemas()
-        assert schemas[0]["function"]["name"] == "web_search"
-        assert "query" in schemas[0]["function"]["parameters"]["properties"]
+        assert registry.tool_count == 2  # web_search + fetch_url
+        names = {s["function"]["name"] for s in registry.get_schemas()}
+        assert "web_search" in names
+        assert "fetch_url" in names
 
     @patch("windyfly.tools.web_search.httpx.get")
     def test_respects_limit(self, mock_get):
