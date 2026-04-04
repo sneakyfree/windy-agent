@@ -1,0 +1,124 @@
+import { useEffect, useState } from 'react'
+import { api } from '../hooks/useApi'
+
+interface DashboardData {
+  agent_name?: string
+  status?: string
+  uptime?: string
+  model?: string
+  daily_spend?: number
+  daily_budget?: number
+  monthly_spend?: number
+  episodes_count?: number
+  nodes_count?: number
+  skills_count?: number
+  intents_count?: number
+  last_message?: string
+  passport_id?: string
+  email?: string
+  phone?: string
+  matrix_user?: string
+  _offline?: boolean
+}
+
+interface CostData {
+  daily_spend?: number
+  _offline?: boolean
+}
+
+export default function Home() {
+  const [dash, setDash] = useState<DashboardData | null>(null)
+  const [cost, setCost] = useState<CostData | null>(null)
+  const [health, setHealth] = useState<{ brain_connected: boolean } | null>(null)
+
+  useEffect(() => {
+    api<DashboardData>('/api/dashboard').then(setDash).catch(() => {})
+    api<CostData>('/api/cost/daily').then(setCost).catch(() => {})
+    api<{ brain_connected: boolean }>('/api/health').then(setHealth).catch(() => {})
+  }, [])
+
+  const connected = health?.brain_connected ?? false
+  const spend = cost?.daily_spend ?? dash?.daily_spend ?? 0
+  const budget = dash?.daily_budget ?? 5
+
+  const ecosystemServices = [
+    { name: 'Eternitas', ok: !!dash?.passport_id },
+    { name: 'Mail', ok: !!dash?.email },
+    { name: 'Chat', ok: !!dash?.matrix_user },
+    { name: 'Phone', ok: !!dash?.phone },
+  ]
+
+  return (
+    <div>
+      {/* Header */}
+      <div className="flex items-center gap-4 mb-6">
+        <div className="w-14 h-14 rounded-2xl bg-[#111827] border border-[#1e293b] flex items-center justify-center text-3xl">
+          🪰
+        </div>
+        <div>
+          <h1 className="text-2xl font-bold text-white">{dash?.agent_name || 'Windy Fly'}</h1>
+          <div className="flex items-center gap-2 text-sm text-[#64748b]">
+            <div className={`w-2 h-2 rounded-full ${connected ? 'bg-[#22c55e]' : 'bg-[#ef4444]'}`} />
+            {connected ? 'Running' : 'Offline'}
+            {dash?.uptime && <span>· {dash.uptime}</span>}
+          </div>
+        </div>
+      </div>
+
+      {/* Status cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+        <Card label="Status" value={connected ? '🟢 Running' : '🔴 Offline'} />
+        <Card label="Brain" value={dash?.model || 'Not set'} />
+        <Card label="Cost Today" value={`$${spend.toFixed(2)} / $${budget.toFixed(2)}`} />
+        <Card label="Episodes" value={String(dash?.episodes_count ?? 0)} />
+      </div>
+
+      {/* Budget bar */}
+      <div className="bg-[#111827] rounded-xl border border-[#1e293b] p-4 mb-6">
+        <div className="flex justify-between text-sm mb-2">
+          <span className="text-[#64748b]">Daily Budget</span>
+          <span className="text-white">${spend.toFixed(2)} / ${budget.toFixed(2)}</span>
+        </div>
+        <div className="w-full h-2 bg-[#1e293b] rounded-full overflow-hidden">
+          <div
+            className="h-full rounded-full transition-all"
+            style={{
+              width: `${Math.min((spend / budget) * 100, 100)}%`,
+              background: spend / budget > 0.8 ? '#ef4444' : '#00d4ff',
+            }}
+          />
+        </div>
+      </div>
+
+      {/* Ecosystem status */}
+      <div className="bg-[#111827] rounded-xl border border-[#1e293b] p-4 mb-6">
+        <h2 className="text-sm font-semibold text-[#64748b] uppercase tracking-wide mb-3">Ecosystem</h2>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {ecosystemServices.map(svc => (
+            <div key={svc.name} className="flex items-center gap-2 text-sm">
+              <div className={`w-2 h-2 rounded-full ${svc.ok ? 'bg-[#22c55e]' : 'bg-[#64748b]'}`} />
+              <span className={svc.ok ? 'text-white' : 'text-[#64748b]'}>{svc.name}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Quick stats */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <Card label="Knowledge Nodes" value={String(dash?.nodes_count ?? 0)} />
+        <Card label="Skills" value={String(dash?.skills_count ?? 0)} />
+        <Card label="Active Goals" value={String(dash?.intents_count ?? 0)} />
+        <Card label="Passport" value={dash?.passport_id ? dash.passport_id.slice(0, 12) : 'None'} />
+      </div>
+    </div>
+  )
+}
+
+function Card({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="bg-[#111827] rounded-xl border border-[#1e293b] p-4">
+      <div className="text-xs text-[#64748b] mb-1">{label}</div>
+      <div className="text-white font-semibold text-sm truncate">{value}</div>
+    </div>
+  )
+}

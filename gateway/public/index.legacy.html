@@ -1,0 +1,2225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Windy Fly — Trust Dashboard</title>
+  <meta name="description" content="Trust Dashboard for the Windy Fly AI agent — memory, costs, skills, personality cockpit.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0a0e17;
+      --bg-card: rgba(255,255,255,0.04);
+      --bg-card-hover: rgba(255,255,255,0.07);
+      --text: #e4e8f0;
+      --text-dim: #7b8494;
+      --accent: #00d4ff;
+      --accent-glow: rgba(0,212,255,0.15);
+      --accent-gradient: linear-gradient(135deg, #00d4ff, #00b4d8);
+      --warning: #ffb347;
+      --danger: #ff6b6b;
+      --purple: #a78bfa;
+      --blue: #60a5fa;
+      --green: #00d4aa;
+      --border: rgba(255,255,255,0.06);
+      --radius: 12px;
+      --font: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      line-height: 1.5;
+    }
+
+    /* NAV */
+    nav {
+      position: sticky; top: 0; z-index: 100;
+      display: flex; align-items: center; gap: 6px;
+      padding: 12px 24px;
+      background: rgba(10,14,23,0.85);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+      flex-wrap: wrap;
+    }
+    nav .logo { font-size: 1.25rem; font-weight: 700; margin-right: 20px; white-space: nowrap; }
+    nav .logo span { color: var(--accent); }
+    nav button {
+      background: none; border: 1px solid transparent; color: var(--text-dim);
+      padding: 6px 14px; border-radius: 8px; cursor: pointer;
+      font-family: var(--font); font-size: 0.85rem; font-weight: 500;
+      transition: all 0.2s; white-space: nowrap;
+    }
+    nav button:hover { color: var(--text); background: var(--bg-card); }
+    nav button.active { color: var(--accent); border-color: var(--accent); background: var(--accent-glow); }
+    nav .status { margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: 0.8rem; }
+    nav .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); transition: all 0.3s; }
+    nav .dot.connected { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+
+    /* LAYOUT */
+    .page { display: none; padding: 24px; max-width: 1200px; margin: 0 auto; }
+    .page.active { display: block; }
+
+    /* GRID */
+    .grid { display: grid; gap: 16px; }
+    .grid-2 { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+    .grid-3 { grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); }
+    .grid-4 { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+
+    /* CARDS */
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+      transition: all 0.2s;
+    }
+    .card:hover { background: var(--bg-card-hover); }
+    .card h3 { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-dim); margin-bottom: 8px; }
+    .card .value { font-size: 2rem; font-weight: 700; }
+    .card .sub { font-size: 0.8rem; color: var(--text-dim); margin-top: 4px; }
+    .card.accent .value { color: var(--accent); }
+    .card.purple .value { color: var(--purple); }
+    .card.blue .value { color: var(--blue); }
+    .card.warning .value { color: var(--warning); }
+    .card.green .value { color: var(--green); }
+
+    h2 { font-size: 1.1rem; font-weight: 600; margin: 24px 0 12px; color: var(--text-dim); }
+    h2:first-child { margin-top: 0; }
+
+    /* PROGRESS BAR */
+    .progress { height: 6px; background: rgba(255,255,255,0.06); border-radius: 3px; overflow: hidden; margin-top: 8px; }
+    .progress-fill { height: 100%; border-radius: 3px; transition: width 0.6s ease; }
+    .progress-fill.cyan { background: linear-gradient(90deg, #00d4ff, #00e5ff); }
+    .progress-fill.green { background: linear-gradient(90deg, #00d4aa, #00f0c0); }
+    .progress-fill.purple { background: linear-gradient(90deg, #a78bfa, #c4b5fd); }
+    .progress-fill.warning { background: linear-gradient(90deg, #ffb347, #ffcc80); }
+
+    /* TABLE */
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    th { text-align: left; color: var(--text-dim); font-weight: 500; padding: 8px 0; border-bottom: 1px solid var(--border); }
+    td { padding: 8px 0; border-bottom: 1px solid var(--border); }
+
+    /* CHAT */
+    #chat-messages {
+      flex: 1; overflow-y: auto; padding: 16px;
+      display: flex; flex-direction: column; gap: 12px;
+    }
+    .msg { max-width: 75%; padding: 12px 16px; border-radius: 16px; font-size: 0.9rem; line-height: 1.5; animation: fadeIn 0.3s; }
+    .msg .timestamp { font-size: 0.65rem; color: var(--text-dim); margin-top: 4px; display: block; }
+    .msg.user { align-self: flex-end; background: var(--accent-gradient); color: #0a0e17; border-bottom-right-radius: 4px; }
+    .msg.user .timestamp { color: rgba(10,14,23,0.5); }
+    .msg.assistant { align-self: flex-start; background: var(--bg-card); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
+    .msg.system { align-self: center; color: var(--text-dim); font-size: 0.8rem; font-style: italic; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+    #chat-box { display: flex; flex-direction: column; height: calc(100vh - 80px); }
+    #chat-input-bar { display: flex; gap: 8px; padding: 16px; border-top: 1px solid var(--border); }
+    #chat-input {
+      flex: 1; background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px;
+      padding: 12px 16px; color: var(--text); font-family: var(--font); font-size: 0.9rem;
+      outline: none; transition: border 0.2s;
+    }
+    #chat-input:focus { border-color: var(--accent); }
+    #chat-send {
+      background: var(--accent-gradient); border: none;
+      padding: 12px 24px; border-radius: 12px; color: #0a0e17;
+      font-family: var(--font); font-weight: 600; cursor: pointer;
+      transition: transform 0.1s, box-shadow 0.2s;
+    }
+    #chat-send:hover { transform: scale(1.02); box-shadow: 0 4px 16px rgba(0,212,255,0.3); }
+    #chat-send:active { transform: scale(0.98); }
+
+    /* SLIDERS */
+    .slider-group { margin-bottom: 20px; }
+    .slider-group label { display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 6px; }
+    .slider-group label span { color: var(--accent); font-weight: 600; }
+    .slider-group .desc { font-size: 0.75rem; color: var(--text-dim); margin-bottom: 4px; }
+    .slider-group .impact { font-size: 0.7rem; color: var(--purple); margin-top: 2px; }
+    input[type="range"] {
+      width: 100%; height: 6px; -webkit-appearance: none; appearance: none;
+      background: rgba(255,255,255,0.08); border-radius: 3px; outline: none;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none; appearance: none;
+      width: 18px; height: 18px; border-radius: 50%;
+      background: var(--accent); cursor: pointer;
+      box-shadow: 0 0 8px rgba(0,212,255,0.4);
+      transition: transform 0.1s;
+    }
+    input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.2); }
+
+    .presets { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 24px; }
+    .presets button {
+      background: var(--bg-card); border: 1px solid var(--border);
+      padding: 8px 16px; border-radius: 8px; color: var(--text);
+      font-family: var(--font); font-size: 0.8rem; cursor: pointer;
+      transition: all 0.2s;
+    }
+    .presets button:hover { border-color: var(--accent); color: var(--accent); }
+    .presets button.active { background: var(--accent-glow); border-color: var(--accent); color: var(--accent); }
+
+    /* MEMORY */
+    .search-bar {
+      display: flex; gap: 8px; margin-bottom: 20px;
+    }
+    .search-bar input {
+      flex: 1; background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px;
+      padding: 12px 16px; color: var(--text); font-family: var(--font); font-size: 0.9rem;
+      outline: none; transition: border 0.2s;
+    }
+    .search-bar input:focus { border-color: var(--accent); }
+    .search-bar button {
+      background: var(--accent-gradient); border: none;
+      padding: 12px 20px; border-radius: 12px; color: #0a0e17;
+      font-family: var(--font); font-weight: 600; cursor: pointer;
+      transition: transform 0.1s;
+    }
+    .search-bar button:hover { transform: scale(1.02); }
+
+    .memory-item {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 16px; margin-bottom: 10px;
+      transition: all 0.2s;
+    }
+    .memory-item:hover { background: var(--bg-card-hover); border-color: rgba(255,255,255,0.12); }
+    .memory-item .memory-text { font-size: 0.9rem; margin-bottom: 6px; }
+    .memory-item .memory-meta { font-size: 0.72rem; color: var(--text-dim); display: flex; gap: 12px; flex-wrap: wrap; }
+    .memory-item .memory-meta .score { color: var(--accent); font-weight: 600; }
+    .memory-item .memory-meta .scope { color: var(--purple); }
+
+    .moment-item {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 14px; margin-bottom: 8px;
+      transition: all 0.2s; border-left: 3px solid var(--accent);
+    }
+    .moment-item:hover { background: var(--bg-card-hover); }
+    .moment-item .moment-text { font-size: 0.85rem; margin-bottom: 4px; }
+    .moment-item .moment-time { font-size: 0.7rem; color: var(--text-dim); }
+
+    .intent-item {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 14px; margin-bottom: 8px;
+      transition: all 0.2s;
+    }
+    .intent-item:hover { background: var(--bg-card-hover); }
+    .intent-item .intent-goal { font-size: 0.9rem; font-weight: 500; margin-bottom: 4px; }
+    .intent-item .intent-status { font-size: 0.72rem; padding: 2px 8px; border-radius: 6px; display: inline-block; }
+    .intent-item .intent-status.active { background: var(--accent-glow); color: var(--accent); }
+    .intent-item .intent-status.completed { background: rgba(0,212,170,0.12); color: var(--green); }
+
+    /* IDENTITY */
+    .identity-section {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 24px; margin-bottom: 16px;
+    }
+    .identity-section h3 {
+      font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.1em;
+      color: var(--accent); margin-bottom: 16px; font-weight: 600;
+    }
+    .identity-row {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 10px 0; border-bottom: 1px solid var(--border);
+      font-size: 0.9rem;
+    }
+    .identity-row:last-child { border-bottom: none; }
+    .identity-row .label { color: var(--text-dim); font-size: 0.82rem; }
+    .identity-row .value { font-weight: 500; text-align: right; word-break: break-all; max-width: 60%; }
+    .identity-row .value.accent { color: var(--accent); }
+    .identity-row .value.purple { color: var(--purple); }
+
+    .passport-header {
+      text-align: center; padding: 24px 0 16px; border-bottom: 1px solid var(--border); margin-bottom: 16px;
+    }
+    .passport-header .passport-fly { font-size: 3rem; margin-bottom: 8px; }
+    .passport-header .passport-name { font-size: 1.5rem; font-weight: 700; color: var(--accent); }
+    .passport-header .passport-title { font-size: 0.85rem; color: var(--text-dim); margin-top: 4px; }
+
+    /* PROVIDERS */
+    .provider-card {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 20px; transition: all 0.2s;
+      position: relative;
+    }
+    .provider-card:hover { background: var(--bg-card-hover); }
+    .provider-card.active-provider { border-color: var(--accent); box-shadow: 0 0 12px var(--accent-glow); }
+    .provider-card .provider-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+    .provider-card .provider-name { font-weight: 600; font-size: 1rem; }
+    .provider-card .provider-type { font-size: 0.7rem; background: rgba(255,255,255,0.08); padding: 2px 8px; border-radius: 4px; color: var(--text-dim); }
+    .provider-card .provider-url { font-size: 0.75rem; color: var(--text-dim); margin-bottom: 8px; word-break: break-all; }
+    .provider-card .key-status { font-size: 0.8rem; margin-bottom: 8px; }
+    .provider-card .key-status.has-key { color: var(--accent); }
+    .provider-card .key-status.no-key { color: var(--danger); }
+    .provider-card .model-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 12px; }
+    .provider-card .model-chip {
+      font-size: 0.7rem; padding: 3px 10px; border-radius: 6px;
+      background: rgba(255,255,255,0.06); color: var(--text-dim);
+      cursor: pointer; border: 1px solid transparent; transition: all 0.2s;
+    }
+    .provider-card .model-chip:hover { border-color: var(--accent); color: var(--accent); }
+    .provider-card .model-chip.active { background: var(--accent-glow); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+    .provider-actions { display: flex; gap: 8px; margin-top: 8px; }
+    .provider-actions button {
+      background: var(--bg-card); border: 1px solid var(--border);
+      padding: 6px 14px; border-radius: 8px; color: var(--text-dim);
+      font-family: var(--font); font-size: 0.75rem; cursor: pointer; transition: all 0.2s;
+    }
+    .provider-actions button:hover { border-color: var(--accent); color: var(--accent); }
+    .provider-actions button.danger:hover { border-color: var(--danger); color: var(--danger); }
+
+    .key-input-row { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+    .key-input-row input, .key-input-row select {
+      flex: 1; min-width: 100px; background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 8px; padding: 8px 12px; color: var(--text);
+      font-family: monospace; font-size: 0.8rem; outline: none;
+    }
+    .key-input-row select { font-family: var(--font); min-width: 80px; flex: 0; }
+    .key-input-row input:focus { border-color: var(--accent); }
+    .key-input-row button {
+      background: var(--accent-gradient); border: none;
+      padding: 8px 16px; border-radius: 8px; color: #0a0e17;
+      font-family: var(--font); font-weight: 600; font-size: 0.8rem; cursor: pointer;
+    }
+
+    /* KEY LIST */
+    .key-list { margin-top: 8px; }
+    .key-item {
+      display: flex; align-items: center; gap: 8px; padding: 6px 0;
+      border-bottom: 1px solid var(--border); font-size: 0.8rem;
+    }
+    .key-item:last-child { border-bottom: none; }
+    .key-item .key-label { font-weight: 500; min-width: 80px; }
+    .key-item .key-value { color: var(--text-dim); font-family: monospace; font-size: 0.75rem; }
+    .key-item .key-type {
+      font-size: 0.65rem; padding: 1px 6px; border-radius: 4px;
+      background: rgba(255,255,255,0.06); color: var(--text-dim); text-transform: uppercase;
+    }
+    .key-item .key-type.oauth { background: var(--accent-glow); color: var(--accent); }
+    .key-item .key-active-badge {
+      font-size: 0.65rem; padding: 1px 6px; border-radius: 4px;
+      background: var(--accent-glow); color: var(--accent); font-weight: 600;
+    }
+    .key-item button {
+      background: none; border: none; color: var(--text-dim); cursor: pointer;
+      font-size: 0.75rem; padding: 2px 6px; border-radius: 4px; transition: all 0.2s;
+    }
+    .key-item button:hover { color: var(--accent); background: var(--accent-glow); }
+    .key-item button.delete:hover { color: var(--danger); background: rgba(255,107,107,0.1); }
+
+    /* NOTES */
+    .provider-notes { margin-top: 8px; }
+    .provider-notes textarea {
+      width: 100%; background: rgba(255,255,255,0.03); border: 1px solid var(--border);
+      border-radius: 8px; padding: 8px 12px; color: var(--text-dim);
+      font-family: var(--font); font-size: 0.8rem; outline: none;
+      resize: vertical; min-height: 36px; max-height: 120px;
+      transition: border 0.2s;
+    }
+    .provider-notes textarea:focus { border-color: var(--accent); color: var(--text); }
+    .provider-notes textarea::placeholder { color: rgba(255,255,255,0.15); }
+
+    .add-provider-form {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 20px; margin-bottom: 16px;
+    }
+    .add-provider-form .form-row { display: flex; gap: 8px; margin-bottom: 8px; }
+    .add-provider-form input, .add-provider-form select {
+      flex: 1; background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+      border-radius: 8px; padding: 8px 12px; color: var(--text);
+      font-family: var(--font); font-size: 0.85rem; outline: none;
+    }
+    .add-provider-form input:focus { border-color: var(--accent); }
+
+    .cost-estimate {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 16px; margin-top: 16px;
+      display: flex; align-items: center; gap: 12px;
+    }
+    .cost-estimate .label { font-size: 0.8rem; color: var(--text-dim); }
+    .cost-estimate .amount { font-size: 1.5rem; font-weight: 700; color: var(--accent); }
+
+    /* DISCOVERY & VALIDATION */
+    .provider-card .discovery-section {
+      margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border);
+    }
+    .provider-card .discovered-models {
+      display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px;
+    }
+    .provider-card .discovered-chip {
+      font-size: 0.65rem; padding: 2px 8px; border-radius: 5px;
+      background: rgba(96,165,250,0.1); color: var(--blue);
+      border: 1px solid transparent; cursor: pointer; transition: all 0.2s;
+      display: flex; align-items: center; gap: 4px;
+    }
+    .provider-card .discovered-chip:hover { border-color: var(--blue); }
+    .provider-card .discovered-chip.active { background: var(--accent-glow); border-color: var(--accent); color: var(--accent); }
+    .provider-card .discovered-chip .ctx { font-size: 0.58rem; color: var(--text-dim); }
+    .provider-card .discovered-chip .price { font-size: 0.55rem; color: var(--purple); }
+
+    .validation-badge {
+      display: inline-flex; align-items: center; gap: 4px;
+      font-size: 0.7rem; padding: 2px 8px; border-radius: 6px; font-weight: 500;
+    }
+    .validation-badge.valid { background: var(--accent-glow); color: var(--accent); }
+    .validation-badge.invalid { background: rgba(255,107,107,0.12); color: var(--danger); }
+    .validation-badge.checking { background: rgba(255,255,255,0.06); color: var(--text-dim); }
+
+    .discover-btn {
+      background: none; border: 1px solid var(--border); color: var(--blue);
+      padding: 3px 10px; border-radius: 5px; cursor: pointer;
+      font-family: var(--font); font-size: 0.68rem; transition: all 0.2s;
+    }
+    .discover-btn:hover { border-color: var(--blue); background: rgba(96,165,250,0.08); }
+    .discover-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .oauth-btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: linear-gradient(135deg, #a78bfa, #8b5cf6);
+      border: none; padding: 8px 18px; border-radius: 8px;
+      color: white; font-family: var(--font); font-weight: 600;
+      font-size: 0.8rem; cursor: pointer; transition: all 0.2s;
+    }
+    .oauth-btn:hover { transform: scale(1.02); box-shadow: 0 4px 16px rgba(167,139,250,0.3); }
+
+    .account-info {
+      display: flex; gap: 12px; margin-top: 6px; font-size: 0.72rem; color: var(--text-dim);
+    }
+    .account-info .info-item { display: flex; align-items: center; gap: 4px; }
+    .account-info .info-value { color: var(--accent); font-weight: 600; }
+
+    /* MACHINES / MISSION CONTROL */
+    .machine-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); }
+
+    .machine-card {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 20px; transition: all 0.2s;
+      cursor: pointer; position: relative;
+    }
+    .machine-card:hover { background: var(--bg-card-hover); border-color: rgba(255,255,255,0.12); }
+    .machine-card.online { border-left: 3px solid var(--accent); }
+    .machine-card.offline { border-left: 3px solid var(--danger); opacity: 0.7; }
+
+    .machine-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+    .machine-name { font-weight: 600; font-size: 1rem; }
+    .machine-status-badge {
+      font-size: 0.7rem; padding: 2px 10px; border-radius: 10px; font-weight: 600;
+    }
+    .machine-status-badge.online { background: var(--accent-glow); color: var(--accent); }
+    .machine-status-badge.offline { background: rgba(255,107,107,0.15); color: var(--danger); }
+
+    .machine-host { font-size: 0.8rem; color: var(--text-dim); margin-bottom: 8px; font-family: monospace; }
+
+    .machine-stats { display: flex; gap: 16px; margin-bottom: 10px; }
+    .machine-stat { font-size: 0.75rem; color: var(--text-dim); }
+    .machine-stat b { color: var(--text); font-weight: 600; }
+
+    .machine-services { display: flex; gap: 8px; margin-bottom: 10px; }
+    .service-dot {
+      font-size: 0.7rem; display: flex; align-items: center; gap: 4px; color: var(--text-dim);
+    }
+    .service-dot::before {
+      content: ''; width: 6px; height: 6px; border-radius: 50%;
+      background: var(--danger);
+    }
+    .service-dot.running::before { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+
+    .machine-tags { display: flex; gap: 4px; flex-wrap: wrap; }
+    .machine-tag {
+      font-size: 0.65rem; padding: 1px 8px; border-radius: 4px;
+      background: rgba(167,139,250,0.12); color: var(--purple);
+    }
+
+    .machine-actions { display: flex; gap: 6px; margin-top: 12px; flex-wrap: wrap; }
+    .machine-actions button {
+      background: var(--bg-card); border: 1px solid var(--border);
+      padding: 5px 12px; border-radius: 6px; color: var(--text-dim);
+      font-family: var(--font); font-size: 0.72rem; cursor: pointer; transition: all 0.2s;
+    }
+    .machine-actions button:hover { border-color: var(--accent); color: var(--accent); }
+    .machine-actions button.danger:hover { border-color: var(--danger); color: var(--danger); }
+
+    /* COCKPIT (expanded machine view) */
+    .cockpit {
+      display: none; position: fixed; inset: 0; z-index: 200;
+      background: var(--bg); overflow: hidden;
+    }
+    .cockpit.active { display: flex; flex-direction: column; }
+
+    .cockpit-header {
+      display: flex; align-items: center; gap: 12px; padding: 12px 20px;
+      border-bottom: 1px solid var(--border); background: rgba(10,14,23,0.95);
+      backdrop-filter: blur(16px);
+    }
+    .cockpit-header .back-btn {
+      background: none; border: 1px solid var(--border); color: var(--text-dim);
+      padding: 4px 12px; border-radius: 6px; cursor: pointer; font-family: var(--font);
+      font-size: 0.8rem; transition: all 0.2s;
+    }
+    .cockpit-header .back-btn:hover { color: var(--text); border-color: var(--text-dim); }
+    .cockpit-header .cockpit-title { font-weight: 600; font-size: 1rem; }
+    .cockpit-header .cockpit-status {
+      font-size: 0.75rem; padding: 2px 10px; border-radius: 10px;
+    }
+
+    .cockpit-tabs {
+      display: flex; gap: 0; border-bottom: 1px solid var(--border);
+      background: rgba(10,14,23,0.85);
+    }
+    .cockpit-tabs button {
+      background: none; border: none; border-bottom: 2px solid transparent;
+      color: var(--text-dim); padding: 10px 20px; cursor: pointer;
+      font-family: var(--font); font-size: 0.82rem; transition: all 0.2s;
+    }
+    .cockpit-tabs button:hover { color: var(--text); }
+    .cockpit-tabs button.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+    .cockpit-body { flex: 1; overflow: hidden; position: relative; }
+    .cockpit-panel { display: none; position: absolute; inset: 0; overflow-y: auto; padding: 20px; }
+    .cockpit-panel.active { display: block; }
+
+    /* Terminal panel */
+    .cockpit-panel.terminal-panel { padding: 0; }
+    .cockpit-panel.terminal-panel .xterm-container {
+      width: 100%; height: 100%; background: #0a0e17;
+    }
+
+    /* Logs panel */
+    .log-viewer {
+      background: #0c0f18; border: 1px solid var(--border); border-radius: 8px;
+      padding: 12px; font-family: 'Menlo', 'Consolas', monospace; font-size: 0.78rem;
+      line-height: 1.6; color: var(--text-dim); height: calc(100vh - 160px);
+      overflow-y: auto; white-space: pre-wrap; word-break: break-all;
+    }
+    .log-viewer .log-error { color: var(--danger); }
+    .log-viewer .log-warn { color: var(--warning); }
+    .log-viewer .log-info { color: var(--accent); }
+
+    /* Health panel */
+    .health-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+    .health-card {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 10px; padding: 16px; text-align: center;
+    }
+    .health-card h4 { font-size: 0.7rem; text-transform: uppercase; color: var(--text-dim); margin-bottom: 6px; letter-spacing: 0.05em; }
+    .health-card .health-value { font-size: 1.6rem; font-weight: 700; }
+
+    .meter-bar {
+      height: 8px; background: rgba(255,255,255,0.06); border-radius: 4px;
+      overflow: hidden; margin-top: 6px;
+    }
+    .meter-fill { height: 100%; border-radius: 4px; transition: width 0.6s ease; }
+
+    /* Add machine form */
+    .add-machine-form {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 20px; margin-bottom: 16px;
+    }
+    .add-machine-form .form-row { display: flex; gap: 8px; margin-bottom: 8px; }
+    .add-machine-form input {
+      flex: 1; background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+      border-radius: 8px; padding: 8px 12px; color: var(--text);
+      font-family: var(--font); font-size: 0.85rem; outline: none;
+    }
+    .add-machine-form input:focus { border-color: var(--accent); }
+
+    /* Bulk toolbar */
+    .bulk-toolbar {
+      display: flex; gap: 8px; align-items: center; margin-bottom: 16px;
+      padding: 10px 16px; background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 10px; flex-wrap: wrap;
+    }
+    .bulk-toolbar button {
+      background: none; border: 1px solid var(--border); color: var(--text-dim);
+      padding: 5px 14px; border-radius: 6px; cursor: pointer;
+      font-family: var(--font); font-size: 0.75rem; transition: all 0.2s;
+    }
+    .bulk-toolbar button:hover { border-color: var(--accent); color: var(--accent); }
+    .bulk-toolbar .toolbar-label { font-size: 0.8rem; color: var(--text-dim); margin-right: auto; }
+
+    /* SCROLLBAR */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+
+    /* LOADING */
+    .loading { text-align: center; padding: 48px; color: var(--text-dim); }
+    .spinner { display: inline-block; width: 24px; height: 24px; border: 2px solid var(--border); border-top: 2px solid var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* RESPONSIVE */
+    @media (max-width: 640px) {
+      nav { padding: 10px 12px; gap: 4px; }
+      nav .logo { margin-right: 8px; font-size: 1.1rem; }
+      nav button { padding: 5px 10px; font-size: 0.78rem; }
+      .page { padding: 16px; }
+      .grid-4 { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+      .grid-3 { grid-template-columns: 1fr; }
+      .grid-2 { grid-template-columns: 1fr; }
+      .machine-grid { grid-template-columns: 1fr; }
+      .msg { max-width: 90%; }
+      .identity-row { flex-direction: column; gap: 4px; align-items: flex-start; }
+      .identity-row .value { max-width: 100%; text-align: left; }
+    }
+  </style>
+</head>
+<body>
+
+<nav>
+  <div class="logo">🪰 <span>Windy Fly</span></div>
+  <button class="active" onclick="showPage('home')" id="nav-home">Home</button>
+  <button onclick="showPage('personality')" id="nav-personality">Personality</button>
+  <button onclick="showPage('memory')" id="nav-memory">Memory</button>
+  <button onclick="showPage('chat')" id="nav-chat">Chat</button>
+  <button onclick="showPage('identity')" id="nav-identity">Identity</button>
+  <button onclick="showPage('providers')" id="nav-providers">Providers</button>
+  <button onclick="showPage('machines')" id="nav-machines">Machines</button>
+  <button onclick="showPage('vps')" id="nav-vps">VPS</button>
+  <div class="status">
+    <div class="dot" id="status-dot"></div>
+    <span id="status-text">Connecting...</span>
+  </div>
+</nav>
+
+<!-- ========== HOME ========== -->
+<div class="page active" id="page-home">
+  <h2>Agent Status</h2>
+  <div class="grid grid-4" id="home-status-cards">
+    <div class="loading"><div class="spinner"></div></div>
+  </div>
+
+  <h2>Cost Overview</h2>
+  <div class="grid grid-3" id="home-cost-cards">
+    <div class="loading"><div class="spinner"></div></div>
+  </div>
+
+  <h2>Quick Stats</h2>
+  <div class="grid grid-4" id="home-quick-stats"></div>
+
+  <h2>Skills</h2>
+  <div class="grid grid-2" id="home-skill-cards"></div>
+
+  <h2>Active Goals</h2>
+  <div class="grid grid-3" id="home-intent-cards"></div>
+
+  <h2>Personality Snapshot</h2>
+  <div class="card" id="home-personality-card"></div>
+</div>
+
+<!-- ========== PERSONALITY ========== -->
+<div class="page" id="page-personality">
+  <h2>Presets</h2>
+  <div class="presets" id="preset-buttons"></div>
+
+  <h2>Personality Sliders</h2>
+  <p style="font-size:0.8rem;color:var(--text-dim);margin-bottom:16px;">Adjust how your agent thinks and responds. Each slider goes from 0 (minimum) to 10 (maximum).</p>
+  <div id="slider-list"></div>
+
+  <div class="cost-estimate">
+    <div class="label">Estimated Monthly Cost</div>
+    <div class="amount" id="cost-amount">$0.00</div>
+  </div>
+</div>
+
+<!-- ========== MEMORY ========== -->
+<div class="page" id="page-memory">
+  <h2>Search Memories</h2>
+  <div class="search-bar">
+    <input type="text" id="memory-search-input" placeholder="Search for anything your agent remembers..." autocomplete="off">
+    <button onclick="searchMemory()">Search</button>
+  </div>
+  <div id="memory-results"></div>
+
+  <h2>Recent Moments</h2>
+  <div id="memory-moments">
+    <div class="loading"><div class="spinner"></div></div>
+  </div>
+
+  <h2>Active Goals</h2>
+  <div id="memory-intents">
+    <div class="loading"><div class="spinner"></div></div>
+  </div>
+</div>
+
+<!-- ========== CHAT ========== -->
+<div class="page" id="page-chat">
+  <div id="chat-box">
+    <div id="chat-messages">
+      <div class="msg system">Connected to Windy Fly. Start chatting below.</div>
+    </div>
+    <div id="chat-input-bar">
+      <input type="text" id="chat-input" placeholder="Type a message..." autocomplete="off">
+      <button id="chat-send" onclick="sendMessage()">Send</button>
+    </div>
+  </div>
+</div>
+
+<!-- ========== IDENTITY ========== -->
+<div class="page" id="page-identity">
+  <div class="identity-section">
+    <div class="passport-header">
+      <div class="passport-fly">🪰</div>
+      <div class="passport-name" id="identity-name">Windy Fly</div>
+      <div class="passport-title" id="identity-title">AI Agent</div>
+    </div>
+    <h3>Eternitas Passport</h3>
+    <div id="identity-passport-rows">
+      <div class="loading"><div class="spinner"></div></div>
+    </div>
+  </div>
+
+  <div class="identity-section">
+    <h3>Birth Certificate</h3>
+    <div id="identity-birth-rows"></div>
+  </div>
+
+  <div class="identity-section">
+    <h3>Contact Information</h3>
+    <div id="identity-contact-rows"></div>
+  </div>
+</div>
+
+<!-- ========== PROVIDERS ========== -->
+<div class="page" id="page-providers">
+  <!-- Provider toolbar -->
+  <div class="bulk-toolbar" style="margin-bottom:16px;">
+    <span class="toolbar-label">Provider Tools</span>
+    <button onclick="discoverAllModels()" id="discover-all-btn">Discover All Models</button>
+    <button onclick="startOpenRouterOAuth()" style="background:rgba(167,139,250,0.1);border-color:var(--purple);color:var(--purple);">Connect with OpenRouter</button>
+    <button onclick="syncAllProviders()">Push to Fleet</button>
+  </div>
+
+  <!-- OAuth status banner (hidden by default) -->
+  <div id="oauth-banner" style="display:none;padding:12px 20px;border-radius:10px;margin-bottom:16px;font-size:0.85rem;"></div>
+
+  <h2>Active Engine</h2>
+  <div class="card" id="active-engine-card">
+    <div class="loading"><div class="spinner"></div></div>
+  </div>
+
+  <h2>All Providers</h2>
+  <div class="grid grid-2" id="provider-list">
+    <div class="loading"><div class="spinner"></div></div>
+  </div>
+
+  <h2 style="display:flex;align-items:center;gap:12px;">
+    Add Custom Provider
+    <button onclick="toggleAddForm()" style="background:var(--bg-card);border:1px solid var(--border);padding:4px 12px;border-radius:6px;color:var(--accent);font-family:var(--font);font-size:0.75rem;cursor:pointer;" id="add-form-toggle">Show</button>
+  </h2>
+  <div class="add-provider-form" id="add-provider-form" style="display:none;">
+    <div class="form-row">
+      <input type="text" id="new-provider-key" placeholder="Provider key (e.g. lambda)">
+      <input type="text" id="new-provider-name" placeholder="Display name (e.g. Lambda Labs)">
+    </div>
+    <div class="form-row">
+      <input type="text" id="new-provider-url" placeholder="Base URL (e.g. https://api.lambdalabs.com/v1)">
+      <input type="text" id="new-provider-env" placeholder="API key env var (e.g. LAMBDA_API_KEY)">
+    </div>
+    <div class="form-row">
+      <input type="text" id="new-provider-models" placeholder="Models (comma-separated, e.g. llama-3-70b)">
+      <button style="background:var(--accent-gradient);border:none;padding:8px 20px;border-radius:8px;color:#0a0e17;font-family:var(--font);font-weight:600;cursor:pointer;" onclick="addProvider()">Add Provider</button>
+    </div>
+  </div>
+</div>
+
+<!-- ========== MACHINES / MISSION CONTROL ========== -->
+<div class="page" id="page-machines">
+  <h2 style="display:flex;align-items:center;gap:12px;">
+    Mission Control
+    <span style="font-size:0.7rem;color:var(--text-dim);font-weight:400;">Remote agent fleet management</span>
+  </h2>
+
+  <div class="bulk-toolbar" id="bulk-toolbar">
+    <span class="toolbar-label">Fleet Actions</span>
+    <button onclick="syncAllProviders()">Sync Providers to All</button>
+    <button onclick="refreshAllMachines()">Refresh All</button>
+    <button onclick="toggleAddMachineForm()">+ Add Machine</button>
+  </div>
+
+  <div class="add-machine-form" id="add-machine-form" style="display:none;">
+    <div class="form-row">
+      <input type="text" id="new-machine-name" placeholder="Machine name (e.g. Home Server)">
+      <input type="text" id="new-machine-host" placeholder="Host (e.g. 192.168.1.50 or myserver.com)">
+    </div>
+    <div class="form-row">
+      <input type="number" id="new-machine-port" placeholder="Port (default: 3100)" value="3100">
+      <input type="password" id="new-machine-token" placeholder="Auth token (optional)">
+    </div>
+    <div class="form-row">
+      <input type="text" id="new-machine-tags" placeholder="Tags (comma-separated, e.g. production, gpu)">
+      <button style="background:var(--accent-gradient);border:none;padding:8px 20px;border-radius:8px;color:#0a0e17;font-family:var(--font);font-weight:600;cursor:pointer;" onclick="addMachine()">Add Machine</button>
+    </div>
+  </div>
+
+  <div class="machine-grid" id="machine-grid">
+    <div class="loading"><div class="spinner"></div></div>
+  </div>
+
+  <div id="no-machines" style="display:none;text-align:center;padding:60px 20px;">
+    <div style="font-size:2.5rem;margin-bottom:12px;">&#x1F5A5;&#xFE0F;</div>
+    <div style="font-size:1rem;color:var(--text-dim);margin-bottom:8px;">No machines registered yet</div>
+    <div style="font-size:0.8rem;color:var(--text-dim);max-width:400px;margin:0 auto;">
+      Add a remote machine running the <code style="color:var(--accent);">windy-remote</code> daemon to manage it from here.
+      Install on any machine with: <code style="color:var(--accent);display:block;margin-top:8px;">cd remote && bun install && WINDY_REMOTE_TOKEN=your-secret bun run start</code>
+    </div>
+  </div>
+</div>
+
+<!-- ========== COCKPIT (fullscreen machine view) ========== -->
+<div class="cockpit" id="cockpit">
+  <div class="cockpit-header">
+    <button class="back-btn" onclick="closeCockpit()">&#8592; Back</button>
+    <span class="cockpit-title" id="cockpit-title">Machine</span>
+    <span class="cockpit-status" id="cockpit-status"></span>
+    <div style="margin-left:auto;display:flex;gap:6px;">
+      <button class="back-btn" onclick="cockpitRestartGateway()">Restart Gateway</button>
+      <button class="back-btn" onclick="cockpitRestartBrain()">Restart Brain</button>
+    </div>
+  </div>
+  <div class="cockpit-tabs">
+    <button class="active" onclick="showCockpitTab('terminal')">Terminal</button>
+    <button onclick="showCockpitTab('logs')">Logs</button>
+    <button onclick="showCockpitTab('health')">Health</button>
+    <button onclick="showCockpitTab('settings')">Settings</button>
+  </div>
+  <div class="cockpit-body">
+    <div class="cockpit-panel terminal-panel active" id="cockpit-terminal">
+      <div class="xterm-container" id="xterm-container"></div>
+    </div>
+    <div class="cockpit-panel" id="cockpit-logs">
+      <div style="display:flex;gap:8px;margin-bottom:12px;">
+        <button onclick="subscribeLogs('gateway.log')" style="background:var(--bg-card);border:1px solid var(--border);padding:4px 12px;border-radius:6px;color:var(--text-dim);cursor:pointer;font-family:var(--font);font-size:0.75rem;">Gateway Logs</button>
+        <button onclick="subscribeLogs('brain.log')" style="background:var(--bg-card);border:1px solid var(--border);padding:4px 12px;border-radius:6px;color:var(--text-dim);cursor:pointer;font-family:var(--font);font-size:0.75rem;">Brain Logs</button>
+      </div>
+      <div class="log-viewer" id="log-viewer">Waiting for log stream...</div>
+    </div>
+    <div class="cockpit-panel" id="cockpit-health">
+      <div class="health-grid" id="health-grid">
+        <div class="loading"><div class="spinner"></div></div>
+      </div>
+    </div>
+    <div class="cockpit-panel" id="cockpit-settings">
+      <h2>Machine Configuration</h2>
+      <div id="cockpit-settings-content"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ========== VPS ========== -->
+<div class="page" id="page-vps">
+  <h2>Cloud VPS</h2>
+  <div id="vps-content">
+    <div class="card" id="vps-status-card">
+      <div class="card-label">Instance Status</div>
+      <div id="vps-status-body" style="padding:16px;">
+        <p style="color:var(--text-dim);">Checking VPS status...</p>
+      </div>
+    </div>
+    <div class="grid grid-3" id="vps-info-cards" style="margin-top:20px;display:none;">
+      <div class="card"><div class="card-label">IP Address</div><div class="card-value" id="vps-ip">—</div></div>
+      <div class="card"><div class="card-label">Region</div><div class="card-value" id="vps-region">—</div></div>
+      <div class="card"><div class="card-label">Monthly Cost</div><div class="card-value" id="vps-cost">—</div></div>
+    </div>
+    <div style="margin-top:20px;display:flex;gap:12px;" id="vps-actions">
+      <button onclick="deployVPS()" id="vps-deploy-btn" style="padding:10px 24px;background:var(--accent);color:#000;border:none;border-radius:8px;cursor:pointer;font-weight:600;">Deploy to VPS</button>
+      <button onclick="stopVPS()" id="vps-stop-btn" style="padding:10px 24px;background:#444;color:#fff;border:none;border-radius:8px;cursor:pointer;display:none;">Stop</button>
+      <button onclick="destroyVPS()" id="vps-destroy-btn" style="padding:10px 24px;background:#c0392b;color:#fff;border:none;border-radius:8px;cursor:pointer;display:none;">Destroy</button>
+    </div>
+    <div class="card" style="margin-top:20px;">
+      <div class="card-label">Cloud Backup</div>
+      <div style="padding:16px;">
+        <p>Last backup: <span id="vps-last-backup" style="color:var(--text-dim);">checking...</span></p>
+        <button onclick="runBackup()" style="margin-top:8px;padding:8px 16px;background:var(--accent);color:#000;border:none;border-radius:6px;cursor:pointer;">Backup Now</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- xterm.js from CDN -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
+<script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-web-links@0.11.0/lib/addon-web-links.min.js"></script>
+
+<script>
+const API = window.location.origin;
+const WS_URL = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/chat`;
+let ws = null;
+let sessionId = crypto.randomUUID();
+
+// Cached dashboard data for cross-page use
+let dashboardCache = null;
+
+// ===== NAV =====
+function showPage(name) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+  const page = document.getElementById(`page-${name}`);
+  const btn = document.getElementById(`nav-${name}`);
+  if (page) page.classList.add('active');
+  if (btn) btn.classList.add('active');
+  if (name === 'home') loadHome();
+  if (name === 'personality') loadSliders();
+  if (name === 'memory') loadMemoryPage();
+  if (name === 'identity') loadIdentity();
+  if (name === 'providers') loadProviders();
+  if (name === 'machines') loadMachines();
+  if (name === 'vps') loadVPS();
+}
+
+// ===== VPS =====
+async function loadVPS() {
+  try {
+    // Check local VPS state via dashboard data
+    const r = await fetch('/api/dashboard');
+    const data = r.ok ? await r.json() : {};
+    const vps = data.vps || null;
+    const body = document.getElementById('vps-status-body');
+    const cards = document.getElementById('vps-info-cards');
+    const deployBtn = document.getElementById('vps-deploy-btn');
+    const stopBtn = document.getElementById('vps-stop-btn');
+    const destroyBtn = document.getElementById('vps-destroy-btn');
+    if (vps && vps.status && vps.status !== 'none' && vps.status !== 'terminated') {
+      const icon = vps.status === 'running' ? '\u2705' : vps.status === 'stopped' ? '\u23f8\ufe0f' : '\U0001f504';
+      body.innerHTML = `<p style="font-size:1.2rem;">${icon} <strong>${vps.status}</strong></p>
+        <p style="color:var(--text-dim);margin-top:4px;">Instance: ${vps.instance_id || '—'}</p>
+        <p style="color:var(--text-dim);">Dashboard: <a href="${vps.dashboard_url || '#'}" target="_blank" style="color:var(--accent);">${vps.dashboard_url || '—'}</a></p>
+        <p style="color:var(--text-dim);">SSH: ssh ${vps.ssh_user || 'ubuntu'}@${vps.ip_address || '—'}</p>`;
+      document.getElementById('vps-ip').textContent = vps.ip_address || '—';
+      document.getElementById('vps-region').textContent = vps.region || '—';
+      document.getElementById('vps-cost').textContent = vps.monthly_cost_usd ? `$${vps.monthly_cost_usd}/mo` : '—';
+      cards.style.display = '';
+      deployBtn.style.display = 'none';
+      stopBtn.style.display = vps.status === 'running' ? '' : 'none';
+      destroyBtn.style.display = '';
+    } else {
+      body.innerHTML = '<p style="color:var(--text-dim);">No VPS deployed. Deploy your agent to the cloud for 24/7 availability.</p>';
+      cards.style.display = 'none';
+      deployBtn.style.display = '';
+      stopBtn.style.display = 'none';
+      destroyBtn.style.display = 'none';
+    }
+    // Backup status
+    const backupEl = document.getElementById('vps-last-backup');
+    const backup = data.backup || {};
+    backupEl.textContent = backup.last_backup || 'never';
+  } catch { /* offline */ }
+}
+async function deployVPS() {
+  if (!confirm('Deploy agent to a cloud VPS? This will create an AWS EC2 instance.')) return;
+  const btn = document.getElementById('vps-deploy-btn');
+  btn.textContent = 'Deploying...'; btn.disabled = true;
+  // VPS deploy would call a gateway endpoint — for now show message
+  alert('VPS deployment requires the Windy Cloud service. Use CLI: windy deploy --vps');
+  btn.textContent = 'Deploy to VPS'; btn.disabled = false;
+}
+async function stopVPS() { alert('Use CLI: windy vps stop'); }
+async function destroyVPS() { if (confirm('Destroy VPS? This is irreversible.')) alert('Use CLI: windy vps destroy'); }
+async function runBackup() {
+  const btn = event.target; btn.textContent = 'Backing up...'; btn.disabled = true;
+  alert('Cloud backup requires the Windy Cloud service. Use CLI: windy backup now');
+  btn.textContent = 'Backup Now'; btn.disabled = false;
+}
+
+// ===== HEALTH =====
+async function checkHealth() {
+  try {
+    const r = await fetch('/api/health');
+    const d = await r.json();
+    const dot = document.getElementById('status-dot');
+    const txt = document.getElementById('status-text');
+    if (d.brain_connected) {
+      dot.classList.add('connected');
+      txt.textContent = 'Online';
+    } else {
+      dot.classList.remove('connected');
+      txt.textContent = 'Brain offline';
+    }
+  } catch {
+    document.getElementById('status-dot').classList.remove('connected');
+    document.getElementById('status-text').textContent = 'Disconnected';
+  }
+}
+
+// ===== HOME =====
+async function loadHome() {
+  try {
+    // Fetch dashboard, daily cost, and monthly cost in parallel
+    const [dashRes, dailyRes, monthlyRes] = await Promise.allSettled([
+      fetch('/api/dashboard').then(r => r.json()),
+      fetch('/api/cost/daily').then(r => r.json()),
+      fetch('/api/cost/monthly').then(r => r.json()),
+    ]);
+
+    const raw = dashRes.status === 'fulfilled' ? dashRes.value : {};
+    const d = raw.dashboard || raw || {};
+    dashboardCache = d;
+
+    const daily = dailyRes.status === 'fulfilled' ? dailyRes.value : {};
+    const monthly = monthlyRes.status === 'fulfilled' ? monthlyRes.value : {};
+
+    // Safe defaults
+    const mem = d.memory || { total_nodes: 0, total_episodes: 0, by_scope: {} };
+    const costs = d.costs || { today_usd: 0, this_week_usd: 0, this_month_usd: 0 };
+    const fails = d.failures || { unresolved: 0, resolved: 0, improvement_rate: 1 };
+    const skills = d.skills || { total: 0, promoted: 0, top_5_by_usage: [] };
+    const intents = d.intents || { active: 0, completed: 0, abandoned: 0 };
+    const personality = d.personality || { sliders: {}, preset: 'unknown', estimated_monthly_cost: 0 };
+
+    const dailySpend = daily.daily_spend || costs.today_usd || 0;
+    const monthlyTotal = monthly.total_usd || costs.this_month_usd || 0;
+
+    // Determine agent name and brain provider from dashboard data
+    const agentName = d.agent_name || d.name || 'Windy Fly';
+    const brainProvider = d.brain_provider || d.provider || 'Unknown';
+    const brainConnected = d.brain_connected !== undefined ? d.brain_connected : true;
+    const uptime = d.uptime || d.uptime_seconds || null;
+    const uptimeStr = uptime ? formatUptime(uptime) : '--';
+
+    // Status cards
+    document.getElementById('home-status-cards').innerHTML = `
+      <div class="card accent">
+        <h3>Agent</h3>
+        <div class="value" style="font-size:1.4rem;">${agentName}</div>
+        <div class="sub">${brainConnected ? '<span style="color:var(--accent)">Online</span>' : '<span style="color:var(--danger)">Offline</span>'}</div>
+      </div>
+      <div class="card blue">
+        <h3>Brain Provider</h3>
+        <div class="value" style="font-size:1.2rem;">${brainProvider}</div>
+        <div class="sub">AI engine</div>
+      </div>
+      <div class="card accent">
+        <h3>Cost Today</h3>
+        <div class="value">$${Number(dailySpend).toFixed(4)}</div>
+        <div class="sub">Monthly: $${Number(monthlyTotal).toFixed(2)}</div>
+      </div>
+      <div class="card purple">
+        <h3>Uptime</h3>
+        <div class="value" style="font-size:1.4rem;">${uptimeStr}</div>
+        <div class="sub">Since last restart</div>
+      </div>
+    `;
+
+    // Cost breakdown
+    const byModel = monthly.by_model || {};
+    const modelRows = Object.entries(byModel).map(([model, usd]) =>
+      `<div class="card"><h3>${model}</h3><div class="value" style="font-size:1.2rem;color:var(--accent)">$${Number(usd).toFixed(4)}</div></div>`
+    ).join('');
+
+    document.getElementById('home-cost-cards').innerHTML = `
+      <div class="card accent"><h3>Today</h3><div class="value">$${Number(dailySpend).toFixed(4)}</div></div>
+      <div class="card blue"><h3>This Month</h3><div class="value">$${Number(monthlyTotal).toFixed(2)}</div><div class="sub">${monthly.month || ''}</div></div>
+      <div class="card purple"><h3>This Week</h3><div class="value">$${Number(costs.this_week_usd).toFixed(4)}</div></div>
+      ${modelRows}
+    `;
+
+    // Quick stats
+    const impRate = (fails.improvement_rate * 100).toFixed(0);
+    document.getElementById('home-quick-stats').innerHTML = `
+      <div class="card accent"><h3>Memory Nodes</h3><div class="value">${mem.total_nodes}</div><div class="sub">${Object.keys(mem.by_scope || {}).length} scopes</div></div>
+      <div class="card blue"><h3>Episodes</h3><div class="value">${mem.total_episodes}</div></div>
+      <div class="card ${fails.unresolved > 0 ? 'warning' : 'green'}"><h3>Issues</h3><div class="value">${fails.unresolved}</div><div class="sub">${fails.resolved} resolved (${impRate}%)</div></div>
+      <div class="card purple"><h3>Active Goals</h3><div class="value">${intents.active}</div><div class="sub">${intents.completed} completed</div></div>
+    `;
+
+    // Skills
+    const topSkills = (skills.top_5_by_usage || []).map(s =>
+      `<tr><td>${s.name}</td><td>${s.usage_count}</td><td>${(s.success_rate*100).toFixed(0)}%</td></tr>`
+    ).join('') || '<tr><td colspan="3" style="color:var(--text-dim)">No promoted skills yet</td></tr>';
+    document.getElementById('home-skill-cards').innerHTML = `
+      <div class="card"><h3>Top Skills</h3><table><tr><th>Name</th><th>Uses</th><th>Success</th></tr>${topSkills}</table></div>
+      <div class="card accent"><h3>Promoted</h3><div class="value">${skills.promoted}<span style="font-size:0.8rem;color:var(--text-dim)"> / ${skills.total}</span></div>
+        <div class="progress"><div class="progress-fill cyan" style="width:${skills.total?((skills.promoted/skills.total)*100):0}%"></div></div></div>
+    `;
+
+    // Intents
+    document.getElementById('home-intent-cards').innerHTML = `
+      <div class="card accent"><h3>Active</h3><div class="value">${intents.active}</div></div>
+      <div class="card blue"><h3>Completed</h3><div class="value">${intents.completed}</div></div>
+      <div class="card"><h3>Abandoned</h3><div class="value">${intents.abandoned}</div></div>
+    `;
+
+    // Personality snapshot
+    const sliderHtml = Object.entries(personality.sliders || {}).map(([k, v]) =>
+      `<span style="display:inline-block;margin:2px 6px;font-size:0.8rem;color:var(--text-dim)">${k}: <b style="color:var(--accent)">${v}</b></span>`
+    ).join('') || '<span style="color:var(--text-dim)">Brain offline -- connect to see personality</span>';
+    document.getElementById('home-personality-card').innerHTML = `
+      <h3>Current Preset: <span style="color:var(--accent);text-transform:capitalize">${personality.preset}</span></h3>
+      <div style="margin:8px 0">${sliderHtml}</div>
+      <div class="sub">Est. monthly: $${(personality.estimated_monthly_cost || 0).toFixed(2)}</div>
+    `;
+  } catch (e) {
+    document.getElementById('home-status-cards').innerHTML = `<div class="card"><h3>Error</h3><div class="sub">${e.message}</div></div>`;
+  }
+}
+
+// ===== CHAT =====
+function connectWS() {
+  ws = new WebSocket(WS_URL);
+  ws.onmessage = (e) => {
+    const data = JSON.parse(e.data);
+    if (data.type === 'response') addMsg('assistant', data.content || data.response);
+    else if (data.response) addMsg('assistant', data.response);
+    else if (data.type === 'error') addMsg('system', `Error: ${data.error}`);
+  };
+  ws.onclose = () => setTimeout(connectWS, 2000);
+  ws.onerror = () => {};
+}
+
+function formatTime(date) {
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function addMsg(role, text) {
+  const el = document.createElement('div');
+  el.className = `msg ${role}`;
+  const textSpan = document.createElement('span');
+  textSpan.textContent = text;
+  el.appendChild(textSpan);
+  if (role !== 'system') {
+    const ts = document.createElement('span');
+    ts.className = 'timestamp';
+    ts.textContent = formatTime(new Date());
+    el.appendChild(ts);
+  }
+  document.getElementById('chat-messages').appendChild(el);
+  el.scrollIntoView({ behavior: 'smooth' });
+}
+
+function sendMessage() {
+  const input = document.getElementById('chat-input');
+  const text = input.value.trim();
+  if (!text || !ws || ws.readyState !== 1) return;
+  addMsg('user', text);
+  ws.send(JSON.stringify({ type: 'message', message: text, content: text, session_id: sessionId }));
+  input.value = '';
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && document.getElementById('page-chat').classList.contains('active')) sendMessage();
+  if (e.key === 'Enter' && document.getElementById('page-memory').classList.contains('active')) {
+    const input = document.getElementById('memory-search-input');
+    if (document.activeElement === input) searchMemory();
+  }
+});
+
+// ===== PERSONALITY (SLIDERS) =====
+let sliderInfo = {};
+async function loadSliders() {
+  try {
+    const valR = await fetch('/api/sliders');
+    const valData = await valR.json();
+    const sliders = valData.sliders || {};
+
+    let info = {};
+    try {
+      const infoR = await fetch('/api/sliders/info');
+      const infoData = await infoR.json();
+      info = infoData.sliders || infoData.info || {};
+    } catch {}
+    sliderInfo = info;
+
+    const list = document.getElementById('slider-list');
+    list.innerHTML = '';
+    for (const [name, value] of Object.entries(sliders)) {
+      const meta = info[name] || {};
+      const div = document.createElement('div');
+      div.className = 'slider-group';
+      div.innerHTML = `
+        <label><span>${meta.label || name}</span> <span id="val-${name}">${value}</span></label>
+        ${meta.description ? `<div class="desc">${meta.description}</div>` : ''}
+        <input type="range" min="0" max="10" value="${value}" data-name="${name}"
+               oninput="updateSlider('${name}', this.value)">
+        ${meta.impact_low && meta.impact_high ? `<div class="impact">0 = ${meta.impact_low} &middot; 10 = ${meta.impact_high}</div>` : ''}
+      `;
+      list.appendChild(div);
+    }
+
+    // Presets
+    const presets = ['buddy', 'engineer', 'powerhouse', 'coder', 'friend', 'writer', 'researcher', 'silent'];
+    document.getElementById('preset-buttons').innerHTML = presets.map(p =>
+      `<button onclick="applyPreset('${p}')">${p}</button>`
+    ).join('');
+
+  } catch (e) {
+    document.getElementById('slider-list').innerHTML = `<div class="card"><div class="sub">Failed to load: ${e.message}</div></div>`;
+  }
+}
+
+async function updateSlider(name, value) {
+  document.getElementById(`val-${name}`).textContent = value;
+  try {
+    await fetch(`/api/sliders/${name}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value: parseInt(value) }),
+    });
+  } catch {}
+}
+
+async function applyPreset(name) {
+  try {
+    document.querySelectorAll('.presets button').forEach(b => b.classList.remove('active'));
+    event.target.classList.add('active');
+  } catch {}
+}
+
+// ===== MEMORY =====
+async function loadMemoryPage() {
+  loadMoments();
+  loadIntents();
+}
+
+async function searchMemory() {
+  const q = document.getElementById('memory-search-input').value.trim();
+  if (!q) return;
+  const resultsDiv = document.getElementById('memory-results');
+  resultsDiv.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+
+  try {
+    const r = await fetch(`/api/memory/search?q=${encodeURIComponent(q)}&limit=10`);
+    const data = await r.json();
+    const results = data.results || [];
+
+    if (results.length === 0) {
+      resultsDiv.innerHTML = '<div style="color:var(--text-dim);padding:20px;text-align:center;">No memories found. Try a different search.</div>';
+      return;
+    }
+
+    resultsDiv.innerHTML = results.map(item => {
+      const text = item.text || item.content || item.summary || JSON.stringify(item);
+      const score = item.score || item.similarity || item.relevance;
+      const scope = item.scope || item.type || '';
+      const ts = item.timestamp || item.created_at || '';
+
+      return `<div class="memory-item">
+        <div class="memory-text">${escapeHtml(typeof text === 'string' ? text : JSON.stringify(text))}</div>
+        <div class="memory-meta">
+          ${score !== undefined ? `<span>Relevance: <span class="score">${(Number(score) * 100).toFixed(0)}%</span></span>` : ''}
+          ${scope ? `<span>Type: <span class="scope">${scope}</span></span>` : ''}
+          ${ts ? `<span>${new Date(ts).toLocaleString()}</span>` : ''}
+        </div>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    resultsDiv.innerHTML = `<div style="color:var(--danger);padding:20px;">Search failed: ${e.message}</div>`;
+  }
+}
+
+async function loadMoments() {
+  const container = document.getElementById('memory-moments');
+  try {
+    const r = await fetch('/api/moments?limit=20');
+    const data = await r.json();
+    const moments = data.moments || data.results || data || [];
+
+    if (!Array.isArray(moments) || moments.length === 0) {
+      container.innerHTML = '<div style="color:var(--text-dim);padding:16px;">No relationship moments recorded yet.</div>';
+      return;
+    }
+
+    container.innerHTML = moments.map(m => {
+      const text = m.text || m.description || m.summary || m.content || JSON.stringify(m);
+      const ts = m.timestamp || m.created_at || '';
+      return `<div class="moment-item">
+        <div class="moment-text">${escapeHtml(typeof text === 'string' ? text : JSON.stringify(text))}</div>
+        ${ts ? `<div class="moment-time">${new Date(ts).toLocaleString()}</div>` : ''}
+      </div>`;
+    }).join('');
+  } catch (e) {
+    container.innerHTML = `<div style="color:var(--text-dim);padding:16px;">Could not load moments: ${e.message}</div>`;
+  }
+}
+
+async function loadIntents() {
+  const container = document.getElementById('memory-intents');
+  try {
+    const r = await fetch('/api/intents');
+    const data = await r.json();
+    const intents = data.intents || data.results || data || [];
+
+    if (!Array.isArray(intents) || intents.length === 0) {
+      container.innerHTML = '<div style="color:var(--text-dim);padding:16px;">No active goals right now.</div>';
+      return;
+    }
+
+    container.innerHTML = intents.map(i => {
+      const goal = i.goal || i.description || i.name || i.text || JSON.stringify(i);
+      const status = i.status || 'active';
+      return `<div class="intent-item">
+        <div class="intent-goal">${escapeHtml(typeof goal === 'string' ? goal : JSON.stringify(goal))}</div>
+        <span class="intent-status ${status}">${status}</span>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    container.innerHTML = `<div style="color:var(--text-dim);padding:16px;">Could not load goals: ${e.message}</div>`;
+  }
+}
+
+function escapeHtml(str) {
+  const d = document.createElement('div');
+  d.textContent = str;
+  return d.innerHTML;
+}
+
+// ===== IDENTITY =====
+async function loadIdentity() {
+  try {
+    // Try to use cached dashboard data, or fetch fresh
+    let d = dashboardCache;
+    if (!d) {
+      const r = await fetch('/api/dashboard');
+      const raw = await r.json();
+      d = raw.dashboard || raw || {};
+      dashboardCache = d;
+    }
+
+    const identity = d.identity || d;
+    const passport = identity.passport || identity;
+    const birth = identity.birth_certificate || identity.birth || {};
+    const contact = identity.contact || {};
+
+    // Set name and title
+    const name = passport.name || identity.agent_name || d.agent_name || d.name || 'Windy Fly';
+    document.getElementById('identity-name').textContent = name;
+    document.getElementById('identity-title').textContent = passport.title || identity.role || 'AI Agent';
+
+    // Passport rows
+    const passportId = passport.passport_id || passport.id || identity.passport_id || 'Not assigned';
+    const email = passport.email || contact.email || identity.email || d.email || '--';
+    const phone = passport.phone || contact.phone || identity.phone || d.phone || '--';
+    const createdAt = passport.created_at || identity.created_at || d.created_at || '';
+
+    document.getElementById('identity-passport-rows').innerHTML = `
+      <div class="identity-row"><span class="label">Passport ID</span><span class="value accent">${escapeHtml(String(passportId))}</span></div>
+      <div class="identity-row"><span class="label">Agent Name</span><span class="value">${escapeHtml(String(name))}</span></div>
+      <div class="identity-row"><span class="label">Status</span><span class="value accent">${d.brain_connected !== false ? 'Active' : 'Inactive'}</span></div>
+      ${createdAt ? `<div class="identity-row"><span class="label">Issued</span><span class="value">${new Date(createdAt).toLocaleDateString()}</span></div>` : ''}
+    `;
+
+    // Birth certificate
+    const birthDate = birth.date || birth.created || identity.created_at || d.created_at || '';
+    const birthVersion = birth.version || identity.version || d.version || '';
+    const birthOrigin = birth.origin || identity.origin || 'Windy Ecosystem';
+
+    document.getElementById('identity-birth-rows').innerHTML = `
+      ${birthDate ? `<div class="identity-row"><span class="label">Date of Creation</span><span class="value">${new Date(birthDate).toLocaleDateString()}</span></div>` : ''}
+      ${birthVersion ? `<div class="identity-row"><span class="label">Version</span><span class="value purple">${escapeHtml(String(birthVersion))}</span></div>` : ''}
+      <div class="identity-row"><span class="label">Origin</span><span class="value">${escapeHtml(String(birthOrigin))}</span></div>
+      <div class="identity-row"><span class="label">Framework</span><span class="value">Windy Agent</span></div>
+    `;
+
+    // Contact info
+    document.getElementById('identity-contact-rows').innerHTML = `
+      <div class="identity-row"><span class="label">Email</span><span class="value accent">${escapeHtml(String(email))}</span></div>
+      <div class="identity-row"><span class="label">Phone</span><span class="value">${escapeHtml(String(phone))}</span></div>
+      <div class="identity-row"><span class="label">Dashboard URL</span><span class="value accent">${window.location.origin}</span></div>
+    `;
+  } catch (e) {
+    document.getElementById('identity-passport-rows').innerHTML = `<div style="color:var(--danger);padding:16px;">Failed to load identity: ${e.message}</div>`;
+  }
+}
+
+// ===== PROVIDERS =====
+let currentActiveModel = '';
+let discoveredModelsCache = {};
+let validationCache = {};
+
+async function loadProviders() {
+  try {
+    const r = await fetch('/api/providers');
+    const data = await r.json();
+    const providersList = data.providers || [];
+    currentActiveModel = data.active_model || '';
+
+    checkOAuthCallback();
+
+    // Active engine card
+    const activeProvider = providersList.find(p => p.active);
+    document.getElementById('active-engine-card').innerHTML = activeProvider
+      ? `<h3>Current Model</h3><div class="value" style="color:var(--accent)">${currentActiveModel}</div><div class="sub">via ${activeProvider.name}</div>`
+      : `<h3>Current Model</h3><div class="value" style="color:var(--accent)">${currentActiveModel}</div><div class="sub">No provider matched</div>`;
+
+    // Provider cards
+    const list = document.getElementById('provider-list');
+    list.innerHTML = providersList.map(p => {
+      const modelChips = (p.models || []).map(m =>
+        `<span class="model-chip ${m === currentActiveModel ? 'active' : ''}" onclick="setActiveModel('${m}')">${m}</span>`
+      ).join('');
+
+      const keys = p.keys || [];
+      const activeKey = keys.find(k => k.active);
+      const validation = validationCache[p.key];
+      let validationBadge = '';
+      if (validation) {
+        if (validation.valid) {
+          validationBadge = `<span class="validation-badge valid">&#10003; Valid (${validation.model_count} models)</span>`;
+        } else {
+          validationBadge = `<span class="validation-badge invalid">&#10007; ${validation.error || 'Invalid'}</span>`;
+        }
+      }
+
+      let keyStatusHtml;
+      if (keys.length > 0) {
+        keyStatusHtml = `<div class="key-status has-key">${keys.length} key${keys.length > 1 ? 's' : ''} stored${activeKey ? ` (active: ${activeKey.label})` : ''} ${validationBadge}</div>`;
+      } else if (p.has_key) {
+        keyStatusHtml = `<div class="key-status has-key">API key configured (env) ${validationBadge}</div>`;
+      } else if (p.base_url && p.base_url.includes('localhost')) {
+        keyStatusHtml = `<div class="key-status has-key">Local (no key needed) ${validationBadge}</div>`;
+      } else {
+        keyStatusHtml = `<div class="key-status no-key">No API key set</div>`;
+      }
+
+      let accountInfoHtml = '';
+      if (validation && validation.account) {
+        const a = validation.account;
+        const items = [];
+        if (a.balance) items.push(`<span class="info-item">Balance: <span class="info-value">${a.balance}</span></span>`);
+        if (a.plan) items.push(`<span class="info-item">Plan: <span class="info-value">${a.plan}</span></span>`);
+        if (a.usage_today) items.push(`<span class="info-item">Today: <span class="info-value">${a.usage_today}</span></span>`);
+        if (items.length > 0) {
+          accountInfoHtml = `<div class="account-info">${items.join('')}</div>`;
+        }
+      }
+
+      const discovery = discoveredModelsCache[p.key];
+      let discoveredHtml = '';
+      if (discovery && discovery.models && discovery.models.length > 0) {
+        const chips = discovery.models.slice(0, 50).map(m => {
+          const isActive = m.id === currentActiveModel;
+          const ctxLabel = m.context_length ? `${Math.round(m.context_length/1000)}k` : '';
+          const priceLabel = m.pricing && m.pricing.prompt ? `$${parseFloat(m.pricing.prompt).toFixed(6)}/tok` : '';
+          return `<span class="discovered-chip ${isActive ? 'active' : ''}" onclick="setActiveModel('${m.id}')" title="${m.name || m.id}${m.context_length ? ' - ' + m.context_length + ' ctx' : ''}">
+            ${m.id.length > 35 ? m.id.slice(0, 32) + '...' : m.id}
+            ${ctxLabel ? `<span class="ctx">${ctxLabel}</span>` : ''}
+            ${priceLabel ? `<span class="price">${priceLabel}</span>` : ''}
+          </span>`;
+        }).join('');
+        const moreCount = discovery.models.length > 50 ? ` <span style="font-size:0.65rem;color:var(--text-dim)">+${discovery.models.length - 50} more</span>` : '';
+        discoveredHtml = `
+          <div class="discovery-section">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+              <span style="font-size:0.7rem;color:var(--blue);font-weight:500;">Live Models (${discovery.models.length})</span>
+              <span style="font-size:0.6rem;color:var(--text-dim);">fetched ${timeAgo(discovery.fetched_at)}</span>
+            </div>
+            <div class="discovered-models">${chips}${moreCount}</div>
+          </div>
+        `;
+      }
+
+      const keyListHtml = keys.length > 0 ? `
+        <div class="key-list">
+          ${keys.map(k => `
+            <div class="key-item">
+              <span class="key-label">${k.label}</span>
+              <span class="key-type ${k.type}">${k.type}</span>
+              <span class="key-value">${k.key}</span>
+              ${k.active ? '<span class="key-active-badge">ACTIVE</span>' : `<button onclick="activateKey('${p.key}','${k.id}')">Use</button>`}
+              <button class="delete" onclick="deleteKey('${p.key}','${k.id}')">x</button>
+            </div>
+          `).join('')}
+        </div>
+      ` : '';
+
+      const noteVal = (p.note || '').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+      const oauthBtn = p.key === 'openrouter' && !p.has_key && keys.length === 0
+        ? `<button class="oauth-btn" onclick="startOpenRouterOAuth()">Connect with OpenRouter</button>`
+        : '';
+
+      return `
+        <div class="provider-card ${p.active ? 'active-provider' : ''}">
+          <div class="provider-header">
+            <span class="provider-name">${p.name}</span>
+            <span class="provider-type">${p.type === 'anthropic' ? 'Anthropic SDK' : 'OpenAI-compatible'}</span>
+          </div>
+          <div class="provider-url">${p.base_url}</div>
+          ${keyStatusHtml}
+          ${accountInfoHtml}
+          <div class="model-chips">${modelChips || '<span style="font-size:0.75rem;color:var(--text-dim)">No models listed</span>'}</div>
+          ${discoveredHtml}
+          ${oauthBtn}
+          ${keyListHtml}
+          <div class="key-input-row" id="key-row-${p.key}" style="display:none">
+            <input type="text" id="key-label-${p.key}" placeholder="Label (e.g. Personal, OAuth, Work)" style="flex:0.5;font-family:var(--font);">
+            <select id="key-type-${p.key}">
+              <option value="api">API Key</option>
+              <option value="oauth">OAuth</option>
+              <option value="other">Other</option>
+            </select>
+            <input type="password" id="key-input-${p.key}" placeholder="Paste key or token..." style="flex:1;">
+            <button onclick="addKey('${p.key}')">Save</button>
+          </div>
+          <div class="provider-notes">
+            <textarea id="note-${p.key}" placeholder="Notes..." onblur="saveNote('${p.key}')">${noteVal}</textarea>
+          </div>
+          <div class="provider-actions">
+            <button onclick="toggleKeyInput('${p.key}')">+ Add Key</button>
+            ${p.configured ? `<button class="discover-btn" onclick="discoverModels('${p.key}')">Discover Models</button>` : ''}
+            ${p.configured ? `<button onclick="validateProvider('${p.key}')">Validate Key</button>` : ''}
+            ${!p.builtin ? `<button class="danger" onclick="removeProvider('${p.key}')">Remove</button>` : ''}
+          </div>
+        </div>
+      `;
+    }).join('');
+  } catch (e) {
+    document.getElementById('provider-list').innerHTML = `<div class="card"><div class="sub">Failed to load: ${e.message}</div></div>`;
+  }
+}
+
+function timeAgo(isoStr) {
+  if (!isoStr) return '';
+  const diff = Date.now() - new Date(isoStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs/24)}d ago`;
+}
+
+// ===== DISCOVERY =====
+async function discoverModels(providerKey) {
+  const btns = document.querySelectorAll('.discover-btn');
+  btns.forEach(b => { if (b.textContent.includes('Discover')) b.disabled = true; });
+
+  try {
+    const r = await fetch('/api/providers/discover', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider: providerKey }),
+    });
+    const result = await r.json();
+    discoveredModelsCache[providerKey] = result;
+  } catch (e) {
+    console.error('Discovery failed:', e);
+  }
+
+  loadProviders();
+}
+
+async function discoverAllModels() {
+  const btn = document.getElementById('discover-all-btn');
+  if (btn) { btn.textContent = 'Discovering...'; btn.disabled = true; }
+
+  try {
+    const r = await fetch('/api/providers/discover-all', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const data = await r.json();
+    for (const d of (data.discoveries || [])) {
+      discoveredModelsCache[d.provider] = d;
+    }
+  } catch (e) {
+    console.error('Discover all failed:', e);
+  }
+
+  if (btn) { btn.textContent = 'Discover All Models'; btn.disabled = false; }
+  loadProviders();
+}
+
+// ===== VALIDATION =====
+async function validateProvider(providerKey) {
+  validationCache[providerKey] = { valid: false, provider: providerKey, model_count: 0, error: 'Checking...' };
+  loadProviders();
+
+  try {
+    const r = await fetch('/api/providers/validate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider: providerKey }),
+    });
+    validationCache[providerKey] = await r.json();
+
+    if (validationCache[providerKey].valid && !discoveredModelsCache[providerKey]) {
+      await discoverModels(providerKey);
+      return;
+    }
+  } catch (e) {
+    validationCache[providerKey] = { valid: false, provider: providerKey, model_count: 0, error: e.message };
+  }
+
+  loadProviders();
+}
+
+// ===== OPENROUTER OAUTH =====
+async function startOpenRouterOAuth() {
+  const callbackUrl = `${window.location.origin}/oauth/callback`;
+  try {
+    const r = await fetch('/api/providers/oauth/openrouter/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ callback_url: callbackUrl }),
+    });
+    const data = await r.json();
+    if (data.authorization_url) {
+      window.location.href = data.authorization_url;
+    } else {
+      alert('Failed to start OAuth flow');
+    }
+  } catch (e) {
+    alert('OAuth error: ' + e.message);
+  }
+}
+
+function checkOAuthCallback() {
+  const params = new URLSearchParams(window.location.search);
+  const oauthStatus = params.get('oauth');
+  const msg = params.get('msg');
+
+  if (oauthStatus) {
+    const banner = document.getElementById('oauth-banner');
+    if (oauthStatus === 'success') {
+      banner.style.display = 'block';
+      banner.style.background = 'var(--accent-glow)';
+      banner.style.border = '1px solid var(--accent)';
+      banner.style.color = 'var(--accent)';
+      banner.innerHTML = `&#10003; ${msg || 'Connected successfully!'} <button onclick="this.parentElement.style.display='none'" style="float:right;background:none;border:none;color:inherit;cursor:pointer;font-size:1rem;">&times;</button>`;
+      setTimeout(() => discoverModels('openrouter'), 500);
+    } else {
+      banner.style.display = 'block';
+      banner.style.background = 'rgba(255,107,107,0.1)';
+      banner.style.border = '1px solid var(--danger)';
+      banner.style.color = 'var(--danger)';
+      banner.innerHTML = `&#10007; ${msg || 'OAuth failed'} <button onclick="this.parentElement.style.display='none'" style="float:right;background:none;border:none;color:inherit;cursor:pointer;font-size:1rem;">&times;</button>`;
+    }
+    window.history.replaceState({}, '', '/');
+  }
+}
+
+function toggleKeyInput(key) {
+  const row = document.getElementById(`key-row-${key}`);
+  row.style.display = row.style.display === 'none' ? 'flex' : 'none';
+  if (row.style.display === 'flex') {
+    document.getElementById(`key-label-${key}`).focus();
+  }
+}
+
+async function addKey(providerKey) {
+  const label = document.getElementById(`key-label-${providerKey}`).value.trim() || 'Default';
+  const keyType = document.getElementById(`key-type-${providerKey}`).value;
+  const keyValue = document.getElementById(`key-input-${providerKey}`).value.trim();
+  if (!keyValue) return;
+  try {
+    await fetch('/api/providers/keys', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider: providerKey, label, key: keyValue, type: keyType }),
+    });
+    document.getElementById(`key-input-${providerKey}`).value = '';
+    document.getElementById(`key-label-${providerKey}`).value = '';
+    document.getElementById(`key-row-${providerKey}`).style.display = 'none';
+    loadProviders();
+    setTimeout(() => {
+      validateProvider(providerKey);
+      discoverModels(providerKey);
+    }, 300);
+  } catch {}
+}
+
+async function deleteKey(providerKey, keyId) {
+  if (!confirm('Delete this key?')) return;
+  try {
+    await fetch('/api/providers/keys', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider: providerKey, key_id: keyId }),
+    });
+    loadProviders();
+  } catch {}
+}
+
+async function activateKey(providerKey, keyId) {
+  try {
+    await fetch('/api/providers/keys/activate', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider: providerKey, key_id: keyId }),
+    });
+    loadProviders();
+  } catch {}
+}
+
+async function saveNote(providerKey) {
+  const note = document.getElementById(`note-${providerKey}`).value;
+  try {
+    await fetch('/api/providers/notes', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider: providerKey, note }),
+    });
+  } catch {}
+}
+
+async function setActiveModel(model) {
+  try {
+    await fetch('/api/providers/active-model', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model }),
+    });
+    loadProviders();
+  } catch {}
+}
+
+function toggleAddForm() {
+  const form = document.getElementById('add-provider-form');
+  const btn = document.getElementById('add-form-toggle');
+  if (form.style.display === 'none') {
+    form.style.display = 'block';
+    btn.textContent = 'Hide';
+  } else {
+    form.style.display = 'none';
+    btn.textContent = 'Show';
+  }
+}
+
+async function addProvider() {
+  const key = document.getElementById('new-provider-key').value.trim();
+  const name = document.getElementById('new-provider-name').value.trim();
+  const base_url = document.getElementById('new-provider-url').value.trim();
+  const api_key_env = document.getElementById('new-provider-env').value.trim();
+  const modelsRaw = document.getElementById('new-provider-models').value.trim();
+  const models = modelsRaw ? modelsRaw.split(',').map(m => m.trim()).filter(Boolean) : [];
+
+  if (!key || !base_url) return;
+
+  try {
+    await fetch('/api/providers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key, name: name || key, base_url, api_key_env, models, type: 'openai' }),
+    });
+    ['new-provider-key','new-provider-name','new-provider-url','new-provider-env','new-provider-models']
+      .forEach(id => document.getElementById(id).value = '');
+    document.getElementById('add-provider-form').style.display = 'none';
+    document.getElementById('add-form-toggle').textContent = 'Show';
+    loadProviders();
+  } catch {}
+}
+
+async function removeProvider(key) {
+  if (!confirm(`Remove provider "${key}"?`)) return;
+  try {
+    await fetch(`/api/providers/${key}`, { method: 'DELETE' });
+    loadProviders();
+  } catch {}
+}
+
+// ===== MACHINES / MISSION CONTROL =====
+let machinesList = [];
+let currentCockpitMachine = null;
+let terminalWs = null;
+let xtermInstance = null;
+let fitAddon = null;
+
+async function loadMachines() {
+  try {
+    const r = await fetch('/api/machines');
+    const raw = await r.json();
+    machinesList = Array.isArray(raw) ? raw : [];
+
+    const grid = document.getElementById('machine-grid');
+    const noMachines = document.getElementById('no-machines');
+
+    if (machinesList.length === 0) {
+      grid.innerHTML = '';
+      grid.style.display = 'none';
+      noMachines.style.display = 'block';
+      return;
+    }
+    grid.style.display = 'grid';
+    noMachines.style.display = 'none';
+
+    grid.innerHTML = machinesList.map(m => {
+      const isOnline = m.online;
+      const health = m.health || {};
+      const services = m.services || {};
+      const uptimeStr = health.uptime_seconds
+        ? formatUptime(health.uptime_seconds)
+        : '--';
+      const cpuPct = health.cpu ? health.cpu.usage_pct : 0;
+      const memPct = health.memory ? health.memory.used_pct : 0;
+      const memTotal = health.memory ? health.memory.total_gb : '?';
+
+      const gatewayRunning = services.gateway ? services.gateway.running : false;
+      const brainRunning = services.brain ? services.brain.running : false;
+
+      const tags = (m.config && m.config.tags ? m.config.tags : []).map(t =>
+        `<span class="machine-tag">${t}</span>`
+      ).join('');
+
+      return `
+        <div class="machine-card ${isOnline ? 'online' : 'offline'}" onclick="openCockpit('${m.config.id}')">
+          <div class="machine-header">
+            <span class="machine-name">${m.config.name}</span>
+            <span class="machine-status-badge ${isOnline ? 'online' : 'offline'}">${isOnline ? 'Online' : 'Offline'}</span>
+          </div>
+          <div class="machine-host">${m.config.host}:${m.config.port}</div>
+
+          <div class="machine-services">
+            <span class="service-dot ${gatewayRunning ? 'running' : ''}">Gateway</span>
+            <span class="service-dot ${brainRunning ? 'running' : ''}">Brain</span>
+            <span class="service-dot ${services.uds_socket ? 'running' : ''}">UDS</span>
+          </div>
+
+          <div class="machine-stats">
+            <span class="machine-stat">CPU: <b>${cpuPct}%</b></span>
+            <span class="machine-stat">RAM: <b>${memPct}%</b> of ${memTotal}GB</span>
+            <span class="machine-stat">Up: <b>${uptimeStr}</b></span>
+          </div>
+
+          ${tags ? `<div class="machine-tags">${tags}</div>` : ''}
+
+          <div class="machine-actions" onclick="event.stopPropagation()">
+            <button onclick="openCockpit('${m.config.id}')">Terminal</button>
+            <button onclick="restartRemoteService('${m.config.id}', 'gateway')">Restart GW</button>
+            <button onclick="restartRemoteService('${m.config.id}', 'brain')">Restart Brain</button>
+            <button onclick="syncProvidersTo('${m.config.id}')">Sync Providers</button>
+            <button class="danger" onclick="removeMachine('${m.config.id}')">Remove</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+  } catch (e) {
+    document.getElementById('machine-grid').innerHTML =
+      `<div class="card"><div class="sub">Failed to load machines: ${e.message}</div></div>`;
+  }
+}
+
+function formatUptime(seconds) {
+  const d = Math.floor(seconds / 86400);
+  const h = Math.floor((seconds % 86400) / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+function toggleAddMachineForm() {
+  const form = document.getElementById('add-machine-form');
+  form.style.display = form.style.display === 'none' ? 'block' : 'none';
+}
+
+async function addMachine() {
+  const name = document.getElementById('new-machine-name').value.trim();
+  const host = document.getElementById('new-machine-host').value.trim();
+  const port = parseInt(document.getElementById('new-machine-port').value) || 3100;
+  const token = document.getElementById('new-machine-token').value.trim();
+  const tagsRaw = document.getElementById('new-machine-tags').value.trim();
+  const tags = tagsRaw ? tagsRaw.split(',').map(t => t.trim()).filter(Boolean) : [];
+
+  if (!name || !host) { alert('Name and host are required'); return; }
+
+  try {
+    await fetch('/api/machines', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, host, port, token, tags }),
+    });
+    document.getElementById('add-machine-form').style.display = 'none';
+    ['new-machine-name','new-machine-host','new-machine-token','new-machine-tags']
+      .forEach(id => document.getElementById(id).value = '');
+    document.getElementById('new-machine-port').value = '3100';
+    loadMachines();
+  } catch (e) {
+    alert('Failed to add machine: ' + e.message);
+  }
+}
+
+async function removeMachine(id) {
+  if (!confirm('Remove this machine from Mission Control?')) return;
+  try {
+    await fetch(`/api/machines/${id}`, { method: 'DELETE' });
+    loadMachines();
+  } catch {}
+}
+
+async function restartRemoteService(machineId, service) {
+  if (!confirm(`Restart ${service} on this machine?`)) return;
+  try {
+    const r = await fetch(`/api/machines/${machineId}/restart-${service}`, { method: 'POST' });
+    const result = await r.json();
+    alert(result.message || (result.success ? 'Restarted' : 'Failed'));
+    loadMachines();
+  } catch (e) {
+    alert('Failed: ' + e.message);
+  }
+}
+
+async function syncProvidersTo(machineId) {
+  try {
+    const r = await fetch('/api/machines/sync-providers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ machine_id: machineId }),
+    });
+    await r.json();
+    alert('Provider sync complete');
+  } catch (e) {
+    alert('Sync failed: ' + e.message);
+  }
+}
+
+async function syncAllProviders() {
+  if (!confirm('Push provider config to ALL machines?')) return;
+  try {
+    const r = await fetch('/api/machines/sync-providers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    const result = await r.json();
+    const summary = Object.entries(result).map(([id, r]) => `${id}: ${r.message}`).join('\n');
+    alert('Sync complete:\n' + (summary || 'No machines to sync'));
+  } catch (e) {
+    alert('Sync failed: ' + e.message);
+  }
+}
+
+function refreshAllMachines() {
+  loadMachines();
+}
+
+// ===== COCKPIT =====
+function openCockpit(machineId) {
+  const machine = machinesList.find(m => m.config.id === machineId);
+  if (!machine) return;
+
+  currentCockpitMachine = machine;
+  document.getElementById('cockpit').classList.add('active');
+  document.getElementById('cockpit-title').textContent = machine.config.name;
+
+  const statusEl = document.getElementById('cockpit-status');
+  statusEl.textContent = machine.online ? 'Online' : 'Offline';
+  statusEl.className = 'cockpit-status machine-status-badge ' + (machine.online ? 'online' : 'offline');
+
+  showCockpitTab('terminal');
+  loadCockpitHealth();
+  loadCockpitSettings();
+}
+
+function closeCockpit() {
+  document.getElementById('cockpit').classList.remove('active');
+  currentCockpitMachine = null;
+  disconnectTerminal();
+}
+
+function showCockpitTab(tab) {
+  document.querySelectorAll('.cockpit-tabs button').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.cockpit-panel').forEach(p => p.classList.remove('active'));
+
+  const tabBtn = document.querySelector(`.cockpit-tabs button[onclick="showCockpitTab('${tab}')"]`);
+  if (tabBtn) tabBtn.classList.add('active');
+
+  const panel = document.getElementById(`cockpit-${tab}`);
+  if (panel) panel.classList.add('active');
+
+  if (tab === 'terminal') connectTerminal();
+  if (tab === 'health') loadCockpitHealth();
+}
+
+// ===== TERMINAL (xterm.js) =====
+function connectTerminal() {
+  if (!currentCockpitMachine) return;
+  disconnectTerminal();
+
+  const container = document.getElementById('xterm-container');
+  container.innerHTML = '';
+
+  xtermInstance = new Terminal({
+    cursorBlink: true,
+    fontSize: 14,
+    fontFamily: "'Menlo', 'Consolas', 'Monaco', monospace",
+    theme: {
+      background: '#0a0e17',
+      foreground: '#e4e8f0',
+      cursor: '#00d4ff',
+      cursorAccent: '#0a0e17',
+      selectionBackground: 'rgba(0,212,255,0.2)',
+      black: '#0a0e17',
+      red: '#ff6b6b',
+      green: '#00d4aa',
+      yellow: '#ffb347',
+      blue: '#60a5fa',
+      magenta: '#a78bfa',
+      cyan: '#00d4ff',
+      white: '#e4e8f0',
+      brightBlack: '#7b8494',
+      brightRed: '#ff8787',
+      brightGreen: '#00f0c0',
+      brightYellow: '#ffcc80',
+      brightBlue: '#93bbfc',
+      brightMagenta: '#c4b5fd',
+      brightCyan: '#67e8f9',
+      brightWhite: '#f8fafc',
+    },
+  });
+
+  fitAddon = new FitAddon.FitAddon();
+  const webLinksAddon = new WebLinksAddon.WebLinksAddon();
+  xtermInstance.loadAddon(fitAddon);
+  xtermInstance.loadAddon(webLinksAddon);
+  xtermInstance.open(container);
+
+  setTimeout(() => { fitAddon.fit(); }, 50);
+
+  window._cockpitResizeHandler = () => {
+    if (fitAddon) fitAddon.fit();
+  };
+  window.addEventListener('resize', window._cockpitResizeHandler);
+
+  xtermInstance.writeln('\x1b[36m--- Connecting to ' + currentCockpitMachine.config.name + ' ---\x1b[0m');
+  xtermInstance.writeln('');
+
+  const machineId = currentCockpitMachine.config.id;
+  const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  terminalWs = new WebSocket(`${wsProto}//${window.location.host}/ws/terminal/${machineId}`);
+
+  terminalWs.onopen = () => {
+    xtermInstance.writeln('\x1b[32m--- Connected ---\x1b[0m');
+    xtermInstance.writeln('');
+  };
+
+  terminalWs.onmessage = (e) => {
+    try {
+      const msg = JSON.parse(e.data);
+      if (msg.type === 'pty:output') {
+        xtermInstance.write(msg.data);
+      } else if (msg.type === 'pty:exit') {
+        xtermInstance.writeln('\r\n\x1b[31m--- Session ended (code: ' + msg.code + ') ---\x1b[0m');
+      }
+    } catch {
+      xtermInstance.write(e.data);
+    }
+  };
+
+  terminalWs.onclose = () => {
+    if (xtermInstance) {
+      xtermInstance.writeln('\r\n\x1b[31m--- Disconnected ---\x1b[0m');
+    }
+  };
+
+  terminalWs.onerror = () => {
+    if (xtermInstance) {
+      xtermInstance.writeln('\r\n\x1b[31m--- Connection error ---\x1b[0m');
+    }
+  };
+
+  xtermInstance.onData((data) => {
+    if (terminalWs && terminalWs.readyState === 1) {
+      terminalWs.send(JSON.stringify({ type: 'pty:input', session: 'default', data }));
+    }
+  });
+
+  xtermInstance.onResize(({ cols, rows }) => {
+    if (terminalWs && terminalWs.readyState === 1) {
+      terminalWs.send(JSON.stringify({ type: 'pty:resize', session: 'default', cols, rows }));
+    }
+  });
+}
+
+function disconnectTerminal() {
+  if (terminalWs) { terminalWs.close(); terminalWs = null; }
+  if (xtermInstance) { xtermInstance.dispose(); xtermInstance = null; }
+  if (fitAddon) { fitAddon = null; }
+  if (window._cockpitResizeHandler) {
+    window.removeEventListener('resize', window._cockpitResizeHandler);
+    window._cockpitResizeHandler = null;
+  }
+}
+
+// ===== LOGS =====
+function subscribeLogs(file) {
+  if (!currentCockpitMachine) return;
+  const viewer = document.getElementById('log-viewer');
+  viewer.textContent = `Subscribing to ${file}...\n`;
+
+  if (terminalWs && terminalWs.readyState === 1) {
+    terminalWs.send(JSON.stringify({ type: 'log:subscribe', file }));
+  }
+
+  const machineId = currentCockpitMachine.config.id;
+  const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const logWs = new WebSocket(`${wsProto}//${window.location.host}/ws/machine/${machineId}`);
+
+  logWs.onopen = () => {
+    logWs.send(JSON.stringify({ type: 'log:subscribe', file }));
+  };
+
+  logWs.onmessage = (e) => {
+    try {
+      const msg = JSON.parse(e.data);
+      if (msg.type === 'log:data') {
+        viewer.textContent += msg.data;
+        viewer.scrollTop = viewer.scrollHeight;
+      } else if (msg.type === 'log:error') {
+        viewer.textContent += `\n[Error] ${msg.message}\n`;
+      }
+    } catch {}
+  };
+
+  if (window._logWs) window._logWs.close();
+  window._logWs = logWs;
+}
+
+// ===== COCKPIT HEALTH =====
+async function loadCockpitHealth() {
+  if (!currentCockpitMachine) return;
+  const grid = document.getElementById('health-grid');
+
+  const h = currentCockpitMachine.health || {};
+  const s = currentCockpitMachine.services || {};
+
+  if (!h.cpu) {
+    try {
+      const r = await fetch(`/api/machines/${currentCockpitMachine.config.id}/health`);
+      const data = await r.json();
+      if (data.cpu) Object.assign(h, data);
+    } catch {}
+  }
+
+  const cpuPct = h.cpu ? h.cpu.usage_pct : 0;
+  const memPct = h.memory ? h.memory.used_pct : 0;
+  const cpuColor = cpuPct > 80 ? 'var(--danger)' : cpuPct > 60 ? 'var(--warning)' : 'var(--accent)';
+  const memColor = memPct > 80 ? 'var(--danger)' : memPct > 60 ? 'var(--warning)' : 'var(--blue)';
+
+  grid.innerHTML = `
+    <div class="health-card">
+      <h4>CPU Usage</h4>
+      <div class="health-value" style="color:${cpuColor}">${cpuPct}%</div>
+      <div class="meter-bar"><div class="meter-fill" style="width:${cpuPct}%;background:${cpuColor}"></div></div>
+      <div style="font-size:0.7rem;color:var(--text-dim);margin-top:4px">${h.cpu ? h.cpu.cores : '?'} cores</div>
+    </div>
+    <div class="health-card">
+      <h4>Memory</h4>
+      <div class="health-value" style="color:${memColor}">${memPct}%</div>
+      <div class="meter-bar"><div class="meter-fill" style="width:${memPct}%;background:${memColor}"></div></div>
+      <div style="font-size:0.7rem;color:var(--text-dim);margin-top:4px">${h.memory ? h.memory.free_gb : '?'}GB free / ${h.memory ? h.memory.total_gb : '?'}GB</div>
+    </div>
+    <div class="health-card">
+      <h4>Uptime</h4>
+      <div class="health-value" style="color:var(--purple)">${h.uptime_seconds ? formatUptime(h.uptime_seconds) : '--'}</div>
+    </div>
+    <div class="health-card">
+      <h4>Platform</h4>
+      <div class="health-value" style="font-size:1rem;color:var(--text)">${h.platform || '?'} ${h.release || ''}</div>
+    </div>
+    <div class="health-card">
+      <h4>Gateway</h4>
+      <div class="health-value" style="color:${s.gateway && s.gateway.running ? 'var(--accent)' : 'var(--danger)'}">
+        ${s.gateway && s.gateway.running ? 'Running' : 'Stopped'}
+      </div>
+      ${s.gateway && s.gateway.pid ? `<div style="font-size:0.7rem;color:var(--text-dim)">PID: ${s.gateway.pid}</div>` : ''}
+    </div>
+    <div class="health-card">
+      <h4>Brain</h4>
+      <div class="health-value" style="color:${s.brain && s.brain.running ? 'var(--accent)' : 'var(--danger)'}">
+        ${s.brain && s.brain.running ? 'Running' : 'Stopped'}
+      </div>
+      ${s.brain && s.brain.pid ? `<div style="font-size:0.7rem;color:var(--text-dim)">PID: ${s.brain.pid}</div>` : ''}
+    </div>
+    <div class="health-card">
+      <h4>UDS Socket</h4>
+      <div class="health-value" style="color:${s.uds_socket ? 'var(--accent)' : 'var(--danger)'}">
+        ${s.uds_socket ? 'Active' : 'Missing'}
+      </div>
+    </div>
+    <div class="health-card">
+      <h4>Last Seen</h4>
+      <div class="health-value" style="font-size:0.9rem;color:var(--text-dim)">
+        ${currentCockpitMachine.last_seen ? new Date(currentCockpitMachine.last_seen).toLocaleString() : 'Never'}
+      </div>
+    </div>
+  `;
+}
+
+// ===== COCKPIT SETTINGS =====
+function loadCockpitSettings() {
+  if (!currentCockpitMachine) return;
+  const c = currentCockpitMachine.config;
+  document.getElementById('cockpit-settings-content').innerHTML = `
+    <div style="max-width:500px;">
+      <div class="slider-group" style="margin-bottom:16px;">
+        <label>Name</label>
+        <input type="text" id="cfg-name" value="${c.name}" style="width:100%;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-family:var(--font);outline:none;">
+      </div>
+      <div class="slider-group" style="margin-bottom:16px;">
+        <label>Host</label>
+        <input type="text" id="cfg-host" value="${c.host}" style="width:100%;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-family:monospace;outline:none;">
+      </div>
+      <div class="slider-group" style="margin-bottom:16px;">
+        <label>Port</label>
+        <input type="number" id="cfg-port" value="${c.port}" style="width:100%;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-family:var(--font);outline:none;">
+      </div>
+      <div class="slider-group" style="margin-bottom:16px;">
+        <label>Auth Token</label>
+        <input type="password" id="cfg-token" value="${c.token}" style="width:100%;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-family:monospace;outline:none;">
+      </div>
+      <div class="slider-group" style="margin-bottom:16px;">
+        <label>Tags</label>
+        <input type="text" id="cfg-tags" value="${(c.tags || []).join(', ')}" style="width:100%;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-family:var(--font);outline:none;" placeholder="Comma-separated tags">
+      </div>
+      <div class="slider-group" style="margin-bottom:16px;">
+        <label>Notes</label>
+        <textarea id="cfg-notes" style="width:100%;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-family:var(--font);outline:none;min-height:60px;resize:vertical;">${c.notes || ''}</textarea>
+      </div>
+      <button onclick="saveCockpitSettings()" style="background:var(--accent-gradient);border:none;padding:10px 24px;border-radius:8px;color:#0a0e17;font-family:var(--font);font-weight:600;cursor:pointer;font-size:0.85rem;">Save Changes</button>
+    </div>
+  `;
+}
+
+async function saveCockpitSettings() {
+  if (!currentCockpitMachine) return;
+  const id = currentCockpitMachine.config.id;
+  const tagsRaw = document.getElementById('cfg-tags').value.trim();
+  const updates = {
+    name: document.getElementById('cfg-name').value.trim(),
+    host: document.getElementById('cfg-host').value.trim(),
+    port: parseInt(document.getElementById('cfg-port').value) || 3100,
+    token: document.getElementById('cfg-token').value.trim(),
+    tags: tagsRaw ? tagsRaw.split(',').map(t => t.trim()).filter(Boolean) : [],
+    notes: document.getElementById('cfg-notes').value,
+  };
+  try {
+    await fetch(`/api/machines/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    });
+    alert('Settings saved. Reconnecting...');
+    closeCockpit();
+    setTimeout(loadMachines, 1000);
+  } catch (e) {
+    alert('Failed: ' + e.message);
+  }
+}
+
+function cockpitRestartGateway() {
+  if (currentCockpitMachine) restartRemoteService(currentCockpitMachine.config.id, 'gateway');
+}
+
+function cockpitRestartBrain() {
+  if (currentCockpitMachine) restartRemoteService(currentCockpitMachine.config.id, 'brain');
+}
+
+// ===== INIT =====
+checkHealth();
+setInterval(checkHealth, 10000);
+connectWS();
+
+// Handle deep links (?page=...) and OAuth callbacks
+const initParams = new URLSearchParams(window.location.search);
+const initPage = initParams.get('page');
+if (initPage && document.getElementById(`page-${initPage}`)) {
+  showPage(initPage);
+} else {
+  loadHome();
+}
+</script>
+</body>
+</html>
