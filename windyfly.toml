@@ -32,3 +32,19 @@ bot_user = "@windyfly:chat.windypro.com"
 
 [windy_api]
 base_url = "http://localhost:8098"
+
+[ecosystem]
+eternitas_url = "https://api.eternitas.ai"
+windy_mail_url = "https://api.windymail.ai"
+matrix_homeserver = "https://chat.windypro.com"
+windy_cloud_url = "https://cloud.windyfly.ai"
+windy_pro_url = "https://account.windypro.com"
+
+[cloud]
+auto_backup = true
+backup_interval = "24h"
+
+[updates]
+auto_check = true           # Check for updates on startup
+auto_install = false        # Auto-install updates (opt-in)
+check_interval = 86400      # Seconds between checks (24h)

@@ -47,11 +47,13 @@ async def provision_phone(
     agent_name: str = "",
     area_code: str = "",
     db=None,
+    config: dict | None = None,
 ) -> PhoneProvisionResult:
     """Provision a phone number for a newly hatched agent.
 
     Tries Twilio first (if TWILIO_ACCOUNT_SID is set with number-buying
-    permissions), falls back to mock phone pool.
+    permissions), then Windy Cloud (if ecosystem.windy_cloud_url is set),
+    falls back to mock phone pool.
     """
     account_sid = os.environ.get("TWILIO_ACCOUNT_SID", "")
     auth_token = os.environ.get("TWILIO_AUTH_TOKEN", "")

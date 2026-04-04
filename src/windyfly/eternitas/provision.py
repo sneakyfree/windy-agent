@@ -33,15 +33,19 @@ class EternitasProvisionResult:
     error: str = ""
 
 
-def get_eternitas_client(db=None):
+def get_eternitas_client(db=None, config: dict | None = None):
     """Return the appropriate Eternitas client based on configuration.
 
-    Uses the real client if ETERNITAS_API_URL is set to a real endpoint.
-    Falls back to MockEternitasClient (SQLite-backed) otherwise.
+    Checks ecosystem.eternitas_url from config, then ETERNITAS_API_URL env var.
+    Uses real HTTP client when a URL is set, mock client otherwise.
     """
-    api_url = os.environ.get("ETERNITAS_API_URL", "")
+    api_url = ""
+    if config:
+        api_url = config.get("ecosystem", {}).get("eternitas_url", "")
+    if not api_url:
+        api_url = os.environ.get("ETERNITAS_API_URL", "")
 
-    if api_url and api_url != "mock://local" and not api_url.startswith("mock"):
+    if api_url and not api_url.startswith("mock"):
         from windyfly.eternitas.client import EternitasClient
         return EternitasClient(api_url=api_url)
 

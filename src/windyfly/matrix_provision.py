@@ -181,15 +181,20 @@ def provision_matrix(
     homeserver: str | None = None,
     bot_username: str = "windyfly",
     display_name: str = "Windy Fly 🪰",
+    config: dict | None = None,
 ) -> MatrixProvisionResult:
     """Provision Matrix bot and return structured result.
 
     Used by the hatch orchestrator. Never raises — failures are captured
     in the result object.
     """
-    hs = homeserver or os.environ.get(
-        "MATRIX_HOMESERVER", "https://chat.windypro.com"
-    )
+    hs = homeserver
+    if not hs and config:
+        hs = config.get("ecosystem", {}).get("matrix_homeserver", "")
+    if not hs:
+        hs = os.environ.get("MATRIX_HOMESERVER", "")
+    if not hs:
+        hs = config.get("matrix", {}).get("homeserver", "https://chat.windypro.com") if config else "https://chat.windypro.com"
     raw = provision_matrix_bot(
         homeserver=hs,
         bot_username=bot_username,

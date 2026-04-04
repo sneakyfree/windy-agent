@@ -168,15 +168,16 @@ def _try_play_audio() -> None:
 # "Born Into" — Ecosystem Status Display
 # ═══════════════════════════════════════════════════════════════════════
 
-def show_ecosystem_status(hatch_result=None) -> None:
+def show_ecosystem_status(hatch_result=None, config: dict | None = None) -> None:
     """Show what the agent was born with — the ecosystem power moment.
 
     Displays a rich table of all ecosystem products and their provisioning
     status. Uses real data from HatchResult if available, otherwise checks
-    environment variables.
+    environment variables. Shows clear mock vs real mode indicators.
 
     Args:
         hatch_result: Optional HatchResult from the hatch orchestrator.
+        config: Optional config dict with ecosystem URLs.
     """
     from dotenv import load_dotenv
     from rich.table import Table
@@ -184,6 +185,14 @@ def show_ecosystem_status(hatch_result=None) -> None:
     from windyfly.branding import BRAND_EMOJI
 
     load_dotenv(PROJECT_ROOT / ".env")
+
+    eco = config.get("ecosystem", {}) if config else {}
+
+    # Detect if any ecosystem URLs are configured
+    has_real_services = any(eco.get(k) for k in (
+        "eternitas_url", "windy_mail_url", "matrix_homeserver",
+        "windy_cloud_url", "windy_pro_url",
+    ))
 
     table = Table(
         title=f"{BRAND_EMOJI} Windy Fly \u2014 Born Into the Ecosystem",
@@ -196,33 +205,46 @@ def show_ecosystem_status(hatch_result=None) -> None:
     table.add_column("Status", min_width=9)
     table.add_column("Details", min_width=30)
 
+    errors = getattr(hatch_result, "errors", []) if hatch_result else []
+
     # ── Eternitas ──
     passport_id = getattr(hatch_result, "passport_id", "") or os.environ.get("ETERNITAS_PASSPORT", "")
+    eternitas_errors = [e for e in errors if e.startswith("Eternitas:")]
     if passport_id:
-        table.add_row("Eternitas", "[green]Active[/green]", f"{passport_id} (trust: 70)")
+        mode = "" if eco.get("eternitas_url") else " (local)"
+        table.add_row("Eternitas", "[green]Active[/green]", f"{passport_id}{mode}")
+    elif eternitas_errors:
+        table.add_row("Eternitas", "[yellow]Offline[/yellow]", "\u26a0\ufe0f  Agent identity: offline (will retry)")
     else:
         table.add_row("Eternitas", "[dim]Pending[/dim]", "Not registered")
 
     # ── Windy Chat ──
     matrix_user = getattr(hatch_result, "matrix_user_id", "") if hatch_result else ""
+    matrix_errors = [e for e in errors if e.startswith("Matrix:")]
     if not matrix_user:
         matrix_ready = bool(os.environ.get("MATRIX_BOT_TOKEN") or os.environ.get("MATRIX_BOT_PASSWORD"))
-        homeserver = os.environ.get("MATRIX_HOMESERVER", "chat.windypro.com")
+        homeserver = eco.get("matrix_homeserver") or os.environ.get("MATRIX_HOMESERVER", "chat.windypro.com")
         if matrix_ready:
             table.add_row("Windy Chat", "[green]Active[/green]", f"@windyfly:{homeserver.replace('https://', '')}")
+        elif matrix_errors:
+            table.add_row("Windy Chat", "[yellow]Offline[/yellow]", "\u26a0\ufe0f  Chat: offline (will connect when available)")
         else:
-            table.add_row("Windy Chat", "[dim]Pending[/dim]", "Ready to connect")
+            table.add_row("Windy Chat", "[dim]Pending[/dim]", "Set SYNAPSE_REGISTRATION_SECRET to enable")
     else:
         table.add_row("Windy Chat", "[green]Active[/green]", matrix_user)
 
     # ── Windy Mail ──
     email_addr = getattr(hatch_result, "email_address", "") if hatch_result else ""
+    mail_errors = [e for e in errors if e.startswith("Mail:")]
     if not email_addr:
-        email_addr = os.environ.get("WINDYMAIL_EMAIL", "") or os.environ.get("WINDYFLY_EMAIL_ADDRESS", "")
+        email_addr = os.environ.get("WINDYMAIL_EMAIL", "")
     if email_addr:
-        table.add_row("Windy Mail", "[green]Active[/green]", email_addr)
+        mode = "" if eco.get("windy_mail_url") else " (local)"
+        table.add_row("Windy Mail", "[green]Active[/green]", f"{email_addr}{mode}")
+    elif mail_errors:
+        table.add_row("Windy Mail", "[yellow]Offline[/yellow]", "\u26a0\ufe0f  Email: offline (will be available when mail service is up)")
     else:
-        table.add_row("Windy Mail", "[dim]Pending[/dim]", "Run hatch to provision")
+        table.add_row("Windy Mail", "[dim]Pending[/dim]", "Set ecosystem.windy_mail_url in windyfly.toml")
 
     # ── Phone ──
     phone = getattr(hatch_result, "phone_number", "") if hatch_result else ""
@@ -230,8 +252,8 @@ def show_ecosystem_status(hatch_result=None) -> None:
     if not phone:
         phone = os.environ.get("TWILIO_PHONE_NUMBER", "")
     if phone:
-        tag = " (placeholder)" if phone_mock else ""
-        status = "[yellow]Stub[/yellow]" if phone_mock else "[green]Active[/green]"
+        tag = " (local)" if phone_mock else ""
+        status = "[yellow]Local[/yellow]" if phone_mock else "[green]Active[/green]"
         table.add_row("Phone", status, f"{phone}{tag}")
     else:
         table.add_row("Phone", "[dim]Pending[/dim]", "Add Twilio creds to enable")
@@ -245,27 +267,27 @@ def show_ecosystem_status(hatch_result=None) -> None:
     else:
         table.add_row("Certificate", "[dim]Pending[/dim]", "Generated on hatch")
 
-    # ── Windy Word ──
+    # ── Windy Pro ──
+    windy_pro_url = eco.get("windy_pro_url") or os.environ.get("WINDY_API_URL", "")
     windy_jwt = os.environ.get("WINDY_JWT", "")
-    windy_api = os.environ.get("WINDY_API_URL", "")
-    if windy_jwt and windy_api:
-        table.add_row("Windy Word", "[green]Linked[/green]", "Recordings + translations")
+    if windy_pro_url and windy_jwt:
+        table.add_row("Windy Pro", "[green]Linked[/green]", "Recordings + translations")
+    elif windy_pro_url:
+        table.add_row("Windy Pro", "[yellow]Configured[/yellow]", windy_pro_url)
     else:
-        table.add_row("Windy Word", "[dim]N/A[/dim]", "Connect Windy Pro to enable")
+        table.add_row("Windy Pro", "[dim]N/A[/dim]", "Set ecosystem.windy_pro_url to connect")
 
     # ── Windy Cloud ──
-    cloud_url = os.environ.get("WINDY_CLOUD_URL", "")
+    cloud_url = eco.get("windy_cloud_url") or os.environ.get("WINDY_CLOUD_URL", "")
     if cloud_url:
         table.add_row("Windy Cloud", "[green]Linked[/green]", "Backup + sync available")
     else:
-        table.add_row("Windy Cloud", "[dim]N/A[/dim]", "Set WINDY_CLOUD_URL to enable")
-
-    # ── Windy Clone ──
-    if windy_jwt and windy_api:
-        table.add_row("Windy Clone", "[yellow]N/A[/yellow]", "Voice clone service available")
-    else:
-        table.add_row("Windy Clone", "[dim]N/A[/dim]", "Connect Windy Pro to enable")
+        table.add_row("Windy Cloud", "[dim]N/A[/dim]", "Set ecosystem.windy_cloud_url to enable")
 
     console.print()
+    if not has_real_services:
+        console.print("  [yellow]\u26a0\ufe0f  Running in local mode (no ecosystem services configured)[/yellow]")
+        console.print("  [dim]Set URLs in windyfly.toml [ecosystem] section to connect to real services[/dim]")
+        console.print()
     console.print(table)
     console.print()

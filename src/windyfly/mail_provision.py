@@ -13,6 +13,7 @@ async def provision_mail(
     eternitas_passport: str,
     owner_id: str,
     windy_identity_id: str = "",
+    config: dict | None = None,
 ) -> dict | None:
     """Provision a Windy Mail inbox for a newly hatched agent.
 
@@ -22,7 +23,11 @@ async def provision_mail(
     Returns connection details dict on success, None on skip/failure.
     Mirrors the pattern of matrix_provision.py — never blocks hatch on failure.
     """
-    api_url = os.environ.get("WINDYMAIL_API_URL", "https://api.windymail.ai")
+    api_url = ""
+    if config:
+        api_url = config.get("ecosystem", {}).get("windy_mail_url", "")
+    if not api_url:
+        api_url = os.environ.get("WINDYMAIL_API_URL", "https://api.windymail.ai")
     service_token = os.environ.get("WINDYMAIL_PROVISION_SERVICE_TOKEN") or os.environ.get("WINDYMAIL_SERVICE_TOKEN")
 
     if not service_token:

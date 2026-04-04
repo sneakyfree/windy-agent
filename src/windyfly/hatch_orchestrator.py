@@ -97,13 +97,13 @@ async def orchestrate_hatch(
         logger.debug("Hardware spec collection failed: %s", e)
 
     # Step 1: Eternitas registration (must complete before others)
-    await _step_eternitas(result, agent_name, owner_id, owner_name, db)
+    await _step_eternitas(result, agent_name, owner_id, owner_name, db, config)
 
     # Steps 2/3/4: Concurrent provisioning
     await asyncio.gather(
-        _step_matrix(result),
-        _step_mail(result, agent_name, db, owner_id),
-        _step_phone(result, agent_name, db),
+        _step_matrix(result, config),
+        _step_mail(result, agent_name, db, owner_id, config),
+        _step_phone(result, agent_name, db, config),
         return_exceptions=True,
     )
 
@@ -128,13 +128,14 @@ async def _step_eternitas(
     owner_id: str,
     owner_name: str,
     db,
+    config: dict | None = None,
 ) -> None:
     """Register with Eternitas and get a passport."""
     try:
         from windyfly.eternitas.provision import get_eternitas_client
         from windyfly.eternitas.models import RegistrationRequest
 
-        client = get_eternitas_client(db=db)
+        client = get_eternitas_client(db=db, config=config)
         passport = await client.register(
             RegistrationRequest(
                 name=agent_name,
@@ -156,12 +157,12 @@ async def _step_eternitas(
         logger.warning("Hatch: Eternitas registration failed: %s", exc)
 
 
-async def _step_matrix(result: HatchResult) -> None:
+async def _step_matrix(result: HatchResult, config: dict | None = None) -> None:
     """Provision Matrix bot for Windy Chat."""
     try:
         from windyfly.matrix_provision import provision_matrix
 
-        mr = provision_matrix()
+        mr = provision_matrix(config=config)
         if mr.success:
             result.matrix_user_id = mr.user_id
             result.matrix_homeserver = mr.homeserver
@@ -174,28 +175,49 @@ async def _step_matrix(result: HatchResult) -> None:
         logger.warning("Hatch: Matrix provisioning failed: %s", exc)
 
 
-async def _step_mail(result: HatchResult, agent_name: str, db, owner_id: str = "") -> None:
+async def _step_mail(result: HatchResult, agent_name: str, db, owner_id: str = "", config: dict | None = None) -> None:
     """Provision Windy Mail inbox."""
     try:
-        from windyfly.mail_mock import MockMailServer
+        # Check if a real mail URL is explicitly configured in the config file
+        mail_url = config.get("ecosystem", {}).get("windy_mail_url", "") if config else ""
 
-        # Use mock mail server for local development
+        # If a real URL is set in config → use real provisioning
+        if mail_url and not mail_url.startswith("mock"):
+            from windyfly.mail_provision import provision_mail
+
+            mail_result = await provision_mail(
+                agent_name, result.passport_id, owner_id,
+                windy_identity_id=os.environ.get("WINDY_IDENTITY_ID", owner_id),
+                config=config,
+            )
+            if mail_result:
+                result.email_address = mail_result.get("email", "")
+                result.mail_provisioned = True
+                logger.info("Hatch: Mail provisioned as %s", result.email_address)
+            else:
+                result.errors.append("Mail: provisioning failed (service unavailable)")
+            return
+
+        # Use mock mail server for local development when db is available
         if db is not None:
+            from windyfly.mail_mock import MockMailServer
+
             server = MockMailServer(db)
             mail_result = await server.provision_inbox(
                 agent_name, result.passport_id
             )
             result.email_address = mail_result["email"]
             result.mail_provisioned = True
-            logger.info("Hatch: Mail provisioned as %s", result.email_address)
+            logger.info("Hatch: Mail provisioned as %s (mock)", result.email_address)
             return
 
-        # Try real mail provisioning
+        # No config URL and no db — try real provisioning via env var as fallback
         from windyfly.mail_provision import provision_mail
 
         mail_result = await provision_mail(
             agent_name, result.passport_id, owner_id,
             windy_identity_id=os.environ.get("WINDY_IDENTITY_ID", owner_id),
+            config=config,
         )
         if mail_result:
             result.email_address = mail_result.get("email", "")
@@ -208,12 +230,12 @@ async def _step_mail(result: HatchResult, agent_name: str, db, owner_id: str = "
         logger.warning("Hatch: Mail provisioning failed: %s", exc)
 
 
-async def _step_phone(result: HatchResult, agent_name: str, db) -> None:
+async def _step_phone(result: HatchResult, agent_name: str, db, config: dict | None = None) -> None:
     """Provision phone number."""
     try:
         from windyfly.phone_provision import provision_phone
 
-        pr = await provision_phone(result.passport_id, agent_name, db=db)
+        pr = await provision_phone(result.passport_id, agent_name, db=db, config=config)
         if pr.success:
             result.phone_number = pr.phone_number
             result.phone_provisioned = True
