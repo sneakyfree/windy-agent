@@ -36,8 +36,8 @@ def _make_config() -> dict:
             "epistemic_strictness": 5,
         },
         "matrix": {
-            "homeserver": "https://chat.windypro.com",
-            "bot_user": "@windyfly:chat.windypro.com",
+            "homeserver": "https://chat.windyword.ai",
+            "bot_user": "@windyfly:chat.windyword.ai",
         },
     }
 
@@ -59,11 +59,11 @@ class TestMessageFormatContract:
         bot.client.room_send = AsyncMock()
 
         room = MagicMock()
-        room.room_id = "!contract:chat.windypro.com"
+        room.room_id = "!contract:chat.windyword.ai"
         room.user_name.return_value = "ContractUser"
 
         event = MagicMock()
-        event.sender = "@user:chat.windypro.com"
+        event.sender = "@user:chat.windyword.ai"
         event.body = "What's the weather?"
         event.server_timestamp = time.time() * 1000
         event.source = {"content": {}}
@@ -74,7 +74,7 @@ class TestMessageFormatContract:
         call_args = bot.client.room_send.call_args[0]
 
         # First arg: room_id
-        assert call_args[0] == "!contract:chat.windypro.com"
+        assert call_args[0] == "!contract:chat.windyword.ai"
         # Second arg: event type
         assert call_args[1] == "m.room.message"
 
@@ -99,10 +99,10 @@ class TestMessageFormatContract:
         bot.client.room_send = AsyncMock()
 
         room = MagicMock()
-        room.room_id = "!welcome:chat.windypro.com"
+        room.room_id = "!welcome:chat.windyword.ai"
 
         event = MagicMock()
-        event.state_key = "@windyfly:chat.windypro.com"
+        event.state_key = "@windyfly:chat.windyword.ai"
 
         await bot._on_invite(room, event)
 
@@ -176,7 +176,7 @@ class TestBotIdentityContract:
         del config["matrix"]["bot_user"]
 
         bot = WindyFlyMatrixBot(config, db, wq)
-        assert bot.bot_user_id == "@windyfly:chat.windypro.com"
+        assert bot.bot_user_id == "@windyfly:chat.windyword.ai"
         db.close()
 
     def test_custom_homeserver(self):
@@ -202,7 +202,7 @@ class TestBotIdentityContract:
         await bot.login()
 
         assert bot.client.access_token == "tok123"
-        assert bot.client.user_id == "@windyfly:chat.windypro.com"
+        assert bot.client.user_id == "@windyfly:chat.windyword.ai"
         db.close()
 
     @pytest.mark.asyncio

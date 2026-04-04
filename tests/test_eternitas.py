@@ -139,7 +139,7 @@ class TestRevocation:
 
         # Add some services
         await client.update_services(passport.passport_id, {
-            "matrix": "@cascade-fly:chat.windypro.com",
+            "matrix": "@cascade-fly:chat.windyword.ai",
             "mail": "cascade-fly@windymail.ai",
             "phone": "+15550001234",
         })
@@ -164,7 +164,7 @@ class TestUpdateServices:
         passport = await client.register(req)
 
         updated = await client.update_services(passport.passport_id, {
-            "matrix": "@service-fly:chat.windypro.com",
+            "matrix": "@service-fly:chat.windyword.ai",
         })
         assert "matrix" in updated.provisioned_services
 

@@ -120,7 +120,7 @@ Additional controls:
 3. Eternitas registration happens automatically — bot gets passport, credentials, birth certificate
 4. Windy Mail inbox provisioned (`agentname@windymail.ai`)
 5. Twilio phone number assigned from Windy-managed pool
-6. Windy Chat identity provisioned on chat.windypro.com
+6. Windy Chat identity provisioned on chat.windyword.ai
 7. Agent hatches with "IT'S ALIVE!" ceremony
 8. User receives SMS from the bot's own phone number with Windy Chat download link
 9. User opens Chat, agent is already there, already chatting
@@ -380,7 +380,7 @@ She gets an SMS from her agent's own phone number with a link. Downloads the app
 - Windy Mail (owned inbox)
 - Eternitas auto-registration
 - Birth certificate generation
-- Auto-provisioned Matrix bot on chat.windypro.com
+- Auto-provisioned Matrix bot on chat.windyword.ai
 - The "Born Into the Windy Ecosystem" panel
 - The SMS-on-hatch with app download link
 - Assigned phone number from Windy pool
@@ -403,7 +403,7 @@ Every business that deploys a Windy Fly agent for their customers is putting tho
 The following pieces are production-ready:
 
 1. **Matrix auto-provisioning** — `matrix_provision.py` in windy-agent repo
-2. **Synapse homeserver** — running at `chat.windypro.com` (K1)
+2. **Synapse homeserver** — running at `chat.windyword.ai` (K1)
 3. **Chat onboarding service** — running at port 8101 (K2)
 4. **Push notification gateway** — FCM + APNs at port 8103 (K6)
 5. **Contact discovery** — Signal-style hash matching at port 8102 (K3)
@@ -418,7 +418,7 @@ What remains to build:
 - Twilio number assignment from pool
 - Chat onboarding service call to provision the user
 - SMS via bot's own Twilio number with Windy Chat app download link
-- Bot auto-joins user's DM room on chat.windypro.com
+- Bot auto-joins user's DM room on chat.windyword.ai
 - Birth certificate generation (digital — immediate)
 - Birth certificate printing + mailing (physical — queued)
 

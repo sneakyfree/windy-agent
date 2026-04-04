@@ -18,7 +18,7 @@ class TestFormatHatchSMS:
 
     def test_default_url(self):
         msg = format_hatch_sms("Fly")
-        assert "windypro.thewindstorm.uk" in msg
+        assert "windyword.ai" in msg
 
     def test_its_alive(self):
         msg = format_hatch_sms("Fly")

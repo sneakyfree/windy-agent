@@ -137,7 +137,7 @@ async function handleRequest(req: Request): Promise<Response> {
 
   // CORS headers — allow dashboard + local dev
   const allowedOrigins = [
-    "https://windypro.thewindstorm.uk",
+    "https://windyword.ai",
     "http://localhost:5173",
     "http://localhost:8098",
     "http://localhost:3000",
@@ -1093,8 +1093,8 @@ async function handleRequest(req: Request): Promise<Response> {
           "LOG_LEVEL=INFO",
           "",
           "# Matrix / Windy Chat (optional)",
-          "MATRIX_HOMESERVER=https://chat.windypro.com",
-          "MATRIX_BOT_USER=@windyfly:chat.windypro.com",
+          "MATRIX_HOMESERVER=https://chat.windyword.ai",
+          "MATRIX_BOT_USER=@windyfly:chat.windyword.ai",
           "MATRIX_BOT_TOKEN=",
           "MATRIX_BOT_PASSWORD=",
           "",
@@ -1134,8 +1134,8 @@ daily_budget_usd = 5.0
 warn_at_usd = 0.50
 
 [matrix]
-homeserver = "https://chat.windypro.com"
-bot_user = "@windyfly:chat.windypro.com"
+homeserver = "https://chat.windyword.ai"
+bot_user = "@windyfly:chat.windyword.ai"
 
 [windy_api]
 base_url = "http://localhost:8098"

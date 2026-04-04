@@ -886,6 +886,12 @@ def _register_budget_through_help():
     _r("calendar", "Show calendar events", "08a_tools", cmd_calendar,
        aliases=["cal", "schedule", "events"], usage="calendar [today|week]")
 
+    async def cmd_capabilities(ctx):
+        from windyfly.agent.capabilities import HELP_TEXT
+        return HELP_TEXT
+    _r("capabilities", "What can your agent do?", "08a_tools", cmd_capabilities,
+       aliases=["whatcanyoudo", "abilities"])
+
     # ═══════════════════════════════════════════════════════════════
     # IDENTITY & ECOSYSTEM (77-86)
     # ═══════════════════════════════════════════════════════════════

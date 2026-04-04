@@ -1,12 +1,12 @@
 """Matrix bot auto-provisioning for Windy Fly.
 
-Registers ``@windyfly:chat.windypro.com`` on the Synapse homeserver
+Registers ``@windyfly:chat.windyword.ai`` on the Synapse homeserver
 using the admin registration API + shared secret.  Called during
 ``windy go`` / ``windy init`` so the user never touches Matrix config.
 
 Requires:
     SYNAPSE_REGISTRATION_SECRET — shared secret from Synapse homeserver
-    MATRIX_HOMESERVER           — homeserver URL (default: https://chat.windypro.com)
+    MATRIX_HOMESERVER           — homeserver URL (default: https://chat.windyword.ai)
 
 If the secret is not available (e.g., user is running their own Synapse
 or using a different homeserver), this gracefully skips and the user
@@ -60,7 +60,7 @@ def provision_matrix_bot(
     import httpx
 
     homeserver = homeserver or os.environ.get(
-        "MATRIX_HOMESERVER", "https://chat.windypro.com"
+        "MATRIX_HOMESERVER", "https://chat.windyword.ai"
     )
     secret = registration_secret or os.environ.get("SYNAPSE_REGISTRATION_SECRET", "")
 
@@ -194,7 +194,7 @@ def provision_matrix(
     if not hs:
         hs = os.environ.get("MATRIX_HOMESERVER", "")
     if not hs:
-        hs = config.get("matrix", {}).get("homeserver", "https://chat.windypro.com") if config else "https://chat.windypro.com"
+        hs = config.get("matrix", {}).get("homeserver", "https://chat.windyword.ai") if config else "https://chat.windyword.ai"
     raw = provision_matrix_bot(
         homeserver=hs,
         bot_username=bot_username,

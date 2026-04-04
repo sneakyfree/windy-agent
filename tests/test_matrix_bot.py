@@ -37,8 +37,8 @@ def _make_config() -> dict:
             "epistemic_strictness": 5,
         },
         "matrix": {
-            "homeserver": "https://chat.windypro.com",
-            "bot_user": "@windyfly:chat.windypro.com",
+            "homeserver": "https://chat.windyword.ai",
+            "bot_user": "@windyfly:chat.windyword.ai",
         },
     }
 
@@ -49,7 +49,7 @@ class TestMatrixBotInit:
         wq = WriteQueue()
         config = _make_config()
         bot = WindyFlyMatrixBot(config, db, wq)
-        assert bot.bot_user_id == "@windyfly:chat.windypro.com"
+        assert bot.bot_user_id == "@windyfly:chat.windyword.ai"
         assert bot.client is not None
         db.close()
 
@@ -108,11 +108,11 @@ class TestMatrixBotMessage:
         bot = WindyFlyMatrixBot(config, db, wq)
 
         room = MagicMock()
-        room.room_id = "!test:chat.windypro.com"
+        room.room_id = "!test:chat.windyword.ai"
         room.user_name.return_value = "Windy Fly"
 
         event = MagicMock()
-        event.sender = "@windyfly:chat.windypro.com"  # Self
+        event.sender = "@windyfly:chat.windyword.ai"  # Self
         event.body = "Hello"
         event.server_timestamp = time.time() * 1000
 
@@ -129,10 +129,10 @@ class TestMatrixBotMessage:
         bot = WindyFlyMatrixBot(config, db, wq)
 
         room = MagicMock()
-        room.room_id = "!test:chat.windypro.com"
+        room.room_id = "!test:chat.windyword.ai"
 
         event = MagicMock()
-        event.sender = "@user:chat.windypro.com"
+        event.sender = "@user:chat.windyword.ai"
         event.body = "Old message"
         event.server_timestamp = (time.time() - 60) * 1000  # 60 seconds old
 
@@ -153,11 +153,11 @@ class TestMatrixBotMessage:
         bot.client.room_send = AsyncMock()
 
         room = MagicMock()
-        room.room_id = "!test:chat.windypro.com"
+        room.room_id = "!test:chat.windyword.ai"
         room.user_name.return_value = "TestUser"
 
         event = MagicMock()
-        event.sender = "@user:chat.windypro.com"
+        event.sender = "@user:chat.windyword.ai"
         event.body = "Hey there!"
         event.server_timestamp = time.time() * 1000
         event.source = {"content": {"windy_lang": "en"}}
@@ -216,14 +216,14 @@ class TestMatrixBotInvite:
         bot.client.room_send = AsyncMock()
 
         room = MagicMock()
-        room.room_id = "!newroom:chat.windypro.com"
+        room.room_id = "!newroom:chat.windyword.ai"
 
         event = MagicMock()
-        event.state_key = "@windyfly:chat.windypro.com"
+        event.state_key = "@windyfly:chat.windyword.ai"
 
         await bot._on_invite(room, event)
 
-        bot.client.join.assert_called_once_with("!newroom:chat.windypro.com")
+        bot.client.join.assert_called_once_with("!newroom:chat.windyword.ai")
         # Welcome message sent
         bot.client.room_send.assert_called_once()
         welcome_content = bot.client.room_send.call_args[0][2]

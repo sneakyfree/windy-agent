@@ -336,7 +336,7 @@ async def _step_hatch_email(result: HatchResult) -> None:
             agent_phone=result.phone_number,
             model_id=result.model_id,
             hatch_time=datetime.now(timezone.utc).strftime("%B %d, %Y at %H:%M UTC"),
-            dashboard_url="https://windypro.thewindstorm.uk/app/fly",
+            dashboard_url="https://windyword.ai/app/fly",
             certificate_number=result.certificate_number,
             neural_fingerprint=result.neural_fingerprint,
         )

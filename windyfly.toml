@@ -21,24 +21,25 @@ reasoning_depth = 6
 autonomy = 3
 epistemic_strictness = 5
 warmth = 9
+auto_checkin = false        # Daily check-in with to-do summary (opt-in)
 
 [costs]
 daily_budget_usd = 5.0
 warn_at_usd = 0.50
 
 [matrix]
-homeserver = "https://chat.windypro.com"
-bot_user = "@windyfly:chat.windypro.com"
+homeserver = "https://chat.windyword.ai"
+bot_user = "@windyfly:chat.windyword.ai"
 
 [windy_api]
 base_url = "http://localhost:8098"
 
 [ecosystem]
-eternitas_url = "https://api.eternitas.ai"
+eternitas_url = "https://eternitas.ai"
 windy_mail_url = "https://api.windymail.ai"
-matrix_homeserver = "https://chat.windypro.com"
-windy_cloud_url = "https://cloud.windyfly.ai"
-windy_pro_url = "https://account.windypro.com"
+matrix_homeserver = "https://chat.windyword.ai"
+windy_cloud_url = "https://cloud.windyword.ai"
+windy_pro_url = "https://windyword.ai"
 
 [cloud]
 auto_backup = true

@@ -99,7 +99,7 @@ def format_hatch_email(
         agent_phone=agent_phone or "Not assigned",
         model_id=model_id or "gpt-4o-mini",
         hatch_time=hatch_time or "Just now",
-        dashboard_url=dashboard_url or "https://windypro.thewindstorm.uk/app/fly",
+        dashboard_url=dashboard_url or "https://windyword.ai/app/fly",
         certificate_number=certificate_number or "Pending",
         neural_fingerprint=neural_fingerprint or "Pending",
     )

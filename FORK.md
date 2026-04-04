@@ -65,7 +65,7 @@ src/windyfly/
 ├── tools/
 │   └── windy_api.py    # Windy Pro API tools (translate, recordings, clone)
 ├── hatching.py          # "IT'S ALIVE!" ceremony + Born Into display
-└── matrix_provision.py  # Auto-provision Matrix bot on chat.windypro.com
+└── matrix_provision.py  # Auto-provision Matrix bot on chat.windyword.ai
 
 SOUL.md                  # Windy Fly's specific identity/soul
 RIBOSOME_BLUEPRINT.md    # Windy ecosystem integration blueprint
@@ -91,11 +91,11 @@ startup chime.  It stays forever.  It cannot be disabled.
 |---------|-------|-----------|
 | Hatching ceremony | "IT'S ALIVE!" (same) | "IT'S ALIVE!" (same) |
 | Post-hatch status | "HiFly Status" panel | "Born Into the Windy Ecosystem" panel |
-| `[matrix]` section | Optional | Pre-configured for chat.windypro.com |
+| `[matrix]` section | Optional | Pre-configured for chat.windyword.ai |
 | `MATRIX_BOT_*` env vars | User-supplied | Auto-provisioned |
 | `WINDY_API_URL` | Not present | http://localhost:8098 |
 | `WINDY_JWT` | Not present | Auto-obtained |
-| Default bot user | None | @windyfly:chat.windypro.com |
+| Default bot user | None | @windyfly:chat.windyword.ai |
 
 ## How to Maintain the Fork
 

@@ -74,6 +74,25 @@ def agent_respond(
     # 1. Assemble prompt
     messages = assemble_prompt(config, db, user_message, session_id)
 
+    # 1.1. First interaction magic
+    from windyfly.agent.first_interaction import (
+        is_first_interaction,
+        mark_first_interaction_done,
+        get_first_interaction_prompt,
+        should_nudge_capabilities,
+        mark_capabilities_nudged,
+        get_capability_nudge,
+    )
+
+    if is_first_interaction(db):
+        first_prompt = get_first_interaction_prompt(user_message, config)
+        if first_prompt:
+            messages.insert(1, {"role": "system", "content": first_prompt})
+        mark_first_interaction_done(db)
+    elif should_nudge_capabilities(db):
+        messages.insert(1, {"role": "system", "content": get_capability_nudge()})
+        mark_capabilities_nudged(db)
+
     # 1.5. Friction detection (Never Wrong Twice)
     from windyfly.agent.failure_detector import detect_friction, handle_friction
 

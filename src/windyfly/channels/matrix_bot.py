@@ -1,6 +1,6 @@
 """Matrix/Synapse bot channel for Windy Fly.
 
-Connects to the Synapse homeserver as @windyfly:chat.windypro.com,
+Connects to the Synapse homeserver as @windyfly:chat.windyword.ai,
 handles DMs (including E2E encrypted rooms), auto-accepts invites,
 shows typing indicators and presence.
 
@@ -57,8 +57,8 @@ class WindyFlyMatrixBot(ChannelAdapter):
         self.tool_registry = tool_registry
 
         matrix_config = config.get("matrix", {})
-        homeserver = matrix_config.get("homeserver", "https://chat.windypro.com")
-        bot_user = matrix_config.get("bot_user", "@windyfly:chat.windypro.com")
+        homeserver = matrix_config.get("homeserver", "https://chat.windyword.ai")
+        bot_user = matrix_config.get("bot_user", "@windyfly:chat.windyword.ai")
 
         self.bot_user_id = bot_user
 

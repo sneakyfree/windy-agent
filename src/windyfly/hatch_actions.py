@@ -20,7 +20,7 @@ HATCH_SMS_TEMPLATE = (
     "— Powered by Windy Fly"
 )
 
-DEFAULT_DASHBOARD_URL = "https://windypro.thewindstorm.uk/app/fly"
+DEFAULT_DASHBOARD_URL = "https://windyword.ai/app/fly"
 
 
 def format_hatch_sms(

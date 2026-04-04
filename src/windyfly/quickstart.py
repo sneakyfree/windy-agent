@@ -203,8 +203,8 @@ def write_quick_config(
         "LOG_LEVEL=INFO",
         "",
         "# Matrix / Windy Chat (optional)",
-        "MATRIX_HOMESERVER=https://chat.windypro.com",
-        "MATRIX_BOT_USER=@windyfly:chat.windypro.com",
+        "MATRIX_HOMESERVER=https://chat.windyword.ai",
+        "MATRIX_BOT_USER=@windyfly:chat.windyword.ai",
         "MATRIX_BOT_TOKEN=",
         "MATRIX_BOT_PASSWORD=",
         "",
@@ -246,8 +246,8 @@ daily_budget_usd = 5.0
 warn_at_usd = 0.50
 
 [matrix]
-homeserver = "https://chat.windypro.com"
-bot_user = "@windyfly:chat.windypro.com"
+homeserver = "https://chat.windyword.ai"
+bot_user = "@windyfly:chat.windyword.ai"
 
 [windy_api]
 base_url = "http://localhost:8098"
@@ -694,7 +694,7 @@ def _try_hatch_provisioning() -> None:
         if result.hatch_email_sent:
             console.print(f"  [green]✓[/green] 📧  Birth email sent to {owner_email}")
 
-        console.print("  [green]✓[/green] 🌐  Dashboard: https://windypro.thewindstorm.uk/app/fly")
+        console.print("  [green]✓[/green] 🌐  Dashboard: https://windyword.ai/app/fly")
 
         if result.errors:
             for err in result.errors:

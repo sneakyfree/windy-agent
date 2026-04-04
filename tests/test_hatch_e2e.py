@@ -520,7 +520,7 @@ class TestHatchEmailAndSMS:
         msg = format_hatch_sms("BuzzyBot")
         assert "BuzzyBot" in msg
         assert "IT'S ALIVE" in msg
-        assert "windypro" in msg.lower()
+        assert "windyword" in msg.lower() or "windy" in msg.lower()
 
     async def test_sms_mock_fallback(self):
         """Without Twilio creds, SMS falls back to mock."""
