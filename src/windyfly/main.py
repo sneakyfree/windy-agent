@@ -26,6 +26,8 @@ def _start_decay_scheduler(
     db_path: str,
 ) -> threading.Thread:
     """Start a daemon thread that runs cognitive decay every 24 hours."""
+    import asyncio
+
     from windyfly.memory.database import Database
     from windyfly.memory.decay import run_decay
     from windyfly.memory.write_queue import WriteQueue
@@ -36,7 +38,7 @@ def _start_decay_scheduler(
         decay_db = Database(db_path)
         decay_wq = WriteQueue()
         decay_wq.start()
-        logger.info("Decay + drift scheduler started (interval: 24h)")
+        logger.info("Decay + drift + backup scheduler started (interval: 24h)")
         while True:
             try:
                 counts = run_decay(decay_db, decay_wq, config)
@@ -51,6 +53,14 @@ def _start_decay_scheduler(
                     logger.info("Drift check complete: no drift detected")
             except Exception as e:
                 logger.error("Drift check failed: %s", e)
+            # Cloud backup check
+            try:
+                from windyfly.cloud_backup import run_backup_if_due
+                result = asyncio.run(run_backup_if_due(config))
+                if result and not result.get("success"):
+                    logger.warning("Scheduled backup failed: %s", result.get("error"))
+            except Exception as e:
+                logger.debug("Backup check failed: %s", e)
             time.sleep(_DECAY_INTERVAL_SECONDS)
 
     t = threading.Thread(target=_decay_loop, daemon=True, name="decay-scheduler")
