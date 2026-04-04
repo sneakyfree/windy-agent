@@ -80,7 +80,58 @@ function isLocalhostRequest(req: Request): boolean {
   return host === "localhost" || host === "127.0.0.1" || host === "::1";
 }
 
+// Dashboard authentication for VPS-deployed agents
+const DASHBOARD_PASSWORD = process.env.DASHBOARD_PASSWORD || "";
+
+function checkDashboardAuth(req: Request): Response | null {
+  // No auth needed for localhost
+  if (isLocalhostRequest(req)) return null;
+  // No auth needed if no password configured
+  if (!DASHBOARD_PASSWORD) return null;
+  // Health endpoint is always public
+  const url = new URL(req.url);
+  if (url.pathname === "/api/health") return null;
+
+  const authHeader = req.headers.get("Authorization") || "";
+  const cookie = req.headers.get("Cookie") || "";
+
+  // Check Bearer token
+  if (authHeader === `Bearer ${DASHBOARD_PASSWORD}`) return null;
+
+  // Check session cookie
+  if (cookie.includes(`windy_auth=${DASHBOARD_PASSWORD}`)) return null;
+
+  // Check query param (for initial login)
+  if (url.searchParams.get("auth") === DASHBOARD_PASSWORD) {
+    // Set cookie and redirect to clean URL
+    url.searchParams.delete("auth");
+    return new Response(null, {
+      status: 302,
+      headers: {
+        "Location": url.pathname + url.search,
+        "Set-Cookie": `windy_auth=${DASHBOARD_PASSWORD}; Path=/; HttpOnly; SameSite=Strict; Max-Age=86400`,
+      },
+    });
+  }
+
+  // Unauthorized — return login prompt
+  return new Response(
+    `<!DOCTYPE html><html><head><title>Windy Fly</title>
+    <style>body{background:#0a0e17;color:#e2e8f0;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;font-family:system-ui}
+    form{text-align:center}input{padding:12px 16px;border-radius:8px;border:1px solid #1e293b;background:#111827;color:#e2e8f0;margin:8px 0;width:250px}
+    button{padding:12px 24px;border-radius:8px;border:none;background:#00d4ff;color:#000;font-weight:600;cursor:pointer;margin-top:8px}</style></head>
+    <body><form method="GET"><div style="font-size:2rem;margin-bottom:16px">🪰</div><div>Windy Fly Dashboard</div>
+    <input type="password" name="auth" placeholder="Dashboard password" autofocus/>
+    <br/><button type="submit">Log In</button></form></body></html>`,
+    { status: 401, headers: { "Content-Type": "text/html" } }
+  );
+}
+
 async function handleRequest(req: Request): Promise<Response> {
+  // Auth check for VPS deployments
+  const authResponse = checkDashboardAuth(req);
+  if (authResponse) return authResponse;
+
   const url = new URL(req.url);
   const path = url.pathname;
 
@@ -97,7 +148,7 @@ async function handleRequest(req: Request): Promise<Response> {
     "Content-Type": "application/json",
     "Access-Control-Allow-Origin": corsOrigin,
     "Access-Control-Allow-Methods": "GET, PUT, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
   };
 
   // Preflight

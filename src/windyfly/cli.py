@@ -224,11 +224,28 @@ def cmd_start(args: argparse.Namespace) -> None:
     console.print("  [cyan]Gateway log:[/cyan]  data/gateway.log")
     console.print()
 
+    # Dashboard URL + auto-open browser
+    dashboard_url = "http://localhost:3000"
+    if gateway_pid:
+        console.print(f"  [bold cyan]🌐 Dashboard:[/bold cyan]  {dashboard_url}")
+        console.print("  [bold cyan]💬 Chat:[/bold cyan]       Open Windy Chat or visit the dashboard")
+        console.print()
+        agent_name = os.environ.get("WINDYFLY_AGENT_NAME", "Windy Fly")
+        console.print(f"  Your agent [bold]{agent_name}[/bold] is waiting to chat with you.")
+        console.print()
+        no_browser = getattr(args, "no_browser", False)
+        if not no_browser:
+            try:
+                webbrowser.open(dashboard_url)
+            except Exception:
+                pass
+
     if daemon:
         console.print("  [bold green]Windy Fly is running in the background.[/bold green]")
         console.print("  Run [bold]windy stop[/bold] to shut down.")
         console.print("  Run [bold]windy logs --follow[/bold] to watch logs.")
     else:
+        console.print("  (Or type here to chat in the terminal)")
         console.print("  Run [bold]windy stop[/bold] to shut down.")
     console.print()
 
