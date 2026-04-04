@@ -16,12 +16,14 @@
       --bg-card-hover: rgba(255,255,255,0.07);
       --text: #e4e8f0;
       --text-dim: #7b8494;
-      --accent: #00d4aa;
-      --accent-glow: rgba(0,212,170,0.15);
+      --accent: #00d4ff;
+      --accent-glow: rgba(0,212,255,0.15);
+      --accent-gradient: linear-gradient(135deg, #00d4ff, #00b4d8);
       --warning: #ffb347;
       --danger: #ff6b6b;
       --purple: #a78bfa;
       --blue: #60a5fa;
+      --green: #00d4aa;
       --border: rgba(255,255,255,0.06);
       --radius: 12px;
       --font: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
@@ -38,24 +40,25 @@
     /* NAV */
     nav {
       position: sticky; top: 0; z-index: 100;
-      display: flex; align-items: center; gap: 8px;
+      display: flex; align-items: center; gap: 6px;
       padding: 12px 24px;
       background: rgba(10,14,23,0.85);
       backdrop-filter: blur(16px);
       border-bottom: 1px solid var(--border);
+      flex-wrap: wrap;
     }
-    nav .logo { font-size: 1.25rem; font-weight: 700; margin-right: 24px; }
+    nav .logo { font-size: 1.25rem; font-weight: 700; margin-right: 20px; white-space: nowrap; }
     nav .logo span { color: var(--accent); }
     nav button {
       background: none; border: 1px solid transparent; color: var(--text-dim);
-      padding: 6px 16px; border-radius: 8px; cursor: pointer;
+      padding: 6px 14px; border-radius: 8px; cursor: pointer;
       font-family: var(--font); font-size: 0.85rem; font-weight: 500;
-      transition: all 0.2s;
+      transition: all 0.2s; white-space: nowrap;
     }
     nav button:hover { color: var(--text); background: var(--bg-card); }
     nav button.active { color: var(--accent); border-color: var(--accent); background: var(--accent-glow); }
     nav .status { margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: 0.8rem; }
-    nav .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); }
+    nav .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); transition: all 0.3s; }
     nav .dot.connected { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
 
     /* LAYOUT */
@@ -84,6 +87,7 @@
     .card.purple .value { color: var(--purple); }
     .card.blue .value { color: var(--blue); }
     .card.warning .value { color: var(--warning); }
+    .card.green .value { color: var(--green); }
 
     h2 { font-size: 1.1rem; font-weight: 600; margin: 24px 0 12px; color: var(--text-dim); }
     h2:first-child { margin-top: 0; }
@@ -91,6 +95,7 @@
     /* PROGRESS BAR */
     .progress { height: 6px; background: rgba(255,255,255,0.06); border-radius: 3px; overflow: hidden; margin-top: 8px; }
     .progress-fill { height: 100%; border-radius: 3px; transition: width 0.6s ease; }
+    .progress-fill.cyan { background: linear-gradient(90deg, #00d4ff, #00e5ff); }
     .progress-fill.green { background: linear-gradient(90deg, #00d4aa, #00f0c0); }
     .progress-fill.purple { background: linear-gradient(90deg, #a78bfa, #c4b5fd); }
     .progress-fill.warning { background: linear-gradient(90deg, #ffb347, #ffcc80); }
@@ -106,7 +111,9 @@
       display: flex; flex-direction: column; gap: 12px;
     }
     .msg { max-width: 75%; padding: 12px 16px; border-radius: 16px; font-size: 0.9rem; line-height: 1.5; animation: fadeIn 0.3s; }
-    .msg.user { align-self: flex-end; background: linear-gradient(135deg, #00d4aa, #00b894); color: #0a0e17; border-bottom-right-radius: 4px; }
+    .msg .timestamp { font-size: 0.65rem; color: var(--text-dim); margin-top: 4px; display: block; }
+    .msg.user { align-self: flex-end; background: var(--accent-gradient); color: #0a0e17; border-bottom-right-radius: 4px; }
+    .msg.user .timestamp { color: rgba(10,14,23,0.5); }
     .msg.assistant { align-self: flex-start; background: var(--bg-card); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
     .msg.system { align-self: center; color: var(--text-dim); font-size: 0.8rem; font-style: italic; }
     @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
@@ -120,12 +127,12 @@
     }
     #chat-input:focus { border-color: var(--accent); }
     #chat-send {
-      background: linear-gradient(135deg, #00d4aa, #00b894); border: none;
+      background: var(--accent-gradient); border: none;
       padding: 12px 24px; border-radius: 12px; color: #0a0e17;
       font-family: var(--font); font-weight: 600; cursor: pointer;
       transition: transform 0.1s, box-shadow 0.2s;
     }
-    #chat-send:hover { transform: scale(1.02); box-shadow: 0 4px 16px rgba(0,212,170,0.3); }
+    #chat-send:hover { transform: scale(1.02); box-shadow: 0 4px 16px rgba(0,212,255,0.3); }
     #chat-send:active { transform: scale(0.98); }
 
     /* SLIDERS */
@@ -142,7 +149,7 @@
       -webkit-appearance: none; appearance: none;
       width: 18px; height: 18px; border-radius: 50%;
       background: var(--accent); cursor: pointer;
-      box-shadow: 0 0 8px rgba(0,212,170,0.4);
+      box-shadow: 0 0 8px rgba(0,212,255,0.4);
       transition: transform 0.1s;
     }
     input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.2); }
@@ -156,6 +163,82 @@
     }
     .presets button:hover { border-color: var(--accent); color: var(--accent); }
     .presets button.active { background: var(--accent-glow); border-color: var(--accent); color: var(--accent); }
+
+    /* MEMORY */
+    .search-bar {
+      display: flex; gap: 8px; margin-bottom: 20px;
+    }
+    .search-bar input {
+      flex: 1; background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px;
+      padding: 12px 16px; color: var(--text); font-family: var(--font); font-size: 0.9rem;
+      outline: none; transition: border 0.2s;
+    }
+    .search-bar input:focus { border-color: var(--accent); }
+    .search-bar button {
+      background: var(--accent-gradient); border: none;
+      padding: 12px 20px; border-radius: 12px; color: #0a0e17;
+      font-family: var(--font); font-weight: 600; cursor: pointer;
+      transition: transform 0.1s;
+    }
+    .search-bar button:hover { transform: scale(1.02); }
+
+    .memory-item {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 16px; margin-bottom: 10px;
+      transition: all 0.2s;
+    }
+    .memory-item:hover { background: var(--bg-card-hover); border-color: rgba(255,255,255,0.12); }
+    .memory-item .memory-text { font-size: 0.9rem; margin-bottom: 6px; }
+    .memory-item .memory-meta { font-size: 0.72rem; color: var(--text-dim); display: flex; gap: 12px; flex-wrap: wrap; }
+    .memory-item .memory-meta .score { color: var(--accent); font-weight: 600; }
+    .memory-item .memory-meta .scope { color: var(--purple); }
+
+    .moment-item {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 14px; margin-bottom: 8px;
+      transition: all 0.2s; border-left: 3px solid var(--accent);
+    }
+    .moment-item:hover { background: var(--bg-card-hover); }
+    .moment-item .moment-text { font-size: 0.85rem; margin-bottom: 4px; }
+    .moment-item .moment-time { font-size: 0.7rem; color: var(--text-dim); }
+
+    .intent-item {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 14px; margin-bottom: 8px;
+      transition: all 0.2s;
+    }
+    .intent-item:hover { background: var(--bg-card-hover); }
+    .intent-item .intent-goal { font-size: 0.9rem; font-weight: 500; margin-bottom: 4px; }
+    .intent-item .intent-status { font-size: 0.72rem; padding: 2px 8px; border-radius: 6px; display: inline-block; }
+    .intent-item .intent-status.active { background: var(--accent-glow); color: var(--accent); }
+    .intent-item .intent-status.completed { background: rgba(0,212,170,0.12); color: var(--green); }
+
+    /* IDENTITY */
+    .identity-section {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 24px; margin-bottom: 16px;
+    }
+    .identity-section h3 {
+      font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.1em;
+      color: var(--accent); margin-bottom: 16px; font-weight: 600;
+    }
+    .identity-row {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 10px 0; border-bottom: 1px solid var(--border);
+      font-size: 0.9rem;
+    }
+    .identity-row:last-child { border-bottom: none; }
+    .identity-row .label { color: var(--text-dim); font-size: 0.82rem; }
+    .identity-row .value { font-weight: 500; text-align: right; word-break: break-all; max-width: 60%; }
+    .identity-row .value.accent { color: var(--accent); }
+    .identity-row .value.purple { color: var(--purple); }
+
+    .passport-header {
+      text-align: center; padding: 24px 0 16px; border-bottom: 1px solid var(--border); margin-bottom: 16px;
+    }
+    .passport-header .passport-fly { font-size: 3rem; margin-bottom: 8px; }
+    .passport-header .passport-name { font-size: 1.5rem; font-weight: 700; color: var(--accent); }
+    .passport-header .passport-title { font-size: 0.85rem; color: var(--text-dim); margin-top: 4px; }
 
     /* PROVIDERS */
     .provider-card {
@@ -198,7 +281,7 @@
     .key-input-row select { font-family: var(--font); min-width: 80px; flex: 0; }
     .key-input-row input:focus { border-color: var(--accent); }
     .key-input-row button {
-      background: linear-gradient(135deg, #00d4aa, #00b894); border: none;
+      background: var(--accent-gradient); border: none;
       padding: 8px 16px; border-radius: 8px; color: #0a0e17;
       font-family: var(--font); font-weight: 600; font-size: 0.8rem; cursor: pointer;
     }
@@ -229,9 +312,7 @@
     .key-item button.delete:hover { color: var(--danger); background: rgba(255,107,107,0.1); }
 
     /* NOTES */
-    .provider-notes {
-      margin-top: 8px;
-    }
+    .provider-notes { margin-top: 8px; }
     .provider-notes textarea {
       width: 100%; background: rgba(255,255,255,0.03); border: 1px solid var(--border);
       border-radius: 8px; padding: 8px 12px; color: var(--text-dim);
@@ -450,7 +531,7 @@
     .bulk-toolbar {
       display: flex; gap: 8px; align-items: center; margin-bottom: 16px;
       padding: 10px 16px; background: var(--bg-card); border: 1px solid var(--border);
-      border-radius: 10px;
+      border-radius: 10px; flex-wrap: wrap;
     }
     .bulk-toolbar button {
       background: none; border: 1px solid var(--border); color: var(--text-dim);
@@ -469,44 +550,99 @@
     .loading { text-align: center; padding: 48px; color: var(--text-dim); }
     .spinner { display: inline-block; width: 24px; height: 24px; border: 2px solid var(--border); border-top: 2px solid var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* RESPONSIVE */
+    @media (max-width: 640px) {
+      nav { padding: 10px 12px; gap: 4px; }
+      nav .logo { margin-right: 8px; font-size: 1.1rem; }
+      nav button { padding: 5px 10px; font-size: 0.78rem; }
+      .page { padding: 16px; }
+      .grid-4 { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+      .grid-3 { grid-template-columns: 1fr; }
+      .grid-2 { grid-template-columns: 1fr; }
+      .machine-grid { grid-template-columns: 1fr; }
+      .msg { max-width: 90%; }
+      .identity-row { flex-direction: column; gap: 4px; align-items: flex-start; }
+      .identity-row .value { max-width: 100%; text-align: left; }
+    }
   </style>
 </head>
 <body>
 
 <nav>
   <div class="logo">🪰 <span>Windy Fly</span></div>
-  <button class="active" onclick="showPage('dashboard')" id="nav-dashboard">Dashboard</button>
+  <button class="active" onclick="showPage('home')" id="nav-home">Home</button>
+  <button onclick="showPage('personality')" id="nav-personality">Personality</button>
+  <button onclick="showPage('memory')" id="nav-memory">Memory</button>
   <button onclick="showPage('chat')" id="nav-chat">Chat</button>
-  <button onclick="showPage('sliders')" id="nav-sliders">Sliders</button>
+  <button onclick="showPage('identity')" id="nav-identity">Identity</button>
   <button onclick="showPage('providers')" id="nav-providers">Providers</button>
   <button onclick="showPage('machines')" id="nav-machines">Machines</button>
+  <button onclick="showPage('vps')" id="nav-vps">VPS</button>
   <div class="status">
     <div class="dot" id="status-dot"></div>
     <span id="status-text">Connecting...</span>
   </div>
 </nav>
 
-<!-- ========== DASHBOARD ========== -->
-<div class="page active" id="page-dashboard">
-  <h2>📊 Overview</h2>
-  <div class="grid grid-4" id="overview-cards">
+<!-- ========== HOME ========== -->
+<div class="page active" id="page-home">
+  <h2>Agent Status</h2>
+  <div class="grid grid-4" id="home-status-cards">
     <div class="loading"><div class="spinner"></div></div>
   </div>
 
-  <h2>💰 Cost Breakdown</h2>
-  <div class="grid grid-3" id="cost-cards"></div>
+  <h2>Cost Overview</h2>
+  <div class="grid grid-3" id="home-cost-cards">
+    <div class="loading"><div class="spinner"></div></div>
+  </div>
 
-  <h2>🛡️ Failure Analysis</h2>
-  <div class="grid grid-3" id="failure-cards"></div>
+  <h2>Quick Stats</h2>
+  <div class="grid grid-4" id="home-quick-stats"></div>
 
-  <h2>🧩 Skills</h2>
-  <div class="grid grid-2" id="skill-cards"></div>
+  <h2>Skills</h2>
+  <div class="grid grid-2" id="home-skill-cards"></div>
 
-  <h2>🎯 Intents</h2>
-  <div class="grid grid-3" id="intent-cards"></div>
+  <h2>Active Goals</h2>
+  <div class="grid grid-3" id="home-intent-cards"></div>
 
-  <h2>🧬 Personality</h2>
-  <div class="card" id="personality-card"></div>
+  <h2>Personality Snapshot</h2>
+  <div class="card" id="home-personality-card"></div>
+</div>
+
+<!-- ========== PERSONALITY ========== -->
+<div class="page" id="page-personality">
+  <h2>Presets</h2>
+  <div class="presets" id="preset-buttons"></div>
+
+  <h2>Personality Sliders</h2>
+  <p style="font-size:0.8rem;color:var(--text-dim);margin-bottom:16px;">Adjust how your agent thinks and responds. Each slider goes from 0 (minimum) to 10 (maximum).</p>
+  <div id="slider-list"></div>
+
+  <div class="cost-estimate">
+    <div class="label">Estimated Monthly Cost</div>
+    <div class="amount" id="cost-amount">$0.00</div>
+  </div>
+</div>
+
+<!-- ========== MEMORY ========== -->
+<div class="page" id="page-memory">
+  <h2>Search Memories</h2>
+  <div class="search-bar">
+    <input type="text" id="memory-search-input" placeholder="Search for anything your agent remembers..." autocomplete="off">
+    <button onclick="searchMemory()">Search</button>
+  </div>
+  <div id="memory-results"></div>
+
+  <h2>Recent Moments</h2>
+  <div id="memory-moments">
+    <div class="loading"><div class="spinner"></div></div>
+  </div>
+
+  <h2>Active Goals</h2>
+  <div id="memory-intents">
+    <div class="loading"><div class="spinner"></div></div>
+  </div>
 </div>
 
 <!-- ========== CHAT ========== -->
@@ -522,17 +658,28 @@
   </div>
 </div>
 
-<!-- ========== SLIDERS ========== -->
-<div class="page" id="page-sliders">
-  <h2>🎛️ Presets</h2>
-  <div class="presets" id="preset-buttons"></div>
+<!-- ========== IDENTITY ========== -->
+<div class="page" id="page-identity">
+  <div class="identity-section">
+    <div class="passport-header">
+      <div class="passport-fly">🪰</div>
+      <div class="passport-name" id="identity-name">Windy Fly</div>
+      <div class="passport-title" id="identity-title">AI Agent</div>
+    </div>
+    <h3>Eternitas Passport</h3>
+    <div id="identity-passport-rows">
+      <div class="loading"><div class="spinner"></div></div>
+    </div>
+  </div>
 
-  <h2>🎚️ Mixing Board</h2>
-  <div id="slider-list"></div>
+  <div class="identity-section">
+    <h3>Birth Certificate</h3>
+    <div id="identity-birth-rows"></div>
+  </div>
 
-  <div class="cost-estimate">
-    <div class="label">Estimated Monthly Cost</div>
-    <div class="amount" id="cost-amount">$0.00</div>
+  <div class="identity-section">
+    <h3>Contact Information</h3>
+    <div id="identity-contact-rows"></div>
   </div>
 </div>
 
@@ -574,7 +721,7 @@
     </div>
     <div class="form-row">
       <input type="text" id="new-provider-models" placeholder="Models (comma-separated, e.g. llama-3-70b)">
-      <button style="background:linear-gradient(135deg,#00d4aa,#00b894);border:none;padding:8px 20px;border-radius:8px;color:#0a0e17;font-family:var(--font);font-weight:600;cursor:pointer;" onclick="addProvider()">Add Provider</button>
+      <button style="background:var(--accent-gradient);border:none;padding:8px 20px;border-radius:8px;color:#0a0e17;font-family:var(--font);font-weight:600;cursor:pointer;" onclick="addProvider()">Add Provider</button>
     </div>
   </div>
 </div>
@@ -604,7 +751,7 @@
     </div>
     <div class="form-row">
       <input type="text" id="new-machine-tags" placeholder="Tags (comma-separated, e.g. production, gpu)">
-      <button style="background:linear-gradient(135deg,#00d4aa,#00b894);border:none;padding:8px 20px;border-radius:8px;color:#0a0e17;font-family:var(--font);font-weight:600;cursor:pointer;" onclick="addMachine()">Add Machine</button>
+      <button style="background:var(--accent-gradient);border:none;padding:8px 20px;border-radius:8px;color:#0a0e17;font-family:var(--font);font-weight:600;cursor:pointer;" onclick="addMachine()">Add Machine</button>
     </div>
   </div>
 
@@ -613,7 +760,7 @@
   </div>
 
   <div id="no-machines" style="display:none;text-align:center;padding:60px 20px;">
-    <div style="font-size:2.5rem;margin-bottom:12px;">🖥️</div>
+    <div style="font-size:2.5rem;margin-bottom:12px;">&#x1F5A5;&#xFE0F;</div>
     <div style="font-size:1rem;color:var(--text-dim);margin-bottom:8px;">No machines registered yet</div>
     <div style="font-size:0.8rem;color:var(--text-dim);max-width:400px;margin:0 auto;">
       Add a remote machine running the <code style="color:var(--accent);">windy-remote</code> daemon to manage it from here.
@@ -625,7 +772,7 @@
 <!-- ========== COCKPIT (fullscreen machine view) ========== -->
 <div class="cockpit" id="cockpit">
   <div class="cockpit-header">
-    <button class="back-btn" onclick="closeCockpit()">← Back</button>
+    <button class="back-btn" onclick="closeCockpit()">&#8592; Back</button>
     <span class="cockpit-title" id="cockpit-title">Machine</span>
     <span class="cockpit-status" id="cockpit-status"></span>
     <div style="margin-left:auto;display:flex;gap:6px;">
@@ -662,6 +809,36 @@
   </div>
 </div>
 
+<!-- ========== VPS ========== -->
+<div class="page" id="page-vps">
+  <h2>Cloud VPS</h2>
+  <div id="vps-content">
+    <div class="card" id="vps-status-card">
+      <div class="card-label">Instance Status</div>
+      <div id="vps-status-body" style="padding:16px;">
+        <p style="color:var(--text-dim);">Checking VPS status...</p>
+      </div>
+    </div>
+    <div class="grid grid-3" id="vps-info-cards" style="margin-top:20px;display:none;">
+      <div class="card"><div class="card-label">IP Address</div><div class="card-value" id="vps-ip">—</div></div>
+      <div class="card"><div class="card-label">Region</div><div class="card-value" id="vps-region">—</div></div>
+      <div class="card"><div class="card-label">Monthly Cost</div><div class="card-value" id="vps-cost">—</div></div>
+    </div>
+    <div style="margin-top:20px;display:flex;gap:12px;" id="vps-actions">
+      <button onclick="deployVPS()" id="vps-deploy-btn" style="padding:10px 24px;background:var(--accent);color:#000;border:none;border-radius:8px;cursor:pointer;font-weight:600;">Deploy to VPS</button>
+      <button onclick="stopVPS()" id="vps-stop-btn" style="padding:10px 24px;background:#444;color:#fff;border:none;border-radius:8px;cursor:pointer;display:none;">Stop</button>
+      <button onclick="destroyVPS()" id="vps-destroy-btn" style="padding:10px 24px;background:#c0392b;color:#fff;border:none;border-radius:8px;cursor:pointer;display:none;">Destroy</button>
+    </div>
+    <div class="card" style="margin-top:20px;">
+      <div class="card-label">Cloud Backup</div>
+      <div style="padding:16px;">
+        <p>Last backup: <span id="vps-last-backup" style="color:var(--text-dim);">checking...</span></p>
+        <button onclick="runBackup()" style="margin-top:8px;padding:8px 16px;background:var(--accent);color:#000;border:none;border-radius:6px;cursor:pointer;">Backup Now</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- xterm.js from CDN -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
 <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
@@ -674,28 +851,90 @@ const WS_URL = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${win
 let ws = null;
 let sessionId = crypto.randomUUID();
 
+// Cached dashboard data for cross-page use
+let dashboardCache = null;
+
 // ===== NAV =====
 function showPage(name) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
-  document.getElementById(`page-${name}`).classList.add('active');
-  document.getElementById(`nav-${name}`).classList.add('active');
-  if (name === 'dashboard') loadDashboard();
-  if (name === 'sliders') loadSliders();
+  const page = document.getElementById(`page-${name}`);
+  const btn = document.getElementById(`nav-${name}`);
+  if (page) page.classList.add('active');
+  if (btn) btn.classList.add('active');
+  if (name === 'home') loadHome();
+  if (name === 'personality') loadSliders();
+  if (name === 'memory') loadMemoryPage();
+  if (name === 'identity') loadIdentity();
   if (name === 'providers') loadProviders();
   if (name === 'machines') loadMachines();
+  if (name === 'vps') loadVPS();
+}
+
+// ===== VPS =====
+async function loadVPS() {
+  try {
+    // Check local VPS state via dashboard data
+    const r = await fetch('/api/dashboard');
+    const data = r.ok ? await r.json() : {};
+    const vps = data.vps || null;
+    const body = document.getElementById('vps-status-body');
+    const cards = document.getElementById('vps-info-cards');
+    const deployBtn = document.getElementById('vps-deploy-btn');
+    const stopBtn = document.getElementById('vps-stop-btn');
+    const destroyBtn = document.getElementById('vps-destroy-btn');
+    if (vps && vps.status && vps.status !== 'none' && vps.status !== 'terminated') {
+      const icon = vps.status === 'running' ? '\u2705' : vps.status === 'stopped' ? '\u23f8\ufe0f' : '\U0001f504';
+      body.innerHTML = `<p style="font-size:1.2rem;">${icon} <strong>${vps.status}</strong></p>
+        <p style="color:var(--text-dim);margin-top:4px;">Instance: ${vps.instance_id || '—'}</p>
+        <p style="color:var(--text-dim);">Dashboard: <a href="${vps.dashboard_url || '#'}" target="_blank" style="color:var(--accent);">${vps.dashboard_url || '—'}</a></p>
+        <p style="color:var(--text-dim);">SSH: ssh ${vps.ssh_user || 'ubuntu'}@${vps.ip_address || '—'}</p>`;
+      document.getElementById('vps-ip').textContent = vps.ip_address || '—';
+      document.getElementById('vps-region').textContent = vps.region || '—';
+      document.getElementById('vps-cost').textContent = vps.monthly_cost_usd ? `$${vps.monthly_cost_usd}/mo` : '—';
+      cards.style.display = '';
+      deployBtn.style.display = 'none';
+      stopBtn.style.display = vps.status === 'running' ? '' : 'none';
+      destroyBtn.style.display = '';
+    } else {
+      body.innerHTML = '<p style="color:var(--text-dim);">No VPS deployed. Deploy your agent to the cloud for 24/7 availability.</p>';
+      cards.style.display = 'none';
+      deployBtn.style.display = '';
+      stopBtn.style.display = 'none';
+      destroyBtn.style.display = 'none';
+    }
+    // Backup status
+    const backupEl = document.getElementById('vps-last-backup');
+    const backup = data.backup || {};
+    backupEl.textContent = backup.last_backup || 'never';
+  } catch { /* offline */ }
+}
+async function deployVPS() {
+  if (!confirm('Deploy agent to a cloud VPS? This will create an AWS EC2 instance.')) return;
+  const btn = document.getElementById('vps-deploy-btn');
+  btn.textContent = 'Deploying...'; btn.disabled = true;
+  // VPS deploy would call a gateway endpoint — for now show message
+  alert('VPS deployment requires the Windy Cloud service. Use CLI: windy deploy --vps');
+  btn.textContent = 'Deploy to VPS'; btn.disabled = false;
+}
+async function stopVPS() { alert('Use CLI: windy vps stop'); }
+async function destroyVPS() { if (confirm('Destroy VPS? This is irreversible.')) alert('Use CLI: windy vps destroy'); }
+async function runBackup() {
+  const btn = event.target; btn.textContent = 'Backing up...'; btn.disabled = true;
+  alert('Cloud backup requires the Windy Cloud service. Use CLI: windy backup now');
+  btn.textContent = 'Backup Now'; btn.disabled = false;
 }
 
 // ===== HEALTH =====
 async function checkHealth() {
   try {
-    const r = await fetch(`${API}/api/health`);
+    const r = await fetch('/api/health');
     const d = await r.json();
     const dot = document.getElementById('status-dot');
     const txt = document.getElementById('status-text');
     if (d.brain_connected) {
       dot.classList.add('connected');
-      txt.textContent = 'Brain connected';
+      txt.textContent = 'Online';
     } else {
       dot.classList.remove('connected');
       txt.textContent = 'Brain offline';
@@ -706,14 +945,24 @@ async function checkHealth() {
   }
 }
 
-// ===== DASHBOARD =====
-async function loadDashboard() {
+// ===== HOME =====
+async function loadHome() {
   try {
-    const r = await fetch(`${API}/api/dashboard`);
-    const raw = await r.json();
-    const d = raw.dashboard || raw || {};
+    // Fetch dashboard, daily cost, and monthly cost in parallel
+    const [dashRes, dailyRes, monthlyRes] = await Promise.allSettled([
+      fetch('/api/dashboard').then(r => r.json()),
+      fetch('/api/cost/daily').then(r => r.json()),
+      fetch('/api/cost/monthly').then(r => r.json()),
+    ]);
 
-    // Safe defaults for when brain is offline
+    const raw = dashRes.status === 'fulfilled' ? dashRes.value : {};
+    const d = raw.dashboard || raw || {};
+    dashboardCache = d;
+
+    const daily = dailyRes.status === 'fulfilled' ? dailyRes.value : {};
+    const monthly = monthlyRes.status === 'fulfilled' ? monthlyRes.value : {};
+
+    // Safe defaults
     const mem = d.memory || { total_nodes: 0, total_episodes: 0, by_scope: {} };
     const costs = d.costs || { today_usd: 0, this_week_usd: 0, this_month_usd: 0 };
     const fails = d.failures || { unresolved: 0, resolved: 0, improvement_rate: 1 };
@@ -721,58 +970,90 @@ async function loadDashboard() {
     const intents = d.intents || { active: 0, completed: 0, abandoned: 0 };
     const personality = d.personality || { sliders: {}, preset: 'unknown', estimated_monthly_cost: 0 };
 
-    // Overview
-    document.getElementById('overview-cards').innerHTML = `
+    const dailySpend = daily.daily_spend || costs.today_usd || 0;
+    const monthlyTotal = monthly.total_usd || costs.this_month_usd || 0;
+
+    // Determine agent name and brain provider from dashboard data
+    const agentName = d.agent_name || d.name || 'Windy Fly';
+    const brainProvider = d.brain_provider || d.provider || 'Unknown';
+    const brainConnected = d.brain_connected !== undefined ? d.brain_connected : true;
+    const uptime = d.uptime || d.uptime_seconds || null;
+    const uptimeStr = uptime ? formatUptime(uptime) : '--';
+
+    // Status cards
+    document.getElementById('home-status-cards').innerHTML = `
+      <div class="card accent">
+        <h3>Agent</h3>
+        <div class="value" style="font-size:1.4rem;">${agentName}</div>
+        <div class="sub">${brainConnected ? '<span style="color:var(--accent)">Online</span>' : '<span style="color:var(--danger)">Offline</span>'}</div>
+      </div>
+      <div class="card blue">
+        <h3>Brain Provider</h3>
+        <div class="value" style="font-size:1.2rem;">${brainProvider}</div>
+        <div class="sub">AI engine</div>
+      </div>
+      <div class="card accent">
+        <h3>Cost Today</h3>
+        <div class="value">$${Number(dailySpend).toFixed(4)}</div>
+        <div class="sub">Monthly: $${Number(monthlyTotal).toFixed(2)}</div>
+      </div>
+      <div class="card purple">
+        <h3>Uptime</h3>
+        <div class="value" style="font-size:1.4rem;">${uptimeStr}</div>
+        <div class="sub">Since last restart</div>
+      </div>
+    `;
+
+    // Cost breakdown
+    const byModel = monthly.by_model || {};
+    const modelRows = Object.entries(byModel).map(([model, usd]) =>
+      `<div class="card"><h3>${model}</h3><div class="value" style="font-size:1.2rem;color:var(--accent)">$${Number(usd).toFixed(4)}</div></div>`
+    ).join('');
+
+    document.getElementById('home-cost-cards').innerHTML = `
+      <div class="card accent"><h3>Today</h3><div class="value">$${Number(dailySpend).toFixed(4)}</div></div>
+      <div class="card blue"><h3>This Month</h3><div class="value">$${Number(monthlyTotal).toFixed(2)}</div><div class="sub">${monthly.month || ''}</div></div>
+      <div class="card purple"><h3>This Week</h3><div class="value">$${Number(costs.this_week_usd).toFixed(4)}</div></div>
+      ${modelRows}
+    `;
+
+    // Quick stats
+    const impRate = (fails.improvement_rate * 100).toFixed(0);
+    document.getElementById('home-quick-stats').innerHTML = `
       <div class="card accent"><h3>Memory Nodes</h3><div class="value">${mem.total_nodes}</div><div class="sub">${Object.keys(mem.by_scope || {}).length} scopes</div></div>
       <div class="card blue"><h3>Episodes</h3><div class="value">${mem.total_episodes}</div></div>
-      <div class="card purple"><h3>Skills</h3><div class="value">${skills.total}</div><div class="sub">${skills.promoted} promoted</div></div>
-      <div class="card"><h3>Active Intents</h3><div class="value">${intents.active}</div><div class="sub">${intents.completed} completed</div></div>
-    `;
-
-    // Costs
-    document.getElementById('cost-cards').innerHTML = `
-      <div class="card accent"><h3>Today</h3><div class="value">$${costs.today_usd.toFixed(4)}</div></div>
-      <div class="card blue"><h3>This Week</h3><div class="value">$${costs.this_week_usd.toFixed(4)}</div></div>
-      <div class="card purple"><h3>This Month</h3><div class="value">$${costs.this_month_usd.toFixed(4)}</div></div>
-    `;
-
-    // Failures
-    const impRate = (fails.improvement_rate * 100).toFixed(0);
-    document.getElementById('failure-cards').innerHTML = `
-      <div class="card ${fails.unresolved > 0 ? 'warning' : 'accent'}"><h3>Unresolved</h3><div class="value">${fails.unresolved}</div></div>
-      <div class="card accent"><h3>Resolved</h3><div class="value">${fails.resolved}</div></div>
-      <div class="card blue"><h3>Improvement Rate</h3><div class="value">${impRate}%</div>
-        <div class="progress"><div class="progress-fill green" style="width:${impRate}%"></div></div></div>
+      <div class="card ${fails.unresolved > 0 ? 'warning' : 'green'}"><h3>Issues</h3><div class="value">${fails.unresolved}</div><div class="sub">${fails.resolved} resolved (${impRate}%)</div></div>
+      <div class="card purple"><h3>Active Goals</h3><div class="value">${intents.active}</div><div class="sub">${intents.completed} completed</div></div>
     `;
 
     // Skills
     const topSkills = (skills.top_5_by_usage || []).map(s =>
       `<tr><td>${s.name}</td><td>${s.usage_count}</td><td>${(s.success_rate*100).toFixed(0)}%</td></tr>`
     ).join('') || '<tr><td colspan="3" style="color:var(--text-dim)">No promoted skills yet</td></tr>';
-    document.getElementById('skill-cards').innerHTML = `
+    document.getElementById('home-skill-cards').innerHTML = `
       <div class="card"><h3>Top Skills</h3><table><tr><th>Name</th><th>Uses</th><th>Success</th></tr>${topSkills}</table></div>
       <div class="card accent"><h3>Promoted</h3><div class="value">${skills.promoted}<span style="font-size:0.8rem;color:var(--text-dim)"> / ${skills.total}</span></div>
-        <div class="progress"><div class="progress-fill purple" style="width:${skills.total?((skills.promoted/skills.total)*100):0}%"></div></div></div>
+        <div class="progress"><div class="progress-fill cyan" style="width:${skills.total?((skills.promoted/skills.total)*100):0}%"></div></div></div>
     `;
 
     // Intents
-    document.getElementById('intent-cards').innerHTML = `
+    document.getElementById('home-intent-cards').innerHTML = `
       <div class="card accent"><h3>Active</h3><div class="value">${intents.active}</div></div>
       <div class="card blue"><h3>Completed</h3><div class="value">${intents.completed}</div></div>
       <div class="card"><h3>Abandoned</h3><div class="value">${intents.abandoned}</div></div>
     `;
 
-    // Personality
+    // Personality snapshot
     const sliderHtml = Object.entries(personality.sliders || {}).map(([k, v]) =>
       `<span style="display:inline-block;margin:2px 6px;font-size:0.8rem;color:var(--text-dim)">${k}: <b style="color:var(--accent)">${v}</b></span>`
-    ).join('') || '<span style="color:var(--text-dim)">Brain offline — connect to see personality</span>';
-    document.getElementById('personality-card').innerHTML = `
+    ).join('') || '<span style="color:var(--text-dim)">Brain offline -- connect to see personality</span>';
+    document.getElementById('home-personality-card').innerHTML = `
       <h3>Current Preset: <span style="color:var(--accent);text-transform:capitalize">${personality.preset}</span></h3>
       <div style="margin:8px 0">${sliderHtml}</div>
       <div class="sub">Est. monthly: $${(personality.estimated_monthly_cost || 0).toFixed(2)}</div>
     `;
   } catch (e) {
-    document.getElementById('overview-cards').innerHTML = `<div class="card"><h3>ERROR</h3><div class="sub">${e.message}</div></div>`;
+    document.getElementById('home-status-cards').innerHTML = `<div class="card"><h3>Error</h3><div class="sub">${e.message}</div></div>`;
   }
 }
 
@@ -781,16 +1062,30 @@ function connectWS() {
   ws = new WebSocket(WS_URL);
   ws.onmessage = (e) => {
     const data = JSON.parse(e.data);
-    if (data.type === 'response') addMsg('assistant', data.content);
+    if (data.type === 'response') addMsg('assistant', data.content || data.response);
+    else if (data.response) addMsg('assistant', data.response);
     else if (data.type === 'error') addMsg('system', `Error: ${data.error}`);
   };
   ws.onclose = () => setTimeout(connectWS, 2000);
+  ws.onerror = () => {};
+}
+
+function formatTime(date) {
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
 function addMsg(role, text) {
   const el = document.createElement('div');
   el.className = `msg ${role}`;
-  el.textContent = text;
+  const textSpan = document.createElement('span');
+  textSpan.textContent = text;
+  el.appendChild(textSpan);
+  if (role !== 'system') {
+    const ts = document.createElement('span');
+    ts.className = 'timestamp';
+    ts.textContent = formatTime(new Date());
+    el.appendChild(ts);
+  }
   document.getElementById('chat-messages').appendChild(el);
   el.scrollIntoView({ behavior: 'smooth' });
 }
@@ -800,27 +1095,29 @@ function sendMessage() {
   const text = input.value.trim();
   if (!text || !ws || ws.readyState !== 1) return;
   addMsg('user', text);
-  ws.send(JSON.stringify({ type: 'message', content: text, session_id: sessionId }));
+  ws.send(JSON.stringify({ type: 'message', message: text, content: text, session_id: sessionId }));
   input.value = '';
 }
 
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && document.getElementById('page-chat').classList.contains('active')) sendMessage();
+  if (e.key === 'Enter' && document.getElementById('page-memory').classList.contains('active')) {
+    const input = document.getElementById('memory-search-input');
+    if (document.activeElement === input) searchMemory();
+  }
 });
 
-// ===== SLIDERS =====
+// ===== PERSONALITY (SLIDERS) =====
 let sliderInfo = {};
 async function loadSliders() {
   try {
-    // Load current values
-    const valR = await fetch(`${API}/api/sliders`);
+    const valR = await fetch('/api/sliders');
     const valData = await valR.json();
     const sliders = valData.sliders || {};
 
-    // Try to load metadata
     let info = {};
     try {
-      const infoR = await fetch(`${API}/api/sliders/info`);
+      const infoR = await fetch('/api/sliders/info');
       const infoData = await infoR.json();
       info = infoData.sliders || infoData.info || {};
     } catch {}
@@ -837,7 +1134,7 @@ async function loadSliders() {
         ${meta.description ? `<div class="desc">${meta.description}</div>` : ''}
         <input type="range" min="0" max="10" value="${value}" data-name="${name}"
                oninput="updateSlider('${name}', this.value)">
-        ${meta.impact_low && meta.impact_high ? `<div class="impact">0 → ${meta.impact_low} · 10 → ${meta.impact_high}</div>` : ''}
+        ${meta.impact_low && meta.impact_high ? `<div class="impact">0 = ${meta.impact_low} &middot; 10 = ${meta.impact_high}</div>` : ''}
       `;
       list.appendChild(div);
     }
@@ -856,7 +1153,7 @@ async function loadSliders() {
 async function updateSlider(name, value) {
   document.getElementById(`val-${name}`).textContent = value;
   try {
-    await fetch(`${API}/api/sliders/${name}`, {
+    await fetch(`/api/sliders/${name}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ value: parseInt(value) }),
@@ -865,28 +1162,180 @@ async function updateSlider(name, value) {
 }
 
 async function applyPreset(name) {
-  // Fetch sliders, re-read, re-render
   try {
-    // The preset logic is server-side; we'd need an endpoint.
-    // For now, show which preset is selected
     document.querySelectorAll('.presets button').forEach(b => b.classList.remove('active'));
     event.target.classList.add('active');
   } catch {}
 }
 
+// ===== MEMORY =====
+async function loadMemoryPage() {
+  loadMoments();
+  loadIntents();
+}
+
+async function searchMemory() {
+  const q = document.getElementById('memory-search-input').value.trim();
+  if (!q) return;
+  const resultsDiv = document.getElementById('memory-results');
+  resultsDiv.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+
+  try {
+    const r = await fetch(`/api/memory/search?q=${encodeURIComponent(q)}&limit=10`);
+    const data = await r.json();
+    const results = data.results || [];
+
+    if (results.length === 0) {
+      resultsDiv.innerHTML = '<div style="color:var(--text-dim);padding:20px;text-align:center;">No memories found. Try a different search.</div>';
+      return;
+    }
+
+    resultsDiv.innerHTML = results.map(item => {
+      const text = item.text || item.content || item.summary || JSON.stringify(item);
+      const score = item.score || item.similarity || item.relevance;
+      const scope = item.scope || item.type || '';
+      const ts = item.timestamp || item.created_at || '';
+
+      return `<div class="memory-item">
+        <div class="memory-text">${escapeHtml(typeof text === 'string' ? text : JSON.stringify(text))}</div>
+        <div class="memory-meta">
+          ${score !== undefined ? `<span>Relevance: <span class="score">${(Number(score) * 100).toFixed(0)}%</span></span>` : ''}
+          ${scope ? `<span>Type: <span class="scope">${scope}</span></span>` : ''}
+          ${ts ? `<span>${new Date(ts).toLocaleString()}</span>` : ''}
+        </div>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    resultsDiv.innerHTML = `<div style="color:var(--danger);padding:20px;">Search failed: ${e.message}</div>`;
+  }
+}
+
+async function loadMoments() {
+  const container = document.getElementById('memory-moments');
+  try {
+    const r = await fetch('/api/moments?limit=20');
+    const data = await r.json();
+    const moments = data.moments || data.results || data || [];
+
+    if (!Array.isArray(moments) || moments.length === 0) {
+      container.innerHTML = '<div style="color:var(--text-dim);padding:16px;">No relationship moments recorded yet.</div>';
+      return;
+    }
+
+    container.innerHTML = moments.map(m => {
+      const text = m.text || m.description || m.summary || m.content || JSON.stringify(m);
+      const ts = m.timestamp || m.created_at || '';
+      return `<div class="moment-item">
+        <div class="moment-text">${escapeHtml(typeof text === 'string' ? text : JSON.stringify(text))}</div>
+        ${ts ? `<div class="moment-time">${new Date(ts).toLocaleString()}</div>` : ''}
+      </div>`;
+    }).join('');
+  } catch (e) {
+    container.innerHTML = `<div style="color:var(--text-dim);padding:16px;">Could not load moments: ${e.message}</div>`;
+  }
+}
+
+async function loadIntents() {
+  const container = document.getElementById('memory-intents');
+  try {
+    const r = await fetch('/api/intents');
+    const data = await r.json();
+    const intents = data.intents || data.results || data || [];
+
+    if (!Array.isArray(intents) || intents.length === 0) {
+      container.innerHTML = '<div style="color:var(--text-dim);padding:16px;">No active goals right now.</div>';
+      return;
+    }
+
+    container.innerHTML = intents.map(i => {
+      const goal = i.goal || i.description || i.name || i.text || JSON.stringify(i);
+      const status = i.status || 'active';
+      return `<div class="intent-item">
+        <div class="intent-goal">${escapeHtml(typeof goal === 'string' ? goal : JSON.stringify(goal))}</div>
+        <span class="intent-status ${status}">${status}</span>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    container.innerHTML = `<div style="color:var(--text-dim);padding:16px;">Could not load goals: ${e.message}</div>`;
+  }
+}
+
+function escapeHtml(str) {
+  const d = document.createElement('div');
+  d.textContent = str;
+  return d.innerHTML;
+}
+
+// ===== IDENTITY =====
+async function loadIdentity() {
+  try {
+    // Try to use cached dashboard data, or fetch fresh
+    let d = dashboardCache;
+    if (!d) {
+      const r = await fetch('/api/dashboard');
+      const raw = await r.json();
+      d = raw.dashboard || raw || {};
+      dashboardCache = d;
+    }
+
+    const identity = d.identity || d;
+    const passport = identity.passport || identity;
+    const birth = identity.birth_certificate || identity.birth || {};
+    const contact = identity.contact || {};
+
+    // Set name and title
+    const name = passport.name || identity.agent_name || d.agent_name || d.name || 'Windy Fly';
+    document.getElementById('identity-name').textContent = name;
+    document.getElementById('identity-title').textContent = passport.title || identity.role || 'AI Agent';
+
+    // Passport rows
+    const passportId = passport.passport_id || passport.id || identity.passport_id || 'Not assigned';
+    const email = passport.email || contact.email || identity.email || d.email || '--';
+    const phone = passport.phone || contact.phone || identity.phone || d.phone || '--';
+    const createdAt = passport.created_at || identity.created_at || d.created_at || '';
+
+    document.getElementById('identity-passport-rows').innerHTML = `
+      <div class="identity-row"><span class="label">Passport ID</span><span class="value accent">${escapeHtml(String(passportId))}</span></div>
+      <div class="identity-row"><span class="label">Agent Name</span><span class="value">${escapeHtml(String(name))}</span></div>
+      <div class="identity-row"><span class="label">Status</span><span class="value accent">${d.brain_connected !== false ? 'Active' : 'Inactive'}</span></div>
+      ${createdAt ? `<div class="identity-row"><span class="label">Issued</span><span class="value">${new Date(createdAt).toLocaleDateString()}</span></div>` : ''}
+    `;
+
+    // Birth certificate
+    const birthDate = birth.date || birth.created || identity.created_at || d.created_at || '';
+    const birthVersion = birth.version || identity.version || d.version || '';
+    const birthOrigin = birth.origin || identity.origin || 'Windy Ecosystem';
+
+    document.getElementById('identity-birth-rows').innerHTML = `
+      ${birthDate ? `<div class="identity-row"><span class="label">Date of Creation</span><span class="value">${new Date(birthDate).toLocaleDateString()}</span></div>` : ''}
+      ${birthVersion ? `<div class="identity-row"><span class="label">Version</span><span class="value purple">${escapeHtml(String(birthVersion))}</span></div>` : ''}
+      <div class="identity-row"><span class="label">Origin</span><span class="value">${escapeHtml(String(birthOrigin))}</span></div>
+      <div class="identity-row"><span class="label">Framework</span><span class="value">Windy Agent</span></div>
+    `;
+
+    // Contact info
+    document.getElementById('identity-contact-rows').innerHTML = `
+      <div class="identity-row"><span class="label">Email</span><span class="value accent">${escapeHtml(String(email))}</span></div>
+      <div class="identity-row"><span class="label">Phone</span><span class="value">${escapeHtml(String(phone))}</span></div>
+      <div class="identity-row"><span class="label">Dashboard URL</span><span class="value accent">${window.location.origin}</span></div>
+    `;
+  } catch (e) {
+    document.getElementById('identity-passport-rows').innerHTML = `<div style="color:var(--danger);padding:16px;">Failed to load identity: ${e.message}</div>`;
+  }
+}
+
 // ===== PROVIDERS =====
 let currentActiveModel = '';
-let discoveredModelsCache = {}; // provider key → DiscoveryResult
-let validationCache = {};       // provider key → ValidationResult
+let discoveredModelsCache = {};
+let validationCache = {};
 
 async function loadProviders() {
   try {
-    const r = await fetch(`${API}/api/providers`);
+    const r = await fetch('/api/providers');
     const data = await r.json();
     const providersList = data.providers || [];
     currentActiveModel = data.active_model || '';
 
-    // Check for OAuth callback params in URL
     checkOAuthCallback();
 
     // Active engine card
@@ -898,21 +1347,19 @@ async function loadProviders() {
     // Provider cards
     const list = document.getElementById('provider-list');
     list.innerHTML = providersList.map(p => {
-      // Static model chips (fallback)
       const modelChips = (p.models || []).map(m =>
         `<span class="model-chip ${m === currentActiveModel ? 'active' : ''}" onclick="setActiveModel('${m}')">${m}</span>`
       ).join('');
 
-      // Key status with validation badge
       const keys = p.keys || [];
       const activeKey = keys.find(k => k.active);
       const validation = validationCache[p.key];
       let validationBadge = '';
       if (validation) {
         if (validation.valid) {
-          validationBadge = `<span class="validation-badge valid">✓ Valid (${validation.model_count} models)</span>`;
+          validationBadge = `<span class="validation-badge valid">&#10003; Valid (${validation.model_count} models)</span>`;
         } else {
-          validationBadge = `<span class="validation-badge invalid">✗ ${validation.error || 'Invalid'}</span>`;
+          validationBadge = `<span class="validation-badge invalid">&#10007; ${validation.error || 'Invalid'}</span>`;
         }
       }
 
@@ -921,15 +1368,14 @@ async function loadProviders() {
         keyStatusHtml = `<div class="key-status has-key">${keys.length} key${keys.length > 1 ? 's' : ''} stored${activeKey ? ` (active: ${activeKey.label})` : ''} ${validationBadge}</div>`;
       } else if (p.has_key) {
         keyStatusHtml = `<div class="key-status has-key">API key configured (env) ${validationBadge}</div>`;
-      } else if (p.base_url.includes('localhost')) {
+      } else if (p.base_url && p.base_url.includes('localhost')) {
         keyStatusHtml = `<div class="key-status has-key">Local (no key needed) ${validationBadge}</div>`;
       } else {
         keyStatusHtml = `<div class="key-status no-key">No API key set</div>`;
       }
 
-      // Account info (if available from validation)
       let accountInfoHtml = '';
-      if (validation?.account) {
+      if (validation && validation.account) {
         const a = validation.account;
         const items = [];
         if (a.balance) items.push(`<span class="info-item">Balance: <span class="info-value">${a.balance}</span></span>`);
@@ -940,15 +1386,14 @@ async function loadProviders() {
         }
       }
 
-      // Discovered models section
       const discovery = discoveredModelsCache[p.key];
       let discoveredHtml = '';
       if (discovery && discovery.models && discovery.models.length > 0) {
         const chips = discovery.models.slice(0, 50).map(m => {
           const isActive = m.id === currentActiveModel;
           const ctxLabel = m.context_length ? `${Math.round(m.context_length/1000)}k` : '';
-          const priceLabel = m.pricing?.prompt ? `$${parseFloat(m.pricing.prompt).toFixed(6)}/tok` : '';
-          return `<span class="discovered-chip ${isActive ? 'active' : ''}" onclick="setActiveModel('${m.id}')" title="${m.name || m.id}${m.context_length ? ' · ' + m.context_length + ' ctx' : ''}">
+          const priceLabel = m.pricing && m.pricing.prompt ? `$${parseFloat(m.pricing.prompt).toFixed(6)}/tok` : '';
+          return `<span class="discovered-chip ${isActive ? 'active' : ''}" onclick="setActiveModel('${m.id}')" title="${m.name || m.id}${m.context_length ? ' - ' + m.context_length + ' ctx' : ''}">
             ${m.id.length > 35 ? m.id.slice(0, 32) + '...' : m.id}
             ${ctxLabel ? `<span class="ctx">${ctxLabel}</span>` : ''}
             ${priceLabel ? `<span class="price">${priceLabel}</span>` : ''}
@@ -966,7 +1411,6 @@ async function loadProviders() {
         `;
       }
 
-      // Key list
       const keyListHtml = keys.length > 0 ? `
         <div class="key-list">
           ${keys.map(k => `
@@ -981,10 +1425,7 @@ async function loadProviders() {
         </div>
       ` : '';
 
-      // Notes
       const noteVal = (p.note || '').replace(/"/g, '&quot;').replace(/</g, '&lt;');
-
-      // OAuth button for OpenRouter
       const oauthBtn = p.key === 'openrouter' && !p.has_key && keys.length === 0
         ? `<button class="oauth-btn" onclick="startOpenRouterOAuth()">Connect with OpenRouter</button>`
         : '';
@@ -1041,29 +1482,22 @@ function timeAgo(isoStr) {
 }
 
 // ===== DISCOVERY =====
-
 async function discoverModels(providerKey) {
-  // Show loading state on the discover button
-  const btns = document.querySelectorAll(`.discover-btn`);
+  const btns = document.querySelectorAll('.discover-btn');
   btns.forEach(b => { if (b.textContent.includes('Discover')) b.disabled = true; });
 
   try {
-    const r = await fetch(`${API}/api/providers/discover`, {
+    const r = await fetch('/api/providers/discover', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ provider: providerKey }),
     });
     const result = await r.json();
     discoveredModelsCache[providerKey] = result;
-
-    if (result.error) {
-      console.warn(`Discovery error for ${providerKey}: ${result.error}`);
-    }
   } catch (e) {
     console.error('Discovery failed:', e);
   }
 
-  // Re-render
   loadProviders();
 }
 
@@ -1072,7 +1506,7 @@ async function discoverAllModels() {
   if (btn) { btn.textContent = 'Discovering...'; btn.disabled = true; }
 
   try {
-    const r = await fetch(`${API}/api/providers/discover-all`, {
+    const r = await fetch('/api/providers/discover-all', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -1089,23 +1523,21 @@ async function discoverAllModels() {
 }
 
 // ===== VALIDATION =====
-
 async function validateProvider(providerKey) {
   validationCache[providerKey] = { valid: false, provider: providerKey, model_count: 0, error: 'Checking...' };
-  loadProviders(); // show "checking" state
+  loadProviders();
 
   try {
-    const r = await fetch(`${API}/api/providers/validate`, {
+    const r = await fetch('/api/providers/validate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ provider: providerKey }),
     });
     validationCache[providerKey] = await r.json();
 
-    // If valid, also populate discovered models
     if (validationCache[providerKey].valid && !discoveredModelsCache[providerKey]) {
       await discoverModels(providerKey);
-      return; // discoverModels already calls loadProviders
+      return;
     }
   } catch (e) {
     validationCache[providerKey] = { valid: false, provider: providerKey, model_count: 0, error: e.message };
@@ -1115,11 +1547,10 @@ async function validateProvider(providerKey) {
 }
 
 // ===== OPENROUTER OAUTH =====
-
 async function startOpenRouterOAuth() {
   const callbackUrl = `${window.location.origin}/oauth/callback`;
   try {
-    const r = await fetch(`${API}/api/providers/oauth/openrouter/start`, {
+    const r = await fetch('/api/providers/oauth/openrouter/start', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ callback_url: callbackUrl }),
@@ -1147,19 +1578,15 @@ function checkOAuthCallback() {
       banner.style.background = 'var(--accent-glow)';
       banner.style.border = '1px solid var(--accent)';
       banner.style.color = 'var(--accent)';
-      banner.innerHTML = `✓ ${msg || 'Connected successfully!'} <button onclick="this.parentElement.style.display='none'" style="float:right;background:none;border:none;color:inherit;cursor:pointer;font-size:1rem;">×</button>`;
-
-      // Auto-discover OpenRouter models
+      banner.innerHTML = `&#10003; ${msg || 'Connected successfully!'} <button onclick="this.parentElement.style.display='none'" style="float:right;background:none;border:none;color:inherit;cursor:pointer;font-size:1rem;">&times;</button>`;
       setTimeout(() => discoverModels('openrouter'), 500);
     } else {
       banner.style.display = 'block';
       banner.style.background = 'rgba(255,107,107,0.1)';
       banner.style.border = '1px solid var(--danger)';
       banner.style.color = 'var(--danger)';
-      banner.innerHTML = `✗ ${msg || 'OAuth failed'} <button onclick="this.parentElement.style.display='none'" style="float:right;background:none;border:none;color:inherit;cursor:pointer;font-size:1rem;">×</button>`;
+      banner.innerHTML = `&#10007; ${msg || 'OAuth failed'} <button onclick="this.parentElement.style.display='none'" style="float:right;background:none;border:none;color:inherit;cursor:pointer;font-size:1rem;">&times;</button>`;
     }
-
-    // Clean URL
     window.history.replaceState({}, '', '/');
   }
 }
@@ -1178,7 +1605,7 @@ async function addKey(providerKey) {
   const keyValue = document.getElementById(`key-input-${providerKey}`).value.trim();
   if (!keyValue) return;
   try {
-    await fetch(`${API}/api/providers/keys`, {
+    await fetch('/api/providers/keys', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ provider: providerKey, label, key: keyValue, type: keyType }),
@@ -1186,8 +1613,6 @@ async function addKey(providerKey) {
     document.getElementById(`key-input-${providerKey}`).value = '';
     document.getElementById(`key-label-${providerKey}`).value = '';
     document.getElementById(`key-row-${providerKey}`).style.display = 'none';
-
-    // Auto-validate and discover models after adding a key
     loadProviders();
     setTimeout(() => {
       validateProvider(providerKey);
@@ -1199,7 +1624,7 @@ async function addKey(providerKey) {
 async function deleteKey(providerKey, keyId) {
   if (!confirm('Delete this key?')) return;
   try {
-    await fetch(`${API}/api/providers/keys`, {
+    await fetch('/api/providers/keys', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ provider: providerKey, key_id: keyId }),
@@ -1210,7 +1635,7 @@ async function deleteKey(providerKey, keyId) {
 
 async function activateKey(providerKey, keyId) {
   try {
-    await fetch(`${API}/api/providers/keys/activate`, {
+    await fetch('/api/providers/keys/activate', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ provider: providerKey, key_id: keyId }),
@@ -1222,7 +1647,7 @@ async function activateKey(providerKey, keyId) {
 async function saveNote(providerKey) {
   const note = document.getElementById(`note-${providerKey}`).value;
   try {
-    await fetch(`${API}/api/providers/notes`, {
+    await fetch('/api/providers/notes', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ provider: providerKey, note }),
@@ -1232,7 +1657,7 @@ async function saveNote(providerKey) {
 
 async function setActiveModel(model) {
   try {
-    await fetch(`${API}/api/providers/active-model`, {
+    await fetch('/api/providers/active-model', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model }),
@@ -1264,7 +1689,7 @@ async function addProvider() {
   if (!key || !base_url) return;
 
   try {
-    await fetch(`${API}/api/providers`, {
+    await fetch('/api/providers', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ key, name: name || key, base_url, api_key_env, models, type: 'openai' }),
@@ -1280,7 +1705,7 @@ async function addProvider() {
 async function removeProvider(key) {
   if (!confirm(`Remove provider "${key}"?`)) return;
   try {
-    await fetch(`${API}/api/providers/${key}`, { method: 'DELETE' });
+    await fetch(`/api/providers/${key}`, { method: 'DELETE' });
     loadProviders();
   } catch {}
 }
@@ -1294,7 +1719,7 @@ let fitAddon = null;
 
 async function loadMachines() {
   try {
-    const r = await fetch(`${API}/api/machines`);
+    const r = await fetch('/api/machines');
     const raw = await r.json();
     machinesList = Array.isArray(raw) ? raw : [];
 
@@ -1317,14 +1742,14 @@ async function loadMachines() {
       const uptimeStr = health.uptime_seconds
         ? formatUptime(health.uptime_seconds)
         : '--';
-      const cpuPct = health.cpu?.usage_pct || 0;
-      const memPct = health.memory?.used_pct || 0;
-      const memTotal = health.memory?.total_gb || '?';
+      const cpuPct = health.cpu ? health.cpu.usage_pct : 0;
+      const memPct = health.memory ? health.memory.used_pct : 0;
+      const memTotal = health.memory ? health.memory.total_gb : '?';
 
-      const gatewayRunning = services.gateway?.running;
-      const brainRunning = services.brain?.running;
+      const gatewayRunning = services.gateway ? services.gateway.running : false;
+      const brainRunning = services.brain ? services.brain.running : false;
 
-      const tags = (m.config?.tags || []).map(t =>
+      const tags = (m.config && m.config.tags ? m.config.tags : []).map(t =>
         `<span class="machine-tag">${t}</span>`
       ).join('');
 
@@ -1391,7 +1816,7 @@ async function addMachine() {
   if (!name || !host) { alert('Name and host are required'); return; }
 
   try {
-    await fetch(`${API}/api/machines`, {
+    await fetch('/api/machines', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, host, port, token, tags }),
@@ -1409,7 +1834,7 @@ async function addMachine() {
 async function removeMachine(id) {
   if (!confirm('Remove this machine from Mission Control?')) return;
   try {
-    await fetch(`${API}/api/machines/${id}`, { method: 'DELETE' });
+    await fetch(`/api/machines/${id}`, { method: 'DELETE' });
     loadMachines();
   } catch {}
 }
@@ -1417,7 +1842,7 @@ async function removeMachine(id) {
 async function restartRemoteService(machineId, service) {
   if (!confirm(`Restart ${service} on this machine?`)) return;
   try {
-    const r = await fetch(`${API}/api/machines/${machineId}/restart-${service}`, { method: 'POST' });
+    const r = await fetch(`/api/machines/${machineId}/restart-${service}`, { method: 'POST' });
     const result = await r.json();
     alert(result.message || (result.success ? 'Restarted' : 'Failed'));
     loadMachines();
@@ -1428,12 +1853,12 @@ async function restartRemoteService(machineId, service) {
 
 async function syncProvidersTo(machineId) {
   try {
-    const r = await fetch(`${API}/api/machines/sync-providers`, {
+    const r = await fetch('/api/machines/sync-providers', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ machine_id: machineId }),
     });
-    const result = await r.json();
+    await r.json();
     alert('Provider sync complete');
   } catch (e) {
     alert('Sync failed: ' + e.message);
@@ -1443,7 +1868,7 @@ async function syncProvidersTo(machineId) {
 async function syncAllProviders() {
   if (!confirm('Push provider config to ALL machines?')) return;
   try {
-    const r = await fetch(`${API}/api/machines/sync-providers`, {
+    const r = await fetch('/api/machines/sync-providers', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({}),
@@ -1461,7 +1886,6 @@ function refreshAllMachines() {
 }
 
 // ===== COCKPIT =====
-
 function openCockpit(machineId) {
   const machine = machinesList.find(m => m.config.id === machineId);
   if (!machine) return;
@@ -1474,7 +1898,6 @@ function openCockpit(machineId) {
   statusEl.textContent = machine.online ? 'Online' : 'Offline';
   statusEl.className = 'cockpit-status machine-status-badge ' + (machine.online ? 'online' : 'offline');
 
-  // Default to terminal tab
   showCockpitTab('terminal');
   loadCockpitHealth();
   loadCockpitSettings();
@@ -1501,7 +1924,6 @@ function showCockpitTab(tab) {
 }
 
 // ===== TERMINAL (xterm.js) =====
-
 function connectTerminal() {
   if (!currentCockpitMachine) return;
   disconnectTerminal();
@@ -1509,7 +1931,6 @@ function connectTerminal() {
   const container = document.getElementById('xterm-container');
   container.innerHTML = '';
 
-  // Initialize xterm
   xtermInstance = new Terminal({
     cursorBlink: true,
     fontSize: 14,
@@ -1517,16 +1938,16 @@ function connectTerminal() {
     theme: {
       background: '#0a0e17',
       foreground: '#e4e8f0',
-      cursor: '#00d4aa',
+      cursor: '#00d4ff',
       cursorAccent: '#0a0e17',
-      selectionBackground: 'rgba(0,212,170,0.2)',
+      selectionBackground: 'rgba(0,212,255,0.2)',
       black: '#0a0e17',
       red: '#ff6b6b',
       green: '#00d4aa',
       yellow: '#ffb347',
       blue: '#60a5fa',
       magenta: '#a78bfa',
-      cyan: '#67e8f9',
+      cyan: '#00d4ff',
       white: '#e4e8f0',
       brightBlack: '#7b8494',
       brightRed: '#ff8787',
@@ -1534,7 +1955,7 @@ function connectTerminal() {
       brightYellow: '#ffcc80',
       brightBlue: '#93bbfc',
       brightMagenta: '#c4b5fd',
-      brightCyan: '#a5f3fc',
+      brightCyan: '#67e8f9',
       brightWhite: '#f8fafc',
     },
   });
@@ -1545,12 +1966,8 @@ function connectTerminal() {
   xtermInstance.loadAddon(webLinksAddon);
   xtermInstance.open(container);
 
-  // Fit after a brief delay to let the container size settle
-  setTimeout(() => {
-    fitAddon.fit();
-  }, 50);
+  setTimeout(() => { fitAddon.fit(); }, 50);
 
-  // Handle window resize
   window._cockpitResizeHandler = () => {
     if (fitAddon) fitAddon.fit();
   };
@@ -1559,7 +1976,6 @@ function connectTerminal() {
   xtermInstance.writeln('\x1b[36m--- Connecting to ' + currentCockpitMachine.config.name + ' ---\x1b[0m');
   xtermInstance.writeln('');
 
-  // Connect WebSocket to the terminal relay
   const machineId = currentCockpitMachine.config.id;
   const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   terminalWs = new WebSocket(`${wsProto}//${window.location.host}/ws/terminal/${machineId}`);
@@ -1576,11 +1992,8 @@ function connectTerminal() {
         xtermInstance.write(msg.data);
       } else if (msg.type === 'pty:exit') {
         xtermInstance.writeln('\r\n\x1b[31m--- Session ended (code: ' + msg.code + ') ---\x1b[0m');
-      } else if (msg.type === 'pty:created') {
-        // Session ready
       }
     } catch {
-      // Raw text fallback
       xtermInstance.write(e.data);
     }
   };
@@ -1597,14 +2010,12 @@ function connectTerminal() {
     }
   };
 
-  // Send terminal input to remote
   xtermInstance.onData((data) => {
     if (terminalWs && terminalWs.readyState === 1) {
       terminalWs.send(JSON.stringify({ type: 'pty:input', session: 'default', data }));
     }
   });
 
-  // Send resize events
   xtermInstance.onResize(({ cols, rows }) => {
     if (terminalWs && terminalWs.readyState === 1) {
       terminalWs.send(JSON.stringify({ type: 'pty:resize', session: 'default', cols, rows }));
@@ -1613,17 +2024,9 @@ function connectTerminal() {
 }
 
 function disconnectTerminal() {
-  if (terminalWs) {
-    terminalWs.close();
-    terminalWs = null;
-  }
-  if (xtermInstance) {
-    xtermInstance.dispose();
-    xtermInstance = null;
-  }
-  if (fitAddon) {
-    fitAddon = null;
-  }
+  if (terminalWs) { terminalWs.close(); terminalWs = null; }
+  if (xtermInstance) { xtermInstance.dispose(); xtermInstance = null; }
+  if (fitAddon) { fitAddon = null; }
   if (window._cockpitResizeHandler) {
     window.removeEventListener('resize', window._cockpitResizeHandler);
     window._cockpitResizeHandler = null;
@@ -1631,7 +2034,6 @@ function disconnectTerminal() {
 }
 
 // ===== LOGS =====
-
 function subscribeLogs(file) {
   if (!currentCockpitMachine) return;
   const viewer = document.getElementById('log-viewer');
@@ -1641,7 +2043,6 @@ function subscribeLogs(file) {
     terminalWs.send(JSON.stringify({ type: 'log:subscribe', file }));
   }
 
-  // Also connect a separate WS for logs if needed
   const machineId = currentCockpitMachine.config.id;
   const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const logWs = new WebSocket(`${wsProto}//${window.location.host}/ws/machine/${machineId}`);
@@ -1662,13 +2063,11 @@ function subscribeLogs(file) {
     } catch {}
   };
 
-  // Store ref for cleanup
   if (window._logWs) window._logWs.close();
   window._logWs = logWs;
 }
 
 // ===== COCKPIT HEALTH =====
-
 async function loadCockpitHealth() {
   if (!currentCockpitMachine) return;
   const grid = document.getElementById('health-grid');
@@ -1677,16 +2076,15 @@ async function loadCockpitHealth() {
   const s = currentCockpitMachine.services || {};
 
   if (!h.cpu) {
-    // Try fetching live
     try {
-      const r = await fetch(`${API}/api/machines/${currentCockpitMachine.config.id}/health`);
+      const r = await fetch(`/api/machines/${currentCockpitMachine.config.id}/health`);
       const data = await r.json();
       if (data.cpu) Object.assign(h, data);
     } catch {}
   }
 
-  const cpuPct = h.cpu?.usage_pct || 0;
-  const memPct = h.memory?.used_pct || 0;
+  const cpuPct = h.cpu ? h.cpu.usage_pct : 0;
+  const memPct = h.memory ? h.memory.used_pct : 0;
   const cpuColor = cpuPct > 80 ? 'var(--danger)' : cpuPct > 60 ? 'var(--warning)' : 'var(--accent)';
   const memColor = memPct > 80 ? 'var(--danger)' : memPct > 60 ? 'var(--warning)' : 'var(--blue)';
 
@@ -1695,13 +2093,13 @@ async function loadCockpitHealth() {
       <h4>CPU Usage</h4>
       <div class="health-value" style="color:${cpuColor}">${cpuPct}%</div>
       <div class="meter-bar"><div class="meter-fill" style="width:${cpuPct}%;background:${cpuColor}"></div></div>
-      <div style="font-size:0.7rem;color:var(--text-dim);margin-top:4px">${h.cpu?.cores || '?'} cores</div>
+      <div style="font-size:0.7rem;color:var(--text-dim);margin-top:4px">${h.cpu ? h.cpu.cores : '?'} cores</div>
     </div>
     <div class="health-card">
       <h4>Memory</h4>
       <div class="health-value" style="color:${memColor}">${memPct}%</div>
       <div class="meter-bar"><div class="meter-fill" style="width:${memPct}%;background:${memColor}"></div></div>
-      <div style="font-size:0.7rem;color:var(--text-dim);margin-top:4px">${h.memory?.free_gb || '?'}GB free / ${h.memory?.total_gb || '?'}GB</div>
+      <div style="font-size:0.7rem;color:var(--text-dim);margin-top:4px">${h.memory ? h.memory.free_gb : '?'}GB free / ${h.memory ? h.memory.total_gb : '?'}GB</div>
     </div>
     <div class="health-card">
       <h4>Uptime</h4>
@@ -1713,17 +2111,17 @@ async function loadCockpitHealth() {
     </div>
     <div class="health-card">
       <h4>Gateway</h4>
-      <div class="health-value" style="color:${s.gateway?.running ? 'var(--accent)' : 'var(--danger)'}">
-        ${s.gateway?.running ? 'Running' : 'Stopped'}
+      <div class="health-value" style="color:${s.gateway && s.gateway.running ? 'var(--accent)' : 'var(--danger)'}">
+        ${s.gateway && s.gateway.running ? 'Running' : 'Stopped'}
       </div>
-      ${s.gateway?.pid ? `<div style="font-size:0.7rem;color:var(--text-dim)">PID: ${s.gateway.pid}</div>` : ''}
+      ${s.gateway && s.gateway.pid ? `<div style="font-size:0.7rem;color:var(--text-dim)">PID: ${s.gateway.pid}</div>` : ''}
     </div>
     <div class="health-card">
       <h4>Brain</h4>
-      <div class="health-value" style="color:${s.brain?.running ? 'var(--accent)' : 'var(--danger)'}">
-        ${s.brain?.running ? 'Running' : 'Stopped'}
+      <div class="health-value" style="color:${s.brain && s.brain.running ? 'var(--accent)' : 'var(--danger)'}">
+        ${s.brain && s.brain.running ? 'Running' : 'Stopped'}
       </div>
-      ${s.brain?.pid ? `<div style="font-size:0.7rem;color:var(--text-dim)">PID: ${s.brain.pid}</div>` : ''}
+      ${s.brain && s.brain.pid ? `<div style="font-size:0.7rem;color:var(--text-dim)">PID: ${s.brain.pid}</div>` : ''}
     </div>
     <div class="health-card">
       <h4>UDS Socket</h4>
@@ -1741,7 +2139,6 @@ async function loadCockpitHealth() {
 }
 
 // ===== COCKPIT SETTINGS =====
-
 function loadCockpitSettings() {
   if (!currentCockpitMachine) return;
   const c = currentCockpitMachine.config;
@@ -1771,7 +2168,7 @@ function loadCockpitSettings() {
         <label>Notes</label>
         <textarea id="cfg-notes" style="width:100%;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-family:var(--font);outline:none;min-height:60px;resize:vertical;">${c.notes || ''}</textarea>
       </div>
-      <button onclick="saveCockpitSettings()" style="background:linear-gradient(135deg,#00d4aa,#00b894);border:none;padding:10px 24px;border-radius:8px;color:#0a0e17;font-family:var(--font);font-weight:600;cursor:pointer;font-size:0.85rem;">Save Changes</button>
+      <button onclick="saveCockpitSettings()" style="background:var(--accent-gradient);border:none;padding:10px 24px;border-radius:8px;color:#0a0e17;font-family:var(--font);font-weight:600;cursor:pointer;font-size:0.85rem;">Save Changes</button>
     </div>
   `;
 }
@@ -1789,7 +2186,7 @@ async function saveCockpitSettings() {
     notes: document.getElementById('cfg-notes').value,
   };
   try {
-    await fetch(`${API}/api/machines/${id}`, {
+    await fetch(`/api/machines/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updates),
@@ -1815,13 +2212,13 @@ checkHealth();
 setInterval(checkHealth, 10000);
 connectWS();
 
-// Handle deep links (?page=providers, etc.) and OAuth callbacks
+// Handle deep links (?page=...) and OAuth callbacks
 const initParams = new URLSearchParams(window.location.search);
 const initPage = initParams.get('page');
 if (initPage && document.getElementById(`page-${initPage}`)) {
   showPage(initPage);
 } else {
-  loadDashboard();
+  loadHome();
 }
 </script>
 </body>
