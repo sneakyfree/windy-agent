@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  agent:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - GROK_API_KEY=${GROK_API_KEY:-}
+      - DEFAULT_MODEL=${DEFAULT_MODEL:-gpt-4o-mini}
+      - BRAVE_SEARCH_API_KEY=${BRAVE_SEARCH_API_KEY:-}
+      - ETERNITAS_API_URL=${ETERNITAS_URL:-https://eternitas.ai}
+      - WINDYMAIL_API_URL=${WINDY_MAIL_URL:-https://api.windymail.ai}
+      - MATRIX_HOMESERVER=${MATRIX_HOMESERVER:-https://chat.windyword.ai}
+      - WINDY_CLOUD_URL=${WINDY_CLOUD_URL:-https://cloud.windyword.ai}
+      - DASHBOARD_PASSWORD=${DASHBOARD_PASSWORD:-}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    volumes:
+      - agent-data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  agent-data:

@@ -7,6 +7,7 @@ intent detection → relationship moments → context header.
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -214,7 +215,11 @@ def agent_respond(
                 fn_name = tc["function"]["name"]
                 fn_args = tc["function"]["arguments"]
                 logger.info("Executing tool: %s (round %d)", fn_name, _round + 1)
-                tool_result = tool_registry.execute(fn_name, fn_args)
+                try:
+                    tool_result = tool_registry.execute(fn_name, fn_args)
+                except KeyError:
+                    logger.warning("LLM called unknown tool: %s", fn_name)
+                    tool_result = json.dumps({"error": f"Unknown tool: {fn_name}"})
                 tool_results.append({
                     "role": "tool",
                     "tool_call_id": tc["id"],

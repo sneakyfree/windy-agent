@@ -162,7 +162,10 @@ async function handleRequest(req: Request): Promise<Response> {
       return Response.json(
         {
           status: "ok",
+          service: "windy-fly-agent",
+          version: "0.5.1",
           brain_connected: bridge.isConnected(),
+          uptime_seconds: Math.floor(process.uptime()),
           timestamp: new Date().toISOString(),
         },
         { headers }

@@ -1,0 +1,17 @@
+.venv
+.git
+.github
+__pycache__
+*.pyc
+data/
+dist/
+.env
+.pytest_cache
+node_modules
+gateway/dashboard/node_modules
+gateway/public/index.legacy.html
+gateway/public/setup.legacy.html
+tests/
+docs/
+*.md
+!README.md
