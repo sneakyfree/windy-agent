@@ -29,3 +29,4 @@ build/
 .idea/
 .vscode/settings.json
 data/audio/
+data/.update_check
