@@ -21,25 +21,29 @@ interface DashboardData {
   _offline?: boolean
 }
 
-interface CostData {
-  daily_spend?: number
-  _offline?: boolean
-}
-
 export default function Home() {
   const [dash, setDash] = useState<DashboardData | null>(null)
-  const [cost, setCost] = useState<CostData | null>(null)
   const [health, setHealth] = useState<{ brain_connected: boolean } | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  const load = () => {
+    setLoading(true)
+    Promise.all([
+      api<DashboardData>('/api/dashboard').then(setDash).catch(() => {}),
+      api<{ brain_connected: boolean }>('/api/health').then(setHealth).catch(() => {}),
+    ]).finally(() => setLoading(false))
+  }
 
   useEffect(() => {
-    api<DashboardData>('/api/dashboard').then(setDash).catch(() => {})
-    api<CostData>('/api/cost/daily').then(setCost).catch(() => {})
-    api<{ brain_connected: boolean }>('/api/health').then(setHealth).catch(() => {})
+    load()
+    const iv = setInterval(load, 30000)
+    return () => clearInterval(iv)
   }, [])
 
   const connected = health?.brain_connected ?? false
-  const spend = cost?.daily_spend ?? dash?.daily_spend ?? 0
+  const spend = dash?.daily_spend ?? 0
   const budget = dash?.daily_budget ?? 5
+  const offline = dash?._offline ?? !connected
 
   const ecosystemServices = [
     { name: 'Eternitas', ok: !!dash?.passport_id },
@@ -48,8 +52,27 @@ export default function Home() {
     { name: 'Phone', ok: !!dash?.phone },
   ]
 
+  if (loading && !dash) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="w-8 h-8 border-2 border-[#00d4ff] border-t-transparent rounded-full animate-spin" />
+      </div>
+    )
+  }
+
   return (
     <div>
+      {/* Offline banner */}
+      {offline && (
+        <div className="bg-[#ef4444]/10 border border-[#ef4444]/30 rounded-xl p-4 mb-6 flex items-center gap-3">
+          <span className="text-[#ef4444] text-lg">⚠️</span>
+          <div>
+            <div className="text-[#ef4444] font-medium text-sm">Agent Offline</div>
+            <div className="text-[#ef4444]/70 text-xs">Start the agent with <code className="bg-[#ef4444]/10 px-1 rounded">windy start</code> to connect</div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center gap-4 mb-6">
         <div className="w-14 h-14 rounded-2xl bg-[#111827] border border-[#1e293b] flex items-center justify-center text-3xl">
@@ -79,12 +102,12 @@ export default function Home() {
           <span className="text-[#64748b]">Daily Budget</span>
           <span className="text-white">${spend.toFixed(2)} / ${budget.toFixed(2)}</span>
         </div>
-        <div className="w-full h-2 bg-[#1e293b] rounded-full overflow-hidden">
+        <div className="w-full h-2.5 bg-[#1e293b] rounded-full overflow-hidden">
           <div
-            className="h-full rounded-full transition-all"
+            className="h-full rounded-full transition-all duration-700"
             style={{
               width: `${Math.min((spend / budget) * 100, 100)}%`,
-              background: spend / budget > 0.8 ? '#ef4444' : '#00d4ff',
+              background: spend / budget > 0.8 ? '#ef4444' : spend / budget > 0.5 ? '#eab308' : '#00d4ff',
             }}
           />
         </div>

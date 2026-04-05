@@ -117,8 +117,20 @@ export default function Chat() {
       {/* Messages */}
       <div className="flex-1 overflow-y-auto py-4 space-y-4">
         {messages.length === 0 && (
-          <div className="flex items-center justify-center h-full text-[#475569] text-sm">
-            Send a message to start the conversation.
+          <div className="flex flex-col items-center justify-center h-full gap-3 text-center px-4">
+            {connected ? (
+              <>
+                <div className="text-4xl">🪰</div>
+                <div className="text-[#94a3b8] text-sm">Your agent is ready. Send a message to start chatting.</div>
+                <div className="text-[#475569] text-xs">Try: "What's the weather?" or "Remind me to call Mom at 3pm"</div>
+              </>
+            ) : (
+              <>
+                <div className="text-4xl">🔴</div>
+                <div className="text-[#ef4444] text-sm font-medium">Agent not running</div>
+                <div className="text-[#475569] text-xs">Start it with <code className="bg-[#1e293b] px-1.5 py-0.5 rounded text-[#94a3b8]">windy start</code> to begin chatting</div>
+              </>
+            )}
           </div>
         )}
 

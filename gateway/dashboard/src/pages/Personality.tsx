@@ -18,22 +18,29 @@ export default function Personality() {
   const [sliders, setSliders] = useState<Record<string, number>>({})
   const [info, setInfo] = useState<Record<string, SliderInfo>>({})
   const [saving, setSaving] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [offline, setOffline] = useState(false)
 
   useEffect(() => {
-    api<{ sliders: Record<string, number> }>('/api/sliders')
-      .then(d => setSliders(d.sliders || d))
-      .catch(() => {})
-    api<{ sliders: SliderInfo[] }>('/api/sliders/info')
-      .then(d => {
-        const map: Record<string, SliderInfo> = {}
-        if (Array.isArray(d.sliders)) {
-          d.sliders.forEach(s => { map[s.name] = s })
-        } else if (d.sliders) {
-          Object.assign(map, d.sliders)
-        }
-        setInfo(map)
-      })
-      .catch(() => {})
+    Promise.all([
+      api<{ sliders: Record<string, number> }>('/api/sliders')
+        .then(d => {
+          setSliders(d.sliders || d)
+          setOffline(!!(d as Record<string, unknown>)._offline)
+        })
+        .catch(() => setOffline(true)),
+      api<{ sliders: SliderInfo[] }>('/api/sliders/info')
+        .then(d => {
+          const map: Record<string, SliderInfo> = {}
+          if (Array.isArray(d.sliders)) {
+            d.sliders.forEach(s => { map[s.name] = s })
+          } else if (d.sliders) {
+            Object.assign(map, d.sliders)
+          }
+          setInfo(map)
+        })
+        .catch(() => {}),
+    ]).finally(() => setLoading(false))
   }, [])
 
   const handleChange = async (name: string, value: number) => {
@@ -60,10 +67,24 @@ export default function Personality() {
     ? Object.keys(sliders)
     : ['humor', 'formality', 'proactivity', 'verbosity', 'reasoning_depth', 'autonomy', 'epistemic_strictness', 'warmth', 'creativity', 'assertiveness']
 
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="w-8 h-8 border-2 border-[#00d4ff] border-t-transparent rounded-full animate-spin" />
+      </div>
+    )
+  }
+
   return (
     <div>
       <h1 className="text-2xl font-bold text-white mb-2">Personality</h1>
       <p className="text-[#64748b] text-sm mb-6">Fine-tune how your agent thinks, speaks, and behaves.</p>
+
+      {offline && (
+        <div className="bg-[#eab308]/10 border border-[#eab308]/30 rounded-lg p-3 mb-4 text-sm text-[#eab308]">
+          ⚠️ Agent offline — showing default values. Changes will apply when the agent reconnects.
+        </div>
+      )}
 
       {/* Presets */}
       <div className="flex gap-2 mb-6 flex-wrap">

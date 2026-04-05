@@ -57,8 +57,10 @@ export default function Memory() {
   }, [query])
 
   const handleDelete = (id: string) => {
-    // Placeholder — will wire up DELETE /api/memory/:id
-    console.log('Delete memory:', id)
+    if (!confirm('Delete this memory? This cannot be undone.')) return
+    api(`/api/memory/${id}`, { method: 'DELETE' })
+      .then(() => setResults(prev => prev ? prev.filter(r => r.id !== id) : null))
+      .catch(() => {})
   }
 
   return (

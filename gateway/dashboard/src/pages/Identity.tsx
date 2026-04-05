@@ -16,10 +16,19 @@ interface DashData {
 
 export default function Identity() {
   const [data, setData] = useState<DashData | null>(null)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    api<DashData>('/api/dashboard').then(setData).catch(() => {})
+    api<DashData>('/api/dashboard').then(setData).catch(() => {}).finally(() => setLoading(false))
   }, [])
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="w-8 h-8 border-2 border-[#00d4ff] border-t-transparent rounded-full animate-spin" />
+      </div>
+    )
+  }
 
   return (
     <div>
