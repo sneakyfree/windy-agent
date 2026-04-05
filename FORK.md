@@ -2,120 +2,128 @@
 
 ## Overview
 
-**HiFly** is the open-source, provider-agnostic AI agent framework.
-**Windy Fly** is a fork of HiFly, deeply integrated with the Windy ecosystem.
+**HiFly** is the open-source AI agent framework (MIT license).
+**Windy Fly** is a proprietary fork deeply integrated with the Windy ecosystem.
 
-The fork is maintained as a downstream branch. HiFly improvements flow
-into Windy Fly. Windy-specific features stay in the fork.
+Think of it like Android AOSP (HiFly) vs Google Play Services (Windy Fly).
+HiFly is a complete, usable agent. Windy Fly adds ecosystem identity and services.
 
-## Fork Boundary
+---
 
-### HiFly Core (generic, provider-agnostic)
+## What Goes Into HiFly (Open Source, MIT)
 
-Everything an AI agent needs to function independently:
+Everything needed for a standalone, fully functional AI agent:
+
+### Core Agent
+- Agent loop (ReAct cycle with tool calling)
+- LLM provider abstraction (OpenAI, Anthropic, xAI, Google, DeepSeek, Mistral)
+- Memory system (SQLite + FTS5 + sqlite-vec)
+- Personality system (10 sliders, presets, SOUL.md)
+- Skills engine (sandbox, eval, promote, golden tests)
+- Cost tracking + budget enforcement
+- Offline mode (Ollama fallback)
+- Sub-agent orchestration
+- Shape-shifting (temporary personality reconfiguration)
+- Cognitive decay + personality drift detection
+- "Never Wrong Twice" failure detection + correction skills
+
+### Tools
+- Web search (Brave + DuckDuckGo)
+- Fetch URL (read web pages)
+- Weather (Open-Meteo, free, no API key)
+- News (RSS feeds, no API key)
+- Reminders + timers
+- To-do list
+- Calculator
+- Unit conversion
+- Coin flip / dice roll
+- Calendar (Google Calendar OAuth, optional)
+
+### Channels
+- CLI chat
+- Telegram
+- Discord
+- Slack
+- WhatsApp (via Twilio)
+- Signal
+- Microsoft Teams
+- IRC
+- SMS (Twilio — dumb pipe, not owned identity)
+- Email (SendGrid — dumb pipe, not owned inbox)
+
+### Infrastructure
+- Gateway (Bun/TypeScript, 50+ API endpoints)
+- Dashboard (React + Vite + Tailwind, 8 pages)
+- IPC bridge (UDS/TCP brain ↔ gateway)
+- Docker deployment
+- PyPI publishing
+- Update system (check + auto-update)
+
+### The IT'S ALIVE! Ceremony
+**HARDCODED. NEVER REMOVED.** The hatching ceremony is DNA — every HiFly
+descendant gets it. Lightning, fly ASCII art, mad scientist, "IT'S ALIVE!"
+banner. This is the soul of the framework.
+
+---
+
+## What Stays EXCLUSIVE to Windy Fly (Proprietary)
+
+Windy ecosystem integrations that require Windy services:
+
+### Identity
+- Eternitas auto-registration (passport on hatch)
+- Birth certificate PDF generation
+- Neural fingerprint
+- Trust score + clearance levels
+
+### Communication
+- Windy Chat integration (Matrix auto-provisioning on chat.windyword.ai)
+- Windy Mail integration (owned inbox @windymail.ai)
+- Phone number from Windy pool (not Twilio direct)
+
+### Ecosystem
+- "Born Into the Windy Ecosystem" panel
+- Ecosystem status/health commands
+- Ecosystem URL configuration ([ecosystem] section)
+- Dashboard Identity page (passport, trust score, QR code)
+
+### Cloud
+- Windy Cloud backup (encrypted to Cloudflare R2)
+- VPS deployment via Windy Cloud
+- Windy Pro API tools (recordings, translations, clone)
+
+### Branding
+- "Windy Fly" name and 🪰 branding
+- windyfly.ai domain
+- Windy ecosystem service URLs
+
+---
+
+## Fork Mechanics
+
+### Preparing the Fork
+
+Run `scripts/prepare-hifly-fork.sh` to generate a clean HiFly distribution:
+
+1. Copies the repo to a new directory
+2. Removes Windy-exclusive files
+3. Renames "Windy Fly" → "HiFly" in user-facing strings
+4. Renames CLI entry point: `windy` → `hifly`
+5. Updates pyproject.toml: `name = "hifly"`
+6. Replaces SOUL.md with generic HiFly personality
+7. Keeps the IT'S ALIVE! ceremony (always)
+8. Adds MIT LICENSE file
+9. Result: standalone, MIT-licensed agent framework
+
+### Upstream Flow
 
 ```
-src/windyfly/
-├── agent/              # Reasoning loop, models, offline fallback
-│   ├── loop.py         # ReAct agent loop
-│   ├── models.py       # LLM provider abstraction
-│   ├── offline.py      # Ollama fallback
-│   ├── providers.py    # Multi-provider management
-│   └── shape_shift.py  # Personality reconfiguration
-├── bridge/             # IPC (UDS/TCP) brain ↔ gateway
-├── channels/
-│   ├── cli.py          # CLI chat interface
-│   ├── sms.py          # Twilio SMS (generic)
-│   └── email.py        # SendGrid email (generic)
-├── memory/             # SQLite + FTS5 + sqlite-vec
-├── personality/        # Sliders, presets, versioning
-├── skills/             # Plugin system + evaluation
-├── observability/      # Events, logging
-├── soul_import/        # Soul Passport (import personality)
-├── cli.py              # Unified CLI (windy go/init/start/stop/...)
-├── commands.py         # doctor, update, logs, config, version
-├── config.py           # TOML + env loader
-├── control_panel.py    # Slider management
-├── platform.py         # Cross-platform abstraction
-├── quickstart.py       # windy go (zero-friction setup)
-└── setup_wizard.py     # windy init (TUI wizard)
-
-gateway/
-├── src/server.ts       # Bun HTTP + WebSocket
-├── src/bridge.ts       # IPC client (UDS/TCP)
-├── src/websocket.ts    # Chat WebSocket handler
-├── src/providers.ts    # Provider config UI backend
-├── src/machines.ts     # Mission Control
-└── public/
-    ├── index.html      # Trust Dashboard
-    └── setup.html      # Browser setup wizard
-
-scripts/
-└── install.sh          # curl | bash bootstrap
+HiFly (open source) ──improvements──→ Windy Fly (proprietary)
+                                          │
+                                    Windy ecosystem
+                                    integrations added
 ```
 
-### Windy Fly Fork (ecosystem-specific)
-
-Files that only exist in the Windy Fly fork:
-
-```
-src/windyfly/
-├── channels/
-│   └── matrix_bot.py   # Windy Chat (Matrix) bot — hardwired
-├── tools/
-│   └── windy_api.py    # Windy Pro API tools (translate, recordings, clone)
-├── hatching.py          # "IT'S ALIVE!" ceremony + Born Into display
-└── matrix_provision.py  # Auto-provision Matrix bot on chat.windyword.ai
-
-SOUL.md                  # Windy Fly's specific identity/soul
-RIBOSOME_BLUEPRINT.md    # Windy ecosystem integration blueprint
-```
-
-### The "It's Alive!" Ceremony — CORE HIFLY (non-negotiable)
-
-The hatching ceremony is **hardcoded into HiFly core**.  Every descendant —
-HiFly, Windy Fly, or any future fork — gets the full ceremony:
-
-- Lightning bolts
-- The fly emerges
-- Mad scientist: "IT'S ALIVE!!! THE FLY IS ALIVE!!!"
-- Giant ASCII banner
-- Audio hook (if sound file present)
-
-This is the framework's signature.  Like the Linux penguin or the Mac
-startup chime.  It stays forever.  It cannot be disabled.
-
-### Configuration Differences
-
-| Setting | HiFly | Windy Fly |
-|---------|-------|-----------|
-| Hatching ceremony | "IT'S ALIVE!" (same) | "IT'S ALIVE!" (same) |
-| Post-hatch status | "HiFly Status" panel | "Born Into the Windy Ecosystem" panel |
-| `[matrix]` section | Optional | Pre-configured for chat.windyword.ai |
-| `MATRIX_BOT_*` env vars | User-supplied | Auto-provisioned |
-| `WINDY_API_URL` | Not present | http://localhost:8098 |
-| `WINDY_JWT` | Not present | Auto-obtained |
-| Default bot user | None | @windyfly:chat.windyword.ai |
-
-## How to Maintain the Fork
-
-1. **HiFly** lives on `main` branch of the `hifly` repo
-2. **Windy Fly** is a fork repo with its own `main`
-3. Periodically merge upstream HiFly changes into Windy Fly
-4. Windy-specific files (listed above) never go upstream
-5. The fork boundary is enforced by this document
-
-## Renaming Guide
-
-When creating the HiFly repo from this codebase:
-
-1. Rename package: `windyfly` → `hifly`
-2. Rename CLI command: `windy` → `hifly`
-3. Remove Windy-specific files (matrix_bot.py, windy_api.py, matrix_provision.py)
-4. **KEEP hatching.py** — the ceremony is core HiFly DNA
-5. **KEEP branding.py** — set `HIFLY_BRAND=hifly` as default
-6. Remove SOUL.md, RIBOSOME_BLUEPRINT.md
-7. Replace with generic SOUL.md template
-8. Update pyproject.toml name, description
-9. Update install.sh URLs
-10. Remove Windy Chat default config from windyfly.toml template
+Generic improvements (better tools, improved agent loop, new channels)
+are contributed upstream to HiFly. Windy-specific integrations stay
+in the proprietary fork.

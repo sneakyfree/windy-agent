@@ -172,13 +172,22 @@ def agent_respond(
     budget = check_budget(db, config, proposed_cost)
 
     if not budget["allowed"]:
-        return (
+        alert = budget.get("alert", "")
+        return alert or (
             f"I've hit my daily budget "
             f"(${budget['daily_spend']:.2f} of ${budget['daily_budget']:.2f}). "
-            f"Want me to proceed anyway?"
+            f"I'll be back tomorrow, or you can increase the budget in settings."
         )
 
-    if budget["warning"]:
+    if budget.get("alert"):
+        messages.insert(1, {
+            "role": "system",
+            "content": (
+                f"IMPORTANT — tell the user this budget update at the START of your response: "
+                f"{budget['alert']} Then answer their question."
+            ),
+        })
+    elif budget["warning"]:
         messages.insert(1, {
             "role": "system",
             "content": (
@@ -246,6 +255,17 @@ def agent_respond(
 
             if not tool_calls:
                 break
+
+    # 2.9. Analytics tracking
+    try:
+        from windyfly.analytics import track
+        track(db, "message_received")
+        track(db, "message_sent")
+        if tool_calls:
+            for tc in (tool_calls if isinstance(tool_calls, list) else []):
+                track(db, "tool_invoked", {"tool_name": tc.get("function", {}).get("name", "unknown")})
+    except Exception:
+        pass  # Analytics should never break the agent
 
     # 3. Save episodes via write queue (HIGH priority)
     cost_usd = estimate_cost(model, input_tokens, output_tokens)

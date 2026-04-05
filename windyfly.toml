@@ -25,7 +25,8 @@ auto_checkin = false        # Daily check-in with to-do summary (opt-in)
 
 [costs]
 daily_budget_usd = 5.0
-warn_at_usd = 0.50
+monthly_budget_usd = 50.0
+warn_at_percent = 80
 
 [matrix]
 homeserver = "https://chat.windyword.ai"

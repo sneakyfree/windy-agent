@@ -43,6 +43,18 @@ import * as machines from "./machines";
 const PORT = 3000;
 const PUBLIC_DIR = resolve(import.meta.dir, "../public");
 
+// ── Sentry error reporting (optional) ───────────────────────────
+const SENTRY_DSN = process.env.SENTRY_DSN || "";
+if (SENTRY_DSN) {
+  try {
+    // Dynamic import — only loads if @sentry/bun is installed
+    import("@sentry/bun").then((Sentry) => {
+      Sentry.init({ dsn: SENTRY_DSN, environment: process.env.SENTRY_ENV || "production" });
+      console.log("[gateway] Sentry initialized");
+    }).catch(() => { /* @sentry/bun not installed */ });
+  } catch { /* ignore */ }
+}
+
 // ── Security: Rate limiting for setup routes ──────────────────────
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
 const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute

@@ -58,10 +58,11 @@ class TestBudgetMessageQuality:
 
         # Should contain dollar amounts
         assert "$" in response, f"Budget message missing '$': {response}"
-        # Should ask for user consent
-        assert "?" in response, f"Budget message is not a question: {response}"
         # Should mention budget
         assert "budget" in response.lower(), f"Budget message doesn't say 'budget': {response}"
+        # Should explain what happens next (informative, not just an error)
+        assert "tomorrow" in response.lower() or "increase" in response.lower() or "settings" in response.lower(), \
+            f"Budget message doesn't tell user what to do: {response}"
 
         wq.stop()
         db.close()

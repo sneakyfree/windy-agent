@@ -27,6 +27,7 @@ calendar = [
     "google-api-python-client>=2.0",
     "google-auth-oauthlib>=1.0",
 ]
+sentry = ["sentry-sdk>=2.0"]
 all-channels = [
     "python-telegram-bot>=21.0",
     "discord.py>=2.3",

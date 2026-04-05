@@ -42,8 +42,8 @@ class TestBudgetCheck:
 
     def test_warning_threshold(self):
         db = Database(":memory:")
-        log_cost(db, "gpt-4o", 1000, 500, 3.5)
-        config = {"costs": {"daily_budget_usd": 5.0, "warn_at_usd": 3.0}}
+        log_cost(db, "gpt-4o", 1000, 500, 4.5)  # 90% of $5 budget
+        config = {"costs": {"daily_budget_usd": 5.0, "warn_at_percent": 80}}
         result = check_budget(db, config, proposed_cost=0.0)
         assert result["warning"] is True
         assert result["allowed"] is True

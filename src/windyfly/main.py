@@ -121,6 +121,22 @@ def main() -> None:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
 
+    # Initialize Sentry error reporting (if configured)
+    import os
+    sentry_dsn = os.environ.get("SENTRY_DSN", "")
+    if sentry_dsn:
+        try:
+            import sentry_sdk
+            sentry_sdk.init(
+                dsn=sentry_dsn,
+                environment=os.environ.get("SENTRY_ENV", "production"),
+                traces_sample_rate=0.1,
+                release=f"windyfly@{__import__('windyfly').__version__}",
+            )
+            logger.info("Sentry initialized")
+        except ImportError:
+            logger.debug("sentry-sdk not installed — skipping error reporting")
+
     # Initialize unified command registry (140 commands)
     from windyfly.commands.setup import init_all_commands
     init_all_commands(config=config)
