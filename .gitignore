@@ -30,3 +30,4 @@ build/
 .vscode/settings.json
 data/audio/
 data/.update_check
+data/windyfly.pid
