@@ -1,6 +1,6 @@
 [agent]
 name = "Windy Fly"
-default_model = "gpt-4o-mini"
+default_model = "kimi-k2.5"
 max_context_tokens = 8000
 max_response_tokens = 2000
 temperature = 0.7

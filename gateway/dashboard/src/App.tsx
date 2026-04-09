@@ -10,7 +10,7 @@ const Identity = lazy(() => import('./pages/Identity'))
 const Costs = lazy(() => import('./pages/Costs'))
 const Settings = lazy(() => import('./pages/Settings'))
 
-const PAGES: Record<string, React.LazyExoticComponent<() => JSX.Element>> = {
+const PAGES: Record<string, React.LazyExoticComponent<() => React.JSX.Element>> = {
   home: Home,
   chat: Chat,
   personality: Personality,

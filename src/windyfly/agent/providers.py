@@ -97,6 +97,13 @@ BUILTIN_PROVIDERS: dict[str, dict[str, Any]] = {
         "api_key_env": "FIREWORKS_API_KEY",
         "models": ["accounts/fireworks/models/llama-v3p1-70b-instruct"],
     },
+    "kimi": {
+        "name": "Moonshot Kimi",
+        "type": "openai",
+        "base_url": "https://api.moonshot.cn/v1",
+        "api_key_env": "KIMI_API_KEY",
+        "models": ["kimi-k2.5", "moonshot-v1-128k", "moonshot-v1-32k", "moonshot-v1-8k"],
+    },
     "ollama": {
         "name": "Ollama (Local)",
         "type": "openai",
