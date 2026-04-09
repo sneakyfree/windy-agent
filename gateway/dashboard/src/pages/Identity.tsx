@@ -19,7 +19,25 @@ export default function Identity() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    api<DashData>('/api/dashboard').then(setData).catch(() => {}).finally(() => setLoading(false))
+    api<Record<string, unknown>>('/api/dashboard')
+      .then(resp => {
+        // When brain is online the response may include identity fields at the top level
+        // or nested under dashboard. Extract what we can.
+        const flat: DashData = {}
+        const src = resp as Record<string, unknown>
+        flat.agent_name = (src.agent_name as string) ?? undefined
+        flat.passport_id = (src.passport_id as string) ?? undefined
+        flat.passport_status = (src.passport_status as string) ?? undefined
+        flat.trust_score = (src.trust_score as number) ?? undefined
+        flat.email = (src.email as string) ?? undefined
+        flat.phone = (src.phone as string) ?? undefined
+        flat.matrix_user = (src.matrix_user as string) ?? undefined
+        flat.certificate_number = (src.certificate_number as string) ?? undefined
+        flat.neural_fingerprint = (src.neural_fingerprint as string) ?? undefined
+        setData(flat)
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false))
   }, [])
 
   if (loading) {

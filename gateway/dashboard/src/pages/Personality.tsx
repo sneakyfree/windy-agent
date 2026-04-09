@@ -3,9 +3,12 @@ import { api } from '../hooks/useApi'
 
 interface SliderInfo {
   name: string
+  label?: string
   description: string
-  low_label: string
-  high_label: string
+  low_label?: string
+  high_label?: string
+  impact_low?: string
+  impact_high?: string
 }
 
 const PRESETS: Record<string, Record<string, number>> = {
@@ -122,8 +125,10 @@ export default function Personality() {
                 <p className="text-xs text-[#64748b] mb-2">{meta.description}</p>
               )}
               <div className="flex items-center gap-3">
-                {meta?.low_label && (
-                  <span className="text-xs text-[#64748b] w-16 text-right">{meta.low_label}</span>
+                {(meta?.low_label || meta?.impact_low) && (
+                  <span className="text-xs text-[#64748b] w-16 text-right truncate" title={meta.impact_low || meta.low_label}>
+                    {meta.low_label || 'Low'}
+                  </span>
                 )}
                 <input
                   type="range"
@@ -133,8 +138,10 @@ export default function Personality() {
                   onChange={e => handleChange(name, Number(e.target.value))}
                   className="flex-1"
                 />
-                {meta?.high_label && (
-                  <span className="text-xs text-[#64748b] w-16">{meta.high_label}</span>
+                {(meta?.high_label || meta?.impact_high) && (
+                  <span className="text-xs text-[#64748b] w-16 truncate" title={meta.impact_high || meta.high_label}>
+                    {meta.high_label || 'High'}
+                  </span>
                 )}
               </div>
             </div>

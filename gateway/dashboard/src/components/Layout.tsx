@@ -3,11 +3,13 @@ import { api } from '../hooks/useApi'
 
 const NAV_ITEMS = [
   { id: 'home', label: 'Home', icon: '🏠' },
-  { id: 'chat', label: 'Chat', icon: '💬' },
+  { id: 'chat', label: 'Terminal', icon: '🖥️' },
   { id: 'personality', label: 'Personality', icon: '🎛️' },
   { id: 'memory', label: 'Memory', icon: '🧠' },
   { id: 'skills', label: 'Skills', icon: '⚡' },
   { id: 'identity', label: 'Identity', icon: '🪪' },
+  { id: 'email', label: 'Email', icon: '📧' },
+  { id: 'chatEmbed', label: 'Windy Chat', icon: '💬' },
   { id: 'costs', label: 'Costs', icon: '💰' },
   { id: 'settings', label: 'Settings', icon: '⚙️' },
 ]
@@ -101,9 +103,13 @@ export default function Layout({ page, setPage, children }: LayoutProps) {
 
       {/* Main content */}
       <main className="flex-1 min-h-screen md:ml-0 pt-14 md:pt-0">
-        <div className="max-w-6xl mx-auto p-4 md:p-6">
-          {children}
-        </div>
+        {page === 'email' || page === 'chatEmbed' ? (
+          children
+        ) : (
+          <div className="max-w-6xl mx-auto p-4 md:p-6">
+            {children}
+          </div>
+        )}
       </main>
     </>
   )

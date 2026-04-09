@@ -19,8 +19,8 @@ export default function Costs() {
     Promise.all([
       api<DailyData>('/api/cost/daily').then(setDaily).catch(() => {}),
       api<MonthlyData>('/api/cost/monthly').then(setMonthly).catch(() => {}),
-      api<{ daily_budget?: number }>('/api/dashboard')
-        .then(d => { if (d.daily_budget) setBudget(d.daily_budget) })
+      api<Record<string, unknown>>('/api/dashboard')
+        .then(d => { if (d.daily_budget) setBudget(d.daily_budget as number) })
         .catch(() => {}),
     ]).finally(() => setLoading(false))
   }, [])

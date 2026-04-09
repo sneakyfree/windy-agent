@@ -7,6 +7,8 @@ const Personality = lazy(() => import('./pages/Personality'))
 const Memory = lazy(() => import('./pages/Memory'))
 const Skills = lazy(() => import('./pages/Skills'))
 const Identity = lazy(() => import('./pages/Identity'))
+const Email = lazy(() => import('./pages/Email'))
+const ChatEmbed = lazy(() => import('./pages/ChatEmbed'))
 const Costs = lazy(() => import('./pages/Costs'))
 const Settings = lazy(() => import('./pages/Settings'))
 
@@ -17,6 +19,8 @@ const PAGES: Record<string, React.LazyExoticComponent<() => React.JSX.Element>> 
   memory: Memory,
   skills: Skills,
   identity: Identity,
+  email: Email,
+  chatEmbed: ChatEmbed,
   costs: Costs,
   settings: Settings,
 }

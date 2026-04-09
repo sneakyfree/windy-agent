@@ -25,9 +25,18 @@ interface Intent {
   confidence?: number
 }
 
-interface DashboardData {
-  episodes_count: number
-  knowledge_nodes_count: number
+interface DashboardResponse {
+  dashboard: {
+    memory: { total_nodes: number; total_episodes: number }
+  }
+}
+
+interface MomentsResponse {
+  moments: Moment[]
+}
+
+interface IntentsResponse {
+  intents: Intent[]
 }
 
 export default function Memory() {
@@ -36,19 +45,23 @@ export default function Memory() {
   const [results, setResults] = useState<SearchResult[] | null>(null)
   const [searchError, setSearchError] = useState<string | null>(null)
 
-  const { data: moments, loading: momentsLoading } = useApi<Moment[]>('/api/moments?limit=20')
-  const { data: intents, loading: intentsLoading } = useApi<Intent[]>('/api/intents')
-  const { data: dashboard } = useApi<DashboardData>('/api/dashboard')
+  const { data: momentsResp, loading: momentsLoading } = useApi<MomentsResponse>('/api/moments?limit=20')
+  const { data: intentsResp, loading: intentsLoading } = useApi<IntentsResponse>('/api/intents')
+  const { data: dashResp } = useApi<DashboardResponse>('/api/dashboard')
+
+  const moments = momentsResp?.moments ?? null
+  const intents = intentsResp?.intents ?? null
+  const dashboard = dashResp?.dashboard
 
   const handleSearch = useCallback(async () => {
     if (!query.trim()) return
     setSearching(true)
     setSearchError(null)
     try {
-      const data = await api<SearchResult[]>(
+      const data = await api<{ results: SearchResult[] } | SearchResult[]>(
         `/api/memory/search?q=${encodeURIComponent(query.trim())}&limit=20`
       )
-      setResults(data)
+      setResults(Array.isArray(data) ? data : data.results ?? [])
     } catch (e) {
       setSearchError(e instanceof Error ? e.message : 'Search failed')
     } finally {
@@ -71,10 +84,10 @@ export default function Memory() {
         {dashboard && (
           <div className="flex gap-4 text-sm text-[#94a3b8]">
             <span>
-              <span className="text-[#00d4ff] font-semibold">{dashboard.episodes_count}</span> episodes
+              <span className="text-[#00d4ff] font-semibold">{dashboard.memory.total_episodes}</span> episodes
             </span>
             <span>
-              <span className="text-[#00d4ff] font-semibold">{dashboard.knowledge_nodes_count}</span> knowledge nodes
+              <span className="text-[#00d4ff] font-semibold">{dashboard.memory.total_nodes}</span> knowledge nodes
             </span>
           </div>
         )}

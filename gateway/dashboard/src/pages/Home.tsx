@@ -1,35 +1,34 @@
 import { useEffect, useState } from 'react'
 import { api } from '../hooks/useApi'
 
-interface DashboardData {
+interface DashboardResponse {
+  dashboard: {
+    memory: { total_nodes: number; total_episodes: number }
+    costs: { today_usd: number; this_week_usd: number; this_month_usd: number }
+    skills: { total: number; promoted: number }
+    intents: { active: number; completed: number; abandoned: number }
+    personality: { preset: string; estimated_monthly_cost: number }
+  }
   agent_name?: string
-  status?: string
-  uptime?: string
-  model?: string
-  daily_spend?: number
-  daily_budget?: number
-  monthly_spend?: number
-  episodes_count?: number
-  nodes_count?: number
-  skills_count?: number
-  intents_count?: number
-  last_message?: string
   passport_id?: string
   email?: string
   phone?: string
   matrix_user?: string
+  model?: string
+  uptime?: string
+  daily_budget?: number
   _offline?: boolean
 }
 
 export default function Home() {
-  const [dash, setDash] = useState<DashboardData | null>(null)
+  const [dash, setDash] = useState<DashboardResponse | null>(null)
   const [health, setHealth] = useState<{ brain_connected: boolean } | null>(null)
   const [loading, setLoading] = useState(true)
 
   const load = () => {
     setLoading(true)
     Promise.all([
-      api<DashboardData>('/api/dashboard').then(setDash).catch(() => {}),
+      api<DashboardResponse>('/api/dashboard').then(setDash).catch(() => {}),
       api<{ brain_connected: boolean }>('/api/health').then(setHealth).catch(() => {}),
     ]).finally(() => setLoading(false))
   }
@@ -41,7 +40,8 @@ export default function Home() {
   }, [])
 
   const connected = health?.brain_connected ?? false
-  const spend = dash?.daily_spend ?? 0
+  const d = dash?.dashboard
+  const spend = d?.costs.today_usd ?? 0
   const budget = dash?.daily_budget ?? 5
   const offline = dash?._offline ?? !connected
 
@@ -93,7 +93,7 @@ export default function Home() {
         <Card label="Status" value={connected ? '🟢 Running' : '🔴 Offline'} />
         <Card label="Brain" value={dash?.model || 'Not set'} />
         <Card label="Cost Today" value={`$${spend.toFixed(2)} / $${budget.toFixed(2)}`} />
-        <Card label="Episodes" value={String(dash?.episodes_count ?? 0)} />
+        <Card label="Episodes" value={String(d?.memory.total_episodes ?? 0)} />
       </div>
 
       {/* Budget bar */}
@@ -128,9 +128,9 @@ export default function Home() {
 
       {/* Quick stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Card label="Knowledge Nodes" value={String(dash?.nodes_count ?? 0)} />
-        <Card label="Skills" value={String(dash?.skills_count ?? 0)} />
-        <Card label="Active Goals" value={String(dash?.intents_count ?? 0)} />
+        <Card label="Knowledge Nodes" value={String(d?.memory.total_nodes ?? 0)} />
+        <Card label="Skills" value={String(d?.skills.total ?? 0)} />
+        <Card label="Active Goals" value={String(d?.intents.active ?? 0)} />
         <Card label="Passport" value={dash?.passport_id ? dash.passport_id.slice(0, 12) : 'None'} />
       </div>
     </div>

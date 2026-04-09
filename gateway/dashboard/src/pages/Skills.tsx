@@ -11,7 +11,8 @@ interface Skill {
 }
 
 export default function Skills() {
-  const { data: skills, loading, error, reload } = useApi<Skill[]>('/api/skills')
+  const { data: skillsResp, loading, error, reload } = useApi<{ skills: Skill[] }>('/api/skills')
+  const skills = skillsResp?.skills ?? null
   const [expanded, setExpanded] = useState<string | null>(null)
   const [regressionRunning, setRegressionRunning] = useState(false)
   const [regressionResult, setRegressionResult] = useState<string | null>(null)
