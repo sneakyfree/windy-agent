@@ -1205,7 +1205,7 @@ def _register_budget_through_help():
 
     async def cmd_repl(ctx):
         return "Run 'windy repl' from terminal to drop into Python REPL with agent context."
-    _r("repl", "Developer Python REPL with agent context", "12_developer", cmd_repl)
+    _r("repl", "Developer Python REPL with agent context", "12_developer", cmd_repl, dangerous=True)
 
     async def cmd_test(ctx):
         return "TEST_SELF"
@@ -1216,14 +1216,26 @@ def _register_budget_through_help():
         if not cmd:
             return "Usage: /run <shell command>"
         try:
-            result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=30)
+            # NO shell=True — user input is tokenised with shlex so a
+            # trailing `; rm -rf ~` can't reach the interpreter even if
+            # the trust gate and channel policy are somehow bypassed.
+            import shlex
+            argv = shlex.split(cmd)
+            if not argv:
+                return "Usage: /run <shell command>"
+            result = subprocess.run(argv, capture_output=True, text=True, timeout=30)
             output = result.stdout or result.stderr
             return output[:2000] if output else "(no output)"
+        except FileNotFoundError:
+            return f"Command not found: {cmd.split()[0]}"
+        except ValueError as e:
+            return f"Could not parse command: {e}"
         except subprocess.TimeoutExpired:
             return "Command timed out (30s limit)"
         except Exception as e:
             return f"Error: {e}"
-    _r("run", "Execute a shell command", "12_developer", cmd_run, aliases=["exec", "sh"], usage="run <command>")
+    _r("run", "Execute a shell command", "12_developer", cmd_run,
+       aliases=["exec", "sh"], dangerous=True, usage="run <command>")
 
     async def cmd_web(ctx):
         url = ctx.get("_raw", "")
@@ -1237,7 +1249,7 @@ def _register_budget_through_help():
         except Exception as e:
             return f"Error fetching {url}: {e}"
     _r("web", "Fetch a URL and show content", "12_developer", cmd_web,
-       aliases=["fetch", "curl"], usage="web <url>")
+       aliases=["fetch", "curl"], dangerous=True, usage="web <url>")
 
     async def cmd_diff(ctx):
         try:
@@ -1252,11 +1264,18 @@ def _register_budget_through_help():
         if not cmd:
             return "Usage: /git <command> (e.g. /git status, /git log --oneline -5)"
         try:
-            result = subprocess.run(f"git {cmd}", shell=True, capture_output=True, text=True, timeout=15)
+            # NO shell=True — splits /git log;rm -rf ~ into literal argv
+            # rather than piping to the shell.
+            import shlex
+            argv = ["git", *shlex.split(cmd)]
+            result = subprocess.run(argv, capture_output=True, text=True, timeout=15)
             return result.stdout[:2000] or result.stderr[:500] or "(no output)"
+        except ValueError as e:
+            return f"Could not parse command: {e}"
         except Exception as e:
             return f"Error: {e}"
-    _r("git", "Run a git command", "12_developer", cmd_git, usage="git <command>")
+    _r("git", "Run a git command", "12_developer", cmd_git,
+       dangerous=True, usage="git <command>")
 
     async def cmd_help(ctx):
         args = ctx.get("_args", [])
