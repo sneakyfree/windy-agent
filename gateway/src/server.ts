@@ -95,48 +95,143 @@ function isLocalhostRequest(req: Request): boolean {
 // Dashboard authentication for VPS-deployed agents
 const DASHBOARD_PASSWORD = process.env.DASHBOARD_PASSWORD || "";
 
+// Constant-time string equality. We reach for crypto.timingSafeEqual
+// against equal-length Buffers — the password and the candidate are
+// padded/trimmed to the same length first so we never throw, and we
+// always perform the comparison so attack timing leaks nothing about
+// whether the input length is correct.
+export function safeStringEqual(a: string, b: string): boolean {
+  const { timingSafeEqual } = require("crypto");
+  const ba = Buffer.from(a, "utf8");
+  const bb = Buffer.from(b, "utf8");
+  if (ba.length !== bb.length) {
+    // Compare equal-length copies so the call always takes the same
+    // amount of work regardless of length mismatch.
+    const pad = Buffer.alloc(ba.length);
+    timingSafeEqual(ba, pad);
+    return false;
+  }
+  return timingSafeEqual(ba, bb);
+}
+
+function loginPageHtml(message: string = ""): string {
+  const banner = message
+    ? `<div style="color:#ef4444;margin-bottom:8px;font-size:0.9rem">${message}</div>`
+    : "";
+  // Login is POST-only. No query-param path — dashboards should never
+  // put secrets in URLs that end up in access logs and Referer headers.
+  return `<!DOCTYPE html><html><head><title>Windy Fly</title>
+<style>body{background:#0a0e17;color:#e2e8f0;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;font-family:system-ui}
+form{text-align:center}input{padding:12px 16px;border-radius:8px;border:1px solid #1e293b;background:#111827;color:#e2e8f0;margin:8px 0;width:250px}
+button{padding:12px 24px;border-radius:8px;border:none;background:#00d4ff;color:#000;font-weight:600;cursor:pointer;margin-top:8px}</style></head>
+<body><form method="POST" action="/api/auth/login"><div style="font-size:2rem;margin-bottom:16px">🪰</div><div>Windy Fly Dashboard</div>
+${banner}<input type="password" name="password" placeholder="Dashboard password" autocomplete="current-password" autofocus required/>
+<br/><button type="submit">Log In</button></form></body></html>`;
+}
+
 function checkDashboardAuth(req: Request): Response | null {
-  // No auth needed for localhost
+  // No auth needed for localhost. (NOTE: the localhost check itself
+  // is fixed in the P0-S1 PR; this one only addresses the query-param
+  // password leak.)
   if (isLocalhostRequest(req)) return null;
-  // No auth needed if no password configured
-  if (!DASHBOARD_PASSWORD) return null;
+  // No password configured → fail closed in production, fall through
+  // to a one-line warning below in dev. Refused to return null here.
+  if (!DASHBOARD_PASSWORD) {
+    if (process.env.WINDYFLY_ENV === "production") {
+      return new Response("DASHBOARD_PASSWORD not configured", { status: 503 });
+    }
+    return null;
+  }
   // Health endpoint is always public
   const url = new URL(req.url);
   if (url.pathname === "/api/health") return null;
+  // Login route must be reachable without auth to let the user sign in.
+  if (url.pathname === "/api/auth/login") return null;
 
   const authHeader = req.headers.get("Authorization") || "";
   const cookie = req.headers.get("Cookie") || "";
 
-  // Check Bearer token
-  if (authHeader === `Bearer ${DASHBOARD_PASSWORD}`) return null;
+  // Bearer — constant-time.
+  if (authHeader.startsWith("Bearer ") &&
+      safeStringEqual(authHeader.slice("Bearer ".length), DASHBOARD_PASSWORD)) {
+    return null;
+  }
 
-  // Check session cookie
-  if (cookie.includes(`windy_auth=${DASHBOARD_PASSWORD}`)) return null;
+  // Session cookie — extract the value and constant-time compare.
+  const cookieVal = parseCookie(cookie, "windy_auth");
+  if (cookieVal && safeStringEqual(cookieVal, DASHBOARD_PASSWORD)) {
+    return null;
+  }
 
-  // Check query param (for initial login)
-  if (url.searchParams.get("auth") === DASHBOARD_PASSWORD) {
-    // Set cookie and redirect to clean URL
-    url.searchParams.delete("auth");
-    return new Response(null, {
-      status: 302,
-      headers: {
-        "Location": url.pathname + url.search,
-        "Set-Cookie": `windy_auth=${DASHBOARD_PASSWORD}; Path=/; HttpOnly; SameSite=Strict; Max-Age=86400`,
-      },
+  // Unauthorized — serve the POST login form. **No query-param auth.**
+  return new Response(
+    loginPageHtml(),
+    { status: 401, headers: { "Content-Type": "text/html" } }
+  );
+}
+
+function parseCookie(header: string, name: string): string | null {
+  if (!header) return null;
+  for (const part of header.split(";")) {
+    const [k, ...rest] = part.trim().split("=");
+    if (k === name) return rest.join("=");
+  }
+  return null;
+}
+
+/**
+ * POST /api/auth/login — accepts `password` as form-encoded body,
+ * sets the session cookie on success. Intentionally does NOT accept
+ * the password in the URL or query string (P0-S2).
+ */
+async function handleLogin(req: Request): Promise<Response> {
+  if (req.method !== "POST") {
+    return new Response(loginPageHtml(), {
+      status: 405, headers: { "Content-Type": "text/html", "Allow": "POST" },
+    });
+  }
+  if (!DASHBOARD_PASSWORD) {
+    return new Response("Login disabled (no DASHBOARD_PASSWORD configured)", {
+      status: 503,
     });
   }
 
-  // Unauthorized — return login prompt
-  return new Response(
-    `<!DOCTYPE html><html><head><title>Windy Fly</title>
-    <style>body{background:#0a0e17;color:#e2e8f0;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;font-family:system-ui}
-    form{text-align:center}input{padding:12px 16px;border-radius:8px;border:1px solid #1e293b;background:#111827;color:#e2e8f0;margin:8px 0;width:250px}
-    button{padding:12px 24px;border-radius:8px;border:none;background:#00d4ff;color:#000;font-weight:600;cursor:pointer;margin-top:8px}</style></head>
-    <body><form method="GET"><div style="font-size:2rem;margin-bottom:16px">🪰</div><div>Windy Fly Dashboard</div>
-    <input type="password" name="auth" placeholder="Dashboard password" autofocus/>
-    <br/><button type="submit">Log In</button></form></body></html>`,
-    { status: 401, headers: { "Content-Type": "text/html" } }
-  );
+  const contentType = req.headers.get("Content-Type") || "";
+  let password = "";
+  if (contentType.includes("application/x-www-form-urlencoded")) {
+    const body = await req.text();
+    const params = new URLSearchParams(body);
+    password = params.get("password") || "";
+  } else if (contentType.includes("application/json")) {
+    try {
+      const body = await req.json() as { password?: string };
+      password = body.password || "";
+    } catch {
+      return new Response(loginPageHtml("Invalid request"), {
+        status: 400, headers: { "Content-Type": "text/html" },
+      });
+    }
+  } else {
+    return new Response(loginPageHtml("Unsupported content type"), {
+      status: 415, headers: { "Content-Type": "text/html" },
+    });
+  }
+
+  if (!safeStringEqual(password, DASHBOARD_PASSWORD)) {
+    return new Response(loginPageHtml("Wrong password"), {
+      status: 401, headers: { "Content-Type": "text/html" },
+    });
+  }
+
+  return new Response(null, {
+    status: 302,
+    headers: {
+      "Location": "/",
+      "Set-Cookie":
+        `windy_auth=${DASHBOARD_PASSWORD}; Path=/; HttpOnly; SameSite=Strict; ` +
+        `Secure; Max-Age=86400`,
+    },
+  });
 }
 
 async function handleRequest(req: Request): Promise<Response> {
@@ -169,6 +264,13 @@ async function handleRequest(req: Request): Promise<Response> {
   }
 
   try {
+    // Auth — POST /api/auth/login exchanges a password for a cookie.
+    // Available before the auth gate; see handleLogin for the full
+    // constant-time comparison.
+    if (path === "/api/auth/login") {
+      return handleLogin(req);
+    }
+
     // Health check
     if (path === "/api/health") {
       return Response.json(

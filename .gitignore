@@ -31,3 +31,4 @@ build/
 data/audio/
 data/.update_check
 data/windyfly.pid
+.coverage
