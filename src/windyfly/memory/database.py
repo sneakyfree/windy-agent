@@ -204,7 +204,7 @@ _MIGRATIONS: dict[int, tuple[str, str]] = {
         "Wave 4: trust_cache shape matches live Eternitas Trust API",
         """
         DROP TABLE IF EXISTS trust_cache;
-        CREATE TABLE trust_cache (
+        CREATE TABLE IF NOT EXISTS trust_cache (
             passport TEXT PRIMARY KEY,
             status TEXT NOT NULL,
             band TEXT NOT NULL,
@@ -242,11 +242,25 @@ class Database:
         )
         self.conn.row_factory = sqlite3.Row
 
-        # Run PRAGMA settings
-        self.conn.execute("PRAGMA journal_mode=WAL;")
+        # busy_timeout must come FIRST so every subsequent PRAGMA /
+        # schema op waits for contested locks rather than immediately
+        # raising "database is locked". Without this, subsequent
+        # concurrent Database() opens would fail synchronously (the
+        # P1-O4 symptom).
+        self.conn.execute("PRAGMA busy_timeout=5000;")
+        # PRAGMA journal_mode=WAL needs an exclusive lock to flip
+        # modes. If another connection is mid-write on the same file,
+        # this raises even with busy_timeout set. The DB only needs
+        # to be in WAL mode — that's a per-file property, not
+        # per-connection — so a best-effort set is sufficient: the
+        # first connection wins; any later connection is already
+        # seeing WAL.
+        try:
+            self.conn.execute("PRAGMA journal_mode=WAL;")
+        except sqlite3.OperationalError:
+            pass
         self.conn.execute("PRAGMA synchronous=NORMAL;")
         self.conn.execute("PRAGMA foreign_keys=ON;")
-        self.conn.execute("PRAGMA busy_timeout=5000;")
 
         self._run_migrations()
 
@@ -262,14 +276,38 @@ class Database:
             return 0
 
     def _run_migrations(self) -> None:
-        """Apply pending migrations in order."""
-        current = self._get_current_version()
+        """Apply pending migrations in order.
 
-        for version in sorted(_MIGRATIONS.keys()):
-            if version <= current:
-                continue
-            _desc, sql = _MIGRATIONS[version]
-            self.conn.executescript(sql)
+        Concurrent Database() opens on the same file can race here —
+        two threads may both see "current version 3" and both try to
+        run migration 4, which fails on the second attempt because the
+        first has already created/dropped the tables.
+
+        We serialize migrations with a BEGIN EXCLUSIVE transaction so
+        only one writer runs the migration block at a time, and we
+        re-check the version inside the transaction so the second
+        thread becomes a no-op rather than replaying the SQL.
+        """
+        if self._get_current_version() >= max(_MIGRATIONS.keys(), default=0):
+            return  # Common path — already migrated.
+
+        try:
+            self.conn.execute("BEGIN EXCLUSIVE")
+        except sqlite3.OperationalError:
+            # Another migration holds the lock; wait and re-check.
+            self.conn.execute("BEGIN IMMEDIATE")
+
+        try:
+            current = self._get_current_version()
+            for version in sorted(_MIGRATIONS.keys()):
+                if version <= current:
+                    continue
+                _desc, sql = _MIGRATIONS[version]
+                self.conn.executescript(sql)
+            self.conn.commit()
+        except Exception:
+            self.conn.rollback()
+            raise
 
     def execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
         """Execute a single SQL statement."""
