@@ -88,8 +88,8 @@ class TestMigrationV2:
         assert "soul_history" in table_names
         db.close()
 
-    def test_schema_version_is_2(self):
+    def test_schema_version_is_current(self):
         db = Database(":memory:")
         row = db.fetchone("SELECT MAX(version) as v FROM schema_version")
-        assert row["v"] == 3
+        assert row["v"] == 4
         db.close()

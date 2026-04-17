@@ -37,6 +37,73 @@ def get_dashboard_summary(
         "personality": _get_personality_stats(db, user_id),
         "journal": _get_journal_entries(db, user_id),
         "self_assessment": _get_latest_assessment(db),
+        "trust_banner": _get_trust_banner(db),
+    }
+
+
+# Real Eternitas band multipliers from docs/trust-api.md.
+_BAND_MULTIPLIERS: dict[str, float] = {
+    "exceptional": 5.0,
+    "good": 2.0,
+    "fair": 1.0,
+    "poor": 0.5,
+    "critical": 0.0,
+}
+
+# Real Eternitas clearance-level → cumulative actions from docs/trust-api.md.
+_CLEARANCE_UNLOCKS: dict[str, list[str]] = {
+    "registered": ["read"],
+    "verified": ["read", "send"],
+    "cleared": ["read", "send", "execute", "dm_bots", "install_packages"],
+    "top_secret": [
+        "read", "send", "execute", "dm_bots", "install_packages",
+        "commit_push", "broadcast", "mention_strangers",
+    ],
+    "eternal": [
+        "read", "send", "execute", "dm_bots", "install_packages",
+        "commit_push", "broadcast", "mention_strangers", "bypass_rate_caps",
+    ],
+}
+
+
+def _get_trust_banner(db: Database) -> dict[str, Any]:
+    """Current trust band + clearance + what each unlocks, for the banner."""
+    import os
+    from windyfly.trust.check import _cache_read, _ensure_table
+
+    passport = os.environ.get("ETERNITAS_PASSPORT", "")
+    _ensure_table(db)
+    snap = _cache_read(passport, db=db) if passport else None
+
+    if snap is None:
+        return {
+            "status": "active",
+            "band": "unknown",
+            "clearance_level": "unknown",
+            "tier_multiplier": 0.0,
+            "integrity_score": 0,
+            "allowed_actions": [],
+            "denied_actions": [],
+            "dimensions": {},
+            "band_multipliers": _BAND_MULTIPLIERS,
+            "clearance_unlocks": _CLEARANCE_UNLOCKS,
+            "passport": passport,
+            "cache_status": "no_snapshot",
+        }
+
+    return {
+        "status": snap.status,
+        "band": snap.band,
+        "clearance_level": snap.clearance_level,
+        "tier_multiplier": snap.tier_multiplier,
+        "integrity_score": snap.integrity_score,
+        "allowed_actions": snap.allowed_actions,
+        "denied_actions": snap.denied_actions,
+        "dimensions": snap.dimensions,
+        "band_multipliers": _BAND_MULTIPLIERS,
+        "clearance_unlocks": _CLEARANCE_UNLOCKS,
+        "passport": passport,
+        "cache_status": "ok",
     }
 
 

@@ -92,11 +92,23 @@ async def backup_to_cloud(config: dict | None = None) -> dict:
 
     Returns dict with backup_id, size, and timestamp on success.
     """
-    cloud_url = _get_cloud_url(config)
-    token = _get_cloud_token()
+    from windyfly.auth.audit import audit_bot_key_call
+    from windyfly.auth.bot_credentials import ecosystem_auth_header, get_bot_key
+    from windyfly.trust.gate import TrustDenied, require_trust
 
-    if not token:
+    try:
+        await require_trust("upload_file")
+    except TrustDenied as denied:
+        return {"success": False, "error": str(denied)}
+
+    cloud_url = _get_cloud_url(config)
+    auth_header = await ecosystem_auth_header(fallback_token=_get_cloud_token())
+
+    if not auth_header:
         return {"success": False, "error": "No cloud token configured"}
+
+    cred = await get_bot_key()
+    audit_key_id = cred.key_id if cred else ""
 
     db_path = PROJECT_ROOT / "data" / "windyfly.db"
     if config:
@@ -131,15 +143,22 @@ async def backup_to_cloud(config: dict | None = None) -> dict:
     }
 
     try:
+        target_url = f"{cloud_url}/api/v1/archive/agent"
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            resp = await client.post(
-                f"{cloud_url}/api/v1/archive/agent",
-                json=payload,
-                headers={
-                    "Authorization": f"Bearer {token}",
-                    "Content-Type": "application/json",
-                },
-            )
+            with audit_bot_key_call(
+                key_id=audit_key_id,
+                scope_used="cloud:upload",
+                target_url=target_url,
+            ) as ctx:
+                resp = await client.post(
+                    target_url,
+                    json=payload,
+                    headers={
+                        **auth_header,
+                        "Content-Type": "application/json",
+                    },
+                )
+                ctx["response_status"] = resp.status_code
             resp.raise_for_status()
             result = resp.json()
 
@@ -171,22 +190,32 @@ async def restore_from_cloud(
     Replaces the local database with the restored backup.
     Creates a local backup before overwriting.
     """
-    cloud_url = _get_cloud_url(config)
-    token = _get_cloud_token()
+    from windyfly.auth.audit import audit_bot_key_call
+    from windyfly.auth.bot_credentials import ecosystem_auth_header, get_bot_key
 
-    if not token:
+    cloud_url = _get_cloud_url(config)
+    auth_header = await ecosystem_auth_header(fallback_token=_get_cloud_token())
+
+    if not auth_header:
         return {"success": False, "error": "No cloud token configured"}
+
+    cred = await get_bot_key()
+    audit_key_id = cred.key_id if cred else ""
 
     db_path = PROJECT_ROOT / "data" / "windyfly.db"
     if config:
         db_path = Path(config.get("memory", {}).get("db_path", "data/windyfly.db"))
 
     try:
+        target_url = f"{cloud_url}/api/v1/archive/agent/{backup_id}"
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            resp = await client.get(
-                f"{cloud_url}/api/v1/archive/agent/{backup_id}",
-                headers={"Authorization": f"Bearer {token}"},
-            )
+            with audit_bot_key_call(
+                key_id=audit_key_id,
+                scope_used="cloud:download",
+                target_url=target_url,
+            ) as ctx:
+                resp = await client.get(target_url, headers=auth_header)
+                ctx["response_status"] = resp.status_code
             resp.raise_for_status()
             data = resp.json()
 
@@ -230,18 +259,28 @@ async def restore_from_cloud(
 
 async def list_backups(config: dict | None = None) -> dict:
     """List available backups from Windy Cloud."""
-    cloud_url = _get_cloud_url(config)
-    token = _get_cloud_token()
+    from windyfly.auth.audit import audit_bot_key_call
+    from windyfly.auth.bot_credentials import ecosystem_auth_header, get_bot_key
 
-    if not token:
+    cloud_url = _get_cloud_url(config)
+    auth_header = await ecosystem_auth_header(fallback_token=_get_cloud_token())
+
+    if not auth_header:
         return {"success": False, "backups": [], "error": "No cloud token configured"}
 
+    cred = await get_bot_key()
+    audit_key_id = cred.key_id if cred else ""
+
     try:
+        target_url = f"{cloud_url}/api/v1/archive/agent"
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            resp = await client.get(
-                f"{cloud_url}/api/v1/archive/agent",
-                headers={"Authorization": f"Bearer {token}"},
-            )
+            with audit_bot_key_call(
+                key_id=audit_key_id,
+                scope_used="cloud:download",
+                target_url=target_url,
+            ) as ctx:
+                resp = await client.get(target_url, headers=auth_header)
+                ctx["response_status"] = resp.status_code
             resp.raise_for_status()
             data = resp.json()
             return {"success": True, "backups": data.get("backups", [])}

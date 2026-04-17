@@ -46,11 +46,11 @@ class TestDatabaseCreation:
         assert "schema_version" in table_names
         db.close()
 
-    def test_schema_version_is_1(self):
+    def test_schema_version_is_current(self):
         db = _make_db()
         row = db.fetchone("SELECT MAX(version) as v FROM schema_version")
         assert row is not None
-        assert row["v"] == 3
+        assert row["v"] == 4
         db.close()
 
     def test_wal_mode(self):

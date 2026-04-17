@@ -66,7 +66,15 @@ class WindyMailAdapter:
 
         Raises:
             RateLimitedError: If the rate limiter blocks the send.
+            TrustDenied: If the agent's integrity band doesn't allow send_email.
         """
+        from windyfly.trust.gate import TrustDenied, require_trust_sync
+        try:
+            require_trust_sync("send_email", db=self.db)
+        except TrustDenied as denied:
+            logger.warning("Email send blocked by trust gate: %s", denied)
+            return {"status": "denied", "error": str(denied)}
+
         # Rate limit check (only if db is available)
         if self.db is not None:
             try:
@@ -271,7 +279,15 @@ class WindyFlyEmail:
 
         Raises:
             RateLimitedError: If the rate limiter blocks the send.
+            TrustDenied: If the agent's integrity band doesn't allow send_email.
         """
+        from windyfly.trust.gate import TrustDenied, require_trust_sync
+        try:
+            require_trust_sync("send_email", db=self.db)
+        except TrustDenied as denied:
+            logger.warning("Email send blocked by trust gate: %s", denied)
+            return {"status": "denied", "error": str(denied)}
+
         # Rate limit check
         try:
             from windyfly.mail_rate_limiter import MailRateLimiter

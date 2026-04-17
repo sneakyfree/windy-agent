@@ -200,6 +200,29 @@ _MIGRATIONS: dict[int, tuple[str, str]] = {
             VALUES (3, 'Phase 5: events table for observability');
         """,
     ),
+    4: (
+        "Wave 4: trust_cache shape matches live Eternitas Trust API",
+        """
+        DROP TABLE IF EXISTS trust_cache;
+        CREATE TABLE trust_cache (
+            passport TEXT PRIMARY KEY,
+            status TEXT NOT NULL,
+            band TEXT NOT NULL,
+            clearance_level TEXT NOT NULL,
+            tier_multiplier REAL NOT NULL,
+            integrity_score INTEGER NOT NULL,
+            dimensions JSON NOT NULL,
+            allowed_actions JSON NOT NULL,
+            denied_actions JSON NOT NULL,
+            evaluated_at DATETIME NOT NULL,
+            cache_ttl_seconds INTEGER NOT NULL,
+            cached_at DATETIME NOT NULL
+        );
+
+        INSERT OR IGNORE INTO schema_version (version, description)
+            VALUES (4, 'Wave 4: trust_cache matches live Eternitas Trust API');
+        """,
+    ),
 }
 
 
