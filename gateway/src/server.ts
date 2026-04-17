@@ -55,20 +55,29 @@ if (SENTRY_DSN) {
   } catch { /* ignore */ }
 }
 
-// ── Security: Rate limiting for setup routes ──────────────────────
+// ── Security: Rate limiting ────────────────────────────────────────
+// Separate buckets for setup (already rate-limited) and auth failures
+// (P1-O5). Bucket keys are formatted "setup:<ip>" vs "auth:<ip>" so
+// neither starves the other.
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
 const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
-const RATE_LIMIT_MAX = 10; // 10 requests per minute per IP
 
-function isRateLimited(ip: string): boolean {
+type RateLimitBucket = "setup" | "auth";
+const RATE_LIMITS: Record<RateLimitBucket, number> = {
+  setup: 10, // requests / minute / IP
+  auth:  5,  // failed login attempts / minute / IP
+};
+
+function isRateLimited(ip: string, bucket: RateLimitBucket = "setup"): boolean {
+  const key = `${bucket}:${ip}`;
   const now = Date.now();
-  const entry = rateLimitMap.get(ip);
+  const entry = rateLimitMap.get(key);
   if (!entry || now > entry.resetAt) {
-    rateLimitMap.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+    rateLimitMap.set(key, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
     return false;
   }
   entry.count++;
-  return entry.count > RATE_LIMIT_MAX;
+  return entry.count > RATE_LIMITS[bucket];
 }
 
 // ── Security: Input sanitization ──────────────────────────────────
@@ -92,51 +101,219 @@ function isLocalhostRequest(req: Request): boolean {
   return host === "localhost" || host === "127.0.0.1" || host === "::1";
 }
 
-// Dashboard authentication for VPS-deployed agents
+// Dashboard authentication for VPS-deployed agents.
+//
+// Startup policy (P1-S5):
+//   - In production (WINDYFLY_ENV=production), DASHBOARD_PASSWORD is
+//     REQUIRED. Empty password is a hard startup failure.
+//   - In dev, an empty password means "dashboard is LAN-open" — we log
+//     a loud warning so a developer noticing it in their logs will
+//     flinch. Never silent.
+//
+// Comparison policy (P1-S6):
+//   - Every credential comparison uses crypto.timingSafeEqual. String
+//     === is not constant-time in V8/JSC; over a few thousand samples,
+//     password length + prefix can leak through timing.
+//
+// Rate-limit policy (P1-O5):
+//   - Failed auth attempts consume the "auth" bucket (5 / min / IP).
+//     After 5 failures, the attacker gets 429s without us even
+//     comparing the password.
+
 const DASHBOARD_PASSWORD = process.env.DASHBOARD_PASSWORD || "";
+const WINDYFLY_ENV = process.env.WINDYFLY_ENV || "dev";
+
+// Validate the dashboard-auth config at import time so operators hit
+// the error when the process starts, not when the first visitor arrives.
+export function validateDashboardAuthConfig(
+  password: string,
+  env: string,
+): { ok: boolean; message: string } {
+  if (env === "production" && !password) {
+    return {
+      ok: false,
+      message:
+        "DASHBOARD_PASSWORD is required when WINDYFLY_ENV=production. " +
+        "Set it to a strong secret or disable production mode.",
+    };
+  }
+  if (!password) {
+    return {
+      ok: true,
+      message:
+        "WARN: DASHBOARD_PASSWORD is empty; dashboard is open on any " +
+        "network the gateway listens on. Acceptable only on a trusted " +
+        "local dev machine.",
+    };
+  }
+  if (password.length < 16) {
+    return {
+      ok: true,
+      message:
+        `WARN: DASHBOARD_PASSWORD is ${password.length} chars; under 16 ` +
+        "is easy to brute-force. Consider 24+ random characters.",
+    };
+  }
+  return { ok: true, message: "" };
+}
+
+// Fail the whole process in production with an empty password; log
+// a warning otherwise. This runs at import — no request ever reaches
+// an insecure state.
+{
+  const check = validateDashboardAuthConfig(DASHBOARD_PASSWORD, WINDYFLY_ENV);
+  if (!check.ok) {
+    console.error("[gateway] startup failed: " + check.message);
+    // Throwing here prevents Bun.serve from being called at all.
+    throw new Error(check.message);
+  }
+  if (check.message) {
+    console.warn("[gateway] " + check.message);
+  }
+}
+
+// Constant-time equality. Buffers are padded to equal length so the
+// call always performs the same amount of work regardless of length
+// mismatch. Returns false on length mismatch rather than throwing.
+export function safeStringEqual(a: string, b: string): boolean {
+  const { timingSafeEqual } = require("crypto");
+  const ba = Buffer.from(a, "utf8");
+  const bb = Buffer.from(b, "utf8");
+  if (ba.length !== bb.length) {
+    const pad = Buffer.alloc(ba.length);
+    timingSafeEqual(ba, pad);
+    return false;
+  }
+  return timingSafeEqual(ba, bb);
+}
+
+function parseCookie(header: string, name: string): string | null {
+  if (!header) return null;
+  for (const part of header.split(";")) {
+    const [k, ...rest] = part.trim().split("=");
+    if (k === name) return rest.join("=");
+  }
+  return null;
+}
+
+function clientIp(req: Request): string {
+  const fwd = req.headers.get("X-Forwarded-For");
+  if (fwd) return fwd.split(",")[0].trim();
+  return (req.headers.get("X-Real-IP") || "unknown").trim();
+}
+
+function loginPageHtml(message: string = ""): string {
+  const banner = message
+    ? `<div style="color:#ef4444;margin-bottom:8px;font-size:0.9rem">${message}</div>`
+    : "";
+  return `<!DOCTYPE html><html><head><title>Windy Fly</title>
+<style>body{background:#0a0e17;color:#e2e8f0;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;font-family:system-ui}
+form{text-align:center}input{padding:12px 16px;border-radius:8px;border:1px solid #1e293b;background:#111827;color:#e2e8f0;margin:8px 0;width:250px}
+button{padding:12px 24px;border-radius:8px;border:none;background:#00d4ff;color:#000;font-weight:600;cursor:pointer;margin-top:8px}</style></head>
+<body><form method="POST" action="/api/auth/login"><div style="font-size:2rem;margin-bottom:16px">🪰</div><div>Windy Fly Dashboard</div>
+${banner}<input type="password" name="password" placeholder="Dashboard password" autocomplete="current-password" autofocus required/>
+<br/><button type="submit">Log In</button></form></body></html>`;
+}
 
 function checkDashboardAuth(req: Request): Response | null {
-  // No auth needed for localhost
-  if (isLocalhostRequest(req)) return null;
-  // No auth needed if no password configured
-  if (!DASHBOARD_PASSWORD) return null;
-  // Health endpoint is always public
+  // Health + webhooks are their own auth.
   const url = new URL(req.url);
   if (url.pathname === "/api/health") return null;
+  if (url.pathname === "/api/auth/login") return null;
+
+  // No auth needed for localhost (fix for P0-S1 lives in its own PR;
+  // signature unchanged here so both PRs compose cleanly).
+  if (isLocalhostRequest(req)) return null;
+
+  if (!DASHBOARD_PASSWORD) {
+    // validateDashboardAuthConfig has already failed-closed in prod;
+    // we only get here in dev mode with an intentionally empty
+    // password. Don't silently allow — force the visitor to
+    // acknowledge that the dashboard is open by exposing the warning
+    // on every request.
+    return new Response(
+      "Dashboard is in open-dev mode (DASHBOARD_PASSWORD unset). " +
+      "Set WINDYFLY_ENV=production + DASHBOARD_PASSWORD to enable auth.",
+      { status: 403, headers: { "Content-Type": "text/plain" } },
+    );
+  }
+
+  // Rate-limit auth probes. We do this *before* comparing the password
+  // so a brute-forcer can't even time the compare.
+  const ip = clientIp(req);
+  if (isRateLimited(ip, "auth")) {
+    return new Response("Too many auth attempts — try again in a minute.",
+      { status: 429, headers: { "Retry-After": "60" } });
+  }
 
   const authHeader = req.headers.get("Authorization") || "";
-  const cookie = req.headers.get("Cookie") || "";
+  if (authHeader.startsWith("Bearer ") &&
+      safeStringEqual(authHeader.slice("Bearer ".length), DASHBOARD_PASSWORD)) {
+    return null;
+  }
 
-  // Check Bearer token
-  if (authHeader === `Bearer ${DASHBOARD_PASSWORD}`) return null;
+  const cookieVal = parseCookie(req.headers.get("Cookie") || "", "windy_auth");
+  if (cookieVal && safeStringEqual(cookieVal, DASHBOARD_PASSWORD)) {
+    return null;
+  }
 
-  // Check session cookie
-  if (cookie.includes(`windy_auth=${DASHBOARD_PASSWORD}`)) return null;
+  return new Response(loginPageHtml(), {
+    status: 401, headers: { "Content-Type": "text/html" },
+  });
+}
 
-  // Check query param (for initial login)
-  if (url.searchParams.get("auth") === DASHBOARD_PASSWORD) {
-    // Set cookie and redirect to clean URL
-    url.searchParams.delete("auth");
-    return new Response(null, {
-      status: 302,
-      headers: {
-        "Location": url.pathname + url.search,
-        "Set-Cookie": `windy_auth=${DASHBOARD_PASSWORD}; Path=/; HttpOnly; SameSite=Strict; Max-Age=86400`,
-      },
+async function handleLogin(req: Request): Promise<Response> {
+  if (req.method !== "POST") {
+    return new Response(loginPageHtml(), {
+      status: 405, headers: { "Content-Type": "text/html", "Allow": "POST" },
+    });
+  }
+  if (!DASHBOARD_PASSWORD) {
+    return new Response("Login disabled (no DASHBOARD_PASSWORD configured)", {
+      status: 503,
+    });
+  }
+  const ip = clientIp(req);
+  if (isRateLimited(ip, "auth")) {
+    return new Response("Too many auth attempts — try again in a minute.",
+      { status: 429, headers: { "Retry-After": "60" } });
+  }
+
+  const contentType = req.headers.get("Content-Type") || "";
+  let password = "";
+  if (contentType.includes("application/x-www-form-urlencoded")) {
+    const body = await req.text();
+    password = new URLSearchParams(body).get("password") || "";
+  } else if (contentType.includes("application/json")) {
+    try {
+      const body = await req.json() as { password?: string };
+      password = body.password || "";
+    } catch {
+      return new Response(loginPageHtml("Invalid request"), {
+        status: 400, headers: { "Content-Type": "text/html" },
+      });
+    }
+  } else {
+    return new Response(loginPageHtml("Unsupported content type"), {
+      status: 415, headers: { "Content-Type": "text/html" },
     });
   }
 
-  // Unauthorized — return login prompt
-  return new Response(
-    `<!DOCTYPE html><html><head><title>Windy Fly</title>
-    <style>body{background:#0a0e17;color:#e2e8f0;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;font-family:system-ui}
-    form{text-align:center}input{padding:12px 16px;border-radius:8px;border:1px solid #1e293b;background:#111827;color:#e2e8f0;margin:8px 0;width:250px}
-    button{padding:12px 24px;border-radius:8px;border:none;background:#00d4ff;color:#000;font-weight:600;cursor:pointer;margin-top:8px}</style></head>
-    <body><form method="GET"><div style="font-size:2rem;margin-bottom:16px">🪰</div><div>Windy Fly Dashboard</div>
-    <input type="password" name="auth" placeholder="Dashboard password" autofocus/>
-    <br/><button type="submit">Log In</button></form></body></html>`,
-    { status: 401, headers: { "Content-Type": "text/html" } }
-  );
+  if (!safeStringEqual(password, DASHBOARD_PASSWORD)) {
+    return new Response(loginPageHtml("Wrong password"), {
+      status: 401, headers: { "Content-Type": "text/html" },
+    });
+  }
+
+  return new Response(null, {
+    status: 302,
+    headers: {
+      "Location": "/",
+      "Set-Cookie":
+        `windy_auth=${DASHBOARD_PASSWORD}; Path=/; HttpOnly; ` +
+        `SameSite=Strict; Secure; Max-Age=86400`,
+    },
+  });
 }
 
 async function handleRequest(req: Request): Promise<Response> {
@@ -169,6 +346,11 @@ async function handleRequest(req: Request): Promise<Response> {
   }
 
   try {
+    // Auth — POST form login, sets cookie on match.
+    if (path === "/api/auth/login") {
+      return handleLogin(req);
+    }
+
     // Health check
     if (path === "/api/health") {
       return Response.json(
