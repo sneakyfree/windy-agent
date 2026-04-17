@@ -121,15 +121,9 @@ class TrustDecision:
 
 
 def _eternitas_url() -> str:
-    """Resolve the Eternitas base URL.
-
-    ETERNITAS_URL is the canonical env var per trust-api.md;
-    ETERNITAS_API_URL remains accepted for legacy deployments.
-    """
-    return (
-        os.environ.get("ETERNITAS_URL", "")
-        or os.environ.get("ETERNITAS_API_URL", "")
-    ).rstrip("/")
+    """Resolve the Eternitas base URL (see eternitas.url.resolve_eternitas_url)."""
+    from windyfly.eternitas.url import resolve_eternitas_url
+    return resolve_eternitas_url()
 
 
 def _use_mock() -> bool:

@@ -40,11 +40,13 @@ def get_eternitas_client(db=None, config: dict | None = None):
     Checks ecosystem.eternitas_url from config, then ETERNITAS_API_URL env var.
     Uses real HTTP client when a URL is set, mock client otherwise.
     """
+    from windyfly.eternitas.url import resolve_eternitas_url
+
     api_url = ""
     if config:
         api_url = config.get("ecosystem", {}).get("eternitas_url", "")
     if not api_url:
-        api_url = os.environ.get("ETERNITAS_API_URL", "")
+        api_url = resolve_eternitas_url()
 
     if api_url and not api_url.startswith("mock"):
         from windyfly.eternitas.client import EternitasClient
