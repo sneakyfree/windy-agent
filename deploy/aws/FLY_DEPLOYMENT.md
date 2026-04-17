@@ -31,7 +31,7 @@ This document covers:
 │          ▼                                                       │
 │   ┌─────────────┐                                               │
 │   │   `windy`   │  CLI, channels (Slack/TG/…), dashboard at     │
-│   │   gateway   │  http://localhost:7890                         │
+│   │   gateway   │  http://localhost:3000                         │
 │   └─────────────┘                                               │
 └─────────────────────────────────────────────────────────────────┘
 
@@ -280,7 +280,7 @@ per agent — **traffic is tiny** (dozens/day per agent, at most).
 ### 5.1 On the user's machine
 
 The agent receives webhooks on its local gateway at
-`POST http://localhost:7890/webhooks/trust`. When the machine is off
+`POST http://localhost:3000/webhooks/trust`. When the machine is off
 the network, Eternitas retries with exponential backoff per
 `docs/webhooks.md` — when the agent comes back online the backlog
 flushes. No shared infrastructure required.

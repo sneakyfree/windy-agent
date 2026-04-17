@@ -31,7 +31,9 @@ async def check_ecosystem_health() -> str:
     eternitas_url = eco.get("eternitas_url") or os.environ.get("ETERNITAS_API_URL", "")
     passport_id = os.environ.get("ETERNITAS_PASSPORT", "")
     if eternitas_url:
-        status, latency = await _check_health(eternitas_url, "/api/v1/health")
+        status, latency = await _check_health(
+            eternitas_url, "/api/v1/health", expected_service="eternitas",
+        )
         if status == "ok":
             identity = f" — Passport: {passport_id}" if passport_id else ""
             lines.append(f"  Eternitas:    \u2705 Connected ({eternitas_url}) {latency}{identity}")
@@ -63,7 +65,9 @@ async def check_ecosystem_health() -> str:
     mail_url = eco.get("windy_mail_url") or os.environ.get("WINDYMAIL_API_URL", "")
     mail_addr = os.environ.get("WINDYMAIL_EMAIL", "")
     if mail_url:
-        status, latency = await _check_health(mail_url, "/api/v1/health")
+        status, latency = await _check_health(
+            mail_url, "/api/v1/health", expected_service="windy-mail",
+        )
         if status == "ok":
             identity = f" — {mail_addr}" if mail_addr else ""
             lines.append(f"  Windy Mail:   \u2705 Connected ({mail_url}) {latency}{identity}")
@@ -77,7 +81,9 @@ async def check_ecosystem_health() -> str:
     # ── Windy Cloud ──
     cloud_url = eco.get("windy_cloud_url") or os.environ.get("WINDY_CLOUD_URL", "")
     if cloud_url:
-        status, latency = await _check_health(cloud_url, "/api/v1/health")
+        status, latency = await _check_health(
+            cloud_url, "/api/v1/health", expected_service="windy-cloud",
+        )
         if status == "ok":
             lines.append(f"  Windy Cloud:  \u2705 Connected ({cloud_url}) {latency}")
         else:
@@ -88,7 +94,9 @@ async def check_ecosystem_health() -> str:
     # ── Windy Pro ──
     pro_url = eco.get("windy_pro_url") or os.environ.get("WINDY_API_URL", "")
     if pro_url:
-        status, latency = await _check_health(pro_url, "/api/v1/health")
+        status, latency = await _check_health(
+            pro_url, "/api/v1/health", expected_service="windy-pro",
+        )
         if status == "ok":
             lines.append(f"  Windy Pro:    \u2705 Connected ({pro_url}) {latency}")
         else:
@@ -99,12 +107,24 @@ async def check_ecosystem_health() -> str:
     return "\n".join(lines)
 
 
-async def _check_health(base_url: str, health_path: str) -> tuple[str, str]:
+async def _check_health(
+    base_url: str,
+    health_path: str,
+    *,
+    expected_service: str = "",
+) -> tuple[str, str]:
     """Check a service health endpoint.
+
+    Shape canary (P3-E5): when ``expected_service`` is given, the
+    response body is parsed as JSON and ``{service: "<expected>"}``
+    must match. This catches the case where a foreign process (nginx,
+    another Node app, …) happens to be listening on the port and
+    returns ``200`` to ``/health`` but is clearly not the service the
+    operator thinks they're talking to.
 
     Returns:
         Tuple of (status, latency_str).
-        status is "ok", "timeout", or error description.
+        status is "ok", "timeout", "wrong service", or error string.
         latency_str is like "(42ms)" on success or empty on failure.
     """
     url = base_url.rstrip("/") + health_path
@@ -113,9 +133,24 @@ async def _check_health(base_url: str, health_path: str) -> tuple[str, str]:
         async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.get(url)
         elapsed_ms = int((time.monotonic() - start) * 1000)
-        if resp.status_code < 500:
-            return "ok", f"({elapsed_ms}ms)"
-        return f"HTTP {resp.status_code}", ""
+        if resp.status_code >= 500:
+            return f"HTTP {resp.status_code}", ""
+
+        if expected_service:
+            try:
+                body = resp.json()
+            except (ValueError, TypeError):
+                return f"wrong service (non-JSON /health)", ""
+            if not isinstance(body, dict):
+                return f"wrong service (non-object /health)", ""
+            actual = str(body.get("service", "")).lower()
+            if actual and actual != expected_service.lower():
+                return f"wrong service ({actual!r} != {expected_service!r})", ""
+            # Service field missing is tolerated — older builds, or
+            # services that namespace it differently — we only fail
+            # when it's present AND wrong.
+
+        return "ok", f"({elapsed_ms}ms)"
     except httpx.ConnectError:
         return "connection refused", ""
     except httpx.TimeoutException:

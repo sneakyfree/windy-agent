@@ -174,7 +174,7 @@ be green.
 
 ### 3-minute version
 Add a live demonstration of the trust dashboard: open
-`http://localhost:7890` on the projector, show the volunteer their
+`http://localhost:3000` on the projector, show the volunteer their
 fresh agent's band (`good`), clearance (`cleared`), and integrity
 score. Point at the 5 dimensions (honesty/reliability/compliance/
 safety/reputation). Show what the agent **can and can't do right now**
