@@ -86,18 +86,54 @@ function sanitizeForToml(s: string): string {
   return s.replace(/[\\"/\n\r\t\x00-\x1f]/g, "");
 }
 
-function isLocalhostRequest(req: Request): boolean {
-  const url = new URL(req.url);
-  const host = url.hostname;
-  return host === "localhost" || host === "127.0.0.1" || host === "::1";
+// Loopback addresses — the only values we trust for "local" gating.
+// IPv4-mapped IPv6 (::ffff:127.0.0.1) is explicitly handled because
+// Bun reports that on dual-stack listeners for IPv4 connections.
+const LOOPBACK_ADDRS = new Set([
+  "127.0.0.1",
+  "::1",
+  "::ffff:127.0.0.1",
+]);
+
+// Matches a strict dotted-quad IPv4 address. We use it to reject
+// lookalike strings like "127.example.com" that would sneak past a
+// naive startsWith check.
+const IPV4_RE = /^(25[0-5]|2[0-4]\d|1\d\d|\d{1,2})\.(25[0-5]|2[0-4]\d|1\d\d|\d{1,2})\.(25[0-5]|2[0-4]\d|1\d\d|\d{1,2})\.(25[0-5]|2[0-4]\d|1\d\d|\d{1,2})$/;
+// IPv4-mapped IPv6 of the form ::ffff:a.b.c.d — only accept when the
+// tail is a real dotted-quad.
+const IPV4_MAPPED_RE = /^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/;
+
+export function isLoopbackAddress(addr: string | null | undefined): boolean {
+  if (!addr) return false;
+  if (LOOPBACK_ADDRS.has(addr)) return true;
+
+  // Strict IPv4 in 127.0.0.0/8.
+  if (IPV4_RE.test(addr) && addr.startsWith("127.")) return true;
+
+  // IPv4-mapped IPv6 loopback — unwrap and re-check.
+  const mapped = IPV4_MAPPED_RE.exec(addr);
+  if (mapped && mapped[1].startsWith("127.") && IPV4_RE.test(mapped[1])) {
+    return true;
+  }
+
+  return false;
+}
+
+// IMPORTANT: read the peer's *socket* address, not the Host header.
+// An attacker can send any Host they want; only the peer's IP, which
+// Bun reports from the connection, is trustworthy for localhost gating.
+// This caused P0-S1 in GAP_ANALYSIS.md before the fix.
+function isLocalhostRequest(req: Request, server: import("bun").Server<any>): boolean {
+  const peer = server.requestIP(req);
+  return isLoopbackAddress(peer?.address ?? null);
 }
 
 // Dashboard authentication for VPS-deployed agents
 const DASHBOARD_PASSWORD = process.env.DASHBOARD_PASSWORD || "";
 
-function checkDashboardAuth(req: Request): Response | null {
-  // No auth needed for localhost
-  if (isLocalhostRequest(req)) return null;
+function checkDashboardAuth(req: Request, server: import("bun").Server<any>): Response | null {
+  // No auth needed for localhost (peer address, not Host header)
+  if (isLocalhostRequest(req, server)) return null;
   // No auth needed if no password configured
   if (!DASHBOARD_PASSWORD) return null;
   // Health endpoint is always public
@@ -139,9 +175,10 @@ function checkDashboardAuth(req: Request): Response | null {
   );
 }
 
-async function handleRequest(req: Request): Promise<Response> {
-  // Auth check for VPS deployments
-  const authResponse = checkDashboardAuth(req);
+async function handleRequest(req: Request, server: import("bun").Server<any>): Promise<Response> {
+  // Auth check for VPS deployments — pass server so we can read the
+  // peer address, not a forgeable Host header.
+  const authResponse = checkDashboardAuth(req, server);
   if (authResponse) return authResponse;
 
   const url = new URL(req.url);
@@ -913,7 +950,7 @@ async function handleRequest(req: Request): Promise<Response> {
     // Security: All setup routes are restricted to localhost only.
     // These routes write configuration files to disk — allowing remote
     // access would enable unauthorized environment overwrites.
-    if (path.startsWith("/api/setup/") && !isLocalhostRequest(req)) {
+    if (path.startsWith("/api/setup/") && !isLocalhostRequest(req, server)) {
       return Response.json(
         { error: "Setup routes are only accessible from localhost" },
         { status: 403, headers }
@@ -1235,7 +1272,7 @@ async function main() {
         return new Response("WebSocket upgrade failed", { status: 400 });
       }
 
-      return handleRequest(req);
+      return handleRequest(req, server);
     },
     websocket: {
       open(ws) {
