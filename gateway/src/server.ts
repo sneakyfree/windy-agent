@@ -55,20 +55,62 @@ if (SENTRY_DSN) {
   } catch { /* ignore */ }
 }
 
-// ── Security: Rate limiting for setup routes ──────────────────────
-const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+// ── Security: Rate limiting with bucket-per-surface + LRU cap ─────
+// Bucketed keys ("setup:<ip>", "chat:<ip>", "upstream:<ip>") so a
+// flood on one surface doesn't empty another's budget.
+// LRU cap bounds memory — without this, millions of distinct IPs
+// leak into the Map and it grows without limit (P1-O5).
 const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
-const RATE_LIMIT_MAX = 10; // 10 requests per minute per IP
+const RATE_LIMIT_MAX_ENTRIES = 50_000;
 
-function isRateLimited(ip: string): boolean {
+type RateLimitBucket = "setup" | "chat" | "upstream";
+const RATE_LIMITS: Record<RateLimitBucket, number> = {
+  setup:    10, // setup/* writes config — strict
+  chat:     60, // /api/chat — looser; users legitimately chat often
+  upstream: 30, // /api/providers/validate + similar LLM fan-outs
+};
+
+// Map iteration order == insertion order, so "oldest entry" is
+// whatever delete-and-re-insert leaves at the front. Touching an
+// entry on hit re-inserts it at the back (LRU tail).
+const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+
+export function isRateLimited(ip: string, bucket: RateLimitBucket = "setup"): boolean {
+  const key = `${bucket}:${ip}`;
   const now = Date.now();
-  const entry = rateLimitMap.get(ip);
-  if (!entry || now > entry.resetAt) {
-    rateLimitMap.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+  let entry = rateLimitMap.get(key);
+
+  if (entry && now > entry.resetAt) {
+    // Window expired — reset.
+    rateLimitMap.delete(key);
+    entry = undefined;
+  }
+
+  if (!entry) {
+    rateLimitMap.set(key, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+    // Evict oldest if we're at capacity. Map preserves insertion
+    // order, so the first key() is the LRU.
+    if (rateLimitMap.size > RATE_LIMIT_MAX_ENTRIES) {
+      const oldest = rateLimitMap.keys().next().value;
+      if (oldest !== undefined) rateLimitMap.delete(oldest);
+    }
     return false;
   }
+
+  // LRU touch: delete-and-reinsert puts this key at the tail.
+  rateLimitMap.delete(key);
   entry.count++;
-  return entry.count > RATE_LIMIT_MAX;
+  rateLimitMap.set(key, entry);
+
+  return entry.count > RATE_LIMITS[bucket];
+}
+
+export function _rateLimitMapSize(): number {
+  return rateLimitMap.size;
+}
+
+export function _clearRateLimits(): void {
+  rateLimitMap.clear();
 }
 
 // ── Security: Input sanitization ──────────────────────────────────
@@ -147,21 +189,27 @@ async function handleRequest(req: Request): Promise<Response> {
   const url = new URL(req.url);
   const path = url.pathname;
 
-  // CORS headers — allow dashboard + local dev
+  // CORS headers — strict allowlist. Unknown origins get no ACAO
+  // header at all (the old fallback of "hand out
+  // https://windyword.ai to anyone" was wrong even if browsers would
+  // reject it). The Vary: Origin hint tells caches to key by origin
+  // so we don't poison a shared cache with one origin's response.
   const allowedOrigins = [
     "https://windyword.ai",
     "http://localhost:5173",
     "http://localhost:8098",
     "http://localhost:3000",
   ];
-  const origin = req.headers.get("Origin") || "*";
-  const corsOrigin = allowedOrigins.includes(origin) ? origin : allowedOrigins[0];
-  const headers = {
+  const origin = req.headers.get("Origin") || "";
+  const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": corsOrigin,
     "Access-Control-Allow-Methods": "GET, PUT, POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Vary": "Origin",
   };
+  if (origin && allowedOrigins.includes(origin)) {
+    headers["Access-Control-Allow-Origin"] = origin;
+  }
 
   // Preflight
   if (req.method === "OPTIONS") {
@@ -186,6 +234,13 @@ async function handleRequest(req: Request): Promise<Response> {
 
     // Chat API — send a message to the brain and get a response
     if (path === "/api/chat" && req.method === "POST") {
+      const clientIP = req.headers.get("x-forwarded-for")?.split(",")[0].trim() || "127.0.0.1";
+      if (isRateLimited(clientIP, "chat")) {
+        return Response.json(
+          { error: "rate limited" },
+          { status: 429, headers: { ...headers, "Retry-After": "60" } }
+        );
+      }
       const body = (await req.json()) as { message?: string; user_id?: string };
       const message = body.message;
       if (!message || typeof message !== "string") {
@@ -435,8 +490,17 @@ async function handleRequest(req: Request): Promise<Response> {
       return Response.json({ discoveries }, { headers });
     }
 
-    // Validate a provider key
+    // Validate a provider key. This fans out to OpenAI/Anthropic/etc.
+    // under the caller's key — rate-limit so a misbehaving client
+    // can't burn through the real money quota.
     if (path === "/api/providers/validate" && req.method === "POST") {
+      const clientIP = req.headers.get("x-forwarded-for")?.split(",")[0].trim() || "127.0.0.1";
+      if (isRateLimited(clientIP, "upstream")) {
+        return Response.json(
+          { error: "rate limited" },
+          { status: 429, headers: { ...headers, "Retry-After": "60" } }
+        );
+      }
       const body = await req.json() as { provider: string };
       const result = await providers.validateKey(body.provider);
       return Response.json(result, { headers });
