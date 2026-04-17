@@ -220,8 +220,9 @@ Tests skip automatically when the API isn't reachable.
 ## Development
 
 ```bash
-# Run tests (1014+)
+# Run tests (~1100 offline + 27 live-Eternitas integration)
 uv run pytest tests/ -v
+uv run pytest tests/integration/ -v   # needs Eternitas at ETERNITAS_URL
 
 # Lint
 uv run ruff check src/
@@ -235,7 +236,7 @@ uv build
 
 ### Project Stats
 
-- **1014+ tests** | 0 failures
+- **1100+ tests** | 0 failures (includes contract, integration, stress)
 - **22 LLM-callable tools**
 - **101 DNA codons** | 100% implemented
 - **8-page React dashboard**

@@ -106,7 +106,9 @@ export default function Identity() {
       </div>
 
       {/* Trust banner — live from Eternitas */}
-      {data?.trust_banner && <TrustPanel banner={data.trust_banner} />}
+      {data?.trust_banner
+        ? <TrustPanel banner={data.trust_banner} />
+        : <TrustPanelLoading passportId={data?.passport_id} />}
 
       {/* Contact info */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
@@ -166,6 +168,39 @@ const ACTION_LABEL: Record<string, string> = {
   mention_strangers: 'Mention strangers',
   bypass_rate_caps: 'Bypass rate caps',
 }
+
+// Placeholder when the backend hasn't shipped a trust_banner yet —
+// typically either the Python brain is still booting, the gateway
+// is a newer build than the brain, or this agent has no passport.
+// Never render nothing: users looking at this page expect to see
+// *something* about trust.
+function TrustPanelLoading({ passportId }: { passportId?: string }) {
+  if (!passportId) {
+    return (
+      <div className="bg-[#111827] rounded-2xl border border-[#1e293b] p-6 mb-6 text-center">
+        <div className="text-xs text-[#64748b] uppercase tracking-wide mb-1">Trust band</div>
+        <div className="text-sm text-[#64748b]">
+          No passport yet — run <code className="text-[#00d4ff]">windy go</code> to hatch.
+        </div>
+      </div>
+    )
+  }
+  if (typeof window !== "undefined" && "console" in window) {
+    // Warn once per page load so the next poll catches the real
+    // trust_banner; never block render.
+    console.warn("[Identity] trust_banner missing from /api/dashboard response")
+  }
+  return (
+    <div className="bg-[#111827] rounded-2xl border border-[#1e293b] p-6 mb-6 text-center">
+      <div className="text-xs text-[#64748b] uppercase tracking-wide mb-1">Trust band</div>
+      <div className="text-sm text-[#64748b] flex items-center justify-center gap-2">
+        <span className="inline-block w-3 h-3 rounded-full bg-[#64748b] animate-pulse" />
+        Loading trust state…
+      </div>
+    </div>
+  )
+}
+
 
 function TrustPanel({ banner }: { banner: TrustBanner }) {
   const currentBand = (banner.band || 'unknown') as Band
