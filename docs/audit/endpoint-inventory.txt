@@ -1,0 +1,62 @@
+# Windy Fly HTTP Endpoint Inventory
+# Source: gateway/src/server.ts (56 routes)
+# Authentication: Dashboard password (Bearer/Cookie/query) — bypassed if DASHBOARD_PASSWORD unset or request Host header is localhost
+
+Method  Path                                             server.ts
+--------------------------------------------------------------------------------
+POST    /api/assessment                                  :654
+POST    /api/chat                                        :188
+GET     /api/conflicts                                   :821
+GET     /api/cost/daily                                  :282
+GET     /api/cost/monthly                                :292
+GET     /api/dashboard                                   :312
+POST    /api/decay/run                                   :811
+POST    /api/email/send                                  :403
+POST    /api/email/webhook                               :392
+GET     /api/events                                      :901
+GET     /api/failures                                    :857
+ANY     /api/health                                      :173
+GET     /api/intents                                     :302
+GET     /api/journal                                     :644
+GET     /api/machines                                    :559
+POST    /api/machines                                    :568
+POST    /api/machines/sync-providers                     :548
+GET     /api/memory/search                               :332
+GET     /api/mode                                        :870
+PUT     /api/mode                                        :880
+GET     /api/moments                                     :846
+GET     /api/offline/status                              :891
+GET     /api/personality/drift                           :710
+GET     /api/personality/history                         :688
+POST    /api/personality/rollback                        :720
+POST    /api/personality/snapshot                        :699
+GET     /api/providers                                   :414
+POST    /api/providers                                   :530
+PUT     /api/providers/active-model                      :479
+POST    /api/providers/discover                          :419
+POST    /api/providers/discover-all                      :426
+POST    /api/providers/keys                              :493
+DELETE  /api/providers/keys                              :500
+PUT     /api/providers/keys/activate                     :507
+PUT     /api/providers/notes                             :514
+POST    /api/providers/oauth/openrouter/callback         :453
+POST    /api/providers/oauth/openrouter/start            :446
+PUT     /api/providers/set-key                           :486
+POST    /api/providers/validate                          :439
+PREFIX  /api/setup/                                      :916
+POST    /api/setup/finalize                              :1010
+POST    /api/setup/launch                                :1167
+GET     /api/setup/status                                :923
+POST    /api/setup/validate-key                          :946
+POST    /api/shape-shift                                 :664
+POST    /api/shape-shift/restore                         :675
+GET     /api/skills                                      :733
+POST    /api/skills                                      :744
+POST    /api/skills/regression                           :799
+GET     /api/sliders                                     :212
+GET     /api/sliders/info                                :251
+POST    /api/sms/send                                    :381
+POST    /api/sms/webhook                                 :366
+POST    /api/soul/import                                 :355
+POST    /api/soul/preview                                :344
+GET     /oauth/callback                                  :460
