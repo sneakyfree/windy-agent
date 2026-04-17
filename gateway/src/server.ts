@@ -96,6 +96,10 @@ function isLocalhostRequest(req: Request): boolean {
 const DASHBOARD_PASSWORD = process.env.DASHBOARD_PASSWORD || "";
 
 function checkDashboardAuth(req: Request): Response | null {
+  // Webhook receiver is its own auth (HMAC + JWS in Python) — dashboard
+  // auth doesn't apply.
+  const url = new URL(req.url);
+  if (url.pathname === "/api/webhooks/trust") return null;
   // No auth needed for localhost
   if (isLocalhostRequest(req)) return null;
   // No auth needed if no password configured
@@ -169,6 +173,37 @@ async function handleRequest(req: Request): Promise<Response> {
   }
 
   try {
+    // Trust webhook receiver. Signature verification happens on the
+    // Python side (HMAC + ES256 JWS); here we just proxy the raw
+    // body + headers so the bytes the HMAC saw are the bytes that
+    // land at the verifier.
+    if (path === "/api/webhooks/trust" && req.method === "POST") {
+      const raw = new Uint8Array(await req.arrayBuffer());
+      const bodyB64 = Buffer.from(raw).toString("base64");
+      const inboundHeaders: Record<string, string> = {};
+      req.headers.forEach((v, k) => { inboundHeaders[k] = v; });
+      let parsed: unknown = {};
+      try {
+        parsed = JSON.parse(new TextDecoder().decode(raw));
+      } catch {
+        return Response.json({ ok: false, error: "invalid JSON body" }, {
+          status: 400, headers,
+        });
+      }
+      const result = await bridge.call("trust.webhook", {
+        body_b64: bodyB64,
+        headers: inboundHeaders,
+        payload: parsed,
+      }) as { ok: boolean; reason?: string };
+      if (!result?.ok) {
+        return Response.json(
+          { ok: false, error: result?.reason ?? "verification failed" },
+          { status: 401, headers },
+        );
+      }
+      return Response.json(result, { headers });
+    }
+
     // Health check
     if (path === "/api/health") {
       return Response.json(

@@ -13,6 +13,7 @@ dependencies = [
     "sqlite-vec>=0.1",
     "python-dotenv>=1.0",
     "fpdf2>=2.7",
+    "cryptography>=42.0",
 ]
 
 [project.optional-dependencies]
