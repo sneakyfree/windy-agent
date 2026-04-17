@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 HATCH_EMAIL_SUBJECT = "🪰 It's Alive! Your AI Agent {agent_name} Has Hatched!"
 
 HATCH_EMAIL_HTML = """\
@@ -99,7 +101,11 @@ def format_hatch_email(
         agent_phone=agent_phone or "Not assigned",
         model_id=model_id or "gpt-4o-mini",
         hatch_time=hatch_time or "Just now",
-        dashboard_url=dashboard_url or "https://windyword.ai/app/fly",
+        dashboard_url=(
+            dashboard_url
+            or os.environ.get("WINDYFLY_DASHBOARD_URL")
+            or "https://windyword.ai/app/fly"
+        ),
         certificate_number=certificate_number or "Pending",
         neural_fingerprint=neural_fingerprint or "Pending",
     )
