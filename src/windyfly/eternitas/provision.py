@@ -142,6 +142,19 @@ async def link_passport_with_identity(
 
     Skips gracefully in offline/standalone mode (no JWT, no identity id,
     or no service URL). Never raises — returns a summary dict.
+
+    **Coupling note (P1-E3).** The same owner JWT is sent as the
+    Bearer to both Pro and Cloud. This only works as long as the two
+    services validate against a **shared JWKS** — typically
+    ``https://{pro_host}/.well-known/jwks.json``. If Cloud ever
+    diverges (e.g., rotates its signing key independently or
+    validates against its own JWKS), one call will return 200 and the
+    other 401. The ``summary`` dict surfaces that per-service, so
+    callers can see a half-linked state rather than a global failure.
+    The hatch orchestrator writes both results into
+    ``HatchResult.identity_link_pro`` and ``identity_link_cloud``.
+    If you divide these services, mint per-audience tokens here
+    instead of reusing one owner JWT.
     """
     summary = {"pro": "skipped", "cloud": "skipped"}
 
