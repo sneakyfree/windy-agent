@@ -68,7 +68,8 @@ def _make_config(**overrides) -> dict:
 def clean_env(monkeypatch):
     """Ensure no real service credentials leak into tests."""
     for key in [
-        "ETERNITAS_API_URL", "ETERNITAS_PASSPORT", "ETERNITAS_OPERATOR_KEY",
+        "ETERNITAS_URL", "ETERNITAS_API_URL", "ETERNITAS_PASSPORT", "ETERNITAS_OPERATOR_KEY",
+        "WINDY_IDENTITY_ID",
         "SYNAPSE_REGISTRATION_SECRET", "TWILIO_ACCOUNT_SID", "TWILIO_PHONE_NUMBER",
         "WINDYMAIL_SERVICE_TOKEN", "WINDYMAIL_PROVISION_SERVICE_TOKEN",
         "OWNER_PHONE", "OWNER_EMAIL", "WINDY_API_URL", "WINDY_JWT",

@@ -46,7 +46,7 @@ def db():
 def clean_env(monkeypatch):
     """Strip real credentials so tests use mocks."""
     for var in [
-        "ETERNITAS_API_URL", "ETERNITAS_PASSPORT",
+        "ETERNITAS_URL", "ETERNITAS_API_URL", "ETERNITAS_PASSPORT",
         "SYNAPSE_REGISTRATION_SECRET",
         "TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_PHONE_NUMBER",
         "WINDYMAIL_SERVICE_TOKEN", "WINDYMAIL_JMAP_TOKEN", "WINDYMAIL_API_URL",

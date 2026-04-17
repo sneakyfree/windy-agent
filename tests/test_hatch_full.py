@@ -25,6 +25,7 @@ def db():
 @pytest.fixture(autouse=True)
 def clean_env(monkeypatch):
     """Ensure no real service credentials leak into tests."""
+    monkeypatch.delenv("ETERNITAS_URL", raising=False)
     monkeypatch.delenv("ETERNITAS_API_URL", raising=False)
     monkeypatch.delenv("ETERNITAS_PASSPORT", raising=False)
     monkeypatch.delenv("ETERNITAS_OPERATOR_KEY", raising=False)
