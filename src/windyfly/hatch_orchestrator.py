@@ -110,8 +110,17 @@ async def orchestrate_hatch(
 
     # Step 1b: Link the passport with the unified Windy identity so
     # Pro and Cloud both hold the bridge. Skips gracefully in offline
-    # mode (no owner JWT / no windy_identity_id).
+    # mode (no owner JWT / no windy_identity_id). **Owner JWT is the
+    # Bearer here by design** — the server needs to know the owner,
+    # not the bot, is attesting ownership. See P1-E3 note.
     await _step_link_passport(result, owner_id)
+
+    # Step 1c: Mint the wk_ bot key from the account-server so every
+    # downstream call in this hatch can authenticate as the bot
+    # rather than the owner. Without this, cloud-quota below falls
+    # back to the owner JWT and the audit trail looks like a human
+    # action. (P1-E4.)
+    await _step_mint_bot_key(result)
 
     # Steps 2/3/4: Concurrent provisioning
     await asyncio.gather(
@@ -122,8 +131,8 @@ async def orchestrate_hatch(
     )
 
     # Step 4b: Allocate Windy Cloud storage quota so the agent is born
-    # with a cloud home. Runs before birth cert so plan/quota appear
-    # on the certificate's "Cloud Storage" line.
+    # with a cloud home. Uses the wk_ key minted in step 1c when
+    # available; falls back to the owner JWT otherwise.
     await _step_cloud_quota(result, owner_id)
 
     # Step 5: Birth certificate (needs passport + first words placeholder)
@@ -233,8 +242,42 @@ async def _step_link_passport(result: HatchResult, owner_id: str) -> None:
         logger.warning("Hatch: link-passport failed: %s", exc)
 
 
+async def _step_mint_bot_key(result: HatchResult) -> None:
+    """Mint the wk_ bot key so downstream ecosystem calls in this
+    hatch authenticate as the bot, not the owner.
+
+    Prerequisites: WINDY_JWT + a minted passport. No JWT means this
+    is an offline/standalone hatch — skip silently; get_bot_key()
+    later will keep using the owner-JWT fallback where needed.
+    """
+    if not result.passport_id:
+        return
+    jwt = os.environ.get("WINDY_JWT", "")
+    if not jwt:
+        logger.info("Hatch: wk_ mint skipped (no WINDY_JWT — offline hatch)")
+        return
+    try:
+        from windyfly.auth.bot_credentials import mint_bot_key
+
+        cred = await mint_bot_key(owner_jwt=jwt, passport_number=result.passport_id)
+        logger.info(
+            "Hatch: minted wk_ bot key %s (scopes=%s)",
+            cred.key_id or "-", ",".join(cred.scopes) or "-",
+        )
+    except Exception as exc:
+        # Don't block hatch on a failed mint — downstream calls will
+        # fall back to owner JWT where the service accepts it, and
+        # the audit log will show the degraded auth.
+        result.errors.append(f"Bot-key mint: {exc}")
+        logger.warning("Hatch: wk_ bot key mint failed: %s", exc)
+
+
 async def _step_cloud_quota(result: HatchResult, owner_id: str) -> None:
-    """Allocate a Windy Cloud storage plan for this agent."""
+    """Allocate a Windy Cloud storage plan for this agent.
+
+    Prefers the wk_ bot key minted in step 1c. Falls back to the
+    owner JWT if the mint failed or wasn't attempted (offline hatch).
+    """
     if not result.passport_id:
         return
     if not os.environ.get("WINDY_CLOUD_URL", ""):
@@ -242,6 +285,16 @@ async def _step_cloud_quota(result: HatchResult, owner_id: str) -> None:
         return
 
     windy_identity_id = os.environ.get("WINDY_IDENTITY_ID", "") or owner_id
+    bot_key = ""
+    try:
+        from windyfly.auth.bot_credentials import get_bot_key
+        cred = await get_bot_key()
+        if cred and "cloud:upload" in cred.scopes or cred and not cred.scopes:
+            # Either explicit scope or (legacy) unscoped key.
+            bot_key = cred.bot_key
+    except Exception as exc:
+        logger.debug("Hatch: wk_ key lookup failed for cloud quota: %s", exc)
+
     try:
         from windyfly.cloud_provision import allocate_cloud_quota
 
@@ -249,12 +302,17 @@ async def _step_cloud_quota(result: HatchResult, owner_id: str) -> None:
             windy_identity_id=windy_identity_id,
             passport_number=result.passport_id,
             tier="free",
+            bot_key=bot_key,
         )
         if alloc:
             result.cloud_plan_id = alloc.plan_id
             result.cloud_quota_bytes = alloc.quota_bytes
             result.cloud_provisioned = True
-            logger.info("Hatch: cloud quota %s (%d bytes) provisioned", alloc.plan_id, alloc.quota_bytes)
+            logger.info(
+                "Hatch: cloud quota %s (%d bytes) provisioned (auth=%s)",
+                alloc.plan_id, alloc.quota_bytes,
+                "wk_" if bot_key else "owner-jwt",
+            )
         else:
             result.errors.append("Cloud quota: allocation failed")
     except Exception as exc:
