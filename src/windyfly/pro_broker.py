@@ -5,16 +5,34 @@ user already has a Windy Pro account. The flow:
 
 1. Look for ``~/.windypro/config.json``. If missing → user has no Pro
    account on this machine; fall through to the paste-a-key flow.
-2. Read the Pro account token from the config. If missing or expired
-   → fall through.
-3. POST to ``<pro_base>/api/v1/broker/llm-credentials`` with the token.
-   The response shape is:
+2. Read the Pro account token (identity reference) from the config.
+   If missing → fall through.
+3. POST to ``<pro_base>/api/v1/agent/credentials/issue`` signed with
+   HMAC-SHA256 over the raw request body, keyed by
+   ``WINDY_BROKER_SIGNING_SECRET`` (a secret shared between this
+   machine and the Pro instance it's paired with). The signature rides
+   in ``X-Windy-Signature: sha256=<hex>`` — same header layout as the
+   trust webhook verifier.
+
+   Request body::
+
        {
-         "provider":   "anthropic",        // one of openai/anthropic/...
-         "api_key":    "wk_broker_...",    // short-lived, 24h TTL
-         "model":      "claude-3-5-sonnet-latest",
-         "expires_at": "2026-04-19T14:32:07Z"
+         "windy_identity_id": "wi_...",
+         "passport_number":   "ET26-...",
+         "scope":             "hatch",
+         "duration_seconds":  86400
        }
+
+   Response body::
+
+       {
+         "broker_token":     "wk_broker_...",
+         "provider":         "anthropic",
+         "model":            "claude-3-5-sonnet-latest",
+         "expires_at":       "2026-04-19T14:32:07Z",
+         "usage_cap_tokens": 1_000_000
+       }
+
 4. Return a ``BrokeredCredential`` the caller can drop straight into
    ``write_quick_config``.
 
@@ -22,13 +40,15 @@ The ``--byok`` flag on ``windy go`` skips all of this. That's the
 escape hatch for power users who want to bring their own key — they
 should never be forced through Pro.
 
-Network errors, expired tokens, and malformed responses are all
-non-fatal: we return ``None`` and log at debug level. The "paste a key"
-flow is always a viable fallback.
+Network errors, missing signing secret, 4xx/5xx responses, and malformed
+bodies are all non-fatal: we return ``None`` and log at debug level.
+The "paste a key" flow is always a viable fallback.
 """
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import logging
 import os
@@ -75,6 +95,7 @@ class BrokeredCredential:
     api_key: str
     model: str
     expires_at: Optional[datetime] = None
+    usage_cap_tokens: Optional[int] = None
 
     @property
     def is_expired(self) -> bool:
@@ -109,16 +130,23 @@ def read_pro_config(path: Path | None = None) -> dict | None:
 
 
 def has_valid_pro_token(path: Path | None = None) -> bool:
-    """True iff ~/.windypro/config.json has a non-empty account token.
+    """True iff ~/.windypro/config.json carries a Pro identity reference.
 
-    The server will reject expired tokens, so we don't check expiry
-    client-side — we just require the token string to be present.
+    We accept any one of ``account_token``, ``token``, or
+    ``windy_identity_id`` — the first two are legacy-bearer-style
+    fields still in use, the third is the canonical identity under
+    the HMAC contract. The server decides whether the identity is
+    still valid; we just want a gate that won't false-negative on
+    configs that pre-date the HMAC migration.
     """
     cfg = read_pro_config(path)
     if cfg is None:
         return False
-    token = cfg.get("account_token") or cfg.get("token") or ""
-    return bool(token and isinstance(token, str) and token.strip())
+    for key in ("account_token", "token", "windy_identity_id"):
+        value = cfg.get(key)
+        if isinstance(value, str) and value.strip():
+            return True
+    return False
 
 
 def _parse_expires_at(value: object) -> Optional[datetime]:
@@ -132,32 +160,107 @@ def _parse_expires_at(value: object) -> Optional[datetime]:
         return None
 
 
+# Default scope / TTL for hatch-time credential issuance. Pro's
+# verifyBrokerSignature doesn't care what these are — it signs the
+# request body bytes — but pinning them here keeps request shape
+# deterministic, which makes signatures reproducible in tests.
+DEFAULT_SCOPE = "hatch"
+DEFAULT_DURATION_SECONDS = 86_400  # 24h; matches the broker TTL contract
+
+
+def sign_broker_request(body: bytes, secret: str) -> str:
+    """Return the ``X-Windy-Signature`` header value for ``body``.
+
+    Mirrors the ``sha256=<hex>`` layout that ``trust.verify.verify_hmac``
+    accepts on the inbound side, so the pattern is symmetric across
+    this repo's HMAC'd traffic. Exposed for tests.
+    """
+    digest = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
+    return f"sha256={digest}"
+
+
+def _resolve_signing_secret() -> str:
+    """Where the shared HMAC secret lives. Order:
+
+    1. ``WINDY_BROKER_SIGNING_SECRET`` — the documented env var
+    2. ``WINDY_PRO_SIGNING_SECRET``   — legacy name, kept for transition
+    """
+    return (
+        os.environ.get("WINDY_BROKER_SIGNING_SECRET", "")
+        or os.environ.get("WINDY_PRO_SIGNING_SECRET", "")
+    )
+
+
 def fetch_broker_credential(
     *,
     config_path: Path | None = None,
     pro_base_url: str | None = None,
     http_client=None,  # injected in tests
     timeout_seconds: float = 5.0,
+    windy_identity_id: str | None = None,
+    passport_number: str | None = None,
+    scope: str = DEFAULT_SCOPE,
+    duration_seconds: int = DEFAULT_DURATION_SECONDS,
+    signing_secret: str | None = None,
 ) -> Optional[BrokeredCredential]:
-    """Exchange a Pro account token for a short-lived LLM credential.
+    """Exchange a Pro account identity for a short-lived LLM credential.
 
-    Returns ``None`` on any failure (no config, no network, expired
-    token, malformed response). Callers should treat ``None`` as
-    "managed credentials aren't available — prompt for a key instead."
+    HMAC-SHA256 signs the raw request body with ``signing_secret``
+    (default: ``WINDY_BROKER_SIGNING_SECRET`` env var). The identity
+    fields — ``windy_identity_id`` and ``passport_number`` — default to
+    values from the Pro config file so first-time callers don't need to
+    pass them explicitly.
+
+    Returns ``None`` on any failure (no config, no signing secret, no
+    network, 4xx/5xx, malformed response). Callers should treat ``None``
+    as "managed credentials aren't available — prompt for a key instead."
     """
     cfg = read_pro_config(config_path)
     if cfg is None:
         return None
 
-    token = cfg.get("account_token") or cfg.get("token") or ""
-    if not token:
-        logger.debug("Pro config has no account_token — skipping broker")
+    # The identity reference in the Pro config — used both as a sanity
+    # check (is there a paired Pro account on this machine?) and as the
+    # default windy_identity_id for the request.
+    if not (cfg.get("account_token") or cfg.get("token") or cfg.get("windy_identity_id")):
+        logger.debug("Pro config has no account_token/windy_identity_id — skipping broker")
         return None
+
+    secret = signing_secret if signing_secret is not None else _resolve_signing_secret()
+    if not secret:
+        logger.debug(
+            "No WINDY_BROKER_SIGNING_SECRET configured — cannot sign broker request"
+        )
+        return None
+
+    identity = (
+        windy_identity_id
+        or cfg.get("windy_identity_id")
+        or cfg.get("account_token")
+        or cfg.get("token")
+        or ""
+    )
+    passport = passport_number or cfg.get("passport_number") or os.environ.get(
+        "ETERNITAS_PASSPORT", "",
+    )
 
     base = pro_base_url or cfg.get("base_url") or os.environ.get(
         "WINDY_API_URL", "http://localhost:8098",
     )
-    url = f"{base.rstrip('/')}/api/v1/broker/llm-credentials"
+    url = f"{base.rstrip('/')}/api/v1/agent/credentials/issue"
+
+    payload = {
+        "windy_identity_id": identity,
+        "passport_number":   passport,
+        "scope":             scope,
+        "duration_seconds":  duration_seconds,
+    }
+    # Canonicalise the bytes we sign — the HMAC is over the *exact
+    # bytes* Pro's verifier will see, so we must POST these bytes, not
+    # re-serialize via httpx's json= parameter (which could emit
+    # whitespace differently between Python versions).
+    body = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    signature = sign_broker_request(body, secret)
 
     if http_client is None:
         try:
@@ -173,8 +276,11 @@ def fetch_broker_credential(
     try:
         response = http_client.post(
             url,
-            headers={"Authorization": f"Bearer {token}"},
-            json={"purpose": "hatch"},
+            content=body,
+            headers={
+                "Content-Type": "application/json",
+                "X-Windy-Signature": signature,
+            },
         )
     except Exception as exc:
         logger.debug("Pro broker request failed: %s", exc)
@@ -203,9 +309,9 @@ def fetch_broker_credential(
         return None
 
     provider = (data.get("provider") or "").lower()
-    api_key = data.get("api_key") or ""
+    api_key = data.get("broker_token") or ""
     if not provider or not api_key:
-        logger.debug("Pro broker response missing provider/api_key")
+        logger.debug("Pro broker response missing provider/broker_token")
         return None
 
     env_var = PROVIDER_TO_ENV.get(provider)
@@ -218,10 +324,15 @@ def fetch_broker_credential(
         logger.debug("Pro broker didn't pin a model and we have no default")
         return None
 
+    usage_cap = data.get("usage_cap_tokens")
+    if not isinstance(usage_cap, int):
+        usage_cap = None
+
     return BrokeredCredential(
         provider=provider,
         env_var=env_var,
         api_key=api_key,
         model=model,
         expires_at=_parse_expires_at(data.get("expires_at")),
+        usage_cap_tokens=usage_cap,
     )

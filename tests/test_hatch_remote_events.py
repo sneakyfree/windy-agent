@@ -107,7 +107,8 @@ async def test_birth_certificate_ready_payload_includes_rich(db, monkeypatch) ->
     assert rich["agent_name"] == "rich-fly"
     assert rich["certificate_number"].startswith("WF-")
     assert rich["neural_art_svg"].startswith("<svg")
-    # Eternitas stubbed empty → no remote SVG / QR.
+    # Eternitas only ships the QR endpoint — the neural-art SVG is
+    # generated locally and must never carry a *_remote field.
     assert "neural_art_svg_remote" not in rich
     assert "passport_qr_png_b64" not in rich
 
@@ -182,6 +183,48 @@ def test_apply_broker_token_without_preference_populates_all(monkeypatch) -> Non
     assert env_var == "*"
     assert _os.environ["OPENAI_API_KEY"] == "wk_broker_xyz"
     assert _os.environ["ANTHROPIC_API_KEY"] == "wk_broker_xyz"
+
+
+def test_fetch_eternitas_assets_uses_certificates_qr_endpoint(monkeypatch) -> None:
+    """Contract pin for Eternitas: the QR endpoint is
+    /api/v1/certificates/{passport}/qr, PNG by default.
+
+    We also assert that we do NOT call any fingerprint.svg endpoint —
+    Eternitas doesn't ship one, and the neural mandala is rendered
+    locally.
+    """
+    from windyfly.birth_certificate import fetch_eternitas_assets
+
+    class _Resp:
+        def __init__(self, status: int, content: bytes = b""):
+            self.status_code = status
+            self.content = content
+
+    calls: list[str] = []
+
+    class _Client:
+        def get(self, url: str):
+            calls.append(url)
+            if url.endswith("/qr"):
+                # Minimal 1x1 PNG magic bytes, good enough for base64.
+                return _Resp(200, b"\x89PNG\r\n\x1a\n")
+            return _Resp(404)
+
+        def close(self) -> None:
+            pass
+
+    out = fetch_eternitas_assets(
+        "ET26-ABC-DEF",
+        base_url="https://eternitas.test",
+        http_client=_Client(),
+    )
+
+    assert calls == ["https://eternitas.test/api/v1/certificates/ET26-ABC-DEF/qr"]
+    # Contract: no fingerprint.svg fetch.
+    assert not any("fingerprint" in c for c in calls)
+    assert "qr_png_b64" in out
+    # And we must never carry a remote fingerprint field.
+    assert "fingerprint_svg" not in out
 
 
 def test_play_hatching_json_emits_all_stages() -> None:

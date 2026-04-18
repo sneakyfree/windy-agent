@@ -598,17 +598,20 @@ def fetch_eternitas_assets(
     http_client=None,
     timeout_seconds: float = 3.0,
 ) -> dict[str, str]:
-    """Fetch passport assets (SVG fingerprint, PNG QR) from Eternitas.
+    """Fetch the passport QR code from Eternitas.
 
-    Returns a dict with keys ``fingerprint_svg`` (XML string) and
-    ``qr_png_b64`` (base64-encoded PNG bytes), either of which may be
-    missing if the endpoint is unreachable or returns non-2xx. Callers
-    should treat this as best-effort decoration — the ceremony must
-    still succeed even if Eternitas is offline.
+    Returns a dict with ``qr_png_b64`` (base64-encoded PNG bytes) when
+    the endpoint is reachable and returns 2xx, else an empty dict. The
+    ceremony must still succeed even if Eternitas is offline, so every
+    failure path is swallowed.
 
-    Prompt 9 is the source of these endpoints. Until it ships, callers
-    get an empty dict and fall back to the locally-generated SVG in
-    ``render_neural_art_svg``.
+    Eternitas ships ``GET /api/v1/certificates/{passport}/qr`` — PNG
+    by default, with ``?format=svg`` as an optional vector variant.
+    We grab the PNG (simpler to embed in <img src="data:...">).
+
+    Note: the neural-fingerprint SVG is **not** an Eternitas concern —
+    the mandala is generated locally from the fingerprint hash in
+    ``render_neural_art_svg``, so no remote fetch is attempted for it.
     """
     out: dict[str, str] = {}
     if not passport_id:
@@ -629,15 +632,7 @@ def fetch_eternitas_assets(
         own_client = False
 
     try:
-        svg_url = f"{base.rstrip('/')}/api/v1/passports/{passport_id}/fingerprint.svg"
-        try:
-            resp = http_client.get(svg_url)
-            if getattr(resp, "status_code", 0) == 200:
-                out["fingerprint_svg"] = resp.text
-        except Exception as exc:
-            logger.debug("Eternitas SVG fetch failed: %s", exc)
-
-        qr_url = f"{base.rstrip('/')}/api/v1/passports/{passport_id}/qr.png"
+        qr_url = f"{base.rstrip('/')}/api/v1/certificates/{passport_id}/qr"
         try:
             resp = http_client.get(qr_url)
             if getattr(resp, "status_code", 0) == 200:
@@ -713,12 +708,11 @@ def build_rich_certificate_payload(
             http_client=http_client,
         )
 
-    # Always provide a locally-generated SVG so the UI has a guaranteed
-    # render target. Eternitas's version, if present, wins on the
-    # ``fingerprint_svg_remote`` field so Electron can A/B between them.
+    # The neural-fingerprint mandala is rendered locally from the
+    # fingerprint hash — Eternitas does not ship an SVG endpoint for
+    # it. The QR code, on the other hand, is Eternitas's job and is
+    # inlined as base64 PNG when available.
     payload["neural_art_svg"] = render_neural_art_svg(cert.neural_fingerprint)
-    if "fingerprint_svg" in assets:
-        payload["neural_art_svg_remote"] = assets["fingerprint_svg"]
     if "qr_png_b64" in assets:
         payload["passport_qr_png_b64"] = assets["qr_png_b64"]
 

@@ -7,6 +7,8 @@ escape hatch wired into the quickstart CLI.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -16,11 +18,17 @@ import pytest
 from windyfly import pro_broker
 from windyfly.pro_broker import (
     BrokeredCredential,
+    DEFAULT_DURATION_SECONDS,
+    DEFAULT_SCOPE,
     default_pro_config_path,
     fetch_broker_credential,
     has_valid_pro_token,
     read_pro_config,
+    sign_broker_request,
 )
+
+# Constant used across tests — Pro and agent both hold this in prod.
+SIGNING_SECRET = "shared-broker-secret-for-tests"
 
 
 # ─── read_pro_config ──────────────────────────────────────────────
@@ -71,6 +79,13 @@ def test_has_valid_pro_token_alt_key_name(tmp_path: Path) -> None:
     assert has_valid_pro_token(p) is True
 
 
+def test_has_valid_pro_token_windy_identity_id_only(tmp_path: Path) -> None:
+    """Post-HMAC migration, windy_identity_id alone is enough."""
+    p = tmp_path / "c.json"
+    p.write_text(json.dumps({"windy_identity_id": "wi_post_migration"}))
+    assert has_valid_pro_token(p) is True
+
+
 def test_has_valid_pro_token_missing(tmp_path: Path) -> None:
     assert has_valid_pro_token(tmp_path / "nope.json") is False
 
@@ -91,39 +106,69 @@ class _FakeResponse:
 
 
 class _FakeClient:
-    """httpx-shaped test double capturing the last request."""
+    """httpx-shaped test double capturing the last request.
+
+    Accepts ``content=`` (raw bytes) + ``headers=`` because that's the
+    shape the HMAC flow uses now. Stores both for signature assertions.
+    """
 
     def __init__(self, response: _FakeResponse):
         self.response = response
         self.last_url: str | None = None
         self.last_headers: dict | None = None
-        self.last_json: dict | None = None
+        self.last_content: bytes | None = None
 
-    def post(self, url: str, headers=None, json=None):  # noqa: A002
+    def post(self, url: str, content=None, headers=None, json=None):  # noqa: A002
         self.last_url = url
         self.last_headers = headers
-        self.last_json = json
+        self.last_content = content
+        # The real flow never uses json=, but tolerate it so tests that
+        # accidentally pass it don't silently drop bytes.
+        if content is None and json is not None:
+            import json as _json
+            self.last_content = _json.dumps(json).encode("utf-8")
         return self.response
 
     def close(self) -> None:
         pass
 
 
-def test_fetch_broker_credential_happy(tmp_path: Path) -> None:
+def _valid_pro_cfg(tmp_path: Path) -> Path:
     cfg = tmp_path / "c.json"
     cfg.write_text(json.dumps({
-        "account_token": "pro_abc",
-        "base_url": "http://pro.local:8098",
+        "windy_identity_id": "wi_abc",
+        "base_url":          "http://pro.local:8098",
+        "passport_number":   "ET26-ABC-DEF",
     }))
+    return cfg
+
+
+def test_sign_broker_request_layout_matches_trust_webhook() -> None:
+    """Signature layout must be `sha256=<hex>` to stay symmetric with
+    the inbound trust.verify.verify_hmac side of the HMAC contract."""
+    body = b'{"a":1}'
+    sig = sign_broker_request(body, SIGNING_SECRET)
+    assert sig.startswith("sha256=")
+    expected = hmac.new(SIGNING_SECRET.encode(), body, hashlib.sha256).hexdigest()
+    assert sig == f"sha256={expected}"
+
+
+def test_fetch_broker_credential_happy(tmp_path: Path) -> None:
+    cfg = _valid_pro_cfg(tmp_path)
     expires = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat().replace("+00:00", "Z")
     client = _FakeClient(_FakeResponse(200, {
-        "provider": "anthropic",
-        "api_key": "wk_broker_xxx",
-        "model": "claude-3-5-sonnet-latest",
-        "expires_at": expires,
+        "broker_token":     "wk_broker_xxx",
+        "provider":         "anthropic",
+        "model":            "claude-3-5-sonnet-latest",
+        "expires_at":       expires,
+        "usage_cap_tokens": 1_000_000,
     }))
 
-    cred = fetch_broker_credential(config_path=cfg, http_client=client)
+    cred = fetch_broker_credential(
+        config_path=cfg,
+        http_client=client,
+        signing_secret=SIGNING_SECRET,
+    )
 
     assert isinstance(cred, BrokeredCredential)
     assert cred.provider == "anthropic"
@@ -131,41 +176,116 @@ def test_fetch_broker_credential_happy(tmp_path: Path) -> None:
     assert cred.api_key == "wk_broker_xxx"
     assert cred.model == "claude-3-5-sonnet-latest"
     assert cred.is_expired is False
+    assert cred.usage_cap_tokens == 1_000_000
 
-    # Request must go to Pro's broker endpoint with the account token
-    # in the Authorization header.
-    assert client.last_url == "http://pro.local:8098/api/v1/broker/llm-credentials"
-    assert client.last_headers == {"Authorization": "Bearer pro_abc"}
-    assert client.last_json == {"purpose": "hatch"}
+    # URL: the issue endpoint, not the legacy llm-credentials one.
+    assert client.last_url == "http://pro.local:8098/api/v1/agent/credentials/issue"
+
+    # Headers: HMAC signature in X-Windy-Signature, no Bearer.
+    assert client.last_headers is not None
+    assert "Authorization" not in client.last_headers
+    assert client.last_headers["Content-Type"] == "application/json"
+    assert client.last_headers["X-Windy-Signature"].startswith("sha256=")
+
+    # Body: the contract-pinned payload, and its signature must verify.
+    assert client.last_content is not None
+    body_bytes = client.last_content
+    body = json.loads(body_bytes.decode("utf-8"))
+    assert body == {
+        "windy_identity_id": "wi_abc",
+        "passport_number":   "ET26-ABC-DEF",
+        "scope":             DEFAULT_SCOPE,
+        "duration_seconds":  DEFAULT_DURATION_SECONDS,
+    }
+    expected_sig = sign_broker_request(body_bytes, SIGNING_SECRET)
+    assert client.last_headers["X-Windy-Signature"] == expected_sig
+
+
+def test_fetch_broker_credential_respects_override_identity(tmp_path: Path) -> None:
+    """Explicit windy_identity_id / passport_number wins over the config file."""
+    cfg = _valid_pro_cfg(tmp_path)
+    client = _FakeClient(_FakeResponse(200, {
+        "broker_token": "wk_broker_xxx",
+        "provider":     "openai",
+        "model":        "gpt-4o-mini",
+    }))
+    fetch_broker_credential(
+        config_path=cfg,
+        http_client=client,
+        windy_identity_id="wi_override",
+        passport_number="ET26-XXX-XXX",
+        signing_secret=SIGNING_SECRET,
+    )
+    assert client.last_content is not None
+    body = json.loads(client.last_content.decode("utf-8"))
+    assert body["windy_identity_id"] == "wi_override"
+    assert body["passport_number"] == "ET26-XXX-XXX"
+
+
+def test_fetch_broker_credential_no_signing_secret(tmp_path: Path, monkeypatch) -> None:
+    """Without a signing secret the client must NOT fire the request."""
+    monkeypatch.delenv("WINDY_BROKER_SIGNING_SECRET", raising=False)
+    monkeypatch.delenv("WINDY_PRO_SIGNING_SECRET", raising=False)
+    cfg = _valid_pro_cfg(tmp_path)
+    client = _FakeClient(_FakeResponse(200, {}))  # would succeed if called
+    assert fetch_broker_credential(config_path=cfg, http_client=client) is None
+    assert client.last_url is None, "Request should be skipped when unsigned"
+
+
+def test_fetch_broker_credential_picks_up_env_signing_secret(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    monkeypatch.setenv("WINDY_BROKER_SIGNING_SECRET", SIGNING_SECRET)
+    cfg = _valid_pro_cfg(tmp_path)
+    client = _FakeClient(_FakeResponse(200, {
+        "broker_token": "wk_broker_env",
+        "provider":     "openai",
+        "model":        "gpt-4o-mini",
+    }))
+    cred = fetch_broker_credential(config_path=cfg, http_client=client)
+    assert cred is not None
+    assert cred.api_key == "wk_broker_env"
+    assert client.last_headers is not None
+    assert client.last_headers["X-Windy-Signature"].startswith("sha256=")
 
 
 def test_fetch_broker_credential_no_config(tmp_path: Path) -> None:
-    assert fetch_broker_credential(config_path=tmp_path / "missing.json") is None
+    assert fetch_broker_credential(
+        config_path=tmp_path / "missing.json",
+        signing_secret=SIGNING_SECRET,
+    ) is None
 
 
 def test_fetch_broker_credential_pro_5xx(tmp_path: Path) -> None:
-    cfg = tmp_path / "c.json"
-    cfg.write_text(json.dumps({"account_token": "pro_abc"}))
+    cfg = _valid_pro_cfg(tmp_path)
     client = _FakeClient(_FakeResponse(503))
-    assert fetch_broker_credential(config_path=cfg, http_client=client) is None
+    assert fetch_broker_credential(
+        config_path=cfg, http_client=client, signing_secret=SIGNING_SECRET,
+    ) is None
 
 
 def test_fetch_broker_credential_unknown_provider(tmp_path: Path) -> None:
-    cfg = tmp_path / "c.json"
-    cfg.write_text(json.dumps({"account_token": "pro_abc"}))
+    cfg = _valid_pro_cfg(tmp_path)
     client = _FakeClient(_FakeResponse(200, {
-        "provider": "fictional_llm",
-        "api_key": "x",
-        "model": "m",
+        "provider":     "fictional_llm",
+        "broker_token": "x",
+        "model":        "m",
     }))
-    assert fetch_broker_credential(config_path=cfg, http_client=client) is None
+    assert fetch_broker_credential(
+        config_path=cfg, http_client=client, signing_secret=SIGNING_SECRET,
+    ) is None
 
 
-def test_fetch_broker_credential_missing_fields(tmp_path: Path) -> None:
-    cfg = tmp_path / "c.json"
-    cfg.write_text(json.dumps({"account_token": "pro_abc"}))
-    client = _FakeClient(_FakeResponse(200, {"provider": "openai"}))  # missing api_key
-    assert fetch_broker_credential(config_path=cfg, http_client=client) is None
+def test_fetch_broker_credential_missing_broker_token(tmp_path: Path) -> None:
+    cfg = _valid_pro_cfg(tmp_path)
+    # Response uses the old 'api_key' field name — must be rejected as
+    # malformed now that the contract is 'broker_token'.
+    client = _FakeClient(_FakeResponse(200, {
+        "provider": "openai", "api_key": "oops-wrong-field",
+    }))
+    assert fetch_broker_credential(
+        config_path=cfg, http_client=client, signing_secret=SIGNING_SECRET,
+    ) is None
 
 
 def test_brokered_credential_expired() -> None:
