@@ -68,8 +68,11 @@ orchestration.
 
 ### 2.1 Prerequisites
 
-- AWS account with EC2 and CloudWatch Logs permissions (IAM policy
-  template: `deploy/aws/iam-windyfly-runtime.json`).
+- AWS account with EC2 and CloudWatch Logs permissions. An IAM
+  policy template is planned at `deploy/aws/iam-windyfly-runtime.json`;
+  until it ships, the minimum is `ec2:RunInstances`,
+  `ec2:DescribeInstances`, `logs:CreateLogGroup`, `logs:PutLogEvents`,
+  `logs:DescribeLogStreams` scoped to the user's account.
 - Either:
   - Windy Cloud credentials (`WINDY_CLOUD_TOKEN`) — the easy path; VPS
     provisioning rides on the hosted Cloud API.
@@ -130,7 +133,9 @@ windy cloud vps-deploy --upgrade   # rsyncs new version, restarts systemd
 ```
 
 The SQLite DB is never overwritten on upgrade — it lives on the EBS
-volume and is snapshotted nightly via a Lambda (`deploy/aws/snap.tf`).
+volume. A nightly snapshot Lambda is planned at `deploy/aws/snap.tf`;
+until it ships, configure EBS snapshots manually via Data Lifecycle
+Manager.
 
 ---
 
@@ -201,45 +206,12 @@ Every `wk_`-authenticated outbound call writes one JSONL record to
 {"timestamp":"2026-04-16T20:11:03.118+00:00","key_id":"wbk_01HXXX","scope_used":"cloud:upload","target_url":"https://cloud.windyword.ai/api/v1/archive/agent","response_status":201,"latency_ms":184.3}
 ```
 
-### 4.1 Shipping from the user's machine (opt-in)
+### 4.1 Rotation (shipped today)
 
-If the user has opted in to centralized observability:
-
-```bash
-windy observe enable --to cloudwatch --log-group /windyfly/audit
-```
-
-This drops a small launchd/systemd unit that tails
-`bot_key_usage.jsonl` and pipes each line through the CloudWatch
-Logs agent. Credentials come from the user's own AWS profile — the
-log group lives in **the user's account, not ours**.
-
-### 4.2 Shipping from EC2 VPS (default)
-
-The `windy cloud vps-deploy` command installs the CloudWatch agent and
-pre-configures it:
-
-```yaml
-# /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.yaml
-logs:
-  logs_collected:
-    files:
-      collect_list:
-        - file_path: /home/windyfly/data/audit/bot_key_usage.jsonl
-          log_group_name: /windyfly/audit/${INSTANCE_ID}
-          log_stream_name: bot_key_usage
-          timestamp_format: "%Y-%m-%dT%H:%M:%S.%f%z"
-        - file_path: /var/log/syslog
-          log_group_name: /windyfly/system/${INSTANCE_ID}
-          log_stream_name: syslog
-```
-
-### 4.3 Rotation
-
-The audit log is append-only JSONL. Rotate with `logrotate` at 100 MB:
+The audit log is append-only JSONL. On any Linux deployment, drop
+`deploy/aws/logrotate.conf` at `/etc/logrotate.d/windyfly`:
 
 ```
-# /etc/logrotate.d/windyfly
 /home/windyfly/data/audit/bot_key_usage.jsonl {
     size 100M
     rotate 7
@@ -250,10 +222,59 @@ The audit log is append-only JSONL. Rotate with `logrotate` at 100 MB:
 }
 ```
 
-CloudWatch retention is set to 90 days by the Terraform in
-`deploy/aws/cloudwatch.tf`.
+On macOS (no `logrotate` by default), install `newsyslog` or run a
+nightly `launchd` job that compresses the previous day's file.
 
-### 4.4 Useful Insights queries
+### 4.2 Shipping to CloudWatch (NOT YET IMPLEMENTED)
+
+> **Status:** not implemented. There is no `windy observe` CLI
+> command, no launchd/systemd unit template, and no Terraform in
+> `deploy/aws/cloudwatch.tf`. This section describes the intended
+> design; follow the recipe below for the interim.
+
+**Intended design** (tracked as a follow-up issue):
+- A `windy observe enable --to cloudwatch --log-group <name>` CLI
+  command that installs a tail-to-CloudWatch unit.
+- For EC2 deploys, `windy cloud vps-deploy` installs the official
+  CloudWatch Agent and configures it for
+  `/home/windyfly/data/audit/bot_key_usage.jsonl`.
+- `deploy/aws/cloudwatch.tf` provisions the log group with 90-day
+  retention.
+
+**Interim recipe** (what actually works today):
+
+```bash
+# Install the official CloudWatch Agent on the VPS.
+sudo curl -O https://s3.amazonaws.com/amazoncloudwatch-agent/amazon_linux/arm64/latest/amazon-cloudwatch-agent.rpm
+sudo rpm -U ./amazon-cloudwatch-agent.rpm
+
+# Drop the config file.
+sudo tee /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.yaml <<'EOF'
+logs:
+  logs_collected:
+    files:
+      collect_list:
+        - file_path: /home/windyfly/data/audit/bot_key_usage.jsonl
+          log_group_name: /windyfly/audit
+          log_stream_name: {instance_id}/bot_key_usage
+          timestamp_format: "%Y-%m-%dT%H:%M:%S.%f%z"
+EOF
+
+# Start it.
+sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+    -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.yaml -s
+```
+
+Create the log group once:
+
+```bash
+aws logs create-log-group --log-group-name /windyfly/audit --region us-west-2
+aws logs put-retention-policy --log-group-name /windyfly/audit --retention-in-days 90
+```
+
+### 4.3 Useful Insights queries
+
+Once logs are shipping:
 
 ```
 # Denied actions in the last hour
@@ -336,7 +357,8 @@ an identical key, which is also safe.
 - [ ] Mint an initial `wk_` bot key (`windy keys mint`)
 - [ ] Subscribe to `trust.changed` for this passport
 - [ ] (Optional) `windy cloud vps-deploy` for 24/7
-- [ ] (Optional) `windy observe enable` for CloudWatch shipping
+- [ ] (Optional) CloudWatch Agent installed via the §4.2 interim
+      recipe for audit-log shipping (native CLI command TBD)
 
 ### Incident response — suspected key compromise
 1. `windy keys revoke --reason compromised`
