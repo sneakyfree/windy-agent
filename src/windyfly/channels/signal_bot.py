@@ -31,11 +31,12 @@ class SignalChannel(ChannelAdapter):
 
     async def start(self) -> None:
         self._api_url = os.environ.get("SIGNAL_API_URL", "http://localhost:8080")
-        self._phone = os.environ.get("SIGNAL_PHONE_NUMBER")
-        if not self._phone:
+        phone = os.environ.get("SIGNAL_PHONE_NUMBER")
+        if not phone:
             raise RuntimeError(
                 "SIGNAL_PHONE_NUMBER required (your registered Signal number)"
             )
+        self._phone = phone
 
         import httpx
 
@@ -85,6 +86,8 @@ class SignalChannel(ChannelAdapter):
                                     sender_name=envelope.get("sourceName", "User"),
                                     text=text,
                                 )
+                                # on_message wired by the channel manager before start().
+                                assert self.on_message is not None
                                 response = await self.on_message(msg)
                                 await self.send(
                                     OutgoingMessage(

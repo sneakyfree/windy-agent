@@ -22,6 +22,7 @@ import logging
 import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 import httpx
 
@@ -225,7 +226,7 @@ async def revoke_bot_key(
     if not key_id:
         raise RuntimeError("key_id required")
 
-    summary = {"revoked": False, "cascade": {}}
+    summary: dict[str, Any] = {"revoked": False, "cascade": {}}
 
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
         resp = await client.post(

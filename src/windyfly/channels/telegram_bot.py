@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+from typing import Any
 
 from windyfly.channels.base import ChannelAdapter, IncomingMessage, OutgoingMessage
 
@@ -21,7 +22,9 @@ class TelegramChannel(ChannelAdapter):
     name = "telegram"
 
     def __init__(self) -> None:
-        self._app = None
+        # python-telegram-bot is an optional extra — mypy can't resolve
+        # ApplicationBuilder on a baseline install, so type as Any.
+        self._app: Any = None
         self._connected = False
 
     async def start(self) -> None:
@@ -62,6 +65,8 @@ class TelegramChannel(ChannelAdapter):
             sender_name=update.message.from_user.first_name or "User",
             text=text,
         )
+        # on_message wired by the channel manager before start().
+        assert self.on_message is not None
         response = await self.on_message(msg)
         await update.message.reply_text(response)
 

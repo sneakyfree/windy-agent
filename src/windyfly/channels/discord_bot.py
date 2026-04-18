@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from typing import Any
 
 from windyfly.channels.base import ChannelAdapter, IncomingMessage, OutgoingMessage
 
@@ -22,9 +23,11 @@ class DiscordChannel(ChannelAdapter):
     name = "discord"
 
     def __init__(self) -> None:
-        self._client = None
+        # SDK-typed as Any — discord.py is an optional extra; mypy can't
+        # resolve discord.Client on a baseline install.
+        self._client: Any = None
         self._connected = False
-        self._loop_task = None
+        self._loop_task: asyncio.Task[Any] | None = None
 
     async def start(self) -> None:
         token = os.environ.get("DISCORD_BOT_TOKEN")
@@ -69,6 +72,8 @@ class DiscordChannel(ChannelAdapter):
                 sender_name=message.author.display_name,
                 text=text,
             )
+            # on_message wired by the channel manager before start().
+            assert adapter.on_message is not None
             response = await adapter.on_message(msg)
             await message.reply(response)
 

@@ -173,12 +173,14 @@ class MockEternitasClient:
             (json.dumps(existing), passport_id),
         )
         self.db.commit()
-        return self._row_to_passport(
-            self.db.fetchone(
-                "SELECT * FROM eternitas_registry WHERE passport_id = ?",
-                (passport_id,),
-            )
+        # Row is guaranteed present — we just updated it above; the
+        # assertion pacifies mypy without changing runtime behaviour.
+        fresh = self.db.fetchone(
+            "SELECT * FROM eternitas_registry WHERE passport_id = ?",
+            (passport_id,),
         )
+        assert fresh is not None, f"row vanished between UPDATE and SELECT for {passport_id}"
+        return self._row_to_passport(fresh)
 
     def _row_to_passport(self, row: dict) -> EternitasPassport:
         services = json.loads(row.get("provisioned_services", "{}") or "{}")

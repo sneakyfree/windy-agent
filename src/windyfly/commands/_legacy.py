@@ -1257,13 +1257,18 @@ def _model_test() -> None:
             reply = response.choices[0].message.content
         elif model.startswith("claude"):
             import anthropic
-            client = anthropic.Anthropic()
-            response = client.messages.create(
+            # Fresh locals rebind cleanly for mypy — `client`/`response`
+            # were inferred as OpenAI / ChatCompletion in the branch above.
+            anthropic_client = anthropic.Anthropic()
+            claude_response = anthropic_client.messages.create(
                 model=model,
                 max_tokens=50,
                 messages=[{"role": "user", "content": "Say hello in one sentence."}],
             )
-            reply = response.content[0].text
+            first_block = claude_response.content[0]
+            # Anthropic's content is a union of block types; only text
+            # blocks carry a `.text` attribute.
+            reply = getattr(first_block, "text", "")
         elif model.startswith("gemini"):
             import httpx
             api_key = os.environ.get("GEMINI_API_KEY", "")

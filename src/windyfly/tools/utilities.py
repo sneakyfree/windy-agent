@@ -72,7 +72,10 @@ def _parse_duration(s: str) -> int | None:
 
 # ── Unit Conversion ─────────────────────────────────────────────
 
-_CONVERSIONS: dict[tuple[str, str], float] = {
+# None marks unit pairs that need an affine formula (C↔F) rather than a
+# simple multiplier; callers dispatch on `is None` and fall through to a
+# special-case code path.
+_CONVERSIONS: dict[tuple[str, str], float | None] = {
     ("km", "miles"): 0.621371, ("miles", "km"): 1.60934,
     ("kg", "lbs"): 2.20462, ("lbs", "kg"): 0.453592,
     ("c", "f"): None, ("f", "c"): None,  # Special handling

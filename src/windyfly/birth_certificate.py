@@ -177,7 +177,7 @@ def collect_hardware_specs() -> dict:
         specs["os"] = f"Windows {ver}"
     else:
         try:
-            import distro  # type: ignore[import-untyped]
+            import distro
             specs["os"] = distro.name(pretty=True)
         except ImportError:
             specs["os"] = f"{system} {platform.release()}"
@@ -395,7 +395,7 @@ def render_birth_certificate_pdf(cert: BirthCertificate) -> bytes:
     pdf.set_text_color(0, 0, 0)
 
     # Details section
-    y = 100
+    y: float = 100
     pdf.set_font("Helvetica", "", 11)
 
     details = [

@@ -56,6 +56,7 @@ dev = [
     "ruff>=0.4",
     "mypy>=1.0",
     "respx>=0.22.0",
+    "types-PyYAML>=6.0",
 ]
 
 [tool.ruff]
@@ -65,3 +66,42 @@ target-version = "py312"
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+# ── mypy ──────────────────────────────────────────────────────────────────
+# We type the code WE own; third-party channel SDKs are gated on extras
+# (pip install windyfly[telegram|discord|slack|...]), so mypy can't find
+# them on a baseline install. Silencing them per-module is the standard
+# pattern — see the telegram/discord/slack/teams/irc/whatsapp/nio blocks
+# below. Sentry + Google-calendar are also optional extras.
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = false
+warn_unused_ignores = true
+warn_redundant_casts = true
+# Tests exercise code paths with deliberately loose typing — don't block
+# on them for the cleanup pass.
+exclude = ["tests/"]
+
+# Optional third-party SDKs — silent when absent.
+[[tool.mypy.overrides]]
+module = [
+    "twilio.*",
+    "flask",
+    "telegram.*",
+    "discord",
+    "discord.*",
+    "slack_bolt.*",
+    "botbuilder.*",
+    "irc",
+    "irc.*",
+    "google.oauth2.*",
+    "google.auth.*",
+    "googleapiclient.*",
+    "google_auth_oauthlib.*",
+    "sentry_sdk",
+    "nio",
+    "nio.*",
+    "fpdf",
+    "fpdf.*",
+]
+ignore_missing_imports = true

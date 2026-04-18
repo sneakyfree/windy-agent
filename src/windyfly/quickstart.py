@@ -337,8 +337,9 @@ def cmd_go(args: Any) -> None:
     # ── Step 4: Check clipboard for a key ────────────────────────
     clip = read_clipboard()
     if clip and len(clip) > 10:
-        provider = detect_provider(clip)
-        if provider:
+        detected = detect_provider(clip)
+        if detected:
+            provider = detected
             console.print(f"  [cyan]Found a {provider['provider']} API key on your clipboard![/cyan]")
             if Confirm.ask(f"  Use this key for {provider['provider']}?", default=True):
                 write_quick_config(provider["env_var"], clip, provider["model"])
