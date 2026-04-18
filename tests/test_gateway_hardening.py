@@ -118,12 +118,12 @@ class TestGatewayLocalhostRestriction:
         chunk = src[idx:idx + 300]
         assert "403" in chunk
 
-    def test_localhost_function_checks_hostname(self):
+    def test_localhost_function_checks_peer_ip(self):
         """isLocalhostRequest should check hostname against localhost variants."""
         src = GATEWAY_SERVER.read_text()
         assert "127.0.0.1" in src
         assert "::1" in src
-        assert '"localhost"' in src
+        assert "requestIP(req)" in src
 
 
 class TestGatewayTOMLInjection:
