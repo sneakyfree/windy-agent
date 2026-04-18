@@ -1229,11 +1229,15 @@ def _register_budget_through_help():
         url = ctx.get("_raw", "")
         if not url:
             return "Usage: /web <url>"
+        from windyfly.safe_fetch import SSRFBlocked, safe_fetch
         try:
-            import httpx
-            r = httpx.get(url, timeout=10, follow_redirects=True)
-            text = r.text[:2000]
-            return f"Fetched {url} ({r.status_code}, {len(r.text)} chars):\n{text}"
+            result = safe_fetch(url, timeout=10, max_bytes=2000, allow_one_redirect=True)
+            return (
+                f"Fetched {result.url} ({result.status_code}, {result.length} chars):\n"
+                f"{result.text}"
+            )
+        except SSRFBlocked as blocked:
+            return f"Refused: {blocked}"
         except Exception as e:
             return f"Error fetching {url}: {e}"
     _r("web", "Fetch a URL and show content", "12_developer", cmd_web,
