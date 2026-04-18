@@ -107,6 +107,7 @@ class UDSBridge:
             "config.reload": self._handle_config_reload,
             "intents.list": self._handle_intents_list,
             "dashboard.summary": self._handle_dashboard_summary,
+            "trust.webhook": self._handle_trust_webhook,
             "soul.preview": self._handle_soul_preview,
             "soul.import": self._handle_soul_import,
             "sms.inbound": self._handle_sms_inbound,
@@ -220,6 +221,47 @@ class UDSBridge:
         user_id = params.get("user_id", "default")
         summary = get_dashboard_summary(self.db, user_id=user_id)
         return {"dashboard": summary}
+
+    async def _handle_trust_webhook(self, params: dict) -> dict:
+        """Eternitas trust.changed webhook (fanned from gateway).
+
+        Params:
+            body_b64:  base64 of the raw request body (so we can HMAC
+                       the bytes that were actually wired).
+            headers:   dict of inbound header name → value.
+            payload:   parsed JSON of the body (convenience — ignored
+                       if verification fails).
+        """
+        import base64
+
+        from windyfly.trust.verify import verify_webhook
+        from windyfly.trust.webhook import handle_trust_changed
+
+        try:
+            raw_body = base64.b64decode(params.get("body_b64", ""))
+        except Exception:
+            return {"ok": False, "reason": "invalid body_b64"}
+        headers = {str(k): str(v) for k, v in (params.get("headers") or {}).items()}
+
+        verification = verify_webhook(raw_body, headers)
+        if not verification.ok:
+            logger.warning("Trust webhook rejected: %s", verification.reason)
+            return {"ok": False, "reason": verification.reason}
+
+        try:
+            payload = params.get("payload") or {}
+            result = await handle_trust_changed(payload, db=self.db)
+            return {
+                "ok": True,
+                "passport": result.passport,
+                "direction": result.direction,
+                "cache_invalidated": result.cache_invalidated,
+                "key_rotated": result.key_rotated,
+                "owner_notified": result.owner_notified,
+            }
+        except Exception as exc:
+            logger.exception("Trust webhook handler failed")
+            return {"ok": False, "reason": f"handler error: {exc}"}
 
     async def _handle_soul_preview(self, params: dict) -> dict:
         """Soul Passport preview — parse and preview without writing."""
