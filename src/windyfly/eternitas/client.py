@@ -27,10 +27,9 @@ class EternitasClient:
     """
 
     def __init__(self, api_url: str | None = None, operator_key: str | None = None) -> None:
-        self.api_url = (
-            api_url
-            or os.environ.get("ETERNITAS_API_URL", "https://eternitas.ai")
-        ).rstrip("/")
+        from windyfly.eternitas.url import resolve_eternitas_url
+
+        self.api_url = (api_url or resolve_eternitas_url("https://eternitas.ai")).rstrip("/")
         self.operator_key = operator_key or os.environ.get("ETERNITAS_OPERATOR_KEY", "")
         self.admin_token = os.environ.get("ETERNITAS_ADMIN_TOKEN", "")
 

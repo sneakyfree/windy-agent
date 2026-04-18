@@ -34,7 +34,8 @@ def db():
 def clean_env(monkeypatch):
     """Ensure no real credentials bleed into tests."""
     for var in [
-        "ETERNITAS_API_URL", "ETERNITAS_PASSPORT",
+        "ETERNITAS_URL", "ETERNITAS_API_URL", "ETERNITAS_PASSPORT",
+        "WINDY_JWT", "WINDY_IDENTITY_ID",
         "SYNAPSE_REGISTRATION_SECRET",
         "TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_PHONE_NUMBER",
         "WINDYMAIL_SERVICE_TOKEN", "WINDYMAIL_JMAP_TOKEN", "WINDYMAIL_API_URL",

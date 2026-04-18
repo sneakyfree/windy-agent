@@ -21,8 +21,11 @@ def db():
 @pytest.fixture(autouse=True)
 def clean_env(monkeypatch):
     """Ensure no real service credentials leak into tests."""
+    monkeypatch.delenv("ETERNITAS_URL", raising=False)
     monkeypatch.delenv("ETERNITAS_API_URL", raising=False)
     monkeypatch.delenv("ETERNITAS_PASSPORT", raising=False)
+    monkeypatch.delenv("WINDY_JWT", raising=False)
+    monkeypatch.delenv("WINDY_IDENTITY_ID", raising=False)
     monkeypatch.delenv("SYNAPSE_REGISTRATION_SECRET", raising=False)
     monkeypatch.delenv("TWILIO_ACCOUNT_SID", raising=False)
     monkeypatch.delenv("TWILIO_PHONE_NUMBER", raising=False)

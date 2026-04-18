@@ -176,13 +176,47 @@ async def _step_eternitas(
         logger.warning("Hatch: Eternitas registration failed: %s", exc)
 
 
+def _resolve_windy_identity_id(owner_id: str) -> str:
+    """Find the owner's Windy identity id with a sensible cascade.
+
+    Order: explicit env var → passed-in owner_id → JWT sub claim.
+    The JWT fallback closes P1-E2 — previously a caller who set
+    WINDY_JWT but forgot WINDY_IDENTITY_ID would silently skip
+    link-back even when online.
+    """
+    env_id = os.environ.get("WINDY_IDENTITY_ID", "")
+    if env_id:
+        return env_id
+    if owner_id:
+        return owner_id
+    jwt = os.environ.get("WINDY_JWT", "")
+    if jwt:
+        from windyfly.auth.jwt_claims import identity_from_jwt
+        derived = identity_from_jwt(jwt)
+        if derived:
+            logger.info("Derived windy_identity_id %r from WINDY_JWT sub claim", derived)
+            return derived
+    return ""
+
+
 async def _step_link_passport(result: HatchResult, owner_id: str) -> None:
     """Register the passport ↔ identity link with Pro and Cloud."""
     if not result.passport_id:
         return
-    windy_identity_id = os.environ.get("WINDY_IDENTITY_ID", "") or owner_id
+    windy_identity_id = _resolve_windy_identity_id(owner_id)
+    online = bool(os.environ.get("WINDY_JWT", ""))
     if not windy_identity_id:
-        logger.info("Hatch: link-passport skipped (offline hatch, no windy identity)")
+        # If we're clearly online (JWT present) but we still couldn't
+        # find an identity id, that's an operator error, not the
+        # intended offline path. Fail loud.
+        if online:
+            result.errors.append(
+                "Link-passport: online hatch but no WINDY_IDENTITY_ID and "
+                "no resolvable 'sub'/'windy_identity_id' claim in WINDY_JWT"
+            )
+            logger.warning("Hatch: link-passport missing identity (online)")
+        else:
+            logger.info("Hatch: link-passport skipped (offline hatch, no windy identity)")
         return
     try:
         from windyfly.eternitas.provision import link_passport_with_identity
