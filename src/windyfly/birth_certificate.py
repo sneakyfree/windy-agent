@@ -32,6 +32,8 @@ class BirthCertificate:
     hardware_specs: dict = field(default_factory=dict)
     email_address: str = ""
     phone_number: str = ""
+    cloud_plan_id: str = ""
+    cloud_quota_bytes: int = 0
     first_words: str = ""
     neural_fingerprint: str = ""
     waveform_signature: str = ""
@@ -200,6 +202,28 @@ def collect_hardware_specs() -> dict:
     return specs
 
 
+def _format_cloud_storage(cert: "BirthCertificate") -> str:
+    """Render the Cloud Storage certificate line.
+
+    Shows "—" when no plan is allocated (WINDY_CLOUD_URL unset in dev).
+    """
+    if not cert.cloud_plan_id and not cert.cloud_quota_bytes:
+        return "-"
+
+    if cert.cloud_quota_bytes >= 1_073_741_824:
+        size = f"{cert.cloud_quota_bytes / 1_073_741_824:.0f} GB"
+    elif cert.cloud_quota_bytes >= 1_048_576:
+        size = f"{cert.cloud_quota_bytes / 1_048_576:.0f} MB"
+    elif cert.cloud_quota_bytes > 0:
+        size = f"{cert.cloud_quota_bytes} B"
+    else:
+        size = "unknown"
+
+    if cert.cloud_plan_id:
+        return f"{size} · {cert.cloud_plan_id}"
+    return size
+
+
 def generate_birth_certificate(
     agent_name: str,
     passport_id: str,
@@ -210,6 +234,8 @@ def generate_birth_certificate(
     owner_name: str = "",
     email_address: str = "",
     phone_number: str = "",
+    cloud_plan_id: str = "",
+    cloud_quota_bytes: int = 0,
     hatch_timezone: str = "",
     hardware_specs: dict | None = None,
 ) -> BirthCertificate:
@@ -251,6 +277,8 @@ def generate_birth_certificate(
         hardware_specs=hardware_specs,
         email_address=email_address,
         phone_number=phone_number,
+        cloud_plan_id=cloud_plan_id,
+        cloud_quota_bytes=cloud_quota_bytes,
         first_words=first_words or "(awaiting first interaction)",
         neural_fingerprint=fingerprint,
         waveform_signature=waveform,
@@ -285,6 +313,7 @@ def render_birth_certificate_terminal(cert: BirthCertificate) -> str:
         lines.append(f"  Email: {cert.email_address}")
     if cert.phone_number:
         lines.append(f"  Phone: {cert.phone_number}")
+    lines.append(f"  Cloud Storage: {_format_cloud_storage(cert)}")
     if cert.model_id:
         lines.append(f"  Brain: {cert.model_id}")
     if cert.hardware_specs:
@@ -379,6 +408,7 @@ def render_birth_certificate_pdf(cert: BirthCertificate) -> bytes:
         details.append(("Email", cert.email_address))
     if cert.phone_number:
         details.append(("Phone", cert.phone_number))
+    details.append(("Cloud Storage", _format_cloud_storage(cert)))
     if cert.model_id:
         details.append(("AI Brain", cert.model_id))
     if cert.hardware_specs:

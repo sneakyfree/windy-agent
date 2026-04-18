@@ -253,8 +253,8 @@ class TestEventLogging:
         assert len(tables) == 1
         db.close()
 
-    def test_schema_version_is_3(self):
+    def test_schema_version_is_current(self):
         db = Database(":memory:")
         row = db.fetchone("SELECT MAX(version) as v FROM schema_version")
-        assert row["v"] == 3
+        assert row["v"] == 4
         db.close()

@@ -36,6 +36,27 @@ class ChannelManager:
         self.channels[adapter.name] = adapter
         logger.info("Channel registered: %s", adapter.name)
 
+    async def send(self, channel_name: str, message) -> dict:
+        """Dispatch an outgoing message, gated by the trust check.
+
+        This is the call path for `post_chat_message`. Adapters still
+        expose `.send()` for legacy plumbing, but new code should go
+        through here so the gate and audit path are centralized.
+        """
+        from windyfly.trust.gate import TrustDenied, require_trust
+
+        try:
+            await require_trust("post_chat_message")
+        except TrustDenied as denied:
+            logger.warning("Chat message blocked by trust gate: %s", denied)
+            return {"status": "denied", "error": str(denied)}
+
+        adapter = self.channels.get(channel_name)
+        if adapter is None:
+            return {"status": "failed", "error": f"unknown channel: {channel_name}"}
+        await adapter.send(message)
+        return {"status": "sent"}
+
     async def _handle_message(self, msg: IncomingMessage) -> str:
         """Route incoming message to agent loop, return response."""
         session_id = f"{msg.platform}:{msg.channel_id}"

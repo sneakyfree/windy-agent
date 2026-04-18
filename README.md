@@ -163,6 +163,58 @@ Windy Fly connects to the full Windy product suite:
 
 Check connectivity: `windy ecosystem`
 
+### Eternitas Trust Gate
+
+Every sensitive action — `send_email`, `post_chat_message`, `run_command`,
+`install_package`, `commit_push`, `upload_file` — is gated by the live
+Eternitas Trust API before it hits the network.
+
+**Contract:** `/Users/thewindstorm/eternitas/docs/trust-api.md` is the
+authoritative consumer reference. Endpoint:
+`GET {ETERNITAS_URL}/api/v1/trust/{passport_number}` — public, no auth,
+100 req/min/IP, 5-min server cache. Responses carry
+`status`, `band` (exceptional/good/fair/poor/critical),
+`clearance_level`, `tier_multiplier`, `allowed_actions`, and
+`cache_ttl_seconds`. Windy Fly mirrors the TTL in a local SQLite cache and
+subscribes to `trust.changed` webhooks to flush on band flip or clearance
+promotion.
+
+**Env vars:**
+
+| Var | Purpose | Default |
+|-----|---------|---------|
+| `ETERNITAS_URL` | Base URL for the Trust API | `http://localhost:8200` (dev) |
+| `ETERNITAS_USE_MOCK` | `true` to skip live fetches and fail-open | unset |
+| `WINDYFLY_TRUST_STRICT` | `1` to fail-closed when the trust service is unreachable | unset (fail-open) |
+| `ETERNITAS_PASSPORT` | Agent's passport number; unset means "human/standalone, skip gate" | set during hatch |
+
+**Agent-gate → Eternitas vocabulary:**
+
+| Windy Fly gate action | Eternitas action |
+|-----------------------|------------------|
+| `send_email`, `post_chat_message`, `upload_file` | `send` |
+| `run_command` | `execute` |
+| `install_package` | `install_packages` |
+| `commit_push` | `commit_push` |
+
+**Running the live integration tests:**
+
+```bash
+# Terminal 1 — start Eternitas
+cd /Users/thewindstorm/eternitas
+./scripts/dev-start.sh
+
+# Terminal 2 — run the live tests
+cd /Users/thewindstorm/windy-agent
+ETERNITAS_URL=http://localhost:8200 \
+ETERNITAS_USE_MOCK=false \
+WINDYFLY_TEST_PASSPORT_EXCEPTIONAL=<exceptional-band passport> \
+WINDYFLY_TEST_PASSPORT_CRITICAL=<critical-band passport> \
+uv run pytest tests/integration/test_trust_live.py -v
+```
+
+Tests skip automatically when the API isn't reachable.
+
 ---
 
 ## Development

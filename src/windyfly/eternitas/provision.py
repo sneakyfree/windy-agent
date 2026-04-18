@@ -13,6 +13,7 @@ import platform
 import uuid
 from dataclasses import dataclass
 
+import httpx
 from rich.console import Console
 
 from windyfly.eternitas.models import EternitasPassport, RegistrationRequest
@@ -120,6 +121,73 @@ def provision_eternitas(
         return loop.run_until_complete(
             _do_provision(agent_name, owner_id, owner_name, db)
         )
+
+
+async def link_passport_with_identity(
+    passport_number: str,
+    windy_identity_id: str,
+    operator_email: str = "",
+    owner_jwt: str = "",
+    pro_url: str = "",
+    cloud_url: str = "",
+    timeout: float = 10.0,
+) -> dict:
+    """Tell Windy Pro and Windy Cloud about the passport ↔ identity link.
+
+    POST {WINDY_PRO_URL}/api/v1/identity/link-passport
+    POST {WINDY_CLOUD_URL}/api/v1/identity/link-passport
+
+    Called after passport creation so both services hold the bridge
+    between the Eternitas passport and the unified Windy identity.
+
+    Skips gracefully in offline/standalone mode (no JWT, no identity id,
+    or no service URL). Never raises — returns a summary dict.
+    """
+    summary = {"pro": "skipped", "cloud": "skipped"}
+
+    if not windy_identity_id:
+        logger.info("Link-passport skipped: no windy_identity_id (offline/standalone hatch)")
+        return summary
+    if not passport_number:
+        logger.info("Link-passport skipped: no passport_number")
+        return summary
+
+    pro = (pro_url or os.environ.get("WINDY_PRO_URL", "") or os.environ.get("WINDY_API_URL", "")).rstrip("/")
+    cloud = (cloud_url or os.environ.get("WINDY_CLOUD_URL", "")).rstrip("/")
+    jwt = owner_jwt or os.environ.get("WINDY_JWT", "")
+    email = operator_email or os.environ.get("OWNER_EMAIL", "")
+
+    payload = {
+        "passport_number": passport_number,
+        "windy_identity_id": windy_identity_id,
+        "operator_email": email,
+    }
+    headers = {"Authorization": f"Bearer {jwt}"} if jwt else {}
+
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        for label, base in (("pro", pro), ("cloud", cloud)):
+            if not base:
+                continue
+            try:
+                resp = await client.post(
+                    f"{base}/api/v1/identity/link-passport",
+                    json=payload,
+                    headers=headers,
+                )
+                if resp.status_code in (200, 201, 204):
+                    summary[label] = "linked"
+                    logger.info("Passport %s linked with identity on %s", passport_number, label)
+                else:
+                    summary[label] = f"http_{resp.status_code}"
+                    logger.warning(
+                        "Link-passport on %s returned %s: %s",
+                        label, resp.status_code, resp.text[:200],
+                    )
+            except httpx.RequestError as exc:
+                summary[label] = f"error: {exc.__class__.__name__}"
+                logger.warning("Link-passport on %s failed: %s", label, exc)
+
+    return summary
 
 
 def _get_machine_id() -> str:

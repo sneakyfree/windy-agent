@@ -50,6 +50,15 @@ class HatchResult:
     phone_provisioned: bool = False
     phone_is_mock: bool = False
 
+    # Windy Cloud storage allocation
+    cloud_plan_id: str = ""
+    cloud_quota_bytes: int = 0
+    cloud_provisioned: bool = False
+
+    # Identity link-back status
+    identity_link_pro: str = ""
+    identity_link_cloud: str = ""
+
     # Hardware
     hardware_specs: dict = field(default_factory=dict)
 
@@ -99,6 +108,11 @@ async def orchestrate_hatch(
     # Step 1: Eternitas registration (must complete before others)
     await _step_eternitas(result, agent_name, owner_id, owner_name, db, config)
 
+    # Step 1b: Link the passport with the unified Windy identity so
+    # Pro and Cloud both hold the bridge. Skips gracefully in offline
+    # mode (no owner JWT / no windy_identity_id).
+    await _step_link_passport(result, owner_id)
+
     # Steps 2/3/4: Concurrent provisioning
     await asyncio.gather(
         _step_matrix(result, config),
@@ -106,6 +120,11 @@ async def orchestrate_hatch(
         _step_phone(result, agent_name, db, config),
         return_exceptions=True,
     )
+
+    # Step 4b: Allocate Windy Cloud storage quota so the agent is born
+    # with a cloud home. Runs before birth cert so plan/quota appear
+    # on the certificate's "Cloud Storage" line.
+    await _step_cloud_quota(result, owner_id)
 
     # Step 5: Birth certificate (needs passport + first words placeholder)
     await _step_birth_certificate(result, config)
@@ -155,6 +174,58 @@ async def _step_eternitas(
     except Exception as exc:
         result.errors.append(f"Eternitas: {exc}")
         logger.warning("Hatch: Eternitas registration failed: %s", exc)
+
+
+async def _step_link_passport(result: HatchResult, owner_id: str) -> None:
+    """Register the passport ↔ identity link with Pro and Cloud."""
+    if not result.passport_id:
+        return
+    windy_identity_id = os.environ.get("WINDY_IDENTITY_ID", "") or owner_id
+    if not windy_identity_id:
+        logger.info("Hatch: link-passport skipped (offline hatch, no windy identity)")
+        return
+    try:
+        from windyfly.eternitas.provision import link_passport_with_identity
+
+        summary = await link_passport_with_identity(
+            passport_number=result.passport_id,
+            windy_identity_id=windy_identity_id,
+            operator_email=os.environ.get("OWNER_EMAIL", ""),
+        )
+        result.identity_link_pro = summary.get("pro", "")
+        result.identity_link_cloud = summary.get("cloud", "")
+    except Exception as exc:
+        result.errors.append(f"Link-passport: {exc}")
+        logger.warning("Hatch: link-passport failed: %s", exc)
+
+
+async def _step_cloud_quota(result: HatchResult, owner_id: str) -> None:
+    """Allocate a Windy Cloud storage plan for this agent."""
+    if not result.passport_id:
+        return
+    if not os.environ.get("WINDY_CLOUD_URL", ""):
+        logger.info("Hatch: cloud quota skipped (WINDY_CLOUD_URL not set)")
+        return
+
+    windy_identity_id = os.environ.get("WINDY_IDENTITY_ID", "") or owner_id
+    try:
+        from windyfly.cloud_provision import allocate_cloud_quota
+
+        alloc = await allocate_cloud_quota(
+            windy_identity_id=windy_identity_id,
+            passport_number=result.passport_id,
+            tier="free",
+        )
+        if alloc:
+            result.cloud_plan_id = alloc.plan_id
+            result.cloud_quota_bytes = alloc.quota_bytes
+            result.cloud_provisioned = True
+            logger.info("Hatch: cloud quota %s (%d bytes) provisioned", alloc.plan_id, alloc.quota_bytes)
+        else:
+            result.errors.append("Cloud quota: allocation failed")
+    except Exception as exc:
+        result.errors.append(f"Cloud quota: {exc}")
+        logger.warning("Hatch: cloud quota failed: %s", exc)
 
 
 async def _step_matrix(result: HatchResult, config: dict | None = None) -> None:
@@ -269,6 +340,8 @@ async def _step_birth_certificate(
             owner_name=result.owner_name,
             email_address=result.email_address,
             phone_number=result.phone_number,
+            cloud_plan_id=result.cloud_plan_id,
+            cloud_quota_bytes=result.cloud_quota_bytes,
             hardware_specs=result.hardware_specs or None,
         )
         result.neural_fingerprint = cert.neural_fingerprint
@@ -319,7 +392,10 @@ async def _step_hatch_email(result: HatchResult) -> None:
         "WINDYMAIL_SERVICE_TOKEN", ""
     )
 
-    if not mail_api_url or not mail_token:
+    from windyfly.auth.bot_credentials import ecosystem_auth_header
+    auth_header = await ecosystem_auth_header(fallback_token=mail_token)
+
+    if not mail_api_url or not auth_header:
         result.errors.append("Birth email: Windy Mail not configured")
         return
 
@@ -370,7 +446,7 @@ async def _step_hatch_email(result: HatchResult) -> None:
             resp = await client.post(
                 f"{mail_api_url}/api/v1/send",
                 json=payload,
-                headers={"Authorization": f"Bearer {mail_token}"},
+                headers=auth_header,
             )
         if resp.status_code in (200, 201):
             result.hatch_email_sent = True

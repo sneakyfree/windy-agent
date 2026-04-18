@@ -31,6 +31,20 @@ def execute_in_sandbox(
     Returns:
         Dict with: success, stdout, stderr, exit_code, timed_out.
     """
+    from windyfly.trust.gate import TrustDenied, require_trust_sync
+    try:
+        require_trust_sync("run_command")
+    except TrustDenied as denied:
+        logger.warning("Sandbox execution blocked by trust gate: %s", denied)
+        return {
+            "success": False,
+            "stdout": "",
+            "stderr": str(denied),
+            "exit_code": -1,
+            "timed_out": False,
+            "denied": True,
+        }
+
     if language == "python":
         return _run_python(code, test_input, timeout)
     elif language in ("javascript", "js"):
