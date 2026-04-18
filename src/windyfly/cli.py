@@ -383,10 +383,19 @@ def _cmd_chat(args: argparse.Namespace) -> None:
     cmd_start(args)
 
 
-def _cmd_test(_args: argparse.Namespace) -> None:
-    """Run the agent self-test."""
-    from windyfly.cli_selftest import run_self_test
-    run_self_test()
+def _cmd_test(args: argparse.Namespace) -> None:
+    """Run the agent self-test.
+
+    --full also dispatches ecosystem health checks (Eternitas / Windy Pro /
+    Matrix / Mail / Cloud) and exits non-zero if any *critical* dependency
+    is red. Referenced from DEPLOY.md §5 and scripts/smoke-test.sh.
+    """
+    if getattr(args, "full", False):
+        from windyfly.cli_selftest import run_full_self_test
+        run_full_self_test(timeout=getattr(args, "timeout", 5.0))
+    else:
+        from windyfly.cli_selftest import run_self_test
+        run_self_test()
 
 
 def _cmd_repl(_args: argparse.Namespace) -> None:
@@ -463,6 +472,12 @@ def _cmd_passport(_args: argparse.Namespace) -> None:
     """Show Eternitas passport."""
     from windyfly.commands import cmd_passport
     cmd_passport(_args)
+
+
+def _cmd_keys(args: argparse.Namespace) -> None:
+    """Manage the wk_ bot credential (show / rotate)."""
+    from windyfly.commands.keys import cmd_keys
+    cmd_keys(args)
 
 
 def _cmd_mail(_args: argparse.Namespace) -> None:
@@ -723,6 +738,7 @@ _COMMAND_CATEGORIES = [
         ("mail", "Show mail status"),
         ("phone", "Show phone status"),
         ("cert", "Show birth certificate"),
+        ("keys", "Manage the wk_ bot credential (show, rotate)"),
     ]),
     ("Configuration", [
         ("config", "View/edit configuration (show, set, reset, path)"),
@@ -1069,8 +1085,22 @@ def main() -> None:
     # windy chat
     sub.add_parser("chat", help="Start CLI chat mode (alias for start --cli)")
 
-    # windy test
-    sub.add_parser("test", help="Run self-test to verify the agent works")
+    # windy test / windy selftest — same handler, shared flags. Keeping
+    # both names makes smoke-test.sh (which calls `windy test`) and
+    # DEPLOY.md (which documents `windy selftest --full`) both work.
+    for test_name, help_text in (
+        ("test",     "Run self-test to verify the agent works"),
+        ("selftest", "Alias for `windy test`"),
+    ):
+        test_parser = sub.add_parser(test_name, help=help_text)
+        test_parser.add_argument(
+            "--full", action="store_true",
+            help="Also check ecosystem health (Eternitas / Pro / Matrix / Mail / Cloud)",
+        )
+        test_parser.add_argument(
+            "--timeout", type=float, default=5.0,
+            help="Per-endpoint HTTP timeout in seconds (default: 5)",
+        )
 
     # windy repl
     sub.add_parser("repl", help="Developer REPL")
@@ -1129,6 +1159,16 @@ def main() -> None:
 
     # windy cert
     sub.add_parser("cert", help="Show birth certificate")
+
+    # windy keys — manage the wk_ bot credential (rotate, inspect)
+    keys_parser = sub.add_parser("keys", help="Manage the wk_ bot credential")
+    keys_sub = keys_parser.add_subparsers(dest="action", help="Keys action")
+    keys_sub.add_parser("show", help="Inspect the cached wk_ bot key")
+    keys_rotate = keys_sub.add_parser("rotate", help="Mint a fresh wk_ key and revoke the old one")
+    keys_rotate.add_argument(
+        "--hard", action="store_true",
+        help="Also cascade-revoke to Mail, Cloud, and Chat so they drop cached auth",
+    )
 
     # ── Configuration ────────────────────────────────────────────
 
@@ -1297,6 +1337,7 @@ def main() -> None:
         # Chat & Interaction
         "chat": _cmd_chat,
         "test": _cmd_test,
+        "selftest": _cmd_test,
         "repl": _cmd_repl,
         # Diagnostics
         "doctor": _get_cmd_doctor,
@@ -1307,6 +1348,7 @@ def main() -> None:
         "ecosystem": _cmd_ecosystem,
         "channels": _cmd_channels,
         "passport": _cmd_passport,
+        "keys": _cmd_keys,
         "mail": _cmd_mail,
         "phone": _cmd_phone,
         "cert": _cmd_cert,

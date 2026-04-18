@@ -11,6 +11,7 @@ import asyncio
 import logging
 import os
 import threading
+from typing import Any
 
 from windyfly.channels.base import ChannelAdapter, IncomingMessage, OutgoingMessage
 
@@ -24,7 +25,8 @@ class IRCChannel(ChannelAdapter):
 
     def __init__(self) -> None:
         self._connected = False
-        self._connection = None
+        # irc.client.ServerConnection once start() runs; optional-extra.
+        self._connection: Any = None
         self._thread: threading.Thread | None = None
 
     async def start(self) -> None:
@@ -69,6 +71,8 @@ class IRCChannel(ChannelAdapter):
                 sender_name=event.source.split("!")[0],
                 text=text,
             )
+            # on_message wired by the channel manager before start().
+            assert adapter.on_message is not None
             future = asyncio.run_coroutine_threadsafe(adapter.on_message(msg), loop)
             try:
                 response = future.result(timeout=30)

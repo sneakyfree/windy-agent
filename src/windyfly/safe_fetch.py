@@ -96,9 +96,16 @@ def _validate_url(url: str) -> tuple[str, str]:
         raise SSRFBlocked(f"DNS resolution failed: {exc}") from exc
 
     for family, _type, _proto, _canon, sockaddr in infos:
-        ip_str = sockaddr[0]
-        if _is_blocked_ip(ip_str):
-            raise SSRFBlocked(f"host {host} resolves to blocked address {ip_str}")
+        # sockaddr is (host_str, port) for AF_INET, (host, port, flow, scope)
+        # for AF_INET6 — first element is always the IP string in both cases.
+        # getaddrinfo's signature types this as tuple[Any, ...] which mypy
+        # narrows to str | int; the runtime contract is tighter than the stub.
+        ip_raw = sockaddr[0]
+        if not isinstance(ip_raw, str):
+            # Defensive — shouldn't happen given the tuple layouts above.
+            continue
+        if _is_blocked_ip(ip_raw):
+            raise SSRFBlocked(f"host {host} resolves to blocked address {ip_raw}")
 
     return parsed.scheme, host
 

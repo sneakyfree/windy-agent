@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+from typing import Any
 
 from windyfly.channels.base import ChannelAdapter, IncomingMessage, OutgoingMessage
 
@@ -23,7 +24,9 @@ class TeamsChannel(ChannelAdapter):
     def __init__(self, webhook_port: int = 3978) -> None:
         self._webhook_port = webhook_port
         self._connected = False
-        self._runner = None
+        # aiohttp.web.AppRunner once start() runs; typed Any because the
+        # optional botbuilder import above pulls in the web stack lazily.
+        self._runner: Any = None
 
     async def start(self) -> None:
         app_id = os.environ.get("TEAMS_APP_ID")
@@ -62,6 +65,8 @@ class TeamsChannel(ChannelAdapter):
                     sender_name=turn_context.activity.from_property.name or "User",
                     text=text,
                 )
+                # on_message wired by the channel manager before start().
+                assert channel_adapter.on_message is not None
                 response = await channel_adapter.on_message(msg)
                 await turn_context.send_activity(response)
 

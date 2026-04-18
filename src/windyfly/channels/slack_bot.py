@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+from typing import Any
 
 from windyfly.channels.base import ChannelAdapter, IncomingMessage, OutgoingMessage
 
@@ -21,8 +22,10 @@ class SlackChannel(ChannelAdapter):
     name = "slack"
 
     def __init__(self) -> None:
-        self._app = None
-        self._handler = None
+        # slack_bolt is an optional extra — Any sidesteps the missing
+        # stubs without compromising runtime typing.
+        self._app: Any = None
+        self._handler: Any = None
         self._connected = False
 
     async def start(self) -> None:
@@ -58,6 +61,8 @@ class SlackChannel(ChannelAdapter):
                 sender_name=message.get("user", "User"),
                 text=text,
             )
+            # on_message wired by the channel manager before start().
+            assert adapter.on_message is not None
             response = await adapter.on_message(msg)
             await say(response)
 

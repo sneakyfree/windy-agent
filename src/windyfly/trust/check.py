@@ -329,14 +329,14 @@ async def check_trust(action: str, passport: str | None = None, db=None) -> Trus
     """
     pp = passport or os.environ.get("ETERNITAS_PASSPORT", "")
     if not pp:
-        snap = TrustSnapshot(passport="none", status="active", band="unknown")
+        skip_snap = TrustSnapshot(passport="none", status="active", band="unknown")
         return TrustDecision(
             allowed=True,
-            snapshot=snap,
+            snapshot=skip_snap,
             reason="no passport (human or standalone) — trust gate skipped",
         )
 
-    snap = await get_trust(passport=pp, db=db)
+    snap: TrustSnapshot | None = await get_trust(passport=pp, db=db)
     if snap is None:
         snap = TrustSnapshot(passport=pp, status="unknown", band="unknown")
         if _strict_mode():

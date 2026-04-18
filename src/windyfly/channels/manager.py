@@ -64,6 +64,10 @@ class ChannelManager:
             result = self.agent_respond(msg.text, session_id)
             if asyncio.iscoroutine(result):
                 result = await result
+            # agent_respond is typed Callable[..., Awaitable[str] | str];
+            # after the coroutine-unwrap above `result` is always a str at
+            # runtime — narrow explicitly for mypy.
+            assert isinstance(result, str)
             return result
         except Exception as exc:
             logger.error("Agent error on %s: %s", msg.platform, exc)

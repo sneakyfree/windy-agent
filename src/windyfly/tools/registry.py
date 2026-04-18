@@ -73,10 +73,13 @@ class ToolRegistry:
 
         if isinstance(arguments, str):
             try:
-                arguments = json.loads(arguments)
+                parsed = json.loads(arguments)
             except json.JSONDecodeError as e:
                 logger.error("Tool '%s' received malformed JSON: %s", name, e)
                 return json.dumps({"error": f"Malformed arguments: {e}"})
+            if not isinstance(parsed, dict):
+                return json.dumps({"error": "arguments must be a JSON object"})
+            arguments = parsed
 
         try:
             result = self._tools[name](**arguments)

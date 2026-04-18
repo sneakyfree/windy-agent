@@ -1,20 +1,200 @@
-"""``windy test`` — self-test mode.
+"""``windy test`` / ``windy selftest`` — agent self-test + ecosystem health.
 
-Sends a simple message to the agent loop and verifies the full pipeline:
-1. Response is returned
-2. Response was saved to episodes table
-3. Cost was logged to cost_ledger
+Two modes, driven by ``--full``:
+
+* Default (no flag) — the local-only pipeline check: send a message to
+  the agent loop, verify the response round-trips through episodes + the
+  cost ledger.
+
+* ``--full`` — also dispatches HTTP health checks to every ecosystem
+  platform the agent depends on (Eternitas, Windy Pro, Matrix, Windy
+  Mail, Windy Cloud) with a configurable timeout. Exits non-zero if any
+  *critical* dependency is red; warnings-only for non-critical (e.g.
+  Chat homeserver unreachable when Matrix isn't configured).
+
+DEPLOY.md §5 references this; the Wave 9 smoke script calls it via
+``windy test --full`` / ``windy selftest --full``.
 """
 
 from __future__ import annotations
 
+import os
 import sys
 import time
 import uuid
+from dataclasses import dataclass
+from typing import Iterable
 
 from rich.console import Console
 
 console = Console()
+
+
+# ─── Ecosystem health ────────────────────────────────────────────────
+
+
+@dataclass
+class EcosystemCheck:
+    """One dispatched HTTP health check."""
+
+    name: str
+    url: str
+    critical: bool
+    # populated after the HTTP call:
+    ok: bool = False
+    latency_ms: int = 0
+    detail: str = ""
+
+
+def _build_ecosystem_checks() -> list[EcosystemCheck]:
+    """Compose the list of endpoints to probe based on env configuration.
+
+    We only enqueue a check if the relevant env var is set — running
+    `--full` on a machine that never configured Matrix shouldn't fail on
+    Matrix. Critical services (Eternitas, Windy Pro) fail the run;
+    optional channels (Matrix, Mail, Cloud) surface as warnings.
+    """
+    checks: list[EcosystemCheck] = []
+
+    # Eternitas — /registry/verify/{passport} when we have one, else /health.
+    eternitas_base = (
+        os.environ.get("ETERNITAS_API_URL")
+        or os.environ.get("ETERNITAS_URL", "")
+    ).rstrip("/")
+    if eternitas_base:
+        passport = os.environ.get("ETERNITAS_PASSPORT", "").strip()
+        if passport:
+            url = f"{eternitas_base}/api/v1/registry/verify/{passport}"
+        else:
+            url = f"{eternitas_base}/health"
+        checks.append(EcosystemCheck(name="Eternitas", url=url, critical=True))
+
+    # Windy Pro — /healthz.
+    pro_base = (
+        os.environ.get("WINDY_PRO_URL") or os.environ.get("WINDY_API_URL", "")
+    ).rstrip("/")
+    if pro_base:
+        checks.append(EcosystemCheck(
+            name="Windy Pro", url=f"{pro_base}/healthz", critical=True,
+        ))
+
+    # Matrix — client-server version endpoint is the canonical liveness probe.
+    matrix = os.environ.get("MATRIX_HOMESERVER", "").rstrip("/")
+    if matrix:
+        checks.append(EcosystemCheck(
+            name="Windy Chat", url=f"{matrix}/_matrix/client/versions", critical=False,
+        ))
+
+    # Windy Mail — /healthz.
+    mail = os.environ.get("WINDYMAIL_API_URL", "").rstrip("/")
+    if mail:
+        checks.append(EcosystemCheck(
+            name="Windy Mail", url=f"{mail}/healthz", critical=False,
+        ))
+
+    # Windy Cloud — /healthz.
+    cloud = os.environ.get("WINDY_CLOUD_URL", "").rstrip("/")
+    if cloud:
+        checks.append(EcosystemCheck(
+            name="Windy Cloud", url=f"{cloud}/healthz", critical=False,
+        ))
+
+    return checks
+
+
+def _dispatch_checks(checks: Iterable[EcosystemCheck], timeout: float) -> None:
+    """Run each check in sequence, populating ok/latency/detail in place."""
+    try:
+        import httpx
+    except ImportError:
+        for c in checks:
+            c.detail = "httpx not installed — install windyfly's base deps"
+        return
+
+    for c in checks:
+        start = time.monotonic()
+        try:
+            resp = httpx.get(c.url, timeout=timeout)
+            c.latency_ms = int((time.monotonic() - start) * 1000)
+            # /health endpoints (and the Matrix versions endpoint) all
+            # return 200 on a healthy service. Eternitas's
+            # /registry/verify/{passport} returns 200 on known, 404 on
+            # unknown — a 404 still proves the service is alive, so we
+            # treat <500 as "service reachable". Callers can look at the
+            # detail string to see the exact status.
+            c.ok = resp.status_code < 500
+            c.detail = f"HTTP {resp.status_code}"
+        except Exception as exc:
+            c.latency_ms = int((time.monotonic() - start) * 1000)
+            c.ok = False
+            c.detail = f"{type(exc).__name__}: {exc}"
+
+
+def _render_ecosystem_table(checks: list[EcosystemCheck]) -> bool:
+    """Render results and return True iff every CRITICAL check passed."""
+    from rich.table import Table
+
+    if not checks:
+        console.print("  [dim]No ecosystem endpoints configured — skipping.[/dim]")
+        console.print()
+        return True
+
+    table = Table(
+        title="Ecosystem health",
+        title_style="bold",
+        border_style="cyan",
+        show_lines=False,
+    )
+    table.add_column("Service", style="bold", min_width=12)
+    table.add_column("Endpoint", overflow="fold")
+    table.add_column("Status")
+    table.add_column("Latency", justify="right")
+
+    all_critical_ok = True
+    for c in checks:
+        if c.ok:
+            status = "[green]PASS[/green]"
+        elif c.critical:
+            status = "[red]FAIL[/red] [dim](critical)[/dim]"
+            all_critical_ok = False
+        else:
+            status = "[yellow]WARN[/yellow]"
+        table.add_row(c.name, c.url, f"{status}  [dim]{c.detail}[/dim]", f"{c.latency_ms}ms")
+
+    console.print()
+    console.print(table)
+    console.print()
+    return all_critical_ok
+
+
+def run_ecosystem_health(*, timeout: float = 5.0) -> bool:
+    """Dispatch configured ecosystem health checks. Returns True iff every
+    critical dependency was reachable."""
+    console.print("[bold cyan]🪰 Ecosystem health[/bold cyan]")
+    checks = _build_ecosystem_checks()
+    _dispatch_checks(checks, timeout=timeout)
+    return _render_ecosystem_table(checks)
+
+
+# ─── --full entry point ──────────────────────────────────────────────
+
+
+def run_full_self_test(*, timeout: float = 5.0) -> None:
+    """Base self-test + ecosystem health.
+
+    Exits non-zero if either the base self-test fails or any critical
+    ecosystem dependency is unreachable.
+    """
+    # run_self_test already sys.exit(1)'s on failure. If we reach the
+    # ecosystem check, the base self-test passed.
+    run_self_test()
+    critical_ok = run_ecosystem_health(timeout=timeout)
+    if not critical_ok:
+        console.print("  [bold red]✗ Critical ecosystem dependency unreachable[/bold red]")
+        console.print()
+        sys.exit(1)
+    console.print("  [bold green]✓ All ecosystem dependencies reachable[/bold green]")
+    console.print()
 
 
 def run_self_test() -> None:
