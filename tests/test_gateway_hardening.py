@@ -46,7 +46,8 @@ class TestGatewayRateLimiting:
         """Rate limit window constant should be defined."""
         src = GATEWAY_SERVER.read_text()
         assert "RATE_LIMIT_WINDOW_MS" in src
-        assert "RATE_LIMIT_MAX" in src
+        # P1-S5+S6+O5-auth: RATE_LIMIT_MAX became a per-bucket map.
+        assert "RATE_LIMITS" in src
 
 
 class TestGatewayInputValidation:
