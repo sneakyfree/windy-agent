@@ -21,8 +21,23 @@ import os
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any, Callable, Optional
 
 logger = logging.getLogger(__name__)
+
+# Progress event callback signature — synchronous, best-effort. Emits
+# a dict like {"event": "eternitas.registering", "data": {...}}.
+# Consumers (CLI, SSE gateway) are responsible for their own I/O.
+EventCallback = Optional[Callable[[str, dict[str, Any]], None]]
+
+
+def _emit(cb: EventCallback, event: str, data: dict[str, Any] | None = None) -> None:
+    if cb is None:
+        return
+    try:
+        cb(event, data or {})
+    except Exception as exc:  # never let a bad consumer break the hatch
+        logger.debug("Event callback raised on %s: %s", event, exc)
 
 
 @dataclass
@@ -86,11 +101,18 @@ async def orchestrate_hatch(
     owner_name: str = "",
     config: dict | None = None,
     db=None,
+    on_event: EventCallback = None,
 ) -> HatchResult:
     """Run the full hatch provisioning flow.
 
     All steps are wrapped in try/except — the hatch always completes.
     Steps 2/3/4 run concurrently where possible.
+
+    If ``on_event`` is provided, it is invoked with ``(event_name, data)``
+    around each provisioning step so callers (SSE gateway, rich CLI
+    renderers) can stream ceremony progress live. Exceptions raised by
+    the callback are swallowed — a misbehaving consumer must never
+    block a hatch.
     """
     result = HatchResult(
         agent_name=agent_name,
@@ -106,7 +128,12 @@ async def orchestrate_hatch(
         logger.debug("Hardware spec collection failed: %s", e)
 
     # Step 1: Eternitas registration (must complete before others)
+    _emit(on_event, "eternitas.registering", {"agent_name": agent_name})
     await _step_eternitas(result, agent_name, owner_id, owner_name, db, config)
+    _emit(on_event, "eternitas.registered", {
+        "passport_id": result.passport_id,
+        "passport_status": result.passport_status,
+    })
 
     # Step 1b: Link the passport with the unified Windy identity so
     # Pro and Cloud both hold the bridge. Skips gracefully in offline
@@ -122,27 +149,80 @@ async def orchestrate_hatch(
     # action. (P1-E4.)
     await _step_mint_bot_key(result)
 
-    # Steps 2/3/4: Concurrent provisioning
+    # Steps 2/3/4: Concurrent provisioning. We can't interleave per-step
+    # "starting" and "done" events cleanly inside asyncio.gather, so we
+    # emit a batched "provisioning" bracket and then per-product done
+    # events afterwards in a stable order. The Electron consumer can
+    # render spinners on each product from the *.provisioning events and
+    # switch to checkmarks when *.provisioned arrives.
+    _emit(on_event, "mail.provisioning", {"agent_name": agent_name})
+    _emit(on_event, "chat.provisioning", {})
+    _emit(on_event, "phone.assigning", {})
     await asyncio.gather(
         _step_matrix(result, config),
         _step_mail(result, agent_name, db, owner_id, config),
         _step_phone(result, agent_name, db, config),
         return_exceptions=True,
     )
+    _emit(on_event, "mail.provisioned", {
+        "email_address": result.email_address,
+        "ok": result.mail_provisioned,
+    })
+    _emit(on_event, "chat.provisioned", {
+        "matrix_user_id": result.matrix_user_id,
+        "homeserver": result.matrix_homeserver,
+        "ok": result.matrix_provisioned,
+    })
+    _emit(on_event, "phone.assigned", {
+        "phone_number": result.phone_number,
+        "is_mock": result.phone_is_mock,
+        "ok": result.phone_provisioned,
+    })
 
     # Step 4b: Allocate Windy Cloud storage quota so the agent is born
     # with a cloud home. Uses the wk_ key minted in step 1c when
     # available; falls back to the owner JWT otherwise.
+    _emit(on_event, "cloud.provisioning", {})
     await _step_cloud_quota(result, owner_id)
+    _emit(on_event, "cloud.provisioned", {
+        "plan_id": result.cloud_plan_id,
+        "quota_bytes": result.cloud_quota_bytes,
+        "ok": result.cloud_provisioned,
+    })
 
     # Step 5: Birth certificate (needs passport + first words placeholder)
+    _emit(on_event, "birth_certificate.generating", {})
     await _step_birth_certificate(result, config)
+    ready_payload: dict[str, Any] = {
+        "certificate_number": result.certificate_number,
+        "neural_fingerprint": result.neural_fingerprint,
+        "path": result.birth_certificate_path,
+    }
+    # Include rich payload (SVG + QR + structured fields) so remote UIs
+    # don't need a second round-trip after the SSE stream closes. Built
+    # only when we have a passport — no passport means the cert step
+    # bailed out early with an empty result.
+    if result.passport_id and on_event is not None:
+        try:
+            ready_payload["rich"] = _build_rich_certificate_payload(result)
+        except Exception as exc:
+            logger.debug("Rich certificate payload build failed: %s", exc)
+    _emit(on_event, "birth_certificate.ready", ready_payload)
 
     # Step 6: SMS-on-hatch
     await _step_hatch_sms(result)
 
     # Step 7: Email birth announcement
     await _step_hatch_email(result)
+
+    _emit(on_event, "hatch.complete", {
+        "agent_name": result.agent_name,
+        "passport_id": result.passport_id,
+        "certificate_number": result.certificate_number,
+        "email_address": result.email_address,
+        "phone_number": result.phone_number,
+        "errors": list(result.errors),
+    })
 
     # Save recovery file if any provisioning steps failed
     _save_recovery(result)
@@ -411,6 +491,37 @@ async def _step_phone(result: HatchResult, agent_name: str, db, config: dict | N
         logger.warning("Hatch: Phone provisioning failed: %s", exc)
 
 
+def _build_rich_certificate_payload(result: HatchResult) -> dict:
+    """Reconstruct a BirthCertificate-shaped object from HatchResult and
+    run it through ``build_rich_certificate_payload``.
+
+    Kept in this module (not in birth_certificate.py) so we don't leak
+    httpx / SVG builders into the hot path of the terminal ceremony.
+    """
+    from windyfly.birth_certificate import (
+        BirthCertificate,
+        build_rich_certificate_payload,
+    )
+
+    # We don't have the Rich cert dataclass in result — synthesise the
+    # minimum fields ``build_rich_certificate_payload`` reads.
+    cert = BirthCertificate(
+        agent_name=result.agent_name,
+        passport_id=result.passport_id,
+        owner_name=result.owner_name,
+        model_id=result.model_id,
+        email_address=result.email_address,
+        phone_number=result.phone_number,
+        cloud_plan_id=result.cloud_plan_id,
+        cloud_quota_bytes=result.cloud_quota_bytes,
+        certificate_number=result.certificate_number,
+        neural_fingerprint=result.neural_fingerprint,
+        hardware_specs=result.hardware_specs or {},
+        pdf_path=result.birth_certificate_path,
+    )
+    return build_rich_certificate_payload(cert)
+
+
 async def _step_birth_certificate(
     result: HatchResult, config: dict | None
 ) -> None:
@@ -556,10 +667,11 @@ def run_hatch(
     owner_name: str = "",
     config: dict | None = None,
     db=None,
+    on_event: EventCallback = None,
 ) -> HatchResult:
     """Synchronous wrapper for the hatch orchestrator."""
     return asyncio.run(
-        orchestrate_hatch(agent_name, owner_id, owner_name, config, db)
+        orchestrate_hatch(agent_name, owner_id, owner_name, config, db, on_event)
     )
 
 

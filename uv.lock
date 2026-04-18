@@ -2387,6 +2387,7 @@ name = "windyfly"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
+    { name = "cryptography" },
     { name = "fpdf2" },
     { name = "httpx" },
     { name = "matrix-nio" },
@@ -2453,6 +2454,7 @@ requires-dist = [
     { name = "botbuilder-core", marker = "extra == 'all-channels'", specifier = ">=4.15" },
     { name = "botbuilder-core", marker = "extra == 'teams'", specifier = ">=4.15" },
     { name = "botbuilder-integration-aiohttp", marker = "extra == 'teams'", specifier = ">=4.15" },
+    { name = "cryptography", specifier = ">=42.0" },
     { name = "discord-py", marker = "extra == 'all-channels'", specifier = ">=2.3" },
     { name = "discord-py", marker = "extra == 'discord'", specifier = ">=2.3" },
     { name = "flask", marker = "extra == 'all-channels'", specifier = ">=3.0" },

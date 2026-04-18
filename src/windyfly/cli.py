@@ -1020,6 +1020,10 @@ def main() -> None:
         "--no-browser", action="store_true",
         help="Don't open browser (for headless servers)",
     )
+    go_parser.add_argument(
+        "--byok", action="store_true",
+        help="Bring your own key — skip Windy Pro managed-credential detection",
+    )
 
     # windy start
     start_parser = sub.add_parser("start", help="Start brain + gateway")

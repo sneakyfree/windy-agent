@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+from typing import Any, Callable, Optional
 
 from rich.console import Console
 
@@ -21,6 +22,11 @@ from windyfly.platform import get_project_root
 logger = logging.getLogger(__name__)
 console = Console()
 PROJECT_ROOT = get_project_root()
+
+# JSON render-mode event callback. Same contract as
+# ``hatch_orchestrator.EventCallback`` so hatch_remote.py can pass a
+# single callback to both.
+CeremonyEventCallback = Optional[Callable[[str, dict[str, Any]], None]]
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -72,8 +78,12 @@ ITS_ALIVE_COMPACT = """
 """
 
 
-def play_hatching(animate: bool = True) -> None:
-    """Play the full hatching ceremony in the terminal.
+def play_hatching(
+    animate: bool = True,
+    render_mode: str = "terminal",
+    on_event: CeremonyEventCallback = None,
+) -> None:
+    """Play the full hatching ceremony.
 
     THIS ALWAYS PLAYS.  Every HiFly descendant — HiFly, Windy Fly, or
     any future fork — gets the full "IT'S ALIVE!" ceremony.  This is
@@ -82,7 +92,19 @@ def play_hatching(animate: bool = True) -> None:
     Args:
         animate: If True, adds dramatic pauses between stages.
                  Set False for non-interactive / CI environments.
+        render_mode: "terminal" (default) prints Rich ASCII art.
+                     "json" suppresses terminal output and instead
+                     fires structured ``ceremony.*`` events via
+                     ``on_event`` so a remote UI (Electron) can theme
+                     the ceremony without parsing ANSI codes.
+        on_event: Callback for ``render_mode="json"``. Signature is
+                  ``(event_name, data_dict)``. Safe to omit in
+                  terminal mode.
     """
+    if render_mode == "json":
+        _play_hatching_json(animate=animate, on_event=on_event)
+        return
+
     width = console.width or 80
 
     # Use compact version for narrow terminals
@@ -117,6 +139,48 @@ def play_hatching(animate: bool = True) -> None:
         console.print(MAD_SCIENTIST)
 
     # Audio hook — play sound if available
+    _try_play_audio()
+
+
+def _play_hatching_json(
+    animate: bool,
+    on_event: CeremonyEventCallback,
+) -> None:
+    """JSON render mode — emit ceremony stages as structured events.
+
+    Gives a remote UI (e.g. windy-pro Electron) enough metadata to
+    render its own themed animation without ever touching ANSI. Each
+    stage carries its ``stage`` index, name, and hold time (ms) so the
+    UI can pace its animation to the backend's pauses if it wants.
+    """
+    stages = [
+        ("lightning",     "Lightning",             400),
+        ("hatch",         "The Fly Emerges",       300),
+        ("mad_scientist", "IT'S ALIVE!!!",         300),
+        ("its_alive",     "The Fly Is Alive",      500),
+    ]
+    for idx, (stage_id, label, hold_ms) in enumerate(stages):
+        if on_event is not None:
+            try:
+                on_event("ceremony.stage", {
+                    "index": idx,
+                    "total": len(stages),
+                    "stage": stage_id,
+                    "label": label,
+                    "hold_ms": hold_ms if animate else 0,
+                })
+            except Exception as exc:
+                logger.debug("Ceremony event callback raised: %s", exc)
+        if animate:
+            time.sleep(hold_ms / 1000.0)
+
+    if on_event is not None:
+        try:
+            on_event("ceremony.complete", {"stages": [s[0] for s in stages]})
+        except Exception as exc:
+            logger.debug("Ceremony complete callback raised: %s", exc)
+
+    # Audio hook still runs — the JSON consumer can ignore or replay.
     _try_play_audio()
 
 

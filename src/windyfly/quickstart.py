@@ -291,6 +291,15 @@ def cmd_go(args: Any) -> None:
         _install_prereqs(missing)
         console.print()
 
+    # ── Step 1.5: Windy Pro managed credentials (Wave 8) ─────────
+    # If the user has a Pro account on this machine, skip the whole
+    # "paste a key" dance and use a broker-minted short-lived credential
+    # instead. --byok is the opt-out for power users who want to bring
+    # their own key.
+    byok = bool(getattr(args, "byok", False))
+    if not byok and _try_pro_broker(args):
+        return
+
     # ── Step 2: Check for existing config ────────────────────────
     env_file = PROJECT_ROOT / ".env"
     toml_file = PROJECT_ROOT / "windyfly.toml"
@@ -433,6 +442,44 @@ def cmd_go(args: Any) -> None:
 # ═══════════════════════════════════════════════════════════════════════
 # Internal helpers
 # ═══════════════════════════════════════════════════════════════════════
+
+
+def _try_pro_broker(args: Any) -> bool:
+    """Try to mint a managed LLM credential via Windy Pro's broker.
+
+    Returns True if we successfully got a brokered credential, wrote
+    the config, and launched — meaning the caller should ``return``
+    immediately. Returns False to fall through to BYOK.
+    """
+    try:
+        from windyfly.pro_broker import has_valid_pro_token, fetch_broker_credential
+    except Exception as exc:
+        logger.debug("Pro broker module unavailable: %s", exc)
+        return False
+
+    if not has_valid_pro_token():
+        return False
+
+    console.print("  [cyan]Windy Pro account detected — requesting managed credentials...[/cyan]")
+    cred = fetch_broker_credential()
+    if cred is None:
+        console.print("  [dim]Pro broker unavailable — falling back to 'paste a key' flow.[/dim]")
+        console.print("  [dim]Tip: run [bold]windy go --byok[/bold] to skip this check next time.[/dim]")
+        console.print()
+        return False
+
+    console.print(f"  [green]✓[/green] Managed credentials issued — {cred.provider} / {cred.model}")
+    if cred.expires_at:
+        console.print(f"  [dim]Expires: {cred.expires_at.isoformat()}[/dim]")
+    console.print()
+
+    write_quick_config(cred.env_var, cred.api_key, cred.model)
+    console.print("  [green]✓[/green] Configuration written (no API key required)")
+
+    _try_hatch_provisioning()
+    _install_deps()
+    _launch(args)
+    return True
 
 
 def _go_noninteractive(args: Any) -> None:
