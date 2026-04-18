@@ -195,7 +195,7 @@ class TestDangerousCommands:
 
     def test_factory_reset_blocked(self, loaded_registry):
         result = asyncio.run(
-            loaded_registry.execute("factory-reset")
+            loaded_registry.execute("factory-reset", {"platform": "terminal"})
         )
         assert "dangerous" in result.lower() or "confirm" in result.lower()
 
