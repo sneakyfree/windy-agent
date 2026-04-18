@@ -127,10 +127,15 @@ async def orchestrate_hatch(
     except Exception as e:
         logger.debug("Hardware spec collection failed: %s", e)
 
-    # Step 1: Eternitas registration (must complete before others)
+    # Step 1: Eternitas registration (must complete before others).
+    # The `ok` flag is critical — the event name implies success, but
+    # we still fire it on failure to keep the event stream
+    # shape-stable. Consumers MUST gate their UI on `ok`, not on the
+    # event name alone. See Wave 11 Bug #10/11.
     _emit(on_event, "eternitas.registering", {"agent_name": agent_name})
     await _step_eternitas(result, agent_name, owner_id, owner_name, db, config)
     _emit(on_event, "eternitas.registered", {
+        "ok": bool(result.passport_id),
         "passport_id": result.passport_id,
         "passport_status": result.passport_status,
     })
@@ -194,6 +199,7 @@ async def orchestrate_hatch(
     _emit(on_event, "birth_certificate.generating", {})
     await _step_birth_certificate(result, config)
     ready_payload: dict[str, Any] = {
+        "ok": bool(result.certificate_number and result.birth_certificate_path),
         "certificate_number": result.certificate_number,
         "neural_fingerprint": result.neural_fingerprint,
         "path": result.birth_certificate_path,
@@ -215,7 +221,13 @@ async def orchestrate_hatch(
     # Step 7: Email birth announcement
     await _step_hatch_email(result)
 
+    # Overall "did this hatch actually succeed" flag — true iff the
+    # two non-negotiable outputs landed (passport + certificate). Every
+    # downstream consumer should gate its "grandma ribbon" green-tick
+    # on this, not on the presence of the hatch.complete event alone.
+    hatch_ok = bool(result.passport_id and result.certificate_number)
     _emit(on_event, "hatch.complete", {
+        "ok": hatch_ok,
         "agent_name": result.agent_name,
         "passport_id": result.passport_id,
         "certificate_number": result.certificate_number,

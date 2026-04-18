@@ -51,6 +51,20 @@ export interface HatchRemoteOptions {
  * Validate the request body. Returns an error string if invalid, or
  * `null` if the body is shaped correctly.
  */
+// Per-field max lengths — defence against a malicious caller sending a
+// multi-MB owner_name that would bloat argv / the subprocess env.
+// Values are generous enough for any real payload and small enough that
+// a kilobyte-class abuse hits 413 before it reaches the subprocess.
+const MAX_LEN: Record<keyof HatchRemoteBody, number> = {
+  windy_identity_id: 128,
+  passport_number:   64,
+  broker_token:      512,   // signed token from Pro, could be JWT-sized
+  owner_email:       254,   // RFC 5321 local+domain max
+  owner_phone:       32,    // E.164 max is 15 digits + punctuation
+  owner_name:        200,
+  agent_name:        120,
+};
+
 export function validateHatchRemoteBody(
   body: unknown,
 ): { ok: true; value: HatchRemoteBody } | { ok: false; error: string } {
@@ -67,6 +81,12 @@ export function validateHatchRemoteBody(
     if (typeof b[key] !== "string") {
       return { ok: false, error: `missing or invalid field: ${key}` };
     }
+    if ((b[key] as string).length > MAX_LEN[key]) {
+      return { ok: false, error: `field '${key}' exceeds ${MAX_LEN[key]} chars` };
+    }
+  }
+  if (typeof b.agent_name === "string" && b.agent_name.length > MAX_LEN.agent_name) {
+    return { ok: false, error: `field 'agent_name' exceeds ${MAX_LEN.agent_name} chars` };
   }
   // broker_token must be non-trivial — prevents accidental empty-key
   // handoffs from a buggy Pro client before the broker endpoint ships.

@@ -540,8 +540,9 @@ def _go_noninteractive(args: Any) -> None:
     write_quick_config(env_var, key, model, preset)
     console.print("  [green]✓[/green] Configuration written")
 
-    # Run full ecosystem provisioning (Eternitas + Mail + Phone + Birth Cert)
-    _try_hatch_provisioning()
+    # Run full ecosystem provisioning (Eternitas + Mail + Phone + Birth Cert).
+    # The non-interactive path must never prompt — stdin may not be a TTY.
+    _try_hatch_provisioning(non_interactive=True)
 
     # Install deps
     _install_deps()
@@ -585,7 +586,7 @@ def _try_mail_provision() -> None:
         console.print("  [dim]○ Windy Mail — skipped[/dim]")
 
 
-def _try_hatch_provisioning() -> None:
+def _try_hatch_provisioning(non_interactive: bool = False) -> None:
     """Run the full hatch orchestrator — Eternitas, Mail, Phone, Birth Cert.
 
     The complete "Born Into" experience:
@@ -596,6 +597,11 @@ def _try_hatch_provisioning() -> None:
     5. Provision everything (Eternitas, Chat, Mail, Phone, Birth Cert)
     6. Display birth certificate in terminal
     7. Nudge creator to move to Windy Chat
+
+    When ``non_interactive=True`` (the ``--key`` path, CI/scripts, stdin
+    not a TTY), skip all prompts and source values from env vars with
+    sensible defaults. A stray ``Prompt.ask`` on a closed stdin would
+    otherwise crash with EOF mid-hatch — see Wave 11 Bug #1.
     """
     try:
         from windyfly.hatch_orchestrator import run_hatch
@@ -609,57 +615,65 @@ def _try_hatch_provisioning() -> None:
         os.environ["_WINDYFLY_HATCHING_PLAYED"] = "1"
 
         # ── Stage 2: The Naming Ceremony ──
-        console.print()
-        console.print(
-            Panel(
-                "[bold cyan]Hello! I just hatched![/bold cyan]\n\n"
-                "I'm alive, I can feel it... but I don't know who I am yet.\n\n"
-                "[bold]What's my name?[/bold]",
-                border_style="cyan",
-                padding=(1, 3),
+        # In non-interactive mode (--key / CI / piped stdin) we skip every
+        # Prompt.ask so the run doesn't crash with EOF on closed stdin.
+        if non_interactive:
+            agent_name = (
+                os.environ.get("WINDYFLY_AGENT_NAME", "").strip()
+                or "Windy Fly"
             )
-        )
-        console.print()
-
-        agent_name = Prompt.ask(
-            "  [bold cyan]Name your agent[/bold cyan]",
-            default="Windy Fly",
-        ).strip()
-
-        if not agent_name:
-            agent_name = "Windy Fly"
-
-        # Confirmation — the emotional moment
-        console.print()
-        console.print(
-            f'  [bold cyan]"{agent_name}"?[/bold cyan] '
-            "You sure? They're gonna put that on my [bold]birth certificate![/bold]"
-        )
-        confirmed = Confirm.ask("  Lock it in?", default=True)
-
-        if not confirmed:
-            agent_name = Prompt.ask(
-                "  [bold cyan]Okay, what should it be?[/bold cyan]",
-                default="Windy Fly",
-            ).strip() or "Windy Fly"
-            console.print(
-                f'  [bold green]"{agent_name}"[/bold green] — '
-                "I love it. That's me."
-            )
+            os.environ["WINDYFLY_AGENT_NAME"] = agent_name
         else:
+            console.print()
             console.print(
-                f"  [bold green]{agent_name}.[/bold green] "
-                "That's who I am. Let's go."
+                Panel(
+                    "[bold cyan]Hello! I just hatched![/bold cyan]\n\n"
+                    "I'm alive, I can feel it... but I don't know who I am yet.\n\n"
+                    "[bold]What's my name?[/bold]",
+                    border_style="cyan",
+                    padding=(1, 3),
+                )
             )
+            console.print()
 
-        os.environ["WINDYFLY_AGENT_NAME"] = agent_name
+            agent_name = Prompt.ask(
+                "  [bold cyan]Name your agent[/bold cyan]",
+                default="Windy Fly",
+            ).strip()
+
+            if not agent_name:
+                agent_name = "Windy Fly"
+
+            # Confirmation — the emotional moment
+            console.print()
+            console.print(
+                f'  [bold cyan]"{agent_name}"?[/bold cyan] '
+                "You sure? They're gonna put that on my [bold]birth certificate![/bold]"
+            )
+            confirmed = Confirm.ask("  Lock it in?", default=True)
+
+            if not confirmed:
+                agent_name = Prompt.ask(
+                    "  [bold cyan]Okay, what should it be?[/bold cyan]",
+                    default="Windy Fly",
+                ).strip() or "Windy Fly"
+                console.print(
+                    f'  [bold green]"{agent_name}"[/bold green] — '
+                    "I love it. That's me."
+                )
+            else:
+                console.print(
+                    f"  [bold green]{agent_name}.[/bold green] "
+                    "That's who I am. Let's go."
+                )
+
+            os.environ["WINDYFLY_AGENT_NAME"] = agent_name
 
         # ── Stage 3: Creator info ──
         console.print()
 
-        # Ask for creator's name
         owner_name = os.environ.get("WINDY_OWNER_NAME", "")
-        if not owner_name:
+        if not owner_name and not non_interactive:
             owner_name = Prompt.ask(
                 "  [bold cyan]And who are you? (your name, for the birth certificate)[/bold cyan]",
                 default="skip",
@@ -671,9 +685,8 @@ def _try_hatch_provisioning() -> None:
 
         owner_id = os.environ.get("WINDY_OWNER_ID", "")
 
-        # Ask for creator's phone (for birth announcement SMS)
         owner_phone = os.environ.get("OWNER_PHONE", "")
-        if not owner_phone:
+        if not owner_phone and not non_interactive:
             owner_phone = Prompt.ask(
                 "  [bold cyan]Your phone number (I'll text you my birth certificate)[/bold cyan]",
                 default="skip",
@@ -683,9 +696,8 @@ def _try_hatch_provisioning() -> None:
             else:
                 owner_phone = ""
 
-        # Ask for creator's email (for birth announcement email)
         owner_email = os.environ.get("OWNER_EMAIL", "")
-        if not owner_email:
+        if not owner_email and not non_interactive:
             owner_email = Prompt.ask(
                 "  [bold cyan]Your email (I'll email you my birth certificate)[/bold cyan]",
                 default="skip",
@@ -1182,31 +1194,46 @@ def _install_prereqs(missing: list[str]) -> None:
 
 
 def _install_deps() -> None:
-    """Ensure Python and gateway dependencies are installed."""
+    """Ensure Python and gateway dependencies are installed.
+
+    Pip-installed layouts (no pyproject.toml / no gateway dir) silently
+    skip — only a source checkout has anything to sync. We also tolerate
+    missing `uv` / `bun` binaries instead of crashing the whole hatch.
+    """
     console.print()
     console.print("  [cyan]Installing dependencies...[/cyan]")
 
-    # Python deps
-    result = subprocess.run(
-        ["uv", "sync"],
-        cwd=str(PROJECT_ROOT), capture_output=True, text=True,
-    )
-    if result.returncode == 0:
-        console.print("  [green]✓[/green] Python deps")
+    pyproject = PROJECT_ROOT / "pyproject.toml"
+    if pyproject.exists():
+        try:
+            result = subprocess.run(
+                ["uv", "sync"],
+                cwd=str(PROJECT_ROOT), capture_output=True, text=True,
+            )
+            if result.returncode == 0:
+                console.print("  [green]✓[/green] Python deps")
+            else:
+                console.print("  [yellow]⚠ uv sync had issues[/yellow]")
+        except FileNotFoundError:
+            console.print("  [dim]○ Python deps skipped (uv not installed)[/dim]")
     else:
-        console.print("  [yellow]⚠ uv sync had issues[/yellow]")
+        console.print("  [dim]○ Python deps skipped (pip install — no source tree)[/dim]")
 
-    # Gateway deps
     gateway_dir = PROJECT_ROOT / "gateway"
-    if gateway_dir.exists():
-        result = subprocess.run(
-            ["bun", "install"],
-            cwd=str(gateway_dir), capture_output=True, text=True,
-        )
-        if result.returncode == 0:
-            console.print("  [green]✓[/green] Gateway deps")
-        else:
-            console.print("  [yellow]⚠ bun install had issues[/yellow]")
+    if gateway_dir.exists() and (gateway_dir / "package.json").exists():
+        try:
+            result = subprocess.run(
+                ["bun", "install"],
+                cwd=str(gateway_dir), capture_output=True, text=True,
+            )
+            if result.returncode == 0:
+                console.print("  [green]✓[/green] Gateway deps")
+            else:
+                console.print("  [yellow]⚠ bun install had issues[/yellow]")
+        except FileNotFoundError:
+            console.print("  [dim]○ Gateway deps skipped (bun not installed)[/dim]")
+    else:
+        console.print("  [dim]○ Gateway deps skipped (pip install — no gateway)[/dim]")
 
 
 def _launch(args: Any) -> None:

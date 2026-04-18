@@ -62,6 +62,35 @@ describe("validateHatchRemoteBody", () => {
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.value.agent_name).toBeUndefined();
   });
+
+  // Wave 11 — length caps for every field. A kilobyte-class abuse
+  // must be rejected at the gateway, not at the subprocess.
+  test("rejects oversize owner_name", () => {
+    const r = validateHatchRemoteBody({ ...goodBody, owner_name: "x".repeat(10_000) });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain("owner_name");
+  });
+
+  test("rejects oversize owner_email (>254)", () => {
+    const r = validateHatchRemoteBody({ ...goodBody, owner_email: "x".repeat(1_000) + "@a.b" });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain("owner_email");
+  });
+
+  test("rejects oversize owner_phone (>32)", () => {
+    const r = validateHatchRemoteBody({ ...goodBody, owner_phone: "+1".padEnd(100, "2") });
+    expect(r.ok).toBe(false);
+  });
+
+  test("rejects oversize broker_token (>512)", () => {
+    const r = validateHatchRemoteBody({ ...goodBody, broker_token: "wk_".padEnd(1_000, "A") });
+    expect(r.ok).toBe(false);
+  });
+
+  test("rejects oversize agent_name even though it's optional", () => {
+    const r = validateHatchRemoteBody({ ...goodBody, agent_name: "N".repeat(500) });
+    expect(r.ok).toBe(false);
+  });
 });
 
 describe("formatSseFrame", () => {
