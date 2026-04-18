@@ -52,6 +52,7 @@ import hmac
 import json
 import logging
 import os
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -260,6 +261,11 @@ def fetch_broker_credential(
     # re-serialize via httpx's json= parameter (which could emit
     # whitespace differently between Python versions).
     body = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    # Record timestamp *before* the HMAC so signing + timestamp are
+    # derived from the same instant. Pro enforces a 300s replay window
+    # against this header; the signature itself is over the body only
+    # (unchanged from the original contract).
+    timestamp = int(time.time())
     signature = sign_broker_request(body, secret)
 
     if http_client is None:
@@ -280,6 +286,10 @@ def fetch_broker_credential(
             headers={
                 "Content-Type": "application/json",
                 "X-Windy-Signature": signature,
+                # Replay-protection header — Pro rejects requests with
+                # |now - ts| > 300s. Sent as unix seconds in a string,
+                # matching the ecosystem's outbound-webhook convention.
+                "X-Windy-Timestamp": str(timestamp),
             },
         )
     except Exception as exc:

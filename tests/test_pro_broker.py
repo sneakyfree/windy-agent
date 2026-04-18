@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -187,6 +188,16 @@ def test_fetch_broker_credential_happy(tmp_path: Path) -> None:
     assert client.last_headers["Content-Type"] == "application/json"
     assert client.last_headers["X-Windy-Signature"].startswith("sha256=")
 
+    # Replay-protection timestamp must be a valid unix second string
+    # within a small window of "now" — catches accidental ms conversion
+    # or a frozen clock in the client.
+    assert "X-Windy-Timestamp" in client.last_headers
+    ts_header = client.last_headers["X-Windy-Timestamp"]
+    assert isinstance(ts_header, str)
+    ts = int(ts_header)
+    now = int(time.time())
+    assert abs(now - ts) < 5, f"timestamp {ts} not within 5s of now {now}"
+
     # Body: the contract-pinned payload, and its signature must verify.
     assert client.last_content is not None
     body_bytes = client.last_content
@@ -199,6 +210,33 @@ def test_fetch_broker_credential_happy(tmp_path: Path) -> None:
     }
     expected_sig = sign_broker_request(body_bytes, SIGNING_SECRET)
     assert client.last_headers["X-Windy-Signature"] == expected_sig
+
+
+def test_fetch_broker_credential_sends_timestamp_header(tmp_path: Path, monkeypatch) -> None:
+    """Pin the X-Windy-Timestamp header contract.
+
+    Pro enforces a 300s replay window; if this header disappears the
+    broker will reject every request. Freezing time.time() lets us
+    assert on the exact value emitted."""
+    cfg = _valid_pro_cfg(tmp_path)
+    client = _FakeClient(_FakeResponse(200, {
+        "broker_token": "wk_broker_ts",
+        "provider":     "openai",
+        "model":        "gpt-4o-mini",
+    }))
+
+    frozen = 1_900_000_000  # arbitrary, well past 2024
+    monkeypatch.setattr(time, "time", lambda: frozen)
+
+    fetch_broker_credential(
+        config_path=cfg, http_client=client, signing_secret=SIGNING_SECRET,
+    )
+
+    assert client.last_headers is not None
+    assert client.last_headers["X-Windy-Timestamp"] == str(frozen)
+    # Sanity: the timestamp does NOT leak into the signed body — the
+    # HMAC contract from fix #2 is still "signature over body bytes".
+    assert b"timestamp" not in (client.last_content or b"")
 
 
 def test_fetch_broker_credential_respects_override_identity(tmp_path: Path) -> None:
