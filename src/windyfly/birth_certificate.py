@@ -524,3 +524,196 @@ def save_birth_certificate(cert: BirthCertificate, directory: str = "data") -> s
 
     cert.pdf_path = str(filepath)
     return str(filepath)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Rich JSON payload — for --render-mode=json / remote Electron UI
+# ═══════════════════════════════════════════════════════════════════════
+
+
+def render_neural_art_svg(fingerprint: str, size: int = 7) -> str:
+    """Render the neural-art mandala as an inline SVG.
+
+    Used when the caller (windy-pro Electron) wants to theme the
+    fingerprint with real vectors instead of terminal glyphs. The SVG
+    is deterministic from ``fingerprint`` so two calls produce the same
+    bytes — safe for caching / diffing.
+    """
+    # Colour palette keyed off the first hex byte so different agents
+    # get different hues while staying within the Windy brand range.
+    hue = int(fingerprint[:2], 16) * 360 // 256
+    fill = f"hsl({hue}, 70%, 55%)"
+    stroke = f"hsl({hue}, 80%, 30%)"
+
+    cell = 40
+    pad = 10
+    w = h = size * cell + 2 * pad
+
+    shapes: list[str] = []
+    chars_needed = size * ((size + 1) // 2)
+    hex_chars = fingerprint[:chars_needed]
+    idx = 0
+    for r in range(size):
+        for c in range((size + 1) // 2):
+            if idx >= len(hex_chars):
+                break
+            v = int(hex_chars[idx], 16)
+            idx += 1
+            cx = pad + c * cell + cell // 2
+            cy = pad + r * cell + cell // 2
+            radius = 4 + (v % 12)
+            shape_kind = v % 4
+            for x_center in (cx, w - cx):
+                if shape_kind == 0:
+                    shapes.append(
+                        f'<circle cx="{x_center}" cy="{cy}" r="{radius}" fill="{fill}" stroke="{stroke}" stroke-width="1"/>'
+                    )
+                elif shape_kind == 1:
+                    shapes.append(
+                        f'<rect x="{x_center - radius}" y="{cy - radius}" width="{radius * 2}" height="{radius * 2}" fill="{fill}" stroke="{stroke}" stroke-width="1"/>'
+                    )
+                elif shape_kind == 2:
+                    shapes.append(
+                        f'<polygon points="{x_center},{cy - radius} {x_center + radius},{cy + radius} {x_center - radius},{cy + radius}" fill="{fill}" stroke="{stroke}" stroke-width="1"/>'
+                    )
+                else:
+                    # Diamond
+                    shapes.append(
+                        f'<polygon points="{x_center},{cy - radius} {x_center + radius},{cy} {x_center},{cy + radius} {x_center - radius},{cy}" fill="{fill}" stroke="{stroke}" stroke-width="1"/>'
+                    )
+
+    return (
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {w} {h}" '
+        f'width="{w}" height="{h}" role="img" aria-label="neural fingerprint">'
+        f'<rect width="{w}" height="{h}" fill="#0a0e17"/>'
+        + "".join(shapes)
+        + "</svg>"
+    )
+
+
+def fetch_eternitas_assets(
+    passport_id: str,
+    *,
+    base_url: str | None = None,
+    http_client=None,
+    timeout_seconds: float = 3.0,
+) -> dict[str, str]:
+    """Fetch the passport QR code from Eternitas.
+
+    Returns a dict with ``qr_png_b64`` (base64-encoded PNG bytes) when
+    the endpoint is reachable and returns 2xx, else an empty dict. The
+    ceremony must still succeed even if Eternitas is offline, so every
+    failure path is swallowed.
+
+    Eternitas ships ``GET /api/v1/certificates/{passport}/qr`` — PNG
+    by default, with ``?format=svg`` as an optional vector variant.
+    We grab the PNG (simpler to embed in <img src="data:...">).
+
+    Note: the neural-fingerprint SVG is **not** an Eternitas concern —
+    the mandala is generated locally from the fingerprint hash in
+    ``render_neural_art_svg``, so no remote fetch is attempted for it.
+    """
+    out: dict[str, str] = {}
+    if not passport_id:
+        return out
+
+    base = base_url or os.environ.get("ETERNITAS_API_URL", "")
+    if not base:
+        return out
+
+    if http_client is None:
+        try:
+            import httpx
+            http_client = httpx.Client(timeout=timeout_seconds)
+            own_client = True
+        except ImportError:
+            return out
+    else:
+        own_client = False
+
+    try:
+        qr_url = f"{base.rstrip('/')}/api/v1/certificates/{passport_id}/qr"
+        try:
+            resp = http_client.get(qr_url)
+            if getattr(resp, "status_code", 0) == 200:
+                import base64
+                data = getattr(resp, "content", b"")
+                if data:
+                    out["qr_png_b64"] = base64.b64encode(data).decode("ascii")
+        except Exception as exc:
+            logger.debug("Eternitas QR fetch failed: %s", exc)
+    finally:
+        if own_client:
+            try:
+                http_client.close()
+            except Exception:
+                pass
+
+    return out
+
+
+def build_rich_certificate_payload(
+    cert: BirthCertificate,
+    *,
+    eternitas_base_url: str | None = None,
+    http_client=None,
+    include_remote_assets: bool = True,
+) -> dict:
+    """Build a JSON-serialisable birth-certificate payload for remote UIs.
+
+    Packs every field the Electron renderer needs — structured fields
+    plus a neural-art SVG and (when available) an inline base64 QR code
+    — into a single dict that can be dropped straight into an SSE
+    ``data:`` frame.
+
+    If Eternitas is unreachable or ``include_remote_assets=False``, we
+    fall back to the locally-generated SVG so the UI always has
+    *something* to render.
+    """
+    hardware = cert.hardware_specs or {}
+
+    payload: dict = {
+        "certificate_number":  cert.certificate_number,
+        "agent_name":          cert.agent_name,
+        "passport_id":         cert.passport_id,
+        "owner_name":          cert.owner_name,
+        "email_address":       cert.email_address,
+        "phone_number":        cert.phone_number,
+        "cloud": {
+            "plan_id":     cert.cloud_plan_id,
+            "quota_bytes": cert.cloud_quota_bytes,
+            "display":     _format_cloud_storage(cert),
+        },
+        "model_id":            cert.model_id,
+        "machine_id":          cert.machine_id,
+        "hardware": {
+            "cpu": hardware.get("cpu", ""),
+            "ram": hardware.get("ram", ""),
+            "gpu": hardware.get("gpu", ""),
+            "os":  hardware.get("os", ""),
+        },
+        "hatch_time_iso":      cert.hatch_time.isoformat(),
+        "hatch_timezone":      cert.hatch_timezone,
+        "first_words":         cert.first_words,
+        "neural_fingerprint":  cert.neural_fingerprint,
+        "waveform_signature":  cert.waveform_signature,
+        "pdf_path":            cert.pdf_path,
+    }
+
+    assets: dict[str, str] = {}
+    if include_remote_assets and cert.passport_id:
+        assets = fetch_eternitas_assets(
+            cert.passport_id,
+            base_url=eternitas_base_url,
+            http_client=http_client,
+        )
+
+    # The neural-fingerprint mandala is rendered locally from the
+    # fingerprint hash — Eternitas does not ship an SVG endpoint for
+    # it. The QR code, on the other hand, is Eternitas's job and is
+    # inlined as base64 PNG when available.
+    payload["neural_art_svg"] = render_neural_art_svg(cert.neural_fingerprint)
+    if "qr_png_b64" in assets:
+        payload["passport_qr_png_b64"] = assets["qr_png_b64"]
+
+    return payload

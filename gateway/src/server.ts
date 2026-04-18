@@ -39,6 +39,7 @@ import { bridge } from "./bridge";
 import { handleClose, handleMessage, handleWebSocket } from "./websocket";
 import * as providers from "./providers";
 import * as machines from "./machines";
+import { handleHatchRemote } from "./hatch-remote";
 
 const PORT = 3000;
 const PUBLIC_DIR = resolve(import.meta.dir, "../public");
@@ -282,10 +283,15 @@ ${banner}<input type="password" name="password" placeholder="Dashboard password"
 function checkDashboardAuth(req: Request, server: import("bun").Server<any>): Response | null {
   // Health + webhooks + login are exempt from dashboard auth.
   // Webhook receiver is its own auth (HMAC + JWS in Python).
+  // /hatch/remote is exempt because the broker_token in the request
+  // body is itself a short-lived authorization factor minted by
+  // windy-pro — dashboard auth would be redundant and break the
+  // Electron app's "Grandma Ribbon" ceremony for remote agents.
   const url = new URL(req.url);
   if (url.pathname === "/api/health") return null;
   if (url.pathname === "/api/auth/login") return null;
   if (url.pathname === "/api/webhooks/trust") return null;
+  if (url.pathname === "/hatch/remote") return null;
 
   // Use the peer socket's IP (P0-S1), not the forgeable Host header.
   if (isLocalhostRequest(req, server)) return null;
@@ -1463,6 +1469,16 @@ base_url = "http://localhost:8098"
         const error = e instanceof Error ? e.message : String(e);
         return Response.json({ ok: false, error }, { status: 500, headers });
       }
+    }
+
+    // ── Remote hatch ceremony (Wave 8) ─────────────────────────
+    // Streams the hatch_orchestrator's progress as SSE so windy-pro's
+    // Electron app can render the "Grandma Ribbon" ceremony live.
+    // The broker_token is a short-lived managed credential from Pro;
+    // we pass it through to the Python subprocess which stores it in
+    // the provider env var without ever asking the user for a key.
+    if (path === "/hatch/remote") {
+      return handleHatchRemote(req);
     }
 
     if (path === "/api/setup/launch" && req.method === "POST") {
