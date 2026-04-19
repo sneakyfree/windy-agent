@@ -29,6 +29,7 @@
 
 import { spawn } from "bun";
 import { resolve } from "path";
+import { verifyBrokerToken, type BrokerVerifyOptions, type BrokerVerifyOutcome } from "./broker-verify";
 
 export interface HatchRemoteBody {
   windy_identity_id: string;
@@ -45,6 +46,10 @@ export interface HatchRemoteOptions {
   projectRoot?: string;
   /** Override for the spawn function — tests inject a fake stream here. */
   spawnImpl?: typeof spawn;
+  /** Override for the broker-verify call — tests inject a stub. */
+  verifyImpl?: typeof verifyBrokerToken;
+  /** Broker-verify options passthrough (HMAC secret, Pro URL). */
+  verifyOpts?: BrokerVerifyOptions;
 }
 
 /**
@@ -246,9 +251,21 @@ export function startHatchRemoteSse(
 }
 
 /**
- * Top-level request handler — parses JSON, validates, delegates.
+ * Top-level request handler — parses JSON, validates, **verifies the
+ * broker_token against Pro**, and only then spawns the subprocess.
  *
- * Called from gateway/src/server.ts when a POST hits /hatch/remote.
+ * The verify step is the Wave 12 P0 gate for Wave-11 finding #12:
+ * previously any 8-char broker_token was accepted. Now the gateway
+ * calls POST <pro>/api/v1/agent/credentials/verify (HMAC-signed S2S)
+ * before a single byte of Python runs.
+ *
+ * Failure modes, all → 401 to the client:
+ *   - Token doesn't start with `bk_` (shape reject, zero network)
+ *   - Pro says the token is not_found / revoked / expired / exhausted
+ *   - Token's identity_id / passport_number don't match the request
+ *     (prevents replay across identities)
+ *   - Pro unreachable / missing secret / missing /verify route
+ *     (fail-closed — we never spawn on ambiguous state)
  */
 export async function handleHatchRemote(
   req: Request,
@@ -276,5 +293,27 @@ export async function handleHatchRemote(
       headers: { "Content-Type": "application/json" },
     });
   }
+
+  // Broker-token cryptographic verification BEFORE any subprocess
+  // spawn. Fail-closed: every non-ok outcome is a 401. The `reason`
+  // field is returned so a Pro-originated 5xx is diagnosable, but
+  // status is always 401 so attackers can't distinguish "pro is down"
+  // from "token is junk" via our response.
+  const verify = opts.verifyImpl ?? verifyBrokerToken;
+  const outcome: BrokerVerifyOutcome = await verify(
+    {
+      broker_token: v.value.broker_token,
+      windy_identity_id: v.value.windy_identity_id,
+      passport_number: v.value.passport_number,
+    },
+    opts.verifyOpts ?? {},
+  );
+  if (!outcome.ok) {
+    return new Response(
+      JSON.stringify({ error: "unauthorized", reason: outcome.reason }),
+      { status: 401, headers: { "Content-Type": "application/json" } },
+    );
+  }
+
   return startHatchRemoteSse(v.value, opts);
 }
