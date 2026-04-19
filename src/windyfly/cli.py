@@ -45,8 +45,10 @@ Commands::
 from __future__ import annotations
 
 import argparse
+import atexit
 import logging
 import os
+import signal
 import subprocess
 import time
 from pathlib import Path
@@ -68,6 +70,99 @@ from windyfly.platform import (
 logger = logging.getLogger(__name__)
 console = Console()
 PROJECT_ROOT = get_project_root()
+
+
+# ─── Wave 12 P1 — SIGTERM cleanup for spawned daemons ────────────────
+#
+# `windy go` (via _launch → cmd_start with daemon=True) backgrounds
+# brain + gateway children in a *new session* so they survive a
+# terminal close. That's the intended behaviour for normal exits.
+#
+# But an **explicit** SIGTERM / SIGINT to the `windy go` parent should
+# also take down the children — otherwise `windy go & ; kill $!` leaks
+# a bun gateway bound to :3000 (hardening report finding #11).
+#
+# Strategy:
+#   1. When cmd_start spawns children, record their PIDs in module-level
+#      state + the PID file.
+#   2. Install SIGTERM + SIGINT handlers on the parent. On trip, forward
+#      termination to every recorded child, wipe the PID file, then
+#      re-raise the signal so the parent exits with the standard code.
+#   3. atexit is a *safety net* — it runs iff the signal handler set a
+#      "please-cleanup" sentinel but didn't finish the kill. On a
+#      normal `cmd_start` return we leave children alone, preserving
+#      the daemon-survives-terminal-close promise.
+
+_tracked_child_pids: list[int] = []
+_cleanup_already_ran = False
+_cleanup_requested_via_signal = False
+
+
+def _cleanup_tracked_children() -> None:
+    """Kill every child this parent spawned. Safe to call repeatedly."""
+    global _cleanup_already_ran
+    if _cleanup_already_ran:
+        return
+    _cleanup_already_ran = True
+    for pid in list(_tracked_child_pids):
+        try:
+            if process_alive(pid):
+                process_terminate(pid)
+        except (OSError, ValueError):
+            # Best-effort — a race where the child exited between
+            # process_alive and process_terminate is fine.
+            pass
+    try:
+        remove_pid_file(PROJECT_ROOT)
+    except OSError:
+        pass
+
+
+def _signal_cleanup_handler(signum: int, _frame) -> None:
+    """Trip the cleanup + re-raise the signal under its default disposition."""
+    global _cleanup_requested_via_signal
+    _cleanup_requested_via_signal = True
+    _cleanup_tracked_children()
+    # Restore default handler and re-raise so the process exits with the
+    # conventional status (128 + signum) rather than SystemExit(0).
+    try:
+        signal.signal(signum, signal.SIG_DFL)
+        os.kill(os.getpid(), signum)
+    except Exception:
+        # If signal re-raise fails (e.g. on Windows where SIGTERM's
+        # default is terminate-without-handler), fall back to exit.
+        os._exit(128 + signum)
+
+
+_signal_cleanup_installed = False
+
+
+def _atexit_safety_net() -> None:
+    """Finish cleanup if a signal tripped it but we didn't complete."""
+    if _cleanup_requested_via_signal and not _cleanup_already_ran:
+        _cleanup_tracked_children()
+
+
+def _install_signal_cleanup() -> None:
+    """Register SIGTERM + SIGINT handlers + an atexit safety net.
+
+    Idempotent — repeated calls (e.g. a re-invoked cmd_start after a
+    crashed previous attempt) only install the handlers once.
+    """
+    global _signal_cleanup_installed
+    if _signal_cleanup_installed:
+        return
+    # Python reserves signal handler installation for the main thread;
+    # cmd_start always runs on the main thread so this is safe.
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            signal.signal(sig, _signal_cleanup_handler)
+        except (ValueError, OSError):
+            # ValueError: not main thread. OSError: signal unavailable.
+            # Either is non-fatal; cleanup just won't fire on that signal.
+            pass
+    atexit.register(_atexit_safety_net)
+    _signal_cleanup_installed = True
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -179,6 +274,7 @@ def cmd_start(args: argparse.Namespace) -> None:
         stdin=subprocess.DEVNULL if daemon else None,
         **popen_extra,
     )
+    _tracked_child_pids.append(brain_proc.pid)
     console.print(f"  [green]✓[/green] Brain started [dim](PID {brain_proc.pid})[/dim]")
 
     # Start gateway (optional — only available in source checkout with Bun)
@@ -197,6 +293,7 @@ def cmd_start(args: argparse.Namespace) -> None:
                 **popen_extra,
             )
             gateway_pid = gateway_proc.pid
+            _tracked_child_pids.append(gateway_pid)
             console.print(f"  [green]✓[/green] Gateway started [dim](PID {gateway_pid})[/dim]")
         else:
             console.print("  [dim]○ Gateway skipped (Bun not installed)[/dim]")
@@ -205,6 +302,12 @@ def cmd_start(args: argparse.Namespace) -> None:
 
     # Write PID file (new key=value format)
     write_pid_file(PROJECT_ROOT, brain_proc.pid, gateway_pid)
+
+    # Install SIGTERM/SIGINT cleanup now that the children are tracked.
+    # An explicit kill of this parent (even via `windy go &; kill $!`)
+    # will now take the daemons with it. Normal function return leaves
+    # them running, preserving the daemon-survives-terminal-close path.
+    _install_signal_cleanup()
 
     # Wait for gateway to be ready
     time.sleep(2)

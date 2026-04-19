@@ -137,6 +137,88 @@ describe("handleHatchRemote", () => {
     const resp = await handleHatchRemote(req);
     expect(resp.status).toBe(400);
   });
+
+  // Wave 12 — broker_token verification gate. Previously the gateway
+  // spawned Python for any 8-char token; now it MUST call the verify
+  // stub and 401 on reject before a single byte of Python runs.
+
+  test("401 when broker verify returns ok=false (no subprocess spawn)", async () => {
+    let spawned = false;
+    const spawnImpl = ((_opts: unknown) => {
+      spawned = true;
+      return { stdout: new ReadableStream(), stderr: new ReadableStream(), exited: Promise.resolve(0) };
+    }) as unknown as typeof import("bun").spawn;
+    const verifyImpl = (async () => ({
+      ok: false as const, status: 401, reason: "token_not_found",
+    }));
+
+    const req = new Request("http://localhost/hatch/remote", {
+      method: "POST",
+      body: JSON.stringify(goodBody),
+      headers: { "Content-Type": "application/json" },
+    });
+    const resp = await handleHatchRemote(req, { spawnImpl, verifyImpl });
+    expect(resp.status).toBe(401);
+    expect(spawned).toBe(false);
+    const body = await resp.json() as { error: string; reason: string };
+    expect(body.error).toBe("unauthorized");
+    expect(body.reason).toBe("token_not_found");
+  });
+
+  test("401 when broker_token doesn't start with bk_ (fast reject)", async () => {
+    let verifyCalled = false;
+    const verifyImpl = (async () => {
+      verifyCalled = true;
+      return { ok: false as const, status: 401, reason: "bad_format" };
+    });
+    const req = new Request("http://localhost/hatch/remote", {
+      method: "POST",
+      body: JSON.stringify({ ...goodBody, broker_token: "wk_broker_shorttoken" }),
+      headers: { "Content-Type": "application/json" },
+    });
+    const resp = await handleHatchRemote(req, { verifyImpl });
+    expect(resp.status).toBe(401);
+    // verifyImpl IS called — the fast reject happens inside verify, not here.
+    expect(verifyCalled).toBe(true);
+  });
+
+  test("proceeds to SSE only when broker verify passes", async () => {
+    const verifyImpl = (async () => ({
+      ok: true as const,
+      token: {
+        identity_id: goodBody.windy_identity_id,
+        passport_number: goodBody.passport_number,
+        provider: "anthropic",
+        model: "claude-3-5-sonnet-latest",
+        scope: "llm:chat",
+        expires_at: "2026-04-19T00:00:00Z",
+        usage_cap_tokens: 1_000_000,
+        usage_tokens: 0,
+      },
+    }));
+    const spawnImpl = ((_opts: unknown) => ({
+      stdout: new ReadableStream<Uint8Array>({
+        start(c) {
+          c.enqueue(new TextEncoder().encode(JSON.stringify({ event: "hatch.complete", data: { ok: true } }) + "\n"));
+          c.close();
+        },
+      }),
+      stderr: new ReadableStream<Uint8Array>({ start(c) { c.close(); } }),
+      exited: Promise.resolve(0),
+    })) as unknown as typeof import("bun").spawn;
+
+    const req = new Request("http://localhost/hatch/remote", {
+      method: "POST",
+      body: JSON.stringify(goodBody),
+      headers: { "Content-Type": "application/json" },
+    });
+    const resp = await handleHatchRemote(req, { verifyImpl, spawnImpl });
+    expect(resp.status).toBe(200);
+    expect(resp.headers.get("Content-Type")).toBe("text/event-stream");
+    // Drain the stream so the backing subprocess promise settles.
+    const reader = resp.body!.getReader();
+    while (!(await reader.read()).done) { /* drain */ }
+  });
 });
 
 /**
