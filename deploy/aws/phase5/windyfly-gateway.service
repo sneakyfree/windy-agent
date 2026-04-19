@@ -1,0 +1,45 @@
+[Unit]
+Description=Windy Fly hatch-ceremony gateway (Bun + /hatch/remote SSE)
+Documentation=https://github.com/sneakyfree/windy-agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/windyfly/gateway
+EnvironmentFile=/etc/windyfly/production.env
+
+# The gateway spawns `python -m windyfly.hatch_remote` subprocesses, so
+# the venv Python must resolve before the system one on PATH.
+Environment="PATH=/opt/windyfly/.venv/bin:/opt/bun/bin:/usr/local/bin:/usr/bin:/bin"
+# The gateway hardcodes `const PORT = 3000` in src/server.ts today — if that
+# ever becomes env-driven, swap nginx-windyfly.conf upstream port in lock-step.
+Environment="WINDYFLY_PROJECT_ROOT=/opt/windyfly"
+
+# Bun runs the TypeScript gateway directly. Pinned command; no shell
+# interpolation so secrets don't land in `ps -ef`.
+ExecStart=/usr/local/bin/bun run src/server.ts
+
+# Graceful restart on any non-zero exit. The rate limiter is in-memory
+# and a restart resets it — acceptable for a stateless gateway.
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=15
+
+# Security hardening — gateway only needs network + its own data dir
+# (the Python hatch_remote subprocess writes recovery files under
+# /opt/windyfly/data when provisioning partially fails).
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/windyfly/data /var/log/windyfly
+CapabilityBoundingSet=
+
+StandardOutput=append:/var/log/windyfly/gateway.log
+StandardError=append:/var/log/windyfly/gateway.log
+
+[Install]
+WantedBy=multi-user.target
