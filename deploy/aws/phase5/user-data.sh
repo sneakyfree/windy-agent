@@ -35,8 +35,13 @@ apt-get install -y \
 # --- Bun (Bun gateway) ------------------------------------------------------
 # Install system-wide under /opt/bun so systemd can PATH it without relying
 # on ubuntu's dotfiles.
+#
+# cloud-init runs user-data as root with NO $HOME set. Bun's install.sh
+# references $HOME unconditionally; under our `set -u` (nounset) that
+# becomes a hard error. Export HOME before invoking bun's installer to
+# keep the script both safe and bun-happy.
 install -d -o root -g root -m 0755 /opt/bun
-BUN_INSTALL=/opt/bun curl -fsSL https://bun.sh/install | BUN_INSTALL=/opt/bun bash
+HOME=/root BUN_INSTALL=/opt/bun bash -c 'curl -fsSL https://bun.sh/install | bash'
 ln -sf /opt/bun/bin/bun /usr/local/bin/bun
 bun --version
 
@@ -114,9 +119,10 @@ cp /opt/windyfly/deploy/aws/phase5/windyfly-gateway.service \
 systemctl daemon-reload
 systemctl enable --now windyfly-gateway
 
-# Wait briefly for gateway to come up, then verify
+# Wait briefly for gateway to come up, then verify. Port is 3000 — the
+# Bun server hardcodes it; if this changes, keep nginx-windyfly.conf in sync.
 for i in $(seq 1 30); do
-  if curl -fsS http://127.0.0.1:8080/api/health > /dev/null 2>&1; then
+  if curl -fsS http://127.0.0.1:3000/api/health > /dev/null 2>&1; then
     echo "gateway healthy after ${i}s"
     break
   fi

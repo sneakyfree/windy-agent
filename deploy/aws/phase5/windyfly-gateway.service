@@ -14,7 +14,8 @@ EnvironmentFile=/etc/windyfly/production.env
 # The gateway spawns `python -m windyfly.hatch_remote` subprocesses, so
 # the venv Python must resolve before the system one on PATH.
 Environment="PATH=/opt/windyfly/.venv/bin:/opt/bun/bin:/usr/local/bin:/usr/bin:/bin"
-Environment="WINDYFLY_GATEWAY_PORT=8080"
+# The gateway hardcodes `const PORT = 3000` in src/server.ts today — if that
+# ever becomes env-driven, swap nginx-windyfly.conf upstream port in lock-step.
 Environment="WINDYFLY_PROJECT_ROOT=/opt/windyfly"
 
 # Bun runs the TypeScript gateway directly. Pinned command; no shell
