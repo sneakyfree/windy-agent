@@ -113,6 +113,32 @@ async def test_birth_certificate_ready_payload_includes_rich(db, monkeypatch) ->
     assert "passport_qr_png_b64" not in rich
 
 
+async def test_every_phase_event_carries_ok_flag(db) -> None:
+    """Wave 11 bug #10/11 contract pin: every *.provisioned / *.ready /
+    *.registered / *.assigned / hatch.complete event MUST carry an `ok`
+    bool so consumers can gate their green-tick on reality, not on the
+    event name."""
+    events: list[tuple[str, dict]] = []
+    await orchestrate_hatch(
+        agent_name="ok-flag-fly",
+        db=db,
+        on_event=lambda n, d: events.append((n, d)),
+    )
+    success_terminals = {
+        "eternitas.registered",
+        "mail.provisioned",
+        "chat.provisioned",
+        "phone.assigned",
+        "cloud.provisioned",
+        "birth_certificate.ready",
+        "hatch.complete",
+    }
+    for name, data in events:
+        if name in success_terminals:
+            assert "ok" in data, f"{name} must carry an `ok` flag"
+            assert isinstance(data["ok"], bool), f"{name}.data.ok must be bool"
+
+
 async def test_callback_exception_does_not_break_hatch(db) -> None:
     """A buggy consumer must never block provisioning.
 

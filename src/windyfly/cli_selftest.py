@@ -183,22 +183,31 @@ def run_full_self_test(*, timeout: float = 5.0) -> None:
     """Base self-test + ecosystem health.
 
     Exits non-zero if either the base self-test fails or any critical
-    ecosystem dependency is unreachable.
+    ecosystem dependency is unreachable. **The ecosystem phase always
+    runs**, even when the base self-test has failed — the two diagnose
+    orthogonal problems (the base test needs an LLM, the health phase
+    doesn't), and a red base test is exactly when operators most need
+    to know whether the ecosystem is reachable.
     """
-    # run_self_test already sys.exit(1)'s on failure. If we reach the
-    # ecosystem check, the base self-test passed.
-    run_self_test()
+    base_ok = run_self_test(exit_on_failure=False)
     critical_ok = run_ecosystem_health(timeout=timeout)
+
+    if not base_ok:
+        console.print("  [bold red]✗ Base self-test failed[/bold red]")
     if not critical_ok:
         console.print("  [bold red]✗ Critical ecosystem dependency unreachable[/bold red]")
+
+    if base_ok and critical_ok:
+        console.print("  [bold green]✓ All checks passed — agent + ecosystem green[/bold green]")
         console.print()
-        sys.exit(1)
-    console.print("  [bold green]✓ All ecosystem dependencies reachable[/bold green]")
+        return
+
     console.print()
+    sys.exit(1)
 
 
-def run_self_test() -> None:
-    """Run the agent self-test.
+def run_self_test(*, exit_on_failure: bool = True) -> bool:
+    """Run the agent self-test. Returns True iff every check passed.
 
     Steps:
         1. Send "What is 2+2?" to the agent loop
@@ -206,6 +215,11 @@ def run_self_test() -> None:
         3. Check the response was saved to episodes table
         4. Check cost was logged to cost_ledger
         5. Print pass/fail summary
+
+    ``exit_on_failure`` preserves the historical ``windy test`` UX
+    (sys.exit(1) on failure). Callers composing selftest into a
+    multi-phase flow (e.g. ``run_full_self_test``) pass False so they
+    can run the other phases regardless.
     """
     console.print()
     console.print("[bold cyan]🪰 Windy Fly Self-Test[/bold cyan]")
@@ -226,7 +240,9 @@ def run_self_test() -> None:
         console.print(f"  [red]✗ Setup failed:[/red] {e}")
         console.print()
         console.print("  [dim]Run [bold]windy doctor[/bold] to diagnose.[/dim]")
-        sys.exit(1)
+        if exit_on_failure:
+            sys.exit(1)
+        return False
 
     db_path = config.get("memory", {}).get("db_path", "data/windyfly.db")
 
@@ -239,7 +255,9 @@ def run_self_test() -> None:
         write_queue.start()
     except Exception as e:
         console.print(f"  [red]✗ Database/WriteQueue init failed:[/red] {e}")
-        sys.exit(1)
+        if exit_on_failure:
+            sys.exit(1)
+        return False
 
     session_id = f"selftest-{uuid.uuid4().hex[:8]}"
     test_message = "What is 2+2?"
@@ -346,4 +364,7 @@ def run_self_test() -> None:
     db.close()
 
     if failed > 0:
-        sys.exit(1)
+        if exit_on_failure:
+            sys.exit(1)
+        return False
+    return True

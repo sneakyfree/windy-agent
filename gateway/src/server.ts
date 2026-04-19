@@ -1477,7 +1477,22 @@ base_url = "http://localhost:8098"
     // The broker_token is a short-lived managed credential from Pro;
     // we pass it through to the Python subprocess which stores it in
     // the provider env var without ever asking the user for a key.
+    //
+    // Rate-limit via the "upstream" bucket (30 req/min/IP) — each hatch
+    // spawns a Python subprocess and fans out to every ecosystem
+    // service, so a flood here would burn CPU + quota. The bucket is
+    // shared with the providers/validate fan-out, which has similar
+    // characteristics. See Wave 11 Bug #12.
     if (path === "/hatch/remote") {
+      const clientIP = req.headers.get("x-forwarded-for")?.split(",")[0].trim()
+        || req.headers.get("x-real-ip")?.trim()
+        || "127.0.0.1";
+      if (isRateLimited(clientIP, "upstream")) {
+        return Response.json(
+          { error: "rate limited — too many hatch requests from this IP" },
+          { status: 429, headers: { ...headers, "Retry-After": "60" } }
+        );
+      }
       return handleHatchRemote(req);
     }
 

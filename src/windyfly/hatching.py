@@ -351,7 +351,9 @@ def show_ecosystem_status(hatch_result=None, config: dict | None = None) -> None
     console.print()
     if not has_real_services:
         console.print("  [yellow]\u26a0\ufe0f  Running in local mode (no ecosystem services configured)[/yellow]")
-        console.print("  [dim]Set URLs in windyfly.toml [ecosystem] section to connect to real services[/dim]")
+        # Rich treats `[ecosystem]` as a style tag — escape the brackets
+        # so users actually see the TOML section name.
+        console.print(r"  [dim]Set URLs in windyfly.toml \[ecosystem] section to connect to real services[/dim]")
         console.print()
     console.print(table)
     console.print()

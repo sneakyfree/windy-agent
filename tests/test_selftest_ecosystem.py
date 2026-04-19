@@ -172,6 +172,35 @@ def test_run_health_returns_false_when_critical_red(monkeypatch) -> None:
     assert run_ecosystem_health(timeout=1.0) is False
 
 
+def test_full_runs_ecosystem_even_when_base_selftest_fails(monkeypatch) -> None:
+    """Wave 11 bug #9 fix: a red base self-test must NOT short-circuit
+    the ecosystem phase. Two orthogonal diagnostics, both useful.
+    """
+    import sys
+    from windyfly import cli_selftest as cs
+
+    base_called: list[bool] = []
+    def fake_base(*, exit_on_failure: bool = True) -> bool:
+        base_called.append(exit_on_failure)
+        return False  # base test failed
+    monkeypatch.setattr(cs, "run_self_test", fake_base)
+
+    # Wire an "all green" ecosystem so the second phase can report green.
+    monkeypatch.setenv("WINDY_PRO_URL", "https://windypro.ok")
+    fake_httpx = _FakeHttpx({"https://windypro.ok/healthz": 200})
+    monkeypatch.setitem(sys.modules, "httpx", fake_httpx)
+
+    with pytest.raises(SystemExit) as excinfo:
+        cs.run_full_self_test(timeout=1.0)
+
+    # The base test was called with exit_on_failure=False …
+    assert base_called == [False], "base test must run in non-exiting mode"
+    # … and the ecosystem endpoint WAS probed even though base failed.
+    assert fake_httpx.called == ["https://windypro.ok/healthz"]
+    # Overall run still exits non-zero because base failed.
+    assert excinfo.value.code == 1
+
+
 def test_run_health_ignores_warning_on_optional_service(monkeypatch) -> None:
     """Matrix is optional — a red Matrix alone must not flip the overall
     return value to False."""
