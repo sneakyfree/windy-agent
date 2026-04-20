@@ -315,6 +315,46 @@ ${banner}<input type="password" name="password" placeholder="Dashboard password"
 <br/><button type="submit">Log In</button></form></body></html>`;
 }
 
+/**
+ * Return true if the request presents a valid dashboard-auth factor.
+ *
+ * Pure check: no rate-limit bucket consumption, no login-page render,
+ * no exempt-path handling. Use this for auth gates OTHER than the
+ * HTTP auth gate (e.g. WebSocket upgrade) where you want a simple
+ * bool verdict and a bare 401 on failure.
+ *
+ * Accepts, in priority order:
+ *   1. `shouldBypassAuthForLocalhost` (dev-only convenience)
+ *   2. `Authorization: Bearer <DASHBOARD_PASSWORD>`
+ *   3. `Cookie: windy_auth=<DASHBOARD_PASSWORD>`
+ *
+ * Production without a valid factor → false. Dev without a
+ * DASHBOARD_PASSWORD → false (distinct from HTTP's 403 "open-dev
+ * mode" response, which is a UX affordance, not a trust signal).
+ */
+export function isDashboardAuthValid(
+  req: Request,
+  server: import("bun").Server<any>,
+): boolean {
+  if (shouldBypassAuthForLocalhost(req, server, WINDYFLY_ENV)) return true;
+  if (!DASHBOARD_PASSWORD) return false;
+
+  const authHeader = req.headers.get("Authorization") || "";
+  if (
+    authHeader.startsWith("Bearer ")
+    && safeStringEqual(authHeader.slice("Bearer ".length), DASHBOARD_PASSWORD)
+  ) {
+    return true;
+  }
+
+  const cookieVal = parseCookie(req.headers.get("Cookie") || "", "windy_auth");
+  if (cookieVal && safeStringEqual(cookieVal, DASHBOARD_PASSWORD)) {
+    return true;
+  }
+
+  return false;
+}
+
 function checkDashboardAuth(req: Request, server: import("bun").Server<any>): Response | null {
   // Health + webhooks + login are exempt from dashboard auth.
   // Webhook receiver is its own auth (HMAC + JWS in Python).
@@ -355,16 +395,7 @@ function checkDashboardAuth(req: Request, server: import("bun").Server<any>): Re
       { status: 429, headers: { "Retry-After": "60" } });
   }
 
-  const authHeader = req.headers.get("Authorization") || "";
-  if (authHeader.startsWith("Bearer ") &&
-      safeStringEqual(authHeader.slice("Bearer ".length), DASHBOARD_PASSWORD)) {
-    return null;
-  }
-
-  const cookieVal = parseCookie(req.headers.get("Cookie") || "", "windy_auth");
-  if (cookieVal && safeStringEqual(cookieVal, DASHBOARD_PASSWORD)) {
-    return null;
-  }
+  if (isDashboardAuthValid(req, server)) return null;
 
   return new Response(loginPageHtml(), {
     status: 401, headers: { "Content-Type": "text/html" },
@@ -1584,25 +1615,50 @@ async function main() {
     port: PORT,
     fetch(req, server) {
       const pathname = new URL(req.url).pathname;
-
-      // Upgrade WebSocket requests — chat
-      if (pathname === "/ws/chat") {
-        if (server.upgrade(req, { data: { type: "chat" } })) return;
-        return new Response("WebSocket upgrade failed", { status: 400 });
-      }
-
-      // Upgrade WebSocket requests — terminal relay to remote machine
+      const isWsChat = pathname === "/ws/chat";
       const termMatch = pathname.match(/^\/ws\/terminal\/(.+)$/);
-      if (termMatch) {
-        if (server.upgrade(req, { data: { type: "terminal", machineId: termMatch[1] } })) return;
-        return new Response("WebSocket upgrade failed", { status: 400 });
-      }
-
-      // Upgrade WebSocket requests — machine event stream
       const machineWsMatch = pathname.match(/^\/ws\/machine\/(.+)$/);
-      if (machineWsMatch) {
-        if (server.upgrade(req, { data: { type: "machine", machineId: machineWsMatch[1] } })) return;
-        return new Response("WebSocket upgrade failed", { status: 400 });
+
+      // Wave 14 P0: all WebSocket upgrades require dashboard auth
+      // BEFORE server.upgrade(). The pre-fix handler short-circuited
+      // on pathname match and accepted unauthenticated upgrades —
+      // critical for /ws/terminal/:id which auto-emits pty:create.
+      //
+      // We also consume the auth rate-limit bucket on failed checks
+      // so a mass WS-upgrade flood trips the same 5/min/IP throttle
+      // as a brute-force login.
+      if (isWsChat || termMatch || machineWsMatch) {
+        if (!isDashboardAuthValid(req, server)) {
+          const ip = clientIp(req);
+          // Intentionally touch the bucket AFTER the auth miss so we
+          // rate-limit upgrade abuse specifically (valid cookies are
+          // always admitted, even under flood). Actual 429 check is
+          // applied on the next attempt — one strike per failed probe.
+          isRateLimited(ip, "auth");
+          return new Response("Unauthorized", {
+            status: 401,
+            headers: {
+              "Content-Type": "text/plain",
+              // Hint to browsers that HTTP Basic could be used, though
+              // in practice the dashboard flow sets the cookie via
+              // POST /api/auth/login.
+              "WWW-Authenticate": 'Bearer realm="windy-fly-dashboard"',
+            },
+          });
+        }
+
+        if (isWsChat) {
+          if (server.upgrade(req, { data: { type: "chat" } })) return;
+          return new Response("WebSocket upgrade failed", { status: 400 });
+        }
+        if (termMatch) {
+          if (server.upgrade(req, { data: { type: "terminal", machineId: termMatch[1] } })) return;
+          return new Response("WebSocket upgrade failed", { status: 400 });
+        }
+        if (machineWsMatch) {
+          if (server.upgrade(req, { data: { type: "machine", machineId: machineWsMatch[1] } })) return;
+          return new Response("WebSocket upgrade failed", { status: 400 });
+        }
       }
 
       return handleRequest(req, server);
