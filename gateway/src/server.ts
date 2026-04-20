@@ -287,6 +287,92 @@ export function safeStringEqual(a: string, b: string): boolean {
   return timingSafeEqual(ba, bb);
 }
 
+// ── Wave 14 P1: opaque dashboard session tokens ────────────────────
+// Pre-fix, the windy_auth cookie value was the raw DASHBOARD_PASSWORD
+// verbatim. XSS, a malicious extension, or social engineering that
+// exfiltrates the cookie yielded the master secret, and the only
+// revocation path was rotating DASHBOARD_PASSWORD across every live
+// session simultaneously. Now the cookie is a random opaque token
+// keyed server-side; rotating the password invalidates nothing on
+// its own (sessions live independently) and individual sessions can
+// be invalidated without touching the master secret.
+//
+// Memory-only store — gateway restart logs everyone out, which is
+// the correct posture for a stateless t3.small.
+
+const DASHBOARD_SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24h
+const DASHBOARD_SESSION_MAX_ENTRIES = 10_000;
+
+interface DashboardSession {
+  expiresAt: number;
+}
+
+const dashboardSessions = new Map<string, DashboardSession>();
+
+function pruneExpiredDashboardSessions(now: number = Date.now()): void {
+  for (const [tok, v] of dashboardSessions) {
+    if (v.expiresAt <= now) dashboardSessions.delete(tok);
+  }
+}
+
+/**
+ * Mint a fresh random session token and record it server-side.
+ * Return the token (base64url, 256-bit random) for the caller to
+ * set as a cookie. Opportunistic pruning keeps the map bounded.
+ */
+export function createDashboardSession(
+  ttlMs: number = DASHBOARD_SESSION_TTL_MS,
+): string {
+  const { randomBytes } = require("crypto");
+  const token = randomBytes(32).toString("base64url");
+  dashboardSessions.set(token, { expiresAt: Date.now() + ttlMs });
+
+  // Every 64 mints, drop anything expired. Cheap LRU-ish cap in
+  // case a misbehaving client hammers /api/auth/login.
+  if (dashboardSessions.size % 64 === 0) {
+    pruneExpiredDashboardSessions();
+  }
+  if (dashboardSessions.size > DASHBOARD_SESSION_MAX_ENTRIES) {
+    // Hard cap — evict oldest insertion (Map preserves insertion order).
+    const oldest = dashboardSessions.keys().next().value;
+    if (oldest !== undefined) dashboardSessions.delete(oldest);
+  }
+  return token;
+}
+
+/**
+ * Return true iff the token was minted by this process and has not
+ * expired. Also removes the entry on expiry so repeated checks on
+ * a dead token are free.
+ */
+export function isValidDashboardSession(
+  token: string,
+  now: number = Date.now(),
+): boolean {
+  const entry = dashboardSessions.get(token);
+  if (!entry) return false;
+  if (entry.expiresAt <= now) {
+    dashboardSessions.delete(token);
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Invalidate a specific session. Used by /api/auth/logout and by
+ * tests; not called from the normal auth path.
+ */
+export function revokeDashboardSession(token: string): boolean {
+  return dashboardSessions.delete(token);
+}
+
+export function _dashboardSessionCount(): number {
+  return dashboardSessions.size;
+}
+export function _clearDashboardSessions(): void {
+  dashboardSessions.clear();
+}
+
 function parseCookie(header: string, name: string): string | null {
   if (!header) return null;
   for (const part of header.split(";")) {
@@ -347,8 +433,12 @@ export function isDashboardAuthValid(
     return true;
   }
 
+  // Wave 14 P1: cookies carry an opaque session token, not the raw
+  // DASHBOARD_PASSWORD. We look up the token in the server-side
+  // session store — a stolen cookie is revocable (per-session) and
+  // no longer leaks the master secret.
   const cookieVal = parseCookie(req.headers.get("Cookie") || "", "windy_auth");
-  if (cookieVal && safeStringEqual(cookieVal, DASHBOARD_PASSWORD)) {
+  if (cookieVal && isValidDashboardSession(cookieVal)) {
     return true;
   }
 
@@ -445,12 +535,18 @@ async function handleLogin(req: Request): Promise<Response> {
     });
   }
 
+  // Wave 14 P1: mint a fresh opaque session token instead of echoing
+  // the master secret into the cookie. The token is a random 32-byte
+  // value keyed server-side with a 24h TTL; rotating DASHBOARD_PASSWORD
+  // doesn't invalidate live sessions, and revoking a single session
+  // doesn't require touching the master secret.
+  const sessionToken = createDashboardSession();
   return new Response(null, {
     status: 302,
     headers: {
       "Location": "/",
       "Set-Cookie":
-        `windy_auth=${DASHBOARD_PASSWORD}; Path=/; HttpOnly; ` +
+        `windy_auth=${sessionToken}; Path=/; HttpOnly; ` +
         `SameSite=Strict; Secure; Max-Age=86400`,
     },
   });
@@ -1562,7 +1658,9 @@ base_url = "http://localhost:8098"
           { status: 429, headers: { ...headers, "Retry-After": "60" } }
         );
       }
-      return handleHatchRemote(req);
+      // Wave 14 P1: pass the client IP through so the per-IP
+      // concurrency cap in hatch-remote can enforce.
+      return handleHatchRemote(req, { clientIp: clientIP });
     }
 
     if (path === "/api/setup/launch" && req.method === "POST") {

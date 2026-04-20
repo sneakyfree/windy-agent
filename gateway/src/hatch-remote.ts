@@ -30,6 +30,12 @@
 import { spawn } from "bun";
 import { resolve } from "path";
 import { verifyBrokerToken, type BrokerVerifyOptions, type BrokerVerifyOutcome } from "./broker-verify";
+import {
+  MAX_CONCURRENT_HATCHES,
+  MAX_HATCHES_PER_IP,
+  tryAcquireHatchSlot,
+  type HatchSlot,
+} from "./hatch-concurrency";
 
 export interface HatchRemoteBody {
   windy_identity_id: string;
@@ -50,6 +56,13 @@ export interface HatchRemoteOptions {
   verifyImpl?: typeof verifyBrokerToken;
   /** Broker-verify options passthrough (HMAC secret, Pro URL). */
   verifyOpts?: BrokerVerifyOptions;
+  /** Client IP — used for per-IP concurrency cap. Wave 14 P1. */
+  clientIp?: string;
+  /**
+   * Override the concurrency-slot acquisition — tests inject a fake
+   * here to force "cap reached" paths deterministically.
+   */
+  acquireSlotImpl?: typeof tryAcquireHatchSlot;
 }
 
 /**
@@ -131,18 +144,41 @@ export function formatSseFrame(event: string, data: unknown): string {
  * Build the SSE response. The actual spawn happens inside the
  * ReadableStream so the client's connection is tied to the subprocess
  * lifecycle: if the client disconnects, we kill the orchestrator.
+ *
+ * Wave 14 P1 change: on client disconnect we now DO kill the
+ * subprocess and release the concurrency slot. The prior
+ * leave-it-running behaviour traded bounded resource usage for a
+ * speculative Electron reconnect that was never wired up on the
+ * Python side — net-negative.
  */
 export function startHatchRemoteSse(
   body: HatchRemoteBody,
   opts: HatchRemoteOptions = {},
+  slot: HatchSlot | null = null,
 ): Response {
   const projectRoot = opts.projectRoot ?? resolve(import.meta.dir, "../..");
   const spawnImpl = opts.spawnImpl ?? spawn;
+  // Hold a reference to the subprocess at the closure level so the
+  // ReadableStream cancel() handler can signal it on disconnect.
+  let spawnedProc: ReturnType<typeof spawn> | null = null;
+  let released = false;
+  const releaseOnce = () => {
+    if (released) return;
+    released = true;
+    slot?.release();
+  };
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const encoder = new TextEncoder();
-      const write = (frame: string) => controller.enqueue(encoder.encode(frame));
+      const write = (frame: string) => {
+        try {
+          controller.enqueue(encoder.encode(frame));
+        } catch {
+          // Controller already closed — client disconnected between
+          // our read and write. Ignore; cancel() handles teardown.
+        }
+      };
 
       // Kick off with a synthetic "open" frame so the consumer knows
       // the stream is live before the Python process has actually
@@ -173,6 +209,7 @@ export function startHatchRemoteSse(
           PYTHONUNBUFFERED: "1",
         },
       });
+      spawnedProc = proc;
 
       // Pipe stdout → SSE frames. Events come as one JSON object per line.
       try {
@@ -224,14 +261,19 @@ export function startHatchRemoteSse(
           message: err instanceof Error ? err.message : String(err),
         }));
       } finally {
-        controller.close();
+        releaseOnce();
+        try { controller.close(); } catch { /* already closed */ }
       }
     },
     cancel() {
-      // Client disconnected — nothing to do here; the subprocess
-      // will see EOF on stdout when its pipe is collected. We
-      // intentionally don't kill() the process: the Electron UI may
-      // reconnect and the provisioning work is already in flight.
+      // Client disconnected — kill the subprocess (Wave 14 P1: pre-fix
+      // left it running to completion, which combined with 30/min
+      // upstream bucket = trivial OOM-DoS on the t3.small). Also
+      // release the concurrency slot so a new hatch can start.
+      try {
+        spawnedProc?.kill("SIGTERM");
+      } catch { /* process may have already exited */ }
+      releaseOnce();
     },
   });
 
@@ -315,5 +357,31 @@ export async function handleHatchRemote(
     );
   }
 
-  return startHatchRemoteSse(v.value, opts);
+  // Wave 14 P1: reserve a concurrency slot before spawning. The
+  // upstream rate-limit bucket (30/min/IP) alone would allow a valid
+  // caller to spin up enough 5-minute subprocesses to OOM the
+  // t3.small — see docs/SMOKE_REPORT_2026-04-19.md §4. We cap
+  // concurrent hatches globally and per-IP; 429 with a Retry-After
+  // when the cap is hit.
+  const acquire = opts.acquireSlotImpl ?? tryAcquireHatchSlot;
+  const acquired = acquire(opts.clientIp ?? "unknown");
+  if (!acquired.ok) {
+    return new Response(
+      JSON.stringify({
+        error: "rate limited",
+        reason: acquired.reason,
+        max_concurrent: MAX_CONCURRENT_HATCHES,
+        max_per_ip: MAX_HATCHES_PER_IP,
+      }),
+      {
+        status: 429,
+        headers: {
+          "Content-Type": "application/json",
+          "Retry-After": String(acquired.retryAfterSeconds),
+        },
+      },
+    );
+  }
+
+  return startHatchRemoteSse(v.value, opts, acquired.slot);
 }
