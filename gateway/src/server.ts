@@ -166,6 +166,41 @@ function isLocalhostRequest(req: Request, server: import("bun").Server<any>): bo
   return isLoopbackAddress(peer?.address ?? null);
 }
 
+/**
+ * Decide whether a request may skip dashboard auth because it
+ * *genuinely* originates on the loopback interface.
+ *
+ * Wave 14 — P0 fix. The earlier `isLocalhostRequest` bypass was
+ * correct for a direct listener but catastrophically wrong behind a
+ * reverse proxy: when nginx forwards a public request to Bun on
+ * 127.0.0.1:3000, the socket peer IS 127.0.0.1 and the bypass fired
+ * on every public request. The Trust Dashboard, all UDS proxy
+ * routes, and every mutating POST became world-accessible.
+ *
+ * Policy:
+ *   - `production` — never bypass. The production deploy is always
+ *     behind nginx, so peer=127.0.0.1 proves only that the proxy is
+ *     local, not that the user is. Even a direct in-VPC connect is
+ *     treated as hostile; prod always requires the cookie/bearer.
+ *   - non-production — loopback bypass is allowed for developer
+ *     convenience, but only if NO forwarding header is present.
+ *     X-Forwarded-For / X-Real-IP presence proves a proxy was in
+ *     the path, in which case the peer is the proxy and peer-IP
+ *     trust is meaningless.
+ *
+ * Exported for tests that pin this decision.
+ */
+export function shouldBypassAuthForLocalhost(
+  req: Request,
+  server: import("bun").Server<any>,
+  env: string,
+): boolean {
+  if (env === "production") return false;
+  if (req.headers.get("X-Forwarded-For")) return false;
+  if (req.headers.get("X-Real-IP")) return false;
+  return isLocalhostRequest(req, server);
+}
+
 // Dashboard authentication for VPS-deployed agents.
 //
 // Startup policy (P1-S5):
@@ -293,8 +328,11 @@ function checkDashboardAuth(req: Request, server: import("bun").Server<any>): Re
   if (url.pathname === "/api/webhooks/trust") return null;
   if (url.pathname === "/hatch/remote") return null;
 
-  // Use the peer socket's IP (P0-S1), not the forgeable Host header.
-  if (isLocalhostRequest(req, server)) return null;
+  // Wave 14 P0: the loopback bypass is disabled in production because
+  // nginx→Bun makes every public request arrive from 127.0.0.1. Dev
+  // still allows direct-loopback bypass for developer convenience —
+  // see shouldBypassAuthForLocalhost for policy.
+  if (shouldBypassAuthForLocalhost(req, server, WINDYFLY_ENV)) return null;
 
   if (!DASHBOARD_PASSWORD) {
     // validateDashboardAuthConfig has already failed-closed in prod;
