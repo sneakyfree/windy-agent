@@ -17,13 +17,32 @@ PROJECT_ROOT = get_project_root()
 
 _db = None
 _config = None
+_channel_manager = None
+_init_time: float = 0.0
 
 
-def init_core(db=None, config=None):
-    global _db, _config
+def init_core(db=None, config=None, channel_manager=None):
+    global _db, _config, _channel_manager, _init_time
     _db = db
     _config = config
+    _channel_manager = channel_manager
+    _init_time = time.time()
     _register_all()
+
+
+def wire_runtime(db=None, channel_manager=None) -> None:
+    """Inject runtime objects after init_core ran.
+
+    init_all_commands is called early in main() before the channel
+    branch creates the Database / ChannelManager. Channels that need
+    /pulse to see live state should call wire_runtime once they've
+    finished setting things up.
+    """
+    global _db, _channel_manager
+    if db is not None:
+        _db = db
+    if channel_manager is not None:
+        _channel_manager = channel_manager
 
 
 def _r(name, desc, cat, handler, aliases=None, dangerous=False, usage=""):
@@ -213,6 +232,148 @@ def _register_all():
         return (f"🪰 Status\nModel: {model}\nPassport: {passport}\n"
                 f"Email: {email}\nDB: {size}")
     _r("status", "Quick status summary", "02_diagnostics", cmd_status, aliases=["info"])
+
+    async def cmd_pulse(ctx):
+        """Live runtime diagnostics — what /doctor checks at config time,
+        /pulse checks at runtime. Use this when something feels off and
+        you want to know whether the agent is actually working right
+        now."""
+        lines = ["🪰 Pulse\n"]
+
+        # Uptime
+        if _init_time:
+            up = int(time.time() - _init_time)
+            h, rem = divmod(up, 3600)
+            m, s = divmod(rem, 60)
+            lines.append(f"Uptime: {h}h {m}m {s}s")
+        else:
+            lines.append("Uptime: unknown (init time not recorded)")
+
+        # DB writability — actually try a write so we catch lock /
+        # WAL / disk-full issues that env-var checks miss.
+        db_path = (_config or {}).get("memory", {}).get(
+            "db_path",
+            os.environ.get("WINDYFLY_DB_PATH", "data/windyfly.db"),
+        )
+        if os.path.exists(db_path):
+            size_mb = os.path.getsize(db_path) / 1024 / 1024
+            db_line = f"DB: {db_path} ({size_mb:.2f}MB)"
+            if _db is not None:
+                try:
+                    t0 = time.time()
+                    _db.execute(
+                        "CREATE TABLE IF NOT EXISTS _pulse_probe (ts REAL)"
+                    )
+                    _db.execute(
+                        "INSERT INTO _pulse_probe (ts) VALUES (?)", (time.time(),),
+                    )
+                    _db.execute("DELETE FROM _pulse_probe")
+                    elapsed_ms = (time.time() - t0) * 1000
+                    db_line += f" — writable in {elapsed_ms:.1f}ms"
+                except Exception as e:
+                    db_line += f" — WRITE FAILED: {e}"
+            lines.append(db_line)
+        else:
+            lines.append(f"DB: {db_path} — MISSING")
+
+        # Memory contents
+        if _db is not None:
+            try:
+                eps = _db.fetchone("SELECT COUNT(*) AS n FROM episodes")
+                nodes = _db.fetchone("SELECT COUNT(*) AS n FROM nodes")
+                intents = _db.fetchone(
+                    "SELECT COUNT(*) AS n FROM intents WHERE status = 'active'"
+                )
+                lines.append(
+                    f"Memory: {eps['n']} episodes, {nodes['n']} nodes, "
+                    f"{intents['n']} active intents"
+                )
+            except Exception as e:
+                lines.append(f"Memory: query failed — {e}")
+
+        # Last LLM call (from cost ledger)
+        if _db is not None:
+            try:
+                last = _db.fetchone(
+                    "SELECT model, cost_usd, input_tokens, output_tokens, created_at "
+                    "FROM cost_ledger ORDER BY created_at DESC LIMIT 1"
+                )
+                if last:
+                    age_row = _db.fetchone(
+                        "SELECT CAST((julianday('now') - julianday(?)) * 86400 AS INTEGER) AS age",
+                        (last["created_at"],),
+                    )
+                    age_s = age_row["age"] if age_row else -1
+                    total_tokens = (last["input_tokens"] or 0) + (last["output_tokens"] or 0)
+                    lines.append(
+                        f"Last LLM: {last['model']} {age_s}s ago "
+                        f"(${last['cost_usd']:.4f}, {total_tokens} tokens)"
+                    )
+                else:
+                    lines.append("Last LLM: no calls yet this session")
+            except Exception as e:
+                lines.append(f"Last LLM: query failed — {e}")
+
+        # Daily / monthly cost vs. budget
+        if _db is not None:
+            try:
+                from windyfly.memory.cost_ledger import (
+                    get_daily_spend, get_monthly_spend,
+                )
+                daily = get_daily_spend(_db)
+                monthly = get_monthly_spend(_db)
+                daily_budget = (_config or {}).get("costs", {}).get(
+                    "daily_budget_usd", 5.0,
+                )
+                monthly_budget = (_config or {}).get("costs", {}).get(
+                    "monthly_budget_usd", 50.0,
+                )
+                pct_d = (daily / daily_budget * 100) if daily_budget else 0
+                pct_m = (monthly / monthly_budget * 100) if monthly_budget else 0
+                lines.append(
+                    f"Cost today:  ${daily:.4f} / ${daily_budget:.2f} ({pct_d:.0f}%)"
+                )
+                lines.append(
+                    f"Cost month:  ${monthly:.4f} / ${monthly_budget:.2f} ({pct_m:.0f}%)"
+                )
+            except Exception as e:
+                lines.append(f"Cost: query failed — {e}")
+
+        # Channel connectivity
+        if _channel_manager is not None:
+            try:
+                status = _channel_manager.status()
+                if status:
+                    parts = [
+                        f"{name}={'up' if up else 'DOWN'}"
+                        for name, up in status.items()
+                    ]
+                    lines.append(f"Channels: {', '.join(parts)}")
+            except Exception as e:
+                lines.append(f"Channels: query failed — {e}")
+
+        # Provider cooldowns (circuit breaker state from agent.models)
+        try:
+            from windyfly.agent.models import _provider_cooldowns
+            now = time.time()
+            cooled = [
+                (k, max(0, int(until - now)))
+                for k, (until, _) in _provider_cooldowns.items()
+                if until > now
+            ]
+            if cooled:
+                parts = [f"{k}({s}s)" for k, s in cooled]
+                lines.append(f"Provider cooldowns: {', '.join(parts)}")
+            else:
+                lines.append("Provider cooldowns: none")
+        except Exception:
+            # Failover module may not be on this branch yet — silent skip
+            pass
+
+        return "\n".join(lines)
+
+    _r("pulse", "Live runtime diagnostics — DB, memory, last LLM, cost, channels",
+       "02_diagnostics", cmd_pulse, aliases=["live"])
 
     async def cmd_debug(ctx):
         lines = ["=== WINDY FLY DEBUG INFO ==="]

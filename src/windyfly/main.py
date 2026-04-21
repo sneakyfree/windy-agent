@@ -271,6 +271,11 @@ def main() -> None:
             write_queue=write_queue,
         ))
 
+        # Inject runtime state into the command registry so /pulse can
+        # see the live DB + channel manager state.
+        from windyfly.commands.core import wire_runtime
+        wire_runtime(db=db, channel_manager=manager)
+
         async def _run() -> None:
             stop_event = asyncio.Event()
             loop = asyncio.get_running_loop()
