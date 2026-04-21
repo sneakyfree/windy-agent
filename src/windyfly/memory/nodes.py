@@ -119,26 +119,42 @@ def search_nodes(
 ) -> list[dict]:
     """Search nodes by name and metadata content.
 
-    Uses LIKE search on name and JSON_EXTRACT on metadata.
+    Splits ``query`` into individual terms and ORs the LIKE clauses
+    across all terms. The previous behavior treated the whole query as
+    a single contiguous substring, which silently returned zero hits
+    for the common "what do you know about X" pattern (e.g.,
+    `_extract_keywords` produces `"know polly"`, no node name contains
+    that exact substring, ranker returns nothing, agent loses all
+    seeded context). Surfaced by Grant's first /seed dogfood test.
 
-    Args:
-        db: Database instance.
-        query: Search string.
-        limit: Max results.
-
-    Returns:
-        List of matching node dicts.
+    A node matches if ANY term hits its name OR metadata. Ranking by
+    updated_at preserves recency. Empty / whitespace-only query
+    returns nothing rather than the whole table.
     """
-    like_query = f"%{query}%"
+    terms = [t for t in (query or "").split() if t]
+    if not terms:
+        return []
+    likes = [f"%{t}%" for t in terms]
+
+    # Tier 1: name match — high precision. Each term ORed.
+    name_clauses = " OR ".join(["name LIKE ?"] * len(terms))
+    name_hits = db.fetchall(
+        f"SELECT * FROM nodes WHERE {name_clauses} "
+        f"ORDER BY updated_at DESC LIMIT ?",
+        (*likes, limit),
+    )
+    if name_hits:
+        return name_hits
+
+    # Tier 2 fallback: metadata match — broader, but only when nothing
+    # in the name matches. Prevents the prompt-bloat case where a
+    # random unrelated message ("something completely unrelated") pulls
+    # nodes whose metadata happens to contain a common word.
+    meta_clauses = " OR ".join(["JSON_EXTRACT(metadata, '$') LIKE ?"] * len(terms))
     return db.fetchall(
-        """
-        SELECT * FROM nodes
-        WHERE name LIKE ?
-           OR JSON_EXTRACT(metadata, '$') LIKE ?
-        ORDER BY updated_at DESC
-        LIMIT ?
-        """,
-        (like_query, like_query, limit),
+        f"SELECT * FROM nodes WHERE {meta_clauses} "
+        f"ORDER BY updated_at DESC LIMIT ?",
+        (*likes, limit),
     )
 
 
