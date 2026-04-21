@@ -3,17 +3,34 @@
 Env vars: TELEGRAM_BOT_TOKEN
 Get token from @BotFather on Telegram.
 Install: pip install windyfly[telegram]
+
+Resilience model (parity with matrix_bot.py):
+  - Exponential backoff on initial-connect failures (1s → 60s max)
+  - Error handler logs every polling error so one bad update can't
+    masquerade as a system failure
+  - 5-minute heartbeat logging (connected, last success age)
+  - Graceful shutdown on SIGTERM/SIGINT
+  - Reconnect events written to the observability ledger when a
+    Database + WriteQueue are wired in
 """
 
 from __future__ import annotations
 
+import asyncio
+import functools
 import logging
 import os
+import signal
+import time
 from typing import Any
 
 from windyfly.channels.base import ChannelAdapter, IncomingMessage, OutgoingMessage
 
 logger = logging.getLogger(__name__)
+
+_INITIAL_BACKOFF_S = 1
+_MAX_BACKOFF_S = 60
+_HEARTBEAT_INTERVAL_S = 300  # 5 minutes
 
 
 class TelegramChannel(ChannelAdapter):
@@ -25,6 +42,8 @@ class TelegramChannel(ChannelAdapter):
         self,
         allowed_user_ids: list[str] | None = None,
         dm_policy: str = "open",
+        db: Any = None,
+        write_queue: Any = None,
     ) -> None:
         # python-telegram-bot is an optional extra — mypy can't resolve
         # ApplicationBuilder on a baseline install, so type as Any.
@@ -37,6 +56,16 @@ class TelegramChannel(ChannelAdapter):
         self._allowed_user_ids: set[str] = set(allowed_user_ids or [])
         self._dm_policy = dm_policy
 
+        # Observability hooks — optional so callers without a DB still work.
+        self._db = db
+        self._write_queue = write_queue
+
+        # Resilience state
+        self._backoff = _INITIAL_BACKOFF_S
+        self._shutting_down = False
+        self._last_success_at: float = 0.0
+        self._heartbeat_task: asyncio.Task[None] | None = None
+
     async def start(self) -> None:
         token = os.environ.get("TELEGRAM_BOT_TOKEN")
         if not token:
@@ -44,16 +73,133 @@ class TelegramChannel(ChannelAdapter):
 
         from telegram.ext import ApplicationBuilder, MessageHandler, filters
 
-        self._app = ApplicationBuilder().token(token).build()
-        self._app.add_handler(
-            MessageHandler(filters.TEXT, self._handle)
-        )
+        # Outer connect loop — survives transient network failures during
+        # initialize/start_polling. PTB's polling is itself resilient once
+        # running, so this loop is mostly about getting off the ground when
+        # the network is flaky at startup.
+        last_error: Exception | None = None
+        while not self._shutting_down:
+            try:
+                self._app = ApplicationBuilder().token(token).build()
+                self._app.add_handler(MessageHandler(filters.TEXT, self._handle))
+                self._app.add_error_handler(self._on_polling_error)
 
-        await self._app.initialize()
-        await self._app.start()
-        await self._app.updater.start_polling()
-        self._connected = True
-        logger.info("Telegram bot started")
+                await self._app.initialize()
+                await self._app.start()
+                await self._app.updater.start_polling()
+                self._connected = True
+                self._last_success_at = time.time()
+                self._backoff = _INITIAL_BACKOFF_S
+                logger.info("Telegram bot started")
+                break
+            except Exception as exc:
+                last_error = exc
+                self._connected = False
+                logger.warning(
+                    "Telegram start failed: %s. Reconnecting in %ds...",
+                    exc, self._backoff,
+                )
+                self._log_reconnect_event(str(exc), self._backoff)
+                await self._safe_app_shutdown()
+                if self._shutting_down:
+                    break
+                await asyncio.sleep(self._backoff)
+                self._backoff = min(self._backoff * 2, _MAX_BACKOFF_S)
+        else:
+            # Loop only exits via break or shutdown — if shutdown won, surface
+            # the last error so the caller can act on it.
+            if last_error is not None:
+                raise last_error
+
+        # Set up signal handlers + heartbeat once polling is up.
+        try:
+            loop = asyncio.get_running_loop()
+            self._setup_signal_handlers(loop)
+        except RuntimeError:
+            logger.debug("Could not register signal handlers (no running loop)")
+
+        self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+
+    async def _on_polling_error(self, update: Any, context: Any) -> None:
+        """Catch errors raised during update processing.
+
+        Without a registered error handler, PTB writes a traceback to stderr
+        and otherwise carries on; with one we can both silence the noise and
+        log it through our observability path.
+        """
+        err = getattr(context, "error", None)
+        logger.warning("Telegram polling error: %s", err)
+        self._log_reconnect_event(str(err), 0)
+
+    async def _heartbeat_loop(self) -> None:
+        """Log a heartbeat every 5 minutes showing connection status."""
+        while not self._shutting_down:
+            try:
+                age = (
+                    time.time() - self._last_success_at
+                    if self._last_success_at
+                    else -1.0
+                )
+                logger.info(
+                    "♥ Telegram heartbeat: connected=%s, last_success_age=%.0fs",
+                    self._connected, age,
+                )
+            except Exception as e:
+                logger.debug("Heartbeat error: %s", e)
+            await asyncio.sleep(_HEARTBEAT_INTERVAL_S)
+
+    def _setup_signal_handlers(self, loop: asyncio.AbstractEventLoop) -> None:
+        """Register SIGTERM and SIGINT handlers for graceful shutdown."""
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            try:
+                loop.add_signal_handler(
+                    sig,
+                    functools.partial(self._handle_shutdown_signal, sig, loop),
+                )
+            except (NotImplementedError, RuntimeError):
+                # Windows or non-main-thread — fall back to signal.signal
+                try:
+                    signal.signal(sig, lambda s, f: self._handle_shutdown_signal(s, loop))
+                except (OSError, ValueError):
+                    pass
+
+    def _handle_shutdown_signal(
+        self, sig: int, loop: asyncio.AbstractEventLoop,
+    ) -> None:
+        sig_name = signal.Signals(sig).name if hasattr(signal, "Signals") else str(sig)
+        logger.info("Received %s — initiating graceful shutdown...", sig_name)
+        self._shutting_down = True
+        loop.create_task(self.stop())
+
+    def _log_reconnect_event(self, error: str, backoff_seconds: int) -> None:
+        """Best-effort write to the observability ledger."""
+        if self._db is None or self._write_queue is None:
+            return
+        try:
+            from windyfly.observability.events import log_event
+            log_event(self._db, self._write_queue, "telegram.reconnect", {
+                "error": error[:200],
+                "backoff_seconds": backoff_seconds,
+            })
+        except Exception as e:
+            logger.debug("Reconnect event logging failed: %s", e)
+
+    async def _safe_app_shutdown(self) -> None:
+        """Tear down a partially-built app without raising."""
+        if self._app is None:
+            return
+        for step in (
+            lambda: self._app.updater.stop() if self._app.updater else None,
+            lambda: self._app.stop(),
+            lambda: self._app.shutdown(),
+        ):
+            try:
+                result = step()
+                if asyncio.iscoroutine(result):
+                    await result
+            except Exception as e:
+                logger.debug("App shutdown step failed: %s", e)
+        self._app = None
 
     async def _handle(self, update, context) -> None:
         if not update.message or not update.message.text:
@@ -71,6 +217,7 @@ class TelegramChannel(ChannelAdapter):
         was_command, cmd_response = await handle_incoming(text, {"platform": "telegram"})
         if was_command:
             await update.message.reply_text(cmd_response)
+            self._last_success_at = time.time()
             return
 
         msg = IncomingMessage(
@@ -84,6 +231,7 @@ class TelegramChannel(ChannelAdapter):
         assert self.on_message is not None
         response = await self.on_message(msg)
         await update.message.reply_text(response)
+        self._last_success_at = time.time()
 
     async def send(self, message: OutgoingMessage) -> None:
         if self._app:
@@ -92,10 +240,15 @@ class TelegramChannel(ChannelAdapter):
             )
 
     async def stop(self) -> None:
-        if self._app:
-            await self._app.updater.stop()
-            await self._app.stop()
-            await self._app.shutdown()
+        self._shutting_down = True
+        if self._heartbeat_task is not None:
+            self._heartbeat_task.cancel()
+            try:
+                await self._heartbeat_task
+            except (asyncio.CancelledError, Exception):
+                pass
+            self._heartbeat_task = None
+        await self._safe_app_shutdown()
         self._connected = False
 
     def is_connected(self) -> bool:
