@@ -289,9 +289,11 @@ def agent_respond(
                 "  windy-agent, windy-pro, windy-cloud, windy-mail,\n"
                 "  windy-chat, windy-code, windy-clone, windy-infra,\n"
                 "  windy-pro-cloud, windy-pro-mobile, windy-pro-updates,\n"
-                "  kit-army-config, eternitas, nachocrunch (if present)\n"
+                "  kit-army-config, eternitas, nachocrunch,\n"
+                "  windy-0-soul (this instance's identity + config),\n"
+                "  any other <name>-soul repo for other instances.\n"
                 "Common file names: SOUL.md, CLAUDE.md, README.md, "
-                "windyfly.toml, windy-0.toml, ACCESS_LOCKBOX.md."
+                "windyfly.toml, config.toml, ACCESS_LOCKBOX.md."
             ),
         })
 

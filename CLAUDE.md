@@ -26,3 +26,21 @@ Every exception must be logged here with a reason and a scope.
   `docs/BUCKET_D_DECISIONS.md`) are authorized to commit direct
   to `master` without a PR. Scope: these three files, for this
   batch only. Code changes remain PR-only.
+- **2026-04-21 — Wave 15 #0 instance-config split (direct-to-master).**
+  Removal of `windy-0.toml` and `scripts/run-windy-0.sh` from this repo
+  is authorized as a direct-to-master commit. Reason: instance-specific
+  files were leaking into the generic codebase; relocating them to
+  `~/windy-0-soul/` honors the architectural model (windy-agent =
+  generic class; per-instance soul repo = config + launcher + identity).
+  Scope: the deletion only. New copies live in the soul repo. Bot
+  verified booting clean on the new launcher path before commit.
+
+## Architectural rule (post-Wave 15 #0)
+
+This repo must contain **no instance-specific files** (no `<name>.toml`,
+no `scripts/run-<name>.sh`, no per-instance hardcodes). Each Windy Fly
+instance keeps its config + launcher in its own soul repo (e.g.,
+`sneakyfree/windy-0-soul`). The agent codebase here is the generic
+"class"; soul repos are the "instances." Future instances should clone
+this repo untouched and clone their own `<name>-soul` repo for everything
+specific to them.
