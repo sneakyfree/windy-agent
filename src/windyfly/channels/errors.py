@@ -122,14 +122,25 @@ def classify(exc: BaseException) -> ClassifiedError:
     else:
         category = ErrorCategory.UNKNOWN
 
+    # Short report_id so "this broke" → grep the log → exact line in 5s.
+    # Six chars = 16M unique values per process; stable per-classify call.
+    import secrets
+    report_id = secrets.token_hex(3)
+
     user_message = _FRIENDLY_MSG[category]
-    log_message = f"[{category.value}] {name}: {exc}"
+    log_message = f"[err:{report_id}] [{category.value}] {name}: {exc}"
 
     if _is_verbose():
-        # Owner-band instances get the technical class appended so
-        # debugging is one DM round-trip — they already know the agent
-        # innards and a typed hint saves a `tail -f` trip.
-        user_message = f"{user_message}\n\n(diagnostic: {category.value} / {name})"
+        # Owner-band instances get the technical class + report_id
+        # appended so debugging is one DM round-trip.
+        user_message = (
+            f"{user_message}\n\n"
+            f"(diagnostic: {category.value} / {name} · err:{report_id})"
+        )
+    else:
+        # Even normie-band gets the report_id so they can quote it back
+        # to support without exposing the technical class.
+        user_message = f"{user_message}\n\n(ref: err:{report_id})"
 
     return ClassifiedError(
         category=category,

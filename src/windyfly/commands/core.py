@@ -370,6 +370,29 @@ def _register_all():
             # Failover module may not be on this branch yet — silent skip
             pass
 
+        # Capability invocations in the last hour (Wave 2 #53 ledger).
+        # When debugging "is the bot actually using the new tools?",
+        # this answers the question instantly.
+        if _db is not None:
+            try:
+                rows = _db.fetchall(
+                    "SELECT capability_id, COUNT(*) AS n, "
+                    "       SUM(CASE WHEN success=1 THEN 1 ELSE 0 END) AS ok "
+                    "FROM agent_actions "
+                    "WHERE started_at > datetime('now', '-1 hour') "
+                    "GROUP BY capability_id ORDER BY n DESC LIMIT 10"
+                )
+                if rows:
+                    parts = [
+                        f"{r['capability_id']}({r['ok']}/{r['n']})"
+                        for r in rows
+                    ]
+                    lines.append(f"Caps last hour: {', '.join(parts)}")
+                else:
+                    lines.append("Caps last hour: none invoked")
+            except Exception as e:
+                lines.append(f"Caps last hour: query failed — {e}")
+
         return "\n".join(lines)
 
     _r("pulse", "Live runtime diagnostics — DB, memory, last LLM, cost, channels",

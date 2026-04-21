@@ -333,6 +333,20 @@ def agent_respond(
     output_tokens = result["output_tokens"]
     tool_calls = result.get("tool_calls")
 
+    # Observability: log what the LLM decided to do. When debugging "why
+    # did the bot pick web_search instead of fs.read_file?" this single
+    # line is the answer in 5 seconds flat.
+    if tool_calls:
+        picked = [
+            f"{tc['function']['name']}({tc['function'].get('arguments', '')[:60]})"
+            for tc in tool_calls
+        ]
+        logger.info("LLM picked: %s (response_text=%d chars)",
+                    ", ".join(picked), len(response_text or ""))
+    else:
+        logger.info("LLM responded text-only (%d chars, no tool calls)",
+                    len(response_text or ""))
+
     # 2.5. Tool-call re-loop (ReAct cycle)
     if tool_calls and (tool_registry or capability_registry.count() > 0):
         max_tool_rounds = loop_sliders.get("tool_reloop_rounds", _DEFAULT_TOOL_ROUNDS)

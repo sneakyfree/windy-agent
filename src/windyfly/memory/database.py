@@ -6,6 +6,7 @@ Single source of truth — one .db file, WAL mode, zero ops.
 from __future__ import annotations
 
 import sqlite3
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -308,6 +309,14 @@ class Database:
             check_same_thread=False,
         )
         self.conn.row_factory = sqlite3.Row
+        # Serialize all access to the shared connection. ``check_same_thread=False``
+        # tells sqlite3 to allow cross-thread use, but it does NOT make the
+        # underlying cursor state thread-safe — concurrent calls race and
+        # surface as InterfaceError("bad parameter or other API misuse").
+        # Surfaced via the chaos-test for 10 concurrent agent_respond calls.
+        # RLock so the same thread can re-enter (e.g., a transaction with
+        # nested fetchone calls).
+        self._lock = threading.RLock()
 
         # busy_timeout must come FIRST so every subsequent PRAGMA /
         # schema op waits for contested locks rather than immediately
@@ -378,11 +387,13 @@ class Database:
 
     def execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
         """Execute a single SQL statement."""
-        return self.conn.execute(sql, params)
+        with self._lock:
+            return self.conn.execute(sql, params)
 
     def executemany(self, sql: str, params_list: list) -> sqlite3.Cursor:
         """Execute a SQL statement for each set of params."""
-        return self.conn.executemany(sql, params_list)
+        with self._lock:
+            return self.conn.executemany(sql, params_list)
 
     def commit(self) -> None:
         """Commit the current transaction.
@@ -390,22 +401,26 @@ class Database:
         Silently succeeds if no transaction is active (e.g. after an
         exception rolled back the implicit transaction).
         """
-        try:
-            self.conn.commit()
-        except sqlite3.OperationalError:
-            pass  # No transaction to commit — safe to ignore
+        with self._lock:
+            try:
+                self.conn.commit()
+            except sqlite3.OperationalError:
+                pass  # No transaction to commit — safe to ignore
 
     def fetchone(self, sql: str, params: tuple = ()) -> dict[str, Any] | None:
         """Execute SQL and return the first row as a dict, or None."""
-        cursor = self.conn.execute(sql, params)
-        row = cursor.fetchone()
-        return dict(row) if row else None
+        with self._lock:
+            cursor = self.conn.execute(sql, params)
+            row = cursor.fetchone()
+            return dict(row) if row else None
 
     def fetchall(self, sql: str, params: tuple = ()) -> list[dict[str, Any]]:
         """Execute SQL and return all rows as a list of dicts."""
-        cursor = self.conn.execute(sql, params)
-        return [dict(row) for row in cursor.fetchall()]
+        with self._lock:
+            cursor = self.conn.execute(sql, params)
+            return [dict(row) for row in cursor.fetchall()]
 
     def close(self) -> None:
         """Close the database connection."""
-        self.conn.close()
+        with self._lock:
+            self.conn.close()

@@ -328,12 +328,23 @@ def register_collaborator_capabilities(
         model: str | None = None,
         daily_budget_usd: float = 1.0,
     ) -> dict[str, Any]:
+        # Auto-extract topic keywords from the persona if the LLM didn't
+        # pass any. Without this, collaborators with default policy share
+        # zero parent-knowledge and confabulate (the AWS Polly TTS
+        # hallucination Grant caught when he asked about "Polly and rate
+        # sheets" and the cold-start collaborator guessed AWS TTS).
+        effective_filter = dict(memory_filter or DEFAULT_MEMORY_POLICY)
+        if not effective_filter.get("topic_keywords"):
+            effective_filter["topic_keywords"] = (
+                _extract_keywords_from_persona(persona_prompt)
+            )
+
         try:
             collab_id = create_collaborator(
                 db, write_queue,
                 name=name,
                 persona_prompt=persona_prompt,
-                memory_share_policy=memory_filter or DEFAULT_MEMORY_POLICY,
+                memory_share_policy=effective_filter,
                 band=band,
                 model=model,
                 daily_budget_usd=daily_budget_usd,
@@ -344,7 +355,7 @@ def register_collaborator_capabilities(
             "created": True,
             "id": collab_id,
             "name": name,
-            "memory_filter": memory_filter or DEFAULT_MEMORY_POLICY,
+            "memory_filter": effective_filter,
         }
 
     registry.register(Capability(
