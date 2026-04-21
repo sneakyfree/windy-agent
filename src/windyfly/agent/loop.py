@@ -46,6 +46,11 @@ def _user_message_mentions_local(text: str) -> bool:
     conservative — false positives just add ~50 tokens to the prompt;
     false negatives mean the LLM web_searches when it should
     fs.read_file.
+
+    Note: includes "github" / "git" / "repo" because for Grant (and
+    most users with local clones) "go to my github" means "look at the
+    local clone in ~/" — surfaced when the bot tried web search for
+    'kit-army-config' instead of fs.list_directory ~/kit-army-config.
     """
     if not text:
         return False
@@ -59,13 +64,21 @@ def _user_message_mentions_local(text: str) -> bool:
                                   ".sh", ".rs", ".go")
     ):
         return True
-    # Possessive references to local artifacts
+    # Possessive references to local artifacts + repo-name triggers.
+    # Repo names mirror the user's ~/ layout — every name in this list
+    # corresponds to a real top-level repo dir on Grant's machine.
     triggers = (
         "my repo", "my windy", "my project", "my folder", "my file",
-        "my directory", "my notes", "my code", "in src/", "in tests/",
-        "in docs/", "in scripts/", "windy-agent", "windy-pro",
-        "windy-cloud", "windy-mail", "windy-chat", "windy-code",
-        "windy-clone", "nachocrunch", "soul.md", "claude.md",
+        "my directory", "my notes", "my code",
+        "github", "git repo", " repo ", " repo?", " repo.", " repo,",
+        "in src/", "in tests/", "in docs/", "in scripts/",
+        "windy-agent", "windy-pro", "windy-cloud", "windy-mail",
+        "windy-chat", "windy-code", "windy-clone", "windy-infra",
+        "windy-pro-cloud", "windy-pro-mobile", "windy-pro-updates",
+        "windy-pro-cloud-data",
+        "kit-army", "kit-army-config", "lockbox", "access_lockbox",
+        "eternitas", "nachocrunch",
+        "soul.md", "claude.md", "readme.md", "memory.md",
     )
     return any(t in lower for t in triggers)
 
@@ -187,8 +200,20 @@ def agent_respond(
                 "fs.read_file, fs.list_directory, fs.glob, and "
                 "fs.grep_files available. Use those FIRST before "
                 "falling back to web_search or asking the user to "
-                "paste content. Common locations: ~/windy-agent, "
-                "~/windy-clone, ~/projects."
+                "paste content.\n\n"
+                "IMPORTANT: when the user says 'my github' or 'my X "
+                "github repo' or 'my <name> repo', they almost always "
+                "mean a LOCAL CLONE in their home directory, not the "
+                "online GitHub. Try fs.list_directory ~/<name> first. "
+                "Do not refuse with 'I can't access GitHub' — try the "
+                "local path.\n\n"
+                "Local repos that exist for this user (in ~/):\n"
+                "  windy-agent, windy-pro, windy-cloud, windy-mail,\n"
+                "  windy-chat, windy-code, windy-clone, windy-infra,\n"
+                "  windy-pro-cloud, windy-pro-mobile, windy-pro-updates,\n"
+                "  kit-army-config, eternitas, nachocrunch (if present)\n"
+                "Common file names: SOUL.md, CLAUDE.md, README.md, "
+                "windyfly.toml, windy-0.toml, ACCESS_LOCKBOX.md."
             ),
         })
 

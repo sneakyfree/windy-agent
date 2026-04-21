@@ -617,6 +617,12 @@ def test_D_seeded_node_appears_in_domain_query_prompt(db_and_wq, fresh_registry,
     ("look at ./scripts/run.sh", True),
     ("what's in CLAUDE.md", True),
     ("check nachocrunch", True),
+    # Live-test failures we discovered through dogfood
+    ("can you go to my sneakyfree github account and find the central lockbox in the kit-army-config repo?", True),
+    ("look at my github", True),
+    ("check the lockbox", True),
+    ("what's in eternitas", True),
+    ("look at my windy-chat repo", True),
     # Should NOT fire — no local hint
     ("what's the weather", False),
     ("hello there", False),
