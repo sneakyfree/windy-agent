@@ -28,8 +28,10 @@ allowlist. Wave 4 adds the write hands (``fs.write_file``,
 
 from __future__ import annotations
 
+import glob as glob_module
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +44,16 @@ logger = logging.getLogger(__name__)
 # the LLM context burn — anything bigger should go through a chunked
 # read or a grep, both future capabilities.
 _DEFAULT_MAX_BYTES = 100 * 1024
+
+# Caps for glob and grep results. These bound the LLM context burn and
+# prevent the agent from accidentally enumerating a 50k-file repo.
+_DEFAULT_GLOB_MAX_RESULTS = 100
+_DEFAULT_GREP_MAX_RESULTS = 100
+_DEFAULT_GREP_MAX_MATCHES_PER_FILE = 20
+# Cap individual file scans to avoid burning minutes on a single huge
+# log file. Anything bigger should go through fs.read_file's chunked
+# reads, not grep.
+_GREP_MAX_FILE_BYTES = 5 * 1024 * 1024
 
 # Subtrees we never let the LLM read regardless of allowlist. These are
 # the secrets directories every agent framework eventually has a
@@ -196,6 +208,171 @@ def _list_directory_handler(
     }
 
 
+def _glob_handler(
+    *, pattern: str, max_results: int = _DEFAULT_GLOB_MAX_RESULTS,
+    _allowed_roots: list[str] | None = None,
+) -> dict[str, Any]:
+    """Glob a pattern, filtered to allowlist + always-deny.
+
+    Pattern is standard Python ``glob`` syntax (``**`` for recursive,
+    ``?`` for single char, etc.). Each result path is validated through
+    ``_resolve_and_check`` and silently dropped if it falls outside the
+    allowed roots — so a pattern like ``~/**`` returns home contents
+    minus .ssh / .aws / .env, not an error.
+    """
+    roots = _allowed_roots or []
+    if not roots:
+        raise PermissionError(
+            "no allowed roots configured for filesystem capabilities; "
+            f"refusing glob {pattern!r}"
+        )
+
+    expanded_pattern = os.path.expanduser(pattern)
+    raw_results = glob_module.glob(
+        expanded_pattern, recursive=True,
+    )
+
+    accepted: list[dict[str, Any]] = []
+    denied = 0
+    for raw in sorted(raw_results):
+        try:
+            resolved = _resolve_and_check(raw, roots)
+        except PermissionError:
+            denied += 1
+            continue
+        try:
+            stat = resolved.lstat()
+            kind = (
+                "symlink" if Path(raw).is_symlink()
+                else "dir" if resolved.is_dir()
+                else "file"
+            )
+            accepted.append({
+                "path": str(resolved),
+                "type": kind,
+                "size": stat.st_size,
+            })
+        except OSError:
+            continue
+        if len(accepted) >= max_results:
+            break
+
+    return {
+        "pattern": pattern,
+        "match_count": len(accepted),
+        "matches": accepted,
+        "truncated": len(accepted) >= max_results,
+        "denied_by_allowlist": denied,
+    }
+
+
+def _grep_files_handler(
+    *,
+    pattern: str,
+    root: str,
+    include_glob: str | None = None,
+    max_results: int = _DEFAULT_GREP_MAX_RESULTS,
+    max_matches_per_file: int = _DEFAULT_GREP_MAX_MATCHES_PER_FILE,
+    case_insensitive: bool = False,
+    _allowed_roots: list[str] | None = None,
+) -> dict[str, Any]:
+    """Grep a regex across files under root, filtered to allowlist.
+
+    Walks ``root`` recursively, optionally filtered by ``include_glob``
+    (e.g., ``"*.py"``), grepping each text file's contents. Returns up
+    to ``max_results`` total matches across all files; per-file capped
+    at ``max_matches_per_file`` to avoid one giant log file dominating
+    the result set.
+
+    Compiles the regex with ``re.compile``; an invalid pattern raises
+    ``re.error``, which the dispatcher routes to the typed-error
+    classifier so the LLM sees a clean "your regex is invalid" message
+    rather than a stack trace.
+
+    Skips files >5MB (cap defined in _GREP_MAX_FILE_BYTES) and binary
+    files (UTF-8 decode failure heuristic, same as fs.read_file).
+    """
+    roots = _allowed_roots or []
+    root_path = _resolve_and_check(root, roots)
+
+    if not root_path.exists():
+        raise FileNotFoundError(f"{root!r} does not exist")
+    if not root_path.is_dir():
+        raise NotADirectoryError(f"{root!r} is not a directory")
+
+    flags = re.IGNORECASE if case_insensitive else 0
+    try:
+        regex = re.compile(pattern, flags)
+    except re.error as e:
+        raise ValueError(f"invalid regex {pattern!r}: {e}") from e
+
+    matches: list[dict[str, Any]] = []
+    files_scanned = 0
+    files_skipped_size = 0
+    files_skipped_binary = 0
+    files_denied = 0
+    truncated = False
+
+    # rglob with optional include_glob (e.g., "*.py")
+    walker = (
+        root_path.rglob(include_glob) if include_glob
+        else root_path.rglob("*")
+    )
+    for child in walker:
+        if not child.is_file():
+            continue
+        try:
+            resolved_child = _resolve_and_check(str(child), roots)
+        except PermissionError:
+            files_denied += 1
+            continue
+        try:
+            size = resolved_child.stat().st_size
+        except OSError:
+            continue
+        if size > _GREP_MAX_FILE_BYTES:
+            files_skipped_size += 1
+            continue
+
+        try:
+            with open(resolved_child, "r", encoding="utf-8", errors="strict") as f:
+                file_match_count = 0
+                for line_no, line in enumerate(f, start=1):
+                    if file_match_count >= max_matches_per_file:
+                        break
+                    if regex.search(line):
+                        matches.append({
+                            "path": str(resolved_child),
+                            "line": line_no,
+                            "content": line.rstrip("\n")[:300],
+                        })
+                        file_match_count += 1
+                        if len(matches) >= max_results:
+                            truncated = True
+                            break
+        except UnicodeDecodeError:
+            files_skipped_binary += 1
+            continue
+        except OSError:
+            continue
+
+        files_scanned += 1
+        if truncated:
+            break
+
+    return {
+        "pattern": pattern,
+        "root": str(root_path),
+        "match_count": len(matches),
+        "matches": matches,
+        "files_scanned": files_scanned,
+        "files_skipped_size": files_skipped_size,
+        "files_skipped_binary": files_skipped_binary,
+        "files_denied_by_allowlist": files_denied,
+        "truncated": truncated,
+    }
+
+
 def _default_allowed_roots() -> list[str]:
     """Default allowlist if config doesn't override.
 
@@ -280,6 +457,100 @@ def register_filesystem_capabilities(
                 },
             },
             "required": ["path"],
+        },
+        tier=Tier.READ_EXTERNAL,
+        scope="filesystem_allowlist",
+    ))
+
+    def fs_glob(*, pattern: str, max_results: int = _DEFAULT_GLOB_MAX_RESULTS) -> dict[str, Any]:
+        return _glob_handler(
+            pattern=pattern, max_results=max_results,
+            _allowed_roots=allowed_roots,
+        )
+
+    def fs_grep(
+        *, pattern: str, root: str,
+        include_glob: str | None = None,
+        max_results: int = _DEFAULT_GREP_MAX_RESULTS,
+        max_matches_per_file: int = _DEFAULT_GREP_MAX_MATCHES_PER_FILE,
+        case_insensitive: bool = False,
+    ) -> dict[str, Any]:
+        return _grep_files_handler(
+            pattern=pattern, root=root,
+            include_glob=include_glob,
+            max_results=max_results,
+            max_matches_per_file=max_matches_per_file,
+            case_insensitive=case_insensitive,
+            _allowed_roots=allowed_roots,
+        )
+
+    registry.register(Capability(
+        id="fs.glob",
+        description=(
+            "Glob a path pattern (e.g., '~/projects/**/*.py') and return "
+            "matching paths with type/size. Pattern uses standard glob "
+            "syntax with ** for recursive. Results filtered to allowed "
+            "roots — anything outside is silently dropped (not an error). "
+            "Capped at max_results (default 100)."
+        ),
+        handler=fs_glob,
+        input_schema={
+            "type": "object",
+            "properties": {
+                "pattern": {
+                    "type": "string",
+                    "description": "Glob pattern; ** matches recursively.",
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "Cap on matches returned (default 100).",
+                },
+            },
+            "required": ["pattern"],
+        },
+        tier=Tier.READ_EXTERNAL,
+        scope="filesystem_allowlist",
+    ))
+
+    registry.register(Capability(
+        id="fs.grep_files",
+        description=(
+            "Grep a regex across files under root (recursively). Returns "
+            "up to max_results matches as {path, line, content}. Skips "
+            "files >5MB and binary files. Optional include_glob filter "
+            "(e.g., '*.py'). Use case_insensitive=true for case-blind "
+            "search. Path must be inside allowed roots."
+        ),
+        handler=fs_grep,
+        input_schema={
+            "type": "object",
+            "properties": {
+                "pattern": {
+                    "type": "string",
+                    "description": "Python regex to match line-by-line.",
+                },
+                "root": {
+                    "type": "string",
+                    "description": "Directory to recursively grep under.",
+                },
+                "include_glob": {
+                    "type": "string",
+                    "description": "Optional file-name glob filter (e.g., '*.py').",
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "Cap on total matches across files (default 100).",
+                },
+                "max_matches_per_file": {
+                    "type": "integer",
+                    "description": "Cap on matches per single file (default 20).",
+                },
+                "case_insensitive": {
+                    "type": "boolean",
+                    "description": "Case-insensitive matching.",
+                },
+            },
+            "required": ["pattern", "root"],
         },
         tier=Tier.READ_EXTERNAL,
         scope="filesystem_allowlist",
