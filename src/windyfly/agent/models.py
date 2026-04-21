@@ -230,9 +230,16 @@ def _call_openai(
 
     tool_calls = None
     if choice.message.tool_calls:
+        # type=function is REQUIRED on the round-trip per OpenAI spec.
+        # OpenAI's own API tolerates omission; Z.AI's GLM-4.x compatibility
+        # layer rejects with 400 1214 ("工具类型不能为空" / "tool type cannot
+        # be empty") on the second call when the assistant message's
+        # tool_calls lack it. Including type=function unconditionally so
+        # any provider's strictness is satisfied.
         tool_calls = [
             {
                 "id": tc.id,
+                "type": "function",
                 "function": {
                     "name": tc.function.name,
                     "arguments": tc.function.arguments,
