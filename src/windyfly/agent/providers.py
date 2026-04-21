@@ -104,6 +104,13 @@ BUILTIN_PROVIDERS: dict[str, dict[str, Any]] = {
         "api_key_env": "KIMI_API_KEY",
         "models": ["kimi-k2.5", "moonshot-v1-128k", "moonshot-v1-32k", "moonshot-v1-8k"],
     },
+    "zai": {
+        "name": "Z.AI (Zhipu GLM)",
+        "type": "openai",
+        "base_url": "https://open.bigmodel.cn/api/paas/v4",
+        "api_key_env": "ZAI_API_KEY",
+        "models": ["glm-4.7", "glm-4", "glm-4-flash"],
+    },
     "ollama": {
         "name": "Ollama (Local)",
         "type": "openai",
@@ -198,6 +205,7 @@ def get_provider_for_model(model: str, config: dict[str, Any] | None = None) -> 
         "deepseek": "deepseek",
         "mistral": "mistral",
         "llama": "ollama", "codellama": "ollama",
+        "glm": "zai",
     }
     for prefix, provider_key in prefix_map.items():
         if model.startswith(prefix) and provider_key in providers:

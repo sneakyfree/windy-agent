@@ -21,11 +21,21 @@ class TelegramChannel(ChannelAdapter):
 
     name = "telegram"
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        allowed_user_ids: list[str] | None = None,
+        dm_policy: str = "open",
+    ) -> None:
         # python-telegram-bot is an optional extra — mypy can't resolve
         # ApplicationBuilder on a baseline install, so type as Any.
         self._app: Any = None
         self._connected = False
+        # When allowed_user_ids is non-empty, silently drop messages from any
+        # other sender. Mirrors the fleet allowFrom convention (see
+        # ACCESS_LOCKBOX §5 — Kit/Herm/Windy bots all gate by Grant's
+        # Telegram ID to avoid the 2026-02-10 BlueBubbles incident).
+        self._allowed_user_ids: set[str] = set(allowed_user_ids or [])
+        self._dm_policy = dm_policy
 
     async def start(self) -> None:
         token = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -47,6 +57,11 @@ class TelegramChannel(ChannelAdapter):
 
     async def _handle(self, update, context) -> None:
         if not update.message or not update.message.text:
+            return
+
+        sender_id = str(update.message.from_user.id)
+        if self._allowed_user_ids and sender_id not in self._allowed_user_ids:
+            logger.warning("Dropping Telegram message from unauthorized sender %s", sender_id)
             return
 
         text = update.message.text

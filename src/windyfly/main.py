@@ -78,7 +78,7 @@ def main() -> None:
     # Legacy --channel mode
     parser.add_argument(
         "--channel",
-        choices=["cli", "matrix", "sms"],
+        choices=["cli", "matrix", "sms", "telegram"],
         default="cli",
         help="Channel to run (default: cli)",
     )
@@ -204,6 +204,82 @@ def main() -> None:
             asyncio.run(bot.start())
         except KeyboardInterrupt:
             asyncio.run(bot.stop())
+        finally:
+            write_queue.stop()
+            db.close()
+    elif args.channel == "telegram":
+        import asyncio
+
+        from windyfly.agent.loop import agent_respond
+        from windyfly.channels.manager import ChannelManager
+        from windyfly.channels.telegram_bot import TelegramChannel
+        from windyfly.memory.database import Database
+        from windyfly.memory.write_queue import WriteQueue
+        from windyfly.tools.registry import ToolRegistry
+        from windyfly.tools.web_search import register_web_search_tool
+        from windyfly.tools.windy_api import register_windy_tools
+
+        if not os.environ.get("TELEGRAM_BOT_TOKEN"):
+            print(
+                "Error: TELEGRAM_BOT_TOKEN not set. Get one from @BotFather.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        db = Database(db_path)
+        write_queue = WriteQueue()
+        write_queue.start()
+
+        tool_registry = ToolRegistry()
+        register_windy_tools(tool_registry)
+        register_web_search_tool(tool_registry)
+
+        from windyfly.tools.reminders import register_reminder_tools, start_reminder_checker
+        from windyfly.tools.todos import register_todo_tools
+        from windyfly.tools.weather import register_weather_tool
+        from windyfly.tools.news import register_news_tool
+        from windyfly.tools.calendar import register_calendar_tools
+        from windyfly.tools.utilities import register_utility_tools
+
+        register_reminder_tools(tool_registry, db)
+        register_todo_tools(tool_registry, db)
+        register_weather_tool(tool_registry)
+        register_news_tool(tool_registry)
+        register_calendar_tools(tool_registry)
+        register_utility_tools(tool_registry)
+        start_reminder_checker(db)
+
+        from windyfly.agent.sub_agents import register_sub_agent_tool
+        register_sub_agent_tool(tool_registry, config, db, write_queue)
+
+        # allowFrom defaults to Grant's Telegram ID per ACCESS_LOCKBOX §5
+        # (fleet convention; never set to '*' on personal bots).
+        owner_id = os.environ.get("AGENT_OWNER_TELEGRAM_ID", "8545546994")
+        dm_policy = config.get("telegram", {}).get("dm_policy", "pairing")
+
+        async def _respond(text: str, session_id: str) -> str:
+            return agent_respond(
+                config, db, write_queue, text, session_id, tool_registry,
+            )
+
+        manager = ChannelManager(_respond)
+        manager.register(TelegramChannel(
+            allowed_user_ids=[owner_id],
+            dm_policy=dm_policy,
+        ))
+
+        async def _run() -> None:
+            await manager.start_all()
+            try:
+                while True:
+                    await asyncio.sleep(3600)
+            finally:
+                await manager.stop_all()
+
+        try:
+            asyncio.run(_run())
+        except KeyboardInterrupt:
+            pass
         finally:
             write_queue.stop()
             db.close()
