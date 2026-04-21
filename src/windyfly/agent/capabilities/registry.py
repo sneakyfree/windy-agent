@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 from typing import Any, Callable
 
 from windyfly.agent.capabilities.descriptor import (
@@ -31,6 +32,32 @@ from windyfly.agent.capabilities.descriptor import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+# Worker event loop for invoke_sync(). Created lazily on first
+# sync-from-inside-an-async-context call. Lives on a daemon thread so
+# it doesn't block process shutdown. One per process is enough — every
+# invocation gets its own task in this loop, so concurrent sync calls
+# don't serialize on a single coroutine.
+_worker_loop: asyncio.AbstractEventLoop | None = None
+_worker_thread: threading.Thread | None = None
+_worker_lock = threading.Lock()
+
+
+def _ensure_worker_loop() -> asyncio.AbstractEventLoop:
+    global _worker_loop, _worker_thread
+    with _worker_lock:
+        if _worker_loop is None:
+            loop = asyncio.new_event_loop()
+            t = threading.Thread(
+                target=loop.run_forever,
+                daemon=True,
+                name="capability-invoke-sync-worker",
+            )
+            t.start()
+            _worker_loop = loop
+            _worker_thread = t
+    return _worker_loop
 
 
 # Audit hook signatures. Both are no-ops on the bare registry; Wave 2 #2
@@ -130,6 +157,39 @@ class CapabilityRegistry:
         self._post_invoke_hooks.append(hook)
 
     # ── Dispatch ────────────────────────────────────────────────────
+
+    def invoke_sync(
+        self,
+        capability_id: str,
+        args: dict[str, Any],
+        band: Band,
+        *,
+        timeout: float = 60.0,
+    ) -> Any:
+        """Sync entry point for callers stuck in synchronous code.
+
+        Two cases:
+          - No event loop running on this thread: ``asyncio.run`` works.
+          - A loop IS running (we're inside a channel/agent loop):
+            ``asyncio.run`` would crash, so we schedule the coroutine
+            on a worker loop running in a daemon thread and block on
+            its result. The worker loop is created lazily on first use.
+
+        The agent loop today (``agent_respond``) is sync; this is the
+        surgical path that lets it dispatch async capabilities without
+        a full refactor of every channel. The proper async refactor is
+        a future PR.
+        """
+        coro = self.invoke(capability_id, args, band)
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            # No loop running on this thread — direct path.
+            return asyncio.run(coro)
+        # We're inside an async context. Schedule on the worker loop.
+        worker = _ensure_worker_loop()
+        future = asyncio.run_coroutine_threadsafe(coro, worker)
+        return future.result(timeout=timeout)
 
     async def invoke(
         self,

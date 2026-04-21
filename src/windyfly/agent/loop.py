@@ -38,6 +38,52 @@ _session_tokens_used: int = 0
 _DEFAULT_TOOL_ROUNDS = 3
 
 
+def _dispatch_tool_call(
+    fn_name: str,
+    fn_args: Any,
+    tool_registry: Any,
+    capability_registry: Any,
+    band: Any,
+    capability_denied_exc: type,
+) -> str:
+    """Route an LLM tool call to the right registry.
+
+    Capability registry wins over legacy tool registry when both have a
+    name collision (Wave 2 #5 will migrate legacy tools to caps; until
+    then prefer the new path). Capability calls go through invoke_sync
+    so band-gating + audit fire automatically. The result is JSON-
+    encoded if non-string so the LLM can parse it.
+    """
+    cap = capability_registry.get(fn_name)
+    if cap is not None:
+        if isinstance(fn_args, str):
+            try:
+                fn_args = json.loads(fn_args) if fn_args else {}
+            except json.JSONDecodeError:
+                return json.dumps({
+                    "error": f"capability {fn_name}: invalid JSON args",
+                })
+        try:
+            result = capability_registry.invoke_sync(fn_name, fn_args, band)
+        except capability_denied_exc as e:
+            logger.info("Capability denied: %s", e)
+            return json.dumps({"error": f"capability_denied: {e}"})
+        except Exception as e:
+            logger.warning("Capability %s failed: %s", fn_name, e)
+            return json.dumps({"error": f"{type(e).__name__}: {e}"})
+        return result if isinstance(result, str) else json.dumps(result, default=str)
+
+    if tool_registry is None:
+        logger.warning("LLM called unknown tool (no registry): %s", fn_name)
+        return json.dumps({"error": f"Unknown tool: {fn_name}"})
+
+    try:
+        return tool_registry.execute(fn_name, fn_args)
+    except KeyError:
+        logger.warning("LLM called unknown tool: %s", fn_name)
+        return json.dumps({"error": f"Unknown tool: {fn_name}"})
+
+
 def agent_respond(
     config: dict[str, Any],
     db: Database,
@@ -45,6 +91,7 @@ def agent_respond(
     user_message: str,
     session_id: str,
     tool_registry: ToolRegistry | None = None,
+    band: Any = None,
 ) -> str:
     """Process a user message and return the agent's response.
 
@@ -68,10 +115,24 @@ def agent_respond(
         user_message: The user's message.
         session_id: Current session ID.
         tool_registry: Optional ToolRegistry for function calling.
+        band: Capability passport band for this session. Defaults to
+            Band.OWNER for back-compat with existing channel callers.
+            Future channels with passport-based band will pass it
+            explicitly so /pulse from grandma sees fewer capabilities
+            than /pulse from Grant.
 
     Returns:
         The agent's response text.
     """
+    # Resolve band default lazily so we don't import the Capability
+    # Plane at module-load time (avoids circular-import surprises).
+    from windyfly.agent.capabilities import (
+        Band,
+        CapabilityDenied,
+        capability_registry,
+    )
+    if band is None:
+        band = Band.OWNER
     # 1. Assemble prompt
     messages = assemble_prompt(config, db, user_message, session_id)
 
@@ -198,7 +259,9 @@ def agent_respond(
         })
 
     # 2. Call LLM (with tools if registry provided)
-    tools = tool_registry.get_schemas() if tool_registry else None
+    legacy_tools = tool_registry.get_schemas() if tool_registry else []
+    capability_tools = capability_registry.tool_schemas_for_band(band)
+    tools = (legacy_tools + capability_tools) if (legacy_tools or capability_tools) else None
 
     result = call_llm(
         messages,
@@ -215,7 +278,7 @@ def agent_respond(
     tool_calls = result.get("tool_calls")
 
     # 2.5. Tool-call re-loop (ReAct cycle)
-    if tool_calls and tool_registry:
+    if tool_calls and (tool_registry or capability_registry.count() > 0):
         max_tool_rounds = loop_sliders.get("tool_reloop_rounds", _DEFAULT_TOOL_ROUNDS)
         for _round in range(max_tool_rounds):
             # Execute each tool call
@@ -224,11 +287,10 @@ def agent_respond(
                 fn_name = tc["function"]["name"]
                 fn_args = tc["function"]["arguments"]
                 logger.info("Executing tool: %s (round %d)", fn_name, _round + 1)
-                try:
-                    tool_result = tool_registry.execute(fn_name, fn_args)
-                except KeyError:
-                    logger.warning("LLM called unknown tool: %s", fn_name)
-                    tool_result = json.dumps({"error": f"Unknown tool: {fn_name}"})
+                tool_result = _dispatch_tool_call(
+                    fn_name, fn_args, tool_registry, capability_registry,
+                    band, CapabilityDenied,
+                )
                 tool_results.append({
                     "role": "tool",
                     "tool_call_id": tc["id"],
