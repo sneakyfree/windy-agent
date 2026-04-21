@@ -18,6 +18,7 @@ from windyfly.agent.intent_detector import detect_intent
 from windyfly.agent.models import call_llm, estimate_cost
 from windyfly.agent.offline import get_offline_response, is_online
 from windyfly.agent.prompt import assemble_prompt
+from windyfly.agent.tracing import set_request_id, request_id_short
 from windyfly.control_panel import get_sliders
 from windyfly.memory.cost_ledger import log_cost
 from windyfly.memory.cost_tracker import check_budget
@@ -81,6 +82,73 @@ def _user_message_mentions_local(text: str) -> bool:
         "soul.md", "claude.md", "readme.md", "memory.md",
     )
     return any(t in lower for t in triggers)
+
+
+# Confabulation detector (below). Tuned from the Apr 21 smoke-battery
+# incident: GLM-4.7 answered "Done! Created `~/scratch/test-undo.md`"
+# with no tool_calls at all — the file never existed. Same for delete,
+# undo, and grep ("Found 48 matches across 13 files" — fully made up).
+# Matching is conservative on both sides: the user must have asked for
+# an action AND the response must claim success; otherwise we'd flag
+# every "I wrote it down" acknowledgement.
+_ACTION_REQUEST_TRIGGERS = (
+    "write ", "create ", "save ", "make a file", "put a file",
+    "add a file", "append ",
+    "delete ", "remove ", "rm ", "unlink ",
+    "undo", "revert", "restore", "roll back", "rollback",
+    "grep", "search for", "search my", "search the",
+    "find the word", "find occurrences", "look for", "find all",
+    "move ", "rename ", "copy ",
+)
+_SUCCESS_CLAIM_MARKERS = (
+    "done!", "done.", "✅", "✓",
+    "created ", "wrote ", "saved ", "written to ",
+    "deleted ", "removed ", "unlinked ",
+    "restored ", "undone", "reverted ", "rolled back",
+    "moved ", "renamed ", "copied ",
+    "found ",  # "Found 48 matches" / "Found 0 files"
+)
+
+
+def _looks_confabulated(user_message: str, response_text: str) -> bool:
+    """Did the LLM claim success on an action it didn't actually take?
+
+    The caller only invokes this when ``tool_calls`` is empty/None —
+    so if this returns True, the LLM produced a "Done!"-shaped reply
+    without ever touching a capability.
+
+    Conservative: requires BOTH the user's message to contain an
+    action-request trigger AND the response to contain a success-claim
+    marker. A normal Q&A like "what's up?" → "Not much!" won't trip.
+    """
+    if not user_message or not response_text:
+        return False
+    lower_req = user_message.lower()
+    if not any(t in lower_req for t in _ACTION_REQUEST_TRIGGERS):
+        return False
+    lower_resp = response_text.lower()
+    return any(m in lower_resp for m in _SUCCESS_CLAIM_MARKERS)
+
+
+_CONFAB_RETRY_SYSTEM = (
+    "STOP. Your previous reply claimed to have completed an action "
+    "(e.g., 'Done!', 'Created', 'Deleted', 'Found N matches'), but "
+    "you did not call any tool. You cannot complete file or shell "
+    "actions by describing them in prose — you must invoke the "
+    "matching capability (fs.write_file, fs.delete_file, "
+    "fs.undo_last_action, fs.grep_files, fs.move_file, shell.exec, "
+    "etc.). Retry the user's request by calling the right tool. If "
+    "the needed capability is not in your tool list, say so "
+    "explicitly — do not fake success."
+)
+
+_CONFAB_TRUTH_FALLBACK = (
+    "I almost made that up — I was about to reply as if I'd done it, "
+    "but I didn't actually call the tool that performs the action. "
+    "Something's wrong with my tool-picker on this request. Try "
+    "rephrasing, or run /caps to see which capabilities I can "
+    "actually invoke right now."
+)
 
 
 def _dispatch_tool_call(
@@ -178,6 +246,16 @@ def agent_respond(
     )
     if band is None:
         band = Band.OWNER
+
+    # Wave 14 tracing spine: stamp this request with a UUID at entry so
+    # every downstream write (episodes, agent_actions, cost_ledger,
+    # events) and every log line flowing through the request_id filter
+    # can be correlated. Cheap, bounded, and zero-coupling — downstream
+    # callers reach get_request_id() lazily on the contextvar.
+    rid = set_request_id()
+    logger.info("[req:%s] agent_respond start session=%s band=%s",
+                request_id_short(), session_id, band)
+
     # 1. Assemble prompt
     messages = assemble_prompt(config, db, user_message, session_id)
 
@@ -363,7 +441,7 @@ def agent_respond(
     # line is the answer in 5 seconds flat.
     if tool_calls:
         picked = [
-            f"{tc['function']['name']}({tc['function'].get('arguments', '')[:60]})"
+            f"{tc['function']['name']}({str(tc['function'].get('arguments', ''))[:60]})"
             for tc in tool_calls
         ]
         logger.info("LLM picked: %s (response_text=%d chars)",
@@ -373,7 +451,9 @@ def agent_respond(
                     len(response_text or ""))
 
     # 2.5. Tool-call re-loop (ReAct cycle)
+    tool_executed = False  # gate for the confabulation guard below
     if tool_calls and (tool_registry or capability_registry.count() > 0):
+        tool_executed = True
         max_tool_rounds = loop_sliders.get("tool_reloop_rounds", _DEFAULT_TOOL_ROUNDS)
         for _round in range(max_tool_rounds):
             # Execute each tool call
@@ -412,6 +492,99 @@ def agent_respond(
 
             if not tool_calls:
                 break
+
+    # 2.6. Confabulation guard — trust-preserving net.
+    # If the LLM ended text-only and the user asked for an action, the
+    # response may be a plausible fake ("Done! Created the file" with no
+    # tool call). Detect that, retry once with a forcing system prompt,
+    # and if the retry still lies, replace the response with a truthful
+    # fallback so we never ship a lie downstream. Surfaced by Grant's
+    # 2026-04-21 live smoke battery — write/delete/undo/grep all
+    # returned fake "Done!" replies with zero tool invocations.
+    if (
+        not tool_executed
+        and not tool_calls
+        and _looks_confabulated(user_message, response_text)
+    ):
+        logger.warning(
+            "Confabulation suspected — text-only success claim with no "
+            "tool_calls. user_message=%r response_preview=%r",
+            user_message[:120], (response_text or "")[:200],
+        )
+        log_event(db, write_queue, "agent.confabulation_detected", {
+            "session_id": session_id,
+            "user_preview": user_message[:120],
+            "response_preview": (response_text or "")[:200],
+            "stage": "initial",
+        })
+        messages.append({
+            "role": "assistant",
+            "content": response_text or "",
+        })
+        messages.append({
+            "role": "system",
+            "content": _CONFAB_RETRY_SYSTEM,
+        })
+        retry = call_llm(
+            messages, model=model, temperature=temperature,
+            max_tokens=max_tokens, tools=tools, config=config,
+        )
+        response_text = retry["content"]
+        input_tokens += retry["input_tokens"]
+        output_tokens += retry["output_tokens"]
+        retry_tool_calls = retry.get("tool_calls")
+
+        if retry_tool_calls:
+            # Retry elected to use tools — run them through the same
+            # dispatch path and fold the result into response_text.
+            tool_calls = retry_tool_calls
+            logger.info(
+                "Confabulation retry recovered: LLM picked %s",
+                ", ".join(tc["function"]["name"] for tc in tool_calls),
+            )
+            tool_results = []
+            for tc in tool_calls:
+                fn_name = tc["function"]["name"]
+                fn_args = tc["function"]["arguments"]
+                logger.info("Executing tool: %s (confab-retry)", fn_name)
+                tool_result = _dispatch_tool_call(
+                    fn_name, fn_args, tool_registry, capability_registry,
+                    band, CapabilityDenied,
+                )
+                tool_results.append({
+                    "role": "tool",
+                    "tool_call_id": tc["id"],
+                    "content": tool_result,
+                })
+            messages.append({
+                "role": "assistant",
+                "content": response_text or "",
+                "tool_calls": tool_calls,
+            })
+            messages.extend(tool_results)
+            followup = call_llm(
+                messages, model=model, temperature=temperature,
+                max_tokens=max_tokens, tools=tools, config=config,
+            )
+            response_text = followup["content"]
+            input_tokens += followup["input_tokens"]
+            output_tokens += followup["output_tokens"]
+            tool_calls = followup.get("tool_calls")
+        elif _looks_confabulated(user_message, response_text):
+            # Retry still lied. Replace the response so we don't ship
+            # the fake success to the user.
+            logger.error(
+                "Confabulation retry also failed — replacing response "
+                "with truth fallback. last_response=%r",
+                (response_text or "")[:200],
+            )
+            log_event(db, write_queue, "agent.confabulation_detected", {
+                "session_id": session_id,
+                "user_preview": user_message[:120],
+                "response_preview": (response_text or "")[:200],
+                "stage": "retry",
+            })
+            response_text = _CONFAB_TRUTH_FALLBACK
 
     # 2.9. Analytics tracking
     try:

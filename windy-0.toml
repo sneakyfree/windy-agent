@@ -1,11 +1,10 @@
 # Windy 0 — Grant's personal dog-food instance of windy-agent.
-# Runs standalone on Telegram with Z.AI GLM as the brain.
-# See PR feat(windy-0) for context.
+# Runs standalone on Telegram with Claude Sonnet 4.6 as the brain.
 
 [agent]
 name = "Windy 0"
-default_model = "glm-4.7"
-active_provider = "zai"
+default_model = "claude-sonnet-4-6"
+active_provider = "anthropic"
 max_context_tokens = 8000
 max_response_tokens = 2000
 temperature = 0.7

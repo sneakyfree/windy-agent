@@ -39,6 +39,7 @@ EVENT_TYPES = frozenset({
     "sms.optout",
     "email.inbound",
     "email.outbound",
+    "agent.confabulation_detected",
 })
 
 
@@ -47,6 +48,8 @@ def log_event(
     write_queue: WriteQueue,
     event_type: str,
     data: dict[str, Any],
+    *,
+    request_id: str | None = None,
 ) -> None:
     """Log a structured event.
 
@@ -55,13 +58,21 @@ def log_event(
         write_queue: WriteQueue for async writes.
         event_type: Event type string.
         data: Event data dict.
+        request_id: Optional Wave 14 tracing correlation id. Captured
+            from contextvar at enqueue time so the writer thread sees
+            the originating request, not its own (write_queue runs on
+            a different thread where the contextvar would be None).
     """
+    if request_id is None:
+        from windyfly.agent.tracing import get_request_id
+        request_id = get_request_id()
+
     def _write():
         if event_type not in EVENT_TYPES:
             logger.warning("Unknown event type: %s — consider adding to EVENT_TYPES", event_type)
         db.execute(
-            "INSERT INTO events (event_type, data) VALUES (?, ?)",
-            (event_type, json.dumps(data)),
+            "INSERT INTO events (event_type, data, request_id) VALUES (?, ?, ?)",
+            (event_type, json.dumps(data), request_id),
         )
         # Prune old events (> 30 days)
         db.execute(

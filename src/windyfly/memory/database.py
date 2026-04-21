@@ -291,6 +291,54 @@ _MIGRATIONS: dict[int, tuple[str, str]] = {
             VALUES (6, 'Wave 6 #1: collaborators table');
         """,
     ),
+    7: (
+        "Wave 14: tracing spine — request_id correlation across planes",
+        # Callable migration. SQLite has no IF NOT EXISTS for ADD COLUMN
+        # so each ALTER must be wrapped individually — re-runs against
+        # a partially-migrated DB must not fail. Indices are normal SQL.
+        "__callable__",
+    ),
+}
+
+
+def _migration_7_tracing(conn) -> None:
+    """Wave 14 tracing spine — additive request_id columns + indices.
+
+    Each ALTER is run independently and treats "duplicate column"
+    OperationalError as success, so this is fully idempotent.
+    """
+    import sqlite3
+    table_columns = {
+        "events":        "request_id TEXT",
+        "agent_actions": "request_id TEXT",
+        "episodes":      "request_id TEXT",
+        "cost_ledger":   "request_id TEXT",
+    }
+    for table, coldef in table_columns.items():
+        try:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {coldef}")
+        except sqlite3.OperationalError as e:
+            if "duplicate column" not in str(e).lower():
+                raise
+
+    # Indices are CREATE IF NOT EXISTS — no special handling.
+    conn.executescript("""
+        CREATE INDEX IF NOT EXISTS idx_events_request_id
+            ON events(request_id);
+        CREATE INDEX IF NOT EXISTS idx_agent_actions_request_id
+            ON agent_actions(request_id);
+        CREATE INDEX IF NOT EXISTS idx_episodes_request_id
+            ON episodes(request_id);
+        CREATE INDEX IF NOT EXISTS idx_cost_ledger_request_id
+            ON cost_ledger(request_id);
+
+        INSERT OR IGNORE INTO schema_version (version, description)
+            VALUES (7, 'Wave 14: tracing spine — request_id columns + indices');
+    """)
+
+
+_CALLABLE_MIGRATIONS = {
+    7: _migration_7_tracing,
 }
 
 
@@ -379,7 +427,15 @@ class Database:
                 if version <= current:
                     continue
                 _desc, sql = _MIGRATIONS[version]
-                self.conn.executescript(sql)
+                if sql == "__callable__":
+                    # Callable migrations get full programmatic control —
+                    # used for additive ALTER TABLE statements where
+                    # SQLite's lack of IF NOT EXISTS for ADD COLUMN
+                    # makes pure-SQL idempotency impossible.
+                    callable_fn = _CALLABLE_MIGRATIONS[version]
+                    callable_fn(self.conn)
+                else:
+                    self.conn.executescript(sql)
             self.conn.commit()
         except Exception:
             self.conn.rollback()
