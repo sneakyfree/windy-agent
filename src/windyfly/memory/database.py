@@ -261,6 +261,35 @@ _MIGRATIONS: dict[int, tuple[str, str]] = {
             VALUES (5, 'Wave 2 #2: agent_actions audit ledger');
         """,
     ),
+    6: (
+        "Wave 6 #1: collaborators — long-running named sub-agents",
+        """
+        CREATE TABLE IF NOT EXISTS collaborators (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            parent_user_id TEXT NOT NULL DEFAULT 'default',
+            persona_prompt TEXT NOT NULL,
+            band TEXT NOT NULL DEFAULT 'USER',
+            memory_share_policy TEXT NOT NULL DEFAULT '{}',
+            model TEXT,
+            daily_budget_usd REAL DEFAULT 1.0,
+            max_context_tokens INTEGER DEFAULT 8000,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            last_used_at DATETIME,
+            use_count INTEGER DEFAULT 0,
+            archived_at DATETIME
+        );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_collaborators_name_user
+            ON collaborators(name, parent_user_id)
+            WHERE archived_at IS NULL;
+        CREATE INDEX IF NOT EXISTS idx_collaborators_user
+            ON collaborators(parent_user_id);
+
+        INSERT OR IGNORE INTO schema_version (version, description)
+            VALUES (6, 'Wave 6 #1: collaborators table');
+        """,
+    ),
 }
 
 
