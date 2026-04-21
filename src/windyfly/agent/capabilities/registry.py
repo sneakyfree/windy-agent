@@ -216,6 +216,24 @@ class CapabilityRegistry:
                 f"{cap.band_required.name}; session is {band.name}"
             )
 
+        # Runtime tier escalation (Wave 4 #1). Some capabilities raise
+        # their band requirement based on the actual call args — e.g.,
+        # fs.write_file is USER+ for new files but TRUSTED+ when
+        # overwrite=true. Re-check after the static gate passed.
+        if cap.runtime_tier_check is not None:
+            from windyfly.agent.capabilities.descriptor import (
+                Tier, defaults_for_tier,
+            )
+            escalated_tier = cap.runtime_tier_check(args)
+            if escalated_tier is not None and escalated_tier > cap.tier:
+                escalated_band = defaults_for_tier(escalated_tier)["band_required"]
+                if band < escalated_band:
+                    raise CapabilityDenied(
+                        f"capability {capability_id!r} escalated to tier "
+                        f"{escalated_tier.name} based on args; requires "
+                        f"band {escalated_band.name}, session is {band.name}"
+                    )
+
         for hook in self._pre_invoke_hooks:
             try:
                 hook(cap, args, band)

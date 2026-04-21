@@ -15,12 +15,24 @@ but no audit storage lands until Wave 2 #2.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import IntEnum
 from typing import Any, Awaitable, Callable
 
 # A handler can be sync or async; the registry's invoke() adapts.
 Handler = Callable[..., Any] | Callable[..., Awaitable[Any]]
+
+# Runtime tier escalation: a callback the registry consults *after* the
+# static band check passes, with the actual call args. If it returns a
+# Tier higher than the capability's static tier, the band requirement
+# bumps to the higher tier's default — and the call is re-checked
+# against the session's band. Returns None for "no escalation."
+#
+# The motivating case (Wave 4 #1): fs.write_file is statically
+# Tier.WRITE_LOCAL_SAFE (USER+), but when args include
+# ``overwrite=true`` it dynamically becomes Tier.WRITE_DESTRUCTIVE
+# (TRUSTED+). Same capability, different policy based on intent.
+RuntimeTierCheck = Callable[[dict[str, Any]], "Tier | None"]
 
 
 class Band(IntEnum):
@@ -191,31 +203,28 @@ class Capability:
     # alongside the audit table.
     scope: str = ""
 
+    # Runtime tier escalation hook. See RuntimeTierCheck above. Used
+    # by Wave 4 #1's fs.write_file (overwrite=true bumps tier).
+    runtime_tier_check: RuntimeTierCheck | None = None
+
     def resolved(self) -> "Capability":
         """Return a copy with tier-default fallbacks filled in.
 
-        Frozen dataclasses can't be mutated, so we build a new instance
-        with the defaults merged in for any fields the caller left as
-        None. The registry calls this on register() so downstream code
-        always sees a fully-populated descriptor.
+        Self-review #2 from PR #52: uses ``dataclasses.replace`` so any
+        field added later is automatically preserved without updating
+        this method. Only the policy fields explicitly listed below
+        get the merge treatment.
         """
         defaults = defaults_for_tier(self.tier)
-        merged: dict[str, Any] = {}
+        overrides: dict[str, Any] = {}
         for key in (
             "band_required", "sandbox_tier", "reversibility",
             "audit_required", "cost_class", "dry_run_supported",
             "undo_supported",
         ):
             current = getattr(self, key)
-            merged[key] = current if current is not None else defaults[key]
-        return Capability(
-            id=self.id,
-            description=self.description,
-            handler=self.handler,
-            input_schema=self.input_schema,
-            name=self.name or self.id,
-            tier=self.tier,
-            rate_limit=self.rate_limit,
-            scope=self.scope,
-            **merged,
-        )
+            if current is None:
+                overrides[key] = defaults[key]
+        if not self.name:
+            overrides["name"] = self.id
+        return replace(self, **overrides) if overrides else self
