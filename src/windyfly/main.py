@@ -215,6 +215,12 @@ def main() -> None:
         )
         install_audit_hooks(capability_registry, db, write_queue)
 
+        # Wave 3 #1: register the first real hands (read-only FS).
+        from windyfly.agent.capabilities.filesystem import (
+            register_filesystem_capabilities,
+        )
+        register_filesystem_capabilities(capability_registry, config)
+
         bot = WindyFlyMatrixBot(config, db, write_queue, tool_registry)
         try:
             asyncio.run(bot.start())
