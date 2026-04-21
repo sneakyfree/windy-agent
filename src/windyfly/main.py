@@ -312,6 +312,34 @@ def main() -> None:
         from windyfly.commands.core import wire_runtime
         wire_runtime(db=db, channel_manager=manager)
 
+        # Wave 2 #3: install audit hooks on the capability registry so
+        # any capability invocation lands in agent_actions.
+        from windyfly.agent.capabilities import (
+            capability_registry,
+            install_audit_hooks,
+        )
+        install_audit_hooks(capability_registry, db, write_queue)
+
+        # Wave 3 #1+#2: register read-only filesystem hands.
+        from windyfly.agent.capabilities.filesystem import (
+            register_filesystem_capabilities,
+        )
+        register_filesystem_capabilities(capability_registry, config)
+
+        # Wave 5 #1: register shell.exec (Docker-by-default).
+        from windyfly.agent.capabilities.shell import (
+            register_shell_capabilities,
+        )
+        register_shell_capabilities(capability_registry, config)
+
+        # Wave 6 #1: long-running named collaborators.
+        from windyfly.agent.capabilities.collaborators import (
+            register_collaborator_capabilities,
+        )
+        register_collaborator_capabilities(
+            capability_registry, db, write_queue, config,
+        )
+
         async def _run() -> None:
             stop_event = asyncio.Event()
             loop = asyncio.get_running_loop()

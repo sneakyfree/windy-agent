@@ -15,6 +15,10 @@ cd "$(dirname "$0")/.."
 # the Windy 0 instance.
 export DEFAULT_MODEL=glm-4.7
 export ANTHROPIC_API_KEY=""
+# Same class of fix: .env's WINDYFLY_DB_PATH=data/windyfly.db was
+# silently overriding windy-0.toml's data/windy-0.db, so /pulse
+# reported the wrong DB and the bot wrote into the shared windyfly.db.
+export WINDYFLY_DB_PATH=data/windy-0.db
 
 uv sync --extra telegram --quiet
 exec uv run python -m windyfly.main --channel telegram --config windy-0.toml
