@@ -205,6 +205,16 @@ def main() -> None:
         from windyfly.agent.sub_agents import register_sub_agent_tool
         register_sub_agent_tool(tool_registry, config, db, write_queue)
 
+        # Wave 2 #3: install audit hooks on the capability registry so
+        # any future capability invocation lands in agent_actions. The
+        # legacy tool_registry above keeps working unchanged — this only
+        # affects code that registers through capability_registry.
+        from windyfly.agent.capabilities import (
+            capability_registry,
+            install_audit_hooks,
+        )
+        install_audit_hooks(capability_registry, db, write_queue)
+
         bot = WindyFlyMatrixBot(config, db, write_queue, tool_registry)
         try:
             asyncio.run(bot.start())
