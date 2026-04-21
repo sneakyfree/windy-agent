@@ -209,6 +209,7 @@ def main() -> None:
             db.close()
     elif args.channel == "telegram":
         import asyncio
+        import signal as _signal_mod
 
         from windyfly.agent.loop import agent_respond
         from windyfly.channels.manager import ChannelManager
@@ -271,11 +272,31 @@ def main() -> None:
         ))
 
         async def _run() -> None:
+            stop_event = asyncio.Event()
+            loop = asyncio.get_running_loop()
+
+            def _on_signal(signum: int) -> None:
+                sig_name = (
+                    _signal_mod.Signals(signum).name
+                    if hasattr(_signal_mod, "Signals")
+                    else str(signum)
+                )
+                logger.info("Received %s — initiating shutdown", sig_name)
+                stop_event.set()
+
+            for sig in (_signal_mod.SIGTERM, _signal_mod.SIGINT):
+                try:
+                    loop.add_signal_handler(sig, _on_signal, sig)
+                except (NotImplementedError, RuntimeError):
+                    # Windows or non-main-thread — KeyboardInterrupt below
+                    # still catches SIGINT for ctrl-c interactive runs.
+                    pass
+
             await manager.start_all()
             try:
-                while True:
-                    await asyncio.sleep(3600)
+                await stop_event.wait()
             finally:
+                logger.info("Stopping channels...")
                 await manager.stop_all()
 
         try:
@@ -283,8 +304,10 @@ def main() -> None:
         except KeyboardInterrupt:
             pass
         finally:
+            logger.info("Flushing write queue and closing database...")
             write_queue.stop()
             db.close()
+            logger.info("Windy Fly shut down cleanly")
     elif args.channel == "sms":
         import asyncio
         from windyfly.channels.sms import WindyFlySMS
