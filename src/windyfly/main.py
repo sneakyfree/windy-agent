@@ -149,6 +149,12 @@ def main() -> None:
         datefmt="%H:%M:%S",
     )
 
+    # Install secret-redaction filter on the root handler so httpx /
+    # telegram.ext / etc. don't leak bot tokens or API keys into the
+    # log file (~/Library/Logs/windy-0.log under launchd).
+    from windyfly.observability.redact import install_root_redaction
+    install_root_redaction()
+
     # Start background decay scheduler (G7)
     db_path = config.get("memory", {}).get("db_path", "data/windyfly.db")
     _start_decay_scheduler(config, db_path)
