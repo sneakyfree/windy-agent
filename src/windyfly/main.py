@@ -221,6 +221,12 @@ def main() -> None:
         )
         register_filesystem_capabilities(capability_registry, config)
 
+        # Wave 5 #1: register shell.exec (Docker-by-default).
+        from windyfly.agent.capabilities.shell import (
+            register_shell_capabilities,
+        )
+        register_shell_capabilities(capability_registry, config)
+
         bot = WindyFlyMatrixBot(config, db, write_queue, tool_registry)
         try:
             asyncio.run(bot.start())
