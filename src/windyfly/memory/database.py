@@ -223,6 +223,44 @@ _MIGRATIONS: dict[int, tuple[str, str]] = {
             VALUES (4, 'Wave 4: trust_cache matches live Eternitas Trust API');
         """,
     ),
+    5: (
+        "Wave 2 #2: agent_actions audit ledger",
+        """
+        CREATE TABLE IF NOT EXISTS agent_actions (
+            id TEXT PRIMARY KEY,
+            capability_id TEXT NOT NULL,
+            tier INTEGER NOT NULL,
+            band TEXT NOT NULL,
+            sandbox_tier TEXT NOT NULL,
+            args_json TEXT,
+            success INTEGER NOT NULL DEFAULT 0,
+            error_class TEXT,
+            error_message TEXT,
+            duration_ms INTEGER,
+            cost_usd REAL DEFAULT 0,
+            session_id TEXT,
+            user_id TEXT,
+            intent_id TEXT,
+            parent_action_id TEXT,
+            outcome_score REAL,
+            started_at DATETIME NOT NULL,
+            ended_at DATETIME,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_agent_actions_capability
+            ON agent_actions(capability_id);
+        CREATE INDEX IF NOT EXISTS idx_agent_actions_session
+            ON agent_actions(session_id);
+        CREATE INDEX IF NOT EXISTS idx_agent_actions_started
+            ON agent_actions(started_at);
+        CREATE INDEX IF NOT EXISTS idx_agent_actions_success
+            ON agent_actions(success, capability_id);
+
+        INSERT OR IGNORE INTO schema_version (version, description)
+            VALUES (5, 'Wave 2 #2: agent_actions audit ledger');
+        """,
+    ),
 }
 
 
