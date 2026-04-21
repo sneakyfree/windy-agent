@@ -227,6 +227,14 @@ def main() -> None:
         )
         register_shell_capabilities(capability_registry, config)
 
+        # Wave 6 #1: long-running named collaborators.
+        from windyfly.agent.capabilities.collaborators import (
+            register_collaborator_capabilities,
+        )
+        register_collaborator_capabilities(
+            capability_registry, db, write_queue, config,
+        )
+
         bot = WindyFlyMatrixBot(config, db, write_queue, tool_registry)
         try:
             asyncio.run(bot.start())
