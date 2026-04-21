@@ -70,8 +70,10 @@ class ChannelManager:
             assert isinstance(result, str)
             return result
         except Exception as exc:
-            logger.error("Agent error on %s: %s", msg.platform, exc)
-            return "Sorry, I hit an error processing that. Try again?"
+            from windyfly.channels.errors import classify
+            classified = classify(exc)
+            logger.error("Agent error on %s: %s", msg.platform, classified.log_message)
+            return classified.user_message
 
     async def start_all(self) -> None:
         """Start all registered channels."""

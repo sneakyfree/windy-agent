@@ -236,10 +236,10 @@ class WindyFlyMatrixBot(ChannelAdapter):
                 body, session_id, self.tool_registry,
             )
         except Exception as e:
-            logger.error("Agent respond failed: %s", e)
-            response_text = (
-                "I hit a snag processing that. Let me try again in a moment. 🪰"
-            )
+            from windyfly.channels.errors import classify
+            classified = classify(e)
+            logger.error("Agent respond failed: %s", classified.log_message)
+            response_text = classified.user_message
 
         # Send response with Windy metadata
         try:
