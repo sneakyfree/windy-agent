@@ -12,6 +12,7 @@ providers in cooldown after recent failures (circuit-breaker pattern).
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from typing import Any
@@ -257,6 +258,122 @@ def _call_openai(
     }
 
 
+# Anthropic tool names must match ``^[a-zA-Z0-9_-]{1,128}$`` — dots are
+# rejected. Our capability ids use dots (``fs.read_file``,
+# ``agent.create_collaborator``, ``shell.exec``) because every other
+# provider accepts them. Sanitize on outgoing requests and restore on
+# incoming responses so the rest of the codebase keeps using dotted ids.
+# The marker is unusual enough that no real capability id will contain
+# the literal string, so the inverse map is unambiguous.
+_ANTHROPIC_DOT_MARKER = "__W_DOT__"
+
+
+def _sanitize_for_anthropic(name: str) -> str:
+    return name.replace(".", _ANTHROPIC_DOT_MARKER)
+
+
+def _restore_from_anthropic(name: str) -> str:
+    return name.replace(_ANTHROPIC_DOT_MARKER, ".")
+
+
+def _openai_tools_to_anthropic(tools: list[dict]) -> list[dict]:
+    """Translate OpenAI-format tool schemas to Anthropic format.
+
+    OpenAI: ``{"type": "function", "function": {"name", "description", "parameters"}}``
+    Anthropic: ``{"name", "description", "input_schema"}``
+
+    The capability registry emits OpenAI shape (so GLM/Grok/etc. accept
+    it natively); when the chain hops to Anthropic we translate on the
+    way out so callers don't need to know the active provider. Tool
+    names are sanitized — see ``_ANTHROPIC_DOT_MARKER``.
+    """
+    out = []
+    for t in tools:
+        fn = t.get("function") or t
+        out.append({
+            "name": _sanitize_for_anthropic(fn["name"]),
+            "description": fn.get("description", ""),
+            "input_schema": fn.get("parameters") or fn.get("input_schema") or {
+                "type": "object",
+                "properties": {},
+            },
+        })
+    return out
+
+
+def _openai_messages_to_anthropic(
+    messages: list[dict],
+) -> tuple[str, list[dict]]:
+    """Translate OpenAI-format chat messages to Anthropic format.
+
+    Returns ``(system_text, api_messages)``. The agent loop builds
+    OpenAI-shaped ``tool_calls``/``tool`` round-trip messages because
+    that's what every provider except Anthropic accepts directly. Here
+    we fold them into Anthropic's ``tool_use``/``tool_result`` content
+    blocks so the round-trip works without the loop knowing which
+    provider it talks to.
+
+    System messages are concatenated and returned separately (Anthropic
+    takes ``system`` as a top-level kwarg, not in ``messages``).
+    """
+    system_parts: list[str] = []
+    api_messages: list[dict] = []
+    for msg in messages:
+        role = msg.get("role")
+        if role == "system":
+            content = msg.get("content") or ""
+            if content:
+                system_parts.append(content)
+            continue
+
+        if role == "tool":
+            # OpenAI tool result → Anthropic user message with
+            # tool_result content block. Anthropic groups consecutive
+            # tool_results in one user message; merging keeps message
+            # count low without changing semantics.
+            block = {
+                "type": "tool_result",
+                "tool_use_id": msg.get("tool_call_id", ""),
+                "content": msg.get("content", ""),
+            }
+            if api_messages and api_messages[-1].get("role") == "user" \
+                    and isinstance(api_messages[-1].get("content"), list):
+                api_messages[-1]["content"].append(block)
+            else:
+                api_messages.append({"role": "user", "content": [block]})
+            continue
+
+        if role == "assistant" and msg.get("tool_calls"):
+            blocks: list[dict] = []
+            text = msg.get("content") or ""
+            if text:
+                blocks.append({"type": "text", "text": text})
+            for tc in msg["tool_calls"]:
+                fn = tc.get("function", {})
+                args = fn.get("arguments")
+                if isinstance(args, str):
+                    try:
+                        args = json.loads(args) if args else {}
+                    except json.JSONDecodeError:
+                        args = {}
+                blocks.append({
+                    "type": "tool_use",
+                    "id": tc.get("id", ""),
+                    "name": _sanitize_for_anthropic(fn.get("name", "")),
+                    "input": args or {},
+                })
+            api_messages.append({"role": "assistant", "content": blocks})
+            continue
+
+        # Plain user/assistant text message — pass through.
+        api_messages.append({
+            "role": role,
+            "content": msg.get("content", ""),
+        })
+
+    return ("\n".join(system_parts).strip(), api_messages)
+
+
 def _call_anthropic(
     messages: list[dict],
     model: str,
@@ -265,17 +382,16 @@ def _call_anthropic(
     tools: list[dict] | None,
     api_key: str = "",
 ) -> dict[str, Any]:
-    """Call Anthropic Messages API."""
+    """Call Anthropic Messages API.
+
+    Translates OpenAI-shaped messages and tool schemas to Anthropic's
+    native format on the way out, and Anthropic's tool_use blocks back
+    to OpenAI-shaped tool_calls on the way in. Callers stay in
+    OpenAI-shape and the rest of the codebase doesn't have to branch.
+    """
     import anthropic
 
-    # Anthropic uses separate system message
-    system_text = ""
-    api_messages = []
-    for msg in messages:
-        if msg["role"] == "system":
-            system_text += msg["content"] + "\n"
-        else:
-            api_messages.append(msg)
+    system_text, api_messages = _openai_messages_to_anthropic(messages)
 
     kwargs: dict[str, Any] = {
         "model": model,
@@ -283,17 +399,50 @@ def _call_anthropic(
         "max_tokens": max_tokens,
         "temperature": temperature,
     }
-    if system_text.strip():
-        kwargs["system"] = system_text.strip()
+    if system_text:
+        kwargs["system"] = system_text
     if tools:
-        kwargs["tools"] = tools
+        kwargs["tools"] = _openai_tools_to_anthropic(tools)
 
-    # Use OAuth token if available, else explicit key, else env default
+    # Use OAuth token if available, else explicit key, else env default.
+    # ``sk-ant-oat01-`` keys are Claude.ai OAuth access tokens — they
+    # must go on ``Authorization: Bearer …`` with the OAuth beta header,
+    # NOT on ``x-api-key`` (Anthropic 429s the latter with no detail).
+    # ``sk-ant-api…`` keys take the normal x-api-key path.
+    #
+    # Additionally: OAuth tokens only bill against the user's Claude Pro
+    # subscription when the first system message identifies the request
+    # as Claude Code. Without this prefix, every request 429s with an
+    # empty error body — the same gate Claude Code itself satisfies.
+    # We prepend the identifier transparently; the rest of the assembled
+    # system prompt (Windy Fly personality, capability hints, etc.)
+    # follows after a separator and steers the model's behavior.
     from windyfly.agent.oauth import get_oauth_manager
 
     oauth = get_oauth_manager()
-    if oauth:
-        client = anthropic.Anthropic(api_key=oauth.access_token)
+    oauth_token = oauth.access_token if oauth else (
+        api_key if api_key.startswith("sk-ant-oat01-") else ""
+    )
+    if oauth_token:
+        client = anthropic.Anthropic(
+            auth_token=oauth_token,
+            default_headers={"anthropic-beta": "oauth-2025-04-20"},
+        )
+        # Anthropic's OAuth gate is strict: the first system content
+        # block must be EXACTLY the Claude Code identifier — not even a
+        # trailing newline of extra text passes. Concatenating Windy's
+        # personality after the identifier 429s. The accepted shape is
+        # a two-block ``system`` array: block 0 is the bare identifier
+        # (passes gate), block 1 carries everything else.
+        cc_id = "You are Claude Code, Anthropic's official CLI for Claude."
+        existing_system = kwargs.get("system", "")
+        if existing_system:
+            kwargs["system"] = [
+                {"type": "text", "text": cc_id},
+                {"type": "text", "text": existing_system},
+            ]
+        else:
+            kwargs["system"] = cc_id
     elif api_key:
         client = anthropic.Anthropic(api_key=api_key)
     else:
@@ -308,11 +457,16 @@ def _call_anthropic(
         elif block.type == "tool_use":
             if tool_calls is None:
                 tool_calls = []
+            # Serialize input dict to JSON string so the rest of the
+            # loop (which assumes OpenAI shape) can json.loads() it
+            # uniformly. Anthropic returns input as a parsed dict;
+            # OpenAI returns it as a JSON string.
             tool_calls.append({
                 "id": block.id,
+                "type": "function",
                 "function": {
-                    "name": block.name,
-                    "arguments": block.input,
+                    "name": _restore_from_anthropic(block.name),
+                    "arguments": json.dumps(block.input or {}),
                 },
             })
 

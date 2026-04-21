@@ -39,6 +39,7 @@ EVENT_TYPES = frozenset({
     "sms.optout",
     "email.inbound",
     "email.outbound",
+    "agent.confabulation_detected",
 })
 
 
