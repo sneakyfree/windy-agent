@@ -375,6 +375,57 @@ def _register_all():
     _r("pulse", "Live runtime diagnostics — DB, memory, last LLM, cost, channels",
        "02_diagnostics", cmd_pulse, aliases=["live"])
 
+    async def cmd_caps(ctx):
+        """List capabilities the agent can call.
+
+        Filters by band — defaults to OWNER (every capability), but a
+        future passport-aware ctx will pass the session's actual band so
+        grandma's /caps shows only what grandma can use.
+        """
+        from windyfly.agent.capabilities import (
+            Band,
+            capability_registry,
+        )
+
+        # Resolve band from ctx if a future channel passes it; otherwise
+        # default to OWNER so /caps shows the complete inventory.
+        band_name = (ctx or {}).get("band", "OWNER")
+        try:
+            band = Band[band_name.upper()] if isinstance(band_name, str) else band_name
+        except (KeyError, AttributeError):
+            band = Band.OWNER
+
+        caps = sorted(
+            capability_registry.list_for_band(band),
+            key=lambda c: (int(c.tier), c.id),
+        )
+        if not caps:
+            return (
+                f"No capabilities registered (band={band.name}).\n"
+                "Capabilities register through capability_registry; the "
+                "matrix channel installs them at startup. Check that the "
+                "channel branch finished startup."
+            )
+
+        lines = [f"🪰 Capabilities ({len(caps)} for band {band.name})\n"]
+        current_tier = None
+        for c in caps:
+            if c.tier != current_tier:
+                lines.append(f"\n— Tier {int(c.tier)} ({c.tier.name}) —")
+                current_tier = c.tier
+            audit = "audited" if c.audit_required else "no-audit"
+            req_band = c.band_required.name if c.band_required else "?"
+            # Trim description to one line
+            desc = (c.description or "").split("\n")[0][:80]
+            lines.append(f"  {c.id}  [{req_band}, {audit}]\n    {desc}")
+        return "\n".join(lines)
+
+    # No aliases — "capabilities" is already taken by the legacy
+    # cmd_capabilities below (returns HELP_TEXT), and "tools" risks
+    # collision with future tool commands. /caps stays unique.
+    _r("caps", "List capabilities the agent can call (Capability Plane)",
+       "02_diagnostics", cmd_caps)
+
     async def cmd_debug(ctx):
         lines = ["=== WINDY FLY DEBUG INFO ==="]
         lines.append(f"Python: {sys.version}")

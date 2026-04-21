@@ -28,11 +28,57 @@ from windyfly.agent.capabilities.registry import (
     capability_registry,
 )
 
+
+# Back-compat re-export for the legacy ``capabilities.py`` module that
+# this package shadowed when Wave 2 #1 introduced the package directory.
+# The /capabilities slash command in commands/core.py imports HELP_TEXT
+# from this path; without this re-export, that import would fail at
+# runtime. Keep until Grant decides whether to migrate the legacy
+# module's content into the new author guide.
+HELP_TEXT = """🪰 What I Can Do:
+
+📋 Productivity
+  • "Remind me to..." — set reminders and timers
+  • "Add [item] to my list" — manage to-dos
+  • "What's on my list?" — view to-dos
+  • "What's on my calendar?" — check events (needs Google Calendar setup)
+
+🌤️  Information
+  • "What's the weather in [city]?" — current weather anywhere
+  • "Latest news about [topic]" — headlines from major outlets
+  • "Search for [query]" — web search
+  • "Read this article: [URL]" — fetch and summarize web pages
+
+🧮 Utilities
+  • "What's 15% of 230?" — calculator
+  • "Convert 10 km to miles" — unit conversion
+  • "Set a timer for 20 minutes" — countdown timer
+  • "Flip a coin" / "Roll a d20" — random
+
+📧 Communication
+  • "Email [person] about [topic]" — send email (needs Windy Mail)
+  • "Text [person] [message]" — send SMS (needs Twilio)
+
+💬 Just Chat
+  • Talk to me about anything — I remember everything!
+  • I learn your preferences and improve over time
+
+⚙️ Management
+  • /personality — adjust my humor, warmth, autonomy
+  • /budget — check spending vs daily limit
+  • /ecosystem — see connected services
+  • /version — check for updates
+
+🔧 New (Capability Plane)
+  • /caps — list capabilities the agent can call directly
+  • /pulse — live runtime diagnostic"""
+
 __all__ = [
     "Band",
     "Capability",
     "CapabilityDenied",
     "CapabilityRegistry",
+    "HELP_TEXT",
     "Reversibility",
     "SandboxTier",
     "Tier",
