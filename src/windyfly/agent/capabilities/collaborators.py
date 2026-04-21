@@ -54,6 +54,52 @@ from windyfly.memory.write_queue import Priority, WriteQueue
 
 logger = logging.getLogger(__name__)
 
+
+# Words to drop from persona-derived topic_keywords. Common English
+# stopwords plus persona-prompt boilerplate. Bias is toward keeping
+# domain-specific nouns ("Polly", "mortgage", "rate", "sheets") and
+# dropping function words.
+_KEYWORD_STOPWORDS = frozenset({
+    "a", "about", "an", "and", "any", "are", "as", "at", "be", "been",
+    "but", "by", "can", "do", "does", "for", "from", "has", "have",
+    "he", "her", "him", "his", "i", "in", "is", "it", "its", "me",
+    "my", "of", "on", "or", "our", "she", "so", "that", "the", "their",
+    "them", "they", "this", "to", "us", "was", "we", "were", "what",
+    "when", "where", "who", "will", "with", "you", "your", "knows",
+    "knowing", "expert", "specialist", "good", "great", "really",
+    "very", "just", "also", "than", "then", "more", "most", "much",
+    "deep", "deeply", "things", "think", "use", "used", "help",
+    "helps", "make", "makes", "want", "wants", "research", "writer",
+    "writing", "code", "coding", "agent", "task", "tasks", "user",
+    "users", "people", "person",
+})
+
+
+def _extract_keywords_from_persona(persona_prompt: str) -> list[str]:
+    """Pull domain-specific keywords from a persona prompt.
+
+    Tokenizes on word boundaries, lowercases, drops stopwords + short
+    tokens, dedupes, returns up to 8 distinct keywords. Used when the
+    LLM creates a collaborator without explicit
+    memory_filter.topic_keywords — gives the collaborator at least
+    *some* relevant slice of the parent's memory by default rather
+    than starting cold and confabulating (the AWS Polly hallucination
+    that surfaced when Grant said "research collaborator that knows
+    about Polly and rate sheets").
+    """
+    import re
+    tokens = re.findall(r"[A-Za-z][A-Za-z0-9_-]{2,}", persona_prompt or "")
+    seen: list[str] = []
+    for tok in tokens:
+        low = tok.lower()
+        if low in _KEYWORD_STOPWORDS or low in seen:
+            continue
+        seen.append(low)
+        if len(seen) >= 8:
+            break
+    return seen
+
+
 # Recursion guard (Decision W6-5). When set, agent.delegate_to refuses
 # to spawn another collaborator — depth=1 max. Implemented as a
 # contextvar so concurrent collaborator runs from the parent don't
@@ -172,7 +218,16 @@ def _run_collaborator_turn(
         f"{memory_summary}\n\n"
         "You were spawned by your parent agent to handle a specific "
         "task. Return a single concise response. You cannot delegate "
-        "to other collaborators (recursion is capped at 1)."
+        "to other collaborators (recursion is capped at 1).\n\n"
+        "CRITICAL — anti-hallucination rule: if the user mentions a "
+        "name, project, term, or topic that is NOT explicitly in the "
+        "memory above, do NOT guess what it might mean. Say "
+        "\"I don't have any context on <X> yet — what does it mean to "
+        "you?\" and stop. Do not confabulate. Do not assume a famous "
+        "or popular meaning of an ambiguous word — your parent's "
+        "domain is almost certainly different from the most-Googled "
+        "answer. Real example: the parent says \"Polly\" — without "
+        "shared memory you must NOT assume AWS Polly TTS; ask."
     )
 
     messages: list[dict[str, str]] = [

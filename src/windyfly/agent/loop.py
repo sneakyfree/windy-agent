@@ -11,6 +11,7 @@ import json
 import logging
 from typing import Any
 
+from windyfly.agent.capabilities import capability_registry
 from windyfly.agent.context_header import maybe_prepend_header
 from windyfly.agent.emotion_detector import detect_emotional_context, get_emotional_trend
 from windyfly.agent.intent_detector import detect_intent
@@ -36,6 +37,37 @@ _session_tokens_used: int = 0
 
 # Default tool re-loop rounds (overridden by slider)
 _DEFAULT_TOOL_ROUNDS = 3
+
+
+def _user_message_mentions_local(text: str) -> bool:
+    """Heuristic: does the message reference a local file/path/repo?
+
+    Triggers the FS-tool nudge in agent_respond. Intentionally
+    conservative — false positives just add ~50 tokens to the prompt;
+    false negatives mean the LLM web_searches when it should
+    fs.read_file.
+    """
+    if not text:
+        return False
+    lower = text.lower()
+    # Path-shaped strings (./x, /Users/, ~/, src/, etc.)
+    if any(seg in text for seg in ("/Users/", "~/", "./", "../")):
+        return True
+    if "/" in text and any(
+        ext in lower for ext in (".md", ".py", ".ts", ".js", ".toml",
+                                  ".json", ".yaml", ".yml", ".txt",
+                                  ".sh", ".rs", ".go")
+    ):
+        return True
+    # Possessive references to local artifacts
+    triggers = (
+        "my repo", "my windy", "my project", "my folder", "my file",
+        "my directory", "my notes", "my code", "in src/", "in tests/",
+        "in docs/", "in scripts/", "windy-agent", "windy-pro",
+        "windy-cloud", "windy-mail", "windy-chat", "windy-code",
+        "windy-clone", "nachocrunch", "soul.md", "claude.md",
+    )
+    return any(t in lower for t in triggers)
 
 
 def _dispatch_tool_call(
@@ -135,6 +167,30 @@ def agent_respond(
         band = Band.OWNER
     # 1. Assemble prompt
     messages = assemble_prompt(config, db, user_message, session_id)
+
+    # 1.0.5 — Capability-aware tool-selection nudge.
+    # When the user references a local path / file / repo / folder, the
+    # LLM (especially GLM-4) tends to default to web_search instead of
+    # fs.read_file even though the FS capability is in its tool list.
+    # Inject a tight instruction per-call so it picks correctly. Only
+    # fires when the registry actually has fs.* capabilities AND the
+    # message looks path-ish — otherwise we waste tokens.
+    if (
+        capability_registry.get("fs.read_file")
+        and _user_message_mentions_local(user_message)
+    ):
+        messages.insert(1, {
+            "role": "system",
+            "content": (
+                "The user is referring to something on the local "
+                "machine (a file, repo, folder, or path). You have "
+                "fs.read_file, fs.list_directory, fs.glob, and "
+                "fs.grep_files available. Use those FIRST before "
+                "falling back to web_search or asking the user to "
+                "paste content. Common locations: ~/windy-agent, "
+                "~/windy-clone, ~/projects."
+            ),
+        })
 
     # 1.1. First interaction magic
     from windyfly.agent.first_interaction import (
