@@ -4,6 +4,10 @@ Routes to any provider via the provider registry. Anthropic uses its own
 SDK (different API format). Everything else goes through the OpenAI SDK
 with a swappable base_url — works for Grok, Gemini, DeepSeek, Mistral,
 Ollama, and any future OpenAI-compatible lab.
+
+Resilience: when ``[agent] failover_chain`` is set in config, ``call_llm``
+walks the chain on provider failures (5xx, 429, 401, network) and skips
+providers in cooldown after recent failures (circuit-breaker pattern).
 """
 
 from __future__ import annotations
@@ -30,7 +34,62 @@ COST_MAP: dict[str, dict[str, float]] = {
     "gemini-2.5-flash": {"input": 0.00015, "output": 0.0006},
     "deepseek-chat": {"input": 0.00014, "output": 0.00028},
     "deepseek-reasoner": {"input": 0.00055, "output": 0.00219},
+    "glm-4.7": {"input": 0.0006, "output": 0.0023},
+    "glm-4": {"input": 0.0014, "output": 0.0014},
+    "glm-4-flash": {"input": 0.0, "output": 0.0},
 }
+
+# Per-provider circuit breaker. After N consecutive failures, skip the
+# provider for an exponentially-growing cooldown window so we don't burn
+# 30 doomed calls per minute against a 503-ing endpoint.
+_COOLDOWN_BASE_S = 30
+_COOLDOWN_MAX_S = 300
+# provider_key → (cooldown_until_ts, consecutive_failure_count)
+_provider_cooldowns: dict[str, tuple[float, int]] = {}
+
+
+def _is_provider_in_cooldown(provider_key: str) -> bool:
+    entry = _provider_cooldowns.get(provider_key)
+    if entry is None:
+        return False
+    cooldown_until, _ = entry
+    return time.time() < cooldown_until
+
+
+def _record_provider_failure(provider_key: str) -> None:
+    _, prev_count = _provider_cooldowns.get(provider_key, (0.0, 0))
+    new_count = prev_count + 1
+    cooldown_s = min(_COOLDOWN_BASE_S * new_count, _COOLDOWN_MAX_S)
+    _provider_cooldowns[provider_key] = (time.time() + cooldown_s, new_count)
+    logger.warning(
+        "Provider %s in cooldown for %ds (consecutive failures: %d)",
+        provider_key, cooldown_s, new_count,
+    )
+
+
+def _record_provider_success(provider_key: str) -> None:
+    if provider_key in _provider_cooldowns:
+        del _provider_cooldowns[provider_key]
+
+
+def _build_chain(
+    explicit_model: str | None,
+    config: dict[str, Any] | None,
+) -> list[str]:
+    """Decide which models to walk on this call.
+
+    If the caller passed an explicit ``model``, honor it as the only target
+    (no failover — they asked for *this* model specifically). Otherwise use
+    the configured ``failover_chain``, falling back to the single
+    ``default_model`` for back-compat with existing configs.
+    """
+    if explicit_model is not None:
+        return [explicit_model]
+    agent_cfg = (config or {}).get("agent", {})
+    chain = agent_cfg.get("failover_chain")
+    if chain:
+        return list(chain)
+    return [agent_cfg.get("default_model", "gpt-4o-mini")]
 
 
 def estimate_cost(model: str, input_tokens: int, output_tokens: int) -> float:
@@ -56,40 +115,79 @@ def call_llm(
     tools: list[dict] | None = None,
     config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Call an LLM provider based on the model name.
+    """Call an LLM, walking the configured failover chain on failures.
 
-    Automatically routes to the correct provider using the registry.
-    Anthropic uses its own SDK; everything else uses the OpenAI SDK
-    with a provider-specific base_url.
+    Per provider in the chain:
+      - Skip if currently in cooldown.
+      - Skip if no api_key configured (and not a localhost provider).
+      - One attempt, immediate fail-forward — the per-provider cooldown
+        plus the chain ordering already buys us recovery without burning
+        triple retries against a dying endpoint.
+
+    On success, the provider's cooldown is cleared. On final failure
+    after the whole chain, raise with the list of attempted providers.
+
+    When ``model`` is passed explicitly, the chain is not used (the
+    caller asked for that specific model).
     """
-    if model is None:
-        model = (config or {}).get("agent", {}).get("default_model", "gpt-4o-mini")
+    chain = _build_chain(model, config)
 
-    provider = get_provider_for_model(model, config)
-    provider_type = provider.get("type", "openai")
-    api_key = provider.get("api_key", "")
-
-    max_retries = 3
     last_error: Exception | None = None
+    attempted: list[str] = []
+    skipped: list[str] = []
 
-    for attempt in range(max_retries):
+    for chain_model in chain:
+        provider = get_provider_for_model(chain_model, config)
+        provider_key = provider.get("provider_key", "unknown")
+        provider_type = provider.get("type", "openai")
+        api_key = provider.get("api_key", "")
+        base_url = provider.get("base_url", "https://api.openai.com/v1")
+
+        # Skip if no key (Ollama-style local providers don't need one)
+        if not api_key and "localhost" not in base_url:
+            skipped.append(f"{provider_key}({chain_model}):no-key")
+            continue
+
+        # Skip if in cooldown — unless this is the only chain entry, in
+        # which case attempt anyway as a degraded last resort
+        if _is_provider_in_cooldown(provider_key) and len(chain) > 1:
+            skipped.append(f"{provider_key}({chain_model}):cooldown")
+            continue
+
+        attempted.append(f"{provider_key}({chain_model})")
+        is_failover = len(attempted) > 1
+        if is_failover:
+            logger.warning(
+                "FAILOVER: %s after %s",
+                attempted[-1], ", ".join(attempted[:-1]),
+            )
+
         try:
             if provider_type == "anthropic":
-                return _call_anthropic(messages, model, temperature, max_tokens, tools, api_key)
+                result = _call_anthropic(
+                    messages, chain_model, temperature, max_tokens, tools, api_key,
+                )
             else:
-                base_url = provider.get("base_url", "https://api.openai.com/v1")
-                return _call_openai(messages, model, temperature, max_tokens, tools, base_url, api_key)
+                result = _call_openai(
+                    messages, chain_model, temperature, max_tokens,
+                    tools, base_url, api_key,
+                )
+            _record_provider_success(provider_key)
+            return result
         except Exception as e:
             last_error = e
-            if attempt < max_retries - 1:
-                wait = 2 ** attempt
-                logger.warning(
-                    "LLM call failed (attempt %d/%d), retrying in %ds: %s",
-                    attempt + 1, max_retries, wait, e,
-                )
-                time.sleep(wait)
+            logger.warning(
+                "Provider %s (%s) failed: %s",
+                provider_key, chain_model, e,
+            )
+            _record_provider_failure(provider_key)
 
-    raise RuntimeError(f"LLM call failed after {max_retries} retries: {last_error}")
+    summary = f"attempted={attempted}"
+    if skipped:
+        summary += f", skipped={skipped}"
+    raise RuntimeError(
+        f"LLM call failed across all providers in chain ({summary}): {last_error}"
+    )
 
 
 def _call_openai(
