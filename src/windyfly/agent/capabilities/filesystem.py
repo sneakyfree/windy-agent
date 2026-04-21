@@ -373,6 +373,256 @@ def _grep_files_handler(
     }
 
 
+def _atomic_write_text(target: Path, content: str) -> int:
+    """Write ``content`` to ``target`` atomically via temp + rename.
+
+    Same-filesystem rename is atomic on every POSIX. If we crash
+    mid-write, the target either has the old contents (if it existed
+    and we were overwriting) or doesn't exist (if we were creating).
+    No partial-write state.
+
+    Returns bytes written.
+    """
+    tmp = target.with_suffix(target.suffix + ".windy.tmp")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    raw = content.encode("utf-8")
+    with open(tmp, "wb") as f:
+        f.write(raw)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, target)
+    return len(raw)
+
+
+def _write_file_handler(
+    *, path: str, content: str,
+    overwrite: bool = False,
+    dry_run: bool = False,
+    _allowed_roots: list[str] | None = None,
+    _journal_path: str | None = None,
+) -> dict[str, Any]:
+    """Write a text file. Atomic via temp + rename.
+
+    Default ``overwrite=false`` rejects writes to existing paths
+    (Tier.WRITE_LOCAL_SAFE — USER+). Pass ``overwrite=true`` to
+    replace an existing file (the runtime tier escalation in the
+    Capability descriptor bumps the band requirement to TRUSTED+).
+
+    ``dry_run=true`` returns the plan without writing — uniform shape
+    across every Wave 4+ destructive capability.
+    """
+    from windyfly.agent.capabilities.undo_journal import (
+        append_record, capture_file_state,
+    )
+
+    roots = _allowed_roots or []
+    resolved = _resolve_and_check(path, roots)
+
+    exists = resolved.exists()
+    if exists and not overwrite:
+        raise FileExistsError(
+            f"{path!r} already exists; pass overwrite=true to replace "
+            "(elevates the call to Tier.WRITE_DESTRUCTIVE / TRUSTED+ band)"
+        )
+    if exists and resolved.is_dir():
+        raise IsADirectoryError(
+            f"{path!r} is a directory; refusing to overwrite as a file"
+        )
+
+    plan = {
+        "action": "overwrite" if exists else "create",
+        "target": str(resolved),
+        "would_write_bytes": len(content.encode("utf-8")),
+        "exists": exists,
+        "side_effects": (
+            [f"overwrites existing {resolved.stat().st_size} bytes"]
+            if exists else
+            [f"creates new file in {resolved.parent}"]
+        ),
+    }
+
+    if dry_run:
+        return {"plan": plan, "executed": False, "preview_only": True}
+
+    # Capture original_state for undo BEFORE writing — if the write
+    # fails after journal write but before completion, we still have
+    # the breadcrumb to recover.
+    record_id = None
+    if exists:
+        original = capture_file_state(resolved)
+        record_id = append_record(
+            capability_id="fs.write_file",
+            action="overwrite",
+            target=str(resolved),
+            original_state=original,
+            journal_path=_journal_path,
+        )
+
+    written = _atomic_write_text(resolved, content)
+
+    return {
+        "plan": plan,
+        "executed": True,
+        "atomic": True,
+        "bytes_written": written,
+        "undo_record_id": record_id,
+        "outcome_score": 1.0,
+    }
+
+
+def _move_file_handler(
+    *, source: str, destination: str,
+    dry_run: bool = False,
+    _allowed_roots: list[str] | None = None,
+    _journal_path: str | None = None,
+) -> dict[str, Any]:
+    """Move a file from source to destination, both inside allowlist."""
+    from windyfly.agent.capabilities.undo_journal import append_record
+
+    roots = _allowed_roots or []
+    src_resolved = _resolve_and_check(source, roots)
+    dst_resolved = _resolve_and_check(destination, roots)
+
+    if not src_resolved.exists():
+        raise FileNotFoundError(f"source {source!r} does not exist")
+    if dst_resolved.exists():
+        raise FileExistsError(
+            f"destination {destination!r} already exists; refusing "
+            "to clobber (use fs.write_file with overwrite=true to overwrite)"
+        )
+
+    plan = {
+        "action": "move",
+        "source": str(src_resolved),
+        "target": str(dst_resolved),
+        "side_effects": [f"moves {src_resolved.name} → {dst_resolved}"],
+    }
+
+    if dry_run:
+        return {"plan": plan, "executed": False, "preview_only": True}
+
+    record_id = append_record(
+        capability_id="fs.move_file",
+        action="move",
+        target=str(dst_resolved),
+        original_state=None,
+        extra={"source": str(src_resolved)},
+        journal_path=_journal_path,
+    )
+
+    dst_resolved.parent.mkdir(parents=True, exist_ok=True)
+    src_resolved.rename(dst_resolved)
+
+    return {
+        "plan": plan,
+        "executed": True,
+        "undo_record_id": record_id,
+        "outcome_score": 1.0,
+    }
+
+
+def _delete_file_handler(
+    *, path: str,
+    dry_run: bool = False,
+    _allowed_roots: list[str] | None = None,
+    _journal_path: str | None = None,
+) -> dict[str, Any]:
+    """Delete a file. Captures original state to the undo journal first
+    so fs.undo_last_action can resurrect it (within the journal
+    retention window)."""
+    from windyfly.agent.capabilities.undo_journal import (
+        append_record, capture_file_state, MAX_ORIGINAL_STATE_BYTES,
+    )
+
+    roots = _allowed_roots or []
+    resolved = _resolve_and_check(path, roots)
+
+    if not resolved.exists():
+        raise FileNotFoundError(f"{path!r} does not exist")
+    if resolved.is_dir():
+        raise IsADirectoryError(
+            f"{path!r} is a directory; fs.delete_file refuses dirs "
+            "(use fs.delete_directory in Wave 4 #2)"
+        )
+
+    size = resolved.stat().st_size
+    plan = {
+        "action": "delete",
+        "target": str(resolved),
+        "size_bytes": size,
+        "undo_supported": size <= MAX_ORIGINAL_STATE_BYTES,
+        "side_effects": [f"removes 1 file", f"frees {size} bytes"],
+    }
+
+    if dry_run:
+        return {"plan": plan, "executed": False, "preview_only": True}
+
+    original = capture_file_state(resolved)
+    record_id = append_record(
+        capability_id="fs.delete_file",
+        action="delete",
+        target=str(resolved),
+        original_state=original,
+        journal_path=_journal_path,
+    )
+
+    resolved.unlink()
+
+    return {
+        "plan": plan,
+        "executed": True,
+        "undo_record_id": record_id,
+        "outcome_score": 1.0,
+    }
+
+
+def _undo_last_action_handler(
+    *, record_id: str | None = None,
+    _journal_path: str | None = None,
+) -> dict[str, Any]:
+    """Undo the most recent (or named) destructive action.
+
+    The marketing moment: 'I just deleted 47 files. Undo.' → reverses.
+    Hermes doesn't ship this. OpenClaw doesn't ship this. We do, by
+    construction.
+    """
+    from windyfly.agent.capabilities.undo_journal import (
+        find_record, latest_undoable_record, mark_undone, restore_from_record,
+    )
+
+    record = (
+        find_record(record_id, _journal_path)
+        if record_id
+        else latest_undoable_record(_journal_path)
+    )
+    if record is None:
+        return {
+            "executed": False,
+            "reason": (
+                f"no undoable record found"
+                + (f" with id {record_id}" if record_id else "")
+            ),
+        }
+
+    if record.get("undone"):
+        return {
+            "executed": False,
+            "reason": f"record {record['id']} was already undone at {record.get('undone_at')}",
+        }
+
+    restoration = restore_from_record(record)
+    mark_undone(record["id"], _journal_path)
+
+    return {
+        "executed": True,
+        "record_id": record["id"],
+        "original_action": record["action"],
+        "original_capability": record["capability_id"],
+        "restored": restoration,
+        "outcome_score": 1.0,
+    }
+
+
 def _default_allowed_roots() -> list[str]:
     """Default allowlist if config doesn't override.
 
@@ -553,5 +803,175 @@ def register_filesystem_capabilities(
             "required": ["pattern", "root"],
         },
         tier=Tier.READ_EXTERNAL,
+        scope="filesystem_allowlist",
+    ))
+
+    # ── Wave 4 #1: write hands ──────────────────────────────────────
+
+    journal_path = fs_cfg.get("undo_journal_path")  # None → default ~/.windy/undo-journal.ndjson
+
+    def fs_write_file(
+        *, path: str, content: str,
+        overwrite: bool = False,
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        return _write_file_handler(
+            path=path, content=content,
+            overwrite=overwrite, dry_run=dry_run,
+            _allowed_roots=allowed_roots,
+            _journal_path=journal_path,
+        )
+
+    def fs_move_file(
+        *, source: str, destination: str,
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        return _move_file_handler(
+            source=source, destination=destination, dry_run=dry_run,
+            _allowed_roots=allowed_roots,
+            _journal_path=journal_path,
+        )
+
+    def fs_delete_file(
+        *, path: str, dry_run: bool = False,
+    ) -> dict[str, Any]:
+        return _delete_file_handler(
+            path=path, dry_run=dry_run,
+            _allowed_roots=allowed_roots,
+            _journal_path=journal_path,
+        )
+
+    def fs_undo_last_action(
+        *, record_id: str | None = None,
+    ) -> dict[str, Any]:
+        return _undo_last_action_handler(
+            record_id=record_id,
+            _journal_path=journal_path,
+        )
+
+    def _write_file_runtime_check(args: dict[str, Any]) -> Tier | None:
+        """Bump fs.write_file to WRITE_DESTRUCTIVE when overwrite=true.
+
+        The blessed Wave 4 design (Decision W4-4): write_file ships at
+        Tier.WRITE_LOCAL_SAFE statically (USER+); when called with
+        overwrite=true, the runtime escalation hook bumps it to
+        Tier.WRITE_DESTRUCTIVE (TRUSTED+) so grandma's USER-band
+        instance can't accidentally overwrite files.
+        """
+        if args.get("overwrite") is True:
+            return Tier.WRITE_DESTRUCTIVE
+        return None
+
+    registry.register(Capability(
+        id="fs.write_file",
+        description=(
+            "Write text content to a file atomically (temp + rename). "
+            "Default refuses to overwrite existing files; pass "
+            "overwrite=true to replace (this elevates the call to a "
+            "higher band requirement automatically). Use dry_run=true "
+            "to preview the action without writing. Path must be inside "
+            "the agent's allowed roots."
+        ),
+        handler=fs_write_file,
+        input_schema={
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Absolute or ~-expanded target path.",
+                },
+                "content": {
+                    "type": "string",
+                    "description": "UTF-8 text content to write.",
+                },
+                "overwrite": {
+                    "type": "boolean",
+                    "description": (
+                        "If true, replace an existing file. Elevates the "
+                        "call to TRUSTED+ band requirement at runtime."
+                    ),
+                },
+                "dry_run": {
+                    "type": "boolean",
+                    "description": "If true, return the plan without writing.",
+                },
+            },
+            "required": ["path", "content"],
+        },
+        tier=Tier.WRITE_LOCAL_SAFE,
+        scope="filesystem_allowlist",
+        runtime_tier_check=_write_file_runtime_check,
+    ))
+
+    registry.register(Capability(
+        id="fs.move_file",
+        description=(
+            "Move/rename a file from source to destination. Both must "
+            "be inside allowed roots. Refuses to clobber an existing "
+            "destination — use fs.write_file with overwrite=true for "
+            "that. Logs an undo record so fs.undo_last_action can "
+            "reverse the move."
+        ),
+        handler=fs_move_file,
+        input_schema={
+            "type": "object",
+            "properties": {
+                "source": {"type": "string"},
+                "destination": {"type": "string"},
+                "dry_run": {"type": "boolean"},
+            },
+            "required": ["source", "destination"],
+        },
+        tier=Tier.WRITE_DESTRUCTIVE,
+        scope="filesystem_allowlist",
+    ))
+
+    registry.register(Capability(
+        id="fs.delete_file",
+        description=(
+            "Delete a single file. Captures the file's contents to the "
+            "undo journal first so fs.undo_last_action can restore it "
+            "(within the journal's 30-day retention window, for files "
+            "≤5MB). Refuses directories; use fs.delete_directory in a "
+            "future PR for that. dry_run=true returns the plan without "
+            "deleting."
+        ),
+        handler=fs_delete_file,
+        input_schema={
+            "type": "object",
+            "properties": {
+                "path": {"type": "string"},
+                "dry_run": {"type": "boolean"},
+            },
+            "required": ["path"],
+        },
+        tier=Tier.WRITE_DESTRUCTIVE,
+        scope="filesystem_allowlist",
+    ))
+
+    registry.register(Capability(
+        id="fs.undo_last_action",
+        description=(
+            "Reverse the most recent destructive action recorded in "
+            "the undo journal (fs.write_file overwrite, fs.move_file, "
+            "fs.delete_file). Pass record_id to undo a specific record "
+            "instead of the latest. Returns {executed, restored, ...}. "
+            "Some actions can't be undone (e.g., delete of a >5MB file)."
+        ),
+        handler=fs_undo_last_action,
+        input_schema={
+            "type": "object",
+            "properties": {
+                "record_id": {
+                    "type": "string",
+                    "description": (
+                        "Optional. Specific journal record id. "
+                        "If omitted, undoes the latest unundone record."
+                    ),
+                },
+            },
+            "required": [],
+        },
+        tier=Tier.WRITE_LOCAL_SAFE,
         scope="filesystem_allowlist",
     ))
