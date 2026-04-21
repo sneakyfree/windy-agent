@@ -60,10 +60,9 @@ if pgrep -f "$PROC_PATTERN" >/dev/null; then
         pgrep -f "$PROC_PATTERN" >/dev/null || break
         sleep 1
     done
-    # Force-kill anything still alive — main.py currently holds an
-    # asyncio.sleep loop that doesn't observe the channel's graceful
-    # shutdown signal, so SIGKILL is the reliable backstop until that
-    # is refactored. Tracked as a follow-up.
+    # SIGKILL backstop in case the bot is wedged mid-LLM-call or in a
+    # prior pre-shutdown-coordination build. Post-#48 main.py exits
+    # cleanly on SIGTERM, so this branch is mostly dead code now.
     pkill -KILL -f "$PROC_PATTERN" 2>/dev/null || true
     sleep 1
 fi

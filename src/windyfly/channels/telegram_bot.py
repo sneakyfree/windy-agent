@@ -9,18 +9,20 @@ Resilience model (parity with matrix_bot.py):
   - Error handler logs every polling error so one bad update can't
     masquerade as a system failure
   - 5-minute heartbeat logging (connected, last success age)
-  - Graceful shutdown on SIGTERM/SIGINT
   - Reconnect events written to the observability ledger when a
     Database + WriteQueue are wired in
+
+Signal-driven shutdown lives at the application layer (main.py). The
+channel only exposes ``stop()``; the application orchestrates the
+lifecycle so that ``write_queue.stop()`` and ``db.close()`` actually
+get to run before the process exits.
 """
 
 from __future__ import annotations
 
 import asyncio
-import functools
 import logging
 import os
-import signal
 import time
 from typing import Any
 
@@ -111,13 +113,7 @@ class TelegramChannel(ChannelAdapter):
             if last_error is not None:
                 raise last_error
 
-        # Set up signal handlers + heartbeat once polling is up.
-        try:
-            loop = asyncio.get_running_loop()
-            self._setup_signal_handlers(loop)
-        except RuntimeError:
-            logger.debug("Could not register signal handlers (no running loop)")
-
+        # Heartbeat task runs until stop() is called.
         self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
 
     async def _on_polling_error(self, update: Any, context: Any) -> None:
@@ -147,29 +143,6 @@ class TelegramChannel(ChannelAdapter):
             except Exception as e:
                 logger.debug("Heartbeat error: %s", e)
             await asyncio.sleep(_HEARTBEAT_INTERVAL_S)
-
-    def _setup_signal_handlers(self, loop: asyncio.AbstractEventLoop) -> None:
-        """Register SIGTERM and SIGINT handlers for graceful shutdown."""
-        for sig in (signal.SIGTERM, signal.SIGINT):
-            try:
-                loop.add_signal_handler(
-                    sig,
-                    functools.partial(self._handle_shutdown_signal, sig, loop),
-                )
-            except (NotImplementedError, RuntimeError):
-                # Windows or non-main-thread — fall back to signal.signal
-                try:
-                    signal.signal(sig, lambda s, f: self._handle_shutdown_signal(s, loop))
-                except (OSError, ValueError):
-                    pass
-
-    def _handle_shutdown_signal(
-        self, sig: int, loop: asyncio.AbstractEventLoop,
-    ) -> None:
-        sig_name = signal.Signals(sig).name if hasattr(signal, "Signals") else str(sig)
-        logger.info("Received %s — initiating graceful shutdown...", sig_name)
-        self._shutting_down = True
-        loop.create_task(self.stop())
 
     def _log_reconnect_event(self, error: str, backoff_seconds: int) -> None:
         """Best-effort write to the observability ledger."""
