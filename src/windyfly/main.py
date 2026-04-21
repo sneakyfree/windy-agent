@@ -174,73 +174,33 @@ def main() -> None:
     elif args.channel == "matrix":
         import asyncio
 
+        from windyfly.agent.boot import (
+            BootContext, BootSequence,
+            default_capability_registration_sequence,
+        )
+        from windyfly.agent.capabilities import capability_registry
         from windyfly.channels.matrix_bot import WindyFlyMatrixBot
         from windyfly.memory.database import Database
         from windyfly.memory.write_queue import WriteQueue
         from windyfly.tools.registry import ToolRegistry
-        from windyfly.tools.web_search import register_web_search_tool
-        from windyfly.tools.windy_api import register_windy_tools
 
         db = Database(db_path)
         write_queue = WriteQueue()
         write_queue.start()
 
         tool_registry = ToolRegistry()
-        register_windy_tools(tool_registry)
-        register_web_search_tool(tool_registry)
 
-        # Register everyday tools
-        from windyfly.tools.reminders import register_reminder_tools, start_reminder_checker
-        from windyfly.tools.todos import register_todo_tools
-        from windyfly.tools.weather import register_weather_tool
-        from windyfly.tools.news import register_news_tool
-        from windyfly.tools.calendar import register_calendar_tools
-
-        register_reminder_tools(tool_registry, db)
-        register_todo_tools(tool_registry, db)
-        register_weather_tool(tool_registry)
-        register_news_tool(tool_registry)
-        register_calendar_tools(tool_registry)
-
-        # Register utility tools (timer, convert, dice, calculate)
-        from windyfly.tools.utilities import register_utility_tools
-        register_utility_tools(tool_registry)
-
-        # Start reminder background checker
-        start_reminder_checker(db)
-
-        # Register sub-agent tool (G11)
-        from windyfly.agent.sub_agents import register_sub_agent_tool
-        register_sub_agent_tool(tool_registry, config, db, write_queue)
-
-        # Wave 2 #3: install audit hooks on the capability registry so
-        # any future capability invocation lands in agent_actions. The
-        # legacy tool_registry above keeps working unchanged — this only
-        # affects code that registers through capability_registry.
-        from windyfly.agent.capabilities import (
-            capability_registry,
-            install_audit_hooks,
-        )
-        install_audit_hooks(capability_registry, db, write_queue)
-
-        # Wave 3 #1: register the first real hands (read-only FS).
-        from windyfly.agent.capabilities.filesystem import (
-            register_filesystem_capabilities,
-        )
-        register_filesystem_capabilities(capability_registry, config)
-
-        # Wave 5 #1: register shell.exec (Docker-by-default).
-        from windyfly.agent.capabilities.shell import (
-            register_shell_capabilities,
-        )
-        register_shell_capabilities(capability_registry, config)
-
-        # Wave 6 #1: long-running named collaborators.
-        from windyfly.agent.capabilities.collaborators import (
-            register_collaborator_capabilities,
-        )
-        register_collaborator_capabilities(
-            capability_registry, db, write_queue, config,
+        # Wave 14b: canonical capability + tool registration sequence.
+        # Same call from both matrix and telegram branches so they can
+        # never drift the way they did pre-Wave 14 (the bug that
+        # motivated this abstraction — capabilities present in matrix
+        # but missing in telegram).
+        BootSequence(default_capability_registration_sequence()).run(
+            BootContext(
+                config=config, db=db, write_queue=write_queue,
+                tool_registry=tool_registry,
+                capability_registry=capability_registry,
+            )
         )
 
         bot = WindyFlyMatrixBot(config, db, write_queue, tool_registry)
@@ -255,14 +215,17 @@ def main() -> None:
         import asyncio
         import signal as _signal_mod
 
+        from windyfly.agent.boot import (
+            BootContext, BootSequence,
+            default_capability_registration_sequence,
+        )
+        from windyfly.agent.capabilities import capability_registry
         from windyfly.agent.loop import agent_respond
         from windyfly.channels.manager import ChannelManager
         from windyfly.channels.telegram_bot import TelegramChannel
         from windyfly.memory.database import Database
         from windyfly.memory.write_queue import WriteQueue
         from windyfly.tools.registry import ToolRegistry
-        from windyfly.tools.web_search import register_web_search_tool
-        from windyfly.tools.windy_api import register_windy_tools
 
         if not os.environ.get("TELEGRAM_BOT_TOKEN"):
             print(
@@ -274,28 +237,18 @@ def main() -> None:
         db = Database(db_path)
         write_queue = WriteQueue()
         write_queue.start()
-
         tool_registry = ToolRegistry()
-        register_windy_tools(tool_registry)
-        register_web_search_tool(tool_registry)
 
-        from windyfly.tools.reminders import register_reminder_tools, start_reminder_checker
-        from windyfly.tools.todos import register_todo_tools
-        from windyfly.tools.weather import register_weather_tool
-        from windyfly.tools.news import register_news_tool
-        from windyfly.tools.calendar import register_calendar_tools
-        from windyfly.tools.utilities import register_utility_tools
-
-        register_reminder_tools(tool_registry, db)
-        register_todo_tools(tool_registry, db)
-        register_weather_tool(tool_registry)
-        register_news_tool(tool_registry)
-        register_calendar_tools(tool_registry)
-        register_utility_tools(tool_registry)
-        start_reminder_checker(db)
-
-        from windyfly.agent.sub_agents import register_sub_agent_tool
-        register_sub_agent_tool(tool_registry, config, db, write_queue)
+        # Wave 14b: canonical capability + tool registration sequence.
+        # Same call from both matrix and telegram branches — additions
+        # made here propagate to both channels by construction.
+        BootSequence(default_capability_registration_sequence()).run(
+            BootContext(
+                config=config, db=db, write_queue=write_queue,
+                tool_registry=tool_registry,
+                capability_registry=capability_registry,
+            )
+        )
 
         # allowFrom defaults to Grant's Telegram ID per ACCESS_LOCKBOX §5
         # (fleet convention; never set to '*' on personal bots).
@@ -319,34 +272,6 @@ def main() -> None:
         # see the live DB + channel manager state.
         from windyfly.commands.core import wire_runtime
         wire_runtime(db=db, channel_manager=manager)
-
-        # Wave 2 #3: install audit hooks on the capability registry so
-        # any capability invocation lands in agent_actions.
-        from windyfly.agent.capabilities import (
-            capability_registry,
-            install_audit_hooks,
-        )
-        install_audit_hooks(capability_registry, db, write_queue)
-
-        # Wave 3 #1+#2: register read-only filesystem hands.
-        from windyfly.agent.capabilities.filesystem import (
-            register_filesystem_capabilities,
-        )
-        register_filesystem_capabilities(capability_registry, config)
-
-        # Wave 5 #1: register shell.exec (Docker-by-default).
-        from windyfly.agent.capabilities.shell import (
-            register_shell_capabilities,
-        )
-        register_shell_capabilities(capability_registry, config)
-
-        # Wave 6 #1: long-running named collaborators.
-        from windyfly.agent.capabilities.collaborators import (
-            register_collaborator_capabilities,
-        )
-        register_collaborator_capabilities(
-            capability_registry, db, write_queue, config,
-        )
 
         async def _run() -> None:
             stop_event = asyncio.Event()
