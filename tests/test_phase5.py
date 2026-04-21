@@ -256,5 +256,5 @@ class TestEventLogging:
     def test_schema_version_is_current(self):
         db = Database(":memory:")
         row = db.fetchone("SELECT MAX(version) as v FROM schema_version")
-        assert row["v"] == 4
+        assert row["v"] == 7  # Wave 14: tracing spine — request_id columns
         db.close()

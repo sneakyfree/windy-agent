@@ -20,6 +20,7 @@ def log_cost(
     cost_usd: float,
     *,
     task_type: str = "chat",
+    request_id: str | None = None,
 ) -> str:
     """Log an API call cost to the ledger.
 
@@ -30,17 +31,23 @@ def log_cost(
         output_tokens: Number of output tokens.
         cost_usd: Cost in USD.
         task_type: Type of task (default: 'chat').
+        request_id: Optional Wave 14 tracing correlation id.
 
     Returns:
         The generated ledger entry ID.
     """
+    if request_id is None:
+        from windyfly.agent.tracing import get_request_id
+        request_id = get_request_id()
     entry_id = str(uuid.uuid4())
     db.execute(
         """
-        INSERT INTO cost_ledger (id, model, input_tokens, output_tokens, cost_usd, task_type)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO cost_ledger (id, model, input_tokens, output_tokens,
+                                 cost_usd, task_type, request_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
-        (entry_id, model, input_tokens, output_tokens, cost_usd, task_type),
+        (entry_id, model, input_tokens, output_tokens, cost_usd,
+         task_type, request_id),
     )
     db.commit()
     return entry_id

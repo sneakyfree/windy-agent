@@ -155,6 +155,14 @@ def main() -> None:
     from windyfly.observability.redact import install_root_redaction
     install_root_redaction()
 
+    # Install Wave 14 tracing-spine log filter so every record carries
+    # the originating request_id (8-char short form) for trace lookups.
+    # Format string left as-is for now to avoid changing log shape; the
+    # filter runs anyway and request_id is available on every record
+    # for any future formatter that wants %(request_id)s.
+    from windyfly.agent.tracing import install_log_filter
+    install_log_filter()
+
     # Start background decay scheduler (G7)
     db_path = config.get("memory", {}).get("db_path", "data/windyfly.db")
     _start_decay_scheduler(config, db_path)

@@ -50,7 +50,7 @@ class TestDatabaseCreation:
         db = _make_db()
         row = db.fetchone("SELECT MAX(version) as v FROM schema_version")
         assert row is not None
-        assert row["v"] == 4
+        assert row["v"] == 7  # Wave 14: tracing spine — request_id columns
         db.close()
 
     def test_wal_mode(self):

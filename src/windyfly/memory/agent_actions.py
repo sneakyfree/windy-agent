@@ -38,19 +38,28 @@ def record_action_start(
     user_id: str | None = None,
     intent_id: str | None = None,
     parent_action_id: str | None = None,
+    request_id: str | None = None,
 ) -> None:
     """Insert the opening row for a capability invocation.
 
     The corresponding ``record_action_end`` updates the same row when
     the handler returns or raises.
+
+    ``request_id`` (Wave 14) is captured from the contextvar at enqueue
+    time so the audit row reflects the originating request even though
+    the actual write happens on the WriteQueue thread (which has its
+    own context).
     """
+    if request_id is None:
+        from windyfly.agent.tracing import get_request_id
+        request_id = get_request_id()
     write_queue.enqueue(
         Priority.HIGH,
         _do_insert_start,
         db,
         action_id, capability_id, tier, band, sandbox_tier,
         args_json, started_at, session_id, user_id,
-        intent_id, parent_action_id,
+        intent_id, parent_action_id, request_id,
     )
 
 
@@ -67,6 +76,7 @@ def _do_insert_start(
     user_id: str | None,
     intent_id: str | None,
     parent_action_id: str | None,
+    request_id: str | None,
 ) -> None:
     try:
         db.execute(
@@ -74,13 +84,13 @@ def _do_insert_start(
             INSERT INTO agent_actions (
                 id, capability_id, tier, band, sandbox_tier,
                 args_json, started_at, session_id, user_id,
-                intent_id, parent_action_id, success
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+                intent_id, parent_action_id, request_id, success
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
             """,
             (
                 action_id, capability_id, tier, band, sandbox_tier,
                 args_json, started_at, session_id, user_id,
-                intent_id, parent_action_id,
+                intent_id, parent_action_id, request_id,
             ),
         )
     except Exception as e:

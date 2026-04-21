@@ -123,9 +123,16 @@ def classify(exc: BaseException) -> ClassifiedError:
         category = ErrorCategory.UNKNOWN
 
     # Short report_id so "this broke" → grep the log → exact line in 5s.
-    # Six chars = 16M unique values per process; stable per-classify call.
-    import secrets
-    report_id = secrets.token_hex(3)
+    # Wave 14: prefer the in-flight request_id (from the tracing spine)
+    # so the user-facing "err:abc123" maps to the same trace id every
+    # log line/DB row in this request also carries. Falls back to a
+    # fresh hex token if no request context is active (rare — only
+    # bare-script uses outside agent_respond).
+    from windyfly.agent.tracing import request_id_for_user
+    report_id = request_id_for_user()
+    if report_id == "------":
+        import secrets
+        report_id = secrets.token_hex(3)
 
     user_message = _FRIENDLY_MSG[category]
     log_message = f"[err:{report_id}] [{category.value}] {name}: {exc}"

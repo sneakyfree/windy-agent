@@ -22,6 +22,7 @@ def save_episode(
     token_count: int | None = None,
     cost_usd: float | None = None,
     emotional_context: str | None = None,
+    request_id: str | None = None,
 ) -> str:
     """Save a conversation episode to the database.
 
@@ -34,19 +35,26 @@ def save_episode(
         token_count: Optional token count for this message.
         cost_usd: Optional cost in USD.
         emotional_context: Optional detected emotional state.
+        request_id: Optional Wave 14 tracing correlation id. If None,
+            falls back to the current contextvar so callers don't
+            need to plumb it explicitly.
 
     Returns:
         The generated episode ID (UUID4).
     """
+    if request_id is None:
+        from windyfly.agent.tracing import get_request_id
+        request_id = get_request_id()
     episode_id = str(uuid.uuid4())
     db.execute(
         """
         INSERT INTO episodes (id, role, content, session_id, summary,
-                              token_count, cost_usd, emotional_context)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                              token_count, cost_usd, emotional_context,
+                              request_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (episode_id, role, content, session_id, summary,
-         token_count, cost_usd, emotional_context),
+         token_count, cost_usd, emotional_context, request_id),
     )
     db.commit()
     return episode_id

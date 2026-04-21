@@ -18,6 +18,7 @@ from windyfly.agent.intent_detector import detect_intent
 from windyfly.agent.models import call_llm, estimate_cost
 from windyfly.agent.offline import get_offline_response, is_online
 from windyfly.agent.prompt import assemble_prompt
+from windyfly.agent.tracing import set_request_id, request_id_short
 from windyfly.control_panel import get_sliders
 from windyfly.memory.cost_ledger import log_cost
 from windyfly.memory.cost_tracker import check_budget
@@ -245,6 +246,16 @@ def agent_respond(
     )
     if band is None:
         band = Band.OWNER
+
+    # Wave 14 tracing spine: stamp this request with a UUID at entry so
+    # every downstream write (episodes, agent_actions, cost_ledger,
+    # events) and every log line flowing through the request_id filter
+    # can be correlated. Cheap, bounded, and zero-coupling — downstream
+    # callers reach get_request_id() lazily on the contextvar.
+    rid = set_request_id()
+    logger.info("[req:%s] agent_respond start session=%s band=%s",
+                request_id_short(), session_id, band)
+
     # 1. Assemble prompt
     messages = assemble_prompt(config, db, user_message, session_id)
 
