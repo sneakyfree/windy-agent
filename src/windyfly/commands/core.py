@@ -426,6 +426,60 @@ def _register_all():
     _r("caps", "List capabilities the agent can call (Capability Plane)",
        "02_diagnostics", cmd_caps)
 
+    async def cmd_seed_from_memory(ctx):
+        """Import Grant's user-memory files into the bot's nodes table.
+
+        One-shot operator command. Reads every ``.md`` file in
+        ``~/.claude/projects/-Users-thewindstorm/memory/`` (configurable
+        via ``WINDYFLY_USER_MEMORY_DIR``) and upserts each as a node with
+        type ``memory.<frontmatter_type>``. Idempotent — re-running
+        upserts existing nodes.
+
+        Without this, a fresh windy-0 instance has zero domain context
+        and collaborators confabulate (the AWS Polly TTS hallucination
+        Grant caught when he said "Polly and rate sheets").
+        """
+        if _db is None:
+            return (
+                "Database not wired into the command registry — restart "
+                "the bot or call wire_runtime(db=...) before /seed."
+            )
+
+        # Allow ``/seed dry-run`` to preview without writing
+        args = (ctx or {}).get("_args", []) or []
+        dry_run = any(a.lower() in ("dry", "dryrun", "dry-run", "preview") for a in args)
+
+        from windyfly.memory.seed_from_user_memory import seed_from_user_memory
+        result = seed_from_user_memory(_db, dry_run=dry_run)
+
+        if "error" in result:
+            return f"🪰 Seed failed\n{result['error']}\nmemory_dir={result['memory_dir']}"
+
+        lines = [
+            f"🪰 Seed {'(dry-run preview)' if dry_run else 'complete'}",
+            f"  imported:  {result['imported']}",
+            f"  skipped:   {result['skipped']}",
+            f"  errors:    {result['errors']}",
+            f"  memory_dir: {result['memory_dir']}",
+        ]
+        if result.get("imported_nodes"):
+            lines.append("\nNodes:")
+            for n in result["imported_nodes"][:20]:
+                lines.append(f"  • {n}")
+            extra = len(result["imported_nodes"]) - 20
+            if extra > 0:
+                lines.append(f"  ... and {extra} more")
+        if result.get("error_details"):
+            lines.append("\nErrors:")
+            for e in result["error_details"][:5]:
+                lines.append(f"  • {e['file']}: {e['error']}")
+        return "\n".join(lines)
+
+    _r("seed-from-memory",
+       "Import Grant's user-memory files as nodes (one-shot)",
+       "02_diagnostics", cmd_seed_from_memory,
+       aliases=["seed", "seed-memory"])
+
     async def cmd_debug(ctx):
         lines = ["=== WINDY FLY DEBUG INFO ==="]
         lines.append(f"Python: {sys.version}")
