@@ -266,6 +266,8 @@ def main() -> None:
         manager.register(TelegramChannel(
             allowed_user_ids=[owner_id],
             dm_policy=dm_policy,
+            db=db,
+            write_queue=write_queue,
         ))
 
         async def _run() -> None:
