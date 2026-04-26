@@ -243,6 +243,7 @@ def agent_respond(
         Band,
         CapabilityDenied,
         capability_registry,
+        set_current_session_id,
     )
     if band is None:
         band = Band.OWNER
@@ -253,6 +254,12 @@ def agent_respond(
     # can be correlated. Cheap, bounded, and zero-coupling — downstream
     # callers reach get_request_id() lazily on the contextvar.
     rid = set_request_id()
+    # Wave 14b session-id propagation: stamp the contextvar that the
+    # capability audit hooks read so every ``agent_actions`` row this
+    # request causes carries the originating session_id. Pre-fix, every
+    # ledger row had ``session_id IS NULL`` (caught by stress harness
+    # 2026-04-26 — couldn't correlate tool invocations to test cases).
+    set_current_session_id(session_id)
     logger.info("[req:%s] agent_respond start session=%s band=%s",
                 request_id_short(), session_id, band)
 
