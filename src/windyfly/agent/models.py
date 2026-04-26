@@ -12,8 +12,10 @@ providers in cooldown after recent failures (circuit-breaker pattern).
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
+import re
 import time
 from typing import Any
 
@@ -258,22 +260,72 @@ def _call_openai(
     }
 
 
-# Anthropic tool names must match ``^[a-zA-Z0-9_-]{1,128}$`` — dots are
-# rejected. Our capability ids use dots (``fs.read_file``,
-# ``agent.create_collaborator``, ``shell.exec``) because every other
-# provider accepts them. Sanitize on outgoing requests and restore on
-# incoming responses so the rest of the codebase keeps using dotted ids.
-# The marker is unusual enough that no real capability id will contain
-# the literal string, so the inverse map is unambiguous.
+# Anthropic tool names must match ``^[a-zA-Z0-9_-]{1,128}$``. Three
+# classes of failure happen in practice:
+#   1. Dots — our static capability ids use them (``fs.read_file``,
+#      ``agent.create_collaborator``, ``shell.exec``); kept as a
+#      first-class case for back-compat with the legacy ``__W_DOT__``
+#      marker so any in-flight tool call round-trips.
+#   2. Other illegal chars — dynamic tool names (e.g., a collaborator
+#      named "Math Helper" produced ``collaborator.Math Helper.send``)
+#      contain spaces, slashes, colons, unicode, anything user-supplied.
+#      The original sanitizer only handled (1), so every Anthropic call
+#      with such a tool returned 400. Production log evidence:
+#        ``tools.25.custom.name: String should match pattern``.
+#   3. Length > 128 — defense-in-depth for pathological cases.
+#
+# Strategy:
+#   - Step 1: ``.`` → ``__W_DOT__`` (preserves legacy round-trip).
+#   - Step 2: any remaining illegal char → ``_xNNNNNN_`` (6-digit
+#     lowercase hex codepoint; covers all of unicode through 0x10FFFF).
+#     The ``_x...._`` envelope can't collide with the legacy marker
+#     (``__W_DOT__`` has uppercase letters; hex pattern is lowercase).
+#   - Step 3: if final length > 128, truncate to 119 + ``_`` + 8-char
+#     SHA-256 hash of the *original* name for uniqueness. Truncated
+#     names are NOT losslessly restorable; ``_restore_from_anthropic``
+#     returns the truncated form and the caller's tool registry will
+#     emit "unknown tool" — preferable to silently routing to the
+#     wrong tool. In practice no real tool name approaches 128 chars.
+#   - Empty input falls back to a stable placeholder so we never emit
+#     an empty tool name (which would also fail the regex).
+
 _ANTHROPIC_DOT_MARKER = "__W_DOT__"
+_ANTHROPIC_INVALID_CHAR = re.compile(r"[^a-zA-Z0-9_-]")
+_ANTHROPIC_HEX_PATTERN = re.compile(r"_x([0-9a-f]{6})_")
+_ANTHROPIC_MAX_NAME_LEN = 128
+_ANTHROPIC_EMPTY_FALLBACK = "unnamed_tool"
 
 
 def _sanitize_for_anthropic(name: str) -> str:
-    return name.replace(".", _ANTHROPIC_DOT_MARKER)
+    """Make ``name`` valid against Anthropic's tool-name regex.
+
+    Round-trippable via :func:`_restore_from_anthropic` for any input
+    whose sanitized form fits in 128 chars (every real tool name).
+    """
+    if not name:
+        return _ANTHROPIC_EMPTY_FALLBACK
+    out = name.replace(".", _ANTHROPIC_DOT_MARKER)
+    out = _ANTHROPIC_INVALID_CHAR.sub(
+        lambda m: f"_x{ord(m.group(0)):06x}_", out
+    )
+    if len(out) > _ANTHROPIC_MAX_NAME_LEN:
+        suffix = hashlib.sha256(name.encode("utf-8")).hexdigest()[:8]
+        # Reserve 9 chars for "_" + 8-char hash suffix.
+        keep = _ANTHROPIC_MAX_NAME_LEN - 9
+        out = out[:keep] + "_" + suffix
+        logger.warning(
+            "Tool name truncated for Anthropic (orig_len=%d): %r → %r",
+            len(name), name[:60] + "..." if len(name) > 60 else name, out,
+        )
+    return out
 
 
 def _restore_from_anthropic(name: str) -> str:
-    return name.replace(_ANTHROPIC_DOT_MARKER, ".")
+    """Inverse of :func:`_sanitize_for_anthropic` for non-truncated names."""
+    out = _ANTHROPIC_HEX_PATTERN.sub(
+        lambda m: chr(int(m.group(1), 16)), name
+    )
+    return out.replace(_ANTHROPIC_DOT_MARKER, ".")
 
 
 def _openai_tools_to_anthropic(tools: list[dict]) -> list[dict]:
