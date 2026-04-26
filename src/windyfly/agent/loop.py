@@ -11,7 +11,13 @@ import json
 import logging
 from typing import Any
 
-from windyfly.agent.capabilities import capability_registry
+# capability_registry is re-exported as a module attribute on this
+# loop module because tests (test_telegram_chaos.py:57 et al.) patch
+# ``windyfly.agent.loop.capability_registry`` directly. The attribute
+# also gets shadowed by a parameter in ``_dispatch_tool_call`` and a
+# local re-import in ``agent_respond`` — both intentional and safe;
+# ruff's F811 noise is suppressed below.
+from windyfly.agent.capabilities import capability_registry  # noqa: F401
 from windyfly.agent.context_header import maybe_prepend_header
 from windyfly.agent.emotion_detector import detect_emotional_context, get_emotional_trend
 from windyfly.agent.intent_detector import detect_intent
@@ -155,7 +161,7 @@ def _dispatch_tool_call(
     fn_name: str,
     fn_args: Any,
     tool_registry: Any,
-    capability_registry: Any,
+    capability_registry: Any,  # noqa: F811 - intentional shadow of module re-export
     band: Any,
     capability_denied_exc: type,
 ) -> str:
@@ -239,7 +245,7 @@ def agent_respond(
     """
     # Resolve band default lazily so we don't import the Capability
     # Plane at module-load time (avoids circular-import surprises).
-    from windyfly.agent.capabilities import (
+    from windyfly.agent.capabilities import (  # noqa: F811 - lazy reimport intentional
         Band,
         CapabilityDenied,
         capability_registry,
@@ -252,8 +258,10 @@ def agent_respond(
     # every downstream write (episodes, agent_actions, cost_ledger,
     # events) and every log line flowing through the request_id filter
     # can be correlated. Cheap, bounded, and zero-coupling — downstream
-    # callers reach get_request_id() lazily on the contextvar.
-    rid = set_request_id()
+    # callers reach get_request_id() lazily on the contextvar. Return
+    # value isn't kept; the side-effect of populating the contextvar is
+    # the entire point.
+    set_request_id()
     # Wave 14b session-id propagation: stamp the contextvar that the
     # capability audit hooks read so every ``agent_actions`` row this
     # request causes carries the originating session_id. Pre-fix, every
