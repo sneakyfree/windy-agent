@@ -22,7 +22,11 @@ from windyfly.agent.capabilities.descriptor import (
     Tier,
     defaults_for_tier,
 )
-from windyfly.agent.capabilities.audit import install_audit_hooks
+from windyfly.agent.capabilities.audit import (
+    get_current_session_id,
+    install_audit_hooks,
+    set_current_session_id,
+)
 from windyfly.agent.capabilities.registry import (
     CapabilityRegistry,
     capability_registry,

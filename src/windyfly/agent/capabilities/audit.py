@@ -73,6 +73,33 @@ _current_action_started: contextvars.ContextVar[float] = contextvars.ContextVar(
     "capability_action_started", default=0.0,
 )
 
+# Wave 14b session-id propagation. ``agent_respond`` calls
+# :func:`set_current_session_id` at entry; the audit hooks read it via
+# the default :func:`get_current_session_id` provider so every
+# ``agent_actions`` row carries the originating session_id.
+#
+# Without this, every ledger row had ``session_id IS NULL`` and there
+# was no way to ask "which user request invoked this capability?" —
+# the harness on 2026-04-26 surfaced the gap when correlating tool
+# usage to test cases became impossible.
+_current_session_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "capability_session_id", default=None,
+)
+
+
+def set_current_session_id(session_id: str | None) -> None:
+    """Stamp the current task's session_id so audit rows carry it.
+
+    Safe to call from anywhere — channel adapters and the agent loop
+    both call it at the top of their per-message entrypoints.
+    """
+    _current_session_id.set(session_id)
+
+
+def get_current_session_id() -> str | None:
+    """Default ``session_id_provider`` used by :func:`install_audit_hooks`."""
+    return _current_session_id.get()
+
 
 def install_audit_hooks(
     registry: CapabilityRegistry,
@@ -93,9 +120,14 @@ def install_audit_hooks(
         write_queue: priority write queue (HIGH priority for both
             start and end so they don't sit behind episode writes).
         session_id_provider: optional callable returning the current
-            session id for inclusion in the ledger row. None means
-            session_id is left NULL.
+            session id for inclusion in the ledger row. Defaults to
+            :func:`get_current_session_id` which reads the contextvar
+            populated by :func:`set_current_session_id` (called from
+            ``agent_respond`` entry). Pass an explicit callable to
+            override (e.g., tests, or non-agent_respond callers).
     """
+    if session_id_provider is None:
+        session_id_provider = get_current_session_id
     if getattr(registry, "_audit_installed", False):
         logger.debug("Audit hooks already installed on this registry")
         return
