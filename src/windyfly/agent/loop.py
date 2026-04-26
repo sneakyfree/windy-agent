@@ -256,6 +256,20 @@ def agent_respond(
     logger.info("[req:%s] agent_respond start session=%s band=%s",
                 request_id_short(), session_id, band)
 
+    # 0. Empty-message guard. Anthropic returns 400 on empty user
+    # content (``messages.0: user messages must have non-empty
+    # content``); other providers behave the same. We refuse locally
+    # so a stray newline / whitespace from a channel adapter never
+    # burns an LLM call and never surfaces as a generic
+    # "Sorry, something went wrong" to the user. Caught by the windy-0
+    # stress harness 2026-04-26 (stress_v1.py edge_empty case).
+    if not (user_message or "").strip():
+        logger.info(
+            "[req:%s] empty user message — short-circuiting",
+            request_id_short(),
+        )
+        return "Did you mean to send something? I didn't catch a message."
+
     # 1. Assemble prompt
     messages = assemble_prompt(config, db, user_message, session_id)
 
