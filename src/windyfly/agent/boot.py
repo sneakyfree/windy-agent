@@ -258,6 +258,13 @@ def _step_register_collaborators(ctx: BootContext) -> None:
     )
 
 
+def _step_register_github(ctx: BootContext) -> None:
+    from windyfly.agent.capabilities.github import (
+        register_github_capabilities,
+    )
+    register_github_capabilities(ctx.capability_registry, ctx.config)
+
+
 def default_capability_registration_sequence() -> list[Step]:
     """The canonical post-DB-open registration order for both channels.
 
@@ -302,6 +309,11 @@ def default_capability_registration_sequence() -> list[Step]:
         Step(
             "capabilities.collaborators",
             _step_register_collaborators,
+            requires=("capabilities.audit",),
+        ),
+        Step(
+            "capabilities.github",
+            _step_register_github,
             requires=("capabilities.audit",),
         ),
     ]
