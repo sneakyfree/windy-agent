@@ -297,20 +297,22 @@ def restore_from_record(record: dict[str, Any]) -> dict[str, Any]:
             return {"restored": str(target), "kind": "file", "size": len(base64.b64decode(content_b64))}
         raise ValueError(f"cannot undo delete: unknown original kind {kind!r}")
 
-    if action == "overwrite":
-        # Same restoration logic as delete — write the original bytes
-        # back, replacing the new file.
+    if action in ("overwrite", "edit"):
+        # Same restoration logic for both: write the original bytes
+        # back, replacing the new file. ``edit`` is just an overwrite
+        # produced by string replacement (fs.edit_file); ``overwrite``
+        # is the wholesale write_file(overwrite=true) path.
         if state is None or state.get("kind") != "file":
-            raise ValueError(f"cannot undo overwrite of {target}: bad state")
+            raise ValueError(f"cannot undo {action} of {target}: bad state")
         if state.get("too_big") or state.get("content_b64") is None:
-            raise ValueError(f"cannot undo overwrite of {target}: original not preserved")
+            raise ValueError(f"cannot undo {action} of {target}: original not preserved")
         with open(target, "wb") as f:
             f.write(base64.b64decode(state["content_b64"]))
         try:
             os.chmod(target, state["mode"] & 0o777)
         except OSError:
             pass
-        return {"restored": str(target), "kind": "file", "action": "overwrite"}
+        return {"restored": str(target), "kind": "file", "action": action}
 
     if action == "move":
         original_source = record.get("extra", {}).get("source")

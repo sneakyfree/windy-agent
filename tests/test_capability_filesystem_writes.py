@@ -28,6 +28,7 @@ from windyfly.agent.capabilities import (
 from windyfly.agent.capabilities.filesystem import (
     _atomic_write_text,
     _delete_file_handler,
+    _edit_file_handler,
     _move_file_handler,
     _undo_last_action_handler,
     _write_file_handler,
@@ -463,3 +464,138 @@ async def test_undo_invoke_through_registry(write_sandbox):
     out = await r.invoke("fs.undo_last_action", {}, Band.USER)
     assert out["executed"] is True
     assert Path(target).read_text() == original
+
+
+# ── fs.edit_file — Claude Code-style string replacement ────────────
+
+
+def _seed_edit_target(sandbox, name="edit_me.txt", text="alpha beta gamma\n"):
+    p = Path(sandbox["allowed"]) / name
+    p.write_text(text)
+    return str(p)
+
+
+def test_edit_file_replaces_unique_match(write_sandbox):
+    target = _seed_edit_target(write_sandbox, text="hello world\n")
+    out = _edit_file_handler(
+        path=target, old_string="world", new_string="windy",
+        _allowed_roots=[write_sandbox["allowed"]],
+        _journal_path=write_sandbox["journal"],
+    )
+    assert out["executed"] is True
+    assert out["occurrences_replaced"] == 1
+    assert Path(target).read_text() == "hello windy\n"
+    assert out["undo_record_id"] is not None
+
+
+def test_edit_file_refuses_ambiguous_match(write_sandbox):
+    target = _seed_edit_target(write_sandbox, text="x x x\n")
+    with pytest.raises(ValueError, match="matches 3 times"):
+        _edit_file_handler(
+            path=target, old_string="x", new_string="y",
+            _allowed_roots=[write_sandbox["allowed"]],
+            _journal_path=write_sandbox["journal"],
+        )
+    # File untouched after refusal
+    assert Path(target).read_text() == "x x x\n"
+
+
+def test_edit_file_replace_all_with_ambiguous_match(write_sandbox):
+    target = _seed_edit_target(write_sandbox, text="x x x\n")
+    out = _edit_file_handler(
+        path=target, old_string="x", new_string="y",
+        replace_all=True,
+        _allowed_roots=[write_sandbox["allowed"]],
+        _journal_path=write_sandbox["journal"],
+    )
+    assert out["occurrences_replaced"] == 3
+    assert Path(target).read_text() == "y y y\n"
+
+
+def test_edit_file_refuses_when_old_string_not_found(write_sandbox):
+    target = _seed_edit_target(write_sandbox, text="hello\n")
+    with pytest.raises(ValueError, match="not found"):
+        _edit_file_handler(
+            path=target, old_string="missing", new_string="found",
+            _allowed_roots=[write_sandbox["allowed"]],
+            _journal_path=write_sandbox["journal"],
+        )
+
+
+def test_edit_file_refuses_empty_old_string(write_sandbox):
+    target = _seed_edit_target(write_sandbox)
+    with pytest.raises(ValueError, match="empty"):
+        _edit_file_handler(
+            path=target, old_string="", new_string="anything",
+            _allowed_roots=[write_sandbox["allowed"]],
+            _journal_path=write_sandbox["journal"],
+        )
+
+
+def test_edit_file_refuses_identical_old_and_new(write_sandbox):
+    target = _seed_edit_target(write_sandbox)
+    with pytest.raises(ValueError, match="identical"):
+        _edit_file_handler(
+            path=target, old_string="alpha", new_string="alpha",
+            _allowed_roots=[write_sandbox["allowed"]],
+            _journal_path=write_sandbox["journal"],
+        )
+
+
+def test_edit_file_refuses_nonexistent_path(write_sandbox):
+    target = os.path.join(write_sandbox["allowed"], "ghost.txt")
+    with pytest.raises(FileNotFoundError, match="does not exist"):
+        _edit_file_handler(
+            path=target, old_string="x", new_string="y",
+            _allowed_roots=[write_sandbox["allowed"]],
+            _journal_path=write_sandbox["journal"],
+        )
+
+
+def test_edit_file_refuses_directory(write_sandbox):
+    with pytest.raises(IsADirectoryError):
+        _edit_file_handler(
+            path=write_sandbox["allowed"], old_string="x", new_string="y",
+            _allowed_roots=[write_sandbox["allowed"]],
+            _journal_path=write_sandbox["journal"],
+        )
+
+
+def test_edit_file_dry_run_does_not_write(write_sandbox):
+    target = _seed_edit_target(write_sandbox, text="hello world\n")
+    out = _edit_file_handler(
+        path=target, old_string="world", new_string="windy",
+        dry_run=True,
+        _allowed_roots=[write_sandbox["allowed"]],
+        _journal_path=write_sandbox["journal"],
+    )
+    assert out["executed"] is False
+    assert out["preview_only"] is True
+    assert out["plan"]["occurrences_replaced"] == 1
+    assert Path(target).read_text() == "hello world\n"
+
+
+def test_edit_file_undo_restores_original(write_sandbox):
+    target = _seed_edit_target(write_sandbox, text="line one\nline two\n")
+    _edit_file_handler(
+        path=target, old_string="line two", new_string="line edited",
+        _allowed_roots=[write_sandbox["allowed"]],
+        _journal_path=write_sandbox["journal"],
+    )
+    assert Path(target).read_text() == "line one\nline edited\n"
+
+    out = _undo_last_action_handler(
+        record_id=None, _journal_path=write_sandbox["journal"],
+    )
+    assert out["executed"] is True
+    assert Path(target).read_text() == "line one\nline two\n"
+
+
+def test_edit_file_outside_allowlist_refused(write_sandbox):
+    forbidden = os.path.join(write_sandbox["forbidden"], "secret.txt")
+    with pytest.raises(PermissionError, match="outside the allowed roots"):
+        _edit_file_handler(
+            path=forbidden, old_string="nope", new_string="yes",
+            _allowed_roots=[write_sandbox["allowed"]],
+            _journal_path=write_sandbox["journal"],
+        )
