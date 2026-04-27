@@ -50,6 +50,7 @@ import logging
 import os
 import signal
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -399,6 +400,46 @@ def cmd_status(_args: argparse.Namespace) -> None:
     """Show comprehensive agent status using the rich tree display."""
     from windyfly.cli_status import print_status
     print_status()
+
+
+def cmd_setup_gmail(_args: argparse.Namespace) -> None:
+    """One-time Gmail OAuth flow → activates the email.send capability.
+
+    Prereqs:
+      1. Google Cloud project with the Gmail API enabled (the same
+         project the calendar tool uses is fine).
+      2. ``gmail.send`` scope added to the OAuth consent screen.
+      3. Desktop-app OAuth Client ID downloaded as
+         ``data/google_oauth_creds.json`` (or path in
+         ``GOOGLE_OAUTH_CREDENTIALS`` env var).
+
+    Opens a browser, captures the consent, writes
+    ``data/gmail_token.json``. Restart the bot afterwards so the
+    capability registers as ``configured=True``.
+    """
+    console.print("[bold cyan]🪰 Setting up Gmail OAuth...[/bold cyan]")
+    console.print()
+    from windyfly.agent.capabilities.email import setup_gmail_oauth
+    ok = setup_gmail_oauth()
+    if ok:
+        console.print()
+        console.print("[bold green]✓ Gmail connected.[/bold green]")
+        console.print(
+            "  Restart the bot to pick up the new token: "
+            "[cyan]systemctl --user restart windy-0.service[/cyan]"
+        )
+    else:
+        console.print()
+        console.print("[bold red]✗ Gmail setup failed.[/bold red]")
+        console.print(
+            "  See the logged reason above. Common fixes:\n"
+            "  • Download the Desktop-app OAuth client JSON from\n"
+            "    Google Cloud Console → APIs & Services → Credentials\n"
+            "  • Save it as data/google_oauth_creds.json (or set\n"
+            "    GOOGLE_OAUTH_CREDENTIALS to point at it)\n"
+            "  • Add the gmail.send scope to your OAuth consent screen"
+        )
+        sys.exit(1)
 
 
 def cmd_setup(_args: argparse.Namespace) -> None:
@@ -1365,6 +1406,12 @@ def main() -> None:
     # windy setup
     sub.add_parser("setup", help="Browser-based setup wizard")
 
+    # windy setup-gmail
+    sub.add_parser(
+        "setup-gmail",
+        help="One-time Gmail OAuth flow (activates email.send capability)",
+    )
+
     # ── Help ─────────────────────────────────────────────────────
 
     # windy help
@@ -1473,6 +1520,7 @@ def main() -> None:
         # Setup
         "init": cmd_init,
         "setup": cmd_setup,
+        "setup-gmail": cmd_setup_gmail,
         # Help
         "help": _cmd_help,
         "commands": _cmd_commands,

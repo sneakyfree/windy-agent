@@ -212,6 +212,67 @@ def _send_email_handler(
         }
 
 
+def setup_gmail_oauth(
+    creds_path: Path | None = None,
+    token_path: Path | None = None,
+) -> bool:
+    """Run the one-time Gmail OAuth2 consent flow.
+
+    Opens a browser for the user to grant the ``gmail.send`` scope on
+    the configured Google Cloud project, then writes the resulting
+    refresh token to ``data/gmail_token.json`` (or ``token_path``).
+    After this completes, ``email.send`` becomes callable.
+
+    Returns True on success, False otherwise (with a logged reason
+    suitable for echoing to the user — exit-code-friendly).
+
+    Mirrors ``windyfly.tools.calendar.setup_calendar_oauth`` exactly
+    so the two flows share muscle memory: same creds JSON, separate
+    token JSON because the scopes are distinct.
+    """
+    creds = creds_path or _CREDS_PATH
+    token = token_path or _TOKEN_PATH
+
+    try:
+        from google_auth_oauthlib.flow import InstalledAppFlow
+    except ImportError:
+        logger.error(
+            "Missing google-auth-oauthlib. Install with: "
+            "pip install google-api-python-client google-auth-oauthlib"
+        )
+        return False
+
+    if not creds.exists():
+        logger.error(
+            "Google OAuth credentials file not found at %s. Download "
+            "the Desktop-app credentials JSON from Google Cloud Console "
+            "→ APIs & Services → Credentials → OAuth 2.0 Client IDs, "
+            "and save as %s (or set GOOGLE_OAUTH_CREDENTIALS).",
+            creds, creds,
+        )
+        return False
+
+    try:
+        flow = InstalledAppFlow.from_client_secrets_file(
+            str(creds), scopes=_SCOPES,
+        )
+        # Listens on a random local port for the OAuth redirect.
+        creds_obj = flow.run_local_server(port=0)
+    except Exception as e:
+        logger.error("Gmail OAuth flow failed: %s", e)
+        return False
+
+    try:
+        token.parent.mkdir(parents=True, exist_ok=True)
+        token.write_text(creds_obj.to_json())
+    except OSError as e:
+        logger.error("Failed to write Gmail token to %s: %s", token, e)
+        return False
+
+    logger.info("Gmail connected successfully — token at %s", token)
+    return True
+
+
 def register_email_capabilities(
     registry: CapabilityRegistry,
     config: dict[str, Any] | None = None,
