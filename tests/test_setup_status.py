@@ -210,3 +210,221 @@ def test_boot_sequence_includes_capabilities_setup():
     assert setup_idx > audit_idx
     setup_step = next(s for s in seq if s.name == "capabilities.setup")
     assert "capabilities.audit" in setup_step.requires
+
+
+# ── setup.start walkthrough handler ────────────────────────────────
+
+
+def test_setup_start_cloudflare_returns_walkthrough():
+    from windyfly.agent.capabilities.setup import _start_handler
+    out = _start_handler(integration="cloudflare")
+    assert out["ok"] is True
+    assert out["method"] == "token_paste"
+    assert out["after_paste_action"] == "setup.save_credential"
+    assert len(out["steps"]) >= 5
+    # Critical: walkthrough must NOT echo the user's actual token —
+    # the steps describe HOW to get one, not place a token in the text
+    assert "cfat_" not in " ".join(out["steps"])  # only in note about format
+    # The note tells the LLM what to do next
+    assert "setup.save_credential" in out["note_to_llm"]
+    assert "Do NOT echo" in out["note_to_llm"] or "Don't echo" in out["note_to_llm"]
+
+
+def test_setup_start_github_returns_walkthrough():
+    from windyfly.agent.capabilities.setup import _start_handler
+    out = _start_handler(integration="github")
+    assert out["ok"] is True
+    assert out["method"] == "token_paste"
+
+
+def test_setup_start_gmail_marks_oauth_required():
+    from windyfly.agent.capabilities.setup import _start_handler
+    out = _start_handler(integration="gmail")
+    assert out["ok"] is True
+    assert out["method"] == "oauth_required"
+    assert out["after_paste_action"] is None
+
+
+def test_setup_start_unknown_integration_returns_error():
+    from windyfly.agent.capabilities.setup import _start_handler
+    out = _start_handler(integration="not-a-thing")
+    assert out["ok"] is False
+    assert "No setup walkthrough" in out["error"]
+
+
+# ── setup.save_credential — Cloudflare validate + persist + hot-load
+
+
+def test_save_credential_cloudflare_happy_path(tmp_path, monkeypatch):
+    """End-to-end: valid token → validates via API mock → writes env →
+    hot-loads into os.environ → setup_status sees configured."""
+    from unittest.mock import patch
+    from windyfly.agent.capabilities import setup as setup_mod
+
+    env_file = tmp_path / "windy.env"
+    monkeypatch.delenv("CLOUDFLARE_API_TOKEN", raising=False)
+
+    fake_validator_result = (True, None, {"zones_visible": 21})
+    fake_validators = {
+        **setup_mod._SAVERS,
+        "cloudflare": {
+            **setup_mod._SAVERS["cloudflare"],
+            "validator": lambda v: fake_validator_result,
+        },
+    }
+    with patch.object(setup_mod, "_SAVERS", fake_validators):
+        out = setup_mod._save_credential_handler(
+            integration="cloudflare",
+            value="cfat_TESTtokenABCDEFGHIJKLMNOPQRSTU",
+            env_file=env_file,
+        )
+
+    assert out["ok"] is True
+    assert out["env_var"] == "CLOUDFLARE_API_TOKEN"
+    assert out["hot_loaded"] is True
+    assert out["validation"]["zones_visible"] == 21
+    # Persisted to env file
+    contents = env_file.read_text()
+    assert "CLOUDFLARE_API_TOKEN=cfat_TESTtokenABCDEFGHIJKLMNOPQRSTU" in contents
+    # Hot-loaded into the running process
+    assert os.environ["CLOUDFLARE_API_TOKEN"] == "cfat_TESTtokenABCDEFGHIJKLMNOPQRSTU"
+    # cloudflare is now in configured_keys
+    assert "cloudflare" in out["configured_keys"]
+
+
+def test_save_credential_validation_failure_does_not_persist(tmp_path, monkeypatch):
+    """If the API rejects the token, do NOT write it to env."""
+    from unittest.mock import patch
+    from windyfly.agent.capabilities import setup as setup_mod
+
+    env_file = tmp_path / "windy.env"
+    monkeypatch.delenv("CLOUDFLARE_API_TOKEN", raising=False)
+
+    fake_validators = {
+        **setup_mod._SAVERS,
+        "cloudflare": {
+            **setup_mod._SAVERS["cloudflare"],
+            "validator": lambda v: (False, "401 unauthorized", None),
+        },
+    }
+    with patch.object(setup_mod, "_SAVERS", fake_validators):
+        out = setup_mod._save_credential_handler(
+            integration="cloudflare",
+            value="cfat_INVALIDtokenABCDEFGHIJKLMNOP",
+            env_file=env_file,
+        )
+
+    assert out["ok"] is False
+    assert out["kind"] == "validation_failed"
+    assert "401" in out["error"]
+    # Critical: must NOT have persisted the bad token
+    assert not env_file.exists() or "INVALID" not in env_file.read_text()
+    assert "CLOUDFLARE_API_TOKEN" not in os.environ or \
+           os.environ.get("CLOUDFLARE_API_TOKEN") != "cfat_INVALIDtokenABCDEFGHIJKLMNOP"
+
+
+def test_save_credential_oauth_integration_returns_oauth_required():
+    from windyfly.agent.capabilities.setup import _save_credential_handler
+    out = _save_credential_handler(
+        integration="gmail", value="some-pasted-thing-doesnt-matter",
+    )
+    assert out["ok"] is False
+    assert out["kind"] == "oauth_required"
+    assert "OAuth" in out["error"]
+
+
+def test_save_credential_unknown_integration_returns_error():
+    from windyfly.agent.capabilities.setup import _save_credential_handler
+    out = _save_credential_handler(
+        integration="not-a-thing", value="some-token",
+    )
+    assert out["ok"] is False
+    assert "No save flow" in out["error"]
+
+
+def test_save_credential_empty_value_refused(tmp_path):
+    from windyfly.agent.capabilities.setup import _save_credential_handler
+    out = _save_credential_handler(
+        integration="cloudflare", value="",
+        env_file=tmp_path / "x.env",
+    )
+    assert out["ok"] is False
+    assert "empty" in out["error"]
+
+
+def test_save_credential_malformed_token_refused_before_api_call(tmp_path):
+    """Pattern check happens BEFORE the API call — saves a round trip."""
+    from windyfly.agent.capabilities.setup import _save_credential_handler
+    out = _save_credential_handler(
+        integration="cloudflare",
+        value="not a real token (has spaces)",
+        env_file=tmp_path / "x.env",
+    )
+    assert out["ok"] is False
+    assert "expected token shape" in out["error"]
+
+
+# ── _atomic_upsert_env_var ─────────────────────────────────────────
+
+
+def test_atomic_upsert_creates_new_file(tmp_path):
+    from windyfly.agent.capabilities.setup import _atomic_upsert_env_var
+    env_file = tmp_path / "fresh.env"
+    _atomic_upsert_env_var(env_file, "FOO", "bar")
+    assert env_file.read_text() == "FOO=bar\n"
+
+
+def test_atomic_upsert_appends_to_existing_file(tmp_path):
+    from windyfly.agent.capabilities.setup import _atomic_upsert_env_var
+    env_file = tmp_path / "existing.env"
+    env_file.write_text("EXISTING=keep_me\n")
+    _atomic_upsert_env_var(env_file, "NEW", "added")
+    contents = env_file.read_text()
+    assert "EXISTING=keep_me" in contents
+    assert "NEW=added" in contents
+
+
+def test_atomic_upsert_replaces_existing_var(tmp_path):
+    """Idempotent: re-saving a token replaces the old line, doesn't dup it."""
+    from windyfly.agent.capabilities.setup import _atomic_upsert_env_var
+    env_file = tmp_path / "rotate.env"
+    env_file.write_text("FOO=old_value\nOTHER=keep\n")
+    _atomic_upsert_env_var(env_file, "FOO", "new_value")
+    contents = env_file.read_text()
+    assert "FOO=new_value" in contents
+    assert "FOO=old_value" not in contents
+    assert "OTHER=keep" in contents
+    # Exactly one FOO= line
+    assert contents.count("FOO=") == 1
+
+
+def test_atomic_upsert_no_temp_file_left(tmp_path):
+    from windyfly.agent.capabilities.setup import _atomic_upsert_env_var
+    env_file = tmp_path / "x.env"
+    _atomic_upsert_env_var(env_file, "FOO", "bar")
+    assert not list(tmp_path.glob("*.windy.tmp"))
+
+
+def test_atomic_upsert_chmod_600(tmp_path):
+    from windyfly.agent.capabilities.setup import _atomic_upsert_env_var
+    env_file = tmp_path / "secret.env"
+    _atomic_upsert_env_var(env_file, "TOKEN", "value")
+    mode = env_file.stat().st_mode & 0o777
+    assert mode == 0o600
+
+
+# ── Capability registration: 3 caps total now ─────────────────────
+
+
+def test_setup_module_registers_three_capabilities():
+    from windyfly.agent.capabilities.setup import register_setup_capabilities
+    registry = CapabilityRegistry()
+    register_setup_capabilities(registry, config={})
+    for cap_id in ("setup.status", "setup.start", "setup.save_credential"):
+        cap = registry.get(cap_id)
+        assert cap is not None, f"{cap_id} not registered"
+        assert cap.audit_required is True
+    # save_credential must require a higher band than status/start
+    from windyfly.agent.capabilities.descriptor import Band, Tier
+    assert registry.get("setup.save_credential").tier == Tier.WRITE_DESTRUCTIVE
+    assert registry.get("setup.save_credential").band_required == Band.TRUSTED
