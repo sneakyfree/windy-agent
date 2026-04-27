@@ -628,6 +628,39 @@ def agent_respond(
     except Exception:
         pass  # Analytics should never break the agent
 
+    # 2.95. Empty-after-tool-loop defense. The tool loop can exit with
+    # ``response_text = ""`` when the LLM only called tools and never
+    # produced text content (e.g., shape_shift → shape_shift_restore
+    # → no answer; or web_search → fs.glob → ran out of tool rounds).
+    # We never want to ship empty silence to the user — they'll think
+    # the bot crashed. Reproduced 2026-04-26 via stress harness v2
+    # G_naming case (LLM picked shape_shift on a brainstorm prompt
+    # and never circled back to actually brainstorming).
+    if not (response_text or "").strip():
+        recent_tool_names = [
+            tc.get("function", {}).get("name", "?")
+            for tc in (tool_calls if isinstance(tool_calls, list) else [])
+        ]
+        logger.warning(
+            "[req:%s] tool loop exited with no text content "
+            "(last_round_tool_calls=%s) — substituting fallback",
+            request_id_short(), recent_tool_names,
+        )
+        try:
+            log_event(db, write_queue, "agent.empty_after_tools", {
+                "session_id": session_id,
+                "user_preview": user_message[:120],
+                "tool_names": recent_tool_names,
+            })
+        except Exception:
+            pass
+        response_text = (
+            "Hmm — I started working on that and got distracted by my "
+            "own tools without actually answering you. Try asking again, "
+            "maybe more directly? (If you're seeing this a lot, my "
+            "tool-picker is over-eager — let me know.)"
+        )
+
     # 3. Save episodes via write queue (HIGH priority)
     cost_usd = estimate_cost(model, input_tokens, output_tokens)
 
