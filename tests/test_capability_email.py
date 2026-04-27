@@ -230,3 +230,87 @@ def test_boot_sequence_includes_capabilities_email():
     )
     email_step = next(s for s in seq if s.name == "capabilities.email")
     assert "capabilities.audit" in email_step.requires
+
+
+# ── setup_gmail_oauth (CLI flow) ───────────────────────────────────
+
+
+def test_setup_gmail_oauth_missing_creds_returns_false(tmp_path):
+    from windyfly.agent.capabilities.email import setup_gmail_oauth
+    missing = tmp_path / "missing_creds.json"
+    out = setup_gmail_oauth(
+        creds_path=missing, token_path=tmp_path / "token.json",
+    )
+    assert out is False
+
+
+def test_setup_gmail_oauth_writes_token_on_success(tmp_path, monkeypatch):
+    """Mock InstalledAppFlow → assert token JSON gets written."""
+    from windyfly.agent.capabilities import email as email_mod
+
+    creds = tmp_path / "creds.json"
+    creds.write_text('{"installed": {}}')  # contents not validated by the mock
+    token_path = tmp_path / "gmail_token.json"
+
+    fake_creds_obj = MagicMock()
+    fake_creds_obj.to_json.return_value = '{"refresh_token": "test-rt"}'
+
+    fake_flow = MagicMock()
+    fake_flow.run_local_server.return_value = fake_creds_obj
+
+    fake_module = MagicMock()
+    fake_module.InstalledAppFlow.from_client_secrets_file.return_value = fake_flow
+    monkeypatch.setitem(
+        __import__("sys").modules, "google_auth_oauthlib.flow", fake_module,
+    )
+
+    out = email_mod.setup_gmail_oauth(creds_path=creds, token_path=token_path)
+    assert out is True
+    assert token_path.exists()
+    assert "refresh_token" in token_path.read_text()
+    fake_module.InstalledAppFlow.from_client_secrets_file.assert_called_once_with(
+        str(creds),
+        scopes=["https://www.googleapis.com/auth/gmail.send"],
+    )
+
+
+def test_setup_gmail_oauth_flow_exception_returns_false(tmp_path, monkeypatch):
+    from windyfly.agent.capabilities import email as email_mod
+
+    creds = tmp_path / "creds.json"
+    creds.write_text("{}")
+
+    fake_module = MagicMock()
+    fake_module.InstalledAppFlow.from_client_secrets_file.side_effect = (
+        RuntimeError("user closed browser")
+    )
+    monkeypatch.setitem(
+        __import__("sys").modules, "google_auth_oauthlib.flow", fake_module,
+    )
+
+    out = email_mod.setup_gmail_oauth(
+        creds_path=creds, token_path=tmp_path / "gmail_token.json",
+    )
+    assert out is False
+
+
+# ── CLI dispatch wiring ────────────────────────────────────────────
+
+
+def test_cli_dispatch_includes_setup_gmail():
+    """Smoke test: setup-gmail must be in the CLI's dispatch table.
+
+    Reads the source so we don't have to argparse-parse just to assert
+    a registration. Cheap, deterministic, catches the obvious typo
+    that broke setup-calendar (referenced in error messages but never
+    actually wired)."""
+    import windyfly.cli as cli_module
+    src_path = __import__("inspect").getfile(cli_module)
+    src = open(src_path).read()
+    assert '"setup-gmail": cmd_setup_gmail' in src, (
+        "setup-gmail must be registered in the CLI dispatch table"
+    )
+    assert 'sub.add_parser(\n        "setup-gmail"' in src or \
+           'sub.add_parser("setup-gmail"' in src, (
+        "setup-gmail must have an add_parser entry"
+    )
