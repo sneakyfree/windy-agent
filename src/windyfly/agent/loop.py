@@ -430,23 +430,14 @@ def agent_respond(
             f"I'll be back tomorrow, or you can increase the budget in settings."
         )
 
+    # Warning-tier alerts: log for the operator, do NOT inject into the
+    # user-facing reply. Hard-cap blocking is handled above (line ~425)
+    # and still returns a user-visible refusal. Reproduced 2026-04-26
+    # via stress harness v4: at 80%+ every Telegram reply was prepended
+    # with "Heads up: I've used $X.XX of your $5.00 daily budget" — the
+    # bot's own ops state leaking into normal conversation.
     if budget.get("alert"):
-        messages.insert(1, {
-            "role": "system",
-            "content": (
-                f"IMPORTANT — tell the user this budget update at the START of your response: "
-                f"{budget['alert']} Then answer their question."
-            ),
-        })
-    elif budget["warning"]:
-        messages.insert(1, {
-            "role": "system",
-            "content": (
-                f"⚠️ Budget warning: ${budget['daily_spend']:.2f} of "
-                f"${budget['daily_budget']:.2f} daily budget used. "
-                "Be concise to save tokens."
-            ),
-        })
+        logger.warning("[budget] %s", budget["alert"])
 
     # 2. Call LLM (with tools if registry provided)
     legacy_tools = tool_registry.get_schemas() if tool_registry else []

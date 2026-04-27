@@ -8,7 +8,9 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from windyfly.tools.registry import ToolRegistry
-from windyfly.tools.web_search import register_web_search_tool, web_search
+from windyfly.tools.web_search import (
+    fetch_url, register_web_search_tool, web_search,
+)
 
 
 class TestWebSearch:
@@ -83,3 +85,29 @@ class TestWebSearch:
 
         result = web_search("test", limit=3)
         assert len(result["results"]) <= 3
+
+
+class TestFetchUrlUserAgent:
+    """Regression: Wikipedia (and many CDN-fronted sites) 403 the
+    default httpx UA. fetch_url must send a real browser-like UA."""
+
+    @patch("windyfly.tools.web_search.httpx.get")
+    def test_fetch_url_sends_browser_user_agent(self, mock_get):
+        mock_response = MagicMock()
+        mock_response.text = "<html><body>hello</body></html>"
+        mock_response.raise_for_status = MagicMock()
+        mock_get.return_value = mock_response
+
+        fetch_url("https://en.wikipedia.org/wiki/Software_testing")
+
+        assert mock_get.called, "httpx.get must be called"
+        _, kwargs = mock_get.call_args
+        headers = kwargs.get("headers", {})
+        ua = headers.get("User-Agent", "")
+        # A real browser UA, not httpx's default
+        assert "Mozilla/5.0" in ua, (
+            f"fetch_url must send a browser-like User-Agent (got {ua!r})"
+        )
+        assert "python-httpx" not in ua.lower(), (
+            f"fetch_url must NOT advertise as httpx (got {ua!r})"
+        )

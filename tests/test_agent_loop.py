@@ -259,6 +259,62 @@ class TestBudgetEnforcement:
         wq.stop()
         db.close()
 
+    @patch("windyfly.agent.loop.is_online", return_value=True)
+    @patch("windyfly.agent.loop.call_llm")
+    @patch("windyfly.agent.loop.check_budget")
+    def test_warning_alert_does_not_leak_into_user_messages(
+        self, mock_budget, mock_llm, mock_online,
+    ):
+        """Regression: stress harness v4 found the budget warning was
+        being injected as a system prompt instructing the LLM to repeat
+        it to the user. After 80% of budget, every Telegram reply was
+        prefixed with "Heads up: I've used $X.XX of your $5.00 daily
+        budget" — the bot's own ops state leaking into user chat.
+
+        Warning-tier alerts must be logged for the operator only; the
+        messages list passed to call_llm must not contain the alert."""
+        _ch._tracker = None
+        import windyfly.agent.loop as _loop
+        _loop._interaction_count = 0
+        _loop._session_tokens_used = 0
+
+        mock_budget.return_value = {
+            "allowed": True,
+            "daily_spend": 4.25,
+            "daily_budget": 5.0,
+            "daily_percent": 85.0,
+            "warning": True,
+            "monthly_spend": 4.25,
+            "monthly_budget": 0,
+            "alert": (
+                "Heads up: I've used $4.25 of your $5.00 daily budget (85%)."
+            ),
+        }
+        mock_llm.return_value = _LLM_RESPONSE.copy()
+
+        config = _make_config()
+        db = _make_db()
+        wq = WriteQueue()
+        wq.start()
+
+        agent_respond(config, db, wq, "Hi", "test-session")
+
+        assert mock_llm.called, "LLM should still be called when allowed"
+        sent_messages = mock_llm.call_args.args[0]
+        joined = " ".join(
+            m.get("content", "") for m in sent_messages
+            if isinstance(m.get("content"), str)
+        )
+        assert "Heads up: I've used" not in joined, (
+            f"Budget alert leaked into LLM messages: {joined!r}"
+        )
+        assert "tell the user this budget update" not in joined, (
+            "System-prompt directive to repeat budget to user must be removed"
+        )
+
+        wq.stop()
+        db.close()
+
 
 class TestEmotionalContextIntegration:
     """R3: Emotional context should be detected and stored on episodes."""
