@@ -413,6 +413,35 @@ def test_atomic_upsert_chmod_600(tmp_path):
     assert mode == 0o600
 
 
+def test_atomic_upsert_writes_through_symlink_does_not_replace_link(tmp_path):
+    """Regression: industrial hardening sweep 2026-04-27 found that
+    when the env file path was a symlink to a real file, naive
+    ``os.replace`` was REPLACING the symlink with a regular file —
+    silently breaking shared/fleet env layouts where the link points
+    at a canonical store. Fix resolves the symlink first so the
+    temp+rename happens at the real target."""
+    import os as _os
+    real = tmp_path / "real.env"
+    real.write_text("EXISTING=keep_me\n")
+    link = tmp_path / "link.env"
+    _os.symlink(real, link)
+    assert link.is_symlink()
+
+    from windyfly.agent.capabilities.setup import _atomic_upsert_env_var
+    _atomic_upsert_env_var(link, "NEW_TOKEN", "abc123")
+
+    # The symlink must STILL be a symlink afterwards.
+    assert link.is_symlink(), (
+        "writing through a symlinked env file must not replace the link"
+    )
+    # The real file must contain BOTH the original line and the new one.
+    real_text = real.read_text()
+    assert "EXISTING=keep_me" in real_text
+    assert "NEW_TOKEN=abc123" in real_text
+    # Reading via the link must show the same content as the real file.
+    assert link.read_text() == real_text
+
+
 # ── Capability registration: 3 caps total now ─────────────────────
 
 

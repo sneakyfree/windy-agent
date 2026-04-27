@@ -211,10 +211,24 @@ def _atomic_upsert_env_var(
     If the line already exists, replace it. Otherwise append. Uses
     temp + rename so a crash mid-write can't leave the file in a
     half-state. File is chmod 600 (existing or fresh).
+
+    Symlink-aware: when ``env_file`` is a symlink to an existing real
+    file, we resolve and write through the link to the real target —
+    naive ``os.replace`` against a symlink path would atomically
+    REPLACE the symlink with a regular file, silently breaking
+    multi-machine fleet setups where the env file is shared via
+    link. Found via industrial hardening probe 2026-04-27.
     """
-    env_file.parent.mkdir(parents=True, exist_ok=True)
+    # Resolve symlinks so the temp+rename happens at the REAL target
+    # path. .resolve(strict=False) handles non-existent paths
+    # gracefully and follows arbitrary chains. For non-symlinks this
+    # returns the absolute path of env_file unchanged.
+    target = env_file
+    if env_file.is_symlink() and env_file.exists():
+        target = env_file.resolve()
+    target.parent.mkdir(parents=True, exist_ok=True)
     new_line = f"{var_name}={value}\n"
-    existing = env_file.read_text() if env_file.exists() else ""
+    existing = target.read_text() if target.exists() else ""
     pattern = re.compile(rf"^{re.escape(var_name)}=.*\n?", re.MULTILINE)
     if pattern.search(existing):
         new_text = pattern.sub(new_line, existing, count=1)
@@ -222,10 +236,10 @@ def _atomic_upsert_env_var(
         if existing and not existing.endswith("\n"):
             existing += "\n"
         new_text = existing + new_line
-    tmp = env_file.with_suffix(env_file.suffix + ".windy.tmp")
+    tmp = target.with_suffix(target.suffix + ".windy.tmp")
     tmp.write_text(new_text)
     os.chmod(tmp, 0o600)
-    os.replace(tmp, env_file)
+    os.replace(tmp, target)
 
 
 def _start_handler(*, integration: str) -> dict[str, Any]:
