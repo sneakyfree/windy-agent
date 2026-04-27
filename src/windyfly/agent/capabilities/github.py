@@ -257,6 +257,249 @@ def _list_repo_handler(
     }
 
 
+def _put_file_handler(
+    *,
+    owner: str,
+    repo: str,
+    path: str,
+    content: str,
+    message: str,
+    branch: str = "main",
+    sha: str | None = None,
+    dry_run: bool = False,
+    base_url: str,
+    token: str | None,
+    allowed_owners: list[str] | None,
+) -> dict[str, Any]:
+    """Create or update a file in a GitHub repo via Contents API.
+
+    GitHub's PUT /repos/{owner}/{repo}/contents/{path} requires the
+    *current* file ``sha`` when updating an existing file (optimistic
+    concurrency — prevents lost updates). To make this ergonomic we
+    auto-fetch the existing SHA on update if the caller didn't pass
+    one. Costs one extra round trip; saves the LLM from a two-step
+    fetch_file → put_file dance.
+
+    Returns a dict with:
+      - executed (bool), action ("create" | "update")
+      - commit_sha, commit_url, content_sha (on success)
+      - error (on failure — never raises for operational errors)
+    """
+    err = _check_owner_allowed(owner, allowed_owners)
+    if err is not None:
+        return {"ok": False, "error": err}
+    if not owner or not repo or not path:
+        return {"ok": False, "error": "owner, repo, and path are required"}
+    if not message:
+        return {"ok": False, "error": "commit message is required"}
+    if not token:
+        return {
+            "ok": False,
+            "error": (
+                "github write requires authentication. Set GITHUB_PAT "
+                "with `repo` scope (Contents:write for fine-grained "
+                "tokens) and restart."
+            ),
+        }
+    path_norm = path.strip("/")
+    api_path = f"/repos/{owner}/{repo}/contents/{path_norm}"
+
+    # Auto-fetch current SHA when updating without one provided.
+    auto_sha_lookup_done = False
+    if sha is None:
+        try:
+            with _build_client(base_url, token) as client:
+                head = client.get(api_path, params={"ref": branch})
+        except httpx.HTTPError as e:
+            return {"ok": False, "error": f"network error checking existing file: {e}"}
+        if head.status_code == 404:
+            existing = False
+        elif head.status_code in (401, 403):
+            return {
+                "ok": False,
+                "error": (
+                    f"unauthorized ({head.status_code}) checking "
+                    f"existing file. Token may lack Contents:read."
+                ),
+            }
+        elif head.status_code >= 400:
+            return {
+                "ok": False,
+                "error": f"github api {head.status_code} on existence check: {head.text[:200]}",
+            }
+        else:
+            head_data = head.json()
+            if isinstance(head_data, list):
+                return {
+                    "ok": False,
+                    "error": (
+                        f"{path_norm!r} is a directory in {owner}/{repo} on "
+                        f"branch {branch!r}; cannot write a file at a directory path"
+                    ),
+                }
+            sha = head_data.get("sha")
+            existing = sha is not None
+            auto_sha_lookup_done = True
+    else:
+        existing = True  # caller asserts the file exists with this sha
+
+    plan = {
+        "action": "update" if existing else "create",
+        "target": f"{owner}/{repo}/{path_norm}",
+        "branch": branch,
+        "would_write_bytes": len(content.encode("utf-8")),
+        "auto_sha_lookup": auto_sha_lookup_done,
+        "side_effects": (
+            [f"new commit on {branch} replacing existing {path_norm}"]
+            if existing else
+            [f"new commit on {branch} creating {path_norm}"]
+        ),
+    }
+    if dry_run:
+        return {"plan": plan, "executed": False, "preview_only": True}
+
+    body: dict[str, Any] = {
+        "message": message,
+        "content": base64.b64encode(content.encode("utf-8")).decode("ascii"),
+        "branch": branch,
+    }
+    if existing and sha:
+        body["sha"] = sha
+
+    try:
+        with _build_client(base_url, token) as client:
+            resp = client.put(api_path, json=body)
+    except httpx.HTTPError as e:
+        return {"ok": False, "error": f"network error during PUT: {e}"}
+    if resp.status_code in (401, 403):
+        return {
+            "ok": False,
+            "error": (
+                f"unauthorized ({resp.status_code}) — token may lack "
+                "Contents:write scope or repo-write permission."
+            ),
+        }
+    if resp.status_code == 409:
+        return {
+            "ok": False,
+            "error": (
+                "conflict (409) — sha is stale (someone else updated "
+                "the file). Re-fetch and try again."
+            ),
+        }
+    if resp.status_code == 422:
+        return {
+            "ok": False,
+            "error": (
+                f"validation error (422): {resp.text[:300]}. Common "
+                "causes: branch doesn't exist, path is invalid, or sha "
+                "missing on update."
+            ),
+        }
+    if resp.status_code >= 400:
+        return {
+            "ok": False,
+            "error": f"github api {resp.status_code}: {resp.text[:200]}",
+        }
+    data = resp.json() or {}
+    commit = data.get("commit") or {}
+    file_meta = data.get("content") or {}
+    return {
+        "ok": True,
+        "executed": True,
+        "plan": plan,
+        "commit_sha": commit.get("sha"),
+        "commit_url": commit.get("html_url"),
+        "content_sha": file_meta.get("sha"),
+        "outcome_score": 1.0,
+    }
+
+
+def _create_issue_handler(
+    *,
+    owner: str,
+    repo: str,
+    title: str,
+    body: str | None = None,
+    labels: list[str] | None = None,
+    dry_run: bool = False,
+    base_url: str,
+    token: str | None,
+    allowed_owners: list[str] | None,
+) -> dict[str, Any]:
+    """Create a GitHub issue."""
+    err = _check_owner_allowed(owner, allowed_owners)
+    if err is not None:
+        return {"ok": False, "error": err}
+    if not owner or not repo:
+        return {"ok": False, "error": "owner and repo are required"}
+    if not title or not title.strip():
+        return {"ok": False, "error": "title is required and must be non-empty"}
+    if not token:
+        return {
+            "ok": False,
+            "error": (
+                "github write requires authentication. Set GITHUB_PAT "
+                "with `repo` scope (Issues:write for fine-grained "
+                "tokens) and restart."
+            ),
+        }
+    plan = {
+        "action": "create_issue",
+        "target": f"{owner}/{repo}",
+        "title": title,
+        "body_chars": len(body or ""),
+        "labels": labels or [],
+    }
+    if dry_run:
+        return {"plan": plan, "executed": False, "preview_only": True}
+
+    payload: dict[str, Any] = {"title": title}
+    if body:
+        payload["body"] = body
+    if labels:
+        payload["labels"] = labels
+
+    try:
+        with _build_client(base_url, token) as client:
+            resp = client.post(f"/repos/{owner}/{repo}/issues", json=payload)
+    except httpx.HTTPError as e:
+        return {"ok": False, "error": f"network error: {e}"}
+    if resp.status_code in (401, 403):
+        return {
+            "ok": False,
+            "error": (
+                f"unauthorized ({resp.status_code}) — token may lack "
+                "Issues:write scope."
+            ),
+        }
+    if resp.status_code == 410:
+        return {
+            "ok": False,
+            "error": "issues are disabled on this repo (410)",
+        }
+    if resp.status_code == 422:
+        return {
+            "ok": False,
+            "error": f"validation error (422): {resp.text[:300]}",
+        }
+    if resp.status_code >= 400:
+        return {
+            "ok": False,
+            "error": f"github api {resp.status_code}: {resp.text[:200]}",
+        }
+    data = resp.json() or {}
+    return {
+        "ok": True,
+        "executed": True,
+        "plan": plan,
+        "issue_number": data.get("number"),
+        "issue_url": data.get("html_url"),
+        "issue_id": data.get("id"),
+        "outcome_score": 1.0,
+    }
+
+
 def register_github_capabilities(
     registry: CapabilityRegistry,
     config: dict[str, Any] | None = None,
@@ -303,6 +546,36 @@ def register_github_capabilities(
     ) -> dict[str, Any]:
         return _list_repo_handler(
             owner=owner, repo=repo, path=path, ref=ref,
+            base_url=base_url, token=token, allowed_owners=allowed_owners,
+        )
+
+    def put_file(
+        owner: str,
+        repo: str,
+        path: str,
+        content: str,
+        message: str,
+        branch: str = "main",
+        sha: str | None = None,
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        return _put_file_handler(
+            owner=owner, repo=repo, path=path, content=content,
+            message=message, branch=branch, sha=sha, dry_run=dry_run,
+            base_url=base_url, token=token, allowed_owners=allowed_owners,
+        )
+
+    def create_issue(
+        owner: str,
+        repo: str,
+        title: str,
+        body: str | None = None,
+        labels: list[str] | None = None,
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        return _create_issue_handler(
+            owner=owner, repo=repo, title=title, body=body, labels=labels,
+            dry_run=dry_run,
             base_url=base_url, token=token, allowed_owners=allowed_owners,
         )
 
@@ -384,5 +657,115 @@ def register_github_capabilities(
                 },
             },
             "required": ["owner", "repo"],
+        },
+    ))
+
+    registry.register(Capability(
+        id="github.put_file",
+        description=(
+            "Create or update a file in a GitHub repo via the Contents "
+            "API. Defaults to the 'main' branch. For updates, you can "
+            "omit `sha` and the tool will auto-fetch the current sha "
+            "(one extra request, optimistic-concurrency safe). "
+            "Requires GITHUB_PAT with Contents:write scope. Use "
+            "dry_run=true to preview the commit plan without writing. "
+            "Tier EXTERNAL_EFFECT — TRUSTED+ band only."
+        ),
+        handler=put_file,
+        tier=Tier.EXTERNAL_EFFECT,
+        audit_required=True,
+        input_schema={
+            "type": "object",
+            "properties": {
+                "owner": {
+                    "type": "string",
+                    "description": "GitHub user or org (e.g. 'sneakyfree').",
+                },
+                "repo": {
+                    "type": "string",
+                    "description": "Repository name.",
+                },
+                "path": {
+                    "type": "string",
+                    "description": (
+                        "Path within the repo to create or update. "
+                        "Forward slashes; no leading slash."
+                    ),
+                },
+                "content": {
+                    "type": "string",
+                    "description": "UTF-8 text content for the file.",
+                },
+                "message": {
+                    "type": "string",
+                    "description": "Commit message — required.",
+                },
+                "branch": {
+                    "type": "string",
+                    "description": "Branch name. Defaults to 'main'.",
+                },
+                "sha": {
+                    "type": "string",
+                    "description": (
+                        "Current sha of the file (required by GitHub "
+                        "for updates). Omit to auto-fetch."
+                    ),
+                },
+                "dry_run": {
+                    "type": "boolean",
+                    "description": "If true, return the plan without writing.",
+                },
+            },
+            "required": ["owner", "repo", "path", "content", "message"],
+        },
+    ))
+
+    registry.register(Capability(
+        id="github.create_issue",
+        description=(
+            "Open a new issue on a GitHub repo. Title is required; "
+            "body is plain markdown (optional); labels is an optional "
+            "list of label names that must already exist on the repo. "
+            "Requires GITHUB_PAT with Issues:write scope. Use "
+            "dry_run=true to preview without filing. Tier "
+            "EXTERNAL_EFFECT — TRUSTED+ band only."
+        ),
+        handler=create_issue,
+        tier=Tier.EXTERNAL_EFFECT,
+        audit_required=True,
+        input_schema={
+            "type": "object",
+            "properties": {
+                "owner": {
+                    "type": "string",
+                    "description": "GitHub user or org.",
+                },
+                "repo": {
+                    "type": "string",
+                    "description": "Repository name.",
+                },
+                "title": {
+                    "type": "string",
+                    "description": "Issue title (required, non-empty).",
+                },
+                "body": {
+                    "type": "string",
+                    "description": "Optional markdown body.",
+                },
+                "labels": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Optional list of existing label names to "
+                        "apply. Labels that don't exist on the repo "
+                        "cause a 422 validation error."
+                    ),
+                },
+                "dry_run": {
+                    "type": "boolean",
+                    "description": "If true, return plan without filing.",
+                },
+            },
+            "required": ["owner", "repo", "title"],
         },
     ))
