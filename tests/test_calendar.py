@@ -12,18 +12,22 @@ from windyfly.tools.calendar import (
 
 
 def test_not_configured():
-    """When no token file exists, should give helpful message."""
+    """When no token file exists, calendar must use the centralized
+    grandma-mode dormant_nudge — not the old developer-speak text."""
     with patch("windyfly.tools.calendar._TOKEN_PATH") as mock_path:
         mock_path.exists.return_value = False
         result = get_today_events()
-        assert "don't have access" in result["message"]
-        assert "setup-calendar" in result["message"]
+        assert result["kind"] == "dormant_integration"
+        assert result["integration"] == "calendar"
+        assert "set up calendar" in result["message"]
 
 
 def test_not_configured_response():
     resp = _not_configured_response()
     assert resp["events"] == []
-    assert "reminders" in resp["message"].lower()
+    assert resp["kind"] == "dormant_integration"
+    # Tier-1 nudge tells the LLM not to relay terminal commands.
+    assert "do NOT relay" in resp["message"]
 
 
 def test_is_configured_false():
@@ -41,19 +45,22 @@ def test_is_configured_true():
 def test_get_today_not_configured():
     with patch("windyfly.tools.calendar._is_configured", return_value=False):
         result = get_today_events()
-        assert "don't have access" in result["message"]
+        assert result["kind"] == "dormant_integration"
+        assert "set up calendar" in result["message"]
 
 
 def test_get_upcoming_not_configured():
     with patch("windyfly.tools.calendar._is_configured", return_value=False):
         result = get_upcoming_events(7)
-        assert "don't have access" in result["message"]
+        assert result["kind"] == "dormant_integration"
+        assert "set up calendar" in result["message"]
 
 
 def test_create_event_not_configured():
     with patch("windyfly.tools.calendar._is_configured", return_value=False):
         result = create_event("Meeting", "2026-04-05T14:00:00")
-        assert "don't have access" in result["message"]
+        assert result["kind"] == "dormant_integration"
+        assert "set up calendar" in result["message"]
 
 
 @patch("windyfly.tools.calendar._get_service")

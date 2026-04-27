@@ -59,7 +59,19 @@ def get_today_events() -> dict[str, Any]:
 
     service = _get_service()
     if not service:
-        return {"events": [], "error": "Calendar authentication failed. Run: windy setup-calendar"}
+        return {
+            "events": [],
+            "kind": "dormant_integration",
+            "integration": "calendar",
+            "error": (
+                "Calendar token failed to load (likely expired or scope "
+                "changed). INSTRUCTION TO THE LLM: tell the user in plain "
+                "language that the calendar connection needs refreshing, "
+                "then offer 'want me to walk you through reconnecting it? "
+                "Just say \"set up calendar\".' Do NOT relay terminal "
+                "commands."
+            ),
+        }
 
     now = datetime.now(timezone.utc)
     start = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
@@ -163,14 +175,19 @@ def _fetch_events(service, start: str, end: str, period: str) -> dict[str, Any]:
 
 
 def _not_configured_response() -> dict[str, Any]:
-    """Response when Google Calendar is not configured."""
+    """Response when Google Calendar is not configured.
+
+    Friendly, LLM-aimed nudge — see windyfly.agent.setup_status for
+    the design (no developer-only command parroting; offer the
+    chat-driven setup intent instead). Lazy import keeps the legacy
+    tool independent of the agent.* hierarchy at module load time.
+    """
+    from windyfly.agent.setup_status import dormant_nudge
     return {
         "events": [],
-        "message": (
-            "I don't have access to your calendar yet. "
-            "Run `windy setup-calendar` to connect Google Calendar. "
-            "In the meantime, I can set reminders for you — just ask!"
-        ),
+        "kind": "dormant_integration",
+        "integration": "calendar",
+        "message": dormant_nudge("calendar"),
     }
 
 

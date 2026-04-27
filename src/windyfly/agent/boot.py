@@ -279,6 +279,11 @@ def _step_register_cloudflare(ctx: BootContext) -> None:
     register_cloudflare_capabilities(ctx.capability_registry, ctx.config)
 
 
+def _step_register_setup(ctx: BootContext) -> None:
+    from windyfly.agent.capabilities.setup import register_setup_capabilities
+    register_setup_capabilities(ctx.capability_registry, ctx.config)
+
+
 def default_capability_registration_sequence() -> list[Step]:
     """The canonical post-DB-open registration order for both channels.
 
@@ -338,6 +343,11 @@ def default_capability_registration_sequence() -> list[Step]:
         Step(
             "capabilities.cloudflare",
             _step_register_cloudflare,
+            requires=("capabilities.audit",),
+        ),
+        Step(
+            "capabilities.setup",
+            _step_register_setup,
             requires=("capabilities.audit",),
         ),
     ]

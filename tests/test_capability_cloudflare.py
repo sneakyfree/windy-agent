@@ -37,14 +37,19 @@ _TOKEN = "test-cf-token-abc"
 def test_list_zones_no_token_returns_friendly_error():
     out = _list_zones_handler(token="")
     assert out["ok"] is False
-    assert "Cloudflare not configured" in out["error"]
-    assert "lockbox" in out["error"]
+    # Grandma-mode (Tier 1): centralized dormant_nudge with
+    # chat-driven setup intent + LLM no-jargon instruction.
+    assert out["kind"] == "dormant_integration"
+    assert out["integration"] == "cloudflare"
+    assert "set up cloudflare" in out["error"]
+    assert "do NOT relay" in out["error"]
 
 
 def test_zone_details_no_token_returns_friendly_error():
     out = _zone_details_handler(zone_name="windycloud.com", zone_id=None, token="")
     assert out["ok"] is False
-    assert "Cloudflare not configured" in out["error"]
+    assert out["kind"] == "dormant_integration"
+    assert "set up cloudflare" in out["error"]
 
 
 def test_list_dns_records_no_token_returns_friendly_error():
@@ -52,7 +57,8 @@ def test_list_dns_records_no_token_returns_friendly_error():
         zone_name="windycloud.com", zone_id=None, token="",
     )
     assert out["ok"] is False
-    assert "Cloudflare not configured" in out["error"]
+    assert out["kind"] == "dormant_integration"
+    assert "set up cloudflare" in out["error"]
 
 
 # ── list_zones ─────────────────────────────────────────────────────
@@ -281,11 +287,12 @@ def test_register_uses_env_token_at_call_time(monkeypatch):
     register_cloudflare_capabilities(registry, config={})
     cap = registry.get("cloudflare.list_zones")
 
-    # No token at call time → graceful refusal
+    # No token at call time → graceful refusal (grandma-mode nudge)
     monkeypatch.delenv("CLOUDFLARE_API_TOKEN", raising=False)
     out = cap.handler()
     assert out["ok"] is False
-    assert "Cloudflare not configured" in out["error"]
+    assert out["kind"] == "dormant_integration"
+    assert "set up cloudflare" in out["error"]
 
 
 # ── Boot wiring ────────────────────────────────────────────────────
