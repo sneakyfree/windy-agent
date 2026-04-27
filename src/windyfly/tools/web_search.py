@@ -20,6 +20,17 @@ logger = logging.getLogger(__name__)
 
 _TIMEOUT = 10.0
 
+# Wikipedia (and many CDN-fronted sites) 403 the default httpx UA. A
+# real browser-like UA gets us past the bot filter for plain reads.
+_BROWSER_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.5",
+}
+
 
 def web_search(query: str, limit: int = 5) -> dict[str, Any]:
     """Search the web. Uses Brave if API key available, else DuckDuckGo."""
@@ -95,7 +106,10 @@ def fetch_url(url: str, max_chars: int = 5000) -> dict[str, Any]:
     Useful for "Read this article for me: [URL]".
     """
     try:
-        resp = httpx.get(url, timeout=15.0, follow_redirects=True)
+        resp = httpx.get(
+            url, timeout=15.0, follow_redirects=True,
+            headers=_BROWSER_HEADERS,
+        )
         resp.raise_for_status()
         html = resp.text
 
