@@ -470,6 +470,117 @@ def _write_file_handler(
     }
 
 
+def _edit_file_handler(
+    *, path: str, old_string: str, new_string: str,
+    replace_all: bool = False,
+    dry_run: bool = False,
+    _allowed_roots: list[str] | None = None,
+    _journal_path: str | None = None,
+) -> dict[str, Any]:
+    """Replace ``old_string`` with ``new_string`` in an existing file.
+
+    Mirrors Claude Code's Edit tool semantics:
+      - If ``old_string`` matches >1 time and ``replace_all=False``,
+        raise — caller must provide more context.
+      - If ``old_string`` doesn't match at all, raise.
+      - ``old_string == new_string`` is a no-op error.
+      - Empty ``old_string`` would insert at every position; refused.
+
+    Atomic via temp + rename. Undo journal captures the original
+    file before the write so ``fs.undo_last_action`` can restore it.
+    Tier is WRITE_DESTRUCTIVE — by definition this modifies an
+    existing file.
+    """
+    from windyfly.agent.capabilities.undo_journal import (
+        append_record, capture_file_state,
+    )
+
+    roots = _allowed_roots or []
+    resolved = _resolve_and_check(path, roots)
+
+    if not resolved.exists():
+        raise FileNotFoundError(
+            f"{path!r} does not exist; use fs.write_file to create it"
+        )
+    if resolved.is_dir():
+        raise IsADirectoryError(
+            f"{path!r} is a directory; refusing to edit"
+        )
+    if not old_string:
+        raise ValueError(
+            "old_string is empty; refusing (would insert at every position)"
+        )
+    if old_string == new_string:
+        raise ValueError(
+            "old_string and new_string are identical; nothing to do"
+        )
+
+    try:
+        original_text = resolved.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        raise ValueError(
+            f"{path!r} is not UTF-8 text; refusing to edit binary"
+        )
+
+    occurrences = original_text.count(old_string)
+    if occurrences == 0:
+        raise ValueError(
+            f"old_string not found in {path!r}. Provide a longer "
+            "context that uniquely matches, or check the file contents."
+        )
+    if occurrences > 1 and not replace_all:
+        raise ValueError(
+            f"old_string matches {occurrences} times in {path!r}. "
+            "Either provide more context to make it unique, or pass "
+            "replace_all=true."
+        )
+
+    new_text = (
+        original_text.replace(old_string, new_string)
+        if replace_all else
+        original_text.replace(old_string, new_string, 1)
+    )
+    replaced_count = occurrences if replace_all else 1
+
+    plan = {
+        "action": "edit",
+        "target": str(resolved),
+        "occurrences_replaced": replaced_count,
+        "delta_bytes": (
+            len(new_text.encode("utf-8"))
+            - len(original_text.encode("utf-8"))
+        ),
+        "side_effects": [
+            f"replaces {replaced_count} occurrence(s) of "
+            f"{len(old_string)}-char string"
+        ],
+    }
+
+    if dry_run:
+        return {"plan": plan, "executed": False, "preview_only": True}
+
+    original = capture_file_state(resolved)
+    record_id = append_record(
+        capability_id="fs.edit_file",
+        action="edit",
+        target=str(resolved),
+        original_state=original,
+        journal_path=_journal_path,
+    )
+
+    written = _atomic_write_text(resolved, new_text)
+
+    return {
+        "plan": plan,
+        "executed": True,
+        "atomic": True,
+        "bytes_written": written,
+        "occurrences_replaced": replaced_count,
+        "undo_record_id": record_id,
+        "outcome_score": 1.0,
+    }
+
+
 def _move_file_handler(
     *, source: str, destination: str,
     dry_run: bool = False,
@@ -822,6 +933,18 @@ def register_filesystem_capabilities(
             _journal_path=journal_path,
         )
 
+    def fs_edit_file(
+        *, path: str, old_string: str, new_string: str,
+        replace_all: bool = False,
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        return _edit_file_handler(
+            path=path, old_string=old_string, new_string=new_string,
+            replace_all=replace_all, dry_run=dry_run,
+            _allowed_roots=allowed_roots,
+            _journal_path=journal_path,
+        )
+
     def fs_move_file(
         *, source: str, destination: str,
         dry_run: bool = False,
@@ -901,6 +1024,53 @@ def register_filesystem_capabilities(
         tier=Tier.WRITE_LOCAL_SAFE,
         scope="filesystem_allowlist",
         runtime_tier_check=_write_file_runtime_check,
+    ))
+
+    registry.register(Capability(
+        id="fs.edit_file",
+        description=(
+            "Replace a string in an existing text file. Mirrors editor "
+            "find-and-replace: if old_string matches more than once and "
+            "replace_all=false, refuses (provide more context to make "
+            "old_string unique). Atomic write + undo journal — "
+            "fs.undo_last_action can revert. Preferred over fs.write_file "
+            "when modifying part of a file, since you don't have to send "
+            "the whole new content. dry_run=true returns the plan."
+        ),
+        handler=fs_edit_file,
+        input_schema={
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Absolute or ~-expanded path to the file.",
+                },
+                "old_string": {
+                    "type": "string",
+                    "description": (
+                        "Exact substring to replace. Must be unique in the "
+                        "file unless replace_all=true."
+                    ),
+                },
+                "new_string": {
+                    "type": "string",
+                    "description": "Replacement text.",
+                },
+                "replace_all": {
+                    "type": "boolean",
+                    "description": (
+                        "If true, replace every occurrence. Default false."
+                    ),
+                },
+                "dry_run": {
+                    "type": "boolean",
+                    "description": "If true, return the plan without writing.",
+                },
+            },
+            "required": ["path", "old_string", "new_string"],
+        },
+        tier=Tier.WRITE_DESTRUCTIVE,
+        scope="filesystem_allowlist",
     ))
 
     registry.register(Capability(
