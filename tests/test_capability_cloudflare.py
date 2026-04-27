@@ -309,3 +309,293 @@ def test_boot_sequence_includes_capabilities_cloudflare():
     )
     cf_step = next(s for s in seq if s.name == "capabilities.cloudflare")
     assert "capabilities.audit" in cf_step.requires
+
+
+# ── cloudflare.set_dns_record (upsert) ─────────────────────────────
+
+
+from windyfly.agent.capabilities.cloudflare import (
+    _delete_dns_record_handler,
+    _set_dns_record_handler,
+)
+
+
+@respx.mock
+def test_set_dns_record_creates_new_when_no_match():
+    """No existing record with that type+name → POST a new one."""
+    respx.get(f"{_BASE}/zones/zone-aaa/dns_records").respond(
+        200, json={"result": [], "success": True},
+    )
+    post_route = respx.post(f"{_BASE}/zones/zone-aaa/dns_records").respond(
+        200, json={
+            "result": {
+                "id": "rec-new", "type": "A", "name": "blog.eternitas.ai",
+                "content": "192.0.2.1", "ttl": 1, "proxied": False,
+            },
+            "success": True,
+        },
+    )
+    out = _set_dns_record_handler(
+        zone_name=None, zone_id="zone-aaa",
+        type="A", name="blog.eternitas.ai", content="192.0.2.1",
+        token=_TOKEN,
+    )
+    assert out["ok"] is True
+    assert out["plan"]["action"] == "create"
+    assert out["record_id"] == "rec-new"
+    assert post_route.called
+
+
+@respx.mock
+def test_set_dns_record_updates_when_match():
+    """Existing match → PATCH it."""
+    respx.get(f"{_BASE}/zones/zone-aaa/dns_records").respond(
+        200, json={
+            "result": [{
+                "id": "rec-existing", "type": "A", "name": "blog.eternitas.ai",
+                "content": "10.0.0.1", "ttl": 300, "proxied": True,
+            }],
+            "success": True,
+        },
+    )
+    patch_route = respx.patch(
+        f"{_BASE}/zones/zone-aaa/dns_records/rec-existing",
+    ).respond(
+        200, json={
+            "result": {
+                "id": "rec-existing", "type": "A", "name": "blog.eternitas.ai",
+                "content": "192.0.2.1", "ttl": 1, "proxied": True,
+            },
+            "success": True,
+        },
+    )
+    out = _set_dns_record_handler(
+        zone_name=None, zone_id="zone-aaa",
+        type="a", name="blog.eternitas.ai", content="192.0.2.1",
+        token=_TOKEN,
+    )
+    assert out["ok"] is True
+    assert out["plan"]["action"] == "update"
+    assert out["plan"]["existing_content"] == "10.0.0.1"
+    assert out["plan"]["existing_record_id"] == "rec-existing"
+    assert patch_route.called
+
+
+@respx.mock
+def test_set_dns_record_dry_run_does_not_write():
+    """dry_run=true → no POST/PATCH; plan returned only."""
+    respx.get(f"{_BASE}/zones/zone-aaa/dns_records").respond(
+        200, json={"result": [], "success": True},
+    )
+    post_route = respx.post(f"{_BASE}/zones/zone-aaa/dns_records")
+    patch_route = respx.patch(f"{_BASE}/zones/zone-aaa/dns_records/anything")
+    out = _set_dns_record_handler(
+        zone_name=None, zone_id="zone-aaa",
+        type="A", name="x.example.com", content="1.1.1.1",
+        dry_run=True, token=_TOKEN,
+    )
+    assert out["executed"] is False
+    assert out["preview_only"] is True
+    assert out["plan"]["action"] == "create"
+    assert post_route.call_count == 0
+    assert patch_route.call_count == 0
+
+
+@respx.mock
+def test_set_dns_record_multi_match_refuses_to_guess():
+    """If two records have same type+name, refuse — don't pick one."""
+    respx.get(f"{_BASE}/zones/zone-aaa/dns_records").respond(
+        200, json={
+            "result": [
+                {"id": "rec-1", "type": "A", "name": "x.com", "content": "1.1.1.1"},
+                {"id": "rec-2", "type": "A", "name": "x.com", "content": "2.2.2.2"},
+            ],
+            "success": True,
+        },
+    )
+    post_route = respx.post(f"{_BASE}/zones/zone-aaa/dns_records")
+    out = _set_dns_record_handler(
+        zone_name=None, zone_id="zone-aaa",
+        type="A", name="x.com", content="3.3.3.3",
+        token=_TOKEN,
+    )
+    assert out["ok"] is False
+    assert "2 records matched" in out["error"]
+    assert post_route.call_count == 0
+
+
+def test_set_dns_record_unknown_type_refused_at_door():
+    """Typo'd type ('TPYE') → refused without API call."""
+    out = _set_dns_record_handler(
+        zone_name=None, zone_id="zone-aaa",
+        type="TPYE", name="x.com", content="1.1.1.1",
+        token=_TOKEN,
+    )
+    assert out["ok"] is False
+    assert "TPYE" in out["error"]
+    assert "supported set" in out["error"]
+
+
+def test_set_dns_record_no_token_returns_friendly_error():
+    out = _set_dns_record_handler(
+        zone_name=None, zone_id="zone-aaa",
+        type="A", name="x.com", content="1.1.1.1",
+        token="",
+    )
+    assert out["ok"] is False
+    assert out["kind"] == "dormant_integration"
+
+
+def test_set_dns_record_missing_required_fields():
+    for missing_field in ("type", "name", "content"):
+        kwargs = {
+            "zone_name": None, "zone_id": "zone-aaa",
+            "type": "A", "name": "x.com", "content": "1.1.1.1",
+            "token": _TOKEN,
+        }
+        kwargs[missing_field] = ""
+        out = _set_dns_record_handler(**kwargs)
+        assert out["ok"] is False
+        assert "required" in out["error"]
+
+
+@respx.mock
+def test_set_dns_record_422_returns_validation_error():
+    respx.get(f"{_BASE}/zones/zone-aaa/dns_records").respond(
+        200, json={"result": [], "success": True},
+    )
+    respx.post(f"{_BASE}/zones/zone-aaa/dns_records").respond(
+        422, text='{"errors":[{"message":"invalid IP"}]}',
+    )
+    out = _set_dns_record_handler(
+        zone_name=None, zone_id="zone-aaa",
+        type="A", name="x.com", content="not-an-ip",
+        token=_TOKEN,
+    )
+    assert out["ok"] is False
+    assert "validation error" in out["error"]
+
+
+# ── cloudflare.delete_dns_record ───────────────────────────────────
+
+
+@respx.mock
+def test_delete_dns_record_resolves_id_and_deletes():
+    respx.get(f"{_BASE}/zones/zone-aaa/dns_records").respond(
+        200, json={
+            "result": [{
+                "id": "rec-doomed", "type": "A", "name": "old.example.com",
+                "content": "1.2.3.4",
+            }],
+            "success": True,
+        },
+    )
+    del_route = respx.delete(
+        f"{_BASE}/zones/zone-aaa/dns_records/rec-doomed",
+    ).respond(200, json={"result": {"id": "rec-doomed"}, "success": True})
+    out = _delete_dns_record_handler(
+        zone_name=None, zone_id="zone-aaa",
+        type="A", name="old.example.com",
+        token=_TOKEN,
+    )
+    assert out["ok"] is True
+    assert out["deleted_record_id"] == "rec-doomed"
+    assert out["plan"]["existing_content"] == "1.2.3.4"
+    assert del_route.called
+
+
+@respx.mock
+def test_delete_dns_record_not_found_returns_friendly_error():
+    respx.get(f"{_BASE}/zones/zone-aaa/dns_records").respond(
+        200, json={"result": [], "success": True},
+    )
+    out = _delete_dns_record_handler(
+        zone_name=None, zone_id="zone-aaa",
+        type="A", name="ghost.example.com",
+        token=_TOKEN,
+    )
+    assert out["ok"] is False
+    assert "no record found" in out["error"]
+
+
+@respx.mock
+def test_delete_dns_record_dry_run_does_not_delete():
+    respx.get(f"{_BASE}/zones/zone-aaa/dns_records").respond(
+        200, json={
+            "result": [{"id": "rec-x", "type": "A", "name": "x.com", "content": "1.1.1.1"}],
+            "success": True,
+        },
+    )
+    del_route = respx.delete(f"{_BASE}/zones/zone-aaa/dns_records/rec-x")
+    out = _delete_dns_record_handler(
+        zone_name=None, zone_id="zone-aaa",
+        type="A", name="x.com",
+        dry_run=True, token=_TOKEN,
+    )
+    assert out["executed"] is False
+    assert out["preview_only"] is True
+    assert del_route.call_count == 0
+
+
+@respx.mock
+def test_delete_dns_record_with_explicit_record_id_skips_lookup():
+    """If caller passes record_id, skip the type+name lookup."""
+    # Note: we don't mock the GET — if it gets called, the test fails
+    del_route = respx.delete(
+        f"{_BASE}/zones/zone-aaa/dns_records/rec-direct",
+    ).respond(200, json={"result": {"id": "rec-direct"}, "success": True})
+    out = _delete_dns_record_handler(
+        zone_name=None, zone_id="zone-aaa",
+        type="A", name="x.com",
+        record_id="rec-direct",
+        token=_TOKEN,
+    )
+    assert out["ok"] is True
+    assert del_route.called
+
+
+@respx.mock
+def test_delete_dns_record_404_returns_already_deleted_message():
+    respx.get(f"{_BASE}/zones/zone-aaa/dns_records").respond(
+        200, json={
+            "result": [{"id": "rec-stale", "type": "A", "name": "x.com", "content": "1.1.1.1"}],
+            "success": True,
+        },
+    )
+    respx.delete(
+        f"{_BASE}/zones/zone-aaa/dns_records/rec-stale",
+    ).respond(404)
+    out = _delete_dns_record_handler(
+        zone_name=None, zone_id="zone-aaa",
+        type="A", name="x.com",
+        token=_TOKEN,
+    )
+    assert out["ok"] is False
+    assert "already deleted" in out["error"]
+
+
+# ── Registration includes write capabilities now ───────────────────
+
+
+def test_register_cloudflare_capabilities_now_includes_writes(monkeypatch):
+    monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "fake")
+    registry = CapabilityRegistry()
+    register_cloudflare_capabilities(registry, config={})
+    for cap_id in (
+        "cloudflare.list_zones",
+        "cloudflare.zone_details",
+        "cloudflare.list_dns_records",
+        "cloudflare.set_dns_record",
+        "cloudflare.delete_dns_record",
+    ):
+        cap = registry.get(cap_id)
+        assert cap is not None, f"{cap_id} not registered"
+
+    # Writes are EXTERNAL_EFFECT, not READ_EXTERNAL
+    from windyfly.agent.capabilities.descriptor import Band, Tier
+    set_cap = registry.get("cloudflare.set_dns_record")
+    del_cap = registry.get("cloudflare.delete_dns_record")
+    assert set_cap.tier == Tier.EXTERNAL_EFFECT
+    assert del_cap.tier == Tier.EXTERNAL_EFFECT
+    assert set_cap.band_required == Band.TRUSTED
+    assert del_cap.band_required == Band.TRUSTED

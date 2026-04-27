@@ -282,6 +282,271 @@ def _list_dns_records_handler(
     }
 
 
+def _find_existing_record(
+    *, zone_id: str, type_: str, name: str,
+    client: httpx.Client,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """Find a DNS record on a zone matching exact (type, name).
+
+    Returns (record, None) on match, (None, error_dict) on >1 match
+    (we refuse to guess; the caller must disambiguate by record_id),
+    or (None, None) when no record exists yet (set_dns_record will
+    create instead of update).
+    """
+    try:
+        resp = client.get(
+            f"/zones/{zone_id}/dns_records",
+            params={"type": type_.upper(), "name": name},
+        )
+    except httpx.HTTPError as e:
+        return None, {"ok": False, "error": f"network error during lookup: {e}"}
+    if resp.status_code in (401, 403):
+        return None, {
+            "ok": False,
+            "error": (
+                f"unauthorized ({resp.status_code}) — token may lack "
+                "DNS:Read scope (which is needed even for write to "
+                "look up the existing record id)."
+            ),
+        }
+    if resp.status_code >= 400:
+        return None, {
+            "ok": False,
+            "error": f"cloudflare api {resp.status_code}: {resp.text[:200]}",
+        }
+    results = (resp.json() or {}).get("result") or []
+    if len(results) == 0:
+        return None, None
+    if len(results) > 1:
+        return None, {
+            "ok": False,
+            "error": (
+                f"{len(results)} records matched type={type_.upper()} "
+                f"name={name!r}. Refusing to guess. List the records "
+                "and pass record_id explicitly to disambiguate."
+            ),
+        }
+    return results[0], None
+
+
+def _set_dns_record_handler(
+    *,
+    zone_name: str | None, zone_id: str | None,
+    type: str, name: str, content: str,
+    ttl: int = 1,           # 1 = "auto" in Cloudflare's API
+    proxied: bool | None = None,
+    comment: str | None = None,
+    dry_run: bool = False,
+    token: str | None,
+) -> dict[str, Any]:
+    """Upsert a DNS record by (zone, type, name).
+
+    If a record already exists for the given (type, name), PATCH it
+    with the new content/ttl/proxied/comment. Otherwise POST a new
+    record. Idempotent.
+
+    Use ``dry_run=true`` first whenever a DNS edit could affect
+    production traffic. ``proxied=None`` means "leave alone on update,
+    use Cloudflare default on create".
+    """
+    if not token:
+        return _not_configured_error()
+    if not type or not name or not content:
+        return {"ok": False, "error": "type, name, and content are required"}
+    type_upper = type.upper()
+    # Cloudflare-supported public types we routinely care about. Reject
+    # obvious typos (TYPO/TYPE/SPF) at the door rather than 422-ing.
+    _KNOWN_TYPES = {"A", "AAAA", "CNAME", "MX", "TXT", "NS", "SRV", "CAA", "PTR"}
+    if type_upper not in _KNOWN_TYPES:
+        return {
+            "ok": False,
+            "error": (
+                f"type {type_upper!r} not in supported set "
+                f"{sorted(_KNOWN_TYPES)}. Pass one of those."
+            ),
+        }
+
+    with _build_client(token) as client:
+        zid, err = _resolve_zone_id(
+            zone_name=zone_name, zone_id=zone_id, client=client,
+        )
+        if err is not None:
+            return err
+
+        existing, lookup_err = _find_existing_record(
+            zone_id=zid, type_=type_upper, name=name, client=client,
+        )
+        if lookup_err is not None:
+            return lookup_err
+
+        action = "update" if existing else "create"
+        plan: dict[str, Any] = {
+            "action": action,
+            "zone_id": zid,
+            "zone_name": zone_name,
+            "type": type_upper,
+            "name": name,
+            "content": content,
+            "ttl": ttl,
+            "proxied": proxied,
+            "comment": comment,
+        }
+        if existing:
+            plan["existing_record_id"] = existing.get("id")
+            plan["existing_content"] = existing.get("content")
+            plan["existing_ttl"] = existing.get("ttl")
+            plan["existing_proxied"] = existing.get("proxied")
+
+        if dry_run:
+            return {"plan": plan, "executed": False, "preview_only": True}
+
+        body: dict[str, Any] = {
+            "type": type_upper, "name": name, "content": content, "ttl": ttl,
+        }
+        if proxied is not None:
+            body["proxied"] = proxied
+        if comment is not None:
+            body["comment"] = comment
+
+        try:
+            if existing:
+                rec_id = existing.get("id")
+                resp = client.patch(
+                    f"/zones/{zid}/dns_records/{rec_id}", json=body,
+                )
+            else:
+                resp = client.post(
+                    f"/zones/{zid}/dns_records", json=body,
+                )
+        except httpx.HTTPError as e:
+            return {"ok": False, "error": f"network error during {action}: {e}"}
+
+    if resp.status_code in (401, 403):
+        return {
+            "ok": False,
+            "error": (
+                f"unauthorized ({resp.status_code}) — token may lack "
+                "DNS:Edit scope on this zone."
+            ),
+        }
+    if resp.status_code == 422:
+        return {
+            "ok": False,
+            "error": f"validation error (422): {resp.text[:300]}",
+        }
+    if resp.status_code >= 400:
+        return {
+            "ok": False,
+            "error": f"cloudflare api {resp.status_code}: {resp.text[:200]}",
+        }
+    rec = (resp.json() or {}).get("result") or {}
+    return {
+        "ok": True,
+        "executed": True,
+        "plan": plan,
+        "record_id": rec.get("id"),
+        "type": rec.get("type"),
+        "name": rec.get("name"),
+        "content": rec.get("content"),
+        "ttl": rec.get("ttl"),
+        "proxied": rec.get("proxied"),
+        "outcome_score": 1.0,
+    }
+
+
+def _delete_dns_record_handler(
+    *,
+    zone_name: str | None, zone_id: str | None,
+    type: str, name: str,
+    record_id: str | None = None,
+    dry_run: bool = False,
+    token: str | None,
+) -> dict[str, Any]:
+    """Delete a DNS record. Resolves record_id by (type, name) when
+    not supplied. Refuses on multi-match — caller must disambiguate.
+    """
+    if not token:
+        return _not_configured_error()
+    if not type or not name:
+        return {"ok": False, "error": "type and name are required"}
+    type_upper = type.upper()
+
+    with _build_client(token) as client:
+        zid, err = _resolve_zone_id(
+            zone_name=zone_name, zone_id=zone_id, client=client,
+        )
+        if err is not None:
+            return err
+
+        rec_id = record_id
+        existing_content = None
+        if rec_id is None:
+            existing, lookup_err = _find_existing_record(
+                zone_id=zid, type_=type_upper, name=name, client=client,
+            )
+            if lookup_err is not None:
+                return lookup_err
+            if existing is None:
+                return {
+                    "ok": False,
+                    "error": (
+                        f"no record found in zone {zone_name or zid} "
+                        f"matching type={type_upper} name={name!r} — "
+                        "nothing to delete."
+                    ),
+                }
+            rec_id = existing.get("id")
+            existing_content = existing.get("content")
+
+        plan = {
+            "action": "delete",
+            "zone_id": zid,
+            "zone_name": zone_name,
+            "type": type_upper,
+            "name": name,
+            "record_id": rec_id,
+            "existing_content": existing_content,
+            "side_effects": [
+                f"removes DNS record {type_upper} {name} (irreversible — "
+                "Cloudflare doesn't keep deleted record history; you'd "
+                "have to re-create it manually if this was wrong)."
+            ],
+        }
+        if dry_run:
+            return {"plan": plan, "executed": False, "preview_only": True}
+
+        try:
+            resp = client.delete(f"/zones/{zid}/dns_records/{rec_id}")
+        except httpx.HTTPError as e:
+            return {"ok": False, "error": f"network error during delete: {e}"}
+
+    if resp.status_code in (401, 403):
+        return {
+            "ok": False,
+            "error": (
+                f"unauthorized ({resp.status_code}) — token may lack "
+                "DNS:Edit scope on this zone."
+            ),
+        }
+    if resp.status_code == 404:
+        return {
+            "ok": False,
+            "error": f"record {rec_id!r} not found (already deleted?).",
+        }
+    if resp.status_code >= 400:
+        return {
+            "ok": False,
+            "error": f"cloudflare api {resp.status_code}: {resp.text[:200]}",
+        }
+    return {
+        "ok": True,
+        "executed": True,
+        "plan": plan,
+        "deleted_record_id": rec_id,
+        "outcome_score": 1.0,
+    }
+
+
 def register_cloudflare_capabilities(
     registry: CapabilityRegistry,
     config: dict[str, Any] | None = None,
@@ -322,6 +587,35 @@ def register_cloudflare_capabilities(
             type=type, name=name,
             token=os.environ.get("CLOUDFLARE_API_TOKEN", token),
             page_size=page_size,
+        )
+
+    def set_dns_record(
+        *, type: str, name: str, content: str,
+        zone_name: str | None = None, zone_id: str | None = None,
+        ttl: int = 1,
+        proxied: bool | None = None,
+        comment: str | None = None,
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        return _set_dns_record_handler(
+            zone_name=zone_name, zone_id=zone_id,
+            type=type, name=name, content=content,
+            ttl=ttl, proxied=proxied, comment=comment,
+            dry_run=dry_run,
+            token=os.environ.get("CLOUDFLARE_API_TOKEN", token),
+        )
+
+    def delete_dns_record(
+        *, type: str, name: str,
+        zone_name: str | None = None, zone_id: str | None = None,
+        record_id: str | None = None,
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        return _delete_dns_record_handler(
+            zone_name=zone_name, zone_id=zone_id,
+            type=type, name=name, record_id=record_id,
+            dry_run=dry_run,
+            token=os.environ.get("CLOUDFLARE_API_TOKEN", token),
         )
 
     registry.register(Capability(
@@ -435,6 +729,131 @@ def register_cloudflare_capabilities(
             "required": [],
         },
         tier=Tier.READ_EXTERNAL,
+        scope="cloudflare",
+        audit_required=True,
+    ))
+
+    registry.register(Capability(
+        id="cloudflare.set_dns_record",
+        description=(
+            "Create or update a DNS record on a Cloudflare zone. "
+            "Idempotent (upsert by zone+type+name): if a record with "
+            "the same type and name exists, it's PATCHed with the new "
+            "content/ttl/proxied/comment; otherwise a new record is "
+            "POSTed. STRONG RECOMMENDATION: pass dry_run=true first to "
+            "preview the plan — DNS edits affect production traffic "
+            "and Cloudflare doesn't keep edit history. Refuses if "
+            "more than one record matches type+name (caller must "
+            "disambiguate). Tier EXTERNAL_EFFECT — TRUSTED+ band only."
+        ),
+        handler=set_dns_record,
+        input_schema={
+            "type": "object",
+            "properties": {
+                "zone_name": {
+                    "type": "string",
+                    "description": "Domain name (e.g. 'windycloud.com').",
+                },
+                "zone_id": {
+                    "type": "string",
+                    "description": "Zone id; alternative to zone_name.",
+                },
+                "type": {
+                    "type": "string",
+                    "description": (
+                        "Record type: A, AAAA, CNAME, MX, TXT, NS, "
+                        "SRV, CAA, or PTR. Case-insensitive."
+                    ),
+                },
+                "name": {
+                    "type": "string",
+                    "description": (
+                        "Record name (FQDN). For the apex, use the "
+                        "zone name itself; otherwise 'sub.zone.com'."
+                    ),
+                },
+                "content": {
+                    "type": "string",
+                    "description": (
+                        "Record value: IP for A/AAAA, target FQDN for "
+                        "CNAME, etc."
+                    ),
+                },
+                "ttl": {
+                    "type": "integer",
+                    "description": (
+                        "TTL in seconds. 1 means 'auto' in Cloudflare "
+                        "(default). Use 60+ for explicit values."
+                    ),
+                },
+                "proxied": {
+                    "type": "boolean",
+                    "description": (
+                        "Orange-cloud proxy. Only valid for A/AAAA/CNAME. "
+                        "Omit to use Cloudflare default on create or "
+                        "leave unchanged on update."
+                    ),
+                },
+                "comment": {
+                    "type": "string",
+                    "description": "Optional human-readable note.",
+                },
+                "dry_run": {
+                    "type": "boolean",
+                    "description": (
+                        "If true, return the plan (including any "
+                        "existing record details) without writing. "
+                        "STRONGLY recommended for destructive paths."
+                    ),
+                },
+            },
+            "required": ["type", "name", "content"],
+        },
+        tier=Tier.EXTERNAL_EFFECT,
+        scope="cloudflare",
+        audit_required=True,
+    ))
+
+    registry.register(Capability(
+        id="cloudflare.delete_dns_record",
+        description=(
+            "Delete a DNS record. Resolves record_id by zone+type+name "
+            "if not provided. Refuses if more than one record matches "
+            "type+name. Cloudflare doesn't keep deleted-record history "
+            "— this is irreversible without manually re-creating the "
+            "record. Pass dry_run=true first. Tier EXTERNAL_EFFECT — "
+            "TRUSTED+ band only."
+        ),
+        handler=delete_dns_record,
+        input_schema={
+            "type": "object",
+            "properties": {
+                "zone_name": {"type": "string"},
+                "zone_id": {"type": "string"},
+                "type": {
+                    "type": "string",
+                    "description": "Record type (A, CNAME, etc.).",
+                },
+                "name": {
+                    "type": "string",
+                    "description": "Record name (FQDN).",
+                },
+                "record_id": {
+                    "type": "string",
+                    "description": (
+                        "Optional: skip the type+name lookup by "
+                        "passing the record id directly. Use when "
+                        "multiple records share type+name."
+                    ),
+                },
+                "dry_run": {
+                    "type": "boolean",
+                    "description": "If true, return the plan without deleting.",
+                },
+            },
+            "required": ["type", "name"],
+        },
+        tier=Tier.EXTERNAL_EFFECT,
         scope="cloudflare",
         audit_required=True,
     ))
