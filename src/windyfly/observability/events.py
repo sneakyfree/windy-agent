@@ -40,6 +40,7 @@ EVENT_TYPES = frozenset({
     "email.inbound",
     "email.outbound",
     "agent.confabulation_detected",
+    "agent.empty_after_tools",
 })
 
 
