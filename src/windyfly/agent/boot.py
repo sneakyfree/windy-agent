@@ -272,6 +272,13 @@ def _step_register_email(ctx: BootContext) -> None:
     register_email_capabilities(ctx.capability_registry, ctx.config)
 
 
+def _step_register_cloudflare(ctx: BootContext) -> None:
+    from windyfly.agent.capabilities.cloudflare import (
+        register_cloudflare_capabilities,
+    )
+    register_cloudflare_capabilities(ctx.capability_registry, ctx.config)
+
+
 def default_capability_registration_sequence() -> list[Step]:
     """The canonical post-DB-open registration order for both channels.
 
@@ -326,6 +333,11 @@ def default_capability_registration_sequence() -> list[Step]:
         Step(
             "capabilities.email",
             _step_register_email,
+            requires=("capabilities.audit",),
+        ),
+        Step(
+            "capabilities.cloudflare",
+            _step_register_cloudflare,
             requires=("capabilities.audit",),
         ),
     ]
