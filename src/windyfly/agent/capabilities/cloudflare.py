@@ -75,13 +75,12 @@ def _build_client(token: str | None) -> httpx.Client:
 
 
 def _not_configured_error() -> dict[str, Any]:
+    from windyfly.agent.setup_status import dormant_nudge
     return {
         "ok": False,
-        "error": (
-            "Cloudflare not configured. Set CLOUDFLARE_API_TOKEN in "
-            "the bot's environment (with at least Zone:Read + DNS:Read "
-            "scopes) and restart. The token lives in the fleet lockbox."
-        ),
+        "kind": "dormant_integration",
+        "integration": "cloudflare",
+        "error": dormant_nudge("cloudflare"),
     }
 
 

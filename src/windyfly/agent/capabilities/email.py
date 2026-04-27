@@ -153,13 +153,12 @@ def _send_email_handler(
     }
 
     if not _is_configured():
+        from windyfly.agent.setup_status import dormant_nudge
         return {
             "executed": False,
-            "error": (
-                "Gmail not connected. Run `windy setup-gmail` to link a "
-                "Google account with the gmail.send scope before I can "
-                "send email."
-            ),
+            "kind": "dormant_integration",
+            "integration": "gmail",
+            "error": dormant_nudge("gmail"),
             "plan": plan,
         }
 

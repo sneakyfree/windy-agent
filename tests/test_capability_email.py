@@ -102,8 +102,13 @@ def test_send_email_returns_error_when_oauth_not_configured(tmp_path, monkeypatc
         to="a@b.com", subject="hi", body="test",
     )
     assert out["executed"] is False
-    assert "Gmail not connected" in out["error"]
-    assert "windy setup-gmail" in out["error"]
+    # Grandma-mode (Tier 1): no developer-speak — must use the
+    # centralized dormant_nudge with chat-driven setup intent and an
+    # LLM instruction to NOT relay terminal commands verbatim.
+    assert out["kind"] == "dormant_integration"
+    assert out["integration"] == "gmail"
+    assert "set up email" in out["error"]
+    assert "do NOT relay" in out["error"]
     assert out["plan"]["to"] == "a@b.com"
 
 
