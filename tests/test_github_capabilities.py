@@ -23,8 +23,10 @@ import pytest
 import respx
 
 from windyfly.agent.capabilities.github import (
+    _create_issue_handler,
     _fetch_file_handler,
     _list_repo_handler,
+    _put_file_handler,
     register_github_capabilities,
 )
 from windyfly.agent.capabilities.registry import CapabilityRegistry
@@ -315,3 +317,236 @@ def test_github_token_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
         )
         registry.get("github.fetch_file").handler(owner="foo", repo="bar")
         assert route.calls.last.request.headers.get("Authorization") == "Bearer ghp_fallback"
+
+
+# ── github.put_file ───────────────────────────────────────────────
+
+
+@respx.mock
+def test_put_file_create_new_file_no_sha_lookup_needed():
+    # 404 on the existence check → we treat as new file
+    respx.get(f"{_BASE}/repos/foo/bar/contents/notes.md").respond(404)
+    put_route = respx.put(f"{_BASE}/repos/foo/bar/contents/notes.md").respond(
+        201, json={
+            "commit": {"sha": "abc123", "html_url": "https://github.com/foo/bar/commit/abc123"},
+            "content": {"sha": "def456"},
+        },
+    )
+    out = _put_file_handler(
+        owner="foo", repo="bar", path="notes.md",
+        content="hello world", message="add notes",
+        base_url=_BASE, token="ghp_test", allowed_owners=None,
+    )
+    assert out["ok"] is True
+    assert out["plan"]["action"] == "create"
+    assert out["commit_sha"] == "abc123"
+    assert out["content_sha"] == "def456"
+    # PUT body must NOT contain sha when creating
+    sent = put_route.calls.last.request.read()
+    import json
+    payload = json.loads(sent)
+    assert "sha" not in payload
+    assert payload["message"] == "add notes"
+    assert payload["branch"] == "main"
+
+
+@respx.mock
+def test_put_file_update_auto_fetches_sha():
+    """No sha provided + file exists → auto-fetch and include in PUT."""
+    respx.get(f"{_BASE}/repos/foo/bar/contents/notes.md").respond(
+        200, json={"type": "file", "sha": "current-sha-xyz", "content": _b64("old")},
+    )
+    put_route = respx.put(f"{_BASE}/repos/foo/bar/contents/notes.md").respond(
+        200, json={
+            "commit": {"sha": "newcommit", "html_url": "https://github.com/foo/bar/commit/newcommit"},
+            "content": {"sha": "new-content-sha"},
+        },
+    )
+    out = _put_file_handler(
+        owner="foo", repo="bar", path="notes.md",
+        content="updated", message="update notes",
+        base_url=_BASE, token="ghp_test", allowed_owners=None,
+    )
+    assert out["ok"] is True
+    assert out["plan"]["action"] == "update"
+    assert out["plan"]["auto_sha_lookup"] is True
+    import json
+    payload = json.loads(put_route.calls.last.request.read())
+    assert payload["sha"] == "current-sha-xyz"
+
+
+@respx.mock
+def test_put_file_directory_target_returns_friendly_error():
+    """Existence check returns a list (directory) → refuse cleanly."""
+    respx.get(f"{_BASE}/repos/foo/bar/contents/somedir").respond(
+        200, json=[{"name": "a.txt"}, {"name": "b.txt"}],
+    )
+    out = _put_file_handler(
+        owner="foo", repo="bar", path="somedir",
+        content="x", message="x",
+        base_url=_BASE, token="ghp_test", allowed_owners=None,
+    )
+    assert out["ok"] is False
+    assert "directory" in out["error"]
+
+
+@respx.mock
+def test_put_file_dry_run_does_not_call_put():
+    respx.get(f"{_BASE}/repos/foo/bar/contents/notes.md").respond(404)
+    put_route = respx.put(f"{_BASE}/repos/foo/bar/contents/notes.md")
+    out = _put_file_handler(
+        owner="foo", repo="bar", path="notes.md",
+        content="hi", message="add",
+        dry_run=True,
+        base_url=_BASE, token="ghp_test", allowed_owners=None,
+    )
+    assert out["executed"] is False
+    assert out["preview_only"] is True
+    assert put_route.call_count == 0
+
+
+def test_put_file_no_token_returns_friendly_error():
+    out = _put_file_handler(
+        owner="foo", repo="bar", path="x.md",
+        content="x", message="x",
+        base_url=_BASE, token=None, allowed_owners=None,
+    )
+    assert out["ok"] is False
+    assert "GITHUB_PAT" in out["error"]
+
+
+def test_put_file_missing_message_refused():
+    out = _put_file_handler(
+        owner="foo", repo="bar", path="x.md",
+        content="x", message="",
+        base_url=_BASE, token="ghp_test", allowed_owners=None,
+    )
+    assert out["ok"] is False
+    assert "commit message is required" in out["error"]
+
+
+@respx.mock
+def test_put_file_409_conflict_returns_stale_sha_message():
+    respx.get(f"{_BASE}/repos/foo/bar/contents/x.md").respond(
+        200, json={"type": "file", "sha": "stale", "content": _b64("old")},
+    )
+    respx.put(f"{_BASE}/repos/foo/bar/contents/x.md").respond(409)
+    out = _put_file_handler(
+        owner="foo", repo="bar", path="x.md",
+        content="new", message="update",
+        base_url=_BASE, token="ghp_test", allowed_owners=None,
+    )
+    assert out["ok"] is False
+    assert "stale" in out["error"]
+
+
+@respx.mock
+def test_put_file_owner_allowlist_enforced():
+    out = _put_file_handler(
+        owner="evil", repo="bar", path="x.md",
+        content="x", message="x",
+        base_url=_BASE, token="ghp_test",
+        allowed_owners=["sneakyfree"],
+    )
+    assert out["ok"] is False
+    assert "not in allowed_owners" in out["error"]
+
+
+# ── github.create_issue ────────────────────────────────────────────
+
+
+@respx.mock
+def test_create_issue_happy_path():
+    issue_route = respx.post(f"{_BASE}/repos/foo/bar/issues").respond(
+        201, json={
+            "id": 999, "number": 42,
+            "html_url": "https://github.com/foo/bar/issues/42",
+        },
+    )
+    out = _create_issue_handler(
+        owner="foo", repo="bar",
+        title="bug: thing is broken",
+        body="steps:\n1. do thing\n2. observe break",
+        labels=["bug", "p1"],
+        base_url=_BASE, token="ghp_test", allowed_owners=None,
+    )
+    assert out["ok"] is True
+    assert out["issue_number"] == 42
+    assert out["issue_url"].endswith("/issues/42")
+    import json
+    payload = json.loads(issue_route.calls.last.request.read())
+    assert payload["title"] == "bug: thing is broken"
+    assert payload["labels"] == ["bug", "p1"]
+
+
+def test_create_issue_empty_title_refused():
+    out = _create_issue_handler(
+        owner="foo", repo="bar", title="   ",
+        base_url=_BASE, token="ghp_test", allowed_owners=None,
+    )
+    assert out["ok"] is False
+    assert "title is required" in out["error"]
+
+
+def test_create_issue_no_token_returns_friendly_error():
+    out = _create_issue_handler(
+        owner="foo", repo="bar", title="hi",
+        base_url=_BASE, token=None, allowed_owners=None,
+    )
+    assert out["ok"] is False
+    assert "GITHUB_PAT" in out["error"]
+
+
+@respx.mock
+def test_create_issue_dry_run_does_not_post():
+    route = respx.post(f"{_BASE}/repos/foo/bar/issues")
+    out = _create_issue_handler(
+        owner="foo", repo="bar", title="dry test", dry_run=True,
+        base_url=_BASE, token="ghp_test", allowed_owners=None,
+    )
+    assert out["executed"] is False
+    assert out["preview_only"] is True
+    assert route.call_count == 0
+
+
+@respx.mock
+def test_create_issue_410_disabled_message():
+    respx.post(f"{_BASE}/repos/foo/bar/issues").respond(410)
+    out = _create_issue_handler(
+        owner="foo", repo="bar", title="hi",
+        base_url=_BASE, token="ghp_test", allowed_owners=None,
+    )
+    assert out["ok"] is False
+    assert "issues are disabled" in out["error"]
+
+
+@respx.mock
+def test_create_issue_owner_allowlist_enforced():
+    out = _create_issue_handler(
+        owner="evil", repo="bar", title="hi",
+        base_url=_BASE, token="ghp_test",
+        allowed_owners=["sneakyfree"],
+    )
+    assert out["ok"] is False
+    assert "not in allowed_owners" in out["error"]
+
+
+# ── Registration smoke for new caps ────────────────────────────────
+
+
+def test_register_github_includes_put_file_and_create_issue(monkeypatch):
+    monkeypatch.setenv("GITHUB_PAT", "ghp_test")
+    registry = CapabilityRegistry()
+    register_github_capabilities(registry, config={})
+    put_cap = registry.get("github.put_file")
+    issue_cap = registry.get("github.create_issue")
+    assert put_cap is not None
+    assert issue_cap is not None
+    # Both must be EXTERNAL_EFFECT (TRUSTED+ band default)
+    from windyfly.agent.capabilities.descriptor import Band, Tier
+    assert put_cap.tier == Tier.EXTERNAL_EFFECT
+    assert issue_cap.tier == Tier.EXTERNAL_EFFECT
+    assert put_cap.band_required == Band.TRUSTED
+    assert issue_cap.band_required == Band.TRUSTED
+    assert put_cap.audit_required is True
+    assert issue_cap.audit_required is True
