@@ -111,3 +111,83 @@ class TestFetchUrlUserAgent:
         assert "python-httpx" not in ua.lower(), (
             f"fetch_url must NOT advertise as httpx (got {ua!r})"
         )
+
+
+class TestFetchUrlChunking:
+    """Round-3 finding: 5KB cap meant the bot couldn't read past the
+    opening of any real article. Default raised to 20000 + offset
+    parameter for chunked reading on long pages."""
+
+    @patch("windyfly.tools.web_search.httpx.get")
+    def _mock_response(self, mock_get, body_text="alpha bravo charlie delta echo"):
+        mock_response = MagicMock()
+        # Wrap body in HTML so the strip pipeline runs realistically
+        mock_response.text = f"<html><body>{body_text}</body></html>"
+        mock_response.raise_for_status = MagicMock()
+        mock_get.return_value = mock_response
+        return mock_get
+
+    @patch("windyfly.tools.web_search.httpx.get")
+    def test_default_max_chars_is_20000(self, mock_get):
+        long_text = "x" * 50_000
+        mock_response = MagicMock()
+        mock_response.text = f"<html><body>{long_text}</body></html>"
+        mock_response.raise_for_status = MagicMock()
+        mock_get.return_value = mock_response
+
+        out = fetch_url("https://example.com/long")
+        assert out["returned_chars"] == 20_000
+        assert out["total_length"] == 50_000
+        assert out["truncated"] is True
+        assert out["next_offset"] == 20_000
+
+    @patch("windyfly.tools.web_search.httpx.get")
+    def test_offset_returns_later_slice(self, mock_get):
+        long_text = "ABCDEFGHIJ" * 5_000  # 50_000 chars
+        mock_response = MagicMock()
+        mock_response.text = f"<html><body>{long_text}</body></html>"
+        mock_response.raise_for_status = MagicMock()
+        mock_get.return_value = mock_response
+
+        out = fetch_url("https://example.com/long", max_chars=100, offset=200)
+        assert out["offset"] == 200
+        assert out["returned_chars"] == 100
+        # Slice should start at char 200 of the cleaned body
+        assert out["content"][:10] == "ABCDEFGHIJ"
+        assert out["truncated"] is True
+        assert out["next_offset"] == 300
+
+    @patch("windyfly.tools.web_search.httpx.get")
+    def test_offset_past_end_returns_empty(self, mock_get):
+        mock_response = MagicMock()
+        mock_response.text = "<html><body>short</body></html>"
+        mock_response.raise_for_status = MagicMock()
+        mock_get.return_value = mock_response
+
+        out = fetch_url("https://example.com/", max_chars=100, offset=999)
+        assert out["content"] == ""
+        assert out["truncated"] is False
+        assert out["next_offset"] is None
+
+    @patch("windyfly.tools.web_search.httpx.get")
+    def test_short_page_not_truncated(self, mock_get):
+        mock_response = MagicMock()
+        mock_response.text = "<html><body>short</body></html>"
+        mock_response.raise_for_status = MagicMock()
+        mock_get.return_value = mock_response
+
+        out = fetch_url("https://example.com/")
+        assert out["truncated"] is False
+        assert out["next_offset"] is None
+        assert out["total_length"] == out["returned_chars"]
+
+    @patch("windyfly.tools.web_search.httpx.get")
+    def test_negative_offset_clamped_to_zero(self, mock_get):
+        mock_response = MagicMock()
+        mock_response.text = "<html><body>hello world</body></html>"
+        mock_response.raise_for_status = MagicMock()
+        mock_get.return_value = mock_response
+
+        out = fetch_url("https://example.com/", offset=-50)
+        assert out["offset"] == 0
+        assert "hello" in out["content"]

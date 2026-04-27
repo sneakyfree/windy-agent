@@ -100,10 +100,23 @@ def _ddg_search(query: str, limit: int = 5) -> dict[str, Any]:
         return {"query": query, "results": [], "error": str(e)}
 
 
-def fetch_url(url: str, max_chars: int = 5000) -> dict[str, Any]:
+def fetch_url(
+    url: str,
+    max_chars: int = 20000,
+    offset: int = 0,
+) -> dict[str, Any]:
     """Fetch a URL and return its text content (HTML stripped).
 
-    Useful for "Read this article for me: [URL]".
+    Stress harness v4 round-3 finding: the prior 5000-char cap meant
+    the bot couldn't read past the opening of any real article (most
+    Wikipedia bodies are 30-100KB of text). Default raised to 20000
+    chars and an ``offset`` parameter added so the bot can read past
+    the cap by repeating the call with offset += max_chars. The
+    response always includes ``total_length`` so the LLM can decide
+    whether another fetch is worth it.
+
+    Useful for "Read this article for me: [URL]" and "give me the
+    last paragraph of [URL]".
     """
     try:
         resp = httpx.get(
@@ -119,11 +132,22 @@ def fetch_url(url: str, max_chars: int = 5000) -> dict[str, Any]:
         text = re.sub(r"<[^>]+>", " ", text)
         text = re.sub(r"\s+", " ", text).strip()
 
+        total_length = len(text)
+        offset = max(0, offset)
+        end = offset + max_chars
+        slice_ = text[offset:end] if offset < total_length else ""
+        truncated = end < total_length
+
         return {
             "url": url,
-            "content": text[:max_chars],
-            "truncated": len(text) > max_chars,
-            "length": len(text),
+            "content": slice_,
+            "offset": offset,
+            "returned_chars": len(slice_),
+            "total_length": total_length,
+            "truncated": truncated,
+            "next_offset": end if truncated else None,
+            # Kept for backwards-compatible callers / older episodes.
+            "length": total_length,
         }
     except Exception as e:
         return {"url": url, "content": "", "error": str(e)}
@@ -152,13 +176,34 @@ def register_web_search_tool(registry: ToolRegistry) -> None:
     registry.register(
         name="fetch_url",
         description=(
-            "Fetch and read a specific web page. Use when the user shares a URL "
-            "and asks you to read, summarize, or extract info from it."
+            "Fetch and read a specific web page (HTML stripped, plain text). "
+            "Use when the user shares a URL and asks you to read, summarize, "
+            "or extract info from it. Default returns up to 20000 chars; pass "
+            "max_chars to change the slice size (LLM-context cost). For long "
+            "pages (Wikipedia, blog posts), the response includes total_length "
+            "and next_offset — call again with offset=next_offset to read the "
+            "next chunk. Returns {content, offset, returned_chars, "
+            "total_length, truncated, next_offset}."
         ),
         parameters={
             "type": "object",
             "properties": {
                 "url": {"type": "string", "description": "The URL to fetch"},
+                "max_chars": {
+                    "type": "integer",
+                    "description": (
+                        "Max characters to return per call (default 20000). "
+                        "Raise for big articles, lower to save context."
+                    ),
+                },
+                "offset": {
+                    "type": "integer",
+                    "description": (
+                        "Char offset to start the slice at (default 0). For "
+                        "pagination through long pages: call with the prior "
+                        "response's next_offset."
+                    ),
+                },
             },
             "required": ["url"],
         },
