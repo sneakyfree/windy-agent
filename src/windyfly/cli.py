@@ -402,6 +402,49 @@ def cmd_status(_args: argparse.Namespace) -> None:
     print_status()
 
 
+def cmd_setup_calendar(_args: argparse.Namespace) -> None:
+    """One-time Google Calendar OAuth flow → activates calendar tools.
+
+    Closes the pre-existing dead-end where the bot's graceful refusal
+    text said "Run `windy setup-calendar`" but the subcommand didn't
+    actually exist. ``setup_calendar_oauth`` has been in calendar.py
+    since the tool was first written; this wires it to the CLI.
+
+    Prereqs:
+      1. Google Cloud project with the Calendar API enabled.
+      2. ``calendar`` scope on the OAuth consent screen.
+      3. Desktop-app OAuth Client ID downloaded as
+         ``data/google_calendar_creds.json`` (or path in
+         ``GOOGLE_CALENDAR_CREDENTIALS`` env var).
+
+    Same scaffolding as ``windy setup-gmail`` — different scope, same
+    Google Cloud project is fine.
+    """
+    console.print("[bold cyan]🪰 Setting up Google Calendar OAuth...[/bold cyan]")
+    console.print()
+    from windyfly.tools.calendar import setup_calendar_oauth
+    ok = setup_calendar_oauth()
+    if ok:
+        console.print()
+        console.print("[bold green]✓ Calendar connected.[/bold green]")
+        console.print(
+            "  Restart the bot to pick up the new token: "
+            "[cyan]systemctl --user restart windy-0.service[/cyan]"
+        )
+    else:
+        console.print()
+        console.print("[bold red]✗ Calendar setup failed.[/bold red]")
+        console.print(
+            "  See the logged reason above. Common fixes:\n"
+            "  • Download the Desktop-app OAuth client JSON from\n"
+            "    Google Cloud Console → APIs & Services → Credentials\n"
+            "  • Save it as data/google_calendar_creds.json (or set\n"
+            "    GOOGLE_CALENDAR_CREDENTIALS to point at it)\n"
+            "  • Add the calendar scope to your OAuth consent screen"
+        )
+        sys.exit(1)
+
+
 def cmd_setup_gmail(_args: argparse.Namespace) -> None:
     """One-time Gmail OAuth flow → activates the email.send capability.
 
@@ -1406,6 +1449,12 @@ def main() -> None:
     # windy setup
     sub.add_parser("setup", help="Browser-based setup wizard")
 
+    # windy setup-calendar
+    sub.add_parser(
+        "setup-calendar",
+        help="One-time Google Calendar OAuth flow (activates calendar tools)",
+    )
+
     # windy setup-gmail
     sub.add_parser(
         "setup-gmail",
@@ -1520,6 +1569,7 @@ def main() -> None:
         # Setup
         "init": cmd_init,
         "setup": cmd_setup,
+        "setup-calendar": cmd_setup_calendar,
         "setup-gmail": cmd_setup_gmail,
         # Help
         "help": _cmd_help,

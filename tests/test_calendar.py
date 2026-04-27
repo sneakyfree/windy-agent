@@ -79,3 +79,57 @@ def test_create_event_success(mock_conf, mock_svc):
     result = create_event("Test Meeting", "2026-04-05T14:00:00")
     assert result["success"] is True
     assert result["event_id"] == "event123"
+
+
+# ── setup_calendar_oauth + CLI dispatch (PR #79) ───────────────────
+
+
+def test_setup_calendar_oauth_missing_creds_returns_false(tmp_path, monkeypatch):
+    """If the OAuth credentials JSON isn't on disk, fail cleanly."""
+    from windyfly.tools import calendar as calendar_module
+    monkeypatch.setattr(calendar_module, "_CREDS_PATH", tmp_path / "missing.json")
+    out = calendar_module.setup_calendar_oauth()
+    assert out is False
+
+
+def test_setup_calendar_oauth_writes_token_on_success(tmp_path, monkeypatch):
+    from unittest.mock import MagicMock
+    from windyfly.tools import calendar as calendar_module
+
+    creds = tmp_path / "creds.json"
+    creds.write_text('{"installed": {}}')
+    token = tmp_path / "token.json"
+    monkeypatch.setattr(calendar_module, "_CREDS_PATH", creds)
+    monkeypatch.setattr(calendar_module, "_TOKEN_PATH", token)
+
+    fake_creds_obj = MagicMock()
+    fake_creds_obj.to_json.return_value = '{"refresh_token": "test-rt"}'
+    fake_flow = MagicMock()
+    fake_flow.run_local_server.return_value = fake_creds_obj
+    fake_module = MagicMock()
+    fake_module.InstalledAppFlow.from_client_secrets_file.return_value = fake_flow
+    import sys as _sys
+    monkeypatch.setitem(_sys.modules, "google_auth_oauthlib.flow", fake_module)
+
+    out = calendar_module.setup_calendar_oauth()
+    assert out is True
+    assert token.exists()
+    assert "refresh_token" in token.read_text()
+    fake_module.InstalledAppFlow.from_client_secrets_file.assert_called_once_with(
+        str(creds),
+        scopes=["https://www.googleapis.com/auth/calendar"],
+    )
+
+
+def test_cli_dispatch_includes_setup_calendar():
+    """Closes the pre-existing dead-end where graceful refusals
+    referenced `windy setup-calendar` but the subcommand didn't exist."""
+    import inspect
+    import windyfly.cli as cli_module
+    src = inspect.getsource(cli_module)
+    assert '"setup-calendar": cmd_setup_calendar' in src, (
+        "setup-calendar must be in the CLI dispatch table"
+    )
+    assert '"setup-calendar"' in src, (
+        "setup-calendar must have an add_parser entry"
+    )
