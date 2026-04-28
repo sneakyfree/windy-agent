@@ -295,9 +295,17 @@ def main() -> None:
                     pass
 
             await manager.start_all()
+            # Tell systemd we're ready (Type=notify). No-op outside
+            # systemd. Watchdog pings come from the heartbeat loop in
+            # each channel adapter.
+            from windyfly.observability.sd_notify import (
+                notify_ready, notify_stopping,
+            )
+            notify_ready()
             try:
                 await stop_event.wait()
             finally:
+                notify_stopping()
                 logger.info("Stopping channels...")
                 await manager.stop_all()
 
