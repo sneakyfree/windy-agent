@@ -107,6 +107,41 @@ class TestAssemblePrompt:
         assert "focused" in system_content.lower()
         db.close()
 
+    def test_first_contact_guard_fires_on_virgin_db(self):
+        """Stress harness v6 Notebook test 2026-04-27: the bot was
+        opening with 'Welcome back!' on a truly virgin DB (episodes=0,
+        nodes=0) — the LLM defaults to familiarity language even with
+        zero memory backing. Fix: detect first contact and inject an
+        explicit instruction not to use 'welcome back' etc.
+
+        This regression locks the new contract: when the DB is virgin,
+        the system prompt must contain a FIRST CONTACT instruction."""
+        config = _make_config()
+        db = _make_db()  # in-memory, virgin
+        messages = assemble_prompt(config, db, "Hey, I'm back!", "test-session")
+        system_content = messages[0]["content"]
+        assert "FIRST CONTACT" in system_content
+        assert "DO NOT use 'welcome back'" in system_content or \
+               "do not use 'welcome back'" in system_content.lower()
+        db.close()
+
+    def test_first_contact_guard_does_NOT_fire_when_memory_exists(self):
+        """Inverse of the regression: with prior episodes/nodes, the
+        FIRST CONTACT guard must NOT fire — the personality block
+        drives tone normally."""
+        from windyfly.memory.episodes import save_episode
+        config = _make_config()
+        db = _make_db()
+        # Plant a prior episode so the bot has SOMETHING to remember
+        save_episode(
+            db, session_id="prior-session", role="user",
+            content="hello from yesterday",
+        )
+        messages = assemble_prompt(config, db, "Hey", "test-session")
+        system_content = messages[0]["content"]
+        assert "FIRST CONTACT" not in system_content
+        db.close()
+
 
 class TestAgentRespond:
     @patch("windyfly.agent.loop.call_llm")

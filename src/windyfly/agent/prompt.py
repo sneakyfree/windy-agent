@@ -17,6 +17,34 @@ from windyfly.memory.nodes import get_nodes_by_type, search_nodes
 from windyfly.personality.engine import build_personality_block, get_mode_override, load_soul
 
 
+def _is_first_contact(db: Database) -> bool:
+    """True if the bot has zero prior memory of any kind.
+
+    Found via stress harness v6 Notebook test 2026-04-27: with a
+    truly virgin DB (episodes=0, nodes=0), the bot's first reply
+    opened with "Welcome back! Great to have you here" — the LLM
+    defaults to familiarity language even when there's no memory
+    to back it up. For a brand-new user's first ever message, this
+    feels like the bot is play-acting, not actually remembering.
+
+    Detection: episodes table empty AND nodes table empty. If
+    either has rows, the bot has SOMETHING to anchor familiarity
+    on (could be other-session history, extracted facts, etc.) and
+    we let the personality block drive tone normally.
+    """
+    try:
+        ep_row = db.fetchone("SELECT COUNT(*) AS c FROM episodes")
+        nd_row = db.fetchone("SELECT COUNT(*) AS c FROM nodes")
+    except Exception:
+        # If the schema isn't ready yet, default to non-first-contact
+        # — the personality block will drive tone, and the next turn
+        # will have the row.
+        return False
+    n_eps = (ep_row or {}).get("c", 0)
+    n_nodes = (nd_row or {}).get("c", 0)
+    return n_eps == 0 and n_nodes == 0
+
+
 def assemble_prompt(
     config: dict[str, Any],
     db: Database,
@@ -57,6 +85,22 @@ def assemble_prompt(
         "When you state a fact from memory, indicate your confidence level. "
         "If a fact is marked INFERRED, say so."
     )
+
+    # First-contact guard: when the bot has no prior memory at all,
+    # the LLM's default warmth kicks in and produces "welcome back" /
+    # "good to see you again" even though it has nothing to remember.
+    # This is a real product issue for grandma's first interaction —
+    # the bot needs to know it's meeting her for the first time.
+    if _is_first_contact(db):
+        system_parts.append(
+            "FIRST CONTACT: You have no prior memory of this user — "
+            "no episodes, no extracted facts, no turnover letter. "
+            "They have never spoken with you before. Greet them as a "
+            "brand-new acquaintance. DO NOT use 'welcome back', 'good "
+            "to see you again', 'as we discussed', 'picking up where "
+            "we left off', or ANY phrase implying prior interaction. "
+            "Introduce yourself naturally if appropriate."
+        )
 
     messages.append({
         "role": "system",
