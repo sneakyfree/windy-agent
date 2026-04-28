@@ -38,6 +38,53 @@ _MAX_BACKOFF_S = 60
 _HEARTBEAT_INTERVAL_S = 300  # 5 minutes
 
 
+# ── Nuclear reset / panic button ───────────────────────────────────
+#
+# Grandma scenario: bot is acting weird — stuck, wrong answers,
+# broken tool, anything. She types one of these phrases and the bot
+# resets itself. Long-term memory, identity, and credentials all
+# survive; only the current conversation context is lost.
+#
+# The panic check runs at the very TOP of _handle, before any LLM
+# dispatch or DB write — the chance the simple-text-match path is
+# itself broken is essentially zero. If the polling loop is dead,
+# the systemd watchdog (PR #88) handles that case independently.
+
+# Whole-message exact matches (after lower/strip). No ambiguity:
+# "/reset" alone triggers; "/reset my password" doesn't.
+_PANIC_EXACT = frozenset({
+    "/reset", "/panic", "/nuclear", "🆘",
+})
+
+# Phrase matches anywhere in the message (after lower).
+_PANIC_PHRASES = (
+    "reset my agent",
+    "nuclear reset",
+    "factory reset",
+    "bring my agent back",
+    "bring back my agent",
+    "my agent is broken",
+    "my bot is broken",
+    "agent is stuck",
+    "bot is stuck",
+)
+
+_PANIC_REPLY = (
+    "🆘 Got it. Resetting your agent now — give me about 30 seconds.\n\n"
+    "Your memory, personality, and saved facts are all safe. "
+    "Only this conversation thread will reset. I'll be right back."
+)
+
+
+def _is_panic_message(text: str | None) -> bool:
+    if not text:
+        return False
+    low = text.strip().lower()
+    if low in _PANIC_EXACT:
+        return True
+    return any(p in low for p in _PANIC_PHRASES)
+
+
 class TelegramChannel(ChannelAdapter):
     """Windy Fly on Telegram."""
 
@@ -221,6 +268,19 @@ class TelegramChannel(ChannelAdapter):
 
         text = update.message.text
 
+        # ── NUCLEAR RESET — must be FIRST, before agent loop ──
+        # If the bot is stuck/confused, this short-circuits BEFORE
+        # any LLM / DB / tool dispatch. Long-term memory is safe.
+        if _is_panic_message(text):
+            logger.warning("PANIC: nuclear reset requested by %s", sender_id)
+            try:
+                await update.message.reply_text(sanitize_outgoing(_PANIC_REPLY))
+            except Exception as e:
+                logger.warning("panic-ack reply failed: %s", e)
+            self._last_message_at = time.time()
+            asyncio.create_task(self._trigger_self_restart())
+            return
+
         # Unified command detection
         from windyfly.channels.base import handle_incoming
         was_command, cmd_response = await handle_incoming(text, {"platform": "telegram"})
@@ -248,6 +308,32 @@ class TelegramChannel(ChannelAdapter):
                 chat_id=message.channel_id,
                 text=sanitize_outgoing(message.text),
             )
+
+    async def _trigger_self_restart(self) -> None:
+        """Schedule a graceful self-restart after the panic-ack reply
+        has flushed. Reuses main.py's existing SIGTERM handler so
+        write_queue.stop() / db.close() get to run before exit, then
+        ``Restart=always`` revives us with fresh in-memory state.
+
+        We sleep briefly so reply_text has time to round-trip to
+        Telegram before we die. 2 seconds is enough on any reachable
+        connection; the TimeoutStopSec further bounds total downtime.
+        """
+        import os
+        import signal
+        try:
+            await asyncio.sleep(2)
+        except asyncio.CancelledError:
+            pass
+        logger.warning("PANIC: sending SIGTERM for nuclear reset")
+        try:
+            os.kill(os.getpid(), signal.SIGTERM)
+        except Exception as e:
+            logger.error("panic SIGTERM failed (%s) — hard-exiting", e)
+            # If even SIGTERM fails (process is wedged at a syscall
+            # level), os._exit bypasses cleanup. Restart=always still
+            # revives us. Worst case we lose write-queue flush.
+            os._exit(75)
 
     async def stop(self) -> None:
         self._shutting_down = True
