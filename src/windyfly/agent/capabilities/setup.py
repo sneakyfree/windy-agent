@@ -127,14 +127,22 @@ _WALKTHROUGHS: dict[str, dict[str, Any]] = {
         "estimated_minutes": None,
         "method": "oauth_required",
         "steps": [
-            "Gmail uses Google's secure sign-in (OAuth) — pasting a token won't work.",
-            "Tier 2 of the setup flow ships a one-tap link the user can click in chat.",
+            "Gmail needs Google's browser-based sign-in (OAuth) — there's no token to paste.",
+            "The chat-driven version of this setup is in active development.",
         ],
         "after_paste_action": None,
         "note_to_llm": (
-            "Gmail can't be set up via paste. Tell the user the bot's "
-            "operator (Grant) needs to run `windy setup-gmail` for now. "
-            "Magic-link chat OAuth is coming in a future update."
+            "INSTRUCTION TO THE LLM: This integration cannot be set up "
+            "from chat yet — it requires a browser sign-in flow that "
+            "isn't wired into the chat interface. Tell the user, in "
+            "warm plain English, something like: 'Email setup needs a "
+            "browser sign-in step that I can't drive from chat just "
+            "yet — that's something Grant has to enable on his end "
+            "for now. I'll let you know the moment I can do it "
+            "myself.' DO NOT mention `windy setup-gmail`, terminal "
+            "commands, env vars, or any developer-only path. Most "
+            "users are non-technical and seeing CLI syntax in chat "
+            "is a product failure."
         ),
     },
     "calendar": {
@@ -143,14 +151,22 @@ _WALKTHROUGHS: dict[str, dict[str, Any]] = {
         "estimated_minutes": None,
         "method": "oauth_required",
         "steps": [
-            "Google Calendar uses Google's secure sign-in (OAuth) — pasting a token won't work.",
-            "The operator can run `windy setup-calendar` to authorize.",
+            "Calendar needs Google's browser-based sign-in (OAuth) — there's no token to paste.",
+            "The chat-driven version of this setup is in active development.",
         ],
         "after_paste_action": None,
         "note_to_llm": (
-            "Calendar can't be set up via paste. Tell the user the "
-            "operator can run `windy setup-calendar` for now. Magic-link "
-            "chat OAuth is coming in a future update."
+            "INSTRUCTION TO THE LLM: This integration cannot be set up "
+            "from chat yet — it requires a browser sign-in flow that "
+            "isn't wired into the chat interface. Tell the user, in "
+            "warm plain English, something like: 'Calendar setup "
+            "needs a browser sign-in step that I can't drive from "
+            "chat just yet — Grant has to enable that on his end for "
+            "now. I'll let you know the moment I can do it myself.' "
+            "DO NOT mention `windy setup-calendar`, terminal commands, "
+            "env vars, or any developer-only path. Most users are "
+            "non-technical and seeing CLI syntax in chat is a product "
+            "failure."
         ),
     },
 }
@@ -243,6 +259,18 @@ def _atomic_upsert_env_var(
 
 
 def _start_handler(*, integration: str) -> dict[str, Any]:
+    """Return the chat walkthrough for an integration, plus a flag
+    indicating whether it's *already* connected.
+
+    The ``already_configured`` field exists so the LLM has a clear
+    signal even if it didn't proactively call ``setup.status`` first
+    (LLMs sometimes skip the prefix-introspection step). When True,
+    the LLM should confirm with the user that they want to *replace*
+    the existing token before walking through getting a new one —
+    otherwise grandma might rotate a working credential by mistake.
+    """
+    from windyfly.agent.setup_status import is_configured
+
     walkthrough = _WALKTHROUGHS.get(integration)
     if walkthrough is None:
         return {
@@ -252,7 +280,23 @@ def _start_handler(*, integration: str) -> dict[str, Any]:
                 f"Known: {sorted(_WALKTHROUGHS.keys())}."
             ),
         }
-    return {"ok": True, **walkthrough}
+    already = is_configured(integration)
+    out: dict[str, Any] = {
+        "ok": True,
+        "already_configured": already,
+        **walkthrough,
+    }
+    if already:
+        out["note_to_llm_about_state"] = (
+            f"{integration} is ALREADY connected. Before walking the "
+            "user through getting a fresh token, ask them: 'You're "
+            "already connected to that — do you want to replace your "
+            "current token, or did you mean something else?' Only "
+            "proceed with the walkthrough if they confirm replacement. "
+            "If unsure, tell the user what's currently working and "
+            "ask what they'd actually like to do."
+        )
+    return out
 
 
 def _save_credential_handler(
@@ -272,10 +316,13 @@ def _save_credential_handler(
             "kind": "oauth_required",
             "integration": integration,
             "error": (
-                f"{integration!r} uses OAuth, not a pasted token. "
-                "Tier 2 (magic-link chat OAuth) ships next; for now, "
-                "the operator can run `windy setup-{0}` from the "
-                "terminal.".format(integration)
+                f"{integration!r} cannot be set up from chat yet — it "
+                "requires a browser sign-in flow that isn't wired into "
+                "the chat interface. INSTRUCTION TO THE LLM: tell the "
+                "user in plain English that this one needs a browser "
+                "step that the operator (Grant) has to enable for "
+                "them. Do NOT mention terminal commands, env vars, or "
+                "developer-only paths."
             ),
         }
     saver = _SAVERS.get(integration)

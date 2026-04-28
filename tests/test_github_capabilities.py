@@ -550,3 +550,43 @@ def test_register_github_includes_put_file_and_create_issue(monkeypatch):
     assert issue_cap.band_required == Band.TRUSTED
     assert put_cap.audit_required is True
     assert issue_cap.audit_required is True
+
+
+# ── Hot-load: token added post-boot via setup.save_credential ──────
+
+
+@respx.mock
+def test_github_hot_loads_token_added_after_boot(monkeypatch):
+    """Audit-found bug 2026-04-27: github capability closures used
+    the boot-time ``token`` directly without re-reading os.environ,
+    so a token added post-boot via setup.save_credential was a no-op
+    (would have required a service restart). Cloudflare did this
+    right; github didn't. Fix: each closure re-reads
+    GITHUB_PAT/GITHUB_TOKEN at call time.
+
+    This regression test boots the registry with NO token, then
+    sets the env var, then confirms the next capability call sends
+    the new token in its Authorization header.
+    """
+    monkeypatch.delenv("GITHUB_PAT", raising=False)
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+    registry = CapabilityRegistry()
+    register_github_capabilities(registry, config={})
+
+    # Simulate setup.save_credential's hot-load by setting the env var
+    # AFTER registration. The closure must pick this up on next call.
+    monkeypatch.setenv("GITHUB_PAT", "ghp_hotloaded_after_boot")
+
+    route = respx.get(f"{_BASE}/repos/foo/bar/contents/README.md").respond(
+        json={"type": "file", "encoding": "base64", "content": _b64("hi")},
+    )
+    out = registry.get("github.fetch_file").handler(owner="foo", repo="bar")
+
+    # The handler must succeed AND the request must carry the new token.
+    assert "error" not in out, out
+    sent_auth = route.calls.last.request.headers.get("Authorization")
+    assert sent_auth == "Bearer ghp_hotloaded_after_boot", (
+        "github capability must re-read GITHUB_PAT at call time, "
+        f"not use boot-time value (got Authorization={sent_auth!r})"
+    )

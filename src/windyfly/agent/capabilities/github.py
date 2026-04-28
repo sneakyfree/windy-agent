@@ -527,6 +527,19 @@ def register_github_capabilities(
         allowed_owners if allowed_owners else "any",
     )
 
+    # Re-read env at call time so a token added post-boot via
+    # setup.save_credential is picked up without a restart. The
+    # boot-time ``token`` is the fallback (so config-via-windyfly.toml
+    # still works for tests + non-env layouts). Mirrors the cloudflare
+    # pattern; without this, hot-load via setup_status was a no-op for
+    # github specifically. Found by audit 2026-04-27.
+    def _live_token() -> str | None:
+        return (
+            os.environ.get("GITHUB_PAT")
+            or os.environ.get("GITHUB_TOKEN")
+            or token
+        )
+
     def fetch_file(
         owner: str,
         repo: str,
@@ -535,7 +548,7 @@ def register_github_capabilities(
     ) -> dict[str, Any]:
         return _fetch_file_handler(
             owner=owner, repo=repo, path=path, ref=ref,
-            base_url=base_url, token=token, allowed_owners=allowed_owners,
+            base_url=base_url, token=_live_token(), allowed_owners=allowed_owners,
         )
 
     def list_repo(
@@ -546,7 +559,7 @@ def register_github_capabilities(
     ) -> dict[str, Any]:
         return _list_repo_handler(
             owner=owner, repo=repo, path=path, ref=ref,
-            base_url=base_url, token=token, allowed_owners=allowed_owners,
+            base_url=base_url, token=_live_token(), allowed_owners=allowed_owners,
         )
 
     def put_file(
@@ -562,7 +575,8 @@ def register_github_capabilities(
         return _put_file_handler(
             owner=owner, repo=repo, path=path, content=content,
             message=message, branch=branch, sha=sha, dry_run=dry_run,
-            base_url=base_url, token=token, allowed_owners=allowed_owners,
+            base_url=base_url, token=_live_token(),
+            allowed_owners=allowed_owners,
         )
 
     def create_issue(
@@ -576,7 +590,8 @@ def register_github_capabilities(
         return _create_issue_handler(
             owner=owner, repo=repo, title=title, body=body, labels=labels,
             dry_run=dry_run,
-            base_url=base_url, token=token, allowed_owners=allowed_owners,
+            base_url=base_url, token=_live_token(),
+            allowed_owners=allowed_owners,
         )
 
     registry.register(Capability(
