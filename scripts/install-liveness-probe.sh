@@ -11,12 +11,21 @@ set -euo pipefail
 
 UNIT_NAME="${WINDY_AGENT_UNIT:-windy-0.service}"
 INTERVAL="${WINDY_LIVENESS_INTERVAL:-5min}"
-SCRIPT_PATH="$(cd "$(dirname "$0")" && pwd)/probe-telegram-liveness.sh"
+SOURCE_PATH="$(cd "$(dirname "$0")" && pwd)/probe-telegram-liveness.sh"
 
-if [[ ! -x "$SCRIPT_PATH" ]]; then
-    echo "FATAL: $SCRIPT_PATH is not executable" >&2
+if [[ ! -x "$SOURCE_PATH" ]]; then
+    echo "FATAL: $SOURCE_PATH is not executable" >&2
     exit 1
 fi
+
+# systemd's unit-file parser chokes on apostrophes / spaces in
+# ExecStart= paths (e.g. "/home/.../Grant's Folder/..."). Copy the
+# probe to a stable apostrophe-free location and reference THAT
+# from the unit file. Re-running the installer is idempotent —
+# overwriting the copy is harmless.
+mkdir -p ~/.local/bin
+INSTALLED_PATH="$HOME/.local/bin/windy-probe-telegram-liveness.sh"
+install -m 0755 "$SOURCE_PATH" "$INSTALLED_PATH"
 
 mkdir -p ~/.config/systemd/user
 
@@ -29,7 +38,7 @@ After=network-online.target
 Type=oneshot
 Environment=WINDY_AGENT_UNIT=${UNIT_NAME}
 Environment=WINDY_AGENT_SCOPE=user
-ExecStart=${SCRIPT_PATH}
+ExecStart=${INSTALLED_PATH}
 StandardOutput=journal
 StandardError=journal
 EOF
