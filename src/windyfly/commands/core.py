@@ -74,6 +74,22 @@ def _register_all():
     _r("start", "Start the agent (brain + gateway)", "01_process", cmd_start)
 
     async def cmd_stop(ctx):
+        # Under systemd, pkill triggers Restart=on-failure and the
+        # agent revives in RestartSec=10. systemctl stop is the only
+        # path that actually stays stopped.
+        from windyfly.platform import find_systemd_unit_for_pattern, systemctl_stop
+        info = find_systemd_unit_for_pattern("windyfly.main")
+        if info is not None:
+            ok, msg = systemctl_stop(info)
+            scope_flag = "--user " if info.scope == "user" else ""
+            if ok:
+                return f"Stopped via `systemctl {scope_flag}stop {info.unit}`."
+            # Fall through to legacy paths if systemctl failed for any reason.
+            logger.warning(
+                "systemctl stop %s failed (%s) — falling back to pid/pkill",
+                info.unit, msg,
+            )
+
         pid_file = Path("data/windyfly.pid")
         if pid_file.exists():
             try:
@@ -99,6 +115,26 @@ def _register_all():
     _r("restart", "Stop + start in one shot", "01_process", cmd_restart)
 
     async def cmd_kill(ctx):
+        # Same systemd-aware logic as cmd_stop — `windy kill` was
+        # originally pkill -9, which triggers RestartSec=10 and
+        # revives the agent. systemctl stop sends SIGTERM and
+        # escalates to SIGKILL after TimeoutStopSec, *and* marks the
+        # unit inactive so no restart fires.
+        from windyfly.platform import find_systemd_unit_for_pattern, systemctl_stop
+        info = find_systemd_unit_for_pattern("windyfly.main")
+        if info is not None:
+            ok, msg = systemctl_stop(info, timeout=10)
+            if ok:
+                return (
+                    f"Killed via `systemctl{' --user' if info.scope == 'user' else ''} "
+                    f"stop {info.unit}`. To prevent auto-restart at boot, also run: "
+                    f"`systemctl{' --user' if info.scope == 'user' else ''} disable {info.unit}`."
+                )
+            logger.warning(
+                "systemctl stop %s failed (%s) — falling back to pkill -9",
+                info.unit, msg,
+            )
+
         os.system("pkill -9 -f 'windyfly' 2>/dev/null")
         Path("data/windyfly.pid").unlink(missing_ok=True)
         Path("data/windyfly.lock").unlink(missing_ok=True)

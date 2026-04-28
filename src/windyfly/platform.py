@@ -146,6 +146,109 @@ def process_terminate(pid: int) -> bool:
             return False
 
 
+@dataclass
+class SystemdUnitInfo:
+    """Identification of a process managed by systemd."""
+
+    unit: str
+    scope: Literal["user", "system"]
+    pid: int
+
+
+def _parse_systemd_unit_from_cgroup(
+    cgroup_content: str,
+) -> tuple[str, Literal["user", "system"]] | None:
+    """Pure parser: extract (unit_name, scope) from /proc/PID/cgroup.
+
+    Example user-managed cgroup line:
+      0::/user.slice/user-1000.slice/user@1000.service/app.slice/windy-0.service
+    Example system-managed:
+      0::/system.slice/windyfly.service
+
+    Returns None if no application unit is identifiable. Skips the
+    systemd-internal ``user@N.service`` and ``init.scope`` entries —
+    those identify the user-manager itself, not the application.
+    """
+    import re as _re
+    # Pick the LAST .service segment on each line — the leaf is the
+    # application unit; ancestors like user@1000.service are wrappers.
+    unit_re = _re.compile(r"/([\w.@-]+\.service)")
+    for line in cgroup_content.splitlines():
+        matches = unit_re.findall(line)
+        for unit in reversed(matches):
+            if unit.startswith("user@") or unit == "init.scope":
+                continue
+            scope: Literal["user", "system"] = (
+                "user" if ("user.slice" in line or "user@" in line) else "system"
+            )
+            return unit, scope
+    return None
+
+
+def find_systemd_unit_for_pattern(pattern: str) -> SystemdUnitInfo | None:
+    """Find a running process whose cmdline contains PATTERN, and
+    return its systemd unit name + scope if it's managed by systemd.
+
+    Why this exists: ``windy stop`` / ``windy kill`` used to do
+    ``pkill -9 -f windyfly``, but the agent runs under a unit with
+    ``Restart=on-failure RestartSec=10`` — so ``pkill -9`` just
+    triggered systemd's restart policy and revived the agent in 10s.
+    The journal showed an endless kill ↔ restart storm. The right
+    shutdown path under systemd is ``systemctl stop UNIT``, which
+    SIGTERMs, waits TimeoutStopSec, and then SIGKILLs *while marking
+    the unit inactive so no restart fires*.
+
+    Returns None on non-Linux, if no matching process is running, or
+    if the matched process isn't under a systemd unit.
+    """
+    if not IS_LINUX:
+        return None
+    proc = Path("/proc")
+    if not proc.exists():
+        return None
+    for entry in proc.iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            cmdline = (entry / "cmdline").read_text().replace("\0", " ")
+        except (FileNotFoundError, PermissionError, ProcessLookupError):
+            continue
+        if pattern not in cmdline:
+            continue
+        try:
+            cgroup = (entry / "cgroup").read_text()
+        except (FileNotFoundError, PermissionError):
+            continue
+        parsed = _parse_systemd_unit_from_cgroup(cgroup)
+        if parsed is None:
+            continue
+        unit, scope = parsed
+        return SystemdUnitInfo(unit=unit, scope=scope, pid=int(entry.name))
+    return None
+
+
+def systemctl_stop(info: SystemdUnitInfo, timeout: int = 30) -> tuple[bool, str]:
+    """Run ``systemctl [--user] stop UNIT``.
+
+    Returns (ok, message). ``systemctl stop`` is the only shutdown
+    path that survives ``Restart=on-failure`` — see
+    ``find_systemd_unit_for_pattern`` for context.
+    """
+    cmd = ["systemctl"]
+    if info.scope == "user":
+        cmd.append("--user")
+    cmd += ["stop", info.unit]
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=timeout,
+        )
+        ok = result.returncode == 0
+        msg = (result.stderr or result.stdout).strip()
+        return ok, msg
+    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+        return False, str(e)
+
+
 def kill_by_name(patterns: list[str]) -> None:
     """Kill processes matching any of the given command-line patterns.
 
