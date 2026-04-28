@@ -851,8 +851,7 @@ def _extract_relationship_moment(
         logger.debug("Relationship moment extraction failed: %s", e)
 
 
-# Module-level counter for journal entry throttling
-_interaction_count: int = 0
+_session_interaction_counts: dict[str, int] = {}
 
 
 def _maybe_write_journal_entry(
@@ -866,14 +865,19 @@ def _maybe_write_journal_entry(
 ) -> None:
     """Conditionally write a reflective journal entry.
 
-    Triggers every 10th interaction OR when emotion is detected.
-    The agent writes from its own perspective, like a diary.
+    Triggers every 10th interaction in the SAME session, OR when
+    emotion is detected. Same class of bug as #93: pre-fix this was
+    a module-level global counter that accumulated across all
+    sessions, so journal cadence was unpredictable in any multi-
+    session scenario (stress harness, multi-user bot, long-running
+    process). Now keyed per session_id.
     """
-    global _interaction_count
-    _interaction_count += 1
+    count = _session_interaction_counts.get(session_id, 0) + 1
+    _session_interaction_counts[session_id] = count
 
-    # Only write every 10th interaction, or on emotional moments
-    if _interaction_count % 10 != 0 and emotional_context == "neutral":
+    # Only write every 10th interaction in this session, or on
+    # emotional moments.
+    if count % 10 != 0 and emotional_context == "neutral":
         return
 
     try:
