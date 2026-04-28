@@ -316,9 +316,8 @@ def main() -> None:
                 if chat_id:
                     try:
                         await manager.send("telegram", OutgoingMessage(
-                            platform="telegram",
-                            channel_id=chat_id,
                             text=GREETING_TEXT,
+                            channel_id=chat_id,
                         ))
                         logger.info(
                             "post-panic greeting sent to chat %s", chat_id,
