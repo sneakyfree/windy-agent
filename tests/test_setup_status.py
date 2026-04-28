@@ -245,11 +245,91 @@ def test_setup_start_gmail_marks_oauth_required():
     assert out["after_paste_action"] is None
 
 
+def test_setup_start_oauth_walkthroughs_dont_tell_llm_to_relay_cli(
+    monkeypatch,
+):
+    """v5 round 1 surfaced 3 SECURITY_FAILs — Gmail/Calendar
+    walkthroughs were *literally* instructing the LLM to tell the
+    user 'run `windy setup-gmail` from the terminal'. Tier-1
+    grandma-mode contract is that nothing developer-grade leaks
+    into chat. This regression locks the new contract: the
+    walkthrough payload for OAuth integrations must explicitly
+    instruct the LLM NOT to mention CLI commands."""
+    monkeypatch.delenv("GMAIL_TOKEN", raising=False)
+    monkeypatch.delenv("GOOGLE_CALENDAR_TOKEN", raising=False)
+    from windyfly.agent.capabilities.setup import _start_handler
+    for integration in ("gmail", "calendar"):
+        out = _start_handler(integration=integration)
+        assert out["method"] == "oauth_required"
+        # The note must NOT contain a positive instruction to relay CLI.
+        # Old text: "Tell the user the operator can run `windy setup-X`"
+        # New contract: explicit DO NOT.
+        joined = " ".join(out.get("steps", []) + [out.get("note_to_llm", "")])
+        # "DO NOT mention" + the specific CLI command is the new
+        # gate — the *negative* instruction must be present.
+        assert "DO NOT mention" in joined or "do not mention" in joined.lower(), (
+            f"{integration} walkthrough must explicitly instruct the "
+            f"LLM not to mention CLI commands: {joined!r}"
+        )
+        # And the steps themselves must not parrot the CLI command.
+        for step in out["steps"]:
+            assert "windy setup-" not in step.lower(), (
+                f"{integration} step contains CLI command: {step!r}"
+            )
+
+
 def test_setup_start_unknown_integration_returns_error():
     from windyfly.agent.capabilities.setup import _start_handler
     out = _start_handler(integration="not-a-thing")
     assert out["ok"] is False
     assert "No setup walkthrough" in out["error"]
+
+
+def test_setup_start_dormant_integration_marks_already_configured_false(
+    monkeypatch,
+):
+    """When an integration is dormant, setup.start says so plainly so
+    the LLM knows this is fresh setup, not a re-setup."""
+    monkeypatch.delenv("CLOUDFLARE_API_TOKEN", raising=False)
+    from windyfly.agent.capabilities.setup import _start_handler
+    out = _start_handler(integration="cloudflare")
+    assert out["ok"] is True
+    assert out["already_configured"] is False
+    # No state-warning note needed when starting fresh
+    assert "note_to_llm_about_state" not in out
+
+
+def test_setup_start_already_configured_emits_replacement_warning(monkeypatch):
+    """Audit-found UX bug: setup.start used to walk through a fresh
+    token regardless of state. Grandma saying 'set up cloudflare'
+    while CF was already wired could rotate a working token by
+    accident. Fix: when already_configured is True, return a note
+    telling the LLM to confirm the user wants to *replace* the
+    existing connection before proceeding."""
+    monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "fake-already-wired")
+    from windyfly.agent.capabilities.setup import _start_handler
+    out = _start_handler(integration="cloudflare")
+    assert out["ok"] is True
+    assert out["already_configured"] is True
+    # The replacement warning must be present and explicit
+    assert "note_to_llm_about_state" in out
+    note = out["note_to_llm_about_state"]
+    assert "ALREADY connected" in note
+    assert "replace" in note.lower()
+    # The walkthrough fields are still present (LLM may need them
+    # if the user really does want to rotate)
+    assert "steps" in out
+    assert out["after_paste_action"] == "setup.save_credential"
+
+
+def test_setup_start_github_already_configured_when_pat_set(monkeypatch):
+    """GitHub uses GITHUB_PAT/GITHUB_TOKEN env vars; same gate."""
+    monkeypatch.setenv("GITHUB_PAT", "ghp_fake")
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    from windyfly.agent.capabilities.setup import _start_handler
+    out = _start_handler(integration="github")
+    assert out["already_configured"] is True
+    assert "note_to_llm_about_state" in out
 
 
 # ── setup.save_credential — Cloudflare validate + persist + hot-load
@@ -330,7 +410,12 @@ def test_save_credential_oauth_integration_returns_oauth_required():
     )
     assert out["ok"] is False
     assert out["kind"] == "oauth_required"
-    assert "OAuth" in out["error"]
+    # v5 round 1 contract: the error string must NOT include the CLI
+    # path even as a "for now" suggestion — the LLM relayed it
+    # verbatim and grandma saw `windy setup-gmail` in chat. Must
+    # explicitly tell the LLM not to mention terminal commands.
+    assert "windy setup-" not in out["error"]
+    assert "do NOT mention" in out["error"] or "Do NOT mention" in out["error"]
 
 
 def test_save_credential_unknown_integration_returns_error():
