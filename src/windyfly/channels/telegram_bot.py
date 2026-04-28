@@ -28,6 +28,7 @@ import time
 from typing import Any
 
 from windyfly.channels.base import ChannelAdapter, IncomingMessage, OutgoingMessage
+from windyfly.observability.restart_greeting import set_pending_greeting
 from windyfly.observability.sanitize import sanitize_outgoing, split_for_telegram
 from windyfly.observability.sd_notify import notify_watchdog
 
@@ -281,6 +282,13 @@ class TelegramChannel(ChannelAdapter):
         # any LLM / DB / tool dispatch. Long-term memory is safe.
         if _is_panic_message(text):
             logger.warning("PANIC: nuclear reset requested by %s", sender_id)
+            # Record the chat_id so the post-restart process knows
+            # who to greet when it comes back online.
+            set_pending_greeting(
+                chat_id=str(update.message.chat_id),
+                platform="telegram",
+                reason="panic_reset",
+            )
             try:
                 await self._send_long_reply(update.message, _PANIC_REPLY)
             except Exception as e:
