@@ -87,6 +87,53 @@ def sanitize_outgoing(
         return _FALLBACK_REPLY
 
 
+def split_for_telegram(
+    text: str,
+    max_chunk: int = 4000,
+) -> list[str]:
+    """Split a long reply into Telegram-sized chunks.
+
+    Used when the agent's response exceeds the per-message ceiling —
+    instead of truncating with a "…[truncated]" marker, we send
+    multiple messages so grandma sees the whole thing.
+
+    Split priority (latest match wins, must be in second half of the
+    chunk so we don't make microscopic chunks at the start):
+      1. Paragraph break (``\\n\\n``)
+      2. Line break (``\\n``)
+      3. Sentence end (``. ``)
+      4. Word break (single space)
+      5. Hard cut at ``max_chunk`` if no natural boundary found
+
+    Each chunk is guaranteed to be <= max_chunk chars. The default
+    4000 leaves headroom under Telegram's 4096-char hard limit so we
+    survive a few extra chars Telegram might add (link previews etc).
+    """
+    if not text:
+        return []
+    if len(text) <= max_chunk:
+        return [text]
+
+    chunks: list[str] = []
+    remaining = text
+    min_split = max_chunk // 2  # don't split before halfway through
+    while len(remaining) > max_chunk:
+        cut = max_chunk
+        for sep in ("\n\n", "\n", ". ", " "):
+            idx = remaining.rfind(sep, 0, max_chunk)
+            if idx >= min_split:
+                cut = idx + len(sep)
+                break
+        piece = remaining[:cut].rstrip()
+        if piece:
+            chunks.append(piece)
+        remaining = remaining[cut:].lstrip()
+
+    if remaining:
+        chunks.append(remaining)
+    return chunks
+
+
 def _sanitize(text: str | None, max_length: int) -> str:
     if text is None:
         return _FALLBACK_REPLY
