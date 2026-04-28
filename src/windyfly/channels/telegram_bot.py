@@ -28,6 +28,7 @@ import time
 from typing import Any
 
 from windyfly.channels.base import ChannelAdapter, IncomingMessage, OutgoingMessage
+from windyfly.observability.sanitize import sanitize_outgoing
 from windyfly.observability.sd_notify import notify_watchdog
 
 logger = logging.getLogger(__name__)
@@ -224,7 +225,7 @@ class TelegramChannel(ChannelAdapter):
         from windyfly.channels.base import handle_incoming
         was_command, cmd_response = await handle_incoming(text, {"platform": "telegram"})
         if was_command:
-            await update.message.reply_text(cmd_response)
+            await update.message.reply_text(sanitize_outgoing(cmd_response))
             self._last_message_at = time.time()
             return
 
@@ -238,13 +239,14 @@ class TelegramChannel(ChannelAdapter):
         # on_message wired by the channel manager before start().
         assert self.on_message is not None
         response = await self.on_message(msg)
-        await update.message.reply_text(response)
+        await update.message.reply_text(sanitize_outgoing(response))
         self._last_message_at = time.time()
 
     async def send(self, message: OutgoingMessage) -> None:
         if self._app:
             await self._app.bot.send_message(
-                chat_id=message.channel_id, text=message.text,
+                chat_id=message.channel_id,
+                text=sanitize_outgoing(message.text),
             )
 
     async def stop(self) -> None:
