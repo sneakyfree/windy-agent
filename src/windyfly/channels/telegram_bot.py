@@ -28,7 +28,7 @@ import time
 from typing import Any
 
 from windyfly.channels.base import ChannelAdapter, IncomingMessage, OutgoingMessage
-from windyfly.observability.sanitize import sanitize_outgoing
+from windyfly.observability.sanitize import sanitize_outgoing, split_for_telegram
 from windyfly.observability.sd_notify import notify_watchdog
 
 logger = logging.getLogger(__name__)
@@ -36,6 +36,14 @@ logger = logging.getLogger(__name__)
 _INITIAL_BACKOFF_S = 1
 _MAX_BACKOFF_S = 60
 _HEARTBEAT_INTERVAL_S = 300  # 5 minutes
+
+# Telegram per-message hard limit is 4096; we chunk at 4000 to leave
+# headroom for any auto-appended chars (link previews, bot signature).
+_REPLY_CHUNK_SIZE = 4000
+
+# Telegram's typing indicator times out after ~5s. Refresh every 4s
+# while a reply is being computed so grandma sees the bot is working.
+_TYPING_REFRESH_S = 4.0
 
 
 # ── Nuclear reset / panic button ───────────────────────────────────
@@ -274,7 +282,7 @@ class TelegramChannel(ChannelAdapter):
         if _is_panic_message(text):
             logger.warning("PANIC: nuclear reset requested by %s", sender_id)
             try:
-                await update.message.reply_text(sanitize_outgoing(_PANIC_REPLY))
+                await self._send_long_reply(update.message, _PANIC_REPLY)
             except Exception as e:
                 logger.warning("panic-ack reply failed: %s", e)
             self._last_message_at = time.time()
@@ -285,7 +293,7 @@ class TelegramChannel(ChannelAdapter):
         from windyfly.channels.base import handle_incoming
         was_command, cmd_response = await handle_incoming(text, {"platform": "telegram"})
         if was_command:
-            await update.message.reply_text(sanitize_outgoing(cmd_response))
+            await self._send_long_reply(update.message, cmd_response)
             self._last_message_at = time.time()
             return
 
@@ -298,8 +306,21 @@ class TelegramChannel(ChannelAdapter):
         )
         # on_message wired by the channel manager before start().
         assert self.on_message is not None
-        response = await self.on_message(msg)
-        await update.message.reply_text(sanitize_outgoing(response))
+        # Run the agent with a "typing…" indicator so grandma never
+        # sees an unresponsive gap. Cancellation in finally guarantees
+        # the typing task ends even if on_message raises.
+        typing_task = asyncio.create_task(
+            self._keep_typing(update.message.chat_id),
+        )
+        try:
+            response = await self.on_message(msg)
+        finally:
+            typing_task.cancel()
+            try:
+                await typing_task
+            except (asyncio.CancelledError, Exception):
+                pass
+        await self._send_long_reply(update.message, response)
         self._last_message_at = time.time()
 
     async def send(self, message: OutgoingMessage) -> None:
@@ -308,6 +329,51 @@ class TelegramChannel(ChannelAdapter):
                 chat_id=message.channel_id,
                 text=sanitize_outgoing(message.text),
             )
+
+    async def _keep_typing(self, chat_id: Any) -> None:
+        """Keep Telegram's typing indicator showing while the agent
+        is thinking. Telegram auto-times-out after ~5s; refresh
+        every 4s. Cancelled by the caller in a finally block."""
+        if not self._app:
+            return
+        try:
+            while True:
+                try:
+                    await self._app.bot.send_chat_action(
+                        chat_id=chat_id, action="typing",
+                    )
+                except Exception as e:
+                    # Don't let a transient send_chat_action failure
+                    # kill the loop — typing indicator is cosmetic.
+                    logger.debug("send_chat_action failed: %s", e)
+                await asyncio.sleep(_TYPING_REFRESH_S)
+        except asyncio.CancelledError:
+            return
+
+    async def _send_long_reply(self, message: Any, text: str | None) -> None:
+        """Sanitize + chunk + send a reply.
+
+        Single-message replies fall through unchanged. Long replies
+        get split at paragraph/sentence boundaries into multiple
+        Telegram messages so nothing is lost to the 4096-char limit.
+
+        Each chunk is sanitized again as a safety net (idempotent).
+        Send failures on individual chunks don't abort the rest —
+        grandma gets as much of the reply as we can deliver.
+        """
+        # Sanitize without truncation (we'll chunk instead).
+        clean = sanitize_outgoing(text, max_length=10**9)
+        chunks = split_for_telegram(clean, max_chunk=_REPLY_CHUNK_SIZE)
+        if not chunks:
+            chunks = [sanitize_outgoing(None)]  # fallback message
+        for i, chunk in enumerate(chunks):
+            try:
+                await message.reply_text(sanitize_outgoing(chunk))
+            except Exception as e:
+                logger.warning(
+                    "reply chunk %d/%d failed: %s",
+                    i + 1, len(chunks), e,
+                )
 
     async def _trigger_self_restart(self) -> None:
         """Schedule a graceful self-restart after the panic-ack reply
