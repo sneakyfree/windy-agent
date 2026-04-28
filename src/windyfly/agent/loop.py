@@ -39,8 +39,26 @@ from windyfly.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
-# Session-level token accumulator (reset on process restart)
-_session_tokens_used: int = 0
+# Per-session token accumulator. Critical: the key MUST be the
+# session_id, not a process-global counter. A global counter
+# accumulates across ALL sessions for the lifetime of the process,
+# so after ~50 conversations the context-header indicator shows
+# 🔴 0% even though every individual session has plenty of context.
+# The LLM, seeing 🔴 0% in the prior turn's header (now part of
+# conversation history), starts emulating "I'm out of context" →
+# bot returns terse "I'm not responding" replies.
+#
+# Surfaced 2026-04-28 by stress_v7_endurance: iters 1-30 fine, then
+# from iter ~31 onward the bot returned 19-character replies because
+# the global counter had crossed the 🔴 threshold.
+_session_tokens: dict[str, int] = {}
+
+
+def _bump_session_tokens(session_id: str, count: int) -> int:
+    """Add `count` to the session's running total and return the new total."""
+    new_total = _session_tokens.get(session_id, 0) + count
+    _session_tokens[session_id] = new_total
+    return new_total
 
 # Default tool re-loop rounds (overridden by slider)
 _DEFAULT_TOOL_ROUNDS = 3
@@ -723,9 +741,10 @@ def agent_respond(
     )
 
     # 8. Context gas tank header (signature feature)
-    global _session_tokens_used
-    _session_tokens_used += input_tokens + output_tokens
-    response_text = maybe_prepend_header(response_text, _session_tokens_used)
+    session_total = _bump_session_tokens(
+        session_id, input_tokens + output_tokens,
+    )
+    response_text = maybe_prepend_header(response_text, session_total)
 
     return response_text
 
