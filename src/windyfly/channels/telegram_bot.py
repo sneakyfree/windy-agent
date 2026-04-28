@@ -8,7 +8,8 @@ Resilience model (parity with matrix_bot.py):
   - Exponential backoff on initial-connect failures (1s → 60s max)
   - Error handler logs every polling error so one bad update can't
     masquerade as a system failure
-  - 5-minute heartbeat logging (connected, last success age)
+  - 5-minute heartbeat: polling-loop liveness (truthful health) +
+    last-message age (user activity, not health)
   - Reconnect events written to the observability ledger when a
     Database + WriteQueue are wired in
 
@@ -65,7 +66,10 @@ class TelegramChannel(ChannelAdapter):
         # Resilience state
         self._backoff = _INITIAL_BACKOFF_S
         self._shutting_down = False
-        self._last_success_at: float = 0.0
+        # Time of last successful user-message round-trip. Reflects USER
+        # ACTIVITY, not bot health — a long age here just means no one
+        # has texted, which is fine.
+        self._last_message_at: float = 0.0
         self._heartbeat_task: asyncio.Task[None] | None = None
 
     async def start(self) -> None:
@@ -90,7 +94,7 @@ class TelegramChannel(ChannelAdapter):
                 await self._app.start()
                 await self._app.updater.start_polling()
                 self._connected = True
-                self._last_success_at = time.time()
+                self._last_message_at = time.time()
                 self._backoff = _INITIAL_BACKOFF_S
                 logger.info("Telegram bot started")
                 break
@@ -127,19 +131,44 @@ class TelegramChannel(ChannelAdapter):
         logger.warning("Telegram polling error: %s", err)
         self._log_reconnect_event(str(err), 0)
 
+    def _polling_alive(self) -> bool:
+        """True iff PTB's polling loop is currently running.
+
+        The pre-fix heartbeat conflated "connected at startup" with
+        "still polling now," so a silently-dead polling loop looked
+        healthy. This delegates to PTB's own state.
+        """
+        try:
+            return bool(
+                self._app
+                and getattr(self._app, "updater", None)
+                and self._app.updater.running
+            )
+        except Exception:
+            return False
+
     async def _heartbeat_loop(self) -> None:
-        """Log a heartbeat every 5 minutes showing connection status."""
+        """Log a heartbeat every 5 minutes with TRUE polling health."""
         while not self._shutting_down:
             try:
+                alive = self._polling_alive()
                 age = (
-                    time.time() - self._last_success_at
-                    if self._last_success_at
+                    time.time() - self._last_message_at
+                    if self._last_message_at
                     else -1.0
                 )
-                logger.info(
-                    "♥ Telegram heartbeat: connected=%s, last_success_age=%.0fs",
-                    self._connected, age,
-                )
+                if alive:
+                    logger.info(
+                        "♥ Telegram heartbeat: polling=alive, last_message_age=%.0fs",
+                        age,
+                    )
+                else:
+                    logger.warning(
+                        "✗ Telegram heartbeat: polling=DEAD, last_message_age=%.0fs"
+                        " — PTB updater not running; restart needed",
+                        age,
+                    )
+                    self._connected = False
             except Exception as e:
                 logger.debug("Heartbeat error: %s", e)
             await asyncio.sleep(_HEARTBEAT_INTERVAL_S)
@@ -190,7 +219,7 @@ class TelegramChannel(ChannelAdapter):
         was_command, cmd_response = await handle_incoming(text, {"platform": "telegram"})
         if was_command:
             await update.message.reply_text(cmd_response)
-            self._last_success_at = time.time()
+            self._last_message_at = time.time()
             return
 
         msg = IncomingMessage(
@@ -204,7 +233,7 @@ class TelegramChannel(ChannelAdapter):
         assert self.on_message is not None
         response = await self.on_message(msg)
         await update.message.reply_text(response)
-        self._last_success_at = time.time()
+        self._last_message_at = time.time()
 
     async def send(self, message: OutgoingMessage) -> None:
         if self._app:
@@ -225,4 +254,4 @@ class TelegramChannel(ChannelAdapter):
         self._connected = False
 
     def is_connected(self) -> bool:
-        return self._connected
+        return self._polling_alive()
