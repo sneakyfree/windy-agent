@@ -302,6 +302,31 @@ def main() -> None:
                 notify_ready, notify_stopping,
             )
             notify_ready()
+
+            # If we're starting up after a panic-reset, the previous
+            # process left a flag with the chat_id to greet. Send a
+            # one-line "I'm back!" so grandma knows the reset worked.
+            from windyfly.channels.base import OutgoingMessage
+            from windyfly.observability.restart_greeting import (
+                consume_pending_greeting, GREETING_TEXT,
+            )
+            pending = consume_pending_greeting()
+            if pending and pending.get("platform") == "telegram":
+                chat_id = pending.get("chat_id")
+                if chat_id:
+                    try:
+                        await manager.send("telegram", OutgoingMessage(
+                            platform="telegram",
+                            channel_id=chat_id,
+                            text=GREETING_TEXT,
+                        ))
+                        logger.info(
+                            "post-panic greeting sent to chat %s", chat_id,
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            "post-panic greeting send failed: %s", e,
+                        )
             try:
                 await stop_event.wait()
             finally:
