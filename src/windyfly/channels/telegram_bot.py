@@ -28,6 +28,7 @@ import time
 from typing import Any
 
 from windyfly.channels.base import ChannelAdapter, IncomingMessage, OutgoingMessage
+from windyfly.observability.sd_notify import notify_watchdog
 
 logger = logging.getLogger(__name__)
 
@@ -162,6 +163,11 @@ class TelegramChannel(ChannelAdapter):
                         "♥ Telegram heartbeat: polling=alive, last_message_age=%.0fs",
                         age,
                     )
+                    # Pet the systemd watchdog. If polling is dead we
+                    # deliberately DON'T pet it so systemd's
+                    # WatchdogSec= timer fires and restarts us. No-op
+                    # when NOTIFY_SOCKET is unset (dev / tests).
+                    notify_watchdog()
                 else:
                     logger.warning(
                         "✗ Telegram heartbeat: polling=DEAD, last_message_age=%.0fs"
