@@ -1,29 +1,37 @@
 #!/usr/bin/env bash
-# Telegram liveness probe — independent of the agent process.
+# Telegram liveness probe — three-way ground-truth check.
 #
-# Calls Telegram's getMe API and writes a status record. If the bot
-# token is valid AND the network is reachable AND Telegram's API is
-# up, the probe returns 0. Anything else returns non-zero — and after
-# N consecutive failures, it triggers a service restart.
+# Runs THREE independent checks. ANY one failing increments the
+# consecutive-fail counter; FAIL_LIMIT consecutive failures triggers
+# `systemctl restart` of the agent unit.
 #
-# Why an EXTERNAL probe: the agent's own heartbeat (telegram_bot.py)
-# can lie if the polling loop dies silently. systemd's WatchdogSec
-# catches that for the LOCAL process, but it can't notice when:
-#   - the bot token has been revoked
-#   - DNS is broken to api.telegram.org
-#   - the bot is rate-limited so hard that all polls 429
-# This probe is the ground-truth check from outside the agent.
+#   1. Bot token works:   getMe returns 200 + ok=true
+#                         (catches token revoked, DNS, network)
+#   2. Bot process alive: systemctl is-active says "active"
+#                         (catches "bot was windy-stop'd and never
+#                          came back" — the original 2026-04-28
+#                          bug where the bot stayed dead 10h while
+#                          the probe insisted everything was fine)
+#   3. Polling fresh:     last "polling=" heartbeat in the log is
+#                         less than HEARTBEAT_MAX_AGE old
+#                         (catches polling-loop zombie that the
+#                          process still being "active" can't see;
+#                          systemd's WatchdogSec also covers this
+#                          but the probe is independent)
 #
-# Run from a systemd timer every 5 minutes. The matching unit files
-# live with the per-instance soul repo (this script stays generic).
+# The probe is deliberately paranoid. Any one of the three failing
+# is enough — these conditions should ALWAYS hold for a healthy bot.
 #
-# Env:
-#   TELEGRAM_BOT_TOKEN          — required (loaded from $WINDY_ENV_FILE)
-#   WINDY_ENV_FILE              — env file path; default ~/.windy/windy-0.env
-#   WINDY_LIVENESS_STATUS_FILE  — where to write status; default ~/.windy/liveness.status
-#   WINDY_LIVENESS_FAIL_LIMIT   — consecutive failures before restart; default 3
-#   WINDY_AGENT_UNIT            — systemd unit to restart on stall; default windy-0.service
-#   WINDY_AGENT_SCOPE           — systemctl scope: "user" or "system"; default user
+# Run from a systemd timer every 5 minutes.
+#
+# Env (all optional):
+#   WINDY_ENV_FILE              ~/.windy/windy-0.env
+#   WINDY_LIVENESS_STATUS_FILE  ~/.windy/liveness.status
+#   WINDY_LIVENESS_FAIL_LIMIT   3
+#   WINDY_AGENT_UNIT            windy-0.service
+#   WINDY_AGENT_SCOPE           user
+#   WINDY_AGENT_LOG             ~/.windy/windy-0.log
+#   HEARTBEAT_MAX_AGE_SEC       900 (15 min — 3× the heartbeat interval)
 
 set -uo pipefail
 
@@ -32,8 +40,9 @@ STATUS_FILE="${WINDY_LIVENESS_STATUS_FILE:-/home/grantwhitmer/.windy/liveness.st
 FAIL_LIMIT="${WINDY_LIVENESS_FAIL_LIMIT:-3}"
 UNIT="${WINDY_AGENT_UNIT:-windy-0.service}"
 SCOPE="${WINDY_AGENT_SCOPE:-user}"
+AGENT_LOG="${WINDY_AGENT_LOG:-/home/grantwhitmer/.windy/windy-0.log}"
+HEARTBEAT_MAX_AGE_SEC="${HEARTBEAT_MAX_AGE_SEC:-900}"
 
-# Load the env file (token lives there, redacted from logs by main.py).
 if [[ -f "$ENV_FILE" ]]; then
     # shellcheck disable=SC1090
     set -a; source "$ENV_FILE"; set +a
@@ -51,6 +60,18 @@ if [[ -f "$STATUS_FILE" ]]; then
     PREV_FAILS=${PREV_FAILS:-0}
 fi
 
+write_status() {
+    local result="$1" fails="$2" detail="$3"
+    {
+        echo "ts=$NOW"
+        echo "result=$result"
+        echo "consecutive_fails=$fails"
+        echo "detail=$detail"
+    } > "$STATUS_FILE"
+}
+
+# ── Check 1: bot token + Telegram reachable ────────────────────────
+
 URL="https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getMe"
 HTTP_CODE=$(curl -sS -o /tmp/probe-getme.$$ -w "%{http_code}" \
     --max-time 10 --connect-timeout 5 \
@@ -58,33 +79,64 @@ HTTP_CODE=$(curl -sS -o /tmp/probe-getme.$$ -w "%{http_code}" \
 BODY=$(cat /tmp/probe-getme.$$ 2>/dev/null || echo "")
 rm -f /tmp/probe-getme.$$
 
-write_status() {
-    local result="$1" fails="$2" detail="$3"
-    {
-        echo "ts=$NOW"
-        echo "result=$result"
-        echo "consecutive_fails=$fails"
-        echo "http_code=$HTTP_CODE"
-        echo "detail=$detail"
-    } > "$STATUS_FILE"
-}
-
-if [[ "$HTTP_CODE" == "200" ]] && [[ "$BODY" == *'"ok":true'* ]]; then
-    write_status OK 0 "getMe ok"
-    exit 0
+if [[ "$HTTP_CODE" != "200" ]] || [[ "$BODY" != *'"ok":true'* ]]; then
+    NEW_FAILS=$((PREV_FAILS + 1))
+    write_status FAIL "$NEW_FAILS" "getMe http=$HTTP_CODE body=${BODY:0:80}"
+    if (( NEW_FAILS >= FAIL_LIMIT )); then
+        logger -t windy-liveness-probe \
+            "getMe failed ${NEW_FAILS}× — restarting $UNIT"
+        SCOPE_FLAG=""; [[ "$SCOPE" == "user" ]] && SCOPE_FLAG="--user"
+        systemctl $SCOPE_FLAG restart "$UNIT" || true
+        write_status RESTART_TRIGGERED 0 "restarted $UNIT after getMe fails"
+    fi
+    exit 1
 fi
 
-NEW_FAILS=$((PREV_FAILS + 1))
-write_status FAIL "$NEW_FAILS" "http=$HTTP_CODE body=${BODY:0:120}"
+# ── Check 2: agent process is actually active ──────────────────────
 
-# Don't restart on transient blips — only after the limit.
-if (( NEW_FAILS >= FAIL_LIMIT )); then
-    SCOPE_FLAG=""
-    [[ "$SCOPE" == "user" ]] && SCOPE_FLAG="--user"
-    logger -t windy-liveness-probe \
-        "Telegram getMe failed ${NEW_FAILS}× in a row — restarting $UNIT"
-    systemctl $SCOPE_FLAG restart "$UNIT" || true
-    write_status RESTART_TRIGGERED 0 "restarted $UNIT after $NEW_FAILS fails"
+SCOPE_FLAG=""; [[ "$SCOPE" == "user" ]] && SCOPE_FLAG="--user"
+ACTIVE=$(systemctl $SCOPE_FLAG is-active "$UNIT" 2>/dev/null || echo "missing")
+if [[ "$ACTIVE" != "active" ]]; then
+    NEW_FAILS=$((PREV_FAILS + 1))
+    write_status FAIL "$NEW_FAILS" "unit_state=$ACTIVE (token works but process is dead)"
+    if (( NEW_FAILS >= FAIL_LIMIT )); then
+        logger -t windy-liveness-probe \
+            "$UNIT inactive ${NEW_FAILS}× — restarting"
+        systemctl $SCOPE_FLAG restart "$UNIT" || true
+        write_status RESTART_TRIGGERED 0 "restarted $UNIT (was $ACTIVE)"
+    fi
+    exit 1
 fi
 
-exit 1
+# ── Check 3: log shows recent polling heartbeat ────────────────────
+
+if [[ -r "$AGENT_LOG" ]]; then
+    LAST_HB_LINE=$(grep "polling=" "$AGENT_LOG" 2>/dev/null | tail -1 || true)
+    if [[ -n "$LAST_HB_LINE" ]]; then
+        # Heartbeat lines start "HH:MM:SS" — combine with file mtime
+        # date for a full timestamp. Approximate but plenty for a
+        # 15-minute staleness check.
+        FILE_MOD_DATE=$(date -r "$AGENT_LOG" +%Y-%m-%d 2>/dev/null || date +%Y-%m-%d)
+        HB_TIME=$(echo "$LAST_HB_LINE" | awk '{print $1}')
+        HB_EPOCH=$(date -d "$FILE_MOD_DATE $HB_TIME" +%s 2>/dev/null || echo 0)
+        NOW_EPOCH=$(date +%s)
+        AGE_SEC=$((NOW_EPOCH - HB_EPOCH))
+        if (( AGE_SEC > HEARTBEAT_MAX_AGE_SEC )); then
+            NEW_FAILS=$((PREV_FAILS + 1))
+            write_status FAIL "$NEW_FAILS" \
+                "heartbeat stale: ${AGE_SEC}s old (max=${HEARTBEAT_MAX_AGE_SEC}s)"
+            if (( NEW_FAILS >= FAIL_LIMIT )); then
+                logger -t windy-liveness-probe \
+                    "heartbeat stale ${AGE_SEC}s ${NEW_FAILS}× — restarting $UNIT"
+                systemctl $SCOPE_FLAG restart "$UNIT" || true
+                write_status RESTART_TRIGGERED 0 \
+                    "restarted $UNIT (heartbeat ${AGE_SEC}s stale)"
+            fi
+            exit 1
+        fi
+    fi
+fi
+
+# All three checks passed.
+write_status OK 0 "getMe ok, unit=$ACTIVE, heartbeat fresh"
+exit 0
