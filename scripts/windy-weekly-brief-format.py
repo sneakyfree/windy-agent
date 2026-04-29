@@ -21,7 +21,9 @@ if _AGENT_SRC and os.path.isdir(_AGENT_SRC):
     sys.path.insert(0, _AGENT_SRC)
 
 from windyfly.agent.capabilities.health import (
+    _ORGAN_FRIENDLY_NAMES,
     _build_recommendations,
+    _grandma_detail,
     _load_snapshots,
     _summarize_latest,
 )
@@ -36,50 +38,49 @@ def main() -> int:
     if snaps:
         latest = _summarize_latest(snaps[-1])
         ts = (latest.get("ts") or "?").replace("T", " ")[:16]
-        model = latest.get("model") or "?"
-        lines.append(f"{ts} — model: {model}")
+        lines.append(f"_Checkup from {ts}_")
         lines.append("")
 
         counts = latest.get("verdict_counts") or {}
         green = counts.get("green", 0)
         yellow = counts.get("yellow", 0)
         red = counts.get("red", 0)
+        # Grandma-first headlines — feeling, not metrics.
         if red:
-            lines.append(f"⚠️ *{red} organ(s) RED* — attention needed")
+            lines.append("⚠️ *I'm having a tough time. Could you check on me?*")
         elif yellow:
-            lines.append(f"🟡 *{yellow} organ(s) yellow* — tuning suggested")
+            lines.append("🟡 *I'm doing OK, but a few things feel off this week.*")
         else:
-            lines.append(f"✅ *All {green} organs healthy*")
+            lines.append("✅ *I've been running smoothly! Nothing to worry about.*")
         lines.append("")
 
-        lines.append("*Organ status:*")
+        lines.append("*How I'm feeling:*")
         glyph = {"green": "🟢", "yellow": "🟡", "red": "🔴"}
         for organ, data in (latest.get("organs") or {}).items():
             v = (data or {}).get("verdict", "?")
-            d = ((data or {}).get("detail") or "")[:60]
-            lines.append(f"{glyph.get(v, '·')} {organ}: {d}")
+            raw = ((data or {}).get("detail") or "")
+            friendly_name = _ORGAN_FRIENDLY_NAMES.get(organ, organ)
+            feeling = _grandma_detail(organ, v, raw)
+            lines.append(f"{glyph.get(v, '·')} {friendly_name}: {feeling}")
         lines.append("")
     else:
-        lines.append("(No scorecards yet — first run building baseline.)")
+        lines.append("_(I haven't done a checkup yet — first run is building my baseline.)_")
         lines.append("")
 
     real_recs = [r for r in recs if r.get("verdict") != "no_data"]
     if real_recs:
-        lines.append("*Recommendations:*")
+        lines.append("*What I think would help:*")
         for r in real_recs:
-            organ = r.get("organ") or "?"
             diag = r.get("diagnosis") or ""
             rec = r.get("recommendation") or ""
             action = r.get("user_action") or ""
-            lines.append(f"• *{organ}*: {diag}")
-            lines.append(f"  → {rec}")
+            lines.append(f"• {diag}")
+            lines.append(f"  {rec}")
             if action:
-                lines.append(f"  💬 _{action}_")
-            if r.get("trend_note"):
-                lines.append(f"  📉 {r['trend_note']}")
+                lines.append(f"  👉 *{action}*")
         lines.append("")
     else:
-        lines.append("_No recommendations this week — everything is running smoothly._")
+        lines.append("_Nothing needs fixing this week. Just enjoy the bot._")
         lines.append("")
 
     lines.append("Whenever you want a fresh start, just say /reset.")

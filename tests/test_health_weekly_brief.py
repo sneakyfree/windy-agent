@@ -73,7 +73,7 @@ async def test_all_green_no_recommendations(reg):
     result = await r.invoke("health.weekly_brief", {}, Band.OWNER)
     assert result["ok"] is True
     assert result["recommendations"] == []
-    assert "healthy" in result["headline"].lower()
+    assert "smoothly" in result["headline"].lower()
 
 
 @pytest.mark.asyncio
@@ -93,7 +93,7 @@ async def test_yellow_organ_produces_recommendation(reg):
     assert "recommendation" in rec
     assert "user_action" in rec
     assert rec["blast_radius"] == "low"
-    assert "yellow" in result["headline"].lower()
+    assert "off this week" in result["headline"].lower()
 
 
 @pytest.mark.asyncio
@@ -110,7 +110,7 @@ async def test_red_organ_recommends_reset_first(reg):
     assert len(result["recommendations"]) >= 1
     for rec in result["recommendations"]:
         assert "/reset" in rec["user_action"].lower() or "/reset" in rec["recommendation"].lower()
-    assert "RED" in result["headline"]
+    assert "tough time" in result["headline"].lower()
 
 
 @pytest.mark.asyncio
