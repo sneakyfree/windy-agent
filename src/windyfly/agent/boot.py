@@ -284,6 +284,11 @@ def _step_register_setup(ctx: BootContext) -> None:
     register_setup_capabilities(ctx.capability_registry, ctx.config)
 
 
+def _step_register_health(ctx: BootContext) -> None:
+    from windyfly.agent.capabilities.health import register_health_capabilities
+    register_health_capabilities(ctx.capability_registry, ctx.config)
+
+
 def default_capability_registration_sequence() -> list[Step]:
     """The canonical post-DB-open registration order for both channels.
 
@@ -348,6 +353,11 @@ def default_capability_registration_sequence() -> list[Step]:
         Step(
             "capabilities.setup",
             _step_register_setup,
+            requires=("capabilities.audit",),
+        ),
+        Step(
+            "capabilities.health",
+            _step_register_health,
             requires=("capabilities.audit",),
         ),
     ]
