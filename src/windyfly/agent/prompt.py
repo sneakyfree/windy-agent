@@ -189,6 +189,40 @@ def assemble_prompt(
     max_episodes = 5 + (context_window * 5)
     recent = get_recent_episodes(db, limit=max_episodes, session_id=session_id)
 
+    # 3.5. Anti-amnesia keyword search. The recent-N window evicts
+    # older episodes once the conversation runs longer than max
+    # episodes. When the user's current message has keywords that
+    # match earlier episodes ("what's my dog's name?" → "dog"), pull
+    # those forward as a separate system block so the bot can answer
+    # questions about facts established >N turns ago.
+    #
+    # Surfaced by stress_v9_anti_amnesia 2026-04-29: rebuild 2 hit
+    # 2/10 facts vs rebuild 1's 10/10 because the establish-phase
+    # episodes had been evicted by intervening probe episodes. This
+    # closes that gap.
+    earlier_relevant: list[dict] = []
+    if keywords:
+        from windyfly.memory.episodes import search_episodes
+        recent_ids = {ep.get("id") for ep in recent if ep.get("id")}
+        earlier_relevant = search_episodes(
+            db,
+            query=keywords,
+            limit=10,
+            session_id=session_id,
+            exclude_ids=recent_ids,
+        )
+
+    if earlier_relevant:
+        relevant_lines = ["## Relevant earlier context (this conversation):"]
+        # Reverse for chronological order in the block — older first.
+        for ep in reversed(earlier_relevant):
+            preview = (ep.get("content") or "")[:300]
+            relevant_lines.append(f"- {ep.get('role', 'unknown')}: {preview}")
+        messages.append({
+            "role": "system",
+            "content": "\n".join(relevant_lines),
+        })
+
     # Episodes come back most-recent-first; reverse for chronological order
     for episode in reversed(recent):
         messages.append({

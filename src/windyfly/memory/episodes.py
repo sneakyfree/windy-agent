@@ -99,26 +99,70 @@ def search_episodes(
     db: Database,
     query: str,
     limit: int = 10,
+    *,
+    session_id: str | None = None,
+    exclude_ids: set[str] | None = None,
 ) -> list[dict]:
     """Full-text search across episode content and summaries.
 
     Args:
         db: Database instance.
-        query: Search query string.
+        query: Search query string. Tokens are OR'd so any one match
+            surfaces the episode (FTS5 default is AND, which is too
+            restrictive for recall use).
         limit: Max results to return.
+        session_id: Optional filter to a single session. Used by the
+            prompt assembly to find earlier-in-this-conversation
+            episodes that fell out of the recent-N window.
+        exclude_ids: Optional set of episode IDs to exclude. Used to
+            avoid duplicating episodes already injected via
+            ``get_recent_episodes``.
 
     Returns:
-        List of matching episode dicts.
+        List of matching episode dicts, most-recent first.
     """
-    return db.fetchall(
-        """
-        SELECT * FROM episodes
-        WHERE rowid IN (
-            SELECT rowid FROM episodes_fts
-            WHERE episodes_fts MATCH ?
-        )
-        ORDER BY created_at DESC
-        LIMIT ?
-        """,
-        (query, limit),
+    import re
+    # Sanitize tokens to FTS5-safe phrase queries. Strip non-word
+    # characters so user input can't smuggle FTS5 syntax (operators
+    # like AND/OR/NOT, quotes, asterisks). Then quote each token as
+    # a phrase so "win" is literal, not a substring or prefix match.
+    tokens = [re.sub(r"\W+", "", t) for t in query.split()]
+    tokens = [t for t in tokens if len(t) >= 2][:6]  # keep small, focused
+    if not tokens:
+        return []
+    fts_query = " OR ".join(f'"{t}"' for t in tokens)
+
+    # JOIN to FTS table so we can ORDER BY rank (bm25). Pre-fix the
+    # query ordered by created_at DESC, which meant older but
+    # highly-relevant episodes got pushed past LIMIT by newer but
+    # noisy matches. v9 hit 78% recall pre-rank-fix; surfacing
+    # bm25 brings the older establishing facts to the top.
+    sql = (
+        "SELECT episodes.* FROM episodes"
+        " JOIN episodes_fts ON episodes.rowid = episodes_fts.rowid"
+        " WHERE episodes_fts MATCH ?"
     )
+    params: list = [fts_query]
+
+    if session_id is not None:
+        sql += " AND episodes.session_id = ?"
+        params.append(session_id)
+
+    if exclude_ids:
+        placeholders = ",".join("?" * len(exclude_ids))
+        sql += f" AND episodes.id NOT IN ({placeholders})"
+        params.extend(exclude_ids)
+
+    # ORDER BY rank uses FTS5's built-in bm25 scoring (lower = better
+    # match). Tiebreak on created_at DESC so among equally-relevant
+    # episodes we prefer the more recent one.
+    sql += " ORDER BY rank, episodes.created_at DESC LIMIT ?"
+    params.append(limit)
+
+    try:
+        return db.fetchall(sql, tuple(params))
+    except Exception:
+        # FTS5 syntax errors (rare after sanitization) or a missing
+        # FTS table on a corrupt DB shouldn't break the prompt
+        # assembly path. Caller falls back to recent-only.
+        return []
