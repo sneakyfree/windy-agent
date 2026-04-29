@@ -157,6 +157,17 @@ class CapabilityDenied(Exception):
     """
 
 
+class CapabilityTimeout(Exception):
+    """Raised when a capability's handler exceeds its timeout budget.
+
+    Without this, a hung tool (slow web fetch, deadlocked subprocess,
+    LLM provider that never responds) blocks the entire conversation
+    until the watchdog kills the process. The agent loop catches this
+    and surfaces it to the LLM as "tool took too long, try a
+    different approach" so the conversation can continue.
+    """
+
+
 @dataclass(frozen=True)
 class Capability:
     """A registered tool with its policy metadata.
@@ -206,6 +217,14 @@ class Capability:
     # Runtime tier escalation hook. See RuntimeTierCheck above. Used
     # by Wave 4 #1's fs.write_file (overwrite=true bumps tier).
     runtime_tier_check: RuntimeTierCheck | None = None
+
+    # Per-capability timeout in seconds. None falls back to the
+    # registry's default (60s). Set tighter for capabilities that
+    # SHOULD complete fast (DB reads, in-process compute) and looser
+    # for slow ones (large fetches). The timeout fires only on async
+    # / coroutine handlers — sync handlers can't be safely cancelled
+    # mid-execution and rely on their own internal limits.
+    timeout_s: float | None = None
 
     def resolved(self) -> "Capability":
         """Return a copy with tier-default fallbacks filled in.

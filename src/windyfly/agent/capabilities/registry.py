@@ -242,10 +242,24 @@ class CapabilityRegistry:
 
         result: Any = None
         error: Exception | None = None
+        # Per-capability timeout, falling back to a generous default
+        # so a hung tool can't lock the conversation forever. Only
+        # applies when the handler returns a coroutine — sync
+        # handlers can't be cancelled mid-execution from asyncio.
+        timeout_s = cap.timeout_s if cap.timeout_s is not None else 60.0
         try:
             result = cap.handler(**args)
             if asyncio.iscoroutine(result):
-                result = await result
+                try:
+                    result = await asyncio.wait_for(result, timeout=timeout_s)
+                except asyncio.TimeoutError as exc:
+                    from windyfly.agent.capabilities.descriptor import (
+                        CapabilityTimeout,
+                    )
+                    raise CapabilityTimeout(
+                        f"capability {capability_id!r} exceeded "
+                        f"{timeout_s}s timeout"
+                    ) from exc
             return result
         except Exception as e:
             error = e
