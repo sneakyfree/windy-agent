@@ -319,6 +319,62 @@ def _changed_for_worse(
     return out
 
 
+def build_alarm_text(
+    snapshots: list[dict[str, Any]] | None = None,
+) -> str:
+    """Format the mid-week red-alarm message — or return ``""`` if
+    the alarm should NOT fire on this comparison.
+
+    Used by both the redalarm script (for delivery) and the v11
+    grandma-readability stress harness (for grading). Single source
+    of truth so the rubric grades EXACTLY what the user sees.
+    """
+    decision = should_fire_alarm(snapshots)
+    if not decision.get("fire"):
+        return ""
+
+    cur_red = decision["current_red"]
+    transitions = decision["transitions"]
+
+    lines: list[str] = []
+    if cur_red:
+        lines.append("🚨 *Heads up — I need attention*")
+    else:
+        lines.append("⚠️ *Heads up — something feels off*")
+    lines.append("")
+
+    reported: set[str] = set()
+    for organ in cur_red:
+        if organ in reported:
+            continue
+        reported.add(organ)
+        friendly = _ORGAN_FRIENDLY_NAMES.get(organ, organ)
+        feeling = _grandma_detail(organ, "red", "")
+        rec = (_ORGAN_RECOMMENDATIONS.get(organ, {}).get("red") or {})
+        action = rec.get("user_action") or "Say /reset."
+        lines.append(f"🔴 *{friendly}*: {feeling}.")
+        lines.append(f"  👉 *{action}*")
+
+    for t in transitions:
+        organ = t["organ"]
+        if organ in reported:
+            continue
+        reported.add(organ)
+        friendly = _ORGAN_FRIENDLY_NAMES.get(organ, organ)
+        cur_v = t["current"]
+        feeling = _grandma_detail(organ, cur_v, "")
+        glyph = {"yellow": "🟡", "red": "🔴"}.get(cur_v, "·")
+        rec = (_ORGAN_RECOMMENDATIONS.get(organ, {}).get(cur_v) or {})
+        action = rec.get("user_action") or "Say /reset."
+        lines.append(f"{glyph} *{friendly}*: {feeling}.")
+        lines.append(f"  👉 *{action}*")
+
+    lines.append("")
+    lines.append("_Your memory and personality stay safe across /reset._")
+
+    return "\n".join(lines)
+
+
 def should_fire_alarm(
     snapshots: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
