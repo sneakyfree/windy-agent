@@ -17,7 +17,22 @@ if TYPE_CHECKING:
 
 # ── Timer / Countdown ───────────────────────────────────────────
 
+# Per-process active-timer registry. Pre-fix had two bugs:
+#   1. ID generated via len()+1 — collided after expiry/cleanup
+#   2. Expired timers were never removed, growing the dict forever
+#      in long-running processes.
+# Now: UUID-based IDs eliminate collision; _purge_expired() runs
+# on every set/list call so the dict can't grow without bound.
 _active_timers: dict[str, datetime] = {}
+
+
+def _purge_expired() -> None:
+    """Drop timers whose end_time is in the past. O(N) per call,
+    but N is the active-timer count (typically tiny), so cheap."""
+    now = datetime.now(timezone.utc)
+    expired = [k for k, end in _active_timers.items() if end <= now]
+    for k in expired:
+        _active_timers.pop(k, None)
 
 
 def set_timer(duration: str, label: str = "Timer") -> dict[str, Any]:
@@ -31,8 +46,12 @@ def set_timer(duration: str, label: str = "Timer") -> dict[str, Any]:
     if seconds is None:
         return {"success": False, "error": f"Could not parse duration: {duration}"}
 
+    _purge_expired()
     end_time = datetime.now(timezone.utc) + timedelta(seconds=seconds)
-    timer_id = f"timer-{len(_active_timers) + 1}"
+    # UUID-based ID can't collide with an expired-but-not-yet-purged
+    # entry the way "timer-N" (counter from len()) could.
+    import uuid
+    timer_id = f"timer-{uuid.uuid4().hex[:8]}"
     _active_timers[timer_id] = end_time
 
     if seconds < 60:
