@@ -21,17 +21,59 @@ logger = logging.getLogger(__name__)
 
 
 def is_online() -> bool:
-    """Check if LLM APIs are reachable.
+    """Check if LLM APIs are reachable. Lenient by default.
 
-    Returns:
-        True if online, False if offline.
+    Pre-fix this hit api.openai.com once with a 3-second timeout
+    and went OFFLINE on any failure. A transient blip (DNS, CDN
+    hop, momentary packet loss) made grandma see the offline-mode
+    reply even when the bot was fine — surfaced 2026-04-29 by the
+    v12 demo dry-run.
+
+    New behavior:
+      1. Probe the actual provider in use (Anthropic / OpenAI),
+         not always OpenAI
+      2. Retry once on timeout — small extra latency, much more
+         reliable
+      3. DEFAULT TO ONLINE if both probes fail. The downstream LLM
+         call itself has cooldown-circuit-breaker logic; surface
+         the real error rather than short-circuit to offline-mode
+         on a flaky DNS query.
     """
     import httpx
-    try:
-        response = httpx.get("https://api.openai.com", timeout=3)
-        return 200 <= response.status_code < 500
-    except (httpx.ConnectError, httpx.TimeoutException, Exception):
-        return False
+
+    # Prefer the provider whose key is set; fall back to OpenAI.
+    candidates: list[str] = []
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        candidates.append("https://api.anthropic.com")
+    if os.environ.get("OPENAI_API_KEY"):
+        candidates.append("https://api.openai.com")
+    if not candidates:
+        # No keys at all — the LLM call will fail loudly with a
+        # friendly message via the error classifier. Treat as online
+        # so we don't double-fall-back to offline.
+        return True
+
+    for url in candidates:
+        for attempt in (1, 2):
+            try:
+                resp = httpx.get(url, timeout=3)
+                if 200 <= resp.status_code < 500:
+                    return True
+            except Exception as e:
+                logger.debug(
+                    "is_online probe %s attempt %d failed: %s", url, attempt, e,
+                )
+                continue
+
+    # Both probes failed both attempts. Could be a real outage OR a
+    # flaky local network. Default to ONLINE so the call attempt
+    # surfaces a useful error if it really is broken — rather than
+    # silently dropping the user into offline-mode.
+    logger.warning(
+        "is_online probes failed; defaulting to ONLINE so the call attempt "
+        "produces a real error if the upstream is genuinely down",
+    )
+    return True
 
 
 def is_ollama_available() -> bool:
