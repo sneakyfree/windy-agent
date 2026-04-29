@@ -289,6 +289,13 @@ def _step_register_health(ctx: BootContext) -> None:
     register_health_capabilities(ctx.capability_registry, ctx.config)
 
 
+def _step_register_auto_repair(ctx: BootContext) -> None:
+    from windyfly.agent.capabilities.auto_repair import (
+        register_auto_repair_capabilities,
+    )
+    register_auto_repair_capabilities(ctx.capability_registry, ctx.config)
+
+
 def default_capability_registration_sequence() -> list[Step]:
     """The canonical post-DB-open registration order for both channels.
 
@@ -358,6 +365,11 @@ def default_capability_registration_sequence() -> list[Step]:
         Step(
             "capabilities.health",
             _step_register_health,
+            requires=("capabilities.audit",),
+        ),
+        Step(
+            "capabilities.auto_repair",
+            _step_register_auto_repair,
             requires=("capabilities.audit",),
         ),
     ]
