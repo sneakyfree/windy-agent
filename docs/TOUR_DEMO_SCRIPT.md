@@ -13,35 +13,29 @@ This is a **rehearsable, recoverable** demo. Every step has:
 
 ---
 
-## ⏱ 30 minutes before stage — pre-show checklist
-
-Run these from your laptop. Each takes 2-5 seconds.
+## ⏱ 30 minutes before stage — one-shot checklist
 
 ```bash
-# 1. Bot is alive, watchdog armed
-systemctl --user status windy-0.service --no-pager | head -8
-
-# 2. All four self-improvement timers active
-systemctl --user list-timers --no-pager | grep windy
-
-# 3. Liveness probe green
-cat ~/.windy/liveness.status
-
-# 4. Latest organ scorecard
-ls -lat ~/.windy-stress/health/*.summary.json | head -1
-
-# 5. Bot heartbeat in last 10 minutes
-grep "polling=" ~/.windy/windy-0.log | tail -1
-
-# 6. Run a fresh on-stage rehearsal brief
-bash ~/.local/bin/windy-weekly-brief.sh
-# → check phone, brief should arrive
+bash scripts/windy-tour-checklist.sh
 ```
 
-**If any line above is red:** hit `/reset` from your phone via Telegram.
-Wait 30 seconds. Re-run the checklist.
+That single command runs every verification:
 
-If the checklist is fully green, you're ready.
+```
+── Section 1: Bot process & supervision ──
+── Section 2: Telegram connectivity ──
+── Section 3: Self-improvement timers ──
+── Section 4: Latest organ scorecard ──
+── Section 5: v12 demo dry-run (real Haiku, ~$0.10) ──
+```
+
+Takes ~2 minutes (mostly the v12 dry-run). Exits 0 with
+**`✅ READY FOR STAGE`** if everything's green. Exits 1 with a
+specific issue list if anything blocks the demo.
+
+**If it shows NOT READY:** hit `/reset` from your phone, wait 30
+seconds, re-run the checklist. If still failing, the recovery
+playbook below has in-character ways to handle every scenario.
 
 ---
 
@@ -164,6 +158,33 @@ if you have a projector, OR just describe:
 > graceful refusal. And as a last resort, /reset always works.
 > You're never one bug away from a useless bot."*
 
+### Beat 6 — Audience question (OPTIONAL, ~90 seconds)
+
+> *"Now I want to show you she's not just a self-aware bot — she's
+> a useful one. Anyone want to ask her something live?"*
+
+Take a hand from the audience. Type their question into Telegram
+verbatim. Examples that the bot handles well:
+
+- *"What's the weather in Charlotte today?"* → web search
+- *"Convert 100 pounds to kilograms."* → calculator
+- *"What's a good cookie recipe?"* → web search + summary
+- *"Set a timer for 5 minutes."* → reminder set
+
+Wait for the typing indicator → reply. Read the reply aloud.
+
+> *"And that's how she handles real questions in real time. Every
+> single one of these tools has a 60-second timeout under the
+> hood, so if anything ever hangs, she fails gracefully and asks
+> you to try again."*
+
+**If the audience asks for something the bot can't do** (e.g.
+"buy me dinner"), the bot will refuse gracefully — that's
+actually a great moment:
+
+> *"And that's the polite refusal — she knows what she can and
+> can't do, and tells you the truth instead of pretending."*
+
 ### Closing (30 seconds)
 
 > *"This is the kind of AI agent the world needs. Not the
@@ -212,6 +233,18 @@ journalctl --user -u windy-weekly-brief.service --since today --no-pager
 
 The audience sees real logs of the bot self-assessing. That's
 arguably MORE compelling than the phone demo.
+
+### Beat 6 audience question hangs / errors
+
+The bot has per-tool 60-second timeouts. If something hangs >60s,
+the bot returns a graceful "couldn't finish that one, try again?"
+— recover by saying:
+
+> *"And that's the timeout safety net. No question can ever hang
+> her — she fails fast, fails gracefully, and you can ask
+> something else."*
+
+Take another question.
 
 ---
 
