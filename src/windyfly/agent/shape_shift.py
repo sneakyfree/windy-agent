@@ -34,8 +34,12 @@ from windyfly.memory.write_queue import WriteQueue
 
 logger = logging.getLogger(__name__)
 
-# Module-level cache for saved sliders (supports nested shape-shifts)
-_saved_sliders: list[dict[str, int]] = []
+# Per-user save stacks for shape-shift restores. Pre-fix this was a
+# single shared list — concurrent calls from different sessions could
+# pop each other's saved state and restore the wrong personality.
+# Same class of bug as #93/#94: shared global where per-user was
+# correct.
+_saved_sliders: dict[str, list[dict[str, int]]] = {}
 
 
 @contextmanager
@@ -63,9 +67,9 @@ def shape_shift(
             result = agent_respond(...)
         # agent is restored to original personality
     """
-    # 1. Save current sliders to stack (supports nested shifts)
+    # 1. Save current sliders to per-user stack (supports nested shifts)
     saved = get_sliders(db, user_id)
-    _saved_sliders.append(saved)
+    _saved_sliders.setdefault(user_id, []).append(saved)
 
     # 2. Apply the target
     if isinstance(target, str):
@@ -93,8 +97,13 @@ def shape_shift(
             db.conn.rollback()
         except Exception as e:
             logger.debug("Rollback during shape_shift cleanup failed: %s", e)
-        if _saved_sliders:
-            restore = _saved_sliders.pop()
+        user_stack = _saved_sliders.get(user_id, [])
+        if user_stack:
+            restore = user_stack.pop()
+            if not user_stack:
+                # Clean up empty stacks so the dict doesn't grow forever
+                # in long-running multi-user processes.
+                _saved_sliders.pop(user_id, None)
         else:
             restore = saved  # Fallback
         for k, v in restore.items():
@@ -195,8 +204,13 @@ def register_shape_shift_tool(
 
     def _shape_shift_restore_tool() -> str:
         """Restore personality to the state before shape-shifting."""
-        if _saved_sliders:
-            restore = _saved_sliders.pop()
+        # Tool path uses default user_id since the LLM doesn't pass it
+        # explicitly; matches the default in shape_shift() context manager.
+        user_stack = _saved_sliders.get("default", [])
+        if user_stack:
+            restore = user_stack.pop()
+            if not user_stack:
+                _saved_sliders.pop("default", None)
             for k, v in restore.items():
                 set_slider(db, k, v)
         log_event(db, write_queue, "shape_shift.restore", {})
