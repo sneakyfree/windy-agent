@@ -34,49 +34,19 @@ from windyfly.agent.capabilities.health import (
     _ORGAN_RECOMMENDATIONS,
     _grandma_detail,
     _load_snapshots,
+    should_fire_alarm,
 )
-
-
-# Verdict ordering for "got worse" detection.
-_RANK = {"green": 0, "yellow": 1, "red": 2}
-
-
-def _changed_for_worse(prev: dict, cur: dict) -> list[dict]:
-    """Return organs whose verdict got worse since prev."""
-    prev_o = (prev or {}).get("organs") or {}
-    cur_o = (cur or {}).get("organs") or {}
-    out = []
-    for organ, cur_data in cur_o.items():
-        cur_v = (cur_data or {}).get("verdict")
-        prev_v = (prev_o.get(organ) or {}).get("verdict", "green")
-        if not cur_v:
-            continue
-        if _RANK.get(cur_v, 0) > _RANK.get(prev_v, 0):
-            out.append({
-                "organ": organ,
-                "previous": prev_v,
-                "current": cur_v,
-            })
-    return out
 
 
 def main() -> int:
     snaps = _load_snapshots(limit=2)
-    if not snaps:
-        # Nothing to report; first run not yet completed.
-        return 0
-    cur = snaps[-1]
-    prev = snaps[-2] if len(snaps) >= 2 else {}
-
-    cur_organs = cur.get("organs") or {}
-    cur_red = [o for o, d in cur_organs.items() if (d or {}).get("verdict") == "red"]
-    transitions = _changed_for_worse(prev, cur)
-
-    # The alarm fires when EITHER:
-    #   - any organ is currently red (regardless of trend), or
-    #   - any organ got strictly worse since the previous snapshot
-    if not cur_red and not transitions:
+    decision = should_fire_alarm(snaps)
+    if not decision.get("fire"):
         return 0  # silent — no alarm
+
+    cur_red = decision["current_red"]
+    transitions = decision["transitions"]
+    cur = snaps[-1]
 
     lines: list[str] = []
     if cur_red:
