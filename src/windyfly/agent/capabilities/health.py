@@ -289,6 +289,79 @@ def _grandma_detail(organ: str, verdict: str, raw_detail: str) -> str:
     return "status unclear"
 
 
+_RANK = {"green": 0, "yellow": 1, "red": 2}
+
+
+def _changed_for_worse(
+    prev: dict[str, Any] | None, cur: dict[str, Any] | None,
+) -> list[dict[str, str]]:
+    """Return organs whose verdict got strictly worse from prev → cur.
+
+    Used by the mid-week red-alarm to suppress notifications when
+    state is unchanged or improved. A change is "for worse" iff the
+    rank in _RANK strictly increased (green → yellow, green → red,
+    or yellow → red).
+    """
+    prev_o = (prev or {}).get("organs") or {}
+    cur_o = (cur or {}).get("organs") or {}
+    out: list[dict[str, str]] = []
+    for organ, cur_data in cur_o.items():
+        cur_v = (cur_data or {}).get("verdict")
+        prev_v = (prev_o.get(organ) or {}).get("verdict", "green")
+        if not cur_v:
+            continue
+        if _RANK.get(cur_v, 0) > _RANK.get(prev_v, 0):
+            out.append({
+                "organ": organ,
+                "previous": prev_v,
+                "current": cur_v,
+            })
+    return out
+
+
+def should_fire_alarm(
+    snapshots: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Decide whether the mid-week red-alarm should fire.
+
+    Returns a structured alarm payload when the alarm SHOULD fire,
+    or an empty dict ``{}`` when it should NOT (silent week).
+
+    Rules (in priority order):
+      1. No snapshots yet → silent (nothing to alert on)
+      2. Any organ currently RED → fire (regardless of trend)
+      3. Any organ got strictly worse since previous snapshot → fire
+      4. Otherwise silent (no change or improvement)
+
+    The "fire on currently-red" rule means a sustained red triggers
+    every alarm-day until the user /resets — by design. Grandma
+    needs the nudge if she missed Wednesday's alarm by Friday.
+    """
+    snaps = snapshots if snapshots is not None else _load_snapshots(limit=2)
+    if not snaps:
+        return {}
+    cur = snaps[-1]
+    prev = snaps[-2] if len(snaps) >= 2 else None
+
+    cur_organs = cur.get("organs") or {}
+    cur_red = [
+        organ for organ, data in cur_organs.items()
+        if (data or {}).get("verdict") == "red"
+    ]
+    transitions = _changed_for_worse(prev, cur)
+
+    if not cur_red and not transitions:
+        return {}
+
+    return {
+        "fire": True,
+        "current_red": cur_red,
+        "transitions": transitions,
+        "current_run_id": cur.get("run_id"),
+        "previous_run_id": (prev or {}).get("run_id"),
+    }
+
+
 def _build_recommendations(snapshots: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Translate the latest scorecard's non-green organs into a list
     of structured recommendations the LLM can present conversationally."""
