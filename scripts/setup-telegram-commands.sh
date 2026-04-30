@@ -32,30 +32,40 @@ fi
 # for clean rendering on phones.
 read -r -d "" COMMANDS <<'JSON' || true
 [
-  {
-    "command": "reset",
-    "description": "Restart me if I am acting weird (memory stays safe)"
-  },
-  {
-    "command": "pause",
-    "description": "Stop me from spending money (kill switch)"
-  },
-  {
-    "command": "resume",
-    "description": "Wake me up after a pause"
-  },
-  {
-    "command": "spend",
-    "description": "Show today's spending broken down by provider"
-  },
-  {
-    "command": "health",
-    "description": "How am I doing? (organ status + recommendations)"
-  },
-  {
-    "command": "help",
-    "description": "Show what I can do"
-  }
+  {"command": "reset",     "description": "Restart me if I am acting weird (memory safe)"},
+  {"command": "pause",     "description": "Stop me from spending money (kill switch)"},
+  {"command": "resume",    "description": "Wake me up after a pause"},
+  {"command": "spend",     "description": "Today's spending by provider"},
+  {"command": "health",    "description": "How am I doing right now?"},
+  {"command": "help",      "description": "Show what I can do"},
+
+  {"command": "new",       "description": "Start a fresh conversation (memory stays)"},
+  {"command": "undo",      "description": "Undo the last exchange"},
+  {"command": "retry",     "description": "Regenerate the last reply"},
+  {"command": "continue",  "description": "Continue if the reply got cut off"},
+  {"command": "history",   "description": "Show the last 10 messages"},
+  {"command": "summarize", "description": "Summarize this conversation"},
+
+  {"command": "facts",     "description": "What I remember about you"},
+  {"command": "memory",    "description": "Memory tools (stats and search)"},
+  {"command": "intents",   "description": "Your active goals and intents"},
+
+  {"command": "soul",      "description": "Show my personality"},
+  {"command": "preset",    "description": "Switch personality preset"},
+  {"command": "sliders",   "description": "Show all personality sliders"},
+  {"command": "mood",      "description": "What mood I am picking up from you"},
+
+  {"command": "status",    "description": "Quick status summary"},
+  {"command": "pulse",     "description": "Live runtime diagnostics"},
+  {"command": "version",   "description": "Version, Python, OS"},
+  {"command": "uptime",    "description": "How long I have been running"},
+  {"command": "ping",      "description": "Am I responsive?"},
+
+  {"command": "model",     "description": "Show or switch my LLM"},
+  {"command": "tokens",    "description": "Token usage this session"},
+  {"command": "fast",      "description": "Switch to my fastest/cheapest model"},
+
+  {"command": "whoami",    "description": "My identity (passport, role)"}
 ]
 JSON
 
