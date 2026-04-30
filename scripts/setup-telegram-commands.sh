@@ -37,20 +37,24 @@ read -r -d "" COMMANDS <<'JSON' || true
     "description": "Restart me if I am acting weird (memory stays safe)"
   },
   {
+    "command": "pause",
+    "description": "Stop me from spending money (kill switch)"
+  },
+  {
+    "command": "resume",
+    "description": "Wake me up after a pause"
+  },
+  {
+    "command": "spend",
+    "description": "Show today's spending broken down by provider"
+  },
+  {
     "command": "health",
     "description": "How am I doing? (organ status + recommendations)"
   },
   {
-    "command": "budget",
-    "description": "How much have I spent today?"
-  },
-  {
     "command": "help",
     "description": "Show what I can do"
-  },
-  {
-    "command": "panic",
-    "description": "Emergency reset (same as /reset)"
   }
 ]
 JSON
@@ -79,11 +83,12 @@ rm -f /tmp/setmycommands.out
 echo "✅ Telegram command menu registered."
 echo
 echo "When users tap / in Telegram, they will see:"
-echo "  /reset    Restart me if I am acting weird (memory stays safe)"
-echo "  /health   How am I doing? (organ status + recommendations)"
-echo "  /budget   How much have I spent today?"
-echo "  /help     Show what I can do"
-echo "  /panic    Emergency reset (same as /reset)"
+python3 -c "
+import json
+cmds = json.loads('''$COMMANDS''')
+for c in cmds:
+    print(f\"  /{c['command']:8}  {c['description']}\")
+"
 echo
 echo "Telegram caches this menu — may take ~30 seconds to appear in"
 echo "the chat UI. Restart the Telegram app if it does not refresh."
