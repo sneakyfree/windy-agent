@@ -94,6 +94,70 @@ def _is_panic_message(text: str | None) -> bool:
     return any(p in low for p in _PANIC_PHRASES)
 
 
+# ── Spend pause / resume — kill-switch UX ──────────────────────────
+#
+# Distinct from the panic /reset: pause/resume keeps the bot alive
+# on Telegram but stops all LLM calls. Useful when the user can
+# tell the bot is burning tokens and wants to STOP the spending
+# without losing the bot itself.
+
+_PAUSE_EXACT = frozenset({"/pause", "/stop-spending", "/stop"})
+_RESUME_EXACT = frozenset({"/resume", "/wake-up", "/wake"})
+_SPEND_EXACT = frozenset({"/spend", "/usage", "/burn"})
+
+
+def _is_pause_message(text: str | None) -> bool:
+    if not text:
+        return False
+    return text.strip().lower() in _PAUSE_EXACT
+
+
+def _is_resume_message(text: str | None) -> bool:
+    if not text:
+        return False
+    return text.strip().lower() in _RESUME_EXACT
+
+
+def _is_spend_message(text: str | None) -> bool:
+    if not text:
+        return False
+    return text.strip().lower() in _SPEND_EXACT
+
+
+def _format_spend_summary(summary: dict) -> str:
+    """Friendly grandma-readable rendering of the spend summary."""
+    lines = ["💰 *Today's spending*"]
+    if summary.get("paused"):
+        info = summary.get("pause_info") or {}
+        when = (info.get("ts") or "").replace("T", " ")[:16]
+        lines.append(f"⏸ *Paused* since {when} — *not spending anything right now.*")
+        lines.append("")
+
+    def _section(label: str, rate: dict) -> None:
+        cost = rate.get("total_cost_usd", 0.0)
+        calls = rate.get("total_calls", 0)
+        lines.append(f"*{label}:* ${cost:.4f} ({calls} call{'s' if calls != 1 else ''})")
+        for provider, slot in (rate.get("by_provider") or {}).items():
+            lines.append(
+                f"  • {provider}: ${slot['cost_usd']:.4f} "
+                f"({slot['calls']} call{'s' if slot['calls'] != 1 else ''})"
+            )
+
+    _section("Last 5 minutes", summary.get("last_5_min", {}))
+    lines.append("")
+    _section("Last hour",      summary.get("last_hour", {}))
+    lines.append("")
+    _section("Last 24 hours",  summary.get("last_day", {}))
+
+    hourly_now = summary.get("last_hour", {}).get("estimated_hourly_burn_usd", 0.0)
+    lines.append("")
+    lines.append(f"*Current burn rate:* ~${hourly_now:.3f}/hour")
+    if not summary.get("paused"):
+        lines.append("")
+        lines.append("_Say /pause to stop spending. Say /resume when you want me back._")
+    return "\n".join(lines)
+
+
 class TelegramChannel(ChannelAdapter):
     """Windy Fly on Telegram."""
 
@@ -276,6 +340,60 @@ class TelegramChannel(ChannelAdapter):
             return
 
         text = update.message.text
+
+        # ── PAUSE / RESUME / SPEND — process BEFORE panic check
+        # so the kill-switch is even faster than nuclear reset. No
+        # LLM, no DB, no tools — just file ops + cost ledger reads.
+        from windyfly.agent.spend_monitor import (
+            is_paused, pause as _pause_spending,
+            resume as _resume_spending, get_spend_summary,
+        )
+        if _is_pause_message(text):
+            result = _pause_spending(reason="user requested via /pause", actor=sender_id)
+            ack = (
+                "⏸ *Paused.* I won't make any LLM calls until you "
+                "say /resume. I'll still respond to /resume, /reset, "
+                "/spend — I just won't spend money on thinking."
+            ) if result.get("ok") else (
+                "⚠ Couldn't write the pause flag — please use /reset instead."
+            )
+            try:
+                await self._send_long_reply(update.message, ack)
+            except Exception as e:
+                logger.warning("pause-ack reply failed: %s", e)
+            self._last_message_at = time.time()
+            return
+
+        if _is_resume_message(text):
+            result = _resume_spending()
+            if result.get("ok"):
+                ack = (
+                    "▶️ *Awake.* I'm thinking again. What can I help with?"
+                    if result.get("was_paused")
+                    else "I wasn't paused — just say what you need."
+                )
+            else:
+                ack = "⚠ Couldn't clear the pause flag — try /reset."
+            try:
+                await self._send_long_reply(update.message, ack)
+            except Exception as e:
+                logger.warning("resume-ack reply failed: %s", e)
+            self._last_message_at = time.time()
+            return
+
+        if _is_spend_message(text):
+            try:
+                summary = get_spend_summary(self._db) if self._db else {}
+                ack = _format_spend_summary(summary)
+            except Exception as e:
+                logger.warning("spend summary failed: %s", e)
+                ack = "⚠ Couldn't read the cost ledger right now."
+            try:
+                await self._send_long_reply(update.message, ack)
+            except Exception as e:
+                logger.warning("spend-ack reply failed: %s", e)
+            self._last_message_at = time.time()
+            return
 
         # ── NUCLEAR RESET — must be FIRST, before agent loop ──
         # If the bot is stuck/confused, this short-circuits BEFORE

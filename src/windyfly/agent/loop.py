@@ -303,6 +303,31 @@ def agent_respond(
         )
         return "Did you mean to send something? I didn't catch a message."
 
+    # 0.5. Pause / kill-switch check. If the operator hit /pause OR
+    # the auto-pause hit a burn-rate threshold, the flag file at
+    # ~/.windy/.paused exists and we MUST NOT call the LLM. The bot
+    # stays alive on Telegram (polling, watchdog, identity intact)
+    # but routes every message to a static reply. Survives restart
+    # by design — operator must explicitly /resume.
+    #
+    # The /resume command itself is processed in the channel
+    # adapter BEFORE the loop runs, so it can clear the flag and
+    # then continue normally.
+    from windyfly.agent.spend_monitor import is_paused, pause_reason
+    if is_paused():
+        info = pause_reason()
+        logger.info(
+            "[req:%s] paused — short-circuiting (reason=%s)",
+            request_id_short(), info.get("reason", "?"),
+        )
+        when = (info.get("ts") or "").replace("T", " ")[:16]
+        why = info.get("reason", "manual pause")
+        return (
+            f"💤 I'm paused (since {when} — {why}). I'm awake on "
+            f"Telegram but I won't make any LLM calls until you "
+            f"say /resume."
+        )
+
     # 1. Assemble prompt
     messages = assemble_prompt(config, db, user_message, session_id)
 
