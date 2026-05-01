@@ -227,6 +227,54 @@ def _provider_for_model(model: str) -> str:
 # ── Auto-pause threshold check ─────────────────────────────────────
 
 
+def maybe_auto_pause(
+    db: "Database",
+    *,
+    threshold_usd_per_hour: float | None = None,
+) -> dict[str, Any]:
+    """Heartbeat hook — check burn threshold and pause if breached.
+
+    The "8 agents and one is in a zombie loop" scenario solved
+    automatically: bots heartbeat every 5 minutes; if the bot's
+    own 15-minute burn rate extrapolates to >$5/hr (configurable),
+    it pauses ITSELF and the owner gets a DM. Zombie loops
+    self-quarantine.
+
+    Returns a structured payload describing the action taken so the
+    caller (telegram_bot._heartbeat_loop) can DM the owner with the
+    right context.
+
+    Possible action values:
+      "noop:already_paused"    — already paused; nothing to do
+      "noop:below_threshold"   — burn rate fine; nothing to do
+      "paused"                 — threshold breached; we paused
+    """
+    if is_paused():
+        return {"action": "noop:already_paused"}
+
+    breach = check_burn_threshold(
+        db, threshold_usd_per_hour=threshold_usd_per_hour,
+    )
+    if not breach.get("breach"):
+        return {
+            "action": "noop:below_threshold",
+            "current_hourly": breach.get("current_hourly"),
+            "threshold": breach.get("threshold"),
+        }
+
+    reason = (
+        f"auto: burn rate ${breach['current_hourly']:.2f}/hr "
+        f"exceeds ${breach['threshold']:.2f}/hr threshold"
+    )
+    pause(reason=reason, actor="auto")
+    return {
+        "action": "paused",
+        "current_hourly": breach["current_hourly"],
+        "threshold": breach["threshold"],
+        "by_provider": breach.get("by_provider", {}),
+    }
+
+
 def check_burn_threshold(
     db: "Database",
     threshold_usd_per_hour: float | None = None,
