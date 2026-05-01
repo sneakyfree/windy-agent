@@ -124,6 +124,41 @@ def _is_spend_message(text: str | None) -> bool:
     return text.strip().lower() in _SPEND_EXACT
 
 
+def _parse_yolo_command(text: str | None) -> tuple[bool, str | int | None]:
+    """Returns (is_yolo, arg) where arg is one of:
+      - None         → bare /yolo (status or default-enable)
+      - "off"        → /yolo off / /yolo disable / /yolo end
+      - int hours    → /yolo 24 / /yolo 48 / /yolo 6
+      - "invalid"    → unrecognized arg
+    Not a yolo command → (False, None).
+    """
+    if not text:
+        return False, None
+    t = text.strip().lower()
+    if t in ("/yolo", "/yolo24", "/yolo48"):
+        # /yolo24 and /yolo48 are convenience shortcuts so the
+        # Telegram menu can list them as separate tappable entries.
+        if t == "/yolo24":
+            return True, 24
+        if t == "/yolo48":
+            return True, 48
+        return True, None
+    if not t.startswith("/yolo"):
+        return False, None
+    rest = t[5:].strip()
+    if rest in ("off", "disable", "end", "stop"):
+        return True, "off"
+    # /yolo 24, /yolo 48, /yolo 6h, /yolo 6
+    rest_clean = rest.rstrip("h")
+    try:
+        hours = int(rest_clean)
+        if hours <= 0:
+            return True, "invalid"
+        return True, hours
+    except ValueError:
+        return True, "invalid"
+
+
 def _format_spend_summary(summary: dict) -> str:
     """Friendly grandma-readable rendering of the spend summary."""
     lines = ["💰 *Today's spending*"]
@@ -131,6 +166,17 @@ def _format_spend_summary(summary: dict) -> str:
         info = summary.get("pause_info") or {}
         when = (info.get("ts") or "").replace("T", " ")[:16]
         lines.append(f"⏸ *Paused* since {when} — *not spending anything right now.*")
+        lines.append("")
+
+    yolo = summary.get("yolo") or {}
+    if yolo.get("active"):
+        hrs = yolo.get("hours_remaining", 0)
+        expires = (yolo.get("expires_at") or "").replace("T", " ")[:16]
+        lines.append(
+            f"🚀 *YOLO mode active* — auto-pause off for "
+            f"{hrs:.1f} more hour{'s' if hrs != 1 else ''} "
+            f"(until {expires} UTC). Say /yolo off to end early."
+        )
         lines.append("")
 
     def _section(label: str, rate: dict) -> None:
@@ -393,13 +439,76 @@ class TelegramChannel(ChannelAdapter):
 
         text = update.message.text
 
-        # ── PAUSE / RESUME / SPEND — process BEFORE panic check
-        # so the kill-switch is even faster than nuclear reset. No
-        # LLM, no DB, no tools — just file ops + cost ledger reads.
+        # ── PAUSE / RESUME / SPEND / YOLO — process BEFORE panic
+        # check so the spend controls are even faster than nuclear
+        # reset. No LLM, no DB, no tools — just file ops + cost
+        # ledger reads.
         from windyfly.agent.spend_monitor import (
             is_paused, pause as _pause_spending,
             resume as _resume_spending, get_spend_summary,
+            yolo_enable, yolo_disable, yolo_status,
         )
+
+        is_yolo, yolo_arg = _parse_yolo_command(text)
+        if is_yolo:
+            ack = ""
+            if yolo_arg is None:
+                # bare /yolo — show status, or enable default 24h if not active
+                status = yolo_status()
+                if status.get("active"):
+                    hrs = status.get("hours_remaining", 0)
+                    expires = (status.get("expires_at") or "").replace("T", " ")[:16]
+                    ack = (
+                        f"🚀 *YOLO mode is active*\n\n"
+                        f"Auto-pause is off for {hrs:.1f} more "
+                        f"hour{'s' if hrs != 1 else ''} (until {expires} UTC).\n\n"
+                        f"_Say /yolo off to end early, or /yolo 48 to extend to 48 hours._"
+                    )
+                else:
+                    result = yolo_enable(hours=24, actor=sender_id)
+                    if result.get("ok"):
+                        expires = (result.get("expires_at") or "").replace("T", " ")[:16]
+                        ack = (
+                            f"🚀 *YOLO mode ON for 24 hours*\n\n"
+                            f"Auto-pause is off until {expires} UTC. I'll cook hard.\n\n"
+                            f"_Say /yolo off to end early. Say /pause to stop spending right now._"
+                        )
+                    else:
+                        ack = f"⚠ Could not enable YOLO: {result.get('error', 'unknown error')}"
+            elif yolo_arg == "off":
+                result = yolo_disable()
+                ack = (
+                    "🛑 *YOLO mode off.* Auto-pause is armed again."
+                    if result.get("was_active")
+                    else "YOLO wasn't active — nothing to turn off."
+                )
+            elif yolo_arg == "invalid":
+                ack = (
+                    "Try one of these:\n"
+                    "• `/yolo` — status, or enable for 24 hours\n"
+                    "• `/yolo 24` — enable for 24 hours\n"
+                    "• `/yolo 48` — enable for 48 hours\n"
+                    "• `/yolo off` — disable"
+                )
+            else:
+                # int hours
+                result = yolo_enable(hours=yolo_arg, actor=sender_id)
+                if result.get("ok"):
+                    expires = (result.get("expires_at") or "").replace("T", " ")[:16]
+                    ack = (
+                        f"🚀 *YOLO mode ON for {yolo_arg} hours*\n\n"
+                        f"Auto-pause is off until {expires} UTC.\n\n"
+                        f"_Say /yolo off to end early. Say /pause to stop right now._"
+                    )
+                else:
+                    ack = f"⚠ Could not enable YOLO: {result.get('error', 'unknown error')}"
+
+            try:
+                await self._send_long_reply(update.message, ack)
+            except Exception as e:
+                logger.warning("yolo-ack reply failed: %s", e)
+            self._last_message_at = time.time()
+            return
         if _is_pause_message(text):
             result = _pause_spending(reason="user requested via /pause", actor=sender_id)
             ack = (

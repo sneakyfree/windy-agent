@@ -36,6 +36,9 @@ read -r -d "" COMMANDS <<'JSON' || true
   {"command": "pause",     "description": "Stop me from spending money (kill switch)"},
   {"command": "resume",    "description": "Wake me up after a pause"},
   {"command": "spend",     "description": "Today's spending by provider"},
+  {"command": "yolo",      "description": "Let me cook hard (24h, no auto-pause)"},
+  {"command": "yolo24",    "description": "YOLO mode for 24 hours"},
+  {"command": "yolo48",    "description": "YOLO mode for 48 hours"},
   {"command": "health",    "description": "How am I doing right now?"},
   {"command": "help",      "description": "Show what I can do"},
 
