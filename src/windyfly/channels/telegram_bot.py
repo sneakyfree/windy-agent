@@ -270,7 +270,17 @@ class TelegramChannel(ChannelAdapter):
             return False
 
     async def _heartbeat_loop(self) -> None:
-        """Log a heartbeat every 5 minutes with TRUE polling health."""
+        """Log a heartbeat every 5 minutes with TRUE polling health.
+
+        Three jobs per tick:
+          1. Log polling state (alive / dead) for operator visibility
+          2. Pet the systemd watchdog when alive (so a polling-dead
+             zombie gets killed and restarted automatically)
+          3. Auto-pause check — if the bot's burn rate exceeds the
+             configured threshold, pause itself and DM the owner.
+             Solves the "8 agents and one is in a zombie loop"
+             scenario: zombie loops self-quarantine within ~5 min.
+        """
         while not self._shutting_down:
             try:
                 alive = self._polling_alive()
@@ -284,11 +294,8 @@ class TelegramChannel(ChannelAdapter):
                         "♥ Telegram heartbeat: polling=alive, last_message_age=%.0fs",
                         age,
                     )
-                    # Pet the systemd watchdog. If polling is dead we
-                    # deliberately DON'T pet it so systemd's
-                    # WatchdogSec= timer fires and restarts us. No-op
-                    # when NOTIFY_SOCKET is unset (dev / tests).
                     notify_watchdog()
+                    await self._maybe_auto_pause()
                 else:
                     logger.warning(
                         "✗ Telegram heartbeat: polling=DEAD, last_message_age=%.0fs"
@@ -299,6 +306,51 @@ class TelegramChannel(ChannelAdapter):
             except Exception as e:
                 logger.debug("Heartbeat error: %s", e)
             await asyncio.sleep(_HEARTBEAT_INTERVAL_S)
+
+    async def _maybe_auto_pause(self) -> None:
+        """Check the burn rate; if breached, pause + DM the owner.
+
+        The DB query runs in the default executor so we don't block
+        the asyncio loop on a sqlite read. Failure is non-fatal —
+        the heartbeat keeps ticking even if the check fails.
+        """
+        if self._db is None:
+            return
+        from windyfly.agent.spend_monitor import maybe_auto_pause
+        try:
+            loop = asyncio.get_running_loop()
+            result = await loop.run_in_executor(
+                None, maybe_auto_pause, self._db,
+            )
+        except Exception as e:
+            logger.warning("auto-pause check failed: %s", e)
+            return
+        if result.get("action") != "paused":
+            return
+        # Breached — DM the owner so they know.
+        if not self._app or not self._allowed_user_ids:
+            return
+        hourly = result.get("current_hourly", 0)
+        threshold = result.get("threshold", 0)
+        msg = (
+            f"⚠️ *Auto-paused — burn rate too high*\n\n"
+            f"My burn rate hit *${hourly:.2f}/hour* "
+            f"(threshold ${threshold:.2f}/hr).\n\n"
+            f"I've stopped making LLM calls to protect your wallet. "
+            f"Say */resume* when you want me thinking again, or "
+            f"*/spend* to see the breakdown."
+        )
+        for owner_id in self._allowed_user_ids:
+            try:
+                await self._app.bot.send_message(
+                    chat_id=owner_id, text=msg, parse_mode="Markdown",
+                )
+            except Exception as e:
+                logger.warning("auto-pause DM to %s failed: %s", owner_id, e)
+        logger.warning(
+            "AUTO-PAUSED: burn=$%.2f/hr exceeds $%.2f/hr — owner DM'd",
+            hourly, threshold,
+        )
 
     def _log_reconnect_event(self, error: str, backoff_seconds: int) -> None:
         """Best-effort write to the observability ledger."""
