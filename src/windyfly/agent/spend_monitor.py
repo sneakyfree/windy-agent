@@ -43,6 +43,144 @@ def _pause_flag_path() -> Path:
     ))
 
 
+# ── YOLO mode ──────────────────────────────────────────────────────
+#
+# Sometimes the user wants the bot to cook hard for hours: long
+# research run, agentic browse session, big code-gen sprint. The
+# default $5/hour auto-pause would clip the work mid-flight. YOLO
+# lets the user opt OUT of auto-pause for a bounded window.
+#
+# Design:
+#   - File-based flag at ~/.windy/.yolo with an explicit expires_at.
+#   - is_yolo_active() returns True only if the flag exists AND
+#     expires_at is still in the future. Past-expiry is treated as
+#     not-active (and the file is cleaned up on read).
+#   - Hard cap: 7 days max per session. Past 7 days the user must
+#     re-enable. Prevents "I forgot YOLO was on for 3 months."
+#   - maybe_auto_pause() skips the threshold check when YOLO is
+#     active — but the moment YOLO expires, the next heartbeat
+#     evaluates the threshold normally.
+
+_YOLO_MAX_HOURS = 7 * 24  # one week hard cap
+
+
+def _yolo_flag_path() -> Path:
+    return Path(os.environ.get(
+        "WINDY_YOLO_FLAG",
+        "/home/grantwhitmer/.windy/.yolo",
+    ))
+
+
+def yolo_status() -> dict[str, Any]:
+    """Read the YOLO flag. Cleans up an expired flag in passing.
+
+    Returns:
+        {
+          "active":     bool,
+          "expires_at": ISO timestamp or None,
+          "hours_remaining": float or 0,
+          "enabled_at": ISO or None,
+          "hours":      int (original duration) or None,
+          "actor":      str or None,
+        }
+    """
+    path = _yolo_flag_path()
+    if not path.exists():
+        return {"active": False, "expires_at": None, "hours_remaining": 0}
+    try:
+        data = json.loads(path.read_text())
+    except Exception:
+        # Torn flag — treat as inactive but DON'T delete (might be
+        # mid-write); next heartbeat will see it cleaned by next
+        # successful write.
+        return {"active": False, "expires_at": None, "hours_remaining": 0}
+
+    expires_str = data.get("expires_at")
+    if not expires_str:
+        return {"active": False, "expires_at": None, "hours_remaining": 0}
+
+    try:
+        expires = datetime.fromisoformat(expires_str.replace("Z", "+00:00"))
+    except Exception:
+        return {"active": False, "expires_at": None, "hours_remaining": 0}
+
+    now = datetime.now(timezone.utc)
+    if now >= expires:
+        # Expired — clean up so /spend doesn't keep showing a
+        # ghost YOLO. Best-effort.
+        try:
+            path.unlink()
+        except Exception:
+            pass
+        return {"active": False, "expires_at": expires_str, "hours_remaining": 0}
+
+    delta = expires - now
+    return {
+        "active": True,
+        "expires_at": expires_str,
+        "hours_remaining": round(delta.total_seconds() / 3600, 2),
+        "enabled_at": data.get("enabled_at"),
+        "hours": data.get("hours"),
+        "actor": data.get("actor"),
+    }
+
+
+def is_yolo_active() -> bool:
+    return yolo_status()["active"]
+
+
+def yolo_enable(hours: int, actor: str = "user") -> dict[str, Any]:
+    """Activate YOLO mode for `hours` hours.
+
+    Returns the resulting yolo_status() shape, or {"ok": False,
+    "error": ...} on rejection (out of range / write failure).
+    """
+    if not isinstance(hours, (int, float)) or hours <= 0:
+        return {"ok": False, "error": f"hours must be positive (got {hours})"}
+    if hours > _YOLO_MAX_HOURS:
+        return {
+            "ok": False,
+            "error": (
+                f"hours capped at {_YOLO_MAX_HOURS} ({_YOLO_MAX_HOURS // 24} "
+                f"days); requested {hours}"
+            ),
+        }
+    now = datetime.now(timezone.utc)
+    expires = now + __import__("datetime").timedelta(hours=hours)
+    payload = {
+        "enabled_at": now.isoformat(),
+        "expires_at": expires.isoformat(),
+        "hours": hours,
+        "actor": actor,
+    }
+    path = _yolo_flag_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(payload) + "\n")
+        tmp.replace(path)
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+    logger.warning(
+        "YOLO ENABLED: actor=%s for %s hours (expires %s) — auto-pause disabled",
+        actor, hours, expires.isoformat(),
+    )
+    return {"ok": True, **payload, "active": True}
+
+
+def yolo_disable() -> dict[str, Any]:
+    """End YOLO mode immediately. Idempotent."""
+    path = _yolo_flag_path()
+    existed = path.exists()
+    try:
+        path.unlink(missing_ok=True)
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+    logger.info("YOLO DISABLED (was_active=%s)", existed)
+    return {"ok": True, "was_active": existed}
+
+
 def is_paused() -> bool:
     """Quick check at the top of agent_respond. File-based so the
     check is fast (one stat call, no DB)."""
@@ -192,12 +330,14 @@ def get_burn_rate(
 def get_spend_summary(db: "Database") -> dict[str, Any]:
     """Multi-window spend snapshot for the /spend command.
 
-    Includes pause status so a single call answers "is the bot
-    currently spending money?" without a separate is_paused() trip.
+    Includes pause + YOLO status so a single call answers "is the
+    bot currently spending money, and is auto-pause armed?" without
+    multiple round-trips.
     """
     return {
         "paused": is_paused(),
         "pause_info": pause_reason() if is_paused() else None,
+        "yolo": yolo_status(),
         "last_5_min":  get_burn_rate(db, window_minutes=5),
         "last_hour":   get_burn_rate(db, window_minutes=60),
         "last_day":    get_burn_rate(db, window_minutes=24 * 60),
@@ -251,6 +391,18 @@ def maybe_auto_pause(
     """
     if is_paused():
         return {"action": "noop:already_paused"}
+
+    if is_yolo_active():
+        # YOLO mode — user explicitly opted out of auto-pause for
+        # a bounded window. The heartbeat keeps surfacing the
+        # status in /spend so they see it; auto-pause stays muzzled
+        # until expiry.
+        status = yolo_status()
+        return {
+            "action": "noop:yolo",
+            "yolo_hours_remaining": status.get("hours_remaining", 0),
+            "yolo_expires_at": status.get("expires_at"),
+        }
 
     breach = check_burn_threshold(
         db, threshold_usd_per_hour=threshold_usd_per_hour,
