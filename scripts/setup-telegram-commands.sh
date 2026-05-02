@@ -61,7 +61,7 @@ read -r -d "" COMMANDS <<'JSON' || true
 
   {"command": "status",    "description": "Quick status summary"},
   {"command": "pulse",     "description": "Live runtime diagnostics"},
-  {"command": "version",   "description": "Version, Python, OS"},
+  {"command": "version",   "description": "Git SHA, branch, uptime — am I latest?"},
   {"command": "uptime",    "description": "How long I have been running"},
   {"command": "ping",      "description": "Am I responsive?"},
 
