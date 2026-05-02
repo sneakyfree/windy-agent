@@ -200,6 +200,71 @@ class TestAssemblePrompt:
         assert "LOW WORKING MEMORY" not in system_content
         db.close()
 
+    def test_grandma_mode_fires_for_USER_band(self):
+        """Paired grandma → grandma-mode tone instruction must
+        be in the system prompt."""
+        from windyfly.agent.capabilities import Band
+        config = _make_config()
+        db = _make_db()
+        messages = assemble_prompt(
+            config, db, "How do I update everyone?", "test-session",
+            band=Band.USER,
+        )
+        system_content = messages[0]["content"]
+        assert "GRANDMA MODE" in system_content
+        # Pin a few of the banned-jargon items so the contract holds
+        # if someone re-words the instruction.
+        assert "WireGuard" in system_content
+        assert "Docker" in system_content
+        db.close()
+
+    def test_grandma_mode_fires_for_SANDBOX_band(self):
+        """Unknown demo guest → also grandma mode."""
+        from windyfly.agent.capabilities import Band
+        config = _make_config()
+        db = _make_db()
+        messages = assemble_prompt(
+            config, db, "Hi there", "test-session",
+            band=Band.SANDBOX,
+        )
+        system_content = messages[0]["content"]
+        assert "GRANDMA MODE" in system_content
+        db.close()
+
+    def test_grandma_mode_does_NOT_fire_for_TRUSTED_band(self):
+        """Power-user paired device → personality drives tone."""
+        from windyfly.agent.capabilities import Band
+        config = _make_config()
+        db = _make_db()
+        messages = assemble_prompt(
+            config, db, "Hi", "test-session", band=Band.TRUSTED,
+        )
+        system_content = messages[0]["content"]
+        assert "GRANDMA MODE" not in system_content
+        db.close()
+
+    def test_grandma_mode_does_NOT_fire_for_OWNER_band(self):
+        """Grant on his own bot → engineer-mode permitted."""
+        from windyfly.agent.capabilities import Band
+        config = _make_config()
+        db = _make_db()
+        messages = assemble_prompt(
+            config, db, "Hi", "test-session", band=Band.OWNER,
+        )
+        system_content = messages[0]["content"]
+        assert "GRANDMA MODE" not in system_content
+        db.close()
+
+    def test_grandma_mode_does_NOT_fire_when_band_unspecified(self):
+        """Backwards compat: callers that don't pass band → no
+        override (matches OWNER default in agent_respond)."""
+        config = _make_config()
+        db = _make_db()
+        messages = assemble_prompt(config, db, "Hi", "test-session")
+        system_content = messages[0]["content"]
+        assert "GRANDMA MODE" not in system_content
+        db.close()
+
 
 class TestAgentRespond:
     @patch("windyfly.agent.loop.call_llm")

@@ -337,6 +337,7 @@ def agent_respond(
     messages = assemble_prompt(
         config, db, user_message, session_id,
         pct_remaining=_pct_remaining,
+        band=band,
     )
 
     # 1.0.5 — Capability-aware tool-selection nudge.
