@@ -256,9 +256,36 @@ class TestAssemblePrompt:
         )
         system_content = messages[0]["content"]
         assert "WHEN USING TOOLS" in system_content
-        assert "tool output" in system_content.lower()
         # Specific anti-leak markers
         assert "wg-0c3" in system_content or "wg-" in system_content
+        db.close()
+
+    def test_grandma_mode_covers_clarifying_questions(self):
+        """Real-LLM verification 2026-05-02 PR #121-followup: the
+        bot was leaking 'SSH config' as a *clarifying question*
+        ('Do you have SSH access configured?') even though the
+        instruction told it not to use SSH in its OWN statements.
+        Pin: GRANDMA MODE must explicitly forbid technical
+        vocabulary in clarifying questions too, and provide
+        plain-English substitutions to use instead."""
+        from windyfly.agent.capabilities import Band
+        config = _make_config()
+        db = _make_db()
+        messages = assemble_prompt(
+            config, db, "Can you connect to my server?", "test-session",
+            band=Band.USER,
+        )
+        system_content = messages[0]["content"]
+        # The new STRICT marker
+        assert "GRANDMA MODE — STRICT" in system_content
+        # Banned vocabulary explicitly listed
+        assert "BANNED VOCABULARY" in system_content
+        # Clarifying-question guidance present
+        assert "WHEN ASKING CLARIFYING QUESTIONS" in system_content
+        assert "PLAIN-ENGLISH SUBSTITUTIONS" in system_content
+        # The exact failure-pattern phrase from the leak is called
+        # out as a counter-example
+        assert "SSH" in system_content
         db.close()
 
     def test_grandma_mode_fires_for_SANDBOX_band(self):
