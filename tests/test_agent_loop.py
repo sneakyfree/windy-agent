@@ -142,6 +142,64 @@ class TestAssemblePrompt:
         assert "FIRST CONTACT" not in system_content
         db.close()
 
+    def test_low_context_hint_fires_below_10_pct(self):
+        """At < 10% remaining the system prompt must instruct the LLM
+        to suggest /new in grandma-friendly terms.
+
+        Surfaced 2026-04-27 by a real conversation where the bot
+        showed 🔴 0% in the gas-tank header and replied with
+        engineer-mode jargon, leaving the user puzzled about whether
+        the bot was broken. The fix: tell the LLM the user can /new
+        whenever, in plain English."""
+        config = _make_config()
+        db = _make_db()
+        messages = assemble_prompt(
+            config, db, "Hello!", "test-session", pct_remaining=3.0,
+        )
+        system_content = messages[0]["content"]
+        assert "LOW WORKING MEMORY" in system_content
+        assert "/new" in system_content
+        # Must use plain language, not jargon
+        assert "context window" not in system_content.lower() or \
+               "do not say 'context window'" in system_content.lower()
+        db.close()
+
+    def test_low_context_hint_does_NOT_fire_above_10_pct(self):
+        """When the session is healthy (>= 10% remaining) the hint
+        must stay quiet — otherwise every reply would nag the user
+        to /new."""
+        config = _make_config()
+        db = _make_db()
+        messages = assemble_prompt(
+            config, db, "Hello!", "test-session", pct_remaining=42.0,
+        )
+        system_content = messages[0]["content"]
+        assert "LOW WORKING MEMORY" not in system_content
+        db.close()
+
+    def test_low_context_hint_does_NOT_fire_when_unspecified(self):
+        """Backwards compat: callers that don't pass pct_remaining
+        (e.g., older tests) get the prior behavior — no hint."""
+        config = _make_config()
+        db = _make_db()
+        messages = assemble_prompt(config, db, "Hello!", "test-session")
+        system_content = messages[0]["content"]
+        assert "LOW WORKING MEMORY" not in system_content
+        db.close()
+
+    def test_low_context_hint_boundary_exactly_10(self):
+        """At exactly 10.0% remaining the hint should NOT fire — the
+        threshold is strictly below 10. Matches the 🔴/🟡 boundary in
+        context_header.format_header (pct >= 10 → 🟡, < 10 → 🔴)."""
+        config = _make_config()
+        db = _make_db()
+        messages = assemble_prompt(
+            config, db, "Hello!", "test-session", pct_remaining=10.0,
+        )
+        system_content = messages[0]["content"]
+        assert "LOW WORKING MEMORY" not in system_content
+        db.close()
+
 
 class TestAgentRespond:
     @patch("windyfly.agent.loop.call_llm")
