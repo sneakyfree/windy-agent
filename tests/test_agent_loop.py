@@ -218,6 +218,28 @@ class TestAssemblePrompt:
         assert "Docker" in system_content
         db.close()
 
+    def test_grandma_mode_includes_tool_output_suppression(self):
+        """v13 battery 2026-05-02 surfaced: when the bot under
+        band=USER asked about its server, it leaked SSH-config /
+        wg-* / kit-* aliases verbatim because the freshly-shipped
+        fleet.* capability descriptions mention those terms. The
+        GRANDMA MODE instruction must explicitly cover the
+        'tool-output → reply' translation step so a curious tool
+        description doesn't override the tone gate."""
+        from windyfly.agent.capabilities import Band
+        config = _make_config()
+        db = _make_db()
+        messages = assemble_prompt(
+            config, db, "Connect to my server.", "test-session",
+            band=Band.USER,
+        )
+        system_content = messages[0]["content"]
+        assert "WHEN USING TOOLS" in system_content
+        assert "tool output" in system_content.lower()
+        # Specific anti-leak markers
+        assert "wg-0c3" in system_content or "wg-" in system_content
+        db.close()
+
     def test_grandma_mode_fires_for_SANDBOX_band(self):
         """Unknown demo guest → also grandma mode."""
         from windyfly.agent.capabilities import Band

@@ -167,7 +167,16 @@ def assemble_prompt(
                 "with the answer in one short sentence; only add "
                 "detail if they ask. If you cannot do something, say "
                 "so simply (for example, 'I can't reach that from "
-                "here') without explaining the technical reason."
+                "here') without explaining the technical reason. "
+                "WHEN USING TOOLS: even if a tool's description or "
+                "output mentions infrastructure terms (e.g., "
+                "fleet.list_kits returns alias names like 'wg-0c3' "
+                "or 'kit-charlie'), refer to the results in your "
+                "reply with plain words — say 'your machines', "
+                "'your computers', or the comment-style nicknames "
+                "(e.g., 'Charlie' instead of 'wg-0c3'). NEVER "
+                "surface raw aliases, SSH config, or tool jargon to "
+                "the user even if it appears in tool output."
             )
 
     messages.append({
