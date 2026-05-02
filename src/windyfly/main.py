@@ -256,8 +256,16 @@ def main() -> None:
         dm_policy = config.get("telegram", {}).get("dm_policy", "pairing")
 
         async def _respond(text: str, session_id: str) -> str:
+            # Guest-mode toggle: when Grant has flipped /guest on (file
+            # flag at ~/.windy/.guest), demote every message to
+            # Band.USER so prompt assembly engages GRANDMA MODE for
+            # demo audiences. Default OWNER otherwise.
+            from windyfly.agent.capabilities import Band
+            from windyfly.agent.guest_mode import is_guest_active
+            band = Band.USER if is_guest_active() else Band.OWNER
             return agent_respond(
                 config, db, write_queue, text, session_id, tool_registry,
+                band=band,
             )
 
         manager = ChannelManager(_respond)

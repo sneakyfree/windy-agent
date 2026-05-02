@@ -106,6 +106,31 @@ _RESUME_EXACT = frozenset({"/resume", "/wake-up", "/wake"})
 _SPEND_EXACT = frozenset({"/spend", "/usage", "/burn"})
 
 
+def _parse_guest_command(text: str | None) -> tuple[bool, str | None]:
+    """Parse /guest [on|off|status] (or bare /guest = status).
+
+    Returns (is_guest_cmd, arg) where arg is one of:
+      - None       → bare /guest → show status
+      - "on"       → /guest on / /guest start / /demo
+      - "off"      → /guest off / /guest end / /demo off
+      - "invalid"  → unrecognized arg
+    """
+    if not text:
+        return False, None
+    t = text.strip().lower()
+    # Convenience aliases — /demo on/off mirrors /guest on/off so
+    # Grant can use whichever feels natural on stage.
+    if t in ("/guest", "/demo"):
+        return True, None
+    if t in ("/guest on", "/guest start", "/demo on", "/demo start"):
+        return True, "on"
+    if t in ("/guest off", "/guest end", "/guest stop", "/demo off", "/demo end", "/demo stop"):
+        return True, "off"
+    if t.startswith("/guest") or t.startswith("/demo"):
+        return True, "invalid"
+    return False, None
+
+
 def _is_pause_message(text: str | None) -> bool:
     if not text:
         return False
@@ -509,6 +534,58 @@ class TelegramChannel(ChannelAdapter):
                 logger.warning("yolo-ack reply failed: %s", e)
             self._last_message_at = time.time()
             return
+        is_guest, guest_arg = _parse_guest_command(text)
+        if is_guest:
+            from windyfly.agent.guest_mode import (
+                guest_off as _guest_off,
+                guest_on as _guest_on,
+                guest_status as _guest_status,
+            )
+            if guest_arg is None:
+                status = _guest_status()
+                if status.get("active"):
+                    when = (status.get("enabled_at") or "").replace("T", " ")[:16]
+                    ack = (
+                        f"👵 *Guest mode is ON* (since {when} UTC).\n\n"
+                        f"I'm replying in plain English with no tech jargon. "
+                        f"Say /guest off to switch back."
+                    )
+                else:
+                    ack = (
+                        "👵 *Guest mode is OFF.* I reply in my normal voice.\n\n"
+                        "Say /guest on before a demo to switch into "
+                        "grandma-mode (short, plain English, no tech jargon)."
+                    )
+            elif guest_arg == "on":
+                result = _guest_on(actor=sender_id)
+                ack = (
+                    "👵 *Guest mode ON.* Until you say /guest off, I'll keep "
+                    "replies short and plain — no IP addresses, no Docker / "
+                    "WireGuard / SSH talk. Good for demos."
+                ) if result.get("ok") else (
+                    f"⚠ Could not enable guest mode: {result.get('error', 'unknown')}"
+                )
+            elif guest_arg == "off":
+                result = _guest_off()
+                ack = (
+                    "🎩 *Guest mode OFF.* Back to my normal voice."
+                    if result.get("was_active")
+                    else "Guest mode wasn't on — nothing to switch off."
+                )
+            else:  # invalid
+                ack = (
+                    "Try one of these:\n"
+                    "• `/guest` — show whether guest mode is on\n"
+                    "• `/guest on` — switch into grandma-mode (for demos)\n"
+                    "• `/guest off` — switch back to normal"
+                )
+            try:
+                await self._send_long_reply(update.message, ack)
+            except Exception as e:
+                logger.warning("guest-ack reply failed: %s", e)
+            self._last_message_at = time.time()
+            return
+
         if _is_pause_message(text):
             result = _pause_spending(reason="user requested via /pause", actor=sender_id)
             ack = (
