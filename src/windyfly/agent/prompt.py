@@ -53,6 +53,7 @@ def assemble_prompt(
     *,
     mode: str = "companion",
     pct_remaining: float | None = None,
+    band: Any = None,
 ) -> list[dict[str, str]]:
     """Assemble the full prompt for an LLM call.
 
@@ -66,6 +67,12 @@ def assemble_prompt(
             current session. When < 10, a grandma-mode hint is added
             so the bot proactively suggests /new instead of leaving
             the user puzzled by a 🔴 0% indicator.
+        band: Optional capability passport band (windyfly.agent.
+            capabilities.Band). When USER or SANDBOX, a grandma-mode
+            tone instruction is added — short, plain English, no
+            infrastructure jargon. OWNER/TRUSTED let the personality
+            block drive tone normally. None means "no override" (same
+            as OWNER for back-compat).
 
     Returns:
         List of message dicts ready for LLM API.
@@ -129,6 +136,39 @@ def assemble_prompt(
             "'working memory' or 'short-term memory'. Keep the "
             "suggestion friendly and one sentence."
         )
+
+    # Band-aware tone. The personality block is tuned for Grant
+    # (engineer-OK, jargon-OK). When the band drops to USER (paired
+    # grandma) or SANDBOX (unknown demo guest), force grandma mode:
+    # no IP addresses, no infrastructure terms, no "WireGuard" /
+    # "cloudflared" / "Docker" / "SSH" unless the user used the term
+    # first. Lead with the plain-English answer; offer technical
+    # depth only if asked.
+    #
+    # Band-routing happens at the channel layer (telegram_bot,
+    # demo_kiosk, etc.). Default None preserves existing behavior:
+    # all current callers leave band unset → OWNER tone.
+    if band is not None:
+        try:
+            band_value = int(band)
+        except (TypeError, ValueError):
+            band_value = None
+        # USER = 1, SANDBOX = 0 — anything below TRUSTED gets grandma
+        # mode. (Avoid importing Band here to keep prompt.py light.)
+        if band_value is not None and band_value < 2:
+            system_parts.append(
+                "GRANDMA MODE: The person you are talking to is not "
+                "the bot's owner — they are a regular user, possibly "
+                "non-technical. Reply in plain English. AVOID: IP "
+                "addresses, port numbers, file paths, command-line "
+                "flags, names of infrastructure tools (Docker, "
+                "WireGuard, cloudflared, SSH, systemd, Nginx, etc.), "
+                "and acronyms unless the user used them first. Lead "
+                "with the answer in one short sentence; only add "
+                "detail if they ask. If you cannot do something, say "
+                "so simply (for example, 'I can't reach that from "
+                "here') without explaining the technical reason."
+            )
 
     messages.append({
         "role": "system",
