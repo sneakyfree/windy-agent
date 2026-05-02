@@ -496,14 +496,49 @@ def agent_respond(
     capability_tools = capability_registry.tool_schemas_for_band(band)
     tools = (legacy_tools + capability_tools) if (legacy_tools or capability_tools) else None
 
-    result = call_llm(
-        messages,
-        model=model,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        tools=tools,
-        config=config,
-    )
+    # call_llm raises RuntimeError when every provider in the chain
+    # fails (e.g., 401 burst from Anthropic during a rate-limit
+    # window, or all configured providers in cooldown). The offline
+    # path above only catches the *proactive* probe failure — it
+    # cannot detect a chain that goes from healthy → throttled
+    # mid-turn. v14 stress 2026-05-02 surfaced this: 37 prompts
+    # cleared, then the 38th hit a 401 cascade and the bot returned
+    # a stack trace instead of a friendly message. Route the
+    # exception into the SAME offline-fallback so the user always
+    # gets a coherent reply and the bot never crashes mid-
+    # conversation.
+    try:
+        result = call_llm(
+            messages,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            tools=tools,
+            config=config,
+        )
+    except RuntimeError as e:
+        msg = str(e)
+        if "providers in chain" in msg or "providers" in msg.lower():
+            logger.warning(
+                "[req:%s] LLM provider chain exhausted — falling back "
+                "to offline mode (last_error=%s)",
+                request_id_short(), msg[:200],
+            )
+            from windyfly.agent.offline import queue_message
+            context = [{"role": m["role"], "content": m["content"]} for m in messages[-5:]]
+            offline_response = get_offline_response(user_message, context)
+            queue_message(user_message, session_id)
+            write_queue.enqueue(Priority.HIGH, save_episode, db, "user", user_message, session_id=session_id)
+            write_queue.enqueue(Priority.HIGH, save_episode, db, "assistant", offline_response, session_id=session_id)
+            log_event(db, write_queue, "offline.chain_exhausted", {
+                "message": user_message[:100],
+                "error": msg[:200],
+            })
+            return offline_response
+        # Non-chain RuntimeError (something we didn't anticipate) —
+        # let it bubble so we see it in logs and don't silently
+        # swallow real bugs.
+        raise
 
     response_text = result["content"]
     input_tokens = result["input_tokens"]

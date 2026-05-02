@@ -10,12 +10,33 @@ from __future__ import annotations
 import time
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from windyfly.agent.loop import _extract_and_store_facts, agent_respond
 from windyfly.agent.prompt import _extract_keywords, assemble_prompt
 from windyfly.memory.database import Database
 from windyfly.memory.episodes import get_recent_episodes
 from windyfly.memory.write_queue import WriteQueue
 import windyfly.agent.context_header as _ch
+import windyfly.agent.loop as _loop
+
+
+@pytest.fixture(autouse=True)
+def _reset_module_state():
+    """Module-level dicts in agent.loop accumulate across tests when
+    multiple tests share the same session_id (most do — "test-session").
+    Without resetting between tests, the per-session journal counter
+    crosses its every-10th threshold and triggers an unexpected
+    call_llm invocation, which exhausts mock side_effect lists in
+    later tests in the file. Symptom: test_tool_reloop_executes_tools
+    flaky — passes alone, fails when the file runs in order. Reset
+    pre-test to break the cross-test dependency."""
+    _loop._session_tokens.clear()
+    _loop._session_interaction_counts.clear()
+    _ch._tracker = None
+    yield
+    _loop._session_tokens.clear()
+    _loop._session_interaction_counts.clear()
 
 
 def _make_config() -> dict:
