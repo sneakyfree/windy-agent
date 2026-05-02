@@ -105,6 +105,27 @@ _PAUSE_EXACT = frozenset({"/pause", "/stop-spending", "/stop"})
 _RESUME_EXACT = frozenset({"/resume", "/wake-up", "/wake"})
 _SPEND_EXACT = frozenset({"/spend", "/usage", "/burn"})
 
+# /version, /uptime, /whoami — pure-read introspection. v13 stress
+# 2026-05-02 caught the bot saying "I don't have a /version command"
+# because the menu listed them but no channel handler existed. Wire
+# them at the same level as /pause / /spend / /yolo: file-only ops,
+# no LLM, no DB write, fast enough to ack instantly.
+_VERSION_EXACT = frozenset({"/version", "/v"})
+_UPTIME_EXACT = frozenset({"/uptime"})
+_WHOAMI_EXACT = frozenset({"/whoami", "/identity"})
+
+
+def _is_version_message(text: str | None) -> bool:
+    return bool(text) and text.strip().lower() in _VERSION_EXACT
+
+
+def _is_uptime_message(text: str | None) -> bool:
+    return bool(text) and text.strip().lower() in _UPTIME_EXACT
+
+
+def _is_whoami_message(text: str | None) -> bool:
+    return bool(text) and text.strip().lower() in _WHOAMI_EXACT
+
 
 def _parse_guest_command(text: str | None) -> tuple[bool, str | None]:
     """Parse /guest [on|off|status] (or bare /guest = status).
@@ -630,6 +651,33 @@ class TelegramChannel(ChannelAdapter):
                 await self._send_long_reply(update.message, ack)
             except Exception as e:
                 logger.warning("spend-ack reply failed: %s", e)
+            self._last_message_at = time.time()
+            return
+
+        # ── /version /uptime /whoami — pure-read introspection ──
+        # v13 stress 2026-05-02 caught the bot improvising "I don't
+        # have a /version command available" because the menu listed
+        # them but no channel handler existed. These return a hard
+        # answer with the live git SHA + uptime so the user can
+        # verify "am I running the latest?" in one tap.
+        if _is_version_message(text) or _is_uptime_message(text) or _is_whoami_message(text):
+            try:
+                from windyfly.observability.version_info import (
+                    format_uptime_reply, format_version_reply, format_whoami_reply,
+                )
+                if _is_version_message(text):
+                    ack = format_version_reply()
+                elif _is_uptime_message(text):
+                    ack = format_uptime_reply()
+                else:
+                    ack = format_whoami_reply()
+            except Exception as e:
+                logger.warning("version/uptime/whoami reply failed: %s", e)
+                ack = "⚠ Couldn't gather version info right now."
+            try:
+                await self._send_long_reply(update.message, ack)
+            except Exception as e:
+                logger.warning("version-ack reply failed: %s", e)
             self._last_message_at = time.time()
             return
 
