@@ -329,7 +329,15 @@ def agent_respond(
         )
 
     # 1. Assemble prompt
-    messages = assemble_prompt(config, db, user_message, session_id)
+    # Pass current session's pct_remaining so the prompt assembler
+    # can inject the low-context hint at < 10%.
+    _max_ctx = 200_000
+    _used = _session_tokens.get(session_id, 0)
+    _pct_remaining = max(0.0, 100.0 - (_used / _max_ctx) * 100)
+    messages = assemble_prompt(
+        config, db, user_message, session_id,
+        pct_remaining=_pct_remaining,
+    )
 
     # 1.0.5 — Capability-aware tool-selection nudge.
     # When the user references a local path / file / repo / folder, the

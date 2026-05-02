@@ -52,6 +52,7 @@ def assemble_prompt(
     session_id: str,
     *,
     mode: str = "companion",
+    pct_remaining: float | None = None,
 ) -> list[dict[str, str]]:
     """Assemble the full prompt for an LLM call.
 
@@ -61,6 +62,10 @@ def assemble_prompt(
         user_message: The user's current message.
         session_id: Current session ID.
         mode: Agent mode (companion/focused/neutral).
+        pct_remaining: Optional context-window % remaining for the
+            current session. When < 10, a grandma-mode hint is added
+            so the bot proactively suggests /new instead of leaving
+            the user puzzled by a 🔴 0% indicator.
 
     Returns:
         List of message dicts ready for LLM API.
@@ -100,6 +105,29 @@ def assemble_prompt(
             "to see you again', 'as we discussed', 'picking up where "
             "we left off', or ANY phrase implying prior interaction. "
             "Introduce yourself naturally if appropriate."
+        )
+
+    # Low-context hint: when this session has less than 10% of the
+    # context window left, the gas-tank header shows 🔴 and replies
+    # start to feel terse / confused. The user (especially a non-
+    # technical one) sees the red dot and wonders if the bot is
+    # broken. Tell the LLM to wrap up the current answer and gently
+    # suggest /new — same memory, fresh head.
+    #
+    # Surfaced 2026-04-27 by a real conversation where the bot
+    # returned engineer-mode jargon at 🔴 0% with no hint to the user
+    # that a /new was the cure.
+    if pct_remaining is not None and pct_remaining < 10:
+        system_parts.append(
+            "LOW WORKING MEMORY: This conversation has used most of "
+            "its context window. After answering the user's current "
+            "question naturally, add a short, plain-English line "
+            "letting them know your working memory is getting full "
+            "and that they can type /new whenever they want to start "
+            "a fresh conversation — your long-term memory of them "
+            "stays. Do not say 'context window' or 'tokens' — say "
+            "'working memory' or 'short-term memory'. Keep the "
+            "suggestion friendly and one sentence."
         )
 
     messages.append({
