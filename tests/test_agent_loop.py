@@ -22,7 +22,7 @@ import windyfly.agent.loop as _loop
 
 
 @pytest.fixture(autouse=True)
-def _reset_module_state():
+def _reset_module_state(tmp_path, monkeypatch):
     """Module-level dicts in agent.loop accumulate across tests when
     multiple tests share the same session_id (most do — "test-session").
     Without resetting between tests, the per-session journal counter
@@ -30,10 +30,19 @@ def _reset_module_state():
     call_llm invocation, which exhausts mock side_effect lists in
     later tests in the file. Symptom: test_tool_reloop_executes_tools
     flaky — passes alone, fails when the file runs in order. Reset
-    pre-test to break the cross-test dependency."""
+    pre-test to break the cross-test dependency.
+
+    Also isolates the spend-monitor pause/yolo flag paths to a temp
+    dir per test. Surfaced 2026-05-02: production auto-pause from a
+    Sonnet stress run leaked into unit tests because the fixture
+    didn't override WINDY_PAUSE_FLAG. Tests using mocked LLM should
+    never see the production pause state."""
     _loop._session_tokens.clear()
     _loop._session_interaction_counts.clear()
     _ch._tracker = None
+    monkeypatch.setenv("WINDY_PAUSE_FLAG", str(tmp_path / ".paused"))
+    monkeypatch.setenv("WINDY_YOLO_FLAG", str(tmp_path / ".yolo"))
+    monkeypatch.setenv("WINDY_GUEST_FLAG", str(tmp_path / ".guest"))
     yield
     _loop._session_tokens.clear()
     _loop._session_interaction_counts.clear()
