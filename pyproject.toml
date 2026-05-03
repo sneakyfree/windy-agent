@@ -29,6 +29,16 @@ calendar = [
     "google-auth-oauthlib>=1.0",
 ]
 sentry = ["sentry-sdk>=2.0"]
+semantic = [
+    # Opt-in semantic memory: hybrid FTS5+cosine retrieval over
+    # episode content. Adds ~600MB of torch+transformers; not
+    # installed by default. Enable with:
+    #   pip install windyfly[semantic]
+    # Without this, the embedding columns stay NULL and search
+    # falls back to FTS5-only — same as pre-PR #127 behavior.
+    "sentence-transformers>=2.2",
+    "numpy>=1.24",
+]
 all-channels = [
     "python-telegram-bot>=21.0",
     "discord.py>=2.3",
