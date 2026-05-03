@@ -1,12 +1,20 @@
+# Build cruft + dev-only files. Smaller image = faster pull on
+# every fleet host.
 .venv
 .git
 .github
 __pycache__
 *.pyc
+*.pyo
+*.pyd
+.mypy_cache
+.ruff_cache
+.pytest_cache
 data/
 dist/
+build/
 .env
-.pytest_cache
+.env.local
 node_modules
 gateway/dashboard/node_modules
 gateway/public/index.legacy.html
@@ -15,3 +23,15 @@ tests/
 docs/
 *.md
 !README.md
+!gateway/README.md
+# Editor / OS
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+# Agent runtime data — never bake into image
+*.db
+*.db-journal
+*.log
+.windy/
+.windy-stress/

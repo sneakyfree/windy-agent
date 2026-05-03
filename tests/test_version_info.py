@@ -126,6 +126,19 @@ def test_format_version_reply_includes_branch():
     assert "Branch" in out
 
 
+def test_build_env_takes_precedence_over_git(monkeypatch):
+    """When running in a Docker image built by the release pipeline,
+    WINDY_BUILD_SHA / WINDY_BUILD_DATE are set and there's no .git
+    dir to fall back to. The version handler must read those env
+    vars instead of trying (and failing) to call git inside the
+    container."""
+    monkeypatch.setenv("WINDY_BUILD_SHA", "deadbeef")
+    monkeypatch.setenv("WINDY_BUILD_DATE", "2026-05-02T23:00:00Z")
+    info = get_version_info()
+    assert info["sha"] == "deadbeef"
+    assert info["last_commit_when"] == "2026-05-02T23:00:00Z"
+
+
 def test_format_version_reply_no_secrets_leaked(monkeypatch):
     """Sanity: even with sensitive env vars set, /version must not
     print them. /version is owner-tone but the message could be
