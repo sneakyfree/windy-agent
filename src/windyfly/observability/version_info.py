@@ -102,11 +102,20 @@ def _flag_state() -> dict[str, str]:
 
 
 def get_version_info() -> dict[str, Any]:
-    """Full payload for /version. All keys always present."""
-    sha = _git("rev-parse", "--short", "HEAD")
-    sha_full = _git("rev-parse", "HEAD")
+    """Full payload for /version. All keys always present.
+
+    When running in a Docker image built by the release pipeline,
+    WINDY_BUILD_SHA / WINDY_BUILD_DATE / WINDY_BUILD_VERSION are
+    set at image-build time and take precedence over the git
+    lookup (which fails inside a container that has no .git dir).
+    """
+    sha = os.environ.get("WINDY_BUILD_SHA") or _git("rev-parse", "--short", "HEAD")
+    sha_full = _git("rev-parse", "HEAD") if not os.environ.get("WINDY_BUILD_SHA") else os.environ["WINDY_BUILD_SHA"]
     branch = _git("symbolic-ref", "--short", "HEAD") or _git("rev-parse", "--abbrev-ref", "HEAD")
-    last_commit_when = _git("log", "-1", "--format=%cd", "--date=format:%Y-%m-%d %H:%M:%S")
+    last_commit_when = (
+        os.environ.get("WINDY_BUILD_DATE")
+        or _git("log", "-1", "--format=%cd", "--date=format:%Y-%m-%d %H:%M:%S")
+    )
     last_commit_subject = _git("log", "-1", "--format=%s")
 
     # Ahead/behind vs origin/<branch>. Best-effort — fails quietly
