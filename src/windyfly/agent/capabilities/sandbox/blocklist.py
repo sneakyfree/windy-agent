@@ -18,6 +18,10 @@ import re
 
 # Patterns we refuse pre-Docker. Each entry is (regex, reason) so the
 # error message tells the LLM what to do differently.
+#
+# All regexes are case-insensitive (re.IGNORECASE). Audit
+# 2026-05-02 surfaced 'rm -RF /' (caps) and 'DD if=x of=/dev/sda'
+# (caps) bypassing the original case-sensitive patterns; tightened.
 BLOCKED_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (
         # The classic fork bomb. Fits on one line; not catchable by
@@ -31,25 +35,53 @@ BLOCKED_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
         # mounts these waste container time and surface confusing
         # errors. With host_rw mounts on OWNER bypass, they're
         # actually catastrophic.
-        re.compile(r"\brm\s+(-[a-zA-Z]*r[a-zA-Z]*f|--recursive\s+--force|--force\s+--recursive)[a-zA-Z]*\s+/(\s|$|\*)"),
+        #
+        # Audit 2026-05-02 tightening:
+        #   - Flag-order independence: 'rm -fr /' previously bypassed
+        #     because the regex required r-before-f. Two lookaheads
+        #     now require both letters present in any order.
+        #   - Quoted-path termination: 'bash -c "rm -rf /"' and
+        #     'bash -c \'rm -rf /\'' previously bypassed because the
+        #     trailing terminator required whitespace/EOS/*. Now also
+        #     accepts a closing quote.
+        #   - Optional quote BEFORE the / handles 'rm -rf "/"'.
+        #   - Case-insensitive (rm -RF / now blocks).
+        re.compile(
+            r"\brm\s+"
+            r"(-(?=[a-zA-Z]*r)(?=[a-zA-Z]*f)[a-zA-Z]+"
+            r"|--recursive\s+--force"
+            r"|--force\s+--recursive)"
+            r"[a-zA-Z]*\s+"
+            r"['\"]?/"
+            r"(\s|$|\*|['\"])",
+            re.IGNORECASE,
+        ),
         "rm -rf / pattern blocked — too dangerous regardless of sandbox",
     ),
     (
         # `curl <url> | sh` and friends — pipe-into-shell is the
         # canonical malware delivery shape. Block both directions.
-        re.compile(r"\b(curl|wget|fetch)\s+[^|;&]+\|\s*(bash|sh|zsh|ksh|fish)\b"),
+        re.compile(
+            r"\b(curl|wget|fetch)\s+[^|;&]+\|\s*(bash|sh|zsh|ksh|fish)\b",
+            re.IGNORECASE,
+        ),
         "pipe-from-network-to-shell pattern blocked (use download-then-inspect)",
     ),
     (
         # `dd if= ... of=/dev/sd*` — overwriting block devices.
-        re.compile(r"\bdd\s+[^;]*of=/dev/(sd|hd|nvme|disk|xvd)"),
+        # Audit 2026-05-02: now also catches quoted paths
+        # ('of="/dev/sda"') and uppercase ('DD').
+        re.compile(
+            r"\bdd\s+[^;]*of=['\"]?/dev/(sd|hd|nvme|disk|xvd)",
+            re.IGNORECASE,
+        ),
         "dd to block device blocked",
     ),
     (
         # `mkfs` / `mkfs.*` — formatting filesystems. Even with
         # --network=none mounted under /mnt this can clobber
         # bind-mounted host content if user opted into host_rw.
-        re.compile(r"\bmkfs(\.[a-z0-9]+)?\b"),
+        re.compile(r"\bmkfs(\.[a-z0-9]+)?\b", re.IGNORECASE),
         "mkfs blocked",
     ),
 )
