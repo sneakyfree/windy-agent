@@ -302,6 +302,18 @@ class TelegramChannel(ChannelAdapter):
             try:
                 self._app = ApplicationBuilder().token(token).build()
                 self._app.add_handler(MessageHandler(filters.TEXT, self._handle))
+                # Voice + audio: filters.VOICE is for tap-and-hold voice
+                # notes (Telegram's primary speech UX); filters.AUDIO
+                # catches forwarded audio files and music shares. Both
+                # route to _handle_voice which transcribes (when
+                # faster-whisper is installed) and dispatches the text
+                # to the agent — same pipeline as a typed message.
+                # Without faster-whisper, the user gets a polite "I
+                # can't hear yet, please type" reply instead of the
+                # silent drop the bot used to do.
+                self._app.add_handler(MessageHandler(
+                    filters.VOICE | filters.AUDIO, self._handle_voice,
+                ))
                 self._app.add_error_handler(self._on_polling_error)
 
                 await self._app.initialize()
@@ -473,6 +485,162 @@ class TelegramChannel(ChannelAdapter):
             except Exception as e:
                 logger.debug("App shutdown step failed: %s", e)
         self._app = None
+
+    async def _handle_voice(self, update, context) -> None:
+        """Voice / audio message ingestion.
+
+        Pre-PR #129 this didn't exist — voice notes silently dropped.
+        Closes the accessibility gap for grandma demos: voice in,
+        text reply out (with explicit "here's what I heard" so the
+        user knows the bot caught it correctly).
+
+        Three paths:
+          1. Voice transcription unavailable (faster-whisper not
+             installed) → polite text reply explaining how to type
+             instead. NEVER silently drop.
+          2. Transcription works but produces empty / unintelligible
+             output → polite "I tried but couldn't make out the words"
+             reply.
+          3. Transcription works → dispatch the transcript through
+             the same agent_respond as a typed message, send the
+             reply as text (voice synthesis deferred to follow-up).
+
+        Same auth gate as text: messages from non-allowlisted senders
+        are dropped (they're dropped silently in text path too — same
+        rule applies here)."""
+        if not update.message:
+            return
+
+        # Auth gate — same as text path.
+        sender_id = str(update.message.from_user.id)
+        if self._allowed_user_ids and sender_id not in self._allowed_user_ids:
+            logger.warning(
+                "Dropping Telegram voice from unauthorized sender %s",
+                sender_id,
+            )
+            return
+
+        # Telegram surfaces voice as `update.message.voice`, audio file
+        # uploads as `update.message.audio`. Either is fine for our
+        # transcription pipeline.
+        media = update.message.voice or update.message.audio
+        if media is None:
+            return
+
+        # Path 1: transcription stack absent → guide the user to type.
+        try:
+            from windyfly.voice import is_available as _voice_avail
+        except Exception:
+            _voice_avail = lambda: False  # noqa: E731 - graceful degrade
+        if not _voice_avail():
+            try:
+                await self._send_long_reply(
+                    update.message,
+                    "👋 I got your voice message but I can't hear it "
+                    "yet — voice support isn't installed on this bot. "
+                    "Please type your message and I'll respond right "
+                    "away.\n\n"
+                    "_(Operator: install voice support with "
+                    "`pip install windyfly[voice]` and set "
+                    "`WINDY_VOICE_ENABLED=1`.)_",
+                )
+            except Exception as e:
+                logger.warning("voice-unavailable reply failed: %s", e)
+            self._last_message_at = time.time()
+            return
+
+        # Path 2 + 3: transcribe, dispatch, reply. Saving the file
+        # under /tmp so we don't accumulate audio on disk; we delete
+        # it after transcription regardless of outcome.
+        import tempfile
+        import os as _os
+        tmp_path = None
+        try:
+            file = await context.bot.get_file(media.file_id)
+            with tempfile.NamedTemporaryFile(
+                prefix="windy-voice-", suffix=".ogg", delete=False,
+            ) as tmpf:
+                tmp_path = tmpf.name
+            await file.download_to_drive(tmp_path)
+        except Exception as e:
+            logger.warning("voice download failed: %s", e)
+            try:
+                await self._send_long_reply(
+                    update.message,
+                    "I tried to listen but couldn't download your "
+                    "voice message. Could you try again or type the "
+                    "message?",
+                )
+            except Exception:
+                pass
+            if tmp_path and _os.path.exists(tmp_path):
+                try: _os.unlink(tmp_path)
+                except Exception: pass
+            self._last_message_at = time.time()
+            return
+
+        # Run transcription on the executor so the async loop can keep
+        # serving other messages while Whisper crunches.
+        loop = asyncio.get_running_loop()
+        transcript: str | None = None
+        try:
+            from windyfly.voice import transcribe as _transcribe
+            transcript = await loop.run_in_executor(
+                None, _transcribe, tmp_path,
+            )
+        except Exception as e:
+            logger.warning("voice transcribe failed: %s", e)
+        finally:
+            if tmp_path and _os.path.exists(tmp_path):
+                try: _os.unlink(tmp_path)
+                except Exception: pass
+
+        if not transcript:
+            try:
+                await self._send_long_reply(
+                    update.message,
+                    "I tried to listen but couldn't make out the words. "
+                    "Could you try again, maybe a bit louder or in a "
+                    "quieter spot? Or feel free to type — I'll respond "
+                    "either way.",
+                )
+            except Exception as e:
+                logger.warning("voice-empty reply failed: %s", e)
+            self._last_message_at = time.time()
+            return
+
+        # Dispatch transcript through the same path as text message.
+        # We prefix the reply with what we heard so the user knows we
+        # caught it correctly — accessibility insurance.
+        msg = IncomingMessage(
+            platform="telegram",
+            channel_id=str(update.message.chat_id),
+            sender_id=sender_id,
+            sender_name=update.message.from_user.first_name or "User",
+            text=transcript,
+        )
+        assert self.on_message is not None
+        typing_task = asyncio.create_task(
+            self._keep_typing(update.message.chat_id),
+        )
+        try:
+            outgoing = await self.on_message(msg)
+        finally:
+            typing_task.cancel()
+            try:
+                await typing_task
+            except (asyncio.CancelledError, Exception):
+                pass
+
+        body = (
+            f"🎙 _Heard:_ \"{transcript[:200]}\"\n\n"
+            f"{outgoing.text if outgoing and outgoing.text else ''}"
+        )
+        try:
+            await self._send_long_reply(update.message, body)
+        except Exception as e:
+            logger.warning("voice-reply send failed: %s", e)
+        self._last_message_at = time.time()
 
     async def _handle(self, update, context) -> None:
         if not update.message or not update.message.text:
