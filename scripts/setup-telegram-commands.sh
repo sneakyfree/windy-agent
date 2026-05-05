@@ -30,6 +30,12 @@ fi
 #
 # Telegram caps descriptions at 256 chars; we keep them under 60
 # for clean rendering on phones.
+# Voice messages are handled by the channel adapter automatically;
+# no command needed. Install voice support with:
+#   pip install windyfly[voice]
+# Then restart the bot. Without it, voice notes get a polite "voice
+# isn't installed" reply rather than the silent drop pre-PR #129.
+
 read -r -d "" COMMANDS <<'JSON' || true
 [
   {"command": "reset",     "description": "Restart me if I am acting weird (memory safe)"},
