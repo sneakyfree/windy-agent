@@ -662,7 +662,7 @@ def _delete_file_handler(
         "target": str(resolved),
         "size_bytes": size,
         "undo_supported": size <= MAX_ORIGINAL_STATE_BYTES,
-        "side_effects": [f"removes 1 file", f"frees {size} bytes"],
+        "side_effects": ["removes 1 file", f"frees {size} bytes"],
     }
 
     if dry_run:
@@ -710,7 +710,7 @@ def _undo_last_action_handler(
         return {
             "executed": False,
             "reason": (
-                f"no undoable record found"
+                "no undoable record found"
                 + (f" with id {record_id}" if record_id else "")
             ),
         }

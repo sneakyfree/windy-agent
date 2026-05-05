@@ -143,7 +143,10 @@ def install_audit_hooks(
         except (TypeError, ValueError) as e:
             logger.debug("audit args serialization fallback for %s: %s", cap.id, e)
             args_json = _redact(repr(args))
-        session_id = session_id_provider() if session_id_provider else None
+        # FIXME(types): session_id_provider is Optional[Callable]; the
+        # `if x` truthy check works at runtime but mypy flags it because
+        # bare callables are always truthy. Pre-existing.
+        session_id = session_id_provider() if session_id_provider else None  # type: ignore[truthy-function]
         record_action_start(
             db, write_queue,
             action_id=action_id,
@@ -188,7 +191,10 @@ def install_audit_hooks(
 
     registry.add_pre_invoke_hook(pre)
     registry.add_post_invoke_hook(post)
-    registry._audit_installed = True  # sentinel for idempotency
+    # FIXME(types): dynamic attribute on CapabilityRegistry. mypy
+    # can't see it; fix is to declare _audit_installed in the class
+    # body or use a module-level set. Pre-existing.
+    registry._audit_installed = True  # type: ignore[attr-defined]  # sentinel for idempotency
     logger.info("Capability audit hooks installed")
 
 

@@ -24,7 +24,6 @@ from __future__ import annotations
 import os
 import platform
 import subprocess
-import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -76,9 +75,12 @@ def _uptime_human(seconds: float) -> str:
     h, s = divmod(s, 3600)
     m, s = divmod(s, 60)
     parts = []
-    if d: parts.append(f"{d}d")
-    if h: parts.append(f"{h}h")
-    if m: parts.append(f"{m}m")
+    if d:
+        parts.append(f"{d}d")
+    if h:
+        parts.append(f"{h}h")
+    if m:
+        parts.append(f"{m}m")
     if not parts or s:
         parts.append(f"{s}s")
     return " ".join(parts)

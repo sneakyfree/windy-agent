@@ -110,10 +110,15 @@ class CapabilityRegistry:
     # ── Band-aware discovery ────────────────────────────────────────
 
     def list_for_band(self, band: Band) -> list[Capability]:
-        """Capabilities the given band is allowed to call."""
+        """Capabilities the given band is allowed to call.
+
+        Invariant: registered caps have band_required filled by
+        register()→resolved(); the ``or Band.SANDBOX`` is a belt-and-
+        suspenders fallback for the type checker (and survives a
+        hand-edited cap that somehow skipped resolved())."""
         return [
             cap for cap in self._capabilities.values()
-            if band >= cap.band_required
+            if band >= (cap.band_required or Band.SANDBOX)
         ]
 
     def tool_schemas_for_band(self, band: Band) -> list[dict[str, Any]]:
@@ -210,6 +215,12 @@ class CapabilityRegistry:
         if cap is None:
             raise KeyError(f"unknown capability: {capability_id}")
 
+        # Invariant: register() calls cap.resolved() which fills None
+        # fields from tier defaults, so by the time a cap reaches this
+        # gate, band_required cannot be None. The assert documents the
+        # invariant for the type checker without changing runtime
+        # behavior on registered caps.
+        assert cap.band_required is not None
         if band < cap.band_required:
             raise CapabilityDenied(
                 f"capability {capability_id!r} requires band "
@@ -222,7 +233,7 @@ class CapabilityRegistry:
         # overwrite=true. Re-check after the static gate passed.
         if cap.runtime_tier_check is not None:
             from windyfly.agent.capabilities.descriptor import (
-                Tier, defaults_for_tier,
+                defaults_for_tier,
             )
             escalated_tier = cap.runtime_tier_check(args)
             if escalated_tier is not None and escalated_tier > cap.tier:
@@ -265,9 +276,13 @@ class CapabilityRegistry:
             error = e
             raise
         finally:
-            for hook in self._post_invoke_hooks:
+            # FIXME(types): PreInvokeHook and PostInvokeHook have
+            # different arities (3 vs 5 args). They share a list type
+            # but are called with different signatures. Real fix is
+            # separate hook types; documenting here pending PR.
+            for hook in self._post_invoke_hooks:  # type: ignore[assignment]
                 try:
-                    hook(cap, args, band, result, error)
+                    hook(cap, args, band, result, error)  # type: ignore[call-arg]
                 except Exception as e:
                     logger.warning(
                         "post-invoke hook for %s failed: %s", cap.id, e,

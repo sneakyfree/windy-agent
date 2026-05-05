@@ -373,8 +373,11 @@ def _set_dns_record_handler(
         if err is not None:
             return err
 
+        # FIXME(types): zid is Optional[str] from zone resolution; the
+        # callsite returns early when zid is None (see if err: above)
+        # but mypy can't narrow across the helper boundary.
         existing, lookup_err = _find_existing_record(
-            zone_id=zid, type_=type_upper, name=name, client=client,
+            zone_id=zid, type_=type_upper, name=name, client=client,  # type: ignore[arg-type]
         )
         if lookup_err is not None:
             return lookup_err
@@ -481,8 +484,9 @@ def _delete_dns_record_handler(
         rec_id = record_id
         existing_content = None
         if rec_id is None:
+            # FIXME(types): zid is Optional[str]; pre-existing.
             existing, lookup_err = _find_existing_record(
-                zone_id=zid, type_=type_upper, name=name, client=client,
+                zone_id=zid, type_=type_upper, name=name, client=client,  # type: ignore[arg-type]
             )
             if lookup_err is not None:
                 return lookup_err

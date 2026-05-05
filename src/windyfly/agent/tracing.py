@@ -122,7 +122,7 @@ class RequestIdLogFilter(logging.Filter):
     ``--------`` so format strings never KeyError.
     """
 
-    def filter(self, record: logging.LogRecord) -> bool:  # type: ignore[override]
+    def filter(self, record: logging.LogRecord) -> bool:
         record.request_id = request_id_short()
         return True
 

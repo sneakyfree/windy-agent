@@ -90,5 +90,7 @@ __all__ = [
     "Tier",
     "capability_registry",
     "defaults_for_tier",
+    "get_current_session_id",
     "install_audit_hooks",
+    "set_current_session_id",
 ]

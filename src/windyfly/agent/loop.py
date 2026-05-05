@@ -181,7 +181,7 @@ def _dispatch_tool_call(
     tool_registry: Any,
     capability_registry: Any,  # noqa: F811 - intentional shadow of module re-export
     band: Any,
-    capability_denied_exc: type,
+    capability_denied_exc: type[BaseException],
 ) -> str:
     """Route an LLM tool call to the right registry.
 

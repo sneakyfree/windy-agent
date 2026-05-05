@@ -304,7 +304,11 @@ def assemble_prompt(
     earlier_relevant: list[dict] = []
     if keywords:
         from windyfly.memory.episodes import search_episodes
-        recent_ids = {ep.get("id") for ep in recent if ep.get("id")}
+        # Filter to non-empty str ids — the comprehension already
+        # excludes falsy ids but mypy can't narrow that to set[str].
+        recent_ids: set[str] = {
+            ep["id"] for ep in recent if ep.get("id")
+        }
         earlier_relevant = search_episodes(
             db,
             query=keywords,

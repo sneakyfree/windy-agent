@@ -28,11 +28,9 @@ from __future__ import annotations
 import contextvars
 import logging
 import time
-import uuid
 from typing import Any
 
 from windyfly.agent.capabilities.descriptor import (
-    Band,
     Capability,
     CapabilityDenied,
     Tier,

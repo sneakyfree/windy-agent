@@ -458,7 +458,10 @@ def _build_recommendations(snapshots: list[dict[str, Any]]) -> list[dict[str, An
             verdicts = []
             for s in snapshots[-3:]:
                 v = ((s.get("organs") or {}).get(organ_name) or {}).get("verdict")
-                verdicts.append(rank.get(v, 0))
+                # FIXME(types): v is Optional[str]; rank.get tolerates
+                # None at runtime via dict lookup but mypy can't prove
+                # it without a default key. Pre-existing.
+                verdicts.append(rank.get(v, 0))  # type: ignore[arg-type]
             # Strictly increasing = consistent decline
             if verdicts == sorted(verdicts) and verdicts[0] < verdicts[-1]:
                 # Already in recs if currently yellow/red — augment the note.

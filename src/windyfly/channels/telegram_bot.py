@@ -28,6 +28,19 @@ import time
 from typing import Any
 
 from windyfly.channels.base import ChannelAdapter, IncomingMessage, OutgoingMessage
+# Slash-command parsers extracted to a channel-agnostic module
+# (PR #130) so future Matrix / iMessage / WhatsApp adapters can
+# reuse them without copy-paste. Telegram-specific reply text +
+# side effects stay here; pure recognition lives in slash_commands.
+from windyfly.channels.slash_commands import (
+    is_panic_message as _is_panic_message,
+    is_pause_message as _is_pause_message,
+    is_resume_message as _is_resume_message,
+    is_spend_message as _is_spend_message,
+    is_uptime_message as _is_uptime_message,
+    is_version_message as _is_version_message,
+    is_whoami_message as _is_whoami_message,
+)
 from windyfly.observability.restart_greeting import set_pending_greeting
 from windyfly.observability.sanitize import sanitize_outgoing, split_for_telegram
 from windyfly.observability.sd_notify import notify_watchdog
@@ -58,20 +71,6 @@ _TYPING_REFRESH_S = 4.0
 # dispatch or DB write — the chance the simple-text-match path is
 # itself broken is essentially zero. If the polling loop is dead,
 # the systemd watchdog (PR #88) handles that case independently.
-
-# Slash-command parsers extracted to a channel-agnostic module
-# (PR #130) so future Matrix / iMessage / WhatsApp adapters can
-# reuse them without copy-paste. Telegram-specific reply text +
-# side effects stay here; pure recognition lives in slash_commands.
-from windyfly.channels.slash_commands import (
-    is_panic_message as _is_panic_message,
-    is_pause_message as _is_pause_message,
-    is_resume_message as _is_resume_message,
-    is_spend_message as _is_spend_message,
-    is_uptime_message as _is_uptime_message,
-    is_version_message as _is_version_message,
-    is_whoami_message as _is_whoami_message,
-)
 
 _PANIC_REPLY = (
     "🆘 Got it. Resetting your agent now — give me about 30 seconds.\n\n"
@@ -514,8 +513,10 @@ class TelegramChannel(ChannelAdapter):
             except Exception:
                 pass
             if tmp_path and _os.path.exists(tmp_path):
-                try: _os.unlink(tmp_path)
-                except Exception: pass
+                try:
+                    _os.unlink(tmp_path)
+                except Exception:
+                    pass
             self._last_message_at = time.time()
             return
 
@@ -532,8 +533,10 @@ class TelegramChannel(ChannelAdapter):
             logger.warning("voice transcribe failed: %s", e)
         finally:
             if tmp_path and _os.path.exists(tmp_path):
-                try: _os.unlink(tmp_path)
-                except Exception: pass
+                try:
+                    _os.unlink(tmp_path)
+                except Exception:
+                    pass
 
         if not transcript:
             try:
@@ -572,9 +575,11 @@ class TelegramChannel(ChannelAdapter):
             except (asyncio.CancelledError, Exception):
                 pass
 
+        # on_message returns a str (per ChannelAdapter protocol), not
+        # an OutgoingMessage — same pattern the text-path _handle uses.
         body = (
             f"🎙 _Heard:_ \"{transcript[:200]}\"\n\n"
-            f"{outgoing.text if outgoing and outgoing.text else ''}"
+            f"{outgoing if outgoing else ''}"
         )
         try:
             await self._send_long_reply(update.message, body)
@@ -598,7 +603,7 @@ class TelegramChannel(ChannelAdapter):
         # reset. No LLM, no DB, no tools — just file ops + cost
         # ledger reads.
         from windyfly.agent.spend_monitor import (
-            is_paused, pause as _pause_spending,
+            pause as _pause_spending,
             resume as _resume_spending, get_spend_summary,
             yolo_enable, yolo_disable, yolo_status,
         )
@@ -645,7 +650,10 @@ class TelegramChannel(ChannelAdapter):
                     "• `/yolo off` — disable"
                 )
             else:
-                # int hours
+                # int hours — type narrowed: the prior branches handled
+                # None / "off" / "invalid", so by elimination yolo_arg
+                # is an int here. Assert documents that for mypy.
+                assert isinstance(yolo_arg, int)
                 result = yolo_enable(hours=yolo_arg, actor=sender_id)
                 if result.get("ok"):
                     expires = (result.get("expires_at") or "").replace("T", " ")[:16]
