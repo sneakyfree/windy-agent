@@ -105,13 +105,20 @@ def test_save_episode_swallows_embed_failures(db):
 
 
 def test_hybrid_falls_back_to_fts5_when_no_embeddings(db):
-    """No embeddings stored → hybrid returns same results as plain FTS5."""
-    save_episode(db, "user", "I have a dog named Atlas", session_id="s1")
-    save_episode(db, "user", "I love coffee in the morning", session_id="s1")
-    save_episode(db, "user", "My favorite number is 42", session_id="s1")
+    """No embeddings stored → hybrid returns same results as plain FTS5.
 
-    fts = search_episodes(db, "Atlas dog")
-    hybrid = search_episodes_hybrid(db, "Atlas dog")
+    Patches _AVAILABLE=False so this test runs the same way on dev
+    machines (no sentence-transformers) and CI (which installs the
+    [semantic] extras via `uv sync --all-extras`). Without the patch,
+    CI saves real embeddings, hybrid blends them, and the result
+    diverges from the pure-FTS5 fallback this test is verifying."""
+    with patch.object(_emb, "_AVAILABLE", False):
+        save_episode(db, "user", "I have a dog named Atlas", session_id="s1")
+        save_episode(db, "user", "I love coffee in the morning", session_id="s1")
+        save_episode(db, "user", "My favorite number is 42", session_id="s1")
+
+        fts = search_episodes(db, "Atlas dog")
+        hybrid = search_episodes_hybrid(db, "Atlas dog")
     fts_ids = {r["id"] for r in fts}
     hybrid_ids = {r["id"] for r in hybrid}
     assert fts_ids == hybrid_ids
@@ -119,29 +126,30 @@ def test_hybrid_falls_back_to_fts5_when_no_embeddings(db):
 
 def test_hybrid_session_filter(db):
     """session_id filter must work in hybrid even without embeddings."""
-    save_episode(db, "user", "Atlas in session A", session_id="A")
-    save_episode(db, "user", "Atlas in session B", session_id="B")
-
-    out = search_episodes_hybrid(db, "Atlas", session_id="A")
+    with patch.object(_emb, "_AVAILABLE", False):
+        save_episode(db, "user", "Atlas in session A", session_id="A")
+        save_episode(db, "user", "Atlas in session B", session_id="B")
+        out = search_episodes_hybrid(db, "Atlas", session_id="A")
     assert len(out) == 1
     assert out[0]["session_id"] == "A"
 
 
 def test_hybrid_exclude_ids(db):
     """exclude_ids parameter must filter both FTS5 and semantic paths."""
-    e1 = save_episode(db, "user", "Atlas the dog", session_id="s1")
-    e2 = save_episode(db, "user", "Atlas the very good dog", session_id="s1")
-
-    out = search_episodes_hybrid(db, "Atlas", exclude_ids={e1})
+    with patch.object(_emb, "_AVAILABLE", False):
+        e1 = save_episode(db, "user", "Atlas the dog", session_id="s1")
+        e2 = save_episode(db, "user", "Atlas the very good dog", session_id="s1")
+        out = search_episodes_hybrid(db, "Atlas", exclude_ids={e1})
     assert len(out) == 1
     assert out[0]["id"] == e2
 
 
 def test_hybrid_limit_respected(db):
     """Hybrid must cap at limit even when both paths return many hits."""
-    for i in range(20):
-        save_episode(db, "user", f"Atlas adventure number {i}", session_id="s1")
-    out = search_episodes_hybrid(db, "Atlas adventure", limit=5)
+    with patch.object(_emb, "_AVAILABLE", False):
+        for i in range(20):
+            save_episode(db, "user", f"Atlas adventure number {i}", session_id="s1")
+        out = search_episodes_hybrid(db, "Atlas adventure", limit=5)
     assert len(out) == 5
 
 
