@@ -59,23 +59,18 @@ _TYPING_REFRESH_S = 4.0
 # itself broken is essentially zero. If the polling loop is dead,
 # the systemd watchdog (PR #88) handles that case independently.
 
-# Whole-message exact matches (after lower/strip). No ambiguity:
-# "/reset" alone triggers; "/reset my password" doesn't.
-_PANIC_EXACT = frozenset({
-    "/reset", "/panic", "/nuclear", "🆘",
-})
-
-# Phrase matches anywhere in the message (after lower).
-_PANIC_PHRASES = (
-    "reset my agent",
-    "nuclear reset",
-    "factory reset",
-    "bring my agent back",
-    "bring back my agent",
-    "my agent is broken",
-    "my bot is broken",
-    "agent is stuck",
-    "bot is stuck",
+# Slash-command parsers extracted to a channel-agnostic module
+# (PR #130) so future Matrix / iMessage / WhatsApp adapters can
+# reuse them without copy-paste. Telegram-specific reply text +
+# side effects stay here; pure recognition lives in slash_commands.
+from windyfly.channels.slash_commands import (
+    is_panic_message as _is_panic_message,
+    is_pause_message as _is_pause_message,
+    is_resume_message as _is_resume_message,
+    is_spend_message as _is_spend_message,
+    is_uptime_message as _is_uptime_message,
+    is_version_message as _is_version_message,
+    is_whoami_message as _is_whoami_message,
 )
 
 _PANIC_REPLY = (
@@ -83,48 +78,6 @@ _PANIC_REPLY = (
     "Your memory, personality, and saved facts are all safe. "
     "Only this conversation thread will reset. I'll be right back."
 )
-
-
-def _is_panic_message(text: str | None) -> bool:
-    if not text:
-        return False
-    low = text.strip().lower()
-    if low in _PANIC_EXACT:
-        return True
-    return any(p in low for p in _PANIC_PHRASES)
-
-
-# ── Spend pause / resume — kill-switch UX ──────────────────────────
-#
-# Distinct from the panic /reset: pause/resume keeps the bot alive
-# on Telegram but stops all LLM calls. Useful when the user can
-# tell the bot is burning tokens and wants to STOP the spending
-# without losing the bot itself.
-
-_PAUSE_EXACT = frozenset({"/pause", "/stop-spending", "/stop"})
-_RESUME_EXACT = frozenset({"/resume", "/wake-up", "/wake"})
-_SPEND_EXACT = frozenset({"/spend", "/usage", "/burn"})
-
-# /version, /uptime, /whoami — pure-read introspection. v13 stress
-# 2026-05-02 caught the bot saying "I don't have a /version command"
-# because the menu listed them but no channel handler existed. Wire
-# them at the same level as /pause / /spend / /yolo: file-only ops,
-# no LLM, no DB write, fast enough to ack instantly.
-_VERSION_EXACT = frozenset({"/version", "/v"})
-_UPTIME_EXACT = frozenset({"/uptime"})
-_WHOAMI_EXACT = frozenset({"/whoami", "/identity"})
-
-
-def _is_version_message(text: str | None) -> bool:
-    return bool(text) and text.strip().lower() in _VERSION_EXACT
-
-
-def _is_uptime_message(text: str | None) -> bool:
-    return bool(text) and text.strip().lower() in _UPTIME_EXACT
-
-
-def _is_whoami_message(text: str | None) -> bool:
-    return bool(text) and text.strip().lower() in _WHOAMI_EXACT
 
 
 def _parse_guest_command(text: str | None) -> tuple[bool, str | None]:
@@ -152,22 +105,9 @@ def _parse_guest_command(text: str | None) -> tuple[bool, str | None]:
     return False, None
 
 
-def _is_pause_message(text: str | None) -> bool:
-    if not text:
-        return False
-    return text.strip().lower() in _PAUSE_EXACT
-
-
-def _is_resume_message(text: str | None) -> bool:
-    if not text:
-        return False
-    return text.strip().lower() in _RESUME_EXACT
-
-
-def _is_spend_message(text: str | None) -> bool:
-    if not text:
-        return False
-    return text.strip().lower() in _SPEND_EXACT
+# NOTE: is_pause_message / is_resume_message / is_spend_message
+# moved to windyfly.channels.slash_commands (PR #130). Imported at
+# the top of this file under the legacy underscore-prefix names.
 
 
 def _parse_yolo_command(text: str | None) -> tuple[bool, str | int | None]:
