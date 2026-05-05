@@ -162,11 +162,17 @@ class TestOfflineMode:
 
     @patch("httpx.get")
     def test_is_online_false(self, mock_get):
+        """PR #110 made is_online() default ONLINE on probe failure
+        (a flaky probe should NOT trigger offline fallback when the
+        actual provider chain is fine). So ConnectError on the probe
+        URL means "probe is broken, treat as online" — this is the
+        post-#110 contract. The chain-exhaustion path in agent_loop
+        (PR #122) handles real provider failures separately."""
         import httpx
         mock_get.side_effect = httpx.ConnectError("Connection refused")
 
         from windyfly.agent.offline import is_online
-        assert is_online() is False
+        assert is_online() is True
 
     def test_offline_response_no_ollama(self):
         with patch("windyfly.agent.offline.is_ollama_available", return_value=False):

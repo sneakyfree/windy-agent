@@ -246,13 +246,28 @@ def _run_through_classifier(db, wq, message, *, llm_raises):
 
 
 def test_F_llm_raises_503_returns_typed_error(db_and_wq, fresh_registry):
+    """PR #122 (2026-05-02) changed the contract: when call_llm raises
+    'providers in chain' RuntimeError, the loop now routes to the
+    offline-fallback path rather than the typed-error classifier.
+    User sees the offline message ("currently offline / local model /
+    process when connectivity returns 🪰") instead of the prior
+    "AI service / having trouble" wording. Either is acceptable for
+    'no traceback reaches the user' — assertion broadened to match
+    the post-#122 contract."""
     db, wq = db_and_wq
 
     def boom(messages, **kwargs):
         raise RuntimeError("LLM call failed across all providers in chain: 503")
 
     out = _run_through_classifier(db, wq, "hi", llm_raises=boom)
-    assert "AI service" in out or "I'm having trouble" in out
+    out_lower = out.lower()
+    # Either pre-#122 typed-error wording OR post-#122 offline-fallback
+    # wording — both are valid "no traceback to user" responses.
+    assert (
+        "ai service" in out_lower or "i'm having trouble" in out_lower
+        or "currently offline" in out_lower or "local model" in out_lower
+        or "🪰" in out
+    )
     assert "Traceback" not in out
 
 

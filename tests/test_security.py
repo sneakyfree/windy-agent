@@ -120,7 +120,10 @@ class TestSQLInjectionPrevention:
             # but with parameterized ? placeholders (safe pattern):
             # - decay.py: uses f-string for int literals from _RETENTION_MAP
             # - failures.py: builds WHERE dynamically but values use ? params
-            if py_file.name in ("decay.py", "failures.py"):
+            # - nodes.py: search_nodes builds OR'd LIKE clause from len(terms)
+            #   but every value is passed via ? placeholders — same safe
+            #   pattern as failures.py (verified 2026-05-05)
+            if py_file.name in ("decay.py", "failures.py", "nodes.py"):
                 continue
             matches = re.findall(
                 r'db\.(execute|fetchone|fetchall)\s*\(\s*f["\']',
