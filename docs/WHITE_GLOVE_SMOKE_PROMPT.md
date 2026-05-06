@@ -1,7 +1,7 @@
 # White-Glove Smoke Prompt — windy-agent (Windy Fly gateway)
 
 **Created:** 2026-04-19, after Wave 13 Phase 5 deploy to AWS
-**Purpose:** Hand to a fresh Claude session to do industrial-grade smoke testing on the deployed Fly gateway at `https://fly.windyword.ai`.
+**Purpose:** Hand to a fresh Claude session to do industrial-grade smoke testing on the deployed Fly gateway at `https://windyfly.ai`.
 
 ---
 
@@ -13,18 +13,18 @@ Wave 13 Phase 5 shipped the windyfly-gateway to AWS. It's the public surface for
 
 ## Paste this to a fresh Claude session
 
-> You are doing **industrial-grade white-glove smoke testing** on the production windyfly-gateway, freshly deployed to AWS as Wave 13 Phase 5 at `https://fly.windyword.ai`. Your job is to find every defect a real Fly user OR a token-forger would hit. Unit tests do NOT count — only behaviour observed against the live URL.
+> You are doing **industrial-grade white-glove smoke testing** on the production windyfly-gateway, freshly deployed to AWS as Wave 13 Phase 5 at `https://windyfly.ai`. Your job is to find every defect a real Fly user OR a token-forger would hit. Unit tests do NOT count — only behaviour observed against the live URL.
 >
 > **Read first:**
 >
 > 1. `~/.claude/projects/-Users-thewindstorm/memory/MEMORY.md` (auto-loaded)
-> 2. `/tmp/kit-army-config/ACCESS_LOCKBOX.md` — search "Wave 13" + "Fly" / "windy-agent"; gives you live URL `fly.windyword.ai`, EC2 instance, EIP, BROKER_HMAC_SECRET, DASHBOARD_PASSWORD, agent service token.
+> 2. `/tmp/kit-army-config/ACCESS_LOCKBOX.md` — search "Wave 13" + "Fly" / "windy-agent"; gives you live URL `windyfly.ai`, EC2 instance, EIP, BROKER_HMAC_SECRET, DASHBOARD_PASSWORD, agent service token.
 > 3. `windy-agent/docs/WAVE13_PHASE5_RUNBOOK.md` — what Phase 5 actually shipped (gates, rollback procedures, cost model).
 > 4. `windy-agent/gateway/src/server.ts` — route table is in the file header docstring (~30 routes covering dashboard, sliders, cost, intents, memory search, personality history/snapshot/drift/rollback, skills CRUD/evaluate/promote/rollback/golden-tests/regression, decay, conflicts, moments, failures, mode, offline, events, WS chat, hatch-remote SSE).
 > 5. `windy-agent/gateway/src/broker-verify.ts` — Pro contract for broker token validation.
 > 6. `windy-agent/gateway/src/hatch-remote.ts` — SSE ceremony endpoint.
 >
-> **Then do all of the following against `https://fly.windyword.ai`:**
+> **Then do all of the following against `https://windyfly.ai`:**
 >
 > ### 1. Public surface
 > - `GET /` → Trust Dashboard HTML loads? CSS + JS assets resolve?
@@ -78,10 +78,10 @@ Wave 13 Phase 5 shipped the windyfly-gateway to AWS. It's the public surface for
 > - OPTIONS from disallowed origin → no `*`.
 > - HSTS, X-Content-Type-Options, X-Frame-Options, CSP all present and tight (this is a public surface for code-execution agents — CSP matters).
 > - SSL Labs grade ≥ A.
-> - Cert: valid, not self-signed, covers `fly.windyword.ai`, served by certbot/letsencrypt per the runbook.
+> - Cert: valid, not self-signed, covers `windyfly.ai`, served by certbot/letsencrypt per the runbook.
 >
 > ### 10. Cross-service contract
-> - Verify the gateway actually hits Pro's `/credentials/verify` (not just trusting tokens locally). SSH the EC2 instance, tail the gateway logs, check for outbound HTTPS to `pro.windyword.ai` or wherever Pro lives.
+> - Verify the gateway actually hits Pro's `/credentials/verify` (not just trusting tokens locally). SSH the EC2 instance, tail the gateway logs, check for outbound HTTPS to `account.windyword.ai` or wherever Pro lives.
 > - When verify call fails (e.g. Pro is down), what does the gateway do? Cached approval? Hard fail? Document observed behaviour.
 >
 > ### 11. Production observability

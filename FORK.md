@@ -77,7 +77,7 @@ Windy ecosystem integrations that require Windy services:
 - Trust score + clearance levels
 
 ### Communication
-- Windy Chat integration (Matrix auto-provisioning on chat.windyword.ai)
+- Windy Chat integration (Matrix auto-provisioning on chat.windychat.ai)
 - Windy Mail integration (owned inbox @windymail.ai)
 - Phone number from Windy pool (not Twilio direct)
 

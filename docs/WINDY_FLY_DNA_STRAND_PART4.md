@@ -170,8 +170,8 @@
           │
 ┌─────────┼────────────────────────────────────────────────────────────────┐
 │         ▼                                                                │
-│  SYNAPSE HOMESERVER (chat.windyword.ai:8008)                            │
-│  ├── @windyfly:chat.windyword.ai (bot user)                             │
+│  SYNAPSE HOMESERVER (chat.windychat.ai:8008)                            │
+│  ├── @windyfly:chat.windychat.ai (bot user)                             │
 │  ├── All Windy Chat rooms (E2E encrypted)                               │
 │  └── Presence, typing, read receipts                                    │
 │         │                                                                │

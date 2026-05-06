@@ -52,7 +52,7 @@ def _get_cloud_url(config: dict | None = None) -> str:
         url = config.get("ecosystem", {}).get("windy_cloud_url", "")
         if url:
             return url.rstrip("/")
-    return os.environ.get("WINDY_CLOUD_URL", "https://cloud.windyword.ai").rstrip("/")
+    return os.environ.get("WINDY_CLOUD_URL", "https://cloud.windycloud.com").rstrip("/")
 
 
 def _get_cloud_token() -> str:

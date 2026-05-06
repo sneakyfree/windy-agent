@@ -58,8 +58,8 @@ async def _fill_eternitas(result, *args, **kwargs):
 
 
 async def _fill_matrix(result, *args, **kwargs):
-    result.matrix_user_id = "@testfly:chat.windyword.ai"
-    result.matrix_homeserver = "https://chat.windyword.ai"
+    result.matrix_user_id = "@testfly:chat.windychat.ai"
+    result.matrix_homeserver = "https://chat.windychat.ai"
     result.matrix_provisioned = True
 
 
@@ -121,8 +121,8 @@ class TestHatchIntegration:
             assert result.passport_status == "active"
 
             # ── Matrix ──
-            assert result.matrix_user_id == "@testfly:chat.windyword.ai"
-            assert result.matrix_homeserver == "https://chat.windyword.ai"
+            assert result.matrix_user_id == "@testfly:chat.windychat.ai"
+            assert result.matrix_homeserver == "https://chat.windychat.ai"
             assert result.matrix_provisioned is True
 
             # ── Mail ──
@@ -206,7 +206,7 @@ class TestHatchIntegration:
             assert "ET-INT-99999" in content
             assert "testfly@windymail.ai" in content
             assert "+15551234567" in content
-            assert "@testfly:chat.windyword.ai" in content
+            assert "@testfly:chat.windychat.ai" in content
 
     async def test_hatch_resilient_to_service_failures(self, db):
         """Hatch should complete even when individual services fail."""
@@ -293,7 +293,7 @@ class TestHatchIntegration:
         async def track_matrix(result, *args, **kwargs):
             call_order.append("matrix_start")
             result.matrix_provisioned = True
-            result.matrix_user_id = "@fly:chat.windyword.ai"
+            result.matrix_user_id = "@fly:chat.windychat.ai"
             call_order.append("matrix_end")
 
         async def track_mail(result, *args, **kwargs):

@@ -180,9 +180,9 @@ Webhook URLs to cascade to live in `config.toml`:
 ```toml
 [auth.revoke_cascade]
 webhooks = [
-    "https://mail.windyword.ai/webhooks/auth",
-    "https://cloud.windyword.ai/webhooks/auth",
-    "https://chat.windyword.ai/webhooks/auth",
+    "https://mail.windymail.ai/webhooks/auth",
+    "https://cloud.windycloud.com/webhooks/auth",
+    "https://chat.windychat.ai/webhooks/auth",
 ]
 ```
 
@@ -203,7 +203,7 @@ Every `wk_`-authenticated outbound call writes one JSONL record to
 `~/.windyfly/data/audit/bot_key_usage.jsonl`:
 
 ```json
-{"timestamp":"2026-04-16T20:11:03.118+00:00","key_id":"wbk_01HXXX","scope_used":"cloud:upload","target_url":"https://cloud.windyword.ai/api/v1/archive/agent","response_status":201,"latency_ms":184.3}
+{"timestamp":"2026-04-16T20:11:03.118+00:00","key_id":"wbk_01HXXX","scope_used":"cloud:upload","target_url":"https://cloud.windycloud.com/api/v1/archive/agent","response_status":201,"latency_ms":184.3}
 ```
 
 ### 4.1 Rotation (shipped today)

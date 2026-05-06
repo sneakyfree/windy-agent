@@ -55,7 +55,7 @@ The Chat tab lets you talk to your agent from any browser — including your pho
 
 ### Via Windy Chat (Matrix)
 
-If Windy Chat is configured, your agent lives at `@yourfly:chat.windyword.ai`. Message it from Windy Pro desktop or mobile.
+If Windy Chat is configured, your agent lives at `@yourfly:chat.windychat.ai`. Message it from Windy Pro desktop or mobile.
 
 ---
 

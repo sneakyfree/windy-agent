@@ -18,7 +18,7 @@
 |---|---|
 | **Name** | Windy Fly |
 | **Tagline** | "Your AI. Your Rules. Your Ecosystem." |
-| **Matrix Bot ID** | `@windyfly:chat.windyword.ai` |
+| **Matrix Bot ID** | `@windyfly:chat.windychat.ai` |
 | **Ecosystem** | Windy Pro (desktop), Windy Pro Mobile, Windy Chat (Matrix/Synapse), Windy Cloud |
 | **License** | Proprietary (same as Windy Pro) |
 | **Primary Language** | Python 3.12+ (Brain) |
@@ -279,7 +279,7 @@ INSERT OR IGNORE INTO schema_version (version, description)
 |---|---|---|---|
 | 0.1.1 | Create repo directory | `mkdir -p ~/windy-agent && cd ~/windy-agent && git init` | `ls -la ~/windy-agent/.git` returns directory listing |
 | 0.1.2 | Create `.gitignore` | Write file with contents: `__pycache__/`, `*.pyc`, `.env`, `data/*.db`, `data/*.db-wal`, `data/*.db-shm`, `.venv/`, `node_modules/`, `dist/`, `.ruff_cache/` | `cat ~/windy-agent/.gitignore` shows contents |
-| 0.1.3 | Create `.env.example` | Write file with: `OPENAI_API_KEY=sk-xxx`, `ANTHROPIC_API_KEY=sk-ant-xxx`, `DEFAULT_MODEL=gpt-4o-mini`, `WINDYFLY_DB_PATH=data/windyfly.db`, `LOG_LEVEL=INFO`, `MATRIX_HOMESERVER=https://chat.windyword.ai`, `MATRIX_BOT_USER=@windyfly:chat.windyword.ai`, `MATRIX_BOT_TOKEN=` | File exists with all keys |
+| 0.1.3 | Create `.env.example` | Write file with: `OPENAI_API_KEY=sk-xxx`, `ANTHROPIC_API_KEY=sk-ant-xxx`, `DEFAULT_MODEL=gpt-4o-mini`, `WINDYFLY_DB_PATH=data/windyfly.db`, `LOG_LEVEL=INFO`, `MATRIX_HOMESERVER=https://chat.windychat.ai`, `MATRIX_BOT_USER=@windyfly:chat.windychat.ai`, `MATRIX_BOT_TOKEN=` | File exists with all keys |
 | 0.1.4 | Initialize uv project | `cd ~/windy-agent && uv init --name windyfly --python 3.12` | `pyproject.toml` exists |
 | 0.1.5 | Edit `pyproject.toml` | Set `requires-python = ">=3.12"`. Add dependencies: `openai>=1.0`, `anthropic>=0.40`, `httpx>=0.27`, `pydantic>=2.0`, `tomli>=2.0` (if py<3.11), `rich>=13.0` (for CLI), `matrix-nio>=0.24` (for Matrix), `sqlite-vec>=0.1` | `uv sync` succeeds |
 | 0.1.6 | Create directory structure | `mkdir -p src/windyfly/{agent,memory,personality,channels,tools} tests data` | All directories exist |
@@ -323,8 +323,8 @@ daily_budget_usd = 5.0
 warn_at_usd = 0.50
 
 [matrix]
-homeserver = "https://chat.windyword.ai"
-bot_user = "@windyfly:chat.windyword.ai"
+homeserver = "https://chat.windychat.ai"
+bot_user = "@windyfly:chat.windychat.ai"
 ```
 
 **`src/windyfly/config.py` spec:**

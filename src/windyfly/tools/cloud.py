@@ -12,7 +12,7 @@ from env — for v0 we assume ``WINDY_CLOUD_TOKEN`` or fall back to
 ``WINDY_JWT`` (the agent's main credential).
 
 Environment:
-    WINDY_CLOUD_URL    — e.g. https://cloud.windyword.ai
+    WINDY_CLOUD_URL    — e.g. https://cloud.windycloud.com
     WINDY_CLOUD_TOKEN  — bearer for cloud (preferred). Falls back to
                           WINDY_JWT if cloud-specific token unset.
 

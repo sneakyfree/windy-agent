@@ -48,29 +48,29 @@ def test_eternitas_with_passport_hits_registry_verify(monkeypatch) -> None:
 
 
 def test_pro_and_matrix_and_mail_and_cloud(monkeypatch) -> None:
-    monkeypatch.setenv("WINDY_PRO_URL", "https://windypro.com")
-    monkeypatch.setenv("MATRIX_HOMESERVER", "https://chat.windyword.ai")
+    monkeypatch.setenv("WINDY_PRO_URL", "https://windyword.ai")
+    monkeypatch.setenv("MATRIX_HOMESERVER", "https://chat.windychat.ai")
     monkeypatch.setenv("WINDYMAIL_API_URL", "https://mail.windymail.ai")
-    monkeypatch.setenv("WINDY_CLOUD_URL", "https://cloud.windyword.ai")
+    monkeypatch.setenv("WINDY_CLOUD_URL", "https://cloud.windycloud.com")
 
     by_name = {c.name: c for c in _build_ecosystem_checks()}
 
-    assert by_name["Windy Pro"].url == "https://windypro.com/healthz"
+    assert by_name["Windy Pro"].url == "https://windyword.ai/healthz"
     assert by_name["Windy Pro"].critical is True
     assert by_name["Windy Chat"].url == (
-        "https://chat.windyword.ai/_matrix/client/versions"
+        "https://chat.windychat.ai/_matrix/client/versions"
     )
     assert by_name["Windy Chat"].critical is False  # optional channel
     assert by_name["Windy Mail"].url == "https://mail.windymail.ai/healthz"
     assert by_name["Windy Mail"].critical is False
-    assert by_name["Windy Cloud"].url == "https://cloud.windyword.ai/healthz"
+    assert by_name["Windy Cloud"].url == "https://cloud.windycloud.com/healthz"
     assert by_name["Windy Cloud"].critical is False
 
 
 def test_trailing_slashes_are_stripped(monkeypatch) -> None:
-    monkeypatch.setenv("WINDY_PRO_URL", "https://windypro.com/////")
+    monkeypatch.setenv("WINDY_PRO_URL", "https://windyword.ai/////")
     (c,) = _build_ecosystem_checks()
-    assert c.url == "https://windypro.com/healthz"
+    assert c.url == "https://windyword.ai/healthz"
 
 
 # ─── _dispatch_checks ───────────────────────────────────────────────
@@ -156,8 +156,8 @@ def test_dispatch_network_error_is_handled(monkeypatch) -> None:
 
 def test_run_health_returns_true_when_all_critical_ok(monkeypatch) -> None:
     import sys
-    monkeypatch.setenv("WINDY_PRO_URL", "https://windypro.com")
-    fake = _FakeHttpx({"https://windypro.com/healthz": 200})
+    monkeypatch.setenv("WINDY_PRO_URL", "https://windyword.ai")
+    fake = _FakeHttpx({"https://windyword.ai/healthz": 200})
     monkeypatch.setitem(sys.modules, "httpx", fake)
 
     assert run_ecosystem_health(timeout=1.0) is True
@@ -165,8 +165,8 @@ def test_run_health_returns_true_when_all_critical_ok(monkeypatch) -> None:
 
 def test_run_health_returns_false_when_critical_red(monkeypatch) -> None:
     import sys
-    monkeypatch.setenv("WINDY_PRO_URL", "https://windypro.com")
-    fake = _FakeHttpx({"https://windypro.com/healthz": 503})
+    monkeypatch.setenv("WINDY_PRO_URL", "https://windyword.ai")
+    fake = _FakeHttpx({"https://windyword.ai/healthz": 503})
     monkeypatch.setitem(sys.modules, "httpx", fake)
 
     assert run_ecosystem_health(timeout=1.0) is False
@@ -205,8 +205,8 @@ def test_run_health_ignores_warning_on_optional_service(monkeypatch) -> None:
     """Matrix is optional — a red Matrix alone must not flip the overall
     return value to False."""
     import sys
-    monkeypatch.setenv("MATRIX_HOMESERVER", "https://chat.windyword.ai")
-    fake = _FakeHttpx({"https://chat.windyword.ai/_matrix/client/versions": 503})
+    monkeypatch.setenv("MATRIX_HOMESERVER", "https://chat.windychat.ai")
+    fake = _FakeHttpx({"https://chat.windychat.ai/_matrix/client/versions": 503})
     monkeypatch.setitem(sys.modules, "httpx", fake)
 
     assert run_ecosystem_health(timeout=1.0) is True

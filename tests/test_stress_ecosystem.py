@@ -523,7 +523,7 @@ class TestEcosystemCLI:
         from windyfly.hatch_orchestrator import HatchResult
         result = HatchResult(
             agent_name="test-fly", passport_id="ET-00001",
-            matrix_user_id="@windyfly:chat.windyword.ai", matrix_provisioned=True,
+            matrix_user_id="@windyfly:chat.windychat.ai", matrix_provisioned=True,
             email_address="fly@windymail.ai", mail_provisioned=True,
             phone_number="+15550100", phone_provisioned=True, phone_is_mock=True,
             certificate_number="WF-001", birth_certificate_path="data/cert.pdf",
@@ -573,8 +573,8 @@ class TestMatrixBotResilience:
         from windyfly.channels.matrix_bot import WindyFlyMatrixBot
         config = _make_config()
         config["matrix"] = {
-            "homeserver": "https://chat.windyword.ai",
-            "bot_user": "@windyfly:chat.windyword.ai",
+            "homeserver": "https://chat.windychat.ai",
+            "bot_user": "@windyfly:chat.windychat.ai",
         }
         return WindyFlyMatrixBot(config, db, wq)
 
@@ -613,7 +613,7 @@ class TestMatrixBotResilience:
         room = MagicMock()
         room.room_id = "!invite:test"
         event = MagicMock()
-        event.state_key = "@windyfly:chat.windyword.ai"
+        event.state_key = "@windyfly:chat.windychat.ai"
 
         await bot._on_invite(room, event)
         bot.client.join.assert_called_once_with("!invite:test")
@@ -626,7 +626,7 @@ class TestMatrixBotResilience:
         room = MagicMock()
         room.room_id = "!self:test"
         event = MagicMock()
-        event.sender = "@windyfly:chat.windyword.ai"
+        event.sender = "@windyfly:chat.windychat.ai"
         event.body = "My own message"
         event.server_timestamp = time.time() * 1000
 
