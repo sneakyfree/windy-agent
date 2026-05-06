@@ -190,6 +190,16 @@ def _step_register_mail(ctx: BootContext) -> None:
     register_mail_tools(ctx.tool_registry)
 
 
+def _step_register_chat(ctx: BootContext) -> None:
+    from windyfly.tools.chat import register_chat_tools
+    register_chat_tools(ctx.tool_registry)
+
+
+def _step_register_cloud(ctx: BootContext) -> None:
+    from windyfly.tools.cloud import register_cloud_tools
+    register_cloud_tools(ctx.tool_registry)
+
+
 def _step_register_web_search(ctx: BootContext) -> None:
     from windyfly.tools.web_search import register_web_search_tool
     register_web_search_tool(ctx.tool_registry)
@@ -320,6 +330,8 @@ def default_capability_registration_sequence() -> list[Step]:
         # (weather, news, calendar, etc.) the loop still routes through.
         Step("tools.windy_api",      _step_register_windy_api),
         Step("tools.mail",           _step_register_mail),
+        Step("tools.chat",           _step_register_chat),
+        Step("tools.cloud",          _step_register_cloud),
         Step("tools.web_search",     _step_register_web_search),
         Step("tools.reminders",      _step_register_reminders),
         Step("tools.todos",          _step_register_todos),
