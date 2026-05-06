@@ -34,7 +34,7 @@ export default function Settings() {
         <InfoRow label="Windy Mail" value={ecosystem.windy_mail_url || 'not set'} />
         <InfoRow label="Matrix" value={ecosystem.matrix_homeserver || 'not set'} />
         <InfoRow label="Windy Cloud" value={ecosystem.windy_cloud_url || 'not set'} />
-        <InfoRow label="Windy Pro" value={ecosystem.windy_pro_url || 'not set'} />
+        <InfoRow label="Windy Word" value={ecosystem.windy_pro_url || 'not set'} />
       </Section>
 
       {/* Updates */}

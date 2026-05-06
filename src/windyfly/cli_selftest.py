@@ -75,7 +75,7 @@ def _build_ecosystem_checks() -> list[EcosystemCheck]:
     ).rstrip("/")
     if pro_base:
         checks.append(EcosystemCheck(
-            name="Windy Pro", url=f"{pro_base}/healthz", critical=True,
+            name="Windy Word", url=f"{pro_base}/healthz", critical=True,
         ))
 
     # Matrix — client-server version endpoint is the canonical liveness probe.

@@ -1225,7 +1225,7 @@ def main() -> None:
     )
     go_parser.add_argument(
         "--byok", action="store_true",
-        help="Bring your own key — skip Windy Pro managed-credential detection",
+        help="Bring your own key — skip Windy Word managed-credential detection",
     )
 
     # windy start

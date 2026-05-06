@@ -85,16 +85,16 @@ async def check_ecosystem_health() -> str:
     else:
         lines.append("  Windy Cloud:  \u274c Not configured")
 
-    # ── Windy Pro ──
+    # ── Windy Word ──
     pro_url = eco.get("windy_pro_url") or os.environ.get("WINDY_API_URL", "")
     if pro_url:
         status, latency = await _check_health(pro_url, "/api/v1/health")
         if status == "ok":
-            lines.append(f"  Windy Pro:    \u2705 Connected ({pro_url}) {latency}")
+            lines.append(f"  Windy Word:   \u2705 Connected ({pro_url}) {latency}")
         else:
-            lines.append(f"  Windy Pro:    \u26a0\ufe0f  Unreachable ({pro_url} — {status})")
+            lines.append(f"  Windy Word:   \u26a0\ufe0f  Unreachable ({pro_url} — {status})")
     else:
-        lines.append("  Windy Pro:    \u274c Not configured")
+        lines.append("  Windy Word:   \u274c Not configured")
 
     return "\n".join(lines)
 
