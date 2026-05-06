@@ -287,7 +287,7 @@ def show_ecosystem_status(hatch_result=None, config: dict | None = None) -> None
     matrix_errors = [e for e in errors if e.startswith("Matrix:")]
     if not matrix_user:
         matrix_ready = bool(os.environ.get("MATRIX_BOT_TOKEN") or os.environ.get("MATRIX_BOT_PASSWORD"))
-        homeserver = eco.get("matrix_homeserver") or os.environ.get("MATRIX_HOMESERVER", "chat.windyword.ai")
+        homeserver = eco.get("matrix_homeserver") or os.environ.get("MATRIX_HOMESERVER", "chat.windychat.ai")
         if matrix_ready:
             table.add_row("Windy Chat", "[green]Active[/green]", f"@windyfly:{homeserver.replace('https://', '')}")
         elif matrix_errors:

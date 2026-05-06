@@ -1580,8 +1580,8 @@ async function handleRequest(req: Request, server: import("bun").Server<any>): P
           "LOG_LEVEL=INFO",
           "",
           "# Matrix / Windy Chat (optional)",
-          "MATRIX_HOMESERVER=https://chat.windyword.ai",
-          "MATRIX_BOT_USER=@windyfly:chat.windyword.ai",
+          "MATRIX_HOMESERVER=https://chat.windychat.ai",
+          "MATRIX_BOT_USER=@windyfly:chat.windychat.ai",
           "MATRIX_BOT_TOKEN=",
           "MATRIX_BOT_PASSWORD=",
           "",
@@ -1621,8 +1621,8 @@ daily_budget_usd = 5.0
 warn_at_usd = 0.50
 
 [matrix]
-homeserver = "https://chat.windyword.ai"
-bot_user = "@windyfly:chat.windyword.ai"
+homeserver = "https://chat.windychat.ai"
+bot_user = "@windyfly:chat.windychat.ai"
 
 [windy_api]
 base_url = "http://localhost:8098"

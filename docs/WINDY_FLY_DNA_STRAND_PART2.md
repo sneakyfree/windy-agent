@@ -6,7 +6,7 @@
 
 ## 6. PHASE 1 — MATRIX BOT + WINDY CHAT (Week 1–2)
 
-> **GOAL:** Windy Fly lives inside Windy Chat as `@windyfly:chat.windyword.ai`. Users open Windy Chat, see Windy Fly as a contact, and chat with their agent. Messages sync across desktop and mobile. Agent shows presence (online/offline) and typing indicators.
+> **GOAL:** Windy Fly lives inside Windy Chat as `@windyfly:chat.windychat.ai`. Users open Windy Chat, see Windy Fly as a contact, and chat with their agent. Messages sync across desktop and mobile. Agent shows presence (online/offline) and typing indicators.
 
 ### STEP 1.1: Matrix Bot Channel
 
@@ -29,7 +29,7 @@
 # async login(self)
 #   - If MATRIX_BOT_TOKEN env var set: use token login (nio client.access_token = token)
 #   - Else: use password login (MATRIX_BOT_PASSWORD env var)
-#   - On success: log "Windy Fly logged in as @windyfly:chat.windyword.ai"
+#   - On success: log "Windy Fly logged in as @windyfly:chat.windychat.ai"
 #   - On failure: raise with clear error message
 #
 # async _on_message(self, room: nio.MatrixRoom, event: nio.RoomMessageText)

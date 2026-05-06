@@ -29,8 +29,8 @@ monthly_budget_usd = 50.0
 warn_at_percent = 80
 
 [matrix]
-homeserver = "https://chat.windyword.ai"
-bot_user = "@windyfly:chat.windyword.ai"
+homeserver = "https://chat.windychat.ai"
+bot_user = "@windyfly:chat.windychat.ai"
 
 [windy_api]
 base_url = "http://localhost:8098"
@@ -38,8 +38,8 @@ base_url = "http://localhost:8098"
 [ecosystem]
 eternitas_url = "https://eternitas.ai"
 windy_mail_url = "https://api.windymail.ai"
-matrix_homeserver = "https://chat.windyword.ai"
-windy_cloud_url = "https://cloud.windyword.ai"
+matrix_homeserver = "https://chat.windychat.ai"
+windy_cloud_url = "https://cloud.windycloud.com"
 windy_pro_url = "https://windyword.ai"
 
 [cloud]

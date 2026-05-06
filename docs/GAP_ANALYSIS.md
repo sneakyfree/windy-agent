@@ -388,7 +388,7 @@ names still reference old version numbers
 
 #### P3-D5 — Matrix homeserver hardcoded
 - `src/windyfly/branding.py:34` — `BRAND_HOMESERVER =
-  "https://chat.windyword.ai"`. Used as a display default when
+  "https://chat.windychat.ai"`. Used as a display default when
   `MATRIX_HOMESERVER` is unset. Harmless.
 
 #### P3-D6 — Dashboard URL hardcoded

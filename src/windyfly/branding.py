@@ -30,8 +30,8 @@ if IS_WINDY_FLY:
     BRAND_TAGLINE = "Your AI. Your Rules. Your Ecosystem."
     BRAND_CLI = "windy"
     BRAND_URL = "windyfly.ai"
-    BRAND_BOT_USER = "@windyfly:chat.windyword.ai"
-    BRAND_HOMESERVER = "https://chat.windyword.ai"
+    BRAND_BOT_USER = "@windyfly:chat.windychat.ai"
+    BRAND_HOMESERVER = "https://chat.windychat.ai"
     HAS_ECOSYSTEM = True
     HAS_MATRIX_AUTOPROVISION = True
 else:

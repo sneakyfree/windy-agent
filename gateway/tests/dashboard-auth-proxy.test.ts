@@ -27,7 +27,7 @@ function mockServer(peerAddress: string | null): any {
 }
 
 function reqWith(headers: Record<string, string> = {}): Request {
-  return new Request("http://fly.windyword.ai/", { headers });
+  return new Request("http://windyfly.ai/", { headers });
 }
 
 describe("shouldBypassAuthForLocalhost — production", () => {

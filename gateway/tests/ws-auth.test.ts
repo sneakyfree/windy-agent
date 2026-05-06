@@ -44,14 +44,14 @@ describe("isDashboardAuthValid — pure decision", () => {
     // the module-level WINDYFLY_ENV at test time. We exercise the
     // default dev fallthrough here; the production branch is covered
     // by dashboard-auth-proxy.test.ts via shouldBypassAuthForLocalhost.
-    const req = new Request("http://fly.windyword.ai/ws/chat", {
+    const req = new Request("http://windyfly.ai/ws/chat", {
       headers: { "X-Forwarded-For": "203.0.113.7" },
     });
     expect(isDashboardAuthValid(req, mockServer("127.0.0.1"))).toBe(false);
   });
 
   test("wrong bearer → false", () => {
-    const req = new Request("http://fly.windyword.ai/ws/chat", {
+    const req = new Request("http://windyfly.ai/ws/chat", {
       headers: {
         "X-Forwarded-For": "203.0.113.7",
         Authorization: "Bearer not-the-password",
@@ -61,7 +61,7 @@ describe("isDashboardAuthValid — pure decision", () => {
   });
 
   test("wrong cookie → false", () => {
-    const req = new Request("http://fly.windyword.ai/ws/chat", {
+    const req = new Request("http://windyfly.ai/ws/chat", {
       headers: {
         "X-Forwarded-For": "203.0.113.7",
         Cookie: "windy_auth=not-the-password",
@@ -81,7 +81,7 @@ describe("isDashboardAuthValid — pure decision", () => {
   });
 
   test.skipIf(!PASSWORD)("correct bearer → true (when DASHBOARD_PASSWORD is set in the test env)", () => {
-    const req = new Request("http://fly.windyword.ai/ws/chat", {
+    const req = new Request("http://windyfly.ai/ws/chat", {
       headers: {
         "X-Forwarded-For": "203.0.113.7",
         Authorization: `Bearer ${PASSWORD}`,
@@ -91,7 +91,7 @@ describe("isDashboardAuthValid — pure decision", () => {
   });
 
   test.skipIf(!PASSWORD)("correct cookie → true (when DASHBOARD_PASSWORD is set in the test env)", () => {
-    const req = new Request("http://fly.windyword.ai/ws/chat", {
+    const req = new Request("http://windyfly.ai/ws/chat", {
       headers: {
         "X-Forwarded-For": "203.0.113.7",
         Cookie: `windy_auth=${PASSWORD}`,

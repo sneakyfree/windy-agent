@@ -1,8 +1,8 @@
 # Wave 13 Phase 5 — windyfly-gateway production deploy runbook
 
-**Target host:** `fly.windyword.ai`
+**Target host:** `windyfly.ai`
 **AWS account:** `819439781125` — TheWindstorm
-**Phase dependencies:** Phase 1 (`api.windyword.ai`) live, JWKS `kid=37e8955762d43189`. Phase 2 (`eternitas.windyword.ai`) live.
+**Phase dependencies:** Phase 1 (`account.windyword.ai`) live, JWKS `kid=37e8955762d43189`. Phase 2 (`eternitas.ai`) live.
 **Cost estimate:** ~$15/mo (t3.small, 20 GB gp3, EIP — no RDS, gateway is stateless).
 
 ---
@@ -16,8 +16,8 @@
 | **pre**  | `secrets`     | Generate `DASHBOARD_PASSWORD`; stash state file at `~/.windyfly-phase5-state` (chmod 600). | no | `rm ~/.windyfly-phase5-state`                                      |
 | **FIRE 1** | `fetch-hmac`| SSH to Phase 1 (`ubuntu@100.52.10.181`) and read `BROKER_HMAC_SECRET` from `/opt/windy-pro/.env.production`. Cross-repo contract: this must match what Phase 1's credential-broker signs with. | no | n/a — read-only |
 | **FIRE 2** | `ec2-eip`   | Allocate EIP, render user-data with envsubst allowlist, launch t3.small on subnet-1a, associate EIP, wait for `instance-running`. | YES (~$15/mo + $0.005/hr EIP while unassociated) | `aws ec2 terminate-instances`; `aws ec2 release-address`           |
-| **FIRE 3** | `dns`       | Create or update Cloudflare A record `fly.windyword.ai` → EIP, `proxied=false` so certbot HTTP-01 can validate. Wait for DNS propagation via 1.1.1.1. | no | delete A record via Cloudflare API                                 |
-| **FIRE 4** | `certbot`   | SSH in; `certbot --nginx --redirect`; then probe `/api/health` (expect 200) and `/hatch/remote` with a junk token (expect 400/401 — proves Wave 12 verify gate is active). | no | `certbot delete --cert-name fly.windyword.ai` |
+| **FIRE 3** | `dns`       | Create or update Cloudflare A record `windyfly.ai` → EIP, `proxied=false` so certbot HTTP-01 can validate. Wait for DNS propagation via 1.1.1.1. | no | delete A record via Cloudflare API                                 |
+| **FIRE 4** | `certbot`   | SSH in; `certbot --nginx --redirect`; then probe `/api/health` (expect 200) and `/hatch/remote` with a junk token (expect 400/401 — proves Wave 12 verify gate is active). | no | `certbot delete --cert-name windyfly.ai` |
 | (debug)  | `status`      | Dump state file with secrets redacted. | no | n/a |
 
 ---
@@ -118,7 +118,7 @@ Before firing **each** gate, confirm the pattern below hasn't regressed since Ph
 ```bash
 # FIRE 4 — revoke cert
 ssh -i ~/windy-prod-key.pem ubuntu@$EIP \
-  sudo certbot delete --cert-name fly.windyword.ai
+  sudo certbot delete --cert-name windyfly.ai
 
 # FIRE 3 — delete A record
 curl -sS -X DELETE \
@@ -140,18 +140,18 @@ aws ec2 release-address --allocation-id $EIP_ALLOC --region us-east-1
 From any machine (not the EC2):
 
 ```bash
-curl -sSf https://fly.windyword.ai/api/health | jq
+curl -sSf https://windyfly.ai/api/health | jq
 # → {"status":"ok", "service":"windy-fly-agent", ...}
 
 # Junk broker_token must 400 (length cap) or 401 (bad_format) — Wave 12 gate.
-curl -sS -X POST https://fly.windyword.ai/hatch/remote \
+curl -sS -X POST https://windyfly.ai/hatch/remote \
   -H 'Content-Type: application/json' \
   -d '{"broker_token":"12345678","windy_identity_id":"probe","passport_number":"probe","owner_email":"p@p","owner_phone":"+10000000000","owner_name":"p"}' \
   -o /dev/null -w '%{http_code}\n'
 # → 400 (broker_token too short) or 401 (bad_format / pro_verify_endpoint_missing)
 
 # Live end-to-end (requires a Pro-issued broker_token):
-curl -N -X POST https://fly.windyword.ai/hatch/remote \
+curl -N -X POST https://windyfly.ai/hatch/remote \
   -H 'Content-Type: application/json' \
   -H 'Accept: text/event-stream' \
   -d @real-hatch-body.json

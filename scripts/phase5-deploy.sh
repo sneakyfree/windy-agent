@@ -37,7 +37,7 @@ KEY_PATH="$HOME/windy-prod-key.pem"
 EC2_NAME=windyfly-gateway
 AMI_ID=ami-009d9173b44d0482b                     # pinned — Ubuntu 24.04
 CF_ZONE_NAME=windyword.ai
-HOSTNAME=fly.windyword.ai
+HOSTNAME=windyfly.ai
 ADMIN_EMAIL=grantwhitmer3@gmail.com
 PHASE1_EC2_IP="${PHASE1_EC2_IP:-100.52.10.181}"  # ubuntu@100.52.10.181 per Grant
 

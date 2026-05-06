@@ -22,7 +22,7 @@ detection and either route through the daemon or refuse encrypted
 sends with a clear error.
 
 Environment:
-    MATRIX_HOMESERVER     — e.g. https://chat.windyword.ai
+    MATRIX_HOMESERVER     — e.g. https://chat.windychat.ai
     MATRIX_BOT_USER       — e.g. @grant-fly:windyword.ai
     MATRIX_BOT_TOKEN      — Matrix access token
     MATRIX_DM_ROOM        — (optional) default room for the agent's

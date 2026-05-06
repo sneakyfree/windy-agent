@@ -211,10 +211,10 @@ not `localhost`. These live in `~/.windyfly/windyfly.toml` (or
 ```toml
 [ecosystem]
 eternitas_url     = "https://eternitas.ai"
-windy_pro_url     = "https://windypro.com"
-matrix_homeserver = "https://chat.windyword.ai"
+windy_pro_url     = "https://windyword.ai"
+matrix_homeserver = "https://chat.windychat.ai"
 windy_mail_url    = "https://mail.windymail.ai"
-windy_cloud_url   = "https://cloud.windyword.ai"
+windy_cloud_url   = "https://cloud.windycloud.com"
 ```
 
 Matching env-var overrides (populated by the systemd unit's
@@ -223,14 +223,14 @@ Matching env-var overrides (populated by the systemd unit's
 | Env var             | Prod value                         |
 |---------------------|------------------------------------|
 | `ETERNITAS_API_URL` | `https://eternitas.ai`             |
-| `WINDY_PRO_URL`     | `https://windypro.com`             |
-| `WINDY_API_URL`     | `https://windypro.com`             |
-| `MATRIX_HOMESERVER` | `https://chat.windyword.ai`        |
+| `WINDY_PRO_URL`     | `https://windyword.ai`             |
+| `WINDY_API_URL`     | `https://windyword.ai`             |
+| `MATRIX_HOMESERVER` | `https://chat.windychat.ai`        |
 | `WINDYMAIL_API_URL` | `https://mail.windymail.ai`        |
-| `WINDY_CLOUD_URL`   | `https://cloud.windyword.ai`       |
+| `WINDY_CLOUD_URL`   | `https://cloud.windycloud.com`       |
 
 **JWKS fetch:** the agent verifies Windy Pro JWTs against
-`https://windypro.com/.well-known/jwks.json`. No env var — the URL
+`https://windyword.ai/.well-known/jwks.json`. No env var — the URL
 is derived from `WINDY_PRO_URL`. Cache is 24h; rotate by bumping the
 JWKS `kid` on the Pro side.
 
@@ -333,7 +333,7 @@ many channels; its outage doesn't block the brain.
 
 **Action:**
 
-1. `curl https://chat.windyword.ai/_matrix/client/versions` — if
+1. `curl https://chat.windychat.ai/_matrix/client/versions` — if
    200, the issue is bot-credential side; if 5xx, the homeserver is
    down.
 2. Bot-credential fixes: re-run `windy go` to re-provision the
@@ -341,7 +341,7 @@ many channels; its outage doesn't block the brain.
    `MATRIX_BOT_TOKEN` from the env and let the agent re-login by
    password on next tick.
 3. Homeserver-side outages are opaque to us — check
-   https://status.windyword.ai. The agent will reconnect
+   https://status.windyfly.ai. The agent will reconnect
    automatically when the homeserver returns.
 
 ### 5.3 LLM quota exhausted

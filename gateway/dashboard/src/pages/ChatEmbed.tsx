@@ -7,7 +7,7 @@ interface DashData {
 
 const CHAT_URL = import.meta.env.DEV
   ? 'http://localhost:8008'
-  : 'https://chat.windyword.ai'
+  : 'https://chat.windychat.ai'
 
 export default function ChatEmbed() {
   const [data, setData] = useState<DashData | null>(null)

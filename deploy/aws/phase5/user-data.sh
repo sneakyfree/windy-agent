@@ -8,7 +8,7 @@
 #      when the gateway spawns subprocesses for the ceremony SSE stream
 #   4. writes /etc/windyfly/production.env from substituted variables
 #   5. boots the Bun gateway via systemd on localhost:8080
-#   6. configures nginx reverse proxy for fly.windyword.ai on :80
+#   6. configures nginx reverse proxy for windyfly.ai on :80
 #      (HTTPS / certbot is a separate FIRE 4 gate once DNS resolves)
 #
 # Substitutions happen via envsubst in scripts/phase5-deploy.sh before this
@@ -89,14 +89,14 @@ WINDYFLY_DB_PATH=/opt/windyfly/data/windyfly.db
 LOG_LEVEL=INFO
 
 # Ecosystem URLs (Wave 13 production hostnames)
-WINDY_PRO_URL=https://api.windyword.ai
-WINDY_API_URL=https://api.windyword.ai
-WINDY_PRO_JWKS_URL=https://api.windyword.ai/.well-known/jwks.json
-ETERNITAS_API_URL=https://eternitas.windyword.ai
-ETERNITAS_URL=https://eternitas.windyword.ai
+WINDY_PRO_URL=https://account.windyword.ai
+WINDY_API_URL=https://account.windyword.ai
+WINDY_PRO_JWKS_URL=https://account.windyword.ai/.well-known/jwks.json
+ETERNITAS_API_URL=https://eternitas.ai
+ETERNITAS_URL=https://eternitas.ai
 WINDYMAIL_API_URL=https://api.windymail.ai
 MATRIX_HOMESERVER=https://chat.windychat.ai
-WINDY_CLOUD_URL=https://api.windycloud.com
+WINDY_CLOUD_URL=https://cloud.windycloud.com
 
 # Broker HMAC — MUST match Phase 1's BROKER_HMAC_SECRET. Retrieved from
 # Phase 1's EC2 via the phase5-deploy.sh `fetch-hmac` subcommand.

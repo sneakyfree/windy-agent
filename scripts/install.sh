@@ -3,12 +3,12 @@
 # 🪰 Windy Fly Installer
 #
 # Usage:
-#   curl -fsSL https://get.windyfly.com | bash
+#   curl -fsSL https://windyfly.ai | bash
 #   — or —
 #   bash <(curl -fsSL https://raw.githubusercontent.com/sneakyfree/windy-agent/main/scripts/install.sh)
 #
 # Zero-prompt install (have your key ready):
-#   WINDY_KEY=sk-abc123 curl -fsSL https://get.windyfly.com | bash
+#   WINDY_KEY=sk-abc123 curl -fsSL https://windyfly.ai | bash
 #
 # What it does:
 #   1. Checks/installs Python 3.12+, uv, and Bun
