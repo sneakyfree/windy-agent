@@ -185,6 +185,11 @@ def _step_register_windy_api(ctx: BootContext) -> None:
     register_windy_tools(ctx.tool_registry)
 
 
+def _step_register_mail(ctx: BootContext) -> None:
+    from windyfly.tools.mail import register_mail_tools
+    register_mail_tools(ctx.tool_registry)
+
+
 def _step_register_web_search(ctx: BootContext) -> None:
     from windyfly.tools.web_search import register_web_search_tool
     register_web_search_tool(ctx.tool_registry)
@@ -314,6 +319,7 @@ def default_capability_registration_sequence() -> list[Step]:
         # Legacy ToolRegistry first — these are pre-Capability-Plane tools
         # (weather, news, calendar, etc.) the loop still routes through.
         Step("tools.windy_api",      _step_register_windy_api),
+        Step("tools.mail",           _step_register_mail),
         Step("tools.web_search",     _step_register_web_search),
         Step("tools.reminders",      _step_register_reminders),
         Step("tools.todos",          _step_register_todos),
