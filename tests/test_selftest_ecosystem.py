@@ -55,8 +55,8 @@ def test_pro_and_matrix_and_mail_and_cloud(monkeypatch) -> None:
 
     by_name = {c.name: c for c in _build_ecosystem_checks()}
 
-    assert by_name["Windy Pro"].url == "https://windyword.ai/healthz"
-    assert by_name["Windy Pro"].critical is True
+    assert by_name["Windy Word"].url == "https://windyword.ai/healthz"
+    assert by_name["Windy Word"].critical is True
     assert by_name["Windy Chat"].url == (
         "https://chat.windychat.ai/_matrix/client/versions"
     )

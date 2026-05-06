@@ -331,15 +331,15 @@ def show_ecosystem_status(hatch_result=None, config: dict | None = None) -> None
     else:
         table.add_row("Certificate", "[dim]Pending[/dim]", "Generated on hatch")
 
-    # ── Windy Pro ──
+    # ── Windy Word ──
     windy_pro_url = eco.get("windy_pro_url") or os.environ.get("WINDY_API_URL", "")
     windy_jwt = os.environ.get("WINDY_JWT", "")
     if windy_pro_url and windy_jwt:
-        table.add_row("Windy Pro", "[green]Linked[/green]", "Recordings + translations")
+        table.add_row("Windy Word", "[green]Linked[/green]", "Recordings + translations")
     elif windy_pro_url:
-        table.add_row("Windy Pro", "[yellow]Configured[/yellow]", windy_pro_url)
+        table.add_row("Windy Word", "[yellow]Configured[/yellow]", windy_pro_url)
     else:
-        table.add_row("Windy Pro", "[dim]N/A[/dim]", "Set ecosystem.windy_pro_url to connect")
+        table.add_row("Windy Word", "[dim]N/A[/dim]", "Set ecosystem.windy_pro_url to connect")
 
     # ── Windy Cloud ──
     cloud_url = eco.get("windy_cloud_url") or os.environ.get("WINDY_CLOUD_URL", "")

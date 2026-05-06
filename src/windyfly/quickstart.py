@@ -461,7 +461,7 @@ def _try_pro_broker(args: Any) -> bool:
     if not has_valid_pro_token():
         return False
 
-    console.print("  [cyan]Windy Pro account detected — requesting managed credentials...[/cyan]")
+    console.print("  [cyan]Windy Word account detected — requesting managed credentials...[/cyan]")
     cred = fetch_broker_credential()
     if cred is None:
         console.print("  [dim]Pro broker unavailable — falling back to 'paste a key' flow.[/dim]")
@@ -805,7 +805,7 @@ def _try_hatch_provisioning(non_interactive: bool = False) -> None:
             nudge_lines.append("")
         nudge_lines.extend([
             "  Click the link to open [bold]Windy Chat[/bold] and we can talk properly.",
-            "  Or download [bold]Windy Pro[/bold] on your phone!",
+            "  Or download [bold]Windy Word[/bold] on your phone!",
             "",
             "  [dim]You can always come back to this terminal with:[/dim] [bold]windy start --cli[/bold]",
         ])

@@ -192,7 +192,7 @@ class TestCheckEcosystem:
 
         out = await check_ecosystem_health()
 
-        assert "Windy Pro" in out
+        assert "Windy Word" in out
         assert "Connected" in out
 
     @respx.mock
