@@ -239,6 +239,84 @@ class TestHelpFormatting:
         help_text = loaded_registry.format_help("terminal")
         assert "HiFly" in help_text
 
+    def test_help_uses_emoji_categorization(self, loaded_registry):
+        """PR #140: /help output is categorized with emoji headers
+        matching the slash-bar menu layout (PR #139). Pin the
+        expected category emojis so a future refactor doesn't
+        silently regress to plain text headers."""
+        help_text = loaded_registry.format_help("telegram")
+        for emoji in ("🆘", "💬", "💰", "🧠", "🎭", "🤖", "🪪"):
+            assert emoji in help_text, (
+                f"category emoji {emoji!r} missing from /help — "
+                "did CATEGORY_DISPLAY get reverted?"
+            )
+
+    def test_help_rescue_section_first(self, loaded_registry):
+        """The 🆘 'If something's wrong' section must appear at the
+        top of /help so panicked-grandma's eye lands on rescue
+        commands first. Pinned because reordering for alphabetical
+        or by-frequency would silently regress this product behavior."""
+        help_text = loaded_registry.format_help("telegram")
+        rescue_idx = help_text.find("🆘")
+        assert rescue_idx >= 0, "🆘 (rescue section) missing entirely"
+        for later_emoji in ("💬", "💰", "🧠", "🎭", "ℹ️", "🤖", "🪪"):
+            idx = help_text.find(later_emoji)
+            if idx >= 0:
+                assert idx > rescue_idx, (
+                    f"{later_emoji!r} appears before 🆘 — rescue section "
+                    "must be first for grandma's panic-scan to work"
+                )
+
+    def test_help_includes_resurrect_recovery_hint_at_top(self, loaded_registry):
+        """Top of /help should explicitly tell the user how to recover
+        if the bot stops responding (the failure mode Grant flagged
+        2026-05-07: 'grandma's bot stops responding, what does she
+        do?'). The /resurrect hint at the very top of /help is the
+        answer even when she can't / doesn't read the full list."""
+        help_text = loaded_registry.format_help("telegram")
+        head = help_text[:400]
+        assert "/resurrect" in head, (
+            "/resurrect recovery hint must appear in the top of /help"
+        )
+
+    def test_help_total_size_within_two_telegram_chunks(self, loaded_registry):
+        """Telegram caps a single message at 4096 chars. The full
+        registry is too big for one — that's OK because
+        ``_send_long_reply`` chunks. But it MUST fit in 2 chunks so
+        grandma doesn't have to scroll through 3+ messages to find
+        any category."""
+        help_text = loaded_registry.format_help("telegram")
+        assert len(help_text) <= 4096 * 2, (
+            f"/help is {len(help_text)} chars; should fit in 2 chunks "
+            f"(8192 chars). Trim, prune categories, or split."
+        )
+
+    def test_help_rescue_section_in_first_chunk(self, loaded_registry):
+        """Critical: even if grandma only reads the first message
+        (Telegram delivers chunks in order, sometimes with a delay),
+        the 🆘 'If something's wrong' section MUST be fully contained
+        within the first 4096 chars. That's the failure mode this
+        feature exists to fix — bot stopped responding, what does
+        grandma do? She must see the rescue commands without
+        scrolling to a second message."""
+        help_text = loaded_registry.format_help("telegram")
+        first_chunk = help_text[:4096]
+        rescue_idx = first_chunk.find("🆘")
+        assert rescue_idx >= 0, "🆘 section missing from first chunk"
+        # Ensure the next category emoji also exists in first chunk —
+        # that's how we know the entire rescue section landed.
+        # The category right after rescue (in our ordering) is ❓ Help
+        # or 💬 Chatting; we tolerate either.
+        next_section_idx = max(
+            first_chunk.find("❓ "),
+            first_chunk.find("💬 "),
+        )
+        assert next_section_idx > rescue_idx, (
+            "rescue section bleeds into the second chunk — grandma "
+            "would lose the recovery commands. Trim earlier text "
+            "or move a category."
+        )
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # is_command / parse_command utilities
