@@ -19,6 +19,11 @@ import pytest
 
 from windyfly.agent.loop import _bump_session_tokens, _session_tokens
 
+# Opt this file out of the conftest autouse that identity-stubs
+# maybe_prepend_header — these tests verify per-session token
+# tracking interacts correctly with the gas-tank header.
+pytestmark = pytest.mark.state_emoji_prefix
+
 
 @pytest.fixture(autouse=True)
 def clear_session_state():

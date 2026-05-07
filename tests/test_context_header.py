@@ -2,7 +2,14 @@
 
 from unittest.mock import patch
 
+import pytest
+
 from windyfly.agent.context_header import ContextTracker, maybe_prepend_header
+
+# Opt this entire file out of the conftest autouse that
+# identity-stubs maybe_prepend_header — these tests specifically
+# verify the panel + state-emoji-prefix behavior.
+pytestmark = pytest.mark.state_emoji_prefix
 
 
 class TestContextTracker:

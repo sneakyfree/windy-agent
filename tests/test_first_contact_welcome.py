@@ -23,6 +23,12 @@ from unittest.mock import patch
 
 import pytest
 
+
+# Opt this entire file out of the conftest autouse that suppresses
+# the first-contact welcome — these tests specifically verify that
+# behavior. See tests/conftest.py for the autouse mechanic.
+pytestmark = pytest.mark.virgin_db_welcome
+
 from windyfly.agent.loop import agent_respond
 from windyfly.agent.welcome import (
     WELCOME_TEXT,

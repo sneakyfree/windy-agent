@@ -91,6 +91,11 @@ target-version = "py312"
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "virgin_db_welcome: opt this test out of the autouse fixture in tests/conftest.py that disables the first-contact welcome shortcut (PR #142). Tests that VERIFY first-contact behavior must use this marker.",
+    "state_emoji_prefix: opt this test out of the autouse fixture in tests/conftest.py that disables maybe_prepend_header (PR #144). Tests that VERIFY the gas-tank panel or single-emoji state prefix must use this marker.",
+    "real_ollama: opt this test into actually calling the local Ollama server. Default-off in conftest because once Ollama is installed (PR #148), tests that fall through to chain-exhaustion would otherwise wait 30s on each real Ollama call.",
+]
 
 # ── mypy ──────────────────────────────────────────────────────────────────
 # We type the code WE own; third-party channel SDKs are gated on extras
