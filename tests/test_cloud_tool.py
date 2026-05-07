@@ -193,6 +193,10 @@ class TestBootSequenceWiring:
         sequence = default_capability_registration_sequence()
         names = [s.name for s in sequence]
         assert "tools.cloud" in names
-        # Cloud registers right after chat per design.
+        # Cloud registers after the messaging-channel cluster
+        # (chat → sms → voice → cloud). The slot before cloud was
+        # originally chat; D.3.1/D.3.2 inserted sms + voice between
+        # chat and cloud (all three are person-facing channels paired
+        # in the registry).
         cloud_idx = names.index("tools.cloud")
-        assert names[cloud_idx - 1] == "tools.chat"
+        assert names[cloud_idx - 1] in ("tools.chat", "tools.sms", "tools.voice")
