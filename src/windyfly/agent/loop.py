@@ -328,6 +328,27 @@ def agent_respond(
             f"say /resume."
         )
 
+    # 0.7. First-contact welcome (PR #142). Brand-new bots — episodes
+    # and nodes tables both empty — get a deterministic 5-bullet tour
+    # instead of an LLM-improvised "Welcome back!" Saves a token, gives
+    # every grandma the same orientation vocabulary, and bakes in the
+    # /reset / /resurrect recovery hint at the top. The user's first
+    # message + the welcome reply both land in episodes, so the NEXT
+    # message no longer triggers this branch.
+    from windyfly.agent.welcome import (
+        format_welcome as _format_welcome,
+        is_first_contact as _is_first_contact,
+    )
+    if _is_first_contact(db):
+        welcome = _format_welcome()
+        write_queue.enqueue(Priority.HIGH, save_episode, db, "user",
+                            user_message, session_id=session_id)
+        write_queue.enqueue(Priority.HIGH, save_episode, db, "assistant",
+                            welcome, session_id=session_id)
+        log_event(db, write_queue, "first_contact.welcome",
+                  {"user_message": user_message[:100]})
+        return welcome
+
     # 1. Assemble prompt
     # Pass current session's pct_remaining so the prompt assembler
     # can inject the low-context hint at < 10%.

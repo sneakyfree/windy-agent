@@ -63,6 +63,10 @@ def _make_config():
 @pytest.fixture
 def stack():
     db = Database(":memory:")
+    # Seed an episode so the first-contact welcome shortcut (PR #142)
+    # doesn't fire and bypass the LLM mock these tests depend on.
+    from windyfly.memory.episodes import save_episode
+    save_episode(db, "user", "bootstrap", session_id="bootstrap")
     wq = WriteQueue(); wq.start()
     yield _make_config(), db, wq
     try: wq.stop()
