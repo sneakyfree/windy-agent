@@ -61,10 +61,16 @@ from windyfly.memory.write_queue import WriteQueue
 
 @pytest.fixture
 def db_and_wq():
-    """Fresh DB + write queue per test, torn down after."""
+    """Fresh DB + write queue per test, torn down after.
+
+    Pre-seeds a bootstrap episode so the first-contact welcome
+    shortcut (PR #142) doesn't fire and bypass the LLM mocks these
+    tests depend on. Hardening-pass fix 2026-05-07."""
+    from windyfly.memory.episodes import save_episode
     with tempfile.TemporaryDirectory() as td:
         db_path = str(Path(td) / "hardening.db")
         db = Database(db_path)
+        save_episode(db, "user", "bootstrap", session_id="bootstrap")
         wq = WriteQueue()
         wq.start()
         try:

@@ -256,7 +256,12 @@ def test_chain_fail_with_auto_off_no_notification(
     mock_llm, _online, stack, isolated_flags,
 ):
     """When user has opted out, chain-fail goes straight to the
-    standard offline_response — no auto-switch, no notification."""
+    standard offline_response — no auto-switch, no notification.
+
+    Also patches is_ollama_available=False so the offline path
+    returns its canned "I'm currently offline" string regardless of
+    whether Ollama happens to be running on the test host (it does
+    on Windy 0 post-PR-#148)."""
     config, db, wq = stack
     _r.set_auto_resurrect(False, actor="test")
     from windyfly.agent.loop import agent_respond
@@ -265,7 +270,8 @@ def test_chain_fail_with_auto_off_no_notification(
         "LLM call failed across all providers in chain: 401"
     )
 
-    response = agent_respond(config, db, wq, "Hi", "test-2")
+    with patch("windyfly.agent.offline.is_ollama_available", return_value=False):
+        response = agent_respond(config, db, wq, "Hi", "test-2")
 
     # Standard offline message; no auto-switch notification
     assert "auto-switched" not in response.lower()
@@ -280,7 +286,11 @@ def test_chain_fail_when_ollama_unavailable_no_notification(
     """When Ollama isn't installed, auto-resurrect attempt fails
     silently — user gets the standard offline message (which has
     the PR #141 recovery footer pointing at /resurrect for manual
-    trigger)."""
+    trigger).
+
+    Patches both list_installed_ollama_models (used by auto-resurrect)
+    AND is_ollama_available (used by offline.get_offline_response)
+    since they're independent probes."""
     config, db, wq = stack
     from windyfly.agent.loop import agent_respond
 
@@ -288,7 +298,8 @@ def test_chain_fail_when_ollama_unavailable_no_notification(
         "LLM call failed across all providers in chain: 401"
     )
     with patch("windyfly.agent.resurrect.list_installed_ollama_models",
-               return_value=[]):
+               return_value=[]), \
+         patch("windyfly.agent.offline.is_ollama_available", return_value=False):
         response = agent_respond(config, db, wq, "Hi", "test-3")
 
     # No "auto-switched" notification (the attempt failed)

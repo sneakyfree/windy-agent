@@ -134,15 +134,29 @@ def _call_ollama(
     """
     import httpx
 
-    # Resurrection mode wins when active. Falls back to env, then
-    # hardcoded default. Wrapped in try because the resurrect import
-    # creates an agent-package cycle risk in some test contexts.
+    # Model selection priority (highest first):
+    #   1. Resurrection-mode chosen model (the user's explicit pick)
+    #   2. WINDY_OLLAMA_MODEL env override (operator-level)
+    #   3. Auto-pick best from installed Ollama models — closes the
+    #      bug where the hardcoded "llama3.2" default 404'd on
+    #      machines that have e.g. "llama3.2:3b" installed but not
+    #      the bare-name variant. Surfaced 2026-05-07 hardening pass.
+    #   4. Hardcoded "llama3.2" as last-resort (pre-PR backwards compat)
     model = "llama3.2"
     try:
-        from windyfly.agent.resurrect import current_model as _r_model
+        from windyfly.agent.resurrect import (
+            current_model as _r_model,
+            list_installed_ollama_models,
+            pick_best_model,
+        )
         rmod = _r_model()
         if rmod:
             model = rmod
+        else:
+            installed = list_installed_ollama_models()
+            best = pick_best_model(installed)
+            if best:
+                model = best
     except Exception:
         pass
     model = os.environ.get("WINDY_OLLAMA_MODEL", model)
