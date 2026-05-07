@@ -79,7 +79,17 @@ def _make_config() -> dict:
 
 
 def _make_db() -> Database:
-    return Database(":memory:")
+    """Fresh in-memory DB for each test, seeded with one prior
+    episode so the first-contact welcome shortcut (PR #142) doesn't
+    fire and short-circuit the LLM mock that most tests in this
+    file depend on. Tests that specifically want a virgin DB
+    (like test_first_contact_guard_fires_on_virgin_db) build their
+    own DB."""
+    db = Database(":memory:")
+    from windyfly.memory.episodes import save_episode
+    save_episode(db, "user", "previous turn so welcome doesn't fire",
+                 session_id="bootstrap")
+    return db
 
 
 _LLM_RESPONSE = {
@@ -147,7 +157,11 @@ class TestAssemblePrompt:
         This regression locks the new contract: when the DB is virgin,
         the system prompt must contain a FIRST CONTACT instruction."""
         config = _make_config()
-        db = _make_db()  # in-memory, virgin
+        # Explicit virgin DB — _make_db() seeds an episode by default
+        # to bypass PR #142's welcome shortcut, but THIS test
+        # specifically wants a fresh empty DB to verify prompt-side
+        # FIRST CONTACT behavior.
+        db = Database(":memory:")
         messages = assemble_prompt(config, db, "Hey, I'm back!", "test-session")
         system_content = messages[0]["content"]
         assert "FIRST CONTACT" in system_content
