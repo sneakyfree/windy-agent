@@ -191,7 +191,64 @@ class CommandRegistry:
             logger.error("Command /%s failed: %s", name, exc)
             return f"Command failed: {exc}"
 
+    # Category display: maps internal category code → (sort_order,
+    # emoji, grandma-readable label). The internal codes (01_process,
+    # 02_diagnostics, etc.) become invisible to the user — she sees
+    # the emoji column running down the left edge, same as the
+    # Telegram slash-bar layout (PR #139).
+    #
+    # Sort order is urgency-weighted: rescue at the top so a
+    # squinting-grandma's eye lands on /reset and /resurrect first.
+    # Categories not in this map fall back to a generic emoji and
+    # render at the bottom — keeps the output complete even if
+    # someone adds a new category without updating this table.
+    _CATEGORY_DISPLAY: tuple[tuple[str, int, str, str], ...] = (
+        # Top — panic-grandma's eye lands here first.
+        ("01_process",     1,  "🆘", "If something's wrong"),
+        ("13_help",        2,  "❓", "Help"),
+        # Most-used everyday commands next.
+        ("03_chat",        3,  "💬", "Chatting with me"),
+        ("08_budget",      4,  "💰", "Money"),
+        ("06_memory",      5,  "🧠", "What I remember"),
+        ("05_personality", 6,  "🎭", "My personality"),
+        ("02_diagnostics", 7,  "ℹ️",  "Status"),
+        ("04_model",       8,  "🤖", "My brain"),
+        # Tools grandma uses every day (weather, reminders, todo,
+        # calendar) — surface BEFORE the power-user skill-authoring
+        # commands. Both share the 🧰 toolbox metaphor but one is for
+        # USING tools, the other is for AUTHORING new ones.
+        ("08a_tools",      9,  "🧰", "Everyday tools"),
+        ("14_email",       10, "📧", "Email"),
+        ("15_phone",       11, "☎️",  "Phone"),
+        ("16_social",      12, "👥", "Social"),
+        ("17_voice",       13, "🎙", "Voice"),
+        ("07_skills",      14, "🛠",  "Skills (power-user)"),
+        # Identity + permissions.
+        ("09_identity",    15, "🪪", "Who I am"),
+        ("18_permissions", 16, "🔐", "Permissions"),
+        # Operator-tier — grandma rarely lands here. Two cloud
+        # buckets exist for historical reasons; surface the more
+        # user-facing one (10_cloud: connect, deploy basics) before
+        # the deeper-ops one (19_cloud: instance management).
+        ("10_cloud",       17, "☁️",  "Cloud"),
+        ("19_cloud",       18, "🌩",  "Cloud (advanced)"),
+        ("10_config",      19, "⚙️",  "Settings"),
+        ("11_maintenance", 20, "🔧", "Maintenance"),
+        ("12_developer",   21, "💻", "Developer"),
+    )
+
     def format_help(self, platform: str = "terminal") -> str:
+        """Categorized, emoji-coded /help output.
+
+        Layout matches the Telegram slash-bar menu (PR #139): emoji
+        prefix per section, urgency-weighted ordering. Grandma's eye
+        scans the column of emojis instead of reading every line.
+
+        Telegram receives this with parse_mode='Markdown'; the bold
+        section headers + italic recovery hint render cleanly. In a
+        terminal they appear as literal asterisks — readable but
+        not styled.
+        """
         prefix = {
             "telegram": "/",
             "discord": "/",
@@ -199,26 +256,59 @@ class CommandRegistry:
             "matrix": "!",
             "terminal": "windy ",
         }.get(platform, "/")
-        lines = ["🪰 Windy Fly Commands\n"]
-        for category, cmds in self.by_category().items():
-            label = category.upper().replace("_", " ")
+
+        # Build a quick lookup for category metadata + an ordering
+        # key that puts unknown categories last (sorted by name).
+        meta = {code: (rank, emoji, label)
+                for code, rank, emoji, label in self._CATEGORY_DISPLAY}
+        max_rank = len(self._CATEGORY_DISPLAY)
+
+        def cat_sort_key(category: str) -> tuple[int, str]:
+            if category in meta:
+                return (meta[category][0], category)
+            return (max_rank + 1, category)
+
+        # Header — short greeting, not a wall of text. Grandma reads
+        # the first three lines; we want them to set context fast.
+        lines = [
+            "🪰 *Windy Fly — what I can do*",
+            "",
+            "_Tap any command, or just type it. If I stop responding,"
+            " try /resurrect — I'll switch to a free local brain so"
+            " we can keep talking._",
+            "",
+        ]
+
+        eco_marker_used = False
+        for category in sorted(self.by_category().keys(), key=cat_sort_key):
+            cmds = self.by_category()[category]
+            if category in meta:
+                _, emoji, label = meta[category]
+            else:
+                # Unknown category — derive a friendly label from the
+                # internal code. Better than dropping the commands.
+                emoji = "•"
+                label = category.split("_", 1)[-1].replace("_", " ").title()
+
             eco_cmds = [c for c in cmds if c.ecosystem_only]
             core_cmds = [c for c in cmds if not c.ecosystem_only]
 
             if core_cmds:
-                lines.append(f"▸ {label}")
+                lines.append(f"{emoji} *{label}*")
                 for cmd in core_cmds:
-                    lines.append(f"  {prefix}{cmd.name:20s} {cmd.description}")
+                    lines.append(f"  {prefix}{cmd.name} — {cmd.description}")
                 lines.append("")
 
             if eco_cmds:
-                lines.append(f"▸ {label} (Ecosystem)")
+                lines.append(f"{emoji} *{label}* (Windy Fly exclusive)")
                 for cmd in eco_cmds:
-                    lines.append(f"  {prefix}{cmd.name:20s} {cmd.description} ⚡")
+                    lines.append(f"  {prefix}{cmd.name} — {cmd.description} ⚡")
                 lines.append("")
+                eco_marker_used = True
 
-        lines.append("⚡ = Windy Fly exclusive (not available in HiFly forks)")
-        lines.append(f"\nType '{prefix}help <command>' for details on any command.")
+        if eco_marker_used:
+            lines.append("⚡ = Windy Fly exclusive (not available in HiFly forks)")
+        lines.append(f"_Type {prefix}help <command> for details on any command._")
         return "\n".join(lines)
 
     def count(self) -> tuple[int, int]:
