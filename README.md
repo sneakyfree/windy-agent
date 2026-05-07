@@ -131,7 +131,7 @@ humor = 7
 daily_budget_usd = 5.0
 
 [ecosystem]
-eternitas_url = "https://eternitas.ai"
+eternitas_url = "https://api.eternitas.ai"
 windy_mail_url = "https://api.windymail.ai"
 matrix_homeserver = "https://chat.windychat.ai"
 windy_cloud_url = "https://cloud.windycloud.com"

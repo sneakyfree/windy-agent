@@ -210,7 +210,7 @@ not `localhost`. These live in `~/.windyfly/windyfly.toml` (or
 
 ```toml
 [ecosystem]
-eternitas_url     = "https://eternitas.ai"
+eternitas_url     = "https://api.eternitas.ai"
 windy_pro_url     = "https://windyword.ai"
 matrix_homeserver = "https://chat.windychat.ai"
 windy_mail_url    = "https://mail.windymail.ai"
@@ -222,7 +222,7 @@ Matching env-var overrides (populated by the systemd unit's
 
 | Env var             | Prod value                         |
 |---------------------|------------------------------------|
-| `ETERNITAS_API_URL` | `https://eternitas.ai`             |
+| `ETERNITAS_API_URL` | `https://api.eternitas.ai`             |
 | `WINDY_PRO_URL`     | `https://windyword.ai`             |
 | `WINDY_API_URL`     | `https://windyword.ai`             |
 | `MATRIX_HOMESERVER` | `https://chat.windychat.ai`        |
@@ -313,7 +313,7 @@ the identity + trust layer, not the runtime. What breaks:
 
 **Action:**
 
-1. Confirm with `curl https://eternitas.ai/health` — if 200, the
+1. Confirm with `curl https://api.eternitas.ai/health` — if 200, the
    issue is networking; if 5xx, the service is down.
 2. If Eternitas will be down >6h, set `WINDYFLY_TRUST_STRICT=false`
    temporarily so clearance-gated actions don't trip. Undo once

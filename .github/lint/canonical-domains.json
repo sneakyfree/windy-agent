@@ -1,6 +1,6 @@
 {
-  "version": 1,
-  "updated": "2026-05-06",
+  "version": 4,
+  "updated": "2026-05-07",
   "canonical": {
     "windy_word": { "apex": "windyword.ai", "account": "account.windyword.ai" },
     "windy_chat": { "apex": "windychat.ai", "chat": "chat.windychat.ai" },
@@ -12,6 +12,8 @@
     "eternitas":   { "apex": "eternitas.ai", "api": "api.eternitas.ai" },
     "windy_translate": { "apex": "windytranslate.com" },
     "windy_traveler":  { "apex": "windytraveler.com" },
+    "windy_search":    { "apex": "windysearch.com" },
+    "windy_call":      { "apex": "windycall.com", "api": "api.windycall.com" },
     "hifly":            { "apex": "hifly.ai" }
   },
   "banned": [
@@ -47,6 +49,8 @@
     "api.windyword.com",
     "api.windycloud.com",
     "api.windyclone.com",
+    "https://eternitas.ai",
+    "http://eternitas.ai",
     "windypro.thewindstorm.uk",
     "account.windypro.thewindstorm.uk",
     "eternitas.thewindstorm.uk",
@@ -58,6 +62,7 @@
     "windychat.com": "squatted by third party (Eric Frost) — never use",
     "windypro.com": "not owned; windy-pro is a legacy repo name not a brand",
     "api.windyword.ai": "zombie Phase-1 host with stale RS256 keypair — use account.windyword.ai",
+    "https://eternitas.ai (URL form)": "eternitas.ai is the marketing apex; the API is api.eternitas.ai. Code/configs that hit https://eternitas.ai/api/* hit a private 401 endpoint, not the canonical trust API. ADR-003 — coordinated fix-forward sweep.",
     "*.thewindstorm.uk": "legacy dev-stage URLs from before Phase 7 brand cutover"
   }
 }
