@@ -456,6 +456,22 @@ def agent_respond(
     response_length = loop_sliders.get("response_length", 5)
     max_tokens = 250 + (response_length * 375)
 
+    # 1.7. Resurrection mode (PR #133) — user explicitly hit
+    # /resurrect because their paid creds are dead. Force the offline
+    # path with the chosen Ollama model regardless of whether the
+    # paid providers happen to be reachable. Stays on until /normal.
+    from windyfly.agent.resurrect import is_resurrected as _is_resurrected
+    if _is_resurrected():
+        logger.info("[req:%s] resurrection active — routing through Ollama",
+                    request_id_short())
+        from windyfly.agent.offline import queue_message
+        context = [{"role": m["role"], "content": m["content"]} for m in messages[-5:]]
+        offline_response = get_offline_response(user_message, context)
+        write_queue.enqueue(Priority.HIGH, save_episode, db, "user", user_message, session_id=session_id)
+        write_queue.enqueue(Priority.HIGH, save_episode, db, "assistant", offline_response, session_id=session_id)
+        log_event(db, write_queue, "resurrect.dispatch", {"message": user_message[:100]})
+        return offline_response
+
     # 1.8. Offline detection — fall back to local model if API unreachable
     if not is_online():
         logger.warning("LLM API unreachable — entering offline mode")

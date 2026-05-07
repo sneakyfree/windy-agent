@@ -118,8 +118,29 @@ def _call_ollama(
     user_message: str,
     context: list[dict[str, str]] | None = None,
 ) -> str:
-    """Call local Ollama for offline response."""
+    """Call local Ollama for offline response.
+
+    Model selection priority (highest to lowest):
+      1. Resurrection-mode chosen model (PR #133): when /resurrect
+         is active, the user-picked best-installed model wins.
+      2. WINDY_OLLAMA_MODEL env var override (operator-level).
+      3. Hardcoded "llama3.2" default — kept for backwards compat
+         with the pre-#133 behavior.
+    """
     import httpx
+
+    # Resurrection mode wins when active. Falls back to env, then
+    # hardcoded default. Wrapped in try because the resurrect import
+    # creates an agent-package cycle risk in some test contexts.
+    model = "llama3.2"
+    try:
+        from windyfly.agent.resurrect import current_model as _r_model
+        rmod = _r_model()
+        if rmod:
+            model = rmod
+    except Exception:
+        pass
+    model = os.environ.get("WINDY_OLLAMA_MODEL", model)
 
     messages = []
     if context:
@@ -130,7 +151,7 @@ def _call_ollama(
         response = httpx.post(
             "http://localhost:11434/api/chat",
             json={
-                "model": "llama3.2",  # Default local model
+                "model": model,
                 "messages": messages,
                 "stream": False,
             },
@@ -140,7 +161,7 @@ def _call_ollama(
         data = response.json()
         return data.get("message", {}).get("content", "No response from local model.")
     except Exception as e:
-        logger.error("Ollama call failed: %s", e)
+        logger.error("Ollama call failed (model=%s): %s", model, e)
         return f"Local model error: {e}. Message queued for online processing."
 
 
