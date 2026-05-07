@@ -42,16 +42,21 @@
 # Languages chosen (Telegram-audience-weighted):
 #   en (default) — English
 #   es           — Spanish (US Latino + LatAm + Spain)
-#   pt-BR        — Portuguese, Brazilian (Brazil is one of
-#                   Telegram's top markets)
+#   pt           — Portuguese, BR-flavor (Brazil = top Telegram
+#                   market)
 #   ru           — Russian (Telegram's home country, largest
 #                   single-country user base)
+#   hi           — Hindi (India, growing Telegram market)
+#   id           — Indonesian (Telegram's #2 single-country base)
 #
-# Out of scope for this round (worthy of a follow-up with native-
-# speaker review):
-#   hi (Hindi), id (Indonesian), zh (Mandarin — Telegram blocked
-#   in mainland China), ar (Arabic — RTL rendering needs care),
-#   fr (French)
+# Native-speaker review post-tour is recommended for hi/id (PR
+# #147 author is non-native for both). The bot still works without
+# review — translations are functional, not poetry.
+#
+# Out of scope (RTL or smaller Telegram footprint):
+#   zh (Mandarin — Telegram blocked in mainland China),
+#   ar (Arabic — RTL rendering needs care),
+#   fr (French — smaller Telegram footprint than headcount suggests)
 #
 # Telegram caps descriptions at 256 chars; we keep them under 60
 # for clean rendering on phones.
@@ -275,6 +280,106 @@ read -r -d "" COMMANDS_RU <<'JSON' || true
 ]
 JSON
 
+# ── हिन्दी (hi) ──────────────────────────────────────────────────
+
+read -r -d "" COMMANDS_HI <<'JSON' || true
+[
+  {"command": "reset",     "description": "🆘 अगर मैं अटक जाऊं तो मुझे रीस्टार्ट करें"},
+  {"command": "resurrect", "description": "🆘 मुझे बचाओ — मुफ्त लोकल मॉडल पर स्विच"},
+  {"command": "normal",    "description": "🆘 /resurrect के बाद सामान्य मॉडल पर वापस"},
+  {"command": "autoresurrect", "description": "🆘 रेट लिमिट पर ऑटो-स्विच टॉगल करें"},
+  {"command": "help",      "description": "🆘 दिखाओ कि मैं क्या कर सकता हूं"},
+  {"command": "health",    "description": "🆘 अभी मैं कैसा हूं?"},
+
+  {"command": "new",       "description": "💬 नई बातचीत शुरू करें (मेमोरी रहती है)"},
+  {"command": "history",   "description": "💬 पिछले 10 संदेश दिखाएं"},
+  {"command": "summarize", "description": "💬 इस बातचीत का सारांश"},
+  {"command": "undo",      "description": "💬 पिछला आदान-प्रदान वापस लें"},
+  {"command": "retry",     "description": "💬 पिछला उत्तर फिर से बनाएं"},
+  {"command": "continue",  "description": "💬 अगर उत्तर कट गया तो जारी रखें"},
+
+  {"command": "spend",     "description": "💰 आज का खर्च प्रदाता द्वारा"},
+  {"command": "pause",     "description": "💰 मुझे पैसा खर्च करने से रोकें"},
+  {"command": "resume",    "description": "💰 विराम के बाद मुझे जगाएं"},
+  {"command": "yolo",      "description": "💰 पूरी ताकत से (24h, ऑटो-पॉज़ नहीं)"},
+  {"command": "yolo24",    "description": "💰 24 घंटे के लिए YOLO मोड"},
+  {"command": "yolo48",    "description": "💰 48 घंटे के लिए YOLO मोड"},
+
+  {"command": "facts",     "description": "🧠 मैं तुम्हारे बारे में क्या याद रखता हूं"},
+  {"command": "memory",    "description": "🧠 मेमोरी टूल्स"},
+  {"command": "intents",   "description": "🧠 तुम्हारे सक्रिय लक्ष्य"},
+
+  {"command": "mood",      "description": "🎭 मैं तुम्हारा क्या मूड देख रहा हूं"},
+  {"command": "soul",      "description": "🎭 मेरा व्यक्तित्व दिखाएं"},
+  {"command": "preset",    "description": "🎭 व्यक्तित्व प्रोफ़ाइल बदलें"},
+  {"command": "sliders",   "description": "🎭 सभी सेटिंग्स"},
+
+  {"command": "status",    "description": "ℹ️ त्वरित स्थिति सारांश"},
+  {"command": "version",   "description": "ℹ️ संस्करण, ब्रांच, अपटाइम"},
+  {"command": "uptime",    "description": "ℹ️ मैं कब से चल रहा हूं"},
+  {"command": "ping",      "description": "ℹ️ क्या मैं जवाब दे रहा हूं?"},
+  {"command": "pulse",     "description": "ℹ️ लाइव डायग्नोस्टिक्स"},
+
+  {"command": "fast",      "description": "🤖 सबसे तेज़ / सस्ते मॉडल पर स्विच"},
+  {"command": "model",     "description": "🤖 अपना LLM दिखाएं या बदलें"},
+  {"command": "tokens",    "description": "🤖 इस सत्र में टोकन उपयोग"},
+
+  {"command": "whoami",    "description": "🪪 मेरी पहचान (पासपोर्ट, भूमिका)"},
+
+  {"command": "guest",     "description": "👵 दादी मोड में जाएं (डेमो के लिए)"}
+]
+JSON
+
+# ── BAHASA INDONESIA (id) ─────────────────────────────────────────
+
+read -r -d "" COMMANDS_ID <<'JSON' || true
+[
+  {"command": "reset",     "description": "🆘 Restart saya jika macet atau aneh"},
+  {"command": "resurrect", "description": "🆘 Selamatkan saya — beralih ke model gratis"},
+  {"command": "normal",    "description": "🆘 Kembali ke model biasa setelah /resurrect"},
+  {"command": "autoresurrect", "description": "🆘 Aktifkan/matikan auto-switch saat batas tercapai"},
+  {"command": "help",      "description": "🆘 Tunjukkan apa yang bisa saya lakukan"},
+  {"command": "health",    "description": "🆘 Bagaimana keadaan saya sekarang?"},
+
+  {"command": "new",       "description": "💬 Mulai percakapan baru (memori tetap)"},
+  {"command": "history",   "description": "💬 Tampilkan 10 pesan terakhir"},
+  {"command": "summarize", "description": "💬 Ringkas percakapan ini"},
+  {"command": "undo",      "description": "💬 Batalkan pertukaran terakhir"},
+  {"command": "retry",     "description": "💬 Buat ulang balasan terakhir"},
+  {"command": "continue",  "description": "💬 Lanjutkan jika balasan terpotong"},
+
+  {"command": "spend",     "description": "💰 Pengeluaran hari ini per provider"},
+  {"command": "pause",     "description": "💰 Hentikan saya dari mengeluarkan uang"},
+  {"command": "resume",    "description": "💰 Bangunkan saya setelah jeda"},
+  {"command": "yolo",      "description": "💰 Mode penuh (24j, tanpa auto-pause)"},
+  {"command": "yolo24",    "description": "💰 Mode YOLO 24 jam"},
+  {"command": "yolo48",    "description": "💰 Mode YOLO 48 jam"},
+
+  {"command": "facts",     "description": "🧠 Apa yang saya ingat tentang Anda"},
+  {"command": "memory",    "description": "🧠 Alat memori"},
+  {"command": "intents",   "description": "🧠 Tujuan aktif Anda"},
+
+  {"command": "mood",      "description": "🎭 Suasana hati apa yang saya tangkap"},
+  {"command": "soul",      "description": "🎭 Tampilkan kepribadian saya"},
+  {"command": "preset",    "description": "🎭 Ganti profil kepribadian"},
+  {"command": "sliders",   "description": "🎭 Tampilkan semua pengaturan"},
+
+  {"command": "status",    "description": "ℹ️ Ringkasan status cepat"},
+  {"command": "version",   "description": "ℹ️ Versi, branch, uptime"},
+  {"command": "uptime",    "description": "ℹ️ Sudah berjalan berapa lama"},
+  {"command": "ping",      "description": "ℹ️ Apakah saya responsif?"},
+  {"command": "pulse",     "description": "ℹ️ Diagnostik langsung"},
+
+  {"command": "fast",      "description": "🤖 Beralih ke model tercepat / termurah"},
+  {"command": "model",     "description": "🤖 Tampilkan atau ganti LLM saya"},
+  {"command": "tokens",    "description": "🤖 Penggunaan token sesi ini"},
+
+  {"command": "whoami",    "description": "🪪 Identitas saya (paspor, peran)"},
+
+  {"command": "guest",     "description": "👵 Mode nenek (untuk demo)"}
+]
+JSON
+
 # ── Register each language ────────────────────────────────────────
 
 # Helper: post a command set to Telegram setMyCommands. First arg
@@ -330,6 +435,18 @@ if _post_commands "ru" "$COMMANDS_RU"; then
     echo "✅ ru (Русский) registered"
 else
     FAILED+=("ru")
+fi
+
+if _post_commands "hi" "$COMMANDS_HI"; then
+    echo "✅ hi (हिन्दी) registered"
+else
+    FAILED+=("hi")
+fi
+
+if _post_commands "id" "$COMMANDS_ID"; then
+    echo "✅ id (Bahasa Indonesia) registered"
+else
+    FAILED+=("id")
 fi
 
 if (( ${#FAILED[@]} > 0 )); then
