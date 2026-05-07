@@ -103,3 +103,83 @@ class TestMaybePrependHeader:
         ch._tracker = None
         result = maybe_prepend_header("Test response text", 0)
         assert "Test response text" in result
+
+
+class TestSingleEmojiPrefix:
+    """PR #144 — always-on single-emoji health prefix on every reply."""
+
+    def test_single_emoji_prefix_when_no_threshold_fires(self) -> None:
+        """Reply with no major context drift gets just the emoji
+        prefix, NOT the full panel."""
+        import windyfly.agent.context_header as ch
+        ch._tracker = None
+        # First call shows full panel (1+ hour since "last" / 100%
+        # delta from default). Second call without delta should drop
+        # to single-emoji prefix.
+        maybe_prepend_header("Setup call", 0)  # primes the tracker
+        result = maybe_prepend_header("Second reply", 100)  # tiny delta
+        # Should be single-emoji prefix, NOT the bracketed panel
+        assert not result.startswith("[🪰")
+        assert result.startswith("🟢 ")
+        assert "Second reply" in result
+
+    def test_emoji_prefix_handles_empty_response(self) -> None:
+        """Empty response → returned unchanged. No point prefixing
+        nothing."""
+        import windyfly.agent.context_header as ch
+        ch._tracker = None
+        result = maybe_prepend_header("", 0)
+        assert result == ""
+
+    def test_emoji_changes_with_state(self) -> None:
+        """🟢 → 🟡 → 🔴 as context burns down. Pinned because
+        grandma's eye scans the first character; if that signal
+        regresses, this test fails fast."""
+        import windyfly.agent.context_header as ch
+
+        # Healthy
+        ch._tracker = None
+        maybe_prepend_header("setup", 0)
+        result = maybe_prepend_header("hi", 1000)  # ~99% remaining
+        assert result.startswith("🟢 "), f"healthy should be 🟢, got: {result[:5]}"
+
+        # Yellow zone (10-50%) — tokens_used = 150_000 of 200_000 = 25% remaining
+        ch._tracker = None
+        maybe_prepend_header("setup", 150_000)
+        result = maybe_prepend_header("hi", 150_000)
+        # Threshold won't fire on second call (no delta), so we get
+        # the prefix
+        assert result.startswith("🟡 ") or "🟡" in result[:20], (
+            f"low context should be 🟡, got: {result[:20]}"
+        )
+
+    def test_resurrected_state_shows_lifeboat_emoji(self) -> None:
+        """When the bot is in lifeboat mode (PR #138), the emoji
+        prefix is 🛟 — surfacing 'paid creds dead' is more user-
+        facing than memory pressure."""
+        import windyfly.agent.context_header as ch
+        from windyfly.agent import context_header as ch_mod
+
+        ch._tracker = None
+        # Patch the resurrection probe to True
+        with patch.object(ch_mod, "_is_resurrected_safe", return_value=True):
+            maybe_prepend_header("setup", 0)
+            result = maybe_prepend_header("hi", 100)
+        assert "🛟" in result[:5], (
+            f"resurrected state should show 🛟 prefix, got: {result[:20]}"
+        )
+
+    def test_emoji_prefix_does_not_break_existing_panel_path(self) -> None:
+        """When threshold fires (10%+ context delta), the FULL panel
+        wins — single-emoji prefix is suppressed (the panel embeds
+        the same emoji, so info isn't lost). Pin so a future refactor
+        doesn't accidentally double-prefix."""
+        import windyfly.agent.context_header as ch
+        ch._tracker = None
+        # Big delta from initial 100% → triggers full panel
+        result = maybe_prepend_header("Hi!", 50_000)  # 25% used = 75% rem
+        # Full panel format
+        assert result.startswith("[🪰 Windy Fly")
+        # NOT double-prefixed (i.e., no bare emoji + bracketed panel)
+        assert not result.startswith("🟢 [")
+        assert not result.startswith("🟡 [")

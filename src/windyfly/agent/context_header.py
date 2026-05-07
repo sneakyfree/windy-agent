@@ -1,17 +1,73 @@
-"""Context header — the gas tank indicator.
+"""Context header — the gas tank indicator + always-on health emoji.
 
-Tracks token usage per session and formats the signature Windy Fly
-header that shows context freshness, like a battery/gas indicator.
+Two surfaces in this module:
 
-Header appears when:
-  - 1+ hour since last header, OR
-  - 10%+ context delta since last header
+  1. **Single-emoji health prefix** (PR #144 / grandma-proofing #6):
+     Every LLM reply is prefixed with one emoji indicating the bot's
+     current state. Grandma can glance at the very first character of
+     any reply and know "🟢 healthy / 🟡 slow / 🔴 problem / 🛟
+     lifeboat." Cheap (1-2 visible chars), always-on, language-
+     agnostic.
+
+  2. **Full gas-tank panel** (existing): when context-window % drops
+     by 10+ since last header OR an hour has passed since last
+     header, the full panel ``[🪰 Windy Fly · ts · 🟢 95%]`` replaces
+     the single-emoji prefix. Same emoji is part of the panel so
+     visual continuity is preserved across thresholds.
+
+State priority (highest first):
+  🛟 — lifeboat mode (resurrected — running on local Ollama)
+  🔴 — context < 10% remaining (very near memory cap)
+  🟡 — context < 30% remaining (slowing down)
+  🟢 — healthy (default)
+
+Rationale for default-on prefix vs threshold-only header:
+  - Pre-PR a healthy reply had NO marker. User had no signal whether
+    the bot was OK or limping until threshold crossed.
+  - Post-PR every reply ships ONE character of state info. Free
+    visual telemetry; grandma learns the four emojis and never has
+    to guess "is something wrong with my bot?"
+
+Slash-command acks bypass this — they have their own structured
+formatting (e.g., ``🛟 *Lifeboat mode activated...*``) and don't go
+through ``maybe_prepend_header``.
 """
 
 from __future__ import annotations
 
 import time
 from datetime import datetime, timezone
+
+
+def _state_emoji(pct: float, resurrected: bool = False) -> str:
+    """Single source of truth for the bot's current state emoji.
+
+    Threshold legend (preserved from pre-PR format_header for
+    backwards compat with existing test_context_header tests):
+      🟢 ≥ 50% remaining
+      🟡 10-50%
+      🔴 <  10%
+      🛟 resurrected (overrides everything — paid creds dead is
+         more user-facing than memory pressure, so surface it)
+    """
+    if resurrected:
+        return "🛟"
+    if pct >= 50:
+        return "🟢"
+    if pct >= 10:
+        return "🟡"
+    return "🔴"
+
+
+def _is_resurrected_safe() -> bool:
+    """Best-effort resurrection probe. Lazy import + guarded so a
+    broken resurrect module can't crash the header path on every
+    reply."""
+    try:
+        from windyfly.agent.resurrect import is_resurrected
+        return is_resurrected()
+    except Exception:
+        return False
 
 
 class ContextTracker:
@@ -33,12 +89,22 @@ class ContextTracker:
         used_pct = (self.tokens_used / self.max_context_tokens) * 100
         return max(0.0, 100.0 - used_pct)
 
+    def current_state_emoji(self) -> str:
+        """The emoji reflecting the bot's current state. Used by
+        both the single-emoji prefix and the full gas-tank panel
+        for consistency."""
+        return _state_emoji(self.pct_remaining, _is_resurrected_safe())
+
     def should_show_header(self) -> bool:
-        """Determine if the header should be shown on this response.
+        """Determine if the FULL panel should be shown on this response.
 
         Rules (OR'd):
           - 1+ hour since last header
           - 10%+ context delta since last header
+
+        When False, the caller still prepends a single-emoji marker
+        (PR #144). The full panel is the periodic deeper status; the
+        emoji prefix is the always-on quick state indicator.
         """
         now = time.time()
         hours_elapsed = (now - self._last_header_time) / 3600
@@ -57,14 +123,7 @@ class ContextTracker:
         pct = self.pct_remaining
         now = datetime.now(timezone.utc).astimezone()
         timestamp = now.strftime("%b %d, %I:%M %p")
-
-        # Color coding
-        if pct >= 50:
-            indicator = "🟢"
-        elif pct >= 10:
-            indicator = "🟡"
-        else:
-            indicator = "🔴"
+        indicator = self.current_state_emoji()
 
         self._last_header_time = time.time()
         self._last_header_pct = pct
@@ -85,15 +144,21 @@ def get_tracker(max_tokens: int = 200_000) -> ContextTracker:
 
 
 def maybe_prepend_header(response_text: str, tokens_used: int) -> str:
-    """Conditionally prepend the gas-tank header to a response.
+    """Prepend a state marker to the response.
 
-    Args:
-        response_text: The agent's raw response.
-        tokens_used: Total tokens consumed in this session so far.
+    Two paths (mutually exclusive):
+      - Threshold met (10%+ delta or 1+ hour since last header):
+        prepend the full gas-tank panel. The panel embeds the state
+        emoji, so it carries the same signal in a richer form.
+      - Threshold NOT met: prepend just the single-emoji marker
+        (PR #144). Cheap visual telemetry on every reply.
 
-    Returns:
-        Response with header prepended if trigger conditions met.
+    Empty response is returned unchanged — no point prefixing
+    nothing.
     """
+    if not response_text:
+        return response_text
+
     tracker = get_tracker()
     tracker.tokens_used = tokens_used
 
@@ -101,4 +166,7 @@ def maybe_prepend_header(response_text: str, tokens_used: int) -> str:
         header = tracker.format_header()
         return f"{header}\n\n{response_text}"
 
-    return response_text
+    # Always-on single-emoji prefix. Slash-command acks don't go
+    # through this code path, so they keep their existing
+    # formatting.
+    return f"{tracker.current_state_emoji()} {response_text}"
