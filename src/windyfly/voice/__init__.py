@@ -20,6 +20,13 @@ function ``transcribe`` doesn't shadow the submodule when callers
 do ``from windyfly.voice import transcribe``.
 """
 
+from windyfly.voice.piper import is_available as is_synthesize_available
+from windyfly.voice.piper import synthesize
 from windyfly.voice.whisper import is_available, transcribe
 
-__all__ = ["is_available", "transcribe"]
+__all__ = [
+    "is_available",
+    "is_synthesize_available",
+    "synthesize",
+    "transcribe",
+]
