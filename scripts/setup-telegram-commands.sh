@@ -60,6 +60,7 @@ read -r -d "" COMMANDS <<'JSON' || true
   {"command": "reset",     "description": "🆘 Restart me if I'm stuck or acting weird"},
   {"command": "resurrect", "description": "🆘 Save me — switch to a free local model"},
   {"command": "normal",    "description": "🆘 Back to my usual brain after /resurrect"},
+  {"command": "auto-resurrect", "description": "🆘 Toggle auto-switch to free model on rate limit"},
   {"command": "help",      "description": "🆘 Show what I can do for you"},
   {"command": "health",    "description": "🆘 How am I doing right now?"},
 

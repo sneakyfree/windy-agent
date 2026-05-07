@@ -965,6 +965,73 @@ class TelegramChannel(ChannelAdapter):
             self._last_message_at = time.time()
             return
 
+        # /auto-resurrect [on|off|status] (PR #145) — toggles whether
+        # the bot auto-flips into lifeboat mode when paid creds die
+        # mid-conversation. Default ON; user can opt-out.
+        from windyfly.channels.slash_commands import (
+            parse_auto_resurrect_command as _parse_auto_resurrect,
+        )
+        is_ar, ar_arg = _parse_auto_resurrect(text)
+        if is_ar:
+            from windyfly.agent.resurrect import (
+                auto_resurrect_status as _ar_status,
+                set_auto_resurrect as _set_ar,
+            )
+            if ar_arg is None:
+                # Status
+                state = _ar_status()
+                badge = "🟢 ON" if state["enabled"] else "🔴 OFF"
+                cooldown = (
+                    f" (in cooldown — wait up to "
+                    f"{state['cooldown_seconds']:.0f}s)"
+                    if state["in_cooldown"] else ""
+                )
+                ack = (
+                    f"🚨 *Auto-resurrect:* {badge}{cooldown}\n\n"
+                    f"_When my usual model hits a rate limit "
+                    f"mid-chat, auto-resurrect switches me to a free "
+                    f"local model so we can keep talking. I'll "
+                    f"always tell you when this happens — never "
+                    f"silent. Toggle with /auto-resurrect on or off._"
+                )
+            elif ar_arg == "on":
+                result = _set_ar(True, actor=sender_id)
+                if result.get("ok"):
+                    ack = (
+                        "🟢 *Auto-resurrect ON.*\n\n"
+                        "If my usual model hits a rate limit mid-chat, "
+                        "I'll auto-switch to a free local model and "
+                        "tell you about it. /auto-resurrect off to "
+                        "disable."
+                    )
+                else:
+                    ack = f"⚠ Couldn't enable: {result.get('error', 'unknown')}"
+            elif ar_arg == "off":
+                result = _set_ar(False, actor=sender_id)
+                if result.get("ok"):
+                    ack = (
+                        "🔴 *Auto-resurrect OFF.*\n\n"
+                        "If my usual model fails mid-chat, you'll get "
+                        "the standard offline message. Type "
+                        "/resurrect to manually switch to a free "
+                        "local model when you want."
+                    )
+                else:
+                    ack = f"⚠ Couldn't disable: {result.get('error', 'unknown')}"
+            else:  # invalid
+                ack = (
+                    "Try one of these:\n"
+                    "• `/auto-resurrect` — show current setting\n"
+                    "• `/auto-resurrect on` — enable auto-switch\n"
+                    "• `/auto-resurrect off` — disable auto-switch"
+                )
+            try:
+                await self._send_long_reply(update.message, ack)
+            except Exception as e:
+                logger.warning("auto-resurrect-ack reply failed: %s", e)
+            self._last_message_at = time.time()
+            return
+
         if _is_normal_message(text):
             from windyfly.agent.resurrect import normalize as _normalize
             result = _normalize()

@@ -122,6 +122,35 @@ NORMAL_EXACT = frozenset({
     "/normal", "/normal-mode", "/back-to-normal",
 })
 
+# Auto-resurrect toggle (PR #145). Default ON; user can opt-out.
+# Surface: /auto-resurrect on|off|status (or bare /auto-resurrect = status)
+AUTO_RESURRECT_PREFIXES = ("/auto-resurrect", "/auto-rescue", "/autoresurrect")
+
+
+def parse_auto_resurrect_command(text: str | None) -> tuple[bool, str | None]:
+    """Returns (is_cmd, arg) where arg is one of:
+      - None       → bare command → show status
+      - "on"
+      - "off"
+      - "invalid"  → unrecognized arg
+    """
+    if not text:
+        return False, None
+    t = text.strip().lower()
+    for prefix in AUTO_RESURRECT_PREFIXES:
+        if t == prefix:
+            return True, None
+        if t.startswith(prefix + " "):
+            arg = t[len(prefix) + 1:].strip()
+            if arg in ("on", "enable", "yes"):
+                return True, "on"
+            if arg in ("off", "disable", "no"):
+                return True, "off"
+            if arg in ("status", "?"):
+                return True, None
+            return True, "invalid"
+    return False, None
+
 
 def is_resurrect_message(text: str | None) -> bool:
     """True iff text triggers lifeboat mode (exact slash match OR a
