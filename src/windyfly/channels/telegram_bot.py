@@ -43,6 +43,7 @@ from windyfly.channels.slash_commands import (
     is_version_message as _is_version_message,
     is_whoami_message as _is_whoami_message,
 )
+from windyfly.observability.recovery_hint import with_recovery_hint
 from windyfly.observability.restart_greeting import set_pending_greeting
 from windyfly.observability.sanitize import sanitize_outgoing, split_for_telegram
 from windyfly.observability.sd_notify import notify_watchdog
@@ -635,7 +636,9 @@ class TelegramChannel(ChannelAdapter):
                             f"_Say /yolo off to end early. Say /pause to stop spending right now._"
                         )
                     else:
-                        ack = f"⚠ Could not enable YOLO: {result.get('error', 'unknown error')}"
+                        ack = with_recovery_hint(
+                            f"⚠ Could not enable YOLO: {result.get('error', 'unknown error')}"
+                        )
             elif yolo_arg == "off":
                 result = yolo_disable()
                 ack = (
@@ -665,7 +668,9 @@ class TelegramChannel(ChannelAdapter):
                         f"_Say /yolo off to end early. Say /pause to stop right now._"
                     )
                 else:
-                    ack = f"⚠ Could not enable YOLO: {result.get('error', 'unknown error')}"
+                    ack = with_recovery_hint(
+                        f"⚠ Could not enable YOLO: {result.get('error', 'unknown error')}"
+                    )
 
             try:
                 await self._send_long_reply(update.message, ack)
@@ -701,7 +706,7 @@ class TelegramChannel(ChannelAdapter):
                     "👵 *Guest mode ON.* Until you say /guest off, I'll keep "
                     "replies short and plain — no IP addresses, no Docker / "
                     "WireGuard / SSH talk. Good for demos."
-                ) if result.get("ok") else (
+                ) if result.get("ok") else with_recovery_hint(
                     f"⚠ Could not enable guest mode: {result.get('error', 'unknown')}"
                 )
             elif guest_arg == "off":
@@ -764,7 +769,9 @@ class TelegramChannel(ChannelAdapter):
                 ack = _format_spend_summary(summary)
             except Exception as e:
                 logger.warning("spend summary failed: %s", e)
-                ack = "⚠ Couldn't read the cost ledger right now."
+                ack = with_recovery_hint(
+                    "⚠ Couldn't read the cost ledger right now."
+                )
             try:
                 await self._send_long_reply(update.message, ack)
             except Exception as e:
@@ -902,7 +909,9 @@ class TelegramChannel(ChannelAdapter):
                     ack = format_whoami_reply()
             except Exception as e:
                 logger.warning("version/uptime/whoami reply failed: %s", e)
-                ack = "⚠ Couldn't gather version info right now."
+                ack = with_recovery_hint(
+                    "⚠ Couldn't gather version info right now."
+                )
             try:
                 await self._send_long_reply(update.message, ack)
             except Exception as e:

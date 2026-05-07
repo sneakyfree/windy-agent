@@ -103,12 +103,17 @@ def get_offline_response(
         context: Optional conversation context.
 
     Returns:
-        Response text (from Ollama or a queue notice).
+        Response text (from Ollama or a queue notice). When the
+        local model isn't available, we append the standard
+        recovery hint so a confused grandma sees /reset and
+        /resurrect right under the "I'm offline" copy. The Ollama
+        success path doesn't get the hint — it's a real reply.
     """
     if is_ollama_available():
         return _call_ollama(user_message, context)
 
-    return (
+    from windyfly.observability.recovery_hint import with_recovery_hint
+    return with_recovery_hint(
         "I'm currently offline and don't have a local model available. "
         "I'll process your message when connectivity returns. 🪰"
     )
