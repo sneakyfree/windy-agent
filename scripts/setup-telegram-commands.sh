@@ -28,8 +28,27 @@ fi
 # tapping. Engineering commands (selftest, doctor, etc.) stay
 # typed-only.
 #
+# CATEGORIZATION (PR #139, 2026-05-07):
+# Telegram's setMyCommands API gives us a flat list — no native
+# category grouping. So we encode categories as the leading emoji
+# of each description. Grandma's eye scans down the left column,
+# sees clusters of identical emojis, and her gaze lands on the
+# right group fast even when squinting.
+#
+# Order of categories (top to bottom, urgency-weighted):
+#   🆘 Rescue        — bot broken / panic
+#   💬 Conversation  — flow control
+#   💰 Money         — spend control
+#   🧠 Memory        — what I know
+#   🎭 Personality   — how I behave
+#   ℹ  Status        — am I OK?
+#   🤖 Model         — which brain
+#   🪪 Identity      — who I am
+#   👵 Demo          — tour mode
+#
 # Telegram caps descriptions at 256 chars; we keep them under 60
 # for clean rendering on phones.
+#
 # Voice messages are handled by the channel adapter automatically;
 # no command needed. Install voice support with:
 #   pip install windyfly[voice]
@@ -38,46 +57,48 @@ fi
 
 read -r -d "" COMMANDS <<'JSON' || true
 [
-  {"command": "reset",     "description": "Restart me if I am acting weird (memory safe)"},
-  {"command": "resurrect", "description": "Save me — switch to a free local model if I am dead"},
-  {"command": "normal",    "description": "Switch back to my usual model after /resurrect"},
-  {"command": "pause",     "description": "Stop me from spending money (kill switch)"},
-  {"command": "resume",    "description": "Wake me up after a pause"},
-  {"command": "spend",     "description": "Today's spending by provider"},
-  {"command": "yolo",      "description": "Let me cook hard (24h, no auto-pause)"},
-  {"command": "yolo24",    "description": "YOLO mode for 24 hours"},
-  {"command": "yolo48",    "description": "YOLO mode for 48 hours"},
-  {"command": "guest",     "description": "Switch into grandma-mode for a demo"},
-  {"command": "health",    "description": "How am I doing right now?"},
-  {"command": "help",      "description": "Show what I can do"},
+  {"command": "reset",     "description": "🆘 Restart me if I'm stuck or acting weird"},
+  {"command": "resurrect", "description": "🆘 Save me — switch to a free local model"},
+  {"command": "normal",    "description": "🆘 Back to my usual brain after /resurrect"},
+  {"command": "help",      "description": "🆘 Show what I can do for you"},
+  {"command": "health",    "description": "🆘 How am I doing right now?"},
 
-  {"command": "new",       "description": "Start a fresh conversation (memory stays)"},
-  {"command": "undo",      "description": "Undo the last exchange"},
-  {"command": "retry",     "description": "Regenerate the last reply"},
-  {"command": "continue",  "description": "Continue if the reply got cut off"},
-  {"command": "history",   "description": "Show the last 10 messages"},
-  {"command": "summarize", "description": "Summarize this conversation"},
+  {"command": "new",       "description": "💬 Start a fresh conversation (memory stays)"},
+  {"command": "history",   "description": "💬 Show the last 10 messages"},
+  {"command": "summarize", "description": "💬 Summarize this conversation"},
+  {"command": "undo",      "description": "💬 Undo the last exchange"},
+  {"command": "retry",     "description": "💬 Regenerate the last reply"},
+  {"command": "continue",  "description": "💬 Continue if a reply got cut off"},
 
-  {"command": "facts",     "description": "What I remember about you"},
-  {"command": "memory",    "description": "Memory tools (stats and search)"},
-  {"command": "intents",   "description": "Your active goals and intents"},
+  {"command": "spend",     "description": "💰 Today's spending by provider"},
+  {"command": "pause",     "description": "💰 Stop me from spending money"},
+  {"command": "resume",    "description": "💰 Wake me up after a pause"},
+  {"command": "yolo",      "description": "💰 Let me cook hard (24h, no auto-pause)"},
+  {"command": "yolo24",    "description": "💰 YOLO mode for 24 hours"},
+  {"command": "yolo48",    "description": "💰 YOLO mode for 48 hours"},
 
-  {"command": "soul",      "description": "Show my personality"},
-  {"command": "preset",    "description": "Switch personality preset"},
-  {"command": "sliders",   "description": "Show all personality sliders"},
-  {"command": "mood",      "description": "What mood I am picking up from you"},
+  {"command": "facts",     "description": "🧠 What I remember about you"},
+  {"command": "memory",    "description": "🧠 Memory tools (stats and search)"},
+  {"command": "intents",   "description": "🧠 Your active goals and intents"},
 
-  {"command": "status",    "description": "Quick status summary"},
-  {"command": "pulse",     "description": "Live runtime diagnostics"},
-  {"command": "version",   "description": "Git SHA, branch, uptime — am I latest?"},
-  {"command": "uptime",    "description": "How long I have been running"},
-  {"command": "ping",      "description": "Am I responsive?"},
+  {"command": "mood",      "description": "🎭 What mood I'm picking up from you"},
+  {"command": "soul",      "description": "🎭 Show my personality"},
+  {"command": "preset",    "description": "🎭 Switch personality preset"},
+  {"command": "sliders",   "description": "🎭 Show all personality sliders"},
 
-  {"command": "model",     "description": "Show or switch my LLM"},
-  {"command": "tokens",    "description": "Token usage this session"},
-  {"command": "fast",      "description": "Switch to my fastest/cheapest model"},
+  {"command": "status",    "description": "ℹ️ Quick status summary"},
+  {"command": "version",   "description": "ℹ️ Git SHA, branch, uptime — am I latest?"},
+  {"command": "uptime",    "description": "ℹ️ How long I've been running"},
+  {"command": "ping",      "description": "ℹ️ Am I responsive?"},
+  {"command": "pulse",     "description": "ℹ️ Live runtime diagnostics"},
 
-  {"command": "whoami",    "description": "My identity (passport, role)"}
+  {"command": "fast",      "description": "🤖 Switch to my fastest / cheapest model"},
+  {"command": "model",     "description": "🤖 Show or switch my LLM"},
+  {"command": "tokens",    "description": "🤖 Token usage this session"},
+
+  {"command": "whoami",    "description": "🪪 My identity (passport, role)"},
+
+  {"command": "guest",     "description": "👵 Switch into grandma-mode for a demo"}
 ]
 JSON
 
