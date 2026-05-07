@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from typing import Any
 
 # capability_registry is re-exported as a module attribute on this
@@ -467,7 +468,18 @@ def agent_respond(
         })
 
     # 1.75. Budget enforcement
-    model = config.get("agent", {}).get("default_model", "gpt-4o-mini")
+    # Model selection precedence: env DEFAULT_MODEL > config
+    # agent.default_model > "gpt-4o-mini" last-resort. Without env
+    # precedence here, the chain-fail auto-resurrect log labeled
+    # previous_model=gpt-4o-mini even when the actual call_llm was
+    # using claude-haiku-4-5 from env (PR #150 hardening fix). Now
+    # the local `model` variable reflects what call_llm actually
+    # used so logs/audit fields are accurate.
+    model = (
+        os.environ.get("DEFAULT_MODEL")
+        or config.get("agent", {}).get("default_model")
+        or "gpt-4o-mini"
+    )
 
     # Creativity slider → LLM temperature (0→0.0, 10→1.0)
     creativity = loop_sliders.get("creativity", 5)
@@ -980,7 +992,9 @@ def _extract_relationship_moment(
                 {"role": "system", "content": "You write brief emotional summaries."},
                 {"role": "user", "content": moment_prompt},
             ],
-            model=config.get("agent", {}).get("default_model", "gpt-4o-mini"),
+            model=(os.environ.get("DEFAULT_MODEL")
+                   or config.get("agent", {}).get("default_model")
+                   or "gpt-4o-mini"),
             temperature=0.3,
             max_tokens=50,
             config=config,
@@ -1053,7 +1067,9 @@ def _maybe_write_journal_entry(
                 {"role": "system", "content": "You write brief, genuine diary entries."},
                 {"role": "user", "content": journal_prompt},
             ],
-            model=config.get("agent", {}).get("default_model", "gpt-4o-mini"),
+            model=(os.environ.get("DEFAULT_MODEL")
+                   or config.get("agent", {}).get("default_model")
+                   or "gpt-4o-mini"),
             temperature=0.6,
             max_tokens=80,
             config=config,
