@@ -22,6 +22,7 @@ get to run before the process exits.
 from __future__ import annotations
 
 import asyncio
+import io
 import logging
 import os
 import time
@@ -190,6 +191,46 @@ def _format_spend_summary(summary: dict) -> str:
         lines.append("")
         lines.append("_Say /pause to stop spending. Say /resume when you want me back._")
     return "\n".join(lines)
+
+
+def _wav_to_ogg_opus(wav_bytes: bytes, timeout_s: int = 20) -> bytes | None:
+    """Convert WAV bytes → OGG/Opus bytes via ffmpeg subprocess.
+
+    Telegram's ``send_voice`` requires OGG/Opus; ``send_audio``
+    accepts WAV but renders as a file attachment instead of the
+    voice-bubble UX that makes voice-out worth doing for grandma.
+
+    Returns None when ffmpeg is missing or conversion fails. Caller
+    falls back to send_audio with the raw WAV in that case.
+    """
+    import subprocess
+    try:
+        proc = subprocess.run(
+            [
+                "ffmpeg", "-loglevel", "error",
+                "-i", "pipe:0",
+                "-c:a", "libopus", "-b:a", "32k",
+                "-ar", "48000", "-ac", "1",
+                "-f", "ogg", "pipe:1",
+            ],
+            input=wav_bytes,
+            capture_output=True,
+            timeout=timeout_s,
+        )
+        if proc.returncode == 0 and proc.stdout:
+            return proc.stdout
+        logger.debug("ffmpeg WAV→OGG failed exit=%s stderr=%s",
+                     proc.returncode, proc.stderr[:200].decode("utf-8", "replace"))
+        return None
+    except FileNotFoundError:
+        logger.debug("ffmpeg not on PATH; voice-out falls back to send_audio")
+        return None
+    except subprocess.TimeoutExpired:
+        logger.warning("ffmpeg WAV→OGG timed out after %ss", timeout_s)
+        return None
+    except Exception as e:
+        logger.debug("ffmpeg WAV→OGG unexpected: %s", e)
+        return None
 
 
 class TelegramChannel(ChannelAdapter):
@@ -588,7 +629,74 @@ class TelegramChannel(ChannelAdapter):
             await self._send_long_reply(update.message, body)
         except Exception as e:
             logger.warning("voice-reply send failed: %s", e)
+
+        # Voice-OUT (PR #143): if Piper TTS is installed, also send
+        # a spoken version of the reply. Symmetric with voice-IN —
+        # grandma who sent voice gets voice back. The text reply
+        # above is the "Heard:" confirmation + answer; this is just
+        # the answer spoken aloud. Failure here is silent (we
+        # already sent the text).
+        try:
+            from windyfly.voice import (
+                is_synthesize_available as _tts_avail,
+                synthesize as _tts_synth,
+            )
+        except Exception:
+            _tts_avail = lambda: False  # noqa: E731
+            _tts_synth = None  # type: ignore[assignment]
+        if (
+            _tts_avail()
+            and outgoing
+            and os.environ.get("WINDY_VOICE_OUT", "1") != "0"
+        ):
+            await self._send_synth_voice_reply(update.message, outgoing)
+
         self._last_message_at = time.time()
+
+    async def _send_synth_voice_reply(self, message: Any, text: str) -> None:
+        """Synthesize ``text`` to a voice note and send it.
+
+        Best-effort: any failure is logged and swallowed because the
+        text reply already shipped above. The voice version is bonus.
+
+        Pipeline:
+          1. Piper synthesize → WAV bytes (in a thread executor so
+             the event loop keeps serving)
+          2. ffmpeg convert WAV → OGG/Opus (Telegram's voice-note
+             native format; falls back to send_audio if ffmpeg is
+             missing)
+          3. ``send_voice`` so the message renders as a voice bubble
+             with playback waveform — the UX win that makes this
+             worth doing for grandma.
+        """
+        try:
+            from windyfly.voice import synthesize as _tts_synth
+        except Exception:
+            return
+
+        loop = asyncio.get_running_loop()
+        try:
+            wav_bytes = await loop.run_in_executor(None, _tts_synth, text)
+        except Exception as e:
+            logger.warning("voice-out synth failed: %s", e)
+            return
+        if not wav_bytes:
+            return
+
+        # Convert WAV → OGG/Opus (Telegram voice-note native format).
+        # ffmpeg shells out so we don't take a python audio dep.
+        ogg_bytes = await loop.run_in_executor(
+            None, _wav_to_ogg_opus, wav_bytes,
+        )
+        try:
+            if ogg_bytes:
+                await message.reply_voice(voice=io.BytesIO(ogg_bytes))
+            else:
+                # Fallback: send the WAV as audio (works without ffmpeg
+                # but appears as audio file rather than voice bubble).
+                await message.reply_audio(audio=io.BytesIO(wav_bytes))
+        except Exception as e:
+            logger.warning("voice-out send failed: %s", e)
 
     async def _handle(self, update, context) -> None:
         if not update.message or not update.message.text:

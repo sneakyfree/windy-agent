@@ -40,17 +40,19 @@ semantic = [
     "numpy>=1.24",
 ]
 voice = [
-    # Opt-in voice ingestion: Whisper transcription of Telegram
-    # voice notes. Adds ~200MB (faster-whisper + onnxruntime +
-    # tokenizers + huggingface-hub) plus the model weights on first
-    # use (~75MB for tiny.en, cached at ~/.cache/huggingface). Not
-    # installed by default. Enable with:
+    # Opt-in voice ingestion + synthesis. Adds ~200MB
+    # (faster-whisper + onnxruntime + tokenizers + huggingface-hub)
+    # plus model weights on first use:
+    #   - faster-whisper tiny.en (~75MB, cached ~/.cache/huggingface)
+    #   - piper en_US-amy-medium (~63MB, cached ~/.cache/piper)
+    # Not installed by default. Enable with:
     #   pip install windyfly[voice]
-    # Without this, voice messages get a polite "voice not ready
-    # yet, please type" reply rather than the silent drop pre-PR
-    # #129. Voice synthesis (text-to-speech reply) deferred to a
-    # follow-up — text-back is the v1 contract.
+    #   python -m piper.download_voices en_US-amy-medium
+    # Without these, voice notes get a polite "voice not ready"
+    # text reply (PR #129) and voice synthesis is skipped (PR #143
+    # — text-only replies still work).
     "faster-whisper>=1.0",
+    "piper-tts>=1.2",
 ]
 all-channels = [
     "python-telegram-bot>=21.0",
