@@ -39,6 +39,8 @@ fi
 read -r -d "" COMMANDS <<'JSON' || true
 [
   {"command": "reset",     "description": "Restart me if I am acting weird (memory safe)"},
+  {"command": "resurrect", "description": "Save me — switch to a free local model if I am dead"},
+  {"command": "normal",    "description": "Switch back to my usual model after /resurrect"},
   {"command": "pause",     "description": "Stop me from spending money (kill switch)"},
   {"command": "resume",    "description": "Wake me up after a pause"},
   {"command": "spend",     "description": "Today's spending by provider"},

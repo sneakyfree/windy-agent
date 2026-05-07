@@ -33,9 +33,11 @@ from windyfly.channels.base import ChannelAdapter, IncomingMessage, OutgoingMess
 # reuse them without copy-paste. Telegram-specific reply text +
 # side effects stay here; pure recognition lives in slash_commands.
 from windyfly.channels.slash_commands import (
+    is_normal_message as _is_normal_message,
     is_panic_message as _is_panic_message,
     is_pause_message as _is_pause_message,
     is_resume_message as _is_resume_message,
+    is_resurrect_message as _is_resurrect_message,
     is_spend_message as _is_spend_message,
     is_uptime_message as _is_uptime_message,
     is_version_message as _is_version_message,
@@ -767,6 +769,117 @@ class TelegramChannel(ChannelAdapter):
                 await self._send_long_reply(update.message, ack)
             except Exception as e:
                 logger.warning("spend-ack reply failed: %s", e)
+            self._last_message_at = time.time()
+            return
+
+        # ── /resurrect / /normal — lifeboat recovery (PR #133) ──
+        # User-triggerable bridge to a free local Ollama model when
+        # paid creds are dead. Pure file-flag op, no LLM, no DB —
+        # works even when the agent_loop wouldn't (every paid
+        # provider 401'ing). The agent_loop reads the flag at the top
+        # of agent_respond and routes through Ollama with the chosen
+        # model.
+        if _is_resurrect_message(text):
+            from windyfly.agent.resurrect import (
+                resurrect as _resurrect, resurrection_state as _r_state,
+            )
+            existing = _r_state()
+            if existing.get("active"):
+                # Already resurrected — refresh ack so the user knows
+                # what state they're in.
+                model = existing.get("model") or "(unknown)"
+                ack = (
+                    f"🛟 *Lifeboat is on* — running on Ollama: "
+                    f"`{model}`.\n\n"
+                    f"My memory is intact. Quality won't be as sharp "
+                    f"as Claude / GPT — this is the bridge model "
+                    f"keeping me talkable until your usual API key "
+                    f"works again.\n\n"
+                    f"_Type /normal to switch back._"
+                )
+            else:
+                # Try to flip into lifeboat. Get the previous model
+                # from config so /normal can speak its name.
+                prev_model = (
+                    self._db
+                    and (lambda: None)()  # placeholder for future config read
+                ) or os.environ.get("DEFAULT_MODEL") or "your usual model"
+                result = _resurrect(actor=sender_id, previous_model=str(prev_model))
+                if result.get("ok"):
+                    model = result.get("model")
+                    ack = (
+                        f"🛟 *Lifeboat mode activated.*\n\n"
+                        f"I switched to a free local model: "
+                        f"`{model}` (running on this machine via "
+                        f"Ollama). My long-term memory and personality "
+                        f"are intact. Quality won't be as sharp as "
+                        f"your usual Claude / GPT, but I can keep "
+                        f"helping while you fix your API key.\n\n"
+                        f"_When your normal model is working again, "
+                        f"say /normal to switch back._"
+                    )
+                elif result.get("reason") == "ollama_not_running":
+                    hint = result.get("install_hint", "")
+                    ack = (
+                        f"🆘 I tried to switch to a free local model "
+                        f"but Ollama isn't installed on this server.\n\n"
+                        f"Run this once on the bot's host:\n"
+                        f"```\n{hint}\n```\n"
+                        f"Then say /resurrect again — I'll come "
+                        f"back online."
+                    )
+                elif result.get("reason") == "no_models_installed":
+                    hint = result.get("install_hint", "")
+                    ack = (
+                        f"🆘 Ollama is here but I can't find any "
+                        f"models. Pull one and try again:\n"
+                        f"```\n{hint}\n```"
+                    )
+                else:
+                    err = result.get("error", "unknown error")
+                    ack = (
+                        f"⚠ I tried to enter lifeboat mode but "
+                        f"couldn't write the flag file: {err}.\n\n"
+                        f"Try /reset for a full restart, or fix your "
+                        f"normal API key."
+                    )
+            try:
+                await self._send_long_reply(update.message, ack)
+            except Exception as e:
+                logger.warning("resurrect-ack reply failed: %s", e)
+            self._last_message_at = time.time()
+            return
+
+        if _is_normal_message(text):
+            from windyfly.agent.resurrect import normalize as _normalize
+            result = _normalize()
+            if not result.get("ok"):
+                ack = (
+                    f"⚠ I couldn't clear the lifeboat flag: "
+                    f"{result.get('error', 'unknown')}. "
+                    f"Try /reset."
+                )
+            elif result.get("was_resurrected"):
+                prior = result.get("prior_model") or "the local model"
+                normal_model = (
+                    os.environ.get("DEFAULT_MODEL") or "your usual brain"
+                )
+                ack = (
+                    f"✨ *Back to normal.* I'm using `{normal_model}` "
+                    f"again.\n\n"
+                    f"_Was running on `{prior}` in lifeboat mode. "
+                    f"If your usual model fails, say /resurrect "
+                    f"anytime._"
+                )
+            else:
+                ack = (
+                    "I wasn't in lifeboat mode — already running on "
+                    "my usual brain."
+                )
+            try:
+                await self._send_long_reply(update.message, ack)
+            except Exception as e:
+                logger.warning("normal-ack reply failed: %s", e)
             self._last_message_at = time.time()
             return
 

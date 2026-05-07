@@ -94,6 +94,52 @@ UPTIME_EXACT = frozenset({"/uptime"})
 WHOAMI_EXACT = frozenset({"/whoami", "/identity"})
 
 
+# ── Resurrect / lifeboat — last-resort recovery ───────────────────
+#
+# When all paid providers are dead (Anthropic key revoked, OpenAI
+# rate-limited, etc.), the user hits one of these to switch the bot
+# to a free local model so they can keep talking while they fix
+# their credentials. PR #133.
+
+RESURRECT_EXACT = frozenset({
+    "/resurrect", "/save-me", "/lifeboat", "/sos",
+})
+
+# Phrase matches anywhere in a longer message — grandma-mode entry
+# points for users who don't remember the slash command.
+RESURRECT_PHRASES = (
+    "bring me back",
+    "bring me back alive",
+    "bring me back to life",
+    "save me",
+    "are you alive",
+    "are you there",
+    "i can't reach you",
+    "are you dead",
+)
+
+NORMAL_EXACT = frozenset({
+    "/normal", "/normal-mode", "/back-to-normal",
+})
+
+
+def is_resurrect_message(text: str | None) -> bool:
+    """True iff text triggers lifeboat mode (exact slash match OR a
+    phrase like 'bring me back alive')."""
+    if not text:
+        return False
+    low = text.strip().lower()
+    if low in RESURRECT_EXACT:
+        return True
+    return any(p in low for p in RESURRECT_PHRASES)
+
+
+def is_normal_message(text: str | None) -> bool:
+    if not text:
+        return False
+    return text.strip().lower() in NORMAL_EXACT
+
+
 def is_version_message(text: str | None) -> bool:
     if not text:
         return False
