@@ -261,3 +261,155 @@ def current_model() -> str | None:
     if not state.get("active"):
         return None
     return state.get("model")
+
+
+# ── Auto-resurrect (PR #145) ──────────────────────────────────────
+#
+# When PR #122's chain-exhaustion catch fires (every paid provider
+# 401'd or 5xx'd), the loop can attempt to flip into lifeboat mode
+# automatically — same behavior as if the user had typed /resurrect
+# manually, except we ALWAYS notify the user so the mode change is
+# never silent.
+#
+# Three guards keep this safe:
+#   1. Disable flag — user can opt-out via /auto-resurrect off
+#   2. Cooldown — 60s between attempts so a rapid-fire user doesn't
+#      hammer the Ollama probe on each message
+#   3. Single-shot per turn — caller invokes auto_resurrect_attempt
+#      ONCE per agent_respond; if it fails, fall through to the
+#      standard offline_response without retrying within the same
+#      turn
+
+_AUTO_COOLDOWN_S = 60.0
+
+
+def _auto_disable_flag_path() -> Path:
+    """When this file exists, auto-resurrect stays OFF."""
+    return Path(os.environ.get(
+        "WINDY_AUTO_RESURRECT_DISABLED",
+        "/home/grantwhitmer/.windy/.auto_resurrect_disabled",
+    ))
+
+
+def _auto_attempt_marker_path() -> Path:
+    """Records the timestamp of the last auto-resurrect attempt for
+    cooldown enforcement. Single line: a Unix timestamp."""
+    return Path(os.environ.get(
+        "WINDY_AUTO_RESURRECT_LAST",
+        "/home/grantwhitmer/.windy/.auto_resurrect_last",
+    ))
+
+
+def is_auto_resurrect_disabled() -> bool:
+    """True iff the user has opted out via /auto-resurrect off.
+    Default (no flag file) is ENABLED — most grandmas won't know to
+    enable manually, and the failure mode of an enabled-by-default
+    auto-resurrect is "user sees a notification" not "bot crashes."
+    """
+    return _auto_disable_flag_path().exists()
+
+
+def set_auto_resurrect(enabled: bool, actor: str = "user") -> dict[str, Any]:
+    """Toggle auto-resurrect via the slash-command handler.
+
+    Enable: delete the disable flag (if present).
+    Disable: write the disable flag.
+
+    Idempotent — calling enable twice is fine.
+    """
+    path = _auto_disable_flag_path()
+    if enabled:
+        existed = path.exists()
+        try:
+            path.unlink(missing_ok=True)
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+        logger.info("AUTO-RESURRECT enabled by %s (flag-removed=%s)", actor, existed)
+        return {"ok": True, "enabled": True, "was_disabled": existed}
+    # Disable
+    payload = {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "actor": actor,
+    }
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(payload) + "\n")
+        tmp.replace(path)
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+    logger.info("AUTO-RESURRECT disabled by %s", actor)
+    return {"ok": True, "enabled": False}
+
+
+def _within_auto_cooldown() -> bool:
+    """True if last auto-resurrect attempt was less than
+    ``_AUTO_COOLDOWN_S`` ago. Prevents zombie loops when multiple
+    chain-fails come in rapid succession."""
+    path = _auto_attempt_marker_path()
+    if not path.exists():
+        return False
+    try:
+        last = float(path.read_text().strip())
+    except Exception:
+        return False
+    age = datetime.now(timezone.utc).timestamp() - last
+    return age < _AUTO_COOLDOWN_S
+
+
+def _mark_auto_attempt() -> None:
+    """Stamp the cooldown marker. Best-effort — failure to record
+    just means cooldown won't kick in (slightly more attempts)."""
+    path = _auto_attempt_marker_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(str(datetime.now(timezone.utc).timestamp()))
+    except Exception as e:
+        logger.debug("auto-resurrect mark failed: %s", e)
+
+
+def auto_resurrect_attempt(
+    actor: str = "auto",
+    previous_model: str | None = None,
+) -> dict[str, Any]:
+    """Try to flip into lifeboat mode automatically.
+
+    Returns:
+        {"ok": True, "model": "..."} on success — bot is now
+            resurrected, channel handler should prepend the user
+            notification and route through offline_response.
+        {"ok": False, "reason": "disabled"} when user opted out.
+        {"ok": False, "reason": "cooldown"} when within 60s of
+            previous attempt.
+        {"ok": False, "reason": "ollama_not_running"} / etc. when
+            the underlying ``resurrect()`` call fails.
+
+    On success, the resurrection flag IS written and subsequent
+    calls hit PR #138's resurrection short-circuit (no chain-fail
+    catch needed)."""
+    if is_auto_resurrect_disabled():
+        return {"ok": False, "reason": "disabled"}
+    if _within_auto_cooldown():
+        return {"ok": False, "reason": "cooldown"}
+
+    _mark_auto_attempt()
+    return resurrect(actor=actor, previous_model=previous_model)
+
+
+def auto_resurrect_status() -> dict[str, Any]:
+    """Read the current state of the auto-resurrect setting +
+    cooldown for the /auto-resurrect status command."""
+    path = _auto_disable_flag_path()
+    last_path = _auto_attempt_marker_path()
+    last_ts = None
+    if last_path.exists():
+        try:
+            last_ts = float(last_path.read_text().strip())
+        except Exception:
+            pass
+    return {
+        "enabled": not path.exists(),
+        "last_attempt_ts": last_ts,
+        "in_cooldown": _within_auto_cooldown(),
+        "cooldown_seconds": _AUTO_COOLDOWN_S,
+    }

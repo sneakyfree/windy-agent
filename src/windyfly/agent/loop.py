@@ -561,17 +561,68 @@ def agent_respond(
                 "to offline mode (last_error=%s)",
                 request_id_short(), msg[:200],
             )
+
+            # PR #145: Auto-resurrect attempt. Three guards:
+            #   - User opt-out via /auto-resurrect off
+            #   - 60s cooldown between attempts
+            #   - Single-shot per turn (this call counts as the one)
+            # If successful, the resurrect flag is written and the
+            # offline_response below uses Ollama with the chosen
+            # model. We prepend a notification so the mode change
+            # is never silent — that's the failure mode PR #117 era
+            # taught us to always avoid.
+            notification = ""
+            try:
+                from windyfly.agent.resurrect import auto_resurrect_attempt
+                ar_result = auto_resurrect_attempt(
+                    actor="auto-chain-exhausted",
+                    previous_model=model,
+                )
+                if ar_result.get("ok"):
+                    chosen_model = ar_result.get("model", "(local)")
+                    notification = (
+                        f"🚨 *Your usual model hit a rate limit. "
+                        f"I auto-switched to a free local model "
+                        f"(`{chosen_model}`) so we can keep talking.*\n\n"
+                        f"_Type /normal when your usual model works "
+                        f"again, or /auto-resurrect off to disable "
+                        f"this auto-switch._\n\n"
+                        f"---\n\n"
+                    )
+                    log_event(db, write_queue, "auto_resurrect.fired", {
+                        "model": chosen_model,
+                        "previous_model": model,
+                    })
+                else:
+                    # Disabled / cooldown / Ollama unavailable — log
+                    # the reason but otherwise fall through silently.
+                    # The user gets the standard offline message
+                    # which already mentions /resurrect via the
+                    # PR #141 recovery footer; they can manually
+                    # trigger.
+                    log_event(db, write_queue, "auto_resurrect.skipped", {
+                        "reason": ar_result.get("reason", "?"),
+                    })
+            except Exception as ex:
+                # Auto-resurrect itself shouldn't crash the recovery
+                # path. Log + carry on with the standard fallback.
+                logger.warning(
+                    "auto-resurrect attempt raised: %s", ex,
+                )
+
             from windyfly.agent.offline import queue_message
             context = [{"role": m["role"], "content": m["content"]} for m in messages[-5:]]
             offline_response = get_offline_response(user_message, context)
+            full_response = notification + offline_response
             queue_message(user_message, session_id)
             write_queue.enqueue(Priority.HIGH, save_episode, db, "user", user_message, session_id=session_id)
-            write_queue.enqueue(Priority.HIGH, save_episode, db, "assistant", offline_response, session_id=session_id)
+            write_queue.enqueue(Priority.HIGH, save_episode, db, "assistant", full_response, session_id=session_id)
             log_event(db, write_queue, "offline.chain_exhausted", {
                 "message": user_message[:100],
                 "error": msg[:200],
+                "auto_resurrected": bool(notification),
             })
-            return offline_response
+            return full_response
         # Non-chain RuntimeError (something we didn't anticipate) —
         # let it bubble so we see it in logs and don't silently
         # swallow real bugs.
