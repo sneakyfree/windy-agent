@@ -220,7 +220,7 @@ The gateway's only check is `broker_token.length >= 8`. A malicious caller sends
 
 Seeds for follow-up tickets once a staging ecosystem is reachable:
 
-1. **Eternitas passport reality** — after a real hatch, `curl https://eternitas.ai/api/v1/registry/verify/<passport>` must return 200 with a record matching the birth certificate. If 404, `_step_eternitas` is falsely reporting success.
+1. **Eternitas passport reality** — after a real hatch, `curl https://api.eternitas.ai/api/v1/registry/verify/<passport>` must return 200 with a record matching the birth certificate. If 404, `_step_eternitas` is falsely reporting success.
 2. **Mail inbox reality** — `curl https://mail.windymail.ai/api/v1/accounts/<passport>` must show the provisioned account. If missing, mail's `_step_mail` success claim is a lie.
 3. **Matrix identity reality** — `curl <homeserver>/_synapse/admin/v2/users/@<bot>:<homeserver>` (admin-auth required) must return the bot row.
 4. **Cloud quota reality** — `curl https://cloud.windyword.ai/api/v1/identity/by-passport/<passport>` must show a UserPlan.

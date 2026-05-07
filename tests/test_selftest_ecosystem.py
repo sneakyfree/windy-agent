@@ -31,19 +31,19 @@ def test_no_env_no_checks() -> None:
 
 
 def test_eternitas_without_passport_hits_health(monkeypatch) -> None:
-    monkeypatch.setenv("ETERNITAS_API_URL", "https://eternitas.ai")
+    monkeypatch.setenv("ETERNITAS_API_URL", "https://api.eternitas.ai")
     checks = _build_ecosystem_checks()
     assert len(checks) == 1
     assert checks[0].name == "Eternitas"
-    assert checks[0].url == "https://eternitas.ai/health"
+    assert checks[0].url == "https://api.eternitas.ai/health"
     assert checks[0].critical is True
 
 
 def test_eternitas_with_passport_hits_registry_verify(monkeypatch) -> None:
-    monkeypatch.setenv("ETERNITAS_API_URL", "https://eternitas.ai")
+    monkeypatch.setenv("ETERNITAS_API_URL", "https://api.eternitas.ai")
     monkeypatch.setenv("ETERNITAS_PASSPORT", "ET26-ABC-DEF")
     (c,) = _build_ecosystem_checks()
-    assert c.url == "https://eternitas.ai/api/v1/registry/verify/ET26-ABC-DEF"
+    assert c.url == "https://api.eternitas.ai/api/v1/registry/verify/ET26-ABC-DEF"
     assert c.critical is True
 
 
@@ -97,7 +97,7 @@ class _FakeHttpx:
 
 
 def test_dispatch_populates_ok_and_latency(monkeypatch) -> None:
-    fake = _FakeHttpx({"https://eternitas.ai/health": 200})
+    fake = _FakeHttpx({"https://api.eternitas.ai/health": 200})
     monkeypatch.setitem(cli_selftest.__dict__, "httpx", fake)
     # We also need the import inside _dispatch_checks to resolve `fake`.
     # It imports httpx locally, so intercept via sys.modules.
@@ -105,7 +105,7 @@ def test_dispatch_populates_ok_and_latency(monkeypatch) -> None:
     monkeypatch.setitem(sys.modules, "httpx", fake)
 
     checks = [EcosystemCheck(
-        name="Eternitas", url="https://eternitas.ai/health", critical=True,
+        name="Eternitas", url="https://api.eternitas.ai/health", critical=True,
     )]
     _dispatch_checks(checks, timeout=1.0)
     assert checks[0].ok is True
@@ -117,12 +117,12 @@ def test_dispatch_treats_under_500_as_ok(monkeypatch) -> None:
     """Eternitas /registry/verify/<unknown> returns 404 — still reachable,
     still a proof-of-life. ≥500 is the only hard failure."""
     import sys
-    fake = _FakeHttpx({"https://eternitas.ai/api/v1/registry/verify/NONE": 404})
+    fake = _FakeHttpx({"https://api.eternitas.ai/api/v1/registry/verify/NONE": 404})
     monkeypatch.setitem(sys.modules, "httpx", fake)
 
     checks = [EcosystemCheck(
         name="Eternitas",
-        url="https://eternitas.ai/api/v1/registry/verify/NONE",
+        url="https://api.eternitas.ai/api/v1/registry/verify/NONE",
         critical=True,
     )]
     _dispatch_checks(checks, timeout=1.0)
