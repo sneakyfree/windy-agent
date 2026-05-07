@@ -1,8 +1,16 @@
-"""Web search tool — Brave Search (primary) + DuckDuckGo (fallback).
+"""Web search tool — Windy Search (preferred when configured) +
+Brave Search + DuckDuckGo fallbacks.
 
-Brave Search: free tier 2000 queries/month, high-quality results.
-DuckDuckGo: no API key needed, instant answers only.
-Also includes fetch_url for reading specific web pages.
+Resolution order:
+  1. If WINDY_SEARCH_BASE_URL and WINDY_PASSPORT_EPT are both set, route
+     through the centralized Windy Search service (master plan B.12).
+     This is opt-in — nothing changes for agents that don't set both.
+  2. Else if BRAVE_SEARCH_API_KEY is set, call Brave directly (free tier
+     2000/month, high quality).
+  3. Else fall back to DuckDuckGo instant-answer (no key, low quality).
+
+Also includes fetch_url for reading specific web pages, with the same
+opt-in routing.
 """
 
 from __future__ import annotations
@@ -15,6 +23,11 @@ from typing import Any
 import httpx
 
 from windyfly.tools.registry import ToolRegistry
+from windyfly.tools.windy_search_client import (
+    fetch_via_windy_search,
+    is_routed_through_search,
+    search_via_windy_search,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +46,15 @@ _BROWSER_HEADERS = {
 
 
 def web_search(query: str, limit: int = 5) -> dict[str, Any]:
-    """Search the web. Uses Brave if API key available, else DuckDuckGo."""
+    """Search the web.
+
+    Routing (master plan B.12):
+      - WINDY_SEARCH_BASE_URL + WINDY_PASSPORT_EPT set → centralized service
+      - BRAVE_SEARCH_API_KEY set                       → direct Brave
+      - else                                            → DuckDuckGo
+    """
+    if is_routed_through_search():
+        return search_via_windy_search(query, limit)
     if os.environ.get("BRAVE_SEARCH_API_KEY"):
         return _brave_search(query, limit)
     return _ddg_search(query, limit)
@@ -107,6 +128,11 @@ def fetch_url(
 ) -> dict[str, Any]:
     """Fetch a URL and return its text content (HTML stripped).
 
+    Routing (master plan B.12): if WINDY_SEARCH_BASE_URL +
+    WINDY_PASSPORT_EPT are set, routes through the centralized service
+    (cross-tenant cache, SSRF protection, integrity-event audit).
+    Otherwise falls back to direct httpx.
+
     Stress harness v4 round-3 finding: the prior 5000-char cap meant
     the bot couldn't read past the opening of any real article (most
     Wikipedia bodies are 30-100KB of text). Default raised to 20000
@@ -118,6 +144,8 @@ def fetch_url(
     Useful for "Read this article for me: [URL]" and "give me the
     last paragraph of [URL]".
     """
+    if is_routed_through_search():
+        return fetch_via_windy_search(url, max_chars=max_chars, offset=offset)
     try:
         resp = httpx.get(
             url, timeout=15.0, follow_redirects=True,
