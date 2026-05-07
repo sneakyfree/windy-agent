@@ -195,6 +195,11 @@ def _step_register_chat(ctx: BootContext) -> None:
     register_chat_tools(ctx.tool_registry)
 
 
+def _step_register_sms(ctx: BootContext) -> None:
+    from windyfly.tools.sms import register_sms_tools
+    register_sms_tools(ctx.tool_registry)
+
+
 def _step_register_cloud(ctx: BootContext) -> None:
     from windyfly.tools.cloud import register_cloud_tools
     register_cloud_tools(ctx.tool_registry)
@@ -331,6 +336,7 @@ def default_capability_registration_sequence() -> list[Step]:
         Step("tools.windy_api",      _step_register_windy_api),
         Step("tools.mail",           _step_register_mail),
         Step("tools.chat",           _step_register_chat),
+        Step("tools.sms",            _step_register_sms),
         Step("tools.cloud",          _step_register_cloud),
         Step("tools.web_search",     _step_register_web_search),
         Step("tools.reminders",      _step_register_reminders),

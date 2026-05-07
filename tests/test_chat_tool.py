@@ -155,7 +155,9 @@ class TestBootSequenceWiring:
         sequence = default_capability_registration_sequence()
         names = [s.name for s in sequence]
         assert "tools.chat" in names
-        # Chat registers between mail and cloud per design.
+        # Chat registers right after mail. The slot after chat used to be
+        # cloud; D.3.1 inserted sms between chat and cloud (both are "send
+        # a message to a person" channels, paired in the registry).
         chat_idx = names.index("tools.chat")
         assert names[chat_idx - 1] == "tools.mail"
-        assert names[chat_idx + 1] == "tools.cloud"
+        assert names[chat_idx + 1] in ("tools.cloud", "tools.sms")
