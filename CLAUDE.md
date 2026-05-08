@@ -1,3 +1,38 @@
+# Windy Agent (Windy Fly) — AI Context File
+
+This file is automatically loaded by Claude Code / AntiGravity at conversation start.
+It contains critical project knowledge that prevents regressions.
+
+## ⚠️ ECOSYSTEM CONTEXT (READ FIRST)
+
+This repo (`windy-agent`) is the **developer name** for what consumers see as **Windy Fly** — the AI agent product of the Windy ecosystem (ReAct loop, memory, multi-channel adapters). It is one of 13 canonical Windy platforms plus Eternitas + the Authenticator + various infrastructure pieces. **HiFly** (deferred OSS fork) forks from this repo per `FORK.md` + `~/kit-army-config/docs/hifly-fork-strategy.md`.
+
+**Before working on this repo, load the ecosystem context:**
+
+1. **`~/kit-army-config/docs/adr-010-vision-aligned-engineering-invariants-2026-05-08.md`** — the canonical alignment doc. 13 platforms permanent, dual-shell coexistence, mobile-first, voice-as-API, BYOM via Windy Mind, no-stopwatch ethos. **READ THIS FIRST.**
+2. **`~/kit-army-config/docs/adr-011-eternitas-universal-agent-identity-registry.md`** — Eternitas is an independent Utah LLC; passport issuance happens at hatch.
+3. **`~/kit-army-config/docs/adr-012-windy-mobile-mvno-os-hardware.md`** — long-term Windy Mobile vision (deferred until ecosystem maturity).
+4. **`~/kit-army-config/docs/windy-search-bot-traffic-monetization.md`** — proto-Google-for-agents thesis; agent traffic is the strategic moat this product feeds.
+5. **`~/kit-army-config/docs/hifly-fork-strategy.md`** — HiFly is the OSS fork of windy-agent (deferred); keep the codebase fork-friendly.
+6. **`~/kit-army-config/ACCESS_LOCKBOX.md`** — credentials lockbox (private repo). Source of truth for all secrets, AWS keys, API tokens, deploy commands.
+7. **`~/.claude/projects/-Users-thewindstorm/memory/MEMORY.md`** — auto-loaded persistent memory. Index of all locked decisions across the ecosystem.
+
+**Dev-name ↔ consumer-brand mapping (don't conflate):**
+- `sneakyfree/windy-agent` = "Windy Fly" (this agent product)
+- `sneakyfree/windy-pro` = "Windy Word" (the hub product / account-server)
+- All other repos: 1:1 dev-name ↔ brand (windy-mail ↔ "Windy Mail" etc.)
+
+**Sister repos most relevant to this one:**
+- `windy-pro` — account-server / identity hub. Source of human JWTs; agents redeem EPTs against its JWKS.
+- `windy-chat` — Matrix-based comms hub. Auto-provisioned at hatch so every agent has a chat handle.
+- `eternitas` + `eternitas-authenticator` — passport issuer. Every agent gets an EPT at hatch.
+- `windy-mind` — multi-model intelligence layer (BYOM); the agent loop talks to model providers through Mind.
+- `windy-search` — agent web-access toolkit (Platform 13); the agent's web-traffic surface.
+
+When making cross-product engineering calls, default to **kit-army-config docs as canonical**. Repo-specific notes (branching policy, exception log, architectural rules) follow below.
+
+---
+
 # CLAUDE.md
 
 Project-scoped instructions for Claude Code agents working in
