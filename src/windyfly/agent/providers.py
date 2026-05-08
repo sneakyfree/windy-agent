@@ -32,7 +32,7 @@ BUILTIN_PROVIDERS: dict[str, dict[str, Any]] = {
         "type": "anthropic",
         "base_url": "https://api.anthropic.com",
         "api_key_env": "ANTHROPIC_API_KEY",
-        "models": ["claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5-20251001", "claude-sonnet-4-20250514"],
+        "models": ["claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"],
     },
     "grok": {
         "name": "xAI Grok",
