@@ -30,7 +30,7 @@ from typing import Any
 # ─── Config ─────────────────────────────────────────────────────────
 S3_BUCKET = os.environ.get("AGENT_STATE_BUCKET", "windyfly-cloud-runtime-state-dev")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-DEFAULT_MODEL = os.environ.get("WINDYFLY_MODEL", "claude-sonnet-4-5-20250929")
+DEFAULT_MODEL = os.environ.get("WINDYFLY_MODEL", "claude-opus-4-7")
 MAX_HISTORY = 20  # turns kept in context
 
 s3 = boto3.client("s3")
