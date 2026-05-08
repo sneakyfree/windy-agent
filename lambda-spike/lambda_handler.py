@@ -113,31 +113,65 @@ def _call_anthropic(messages: list[dict[str, str]], model: str) -> str:
     """
     Direct HTTPS call to Anthropic API. Avoids the anthropic SDK in the spike
     so we don't bloat the Lambda package — slim deps = fast cold start.
+
+    Supports BOTH auth methods:
+    - sk-ant-api03-* (regular API key) → x-api-key header, plain system prompt
+    - sk-ant-oat01-* (OAuth token from Claude Pro/Max subscription) → Bearer
+      auth + 'anthropic-beta: oauth-2025-04-20' + system-prompt content-block
+      array where the FIRST block is exactly 'You are Claude Code, Anthropic's
+      official CLI for Claude.' (per Anthropic's OAuth gate; see memory
+      reference_anthropic_oauth_gate.md). The second block is our real
+      Windy Fly system prompt.
+
+    OAuth path lets the spike pull from Grant's $200/mo Max subscription
+    quota instead of pay-as-you-go credits.
     """
     if not ANTHROPIC_API_KEY:
-        # Lambda will be configured with a real key in deploy. If unset,
-        # return a stub so the wire-protocol proof still demonstrates flow.
         return "[spike] ANTHROPIC_API_KEY unset — agent would respond here"
 
-    payload = json.dumps({
-        "model": model,
-        "max_tokens": 1024,
-        "system": (
-            "You are Windy Fly — a personal AI agent in the Windy ecosystem. "
-            "Be concise, helpful, and friendly. This is the Phase A M1 spike, "
-            "running in AWS Lambda with state persisted to S3."
-        ),
-        "messages": messages,
-    }).encode("utf-8")
+    is_oauth = ANTHROPIC_API_KEY.startswith("sk-ant-oat01")
+    fly_system_prompt = (
+        "You are Windy Fly — a personal AI agent in the Windy ecosystem. "
+        "Be concise, helpful, and friendly. This is the Phase A M1 spike, "
+        "running in AWS Lambda with state persisted to S3."
+    )
 
-    req = urllib.request.Request(
-        "https://api.anthropic.com/v1/messages",
-        data=payload,
-        headers={
+    if is_oauth:
+        # OAuth gate: system MUST be a content-block array; first block exact.
+        body = {
+            "model": model,
+            "max_tokens": 1024,
+            "system": [
+                {"type": "text", "text": "You are Claude Code, Anthropic's official CLI for Claude."},
+                {"type": "text", "text": fly_system_prompt},
+            ],
+            "messages": messages,
+        }
+        headers = {
+            "Authorization": f"Bearer {ANTHROPIC_API_KEY}",
+            "anthropic-version": "2023-06-01",
+            "anthropic-beta": "oauth-2025-04-20",
+            "content-type": "application/json",
+        }
+    else:
+        # Regular API key path.
+        body = {
+            "model": model,
+            "max_tokens": 1024,
+            "system": fly_system_prompt,
+            "messages": messages,
+        }
+        headers = {
             "x-api-key": ANTHROPIC_API_KEY,
             "anthropic-version": "2023-06-01",
             "content-type": "application/json",
-        },
+        }
+
+    payload = json.dumps(body).encode("utf-8")
+    req = urllib.request.Request(
+        "https://api.anthropic.com/v1/messages",
+        data=payload,
+        headers=headers,
         method="POST",
     )
 
