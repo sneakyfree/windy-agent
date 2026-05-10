@@ -34,6 +34,7 @@ from windyfly.channels.base import ChannelAdapter, IncomingMessage, OutgoingMess
 # reuse them without copy-paste. Telegram-specific reply text +
 # side effects stay here; pure recognition lives in slash_commands.
 from windyfly.channels.slash_commands import (
+    is_lifeboat_status_message as _is_lifeboat_status_message,
     is_normal_message as _is_normal_message,
     is_panic_message as _is_panic_message,
     is_pause_message as _is_pause_message,
@@ -1062,6 +1063,25 @@ class TelegramChannel(ChannelAdapter):
                 await self._send_long_reply(update.message, ack)
             except Exception as e:
                 logger.warning("normal-ack reply failed: %s", e)
+            self._last_message_at = time.time()
+            return
+
+        # /lifeboat — read-only status. Distinct from /resurrect
+        # (which TOGGLES into lifeboat) and /normal (which toggles
+        # OUT). Surfaces every piece of state a user/operator needs
+        # to debug "is the bot wobbly right now?" without opening
+        # logs.
+        if _is_lifeboat_status_message(text):
+            try:
+                from windyfly.agent.resurrect import format_lifeboat_status
+                ack = format_lifeboat_status()
+            except Exception as e:
+                logger.warning("lifeboat-status build failed: %s", e)
+                ack = f"⚠ Couldn't read lifeboat status: {e}"
+            try:
+                await self._send_long_reply(update.message, ack)
+            except Exception as e:
+                logger.warning("lifeboat-status reply failed: %s", e)
             self._last_message_at = time.time()
             return
 

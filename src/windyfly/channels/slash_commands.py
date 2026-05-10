@@ -152,6 +152,20 @@ def parse_auto_resurrect_command(text: str | None) -> tuple[bool, str | None]:
     return False, None
 
 
+LIFEBOAT_STATUS_EXACT = frozenset({
+    "/lifeboat", "/lifeboat-status", "/lifeboatstatus",
+})
+
+
+def is_lifeboat_status_message(text: str | None) -> bool:
+    """True iff text is a lifeboat-status query (read-only, never
+    mutates flags). Distinct from /resurrect (toggles ON) and
+    /normal (toggles OFF)."""
+    if not text:
+        return False
+    return text.strip().lower() in LIFEBOAT_STATUS_EXACT
+
+
 def is_resurrect_message(text: str | None) -> bool:
     """True iff text triggers lifeboat mode (exact slash match OR a
     phrase like 'bring me back alive')."""

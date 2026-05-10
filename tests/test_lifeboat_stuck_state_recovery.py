@@ -179,7 +179,12 @@ class TestAttemptPaidRecovery:
         ]):
             _r.resurrect(actor="test")
 
-        with patch("windyfly.agent.offline.is_online", return_value=True):
+        # Post-PR-#161: recovery uses _paid_health_probe (real key
+        # validation), not is_online() (reachability). Mock the
+        # actual probe.
+        with patch.object(_r, "_paid_health_probe",
+                          return_value={"ok": True, "provider": "anthropic",
+                                        "status": 200}):
             out = _r.attempt_paid_recovery()
 
         assert out["recovered"] is True
@@ -199,14 +204,17 @@ class TestAttemptPaidRecovery:
         ]):
             _r.resurrect(actor="test")
 
-        # First call: paid is down. Marks the cooldown.
-        with patch("windyfly.agent.offline.is_online", return_value=False):
+        # First call: paid probe says down. Marks the cooldown.
+        with patch.object(_r, "_paid_health_probe",
+                          return_value={"ok": False, "reason": "all_keys_failed"}):
             first = _r.attempt_paid_recovery()
         assert first["reason"] == "still_offline"
 
         # Second call within cooldown: even if paid is now healthy,
         # cooldown short-circuits.
-        with patch("windyfly.agent.offline.is_online", return_value=True):
+        with patch.object(_r, "_paid_health_probe",
+                          return_value={"ok": True, "provider": "anthropic",
+                                        "status": 200}):
             second = _r.attempt_paid_recovery()
         assert second["recovered"] is False
         assert second["reason"] == "cooldown"
@@ -301,7 +309,11 @@ class TestLifeboatVisibilityAndRecoveryFlow:
             "model": "claude-haiku-4-5-20251001",
         }
 
-        with patch("windyfly.agent.offline.is_online", return_value=True), \
+        # Post-PR-#161: recovery uses _paid_health_probe (real key
+        # validation), not is_online() (reachability).
+        with patch.object(_r, "_paid_health_probe",
+                          return_value={"ok": True, "provider": "anthropic",
+                                        "status": 200}), \
              patch("windyfly.agent.loop.is_online", return_value=True), \
              patch("windyfly.agent.loop.call_llm", return_value=paid_result):
             reply = agent_respond(config, db, wq, "hello", "session-2")

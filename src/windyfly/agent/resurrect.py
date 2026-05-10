@@ -389,6 +389,14 @@ def auto_resurrect_attempt(
     catch needed)."""
     if is_auto_resurrect_disabled():
         return {"ok": False, "reason": "disabled"}
+    if _within_post_recovery_grace():
+        # We JUST climbed out of lifeboat. A chain-fail on this
+        # turn is almost certainly the same flap that caused the
+        # original lifeboat entry — bouncing back in immediately
+        # would create a lifeboat → paid → lifeboat ping-pong.
+        # Skip; let the user see one offline reply, then try again
+        # after the grace window expires (5 min).
+        return {"ok": False, "reason": "post_recovery_grace"}
     if _within_auto_cooldown():
         return {"ok": False, "reason": "cooldown"}
 
@@ -412,6 +420,122 @@ def auto_resurrect_attempt(
 # transient blip clears within a few replies.
 
 _RECOVERY_PROBE_INTERVAL_S = 120.0
+
+# Post-recovery grace (Risk 2 hardening):
+# After a successful climb-out of lifeboat, suppress auto_resurrect
+# for this many seconds so a transient paid-side flap doesn't
+# immediately re-resurrect us. Without this, a flapping API key
+# (e.g., Anthropic returning 200 once then 5xx) can ping-pong the
+# bot lifeboat → paid → lifeboat on the SAME turn (recovery probe
+# OK at step 1.7, paid call fails at step 4, chain-exhaust catch
+# fires auto_resurrect_attempt whose cooldown was already
+# satisfied by the original lifeboat entry minutes ago).
+_POST_RECOVERY_GRACE_S = 300.0  # 5 min
+
+
+def _post_recovery_grace_path() -> Path:
+    """Marker stamped on successful climb-out of lifeboat. While
+    fresh, ``_within_post_recovery_grace`` returns True and
+    ``auto_resurrect_attempt`` short-circuits before flipping back
+    into lifeboat."""
+    return Path(os.environ.get(
+        "WINDY_POST_RECOVERY_GRACE",
+        "/home/grantwhitmer/.windy/.post_recovery_grace",
+    ))
+
+
+def _within_post_recovery_grace() -> bool:
+    path = _post_recovery_grace_path()
+    if not path.exists():
+        return False
+    try:
+        last = float(path.read_text().strip())
+    except Exception:
+        return False
+    age = datetime.now(timezone.utc).timestamp() - last
+    return age < _POST_RECOVERY_GRACE_S
+
+
+def _mark_post_recovery() -> None:
+    path = _post_recovery_grace_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(str(datetime.now(timezone.utc).timestamp()))
+    except Exception as e:
+        logger.debug("post-recovery grace mark failed: %s", e)
+
+
+def _paid_health_probe(timeout: float = 4.0) -> dict[str, Any]:
+    """Probe whether ANY configured paid provider has a *valid* key.
+
+    Stronger than ``offline.is_online()``: that one does a plain
+    HTTP GET to api.anthropic.com and counts a 401 ("no key sent")
+    as "reachable." A key-revoked bot would pass that check on
+    every probe, recover, immediately re-fail on the next call,
+    and ping-pong forever.
+
+    This probe sends the actual API key against the provider's
+    /v1/models endpoint:
+      - 2xx → key valid → return ok=True with provider name
+      - 401/403 → key DEAD → skip provider, try next
+      - 5xx / timeout / connect error → retry once, then skip
+
+    Returns ``{"ok": True, "provider": "anthropic"|"openai",
+    "status": int}`` on success; ``{"ok": False, "reason": "..."}
+    `` otherwise.
+
+    Reasons: ``no_keys_configured``, ``all_keys_failed``,
+    ``import_failed``.
+    """
+    try:
+        import httpx
+    except Exception as e:
+        return {"ok": False, "reason": "import_failed", "detail": str(e)}
+
+    candidates: list[tuple[str, str, dict[str, str]]] = []
+    if (key := os.environ.get("ANTHROPIC_API_KEY")):
+        candidates.append((
+            "anthropic",
+            "https://api.anthropic.com/v1/models",
+            {"x-api-key": key, "anthropic-version": "2023-06-01"},
+        ))
+    if (key := os.environ.get("OPENAI_API_KEY")):
+        candidates.append((
+            "openai",
+            "https://api.openai.com/v1/models",
+            {"Authorization": f"Bearer {key}"},
+        ))
+    if not candidates:
+        return {"ok": False, "reason": "no_keys_configured"}
+
+    last_status: int | None = None
+    last_provider: str | None = None
+    for provider, url, headers in candidates:
+        for attempt in (1, 2):
+            try:
+                resp = httpx.get(url, headers=headers, timeout=timeout)
+                last_status = resp.status_code
+                last_provider = provider
+                if 200 <= resp.status_code < 300:
+                    return {
+                        "ok": True,
+                        "provider": provider,
+                        "status": resp.status_code,
+                    }
+                if resp.status_code in (401, 403):
+                    # Key dead; no point retrying THIS provider but
+                    # we still try the next one.
+                    break
+                # 5xx or other transient — retry once.
+                continue
+            except Exception:
+                continue
+    return {
+        "ok": False,
+        "reason": "all_keys_failed",
+        "last_status": last_status,
+        "last_provider": last_provider,
+    }
 
 
 def _recovery_probe_marker_path() -> Path:
@@ -467,15 +591,16 @@ def attempt_paid_recovery() -> dict[str, Any]:
 
     _mark_recovery_probe()
 
-    # Lazy import to keep resurrect.py free of httpx/offline deps.
-    try:
-        from windyfly.agent.offline import is_online
-    except Exception as e:
-        logger.warning("recovery probe: cannot import is_online: %s", e)
-        return {"recovered": False, "reason": "import_failed"}
-
-    if not is_online():
-        return {"recovered": False, "reason": "still_offline"}
+    # Real key-validity probe — much stronger than reachability.
+    # See ``_paid_health_probe`` docstring for why is_online() is
+    # not enough.
+    probe = _paid_health_probe()
+    if not probe.get("ok"):
+        return {
+            "recovered": False,
+            "reason": "still_offline",
+            "probe": probe,
+        }
 
     # Paid LLM is healthy. Clear the flag and let the caller fall
     # through to the normal paid path.
@@ -486,18 +611,132 @@ def attempt_paid_recovery() -> dict[str, Any]:
         # Couldn't clear the flag — stay in lifeboat to be safe.
         return {"recovered": False, "reason": "normalize_failed"}
 
+    # Stamp the post-recovery grace marker so a transient paid-side
+    # flap on this VERY turn doesn't immediately bounce us back into
+    # lifeboat (anti-pingpong, Risk 2 hardening).
+    _mark_post_recovery()
+
+    provider = probe.get("provider", "paid")
     notice = (
-        "✅ Recovered — paid model is healthy again, switching back "
-        "from lifeboat mode (was using "
+        f"✅ Recovered — {provider} is healthy again, switching back "
+        f"from lifeboat mode (was using "
         f"{prior_model or 'local model'}).\n\n"
     )
-    logger.info("RECOVERED: paid LLM healthy, cleared resurrect flag "
-                "(prior_model=%s)", prior_model)
+    logger.info(
+        "RECOVERED: %s key validated, cleared resurrect flag "
+        "(prior_model=%s)", provider, prior_model,
+    )
     return {
         "recovered": True,
         "prior_model": prior_model,
+        "provider": provider,
         "notice": notice,
     }
+
+
+def lifeboat_status() -> dict[str, Any]:
+    """Comprehensive snapshot for the /lifeboat status command.
+
+    Surfaces every piece of state a curious user (or a debugging
+    operator) needs to answer "why is my bot acting weird?":
+      - Are we in lifeboat right now?
+      - Which Ollama model? Since when?
+      - Is auto-resurrect enabled? Is it in cooldown?
+      - When was the last paid-recovery probe?
+      - Are we in the post-recovery grace window?
+
+    Pure read-only — never mutates flags. Safe to call on every
+    /lifeboat invocation."""
+    state = resurrection_state()
+    auto = auto_resurrect_status()
+
+    recov_path = _recovery_probe_marker_path()
+    recov_last_ts: float | None = None
+    if recov_path.exists():
+        try:
+            recov_last_ts = float(recov_path.read_text().strip())
+        except Exception:
+            pass
+
+    grace_path = _post_recovery_grace_path()
+    grace_last_ts: float | None = None
+    if grace_path.exists():
+        try:
+            grace_last_ts = float(grace_path.read_text().strip())
+        except Exception:
+            pass
+
+    return {
+        "in_lifeboat": bool(state.get("active")),
+        "model": state.get("model"),
+        "since": state.get("at"),
+        "actor": state.get("actor"),
+        "previous_model": state.get("previous_model"),
+        "auto_resurrect_enabled": auto["enabled"],
+        "auto_resurrect_in_cooldown": auto["in_cooldown"],
+        "auto_resurrect_last_attempt_ts": auto["last_attempt_ts"],
+        "recovery_probe_last_ts": recov_last_ts,
+        "recovery_probe_in_cooldown": _within_recovery_probe_cooldown(),
+        "recovery_probe_interval_s": _RECOVERY_PROBE_INTERVAL_S,
+        "post_recovery_grace_last_ts": grace_last_ts,
+        "in_post_recovery_grace": _within_post_recovery_grace(),
+        "post_recovery_grace_s": _POST_RECOVERY_GRACE_S,
+    }
+
+
+def format_lifeboat_status(status: dict[str, Any] | None = None) -> str:
+    """Render lifeboat_status() as a Telegram-friendly multiline
+    string. If ``status`` is omitted, fetches the current snapshot.
+    """
+    if status is None:
+        status = lifeboat_status()
+
+    lines: list[str] = []
+    if status["in_lifeboat"]:
+        lines.append("🛟 *Lifeboat mode: ACTIVE*")
+        if status.get("model"):
+            lines.append(f"  • Model: `{status['model']}`")
+        if status.get("since"):
+            lines.append(f"  • Since: {status['since']}")
+        if status.get("actor"):
+            lines.append(f"  • Triggered by: {status['actor']}")
+        if status.get("previous_model"):
+            lines.append(
+                f"  • Was previously on: {status['previous_model']}"
+            )
+    else:
+        lines.append("✅ *Lifeboat mode: inactive* — running on paid model")
+
+    lines.append("")
+    lines.append("*Auto-resurrect:* "
+                 + ("enabled" if status["auto_resurrect_enabled"]
+                    else "disabled"))
+    if status["auto_resurrect_in_cooldown"]:
+        lines.append("  • In 60s cooldown (recent attempt)")
+
+    if status["in_lifeboat"]:
+        lines.append("")
+        lines.append("*Paid-LLM recovery probe:*")
+        if status["recovery_probe_in_cooldown"]:
+            lines.append(
+                f"  • In cooldown (next probe in <"
+                f"{int(status['recovery_probe_interval_s'])}s)"
+            )
+        else:
+            lines.append("  • Ready — will fire on next chat")
+
+    if status["in_post_recovery_grace"]:
+        lines.append("")
+        lines.append(
+            f"⏳ *Post-recovery grace:* active "
+            f"({int(status['post_recovery_grace_s'])}s) — "
+            f"auto-resurrect is paused to prevent ping-pong."
+        )
+
+    lines.append("")
+    lines.append("Commands: `/resurrect` `/normal` `/auto-resurrect on|off`")
+
+    return "\n".join(lines)
 
 
 def auto_resurrect_status() -> dict[str, Any]:

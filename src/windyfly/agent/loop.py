@@ -515,8 +515,21 @@ def agent_respond(
             _recovery_notice = recovery.get("notice", "")
             logger.info("[req:%s] paid LLM recovered — exiting lifeboat",
                         request_id_short())
+            # Structured state-change event so we can dashboard
+            # lifeboat dwell time retroactively.
+            log_event(db, write_queue, "lifeboat.exited", {
+                "provider": recovery.get("provider"),
+                "prior_model": recovery.get("prior_model"),
+            })
             # Fall through to the normal paid path below.
         else:
+            # Recovery probe ran (or short-circuited via cooldown).
+            # Log the failed probe so we can correlate dwell time
+            # with paid-side health.
+            log_event(db, write_queue, "lifeboat.recovery_failed", {
+                "reason": recovery.get("reason"),
+                "probe": recovery.get("probe"),
+            })
             logger.info("[req:%s] resurrection active — routing through Ollama",
                         request_id_short())
             from windyfly.agent.offline import queue_message
