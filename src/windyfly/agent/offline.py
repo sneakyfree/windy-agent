@@ -181,7 +181,23 @@ def _call_ollama(
         return data.get("message", {}).get("content", "No response from local model.")
     except Exception as e:
         logger.error("Ollama call failed (model=%s): %s", model, e)
-        return f"Local model error: {e}. Message queued for online processing."
+        # Wrap with the standard recovery hint (PR #141) so the user
+        # sees /reset and /resurrect when Ollama times out — the
+        # raw error string used to ship without it, leaving the
+        # user staring at "Local model error: timed out" with no
+        # idea what to do (surfaced 2026-05-10: bot stuck in
+        # resurrected mode, every Ollama call timed out, user got
+        # bare error messages on every chat). Best-effort wrap;
+        # falls through to bare string on import failure.
+        bare = (
+            f"Local model error: timed out talking to my backup brain. "
+            f"Your message is queued; I'll try again when I'm healthier."
+        )
+        try:
+            from windyfly.observability.recovery_hint import with_recovery_hint
+            return with_recovery_hint(bare)
+        except Exception:
+            return bare
 
 
 # ---------------------------------------------------------------------------

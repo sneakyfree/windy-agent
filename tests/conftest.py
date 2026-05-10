@@ -49,6 +49,8 @@ def _isolate_production_flags(monkeypatch, tmp_path):
                        str(tmp_path / ".auto_resurrect_disabled"))
     monkeypatch.setenv("WINDY_AUTO_RESURRECT_LAST",
                        str(tmp_path / ".auto_resurrect_last"))
+    monkeypatch.setenv("WINDY_RECOVERY_PROBE_LAST",
+                       str(tmp_path / ".recovery_probe_last"))
     yield
 
 
