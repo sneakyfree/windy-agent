@@ -41,6 +41,14 @@ EVENT_TYPES = frozenset({
     "email.outbound",
     "agent.confabulation_detected",
     "agent.empty_after_tools",
+    # Lifeboat / resurrection lifecycle (PRs #138, #145, #160, #161)
+    "first_contact.welcome",
+    "resurrect.dispatch",
+    "auto_resurrect.fired",
+    "auto_resurrect.skipped",
+    "offline.chain_exhausted",
+    "lifeboat.exited",
+    "lifeboat.recovery_failed",
 })
 
 
