@@ -1099,6 +1099,21 @@ class TelegramChannel(ChannelAdapter):
         # any LLM / DB / tool dispatch. Long-term memory is safe.
         if _is_panic_message(text):
             logger.warning("PANIC: nuclear reset requested by %s", sender_id)
+            # /reset is the panic button: user wants a CLEAN slate.
+            # Clear the resurrect flag — without this, /reset only
+            # cleared the conversation thread but left the bot in
+            # lifeboat mode, so every subsequent message routed
+            # through Ollama and timed out. (Surfaced 2026-05-10:
+            # bot stuck in resurrection for 2h, every reply
+            # returned "Local model error: timed out".)
+            #
+            # Pause / yolo / guest flags are NOT cleared — those are
+            # explicit persistent state the user opted into.
+            try:
+                from windyfly.agent.resurrect import normalize as _r_normalize
+                _r_normalize()
+            except Exception as e:
+                logger.warning("panic /reset: failed to clear resurrect flag: %s", e)
             # Record the chat_id so the post-restart process knows
             # who to greet when it comes back online.
             set_pending_greeting(

@@ -493,17 +493,46 @@ def agent_respond(
     # /resurrect because their paid creds are dead. Force the offline
     # path with the chosen Ollama model regardless of whether the
     # paid providers happen to be reachable. Stays on until /normal.
-    from windyfly.agent.resurrect import is_resurrected as _is_resurrected
+    from windyfly.agent.resurrect import (
+        is_resurrected as _is_resurrected,
+        attempt_paid_recovery as _attempt_paid_recovery,
+    )
+    _recovery_notice = ""
     if _is_resurrected():
-        logger.info("[req:%s] resurrection active — routing through Ollama",
-                    request_id_short())
-        from windyfly.agent.offline import queue_message
-        context = [{"role": m["role"], "content": m["content"]} for m in messages[-5:]]
-        offline_response = get_offline_response(user_message, context)
-        write_queue.enqueue(Priority.HIGH, save_episode, db, "user", user_message, session_id=session_id)
-        write_queue.enqueue(Priority.HIGH, save_episode, db, "assistant", offline_response, session_id=session_id)
-        log_event(db, write_queue, "resurrect.dispatch", {"message": user_message[:100]})
-        return offline_response
+        # Auto-recover (lifeboat-stuck-state fix): probe paid LLM
+        # (rate-limited to once per ~2 min). If it's healthy, drop
+        # the flag and fall through to the normal paid path with a
+        # "✅ Recovered" notice prepended to the reply. Surfaced
+        # 2026-05-10: bot stuck in lifeboat for 2h because nothing
+        # checked whether paid had recovered.
+        try:
+            recovery = _attempt_paid_recovery()
+        except Exception as e:
+            logger.warning("[req:%s] paid-recovery probe errored: %s",
+                           request_id_short(), e)
+            recovery = {"recovered": False, "reason": "exception"}
+        if recovery.get("recovered"):
+            _recovery_notice = recovery.get("notice", "")
+            logger.info("[req:%s] paid LLM recovered — exiting lifeboat",
+                        request_id_short())
+            # Fall through to the normal paid path below.
+        else:
+            logger.info("[req:%s] resurrection active — routing through Ollama",
+                        request_id_short())
+            from windyfly.agent.offline import queue_message
+            context = [{"role": m["role"], "content": m["content"]} for m in messages[-5:]]
+            offline_response = get_offline_response(user_message, context)
+            # Lifeboat-mode visibility (Fix #4): explicitly prefix
+            # the 🛟 emoji so the user always sees they're on the
+            # local model. The resurrection short-circuit returns
+            # before PR #144's state-emoji prefix runs, so users
+            # had no per-reply indication of lifeboat mode.
+            if not offline_response.lstrip().startswith("🛟"):
+                offline_response = f"🛟 {offline_response}"
+            write_queue.enqueue(Priority.HIGH, save_episode, db, "user", user_message, session_id=session_id)
+            write_queue.enqueue(Priority.HIGH, save_episode, db, "assistant", offline_response, session_id=session_id)
+            log_event(db, write_queue, "resurrect.dispatch", {"message": user_message[:100]})
+            return offline_response
 
     # 1.8. Offline detection — fall back to local model if API unreachable
     if not is_online():
@@ -914,6 +943,13 @@ def agent_respond(
         session_id, input_tokens + output_tokens,
     )
     response_text = maybe_prepend_header(response_text, session_total)
+
+    # 8.5. Recovery notice — when step 1.7 detected paid LLM is
+    # healthy again and dropped the resurrect flag, surface the
+    # "✅ Recovered" notice on this very reply so the user sees the
+    # mode switch as it happens.
+    if _recovery_notice:
+        response_text = _recovery_notice + response_text
 
     return response_text
 

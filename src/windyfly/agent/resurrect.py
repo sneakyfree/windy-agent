@@ -396,6 +396,110 @@ def auto_resurrect_attempt(
     return resurrect(actor=actor, previous_model=previous_model)
 
 
+# ── Auto-recover from resurrection (lifeboat-stuck-state fix) ─────
+#
+# Companion to auto_resurrect_attempt(): once we're IN lifeboat mode,
+# periodically check whether the paid LLM is healthy again. If it is,
+# clear the resurrect flag so the bot routes back through the paid
+# (high-quality) provider. Without this, a transient paid-side blip
+# (a single 401 or 5xx from chain-exhaustion catch) would strand the
+# bot in slow-Ollama mode FOREVER until the user typed /normal —
+# surfaced 2026-05-10 when bot sat in lifeboat for 2h replying
+# "Local model error: timed out" on every chat.
+#
+# Cadence: 2 minutes between probes. Generous enough that we don't
+# HTTP-storm api.anthropic.com on every chat, tight enough that a
+# transient blip clears within a few replies.
+
+_RECOVERY_PROBE_INTERVAL_S = 120.0
+
+
+def _recovery_probe_marker_path() -> Path:
+    """Last paid-LLM recovery probe timestamp (separate from
+    _auto_attempt_marker_path; that one is for FORWARD trips into
+    lifeboat, this one is for the BACKWARD trip out)."""
+    return Path(os.environ.get(
+        "WINDY_RECOVERY_PROBE_LAST",
+        "/home/grantwhitmer/.windy/.recovery_probe_last",
+    ))
+
+
+def _within_recovery_probe_cooldown() -> bool:
+    path = _recovery_probe_marker_path()
+    if not path.exists():
+        return False
+    try:
+        last = float(path.read_text().strip())
+    except Exception:
+        return False
+    age = datetime.now(timezone.utc).timestamp() - last
+    return age < _RECOVERY_PROBE_INTERVAL_S
+
+
+def _mark_recovery_probe() -> None:
+    path = _recovery_probe_marker_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(str(datetime.now(timezone.utc).timestamp()))
+    except Exception as e:
+        logger.debug("recovery-probe mark failed: %s", e)
+
+
+def attempt_paid_recovery() -> dict[str, Any]:
+    """If currently resurrected AND the paid LLM is reachable again,
+    clear the flag and return a recovery notification.
+
+    Returns:
+        {"recovered": True, "prior_model": "...", "notice": "..."}
+            — flag cleared, caller should prepend ``notice`` to the
+            paid-LLM reply
+        {"recovered": False, "reason": "not_resurrected"}
+            — wasn't in lifeboat; nothing to do
+        {"recovered": False, "reason": "cooldown"}
+            — probed too recently; skip this turn
+        {"recovered": False, "reason": "still_offline"}
+            — paid probe failed; stay in lifeboat
+    """
+    if not is_resurrected():
+        return {"recovered": False, "reason": "not_resurrected"}
+    if _within_recovery_probe_cooldown():
+        return {"recovered": False, "reason": "cooldown"}
+
+    _mark_recovery_probe()
+
+    # Lazy import to keep resurrect.py free of httpx/offline deps.
+    try:
+        from windyfly.agent.offline import is_online
+    except Exception as e:
+        logger.warning("recovery probe: cannot import is_online: %s", e)
+        return {"recovered": False, "reason": "import_failed"}
+
+    if not is_online():
+        return {"recovered": False, "reason": "still_offline"}
+
+    # Paid LLM is healthy. Clear the flag and let the caller fall
+    # through to the normal paid path.
+    state = resurrection_state()
+    prior_model = state.get("model")
+    out = normalize()
+    if not out.get("ok"):
+        # Couldn't clear the flag — stay in lifeboat to be safe.
+        return {"recovered": False, "reason": "normalize_failed"}
+
+    notice = (
+        "✅ Recovered — paid model is healthy again, switching back "
+        "from lifeboat mode (was using "
+        f"{prior_model or 'local model'}).\n\n"
+    )
+    logger.info("RECOVERED: paid LLM healthy, cleared resurrect flag "
+                "(prior_model=%s)", prior_model)
+    return {
+        "recovered": True,
+        "prior_model": prior_model,
+        "notice": notice,
+    }
+
+
 def auto_resurrect_status() -> dict[str, Any]:
     """Read the current state of the auto-resurrect setting +
     cooldown for the /auto-resurrect status command."""
