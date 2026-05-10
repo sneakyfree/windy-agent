@@ -121,31 +121,48 @@ def _ddg_search(query: str, limit: int = 5) -> dict[str, Any]:
         return {"query": query, "results": [], "error": str(e)}
 
 
-def fetch_url(
+# Errors that indicate the windy-search service itself is broken
+# (not a pass-through of an upstream-target failure). When fetch_via
+# _windy_search returns one of these, the direct-httpx fallback is
+# worth trying — the target site might respond differently to a
+# direct request from this iMac than to windy-search's fetcher.
+#
+# Surfaced 2026-05-10: windy-search /web/fetch returned HTTP 502 with
+# detail "upstream HTTP 403" — windy-search couldn't get past the
+# target's anti-bot block. Direct httpx with _BROWSER_HEADERS often
+# bypasses such blocks because the request comes from a different
+# IP and a real-looking user agent.
+_WINDY_SEARCH_FAILURE_INDICATORS = (
+    "HTTP 502",
+    "HTTP 503",
+    "HTTP 504",
+    "ConnectError",
+    "ConnectTimeout",
+    "ReadTimeout",
+    "WriteTimeout",
+    "PoolTimeout",
+    "RemoteProtocolError",
+)
+
+
+def _is_windy_search_failure(error: str | None) -> bool:
+    """True iff the error string suggests windy-search itself failed
+    (vs. windy-search successfully passing through a 4xx from the
+    target URL). 4xx from windy-search means the target site itself
+    refused — direct httpx would just get the same answer, no point
+    falling back."""
+    if not error:
+        return False
+    return any(ind in error for ind in _WINDY_SEARCH_FAILURE_INDICATORS)
+
+
+def _direct_fetch_url(
     url: str,
     max_chars: int = 20000,
     offset: int = 0,
 ) -> dict[str, Any]:
-    """Fetch a URL and return its text content (HTML stripped).
-
-    Routing (master plan B.12): if WINDY_SEARCH_BASE_URL +
-    WINDY_PASSPORT_EPT are set, routes through the centralized service
-    (cross-tenant cache, SSRF protection, integrity-event audit).
-    Otherwise falls back to direct httpx.
-
-    Stress harness v4 round-3 finding: the prior 5000-char cap meant
-    the bot couldn't read past the opening of any real article (most
-    Wikipedia bodies are 30-100KB of text). Default raised to 20000
-    chars and an ``offset`` parameter added so the bot can read past
-    the cap by repeating the call with offset += max_chars. The
-    response always includes ``total_length`` so the LLM can decide
-    whether another fetch is worth it.
-
-    Useful for "Read this article for me: [URL]" and "give me the
-    last paragraph of [URL]".
-    """
-    if is_routed_through_search():
-        return fetch_via_windy_search(url, max_chars=max_chars, offset=offset)
+    """Direct httpx fetch with browser-shaped headers. Used both as
+    the no-routing default AND as the windy-search failover."""
     try:
         resp = httpx.get(
             url, timeout=15.0, follow_redirects=True,
@@ -176,9 +193,73 @@ def fetch_url(
             "next_offset": end if truncated else None,
             # Kept for backwards-compatible callers / older episodes.
             "length": total_length,
+            "provider": "direct",
         }
     except Exception as e:
-        return {"url": url, "content": "", "error": str(e)}
+        return {"url": url, "content": "", "error": str(e),
+                "provider": "direct"}
+
+
+def fetch_url(
+    url: str,
+    max_chars: int = 20000,
+    offset: int = 0,
+) -> dict[str, Any]:
+    """Fetch a URL and return its text content (HTML stripped).
+
+    Routing + failover:
+      1. If WINDY_SEARCH_BASE_URL + WINDY_PASSPORT_EPT are set, route
+         through the centralized service (cross-tenant cache, SSRF
+         protection, integrity-event audit).
+      2. If windy-search itself fails (502 / 503 / 504 / timeout /
+         connect error — not a pass-through 4xx), fall back to direct
+         httpx with browser-shaped headers. The target site often
+         responds differently to a direct request than to windy-
+         search's fetcher (different IP, different UA), so the
+         fallback rescues a meaningful fraction of fetches.
+      3. Otherwise direct httpx is used from the start.
+
+    Surfaced 2026-05-10: windy-search /web/fetch was returning 502s
+    on 2 fetches in a turn (upstream sites 403'ing windy-search's
+    fetcher). The bot reported "network is down" and gave up despite
+    direct httpx being viable. Failover added.
+
+    Stress harness v4 round-3 finding: the prior 5000-char cap meant
+    the bot couldn't read past the opening of any real article (most
+    Wikipedia bodies are 30-100KB of text). Default raised to 20000
+    chars and an ``offset`` parameter added so the bot can read past
+    the cap by repeating the call with offset += max_chars. The
+    response always includes ``total_length`` so the LLM can decide
+    whether another fetch is worth it.
+
+    Useful for "Read this article for me: [URL]" and "give me the
+    last paragraph of [URL]".
+    """
+    if is_routed_through_search():
+        result = fetch_via_windy_search(url, max_chars=max_chars, offset=offset)
+        # If windy-search itself broke (not a pass-through of a
+        # target-side 4xx), try direct httpx as a rescue. Don't
+        # fall back on pass-through 4xx — direct would get the
+        # same answer.
+        if _is_windy_search_failure(result.get("error")):
+            logger.info(
+                "windy-search /web/fetch failed (%s); falling back "
+                "to direct httpx for %s",
+                result.get("error"), url,
+            )
+            direct = _direct_fetch_url(url, max_chars=max_chars, offset=offset)
+            if direct.get("content"):
+                # Annotate so debugging / logs show the rescue.
+                direct["provider"] = "direct-fallback"
+                direct["windy_search_error"] = result.get("error")
+                return direct
+            # Direct also failed — return it (it carries its own
+            # error string) so the caller sees the real problem.
+            direct["provider"] = "direct-fallback-failed"
+            direct["windy_search_error"] = result.get("error")
+            return direct
+        return result
+    return _direct_fetch_url(url, max_chars=max_chars, offset=offset)
 
 
 def register_web_search_tool(registry: ToolRegistry) -> None:
