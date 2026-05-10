@@ -257,6 +257,12 @@ def _call_openai(
         "input_tokens": usage.prompt_tokens if usage else 0,
         "output_tokens": usage.completion_tokens if usage else 0,
         "tool_calls": tool_calls,
+        # Uniform shape with _call_anthropic — citations / server-
+        # tool tracking are Anthropic-only today (PR #164). Non-
+        # Anthropic providers return empty defaults so the agent
+        # loop doesn't have to branch on provider.
+        "citations": [],
+        "server_tools_used": 0,
     }
 
 
@@ -338,9 +344,22 @@ def _openai_tools_to_anthropic(tools: list[dict]) -> list[dict]:
     it natively); when the chain hops to Anthropic we translate on the
     way out so callers don't need to know the active provider. Tool
     names are sanitized — see ``_ANTHROPIC_DOT_MARKER``.
+
+    Server-side tools (PR #164) — ``web_search_20250305`` and
+    similar — are PASSED THROUGH UNCHANGED. Anthropic recognizes
+    them by their ``type`` field directly; they don't need the
+    OpenAI-shape ``function`` wrapper, and the input_schema is
+    implicit. Detection: any tool whose ``type`` is something
+    OTHER than "function" is treated as a server-side tool.
     """
     out = []
     for t in tools:
+        # Server-side tool? Anthropic native types like
+        # web_search_20250305 / code_execution / computer go
+        # through unchanged.
+        if t.get("type") and t.get("type") != "function":
+            out.append(dict(t))
+            continue
         fn = t.get("function") or t
         out.append({
             "name": _sanitize_for_anthropic(fn["name"]),
@@ -503,9 +522,28 @@ def _call_anthropic(
 
     content = ""
     tool_calls = None
+    citations: list[dict[str, Any]] = []
+    server_tools_used = 0
     for block in response.content:
         if block.type == "text":
             content += block.text
+            # Server-side web_search (PR #164) attaches citation
+            # metadata to text blocks. Harvest into a flat list
+            # so the agent loop can render a "Sources:" footer.
+            block_citations = getattr(block, "citations", None) or []
+            for c in block_citations:
+                # Anthropic SDK objects → dict for downstream uniformity.
+                if hasattr(c, "model_dump"):
+                    citations.append(c.model_dump())
+                elif isinstance(c, dict):
+                    citations.append(c)
+                else:
+                    # Last-ditch: pull the common attrs we care about.
+                    citations.append({
+                        "url": getattr(c, "url", None),
+                        "title": getattr(c, "title", None),
+                        "cited_text": getattr(c, "cited_text", None),
+                    })
         elif block.type == "tool_use":
             if tool_calls is None:
                 tool_calls = []
@@ -521,6 +559,18 @@ def _call_anthropic(
                     "arguments": json.dumps(block.input or {}),
                 },
             })
+        elif block.type in ("server_tool_use", "web_search_tool_result"):
+            # Server-side tools (PR #164: web_search_20250305 et al.)
+            # produce informational trace blocks. The search HAS
+            # ALREADY RUN on Anthropic's side; we MUST NOT add these
+            # to tool_calls (would trigger a client-side dispatch
+            # for a tool we don't have registered). Just count them
+            # so the daily-cap counter can bump.
+            if block.type == "server_tool_use":
+                server_tools_used += 1
+        # Unknown block types: silently skip — Anthropic adds new
+        # block types (thinking, redacted_thinking, etc.) over time
+        # and we don't want a new block type to crash the parser.
 
     return {
         "content": content,
@@ -528,4 +578,6 @@ def _call_anthropic(
         "input_tokens": response.usage.input_tokens,
         "output_tokens": response.usage.output_tokens,
         "tool_calls": tool_calls,
+        "citations": citations,
+        "server_tools_used": server_tools_used,
     }

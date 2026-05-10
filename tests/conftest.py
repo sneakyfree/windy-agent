@@ -53,6 +53,8 @@ def _isolate_production_flags(monkeypatch, tmp_path):
                        str(tmp_path / ".recovery_probe_last"))
     monkeypatch.setenv("WINDY_POST_RECOVERY_GRACE",
                        str(tmp_path / ".post_recovery_grace"))
+    monkeypatch.setenv("WINDY_DAILY_SEARCH_COUNTER",
+                       str(tmp_path / ".daily_search_count"))
     yield
 
 
