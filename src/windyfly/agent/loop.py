@@ -176,6 +176,83 @@ _CONFAB_TRUTH_FALLBACK = (
 )
 
 
+# Self-environment confabulation patterns (PR #162).
+# Surfaced 2026-05-10 by a screenshot where the LLM declined to act on
+# lockbox creds with "I cannot open outbound SSH connections from this
+# Docker sandbox — network is `--network=none`." That claim is FALSE
+# for Windy 0 (runs as native systemd service with full network).
+# The LLM had drawn on training-data priors about "what AI agents
+# typically run in" and fabricated a Docker constraint to justify
+# refusal.
+#
+# Tripwire complements the prompt-level RUNTIME GUARDRAIL: even with
+# the guardrail in the system prompt, models can drift into these
+# phrases. Detect them deterministically post-synthesis and force a
+# truth-corrected retry. Patterns require first-person /
+# self-locating framing ("this …", "I'm in …") to avoid false
+# positives on legitimate user technical discussion of Docker.
+_SELF_ENV_CONFAB_PATTERNS = (
+    "this docker sandbox",
+    "--network=none",
+    "i'm in a sandbox",
+    "i am in a sandbox",
+    "i'm sandboxed",
+    "i am sandboxed",
+    "i'm in a docker",
+    "i am in a docker",
+    "i'm running in a docker container",
+    "i am running in a docker container",
+    "this docker container",
+    "browser sandbox",
+    "this sandboxed environment",
+    "isolated network environment",
+    "rate-limited by my environment",
+    "rate-limited by the environment",
+    "my environment doesn't allow",
+    "my environment does not allow",
+    "this lambda environment",
+    "anthropic-hosted sandbox",
+)
+
+
+def _looks_self_env_confabulated(response_text: str) -> bool:
+    """True iff the reply contains a self-environment confabulation
+    phrase. Distinct from ``_looks_confabulated`` (which catches
+    success-claim-without-tool); this catches refusal-with-fabricated-
+    environment-restriction. Runs regardless of whether tools were
+    executed — the original screenshot bug showed 3 tool rounds AND
+    a confabulated refusal in the final synthesis."""
+    if not response_text:
+        return False
+    lower = response_text.lower()
+    return any(p in lower for p in _SELF_ENV_CONFAB_PATTERNS)
+
+
+_SELF_ENV_RETRY_SYSTEM = (
+    "STOP. Your previous reply claimed an environmental restriction "
+    "that is FALSE. You said something like 'I'm in a Docker "
+    "sandbox', 'network is --network=none', 'I'm sandboxed', 'my "
+    "environment doesn't allow', or similar. NONE of those is true: "
+    "you have full network access in production, and your only "
+    "actual limitation is which tools are registered.\n\n"
+    "Retry the user's request. If you genuinely don't have a tool "
+    "for what they asked, say plainly 'I don't have a [name] "
+    "capability for that' — but do NOT invent environmental "
+    "restrictions to justify a refusal."
+)
+
+
+_SELF_ENV_TRUTH_FALLBACK = (
+    "I almost gave you a misleading reason for not doing that — I "
+    "was about to claim an environmental limit (sandbox / Docker / "
+    "network=none) that doesn't actually apply to me. The honest "
+    "answer is: I don't currently have a tool for the action you "
+    "asked for. Run /caps to see which capabilities I can invoke, "
+    "or tell me what you wanted in a different way and I'll see "
+    "what I CAN do."
+)
+
+
 def _dispatch_tool_call(
     fn_name: str,
     fn_args: Any,
@@ -836,6 +913,72 @@ def agent_respond(
                 "stage": "retry",
             })
             response_text = _CONFAB_TRUTH_FALLBACK
+
+    # 2.7. Self-environment confabulation guard (PR #162).
+    # Distinct from the action-success guard above: this catches
+    # *refusal*-shaped lies where the LLM invents environmental
+    # restrictions ("I'm in a Docker sandbox", "--network=none",
+    # "I'm sandboxed", "rate-limited by my environment") to justify
+    # not doing what the user asked. Surfaced 2026-05-10 by a
+    # screenshot of the bot fabricating a "Docker --network=none"
+    # constraint when running natively under systemd. Runs even when
+    # tools WERE executed (the original bug had 3 tool rounds + a
+    # confabulated synthesis at the end).
+    if _looks_self_env_confabulated(response_text):
+        logger.warning(
+            "Self-env confabulation suspected — response contains "
+            "false environmental restriction phrase. response_preview=%r",
+            (response_text or "")[:200],
+        )
+        log_event(db, write_queue, "agent.confabulation_detected", {
+            "session_id": session_id,
+            "user_preview": user_message[:120],
+            "response_preview": (response_text or "")[:200],
+            "stage": "self_env_initial",
+        })
+        messages.append({
+            "role": "assistant",
+            "content": response_text or "",
+        })
+        messages.append({
+            "role": "system",
+            "content": _SELF_ENV_RETRY_SYSTEM,
+        })
+        try:
+            retry = call_llm(
+                messages, model=model, temperature=temperature,
+                max_tokens=max_tokens, tools=tools, config=config,
+            )
+            retry_text = retry["content"]
+            input_tokens += retry["input_tokens"]
+            output_tokens += retry["output_tokens"]
+
+            if _looks_self_env_confabulated(retry_text):
+                # Retry still confabulated. Replace with truth fallback
+                # so we don't ship the false-environment claim.
+                logger.error(
+                    "Self-env retry also confabulated — replacing "
+                    "response with truth fallback. retry_preview=%r",
+                    (retry_text or "")[:200],
+                )
+                log_event(db, write_queue, "agent.confabulation_detected", {
+                    "session_id": session_id,
+                    "user_preview": user_message[:120],
+                    "response_preview": (retry_text or "")[:200],
+                    "stage": "self_env_retry",
+                })
+                response_text = _SELF_ENV_TRUTH_FALLBACK
+            else:
+                response_text = retry_text
+        except Exception as e:
+            # If the retry itself fails (chain exhausted, network blip),
+            # don't crash — replace with the truth fallback so the user
+            # at least gets a non-misleading reply.
+            logger.warning(
+                "Self-env confab retry raised %s — using truth fallback",
+                e,
+            )
+            response_text = _SELF_ENV_TRUTH_FALLBACK
 
     # 2.9. Analytics tracking
     try:
