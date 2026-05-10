@@ -54,6 +54,8 @@ EVENT_TYPES = frozenset({
     "web_search.native_skipped",
     "web_search.native_unsupported",
     "web_search.native_used",
+    # Write-intent-not-executed tripwire (PR #165)
+    "agent.write_intent_unexecuted",
 })
 
 

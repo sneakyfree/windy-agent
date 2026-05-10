@@ -61,8 +61,17 @@ def _bump_session_tokens(session_id: str, count: int) -> int:
     _session_tokens[session_id] = new_total
     return new_total
 
-# Default tool re-loop rounds (overridden by slider)
-_DEFAULT_TOOL_ROUNDS = 3
+# Default tool re-loop rounds (overridden by slider).
+#
+# Bumped 3 → 5 on 2026-05-10 after diagnosing a TURNOVER.md write
+# failure: the bot did 3 rounds of GitHub READS (list_repo, multiple
+# fetch_file across SOUL.md / KIT-STANDARDS / TURNOVER / MEMORY etc.)
+# and then exited the tool loop with text saying "Now let me write
+# the updated TURNOVER.md to my repo:" — but had no round left to
+# actually invoke github.put_file. User got the lead-in text and a
+# 44-minute silence. Read-discover-then-write needs at least 4
+# rounds; 5 gives one round of headroom.
+_DEFAULT_TOOL_ROUNDS = 5
 
 
 def _user_message_mentions_local(text: str) -> bool:
@@ -153,6 +162,105 @@ def _looks_confabulated(user_message: str, response_text: str) -> bool:
         return False
     lower_resp = response_text.lower()
     return any(m in lower_resp for m in _SUCCESS_CLAIM_MARKERS)
+
+
+# Write-intent-not-executed tripwire (PR #165).
+#
+# Sibling to _looks_confabulated: that one catches PAST-tense success
+# claims without tool execution ("Done! Created X" / no tool call).
+# This one catches FORWARD-LOOKING write commitments without any
+# write tool execution ("Let me write…", "Now I'm writing X to your
+# repo:", "I'll commit…") that end the turn with no actual put_file
+# call.
+#
+# Surfaced 2026-05-10 by a TURNOVER.md screenshot: the bot used all
+# 3 tool rounds on github reads, then ended its turn with "Now let me
+# write the updated TURNOVER.md to my repo:" and no actual write
+# call. Round-budget fix (3 → 5) is the primary mitigation; this
+# detector is the *telemetry tripwire* so we can dashboard how often
+# the bot still leaves a deferred commitment hanging even at 5
+# rounds.
+#
+# Note: this is TELEMETRY ONLY for PR #165. Auto-retry forcing a
+# write round is prompt-engineering-risky (false positives would
+# trigger a write attempt the user didn't authorize), so we just
+# log the event for now and tune from production data.
+_WRITE_INTENT_MARKERS = (
+    "let me write",
+    "now let me write",
+    "i'll write",
+    "i will write",
+    "now i'm writing",
+    "i'm writing",
+    "i am writing",
+    "let me commit",
+    "i'll commit",
+    "now i'm committing",
+    "let me save",
+    "i'll save",
+    "let me create",
+    "i'll create",
+    "next i'll",
+    "next i'll write",
+    "let me push",
+    "i'll push",
+    "let me update",
+)
+
+# Tool names that DO satisfy a write intent — when any of these were
+# invoked this turn, no tripwire fires regardless of text markers.
+# Conservative (over-include rather than miss): err on the side of
+# false negatives in the tripwire rather than false positives.
+_WRITE_CLASS_TOOLS = (
+    "github.put_file",
+    "github.create_issue",  # arguably writes (creates issue)
+    "github.create_pull_request",
+    "fs.write_file",
+    "fs.append_file",
+    "fs.delete_file",
+    "fs.move_file",
+    "fs.undo_last_action",
+    "shell.exec",  # could write anything
+)
+
+
+def _was_write_class_tool_invoked(tool_calls: list[dict] | None) -> bool:
+    """True iff any tool call this turn was a write-class capability.
+    Tool names are extracted from OpenAI-shaped tool_calls (which is
+    how loop.py normalizes everything from every provider)."""
+    if not tool_calls:
+        return False
+    for tc in tool_calls:
+        name = (tc.get("function") or {}).get("name") or tc.get("name")
+        if not name:
+            continue
+        if name in _WRITE_CLASS_TOOLS:
+            return True
+    return False
+
+
+def _looks_write_intent_unexecuted(
+    response_text: str,
+    write_tool_was_invoked: bool,
+) -> tuple[bool, str | None]:
+    """Detect "I'll write…" forward-looking commitment in a reply
+    that did NOT invoke any write-class tool this turn.
+
+    Returns ``(detected, marker_phrase)``. Marker is the first
+    matching phrase for logging — helps the dashboard show what
+    pattern is most common.
+
+    Caller is responsible for the ``write_tool_was_invoked`` flag
+    (computed via ``_was_write_class_tool_invoked``)."""
+    if write_tool_was_invoked:
+        return (False, None)
+    if not response_text:
+        return (False, None)
+    lower = response_text.lower()
+    for marker in _WRITE_INTENT_MARKERS:
+        if marker in lower:
+            return (True, marker)
+    return (False, None)
 
 
 _CONFAB_RETRY_SYSTEM = (
@@ -877,6 +985,10 @@ def agent_respond(
 
     # 2.5. Tool-call re-loop (ReAct cycle)
     tool_executed = False  # gate for the confabulation guard below
+    # Names of every tool invoked across all rounds in this turn —
+    # used by the write-intent tripwire (PR #165) to detect "I'll
+    # write…" text that ends a turn with no actual write tool call.
+    _turn_tool_names: set[str] = set()
     if tool_calls and (tool_registry or capability_registry.count() > 0):
         tool_executed = True
         max_tool_rounds = loop_sliders.get("tool_reloop_rounds", _DEFAULT_TOOL_ROUNDS)
@@ -886,6 +998,7 @@ def agent_respond(
             for tc in tool_calls:
                 fn_name = tc["function"]["name"]
                 fn_args = tc["function"]["arguments"]
+                _turn_tool_names.add(fn_name)
                 logger.info("Executing tool: %s (round %d)", fn_name, _round + 1)
                 tool_result = _dispatch_tool_call(
                     fn_name, fn_args, tool_registry, capability_registry,
@@ -1120,6 +1233,39 @@ def agent_respond(
             "maybe more directly? (If you're seeing this a lot, my "
             "tool-picker is over-eager — let me know.)"
         )
+
+    # 2.96. Write-intent-not-executed tripwire (PR #165, telemetry only).
+    # If the final response_text says "I'll write…/Now I'm writing…"
+    # but NO write-class tool was invoked anywhere in this turn,
+    # log the pattern so we can dashboard it. Common shape: bot used
+    # all tool rounds on reads, ended the turn with a deferred
+    # write commitment, user got a lead-in with no actual write.
+    # Round-budget bump (3 → 5) is the primary mitigation; this is
+    # the observation hook so we know whether 5 is enough or we
+    # need to extend further (or auto-retry-force a write round).
+    _write_done = any(
+        name in _WRITE_CLASS_TOOLS for name in _turn_tool_names
+    )
+    _intent_hit, _intent_marker = _looks_write_intent_unexecuted(
+        response_text, _write_done,
+    )
+    if _intent_hit:
+        logger.warning(
+            "[req:%s] write-intent without execution — bot said %r "
+            "but invoked no write-class tool this turn (tools=%s)",
+            request_id_short(), _intent_marker,
+            sorted(_turn_tool_names),
+        )
+        try:
+            log_event(db, write_queue, "agent.write_intent_unexecuted", {
+                "session_id": session_id,
+                "user_preview": user_message[:120],
+                "marker": _intent_marker,
+                "tools_invoked": sorted(_turn_tool_names),
+                "response_preview": (response_text or "")[:200],
+            })
+        except Exception:
+            pass
 
     # 3. Save episodes via write queue (HIGH priority)
     cost_usd = estimate_cost(model, input_tokens, output_tokens)
