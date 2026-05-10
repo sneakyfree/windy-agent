@@ -664,6 +664,50 @@ def agent_respond(
     capability_tools = capability_registry.tool_schemas_for_band(band)
     tools = (legacy_tools + capability_tools) if (legacy_tools or capability_tools) else None
 
+    # 2.1. Tier 0 — Anthropic native web_search (PR #164).
+    # When the active model supports it AND we're under the daily
+    # cap AND the kill-switch is off, inject the server-side
+    # web_search tool. Also DROP the client-side ``web_search``
+    # from the tools list so the model doesn't see two search
+    # tools and pick wrong. Keep ``fetch_url`` (different job —
+    # read a specific URL with our PR #163 fallback). The decision
+    # is logged so we can audit Tier 0 vs. Tier 1 usage from the
+    # events table.
+    from windyfly.tools.native_web_search import (
+        format_citations_footer as _format_citations_footer,
+        is_unsupported_tool_error as _is_unsupported_tool_error,
+        bump_daily_search_count as _bump_search_count,
+        native_web_search_tool_spec as _native_web_search_spec,
+        should_inject_native_tool as _should_inject_native,
+    )
+    _native_decision = _should_inject_native(model)
+    _native_active = _native_decision["inject"]
+    if _native_active:
+        # Drop client-side web_search (model picks one tool, not two).
+        if tools is not None:
+            tools = [
+                t for t in tools
+                if not (
+                    (t.get("function") or {}).get("name") == "web_search"
+                    or t.get("name") == "web_search"
+                )
+            ] or None
+        # Append the server-side spec.
+        native_spec = _native_web_search_spec(max_uses=5)
+        tools = (tools or []) + [native_spec]
+        log_event(db, write_queue, "web_search.native_enabled", {
+            "model": model, "session_id": session_id,
+        })
+    elif _native_decision["reason"] != "model_unsupported":
+        # Log the cases where we WOULD HAVE enabled it but didn't —
+        # killswitched / cap_reached. Skip the noise of "you're not
+        # on a supported model" since that's the steady state for
+        # OpenAI / Grok / etc.
+        log_event(db, write_queue, "web_search.native_skipped", {
+            "model": model, "reason": _native_decision["reason"],
+            "session_id": session_id,
+        })
+
     # call_llm raises RuntimeError when every provider in the chain
     # fails (e.g., 401 burst from Anthropic during a rate-limit
     # window, or all configured providers in cooldown). The offline
@@ -676,14 +720,47 @@ def agent_respond(
     # gets a coherent reply and the bot never crashes mid-
     # conversation.
     try:
-        result = call_llm(
-            messages,
-            model=model,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            tools=tools,
-            config=config,
-        )
+        try:
+            result = call_llm(
+                messages,
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                tools=tools,
+                config=config,
+            )
+        except Exception as native_exc:
+            # Defensive retry: Anthropic may reject the native
+            # web_search tool on models we optimistically allowlisted
+            # (e.g., Haiku 4.5 — docs don't enumerate basic-tool
+            # support). If the error message looks like an
+            # unsupported-tool rejection, drop the native tool and
+            # retry once. Other errors propagate normally to the
+            # chain-exhaustion catch below.
+            if _native_active and _is_unsupported_tool_error(native_exc):
+                logger.warning(
+                    "[req:%s] native web_search rejected by %s — "
+                    "retrying without (%s)",
+                    request_id_short(), model, native_exc,
+                )
+                log_event(db, write_queue, "web_search.native_unsupported", {
+                    "model": model, "session_id": session_id,
+                })
+                tools_no_native = [
+                    t for t in (tools or [])
+                    if t.get("type") != "web_search_20250305"
+                ] or None
+                _native_active = False
+                result = call_llm(
+                    messages,
+                    model=model,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    tools=tools_no_native,
+                    config=config,
+                )
+            else:
+                raise
     except RuntimeError as e:
         msg = str(e)
         if "providers in chain" in msg or "providers" in msg.lower():
@@ -763,6 +840,26 @@ def agent_respond(
     input_tokens = result["input_tokens"]
     output_tokens = result["output_tokens"]
     tool_calls = result.get("tool_calls")
+
+    # 2.55. Native web_search bookkeeping (PR #164).
+    # If the model used Anthropic's server-side web_search this
+    # turn, bump the daily counter and append a "Sources:" footer
+    # to response_text so the user can click through. Citations
+    # come from text-block metadata extracted in _call_anthropic.
+    _server_tools_used = result.get("server_tools_used", 0) or 0
+    _citations = result.get("citations") or []
+    if _server_tools_used > 0:
+        new_total = _bump_search_count(_server_tools_used)
+        log_event(db, write_queue, "web_search.native_used", {
+            "session_id": session_id,
+            "n_searches": _server_tools_used,
+            "new_daily_total": new_total,
+            "model": model,
+        })
+    if _citations and response_text:
+        footer = _format_citations_footer(_citations)
+        if footer and footer not in response_text:
+            response_text = response_text + footer
 
     # Observability: log what the LLM decided to do. When debugging "why
     # did the bot pick web_search instead of fs.read_file?" this single
