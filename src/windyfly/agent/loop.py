@@ -1068,9 +1068,18 @@ def agent_respond(
             "role": "assistant",
             "content": response_text or "",
         })
+        # The retry directive must terminate with role=user, not
+        # role=system, because Anthropic's adapter strips system
+        # messages out of `messages` and folds them into the top-level
+        # `system` kwarg — leaving the messages array ending with
+        # assistant, which Anthropic rejects with "must end with user
+        # message" (HTTP 400, surfaced 2026-05-11 by stress harness
+        # finding #130). The "[SYSTEM REMINDER]" prefix preserves the
+        # meta-instruction framing so the model still treats this as
+        # a directive rather than the user actually speaking.
         messages.append({
-            "role": "system",
-            "content": _CONFAB_RETRY_SYSTEM,
+            "role": "user",
+            "content": "[SYSTEM REMINDER] " + _CONFAB_RETRY_SYSTEM,
         })
         retry = call_llm(
             messages, model=model, temperature=temperature,
@@ -1159,9 +1168,12 @@ def agent_respond(
             "role": "assistant",
             "content": response_text or "",
         })
+        # See the regular-confab retry above for why this must be
+        # role=user with a "[SYSTEM REMINDER]" prefix (Anthropic 400
+        # "must end with user message").
         messages.append({
-            "role": "system",
-            "content": _SELF_ENV_RETRY_SYSTEM,
+            "role": "user",
+            "content": "[SYSTEM REMINDER] " + _SELF_ENV_RETRY_SYSTEM,
         })
         try:
             retry = call_llm(
