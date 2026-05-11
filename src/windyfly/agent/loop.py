@@ -727,6 +727,15 @@ def agent_respond(
             # had no per-reply indication of lifeboat mode.
             if not offline_response.lstrip().startswith("🛟"):
                 offline_response = f"🛟 {offline_response}"
+            # Honor the "queued; I'll try again" promise the offline
+            # path makes when Ollama itself fails — PR #160 added the
+            # user-facing text but the resurrection branch never
+            # called queue_message(), so the message vanished. The
+            # true-offline branch below (line ~742) already does this;
+            # parity here closes the unkept-promise bug surfaced by
+            # the 2026-05-11 overnight stress harness (#34-#38, #89-#90).
+            if "Local model error" in offline_response or "I'm currently offline" in offline_response:
+                queue_message(user_message, session_id)
             write_queue.enqueue(Priority.HIGH, save_episode, db, "user", user_message, session_id=session_id)
             write_queue.enqueue(Priority.HIGH, save_episode, db, "assistant", offline_response, session_id=session_id)
             log_event(db, write_queue, "resurrect.dispatch", {"message": user_message[:100]})
