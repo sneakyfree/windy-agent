@@ -279,6 +279,11 @@ def _step_register_ssh(ctx: BootContext) -> None:
     register_ssh_capabilities(ctx.capability_registry, ctx.config)
 
 
+def _step_register_vision(ctx: BootContext) -> None:
+    from windyfly.agent.capabilities.vision import register_vision_capabilities
+    register_vision_capabilities(ctx.capability_registry, ctx.config)
+
+
 def _step_register_collaborators(ctx: BootContext) -> None:
     from windyfly.agent.capabilities.collaborators import (
         register_collaborator_capabilities,
@@ -380,6 +385,11 @@ def default_capability_registration_sequence() -> list[Step]:
         Step(
             "capabilities.ssh",
             _step_register_ssh,
+            requires=("capabilities.audit",),
+        ),
+        Step(
+            "capabilities.vision",
+            _step_register_vision,
             requires=("capabilities.audit",),
         ),
         Step(
