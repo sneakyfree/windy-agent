@@ -120,31 +120,46 @@ Auditing the current codebase (`src/windyfly/tools/` + `src/windyfly/agent/capab
 | Capability/Tool         | Where                                     | Notes                                |
 |-------------------------|-------------------------------------------|--------------------------------------|
 | `shell.exec`            | `capabilities/shell.py`                   | Docker-sandboxed, full Band model    |
+| `ssh.exec`              | `capabilities/ssh.py` (PR #170)           | System ssh + ~/.ssh/config; allowed-hosts env |
+| `vision.describe`       | `capabilities/vision.py` (PR #171)        | Anthropic vision — no system deps    |
+| `vision.ocr`            | `capabilities/vision.py` (PR #171)        | Anthropic vision — no system deps    |
 | `fs.*` (read/write/grep/glob/move/delete) | `capabilities/filesystem.py`    | Has undo journal                    |
 | `github.*` (writes)     | `capabilities/github.py`                  | PRs, commits, files                  |
 | `weather` (Open-Meteo)  | `tools/weather.py`                        | No key                               |
 | `web_search` (native)   | `tools/native_web_search.py` (PR #164)    | Anthropic Tier 0 native              |
+| `fetch_url`             | `tools/web_search.py` (PR #163)           | windy-search routed + httpx fallback |
 | `mail.send` (local SMTP)| `tools/mail.py`                           |                                      |
 | `sms`                   | `tools/sms.py`                            | Twilio — actually Tier 1            |
 | `voice` (TTS/STT)       | `tools/voice.py`                          |                                      |
 | `reminders`, `todos`    | `tools/reminders.py`, `tools/todos.py`    | Local DB                             |
 | `news`                  | `tools/news.py`                           |                                      |
-| `utilities` (timer, translate, convert, random) | `tools/utilities.py`     |                                      |
+| `utilities` (timer, translate, convert, random, `calculate`) | `tools/utilities.py` | calc included; no separate calc.eval needed |
 | `cloud` (Cloudflare)    | `tools/cloud.py`                          | Tier 2 in practice (needs token)     |
 
-### Missing (Tier 0 gaps, ship in priority order)
+### Missing (Tier 0 gaps, remaining work)
 
 | Capability                    | Priority | Why it's Tier 0                                |
 |-------------------------------|----------|------------------------------------------------|
-| **`ssh.exec`**                | **P0**   | Fleet mesh is over SSH; user just hit this gap |
-| `http.fetch`                  | P1       | Raw URL fetch as peer to web_search            |
-| `vision.describe` / `vision.ocr` | P1   | Local Tesseract + LLM vision; "read this screenshot" |
-| `audio.transcribe`            | P2       | Whisper local model; voice notes               |
-| `format.pdf_read`             | P2       | Extract text from PDFs                         |
+| ~~`ssh.exec`~~                | ~~P0~~   | **Closed by PR #170 (2026-05-12).**           |
+| ~~`vision.describe` / `vision.ocr`~~ | ~~P1~~ | **Closed by PR #171 (2026-05-12).**         |
+| `audio.transcribe`            | P1       | `faster-whisper>=1.0` already in deps; just needs the capability wired |
+| `format.pdf_read`             | P2       | Extract text from PDFs (pypdf — Tier 0 lib)    |
 | `format.docx_read` / `xlsx_read` | P2    | Office formats                                 |
 | `clock.now` / `clock.parse`   | P3       | Partial in `utilities.py`; needs first-class   |
-| `calc.eval`                   | P3       | Don't make Sonnet do arithmetic                |
 | `git.read` (log/diff/status)  | P3       | github.py covers writes; need local-repo reads |
+
+### Corrections to v1 of this doc
+
+The original gap list (2026-05-12 v1) overstated two missing items.
+Audit before PR #171 revealed both were already shipped:
+
+- ~~`http.fetch`~~ — already exists as the `fetch_url` tool in
+  `web_search.py:203`, registered in `register_web_search_tool`. The
+  tool routes through windy-search when configured and falls back to
+  direct httpx on 5xx (PR #163 territory). No new capability needed.
+- ~~`calc.eval`~~ — already exists as `calculate(expression)` in
+  `utilities.py:182`, registered via `register_utility_tools`. The
+  arithmetic Sonnet was being asked to do is already off-loaded.
 
 ### Reclassify (currently mixed, should be Tier 1)
 
@@ -236,15 +251,20 @@ One PR per tool, smallest viable scope. All follow the established pattern
 (file in `tools/` or `capabilities/`, registration in `boot.py`, tests in
 `tests/`):
 
-1. **PR #168 (next):** `ssh.exec` capability — the immediate gap
-2. **PR #169:** `http.fetch` tool — raw URL fetch with optional JS rendering
-3. **PR #170:** `vision.describe` + `vision.ocr` — Tesseract local + Anthropic vision
-4. **PR #171:** `audio.transcribe` — Whisper local
-5. **PR #172:** `format.pdf_read` + `format.docx_read` — text extraction
-6. **PR #173:** `clock.*` first-class + `calc.eval` — promote from utilities
-7. **PR #174:** `git.read` — local repo log/diff/status (peer to github.py)
-8. **PR #175:** Tier 1 install wizard — `/add <tool>` slash command + spec format
-9. **PR #176 onward:** Tier 1 fillout (calendar, maps, translation, ...)
+**Shipped:**
+1. ✅ **PR #169** — `docs/STOCK_TOOLKIT.md` (this doc)
+2. ✅ **PR #170** — `ssh.exec` capability — the immediate gap
+3. ✅ **PR #171** — `vision.describe` + `vision.ocr` — Anthropic vision (no system deps)
+
+**Remaining Tier 0:**
+4. `audio.transcribe` — faster-whisper (already in deps; just need to wire)
+5. `format.pdf_read` + `format.docx_read` — text extraction (pypdf)
+6. `clock.*` first-class — promote partial coverage in utilities.py
+7. `git.read` — local repo log/diff/status (peer to github.py)
+
+**Then Tier 1 wave:**
+8. Tier 1 install wizard — `/add <tool>` slash command + spec format
+9. Tier 1 fillout (calendar, maps, translation, ...)
 
 Each PR is sized like the recent #160-#167: surgical, tested, self-mergeable
 under the 2026-04-26 standing authority.
