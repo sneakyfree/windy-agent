@@ -161,3 +161,110 @@ class TestBootSequenceWiring:
         chat_idx = names.index("tools.chat")
         assert names[chat_idx - 1] == "tools.mail"
         assert names[chat_idx + 1] in ("tools.cloud", "tools.sms")
+
+
+class TestTrustGate:
+    """Trust gate (ADR-019 + ADR-020) — chat send gated by Eternitas
+    Integrity Index when the agent has a passport.
+    """
+
+    @patch("windyfly.tools.chat.httpx.put")
+    def test_no_passport_env_skips_trust_gate(
+        self, mock_put: MagicMock, matrix_env: None,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Without ETERNITAS_PASSPORT set, the gate doesn't run and chat
+        sends proceed normally. Matches test-rig + pre-hatch behavior."""
+        monkeypatch.delenv("ETERNITAS_PASSPORT", raising=False)
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"event_id": "$evt1"}
+        mock_put.return_value = mock_response
+
+        result = send_chat_message(body="hi", to_room="!a:test")
+        assert result["status"] == "sent"
+        # asyncio.run was NOT invoked
+        mock_put.assert_called_once()
+
+    @patch("windyfly.tools.chat.require_trust")
+    @patch("windyfly.tools.chat.httpx.put")
+    def test_passport_set_runs_trust_gate(
+        self, mock_put: MagicMock, mock_require_trust: MagicMock,
+        matrix_env: None, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """With ETERNITAS_PASSPORT set, the gate runs before HTTP."""
+        monkeypatch.setenv("ETERNITAS_PASSPORT", "ET26-WIND-Y123")
+        # require_trust is async; mock its coroutine to return a decision
+        from windyfly.trust.check import TrustDecision, TrustSnapshot
+
+        snapshot = TrustSnapshot(
+            passport="ET26-WIND-Y123", status="active", band="good",
+            clearance_level="verified", tier_multiplier=1.0,
+            allowed_actions=("post_chat_message",), denied_actions=(),
+            integrity_score=75.0, cache_ttl_seconds=300,
+        )
+
+        async def fake_require_trust(action, passport=None, db=None):
+            return TrustDecision(allowed=True, snapshot=snapshot, reason="ok")
+
+        mock_require_trust.side_effect = fake_require_trust
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"event_id": "$evt1"}
+        mock_put.return_value = mock_response
+
+        result = send_chat_message(body="hi", to_room="!a:test")
+        assert result["status"] == "sent"
+        mock_require_trust.assert_called_once_with("post_chat_message")
+
+    @patch("windyfly.tools.chat.require_trust")
+    @patch("windyfly.tools.chat.httpx.put")
+    def test_trust_denied_returns_denied_status(
+        self, mock_put: MagicMock, mock_require_trust: MagicMock,
+        matrix_env: None, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """When the gate denies, the chat tool returns status=denied and
+        never makes the HTTP call. Matches the moat per ADR-019."""
+        monkeypatch.setenv("ETERNITAS_PASSPORT", "ET26-WIND-Y123")
+        from windyfly.trust.gate import TrustDenied
+
+        async def fake_require_trust(action, passport=None, db=None):
+            raise TrustDenied(
+                action="post_chat_message", band="critical",
+                reason="band=critical, all actions denied",
+            )
+
+        mock_require_trust.side_effect = fake_require_trust
+
+        result = send_chat_message(body="hi", to_room="!a:test")
+        assert result["status"] == "denied"
+        assert result["band"] == "critical"
+        assert result["action"] == "post_chat_message"
+        assert "critical" in result["reason"]
+        # HTTP was NOT called
+        mock_put.assert_not_called()
+
+    @patch("windyfly.tools.chat.require_trust")
+    @patch("windyfly.tools.chat.httpx.put")
+    def test_trust_check_exception_fails_open(
+        self, mock_put: MagicMock, mock_require_trust: MagicMock,
+        matrix_env: None, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """If the trust check ITSELF errors (Eternitas outage, network
+        blip, SQLite missing), fail-open with a log line — don't block
+        chat for transient outages of the trust kernel."""
+        monkeypatch.setenv("ETERNITAS_PASSPORT", "ET26-WIND-Y123")
+
+        async def fake_require_trust(action, passport=None, db=None):
+            raise RuntimeError("eternitas unreachable")
+
+        mock_require_trust.side_effect = fake_require_trust
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"event_id": "$evt1"}
+        mock_put.return_value = mock_response
+
+        result = send_chat_message(body="hi", to_room="!a:test")
+        # Fail-open: chat still sent despite trust-check error
+        assert result["status"] == "sent"
+        mock_put.assert_called_once()

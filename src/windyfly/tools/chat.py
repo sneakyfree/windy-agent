@@ -31,6 +31,7 @@ Environment:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import uuid
@@ -39,10 +40,30 @@ from typing import Any
 import httpx
 
 from windyfly.tools.registry import ToolRegistry
+from windyfly.trust.gate import TrustDenied, require_trust
 
 logger = logging.getLogger(__name__)
 
 _TIMEOUT = 10.0
+
+# Trust gate action name — matches GATED_ACTIONS in trust/gate.py.
+# Per ADR-019 (Windy Chat is the strategic kernel) and ADR-020 (HiFly
+# chat treatment EPT-gated), the moat IS agent-credentialed VIP access.
+# Every chat send by an agent goes through this gate when the agent
+# has a passport. Trust check uses cached snapshot (5-min TTL via
+# trust_cache table) so the per-message overhead is microseconds.
+_TRUST_ACTION = "post_chat_message"
+
+
+def _trust_gate_enabled() -> bool:
+    """Trust gate runs only when the agent has a passport.
+
+    Agents hatched through Eternitas always have ETERNITAS_PASSPORT
+    populated (set by `windyfly.hatch_orchestrator` at step 1). Pre-passport
+    boot (e.g. test rigs that exercise chat without the full hatch
+    ceremony, or pre-hatch debug calls) skips the gate gracefully.
+    """
+    return bool(os.environ.get("ETERNITAS_PASSPORT", "").strip())
 
 
 def _matrix_env() -> tuple[str, str, str]:
@@ -89,6 +110,38 @@ def send_chat_message(body: str, to_room: str | None = None) -> dict[str, Any]:
 
     if not body or not body.strip():
         return {"status": "failed", "error": "Body is empty"}
+
+    # Trust gate (ADR-019 + ADR-020): only when the agent has a passport.
+    # Gate denies via Eternitas Integrity Index for critical-band agents
+    # or actions disallowed by the agent's current snapshot. Cache-backed
+    # so the typical-case overhead is microseconds.
+    if _trust_gate_enabled():
+        try:
+            decision = asyncio.run(require_trust(_TRUST_ACTION))
+            logger.debug(
+                "Chat trust gate ALLOW: band=%s clearance=%s",
+                decision.snapshot.band, decision.snapshot.clearance_level,
+            )
+        except TrustDenied as denied:
+            return {
+                "status": "denied",
+                "reason": denied.reason,
+                "band": denied.band,
+                "action": _TRUST_ACTION,
+                "error": str(denied),
+            }
+        except Exception as exc:
+            # Fail-open with loud log if the trust check itself errors
+            # (Eternitas outage, network blip, SQLite cache miss with
+            # offline node, etc.). The moat's strict enforcement is at
+            # the chat server's directory service, not here — this is a
+            # client-side fast-path. Per ADR-019 chat depends on Eternitas
+            # being highly available; transient outage shouldn't take down
+            # every agent's chat send simultaneously.
+            logger.warning(
+                "Chat trust gate FAIL-OPEN (exception during check): %s",
+                exc,
+            )
 
     txn_id = uuid.uuid4().hex
     url = (
