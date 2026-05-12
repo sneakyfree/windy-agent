@@ -109,6 +109,89 @@ def estimate_cost(model: str, input_tokens: int, output_tokens: int) -> float:
     return (input_tokens / 1000) * costs["input"] + (output_tokens / 1000) * costs["output"]
 
 
+def _max_oauth_active() -> bool:
+    """Per ADR-022 exception register: when Grant's Anthropic Max OAuth
+    token is active, allow direct Anthropic SDK calls. Routing through
+    Mind would force pay-per-call api03 billing instead of the Max sub.
+    All non-Max-OAuth LLM calls MUST route through Mind per ADR-010 §8."""
+    try:
+        from windyfly.agent.oauth import get_oauth_manager
+        oauth = get_oauth_manager()
+        return bool(oauth and getattr(oauth, "access_token", None))
+    except Exception:
+        return False
+
+
+def _try_mind_broker(
+    messages: list[dict[str, str]],
+    model: str | None,
+    temperature: float,
+    max_tokens: int,
+    tools: list[dict] | None,
+) -> dict[str, Any] | None:
+    """Route LLM call through Windy Mind broker per ADR-010 §8 + ADR-022.
+
+    Mind is the intelligence kernel; every Windy LLM call should broker
+    through it for cost transparency, observability, fallback, and BYOM
+    model choice.
+
+    OPT-IN via two env vars:
+      MIND_API_URL — defaults to https://api.windymind.ai
+      ETERNITAS_PASSPORT_TOKEN (or ETERNITAS_PASSPORT) — the agent's EPT
+
+    Returns the broker's response on success OR None on any failure —
+    caller falls through to the direct-provider chain. Zero regression
+    risk: when the agent has no EPT (e.g. pre-hatch boot or test rigs),
+    this function is a no-op.
+
+    Skipped entirely when Anthropic Max OAuth is active (ADR-022
+    exception register #1).
+    """
+    import os
+
+    ept = os.environ.get("ETERNITAS_PASSPORT_TOKEN") or os.environ.get(
+        "ETERNITAS_PASSPORT"
+    )
+    if not ept:
+        return None  # OPT-IN: only fires when EPT is configured
+
+    mind_url = os.environ.get("MIND_API_URL", "https://api.windymind.ai").rstrip("/")
+
+    body: dict[str, Any] = {
+        "messages": messages,
+        "max_tokens": max_tokens,
+    }
+    if model:
+        body["model"] = model
+    if temperature is not None:
+        body["temperature"] = temperature
+    if tools:
+        body["tools"] = tools
+
+    try:
+        import httpx
+
+        resp = httpx.post(
+            f"{mind_url}/v1/chat",
+            headers={
+                "Authorization": f"Bearer {ept}",
+                "Content-Type": "application/json",
+            },
+            json=body,
+            timeout=30.0,
+        )
+        if resp.status_code != 200:
+            logger.info(
+                "Mind broker returned %s; falling through to direct chain",
+                resp.status_code,
+            )
+            return None
+        return resp.json()
+    except Exception as e:
+        logger.info("Mind broker call failed (%s); falling through", e)
+        return None
+
+
 def call_llm(
     messages: list[dict[str, str]],
     *,
@@ -120,7 +203,16 @@ def call_llm(
 ) -> dict[str, Any]:
     """Call an LLM, walking the configured failover chain on failures.
 
-    Per provider in the chain:
+    Per ADR-010 §8 + ADR-022 §5: when the agent has an Eternitas passport,
+    LLM calls route through Mind FIRST (the intelligence kernel handles
+    BYOM model choice, cost transparency, and free-tier fallback). If Mind
+    is unavailable or returns non-200, falls through to the direct-provider
+    chain below.
+
+    Anthropic Max OAuth (ADR-022 exception register #1) bypasses Mind so
+    the Max sub billing path stays intact.
+
+    Direct-provider chain (when Mind path no-ops or fails):
       - Skip if currently in cooldown.
       - Skip if no api_key configured (and not a localhost provider).
       - One attempt, immediate fail-forward — the per-provider cooldown
@@ -133,6 +225,13 @@ def call_llm(
     When ``model`` is passed explicitly, the chain is not used (the
     caller asked for that specific model).
     """
+    # Mind broker first (BYOM moat per ADR-022). Bypass when Max OAuth
+    # is active (ADR-022 exception register #1).
+    if not _max_oauth_active():
+        mind_resp = _try_mind_broker(messages, model, temperature, max_tokens, tools)
+        if mind_resp is not None:
+            return mind_resp
+
     chain = _build_chain(model, config)
 
     last_error: Exception | None = None
