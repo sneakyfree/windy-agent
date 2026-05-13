@@ -1,19 +1,22 @@
 {
-  "version": 4,
-  "updated": "2026-05-07",
+  "version": 8,
+  "updated": "2026-05-13",
   "canonical": {
     "windy_word": { "apex": "windyword.ai", "account": "account.windyword.ai" },
     "windy_chat": { "apex": "windychat.ai", "chat": "chat.windychat.ai" },
     "windy_cloud": { "apex": "windycloud.com", "cloud": "cloud.windycloud.com" },
-    "windy_code":  { "apex": "windycode.org", "updates": "updates.windycode.org" },
-    "windy_mail":  { "apex": "windymail.ai", "mail": "mail.windymail.ai" },
+    "windy_code":  { "apex": "windycode.org", "updates": "updates.windycode.org", "notify": "notify.windycode.org" },
+    "windy_mail":  { "apex": "windymail.ai", "mail": "mail.windymail.ai", "api": "api.windymail.ai" },
     "windy_fly":   { "apex": "windyfly.ai" },
     "windy_clone": { "apex": "windyclone.ai" },
-    "eternitas":   { "apex": "eternitas.ai", "api": "api.eternitas.ai" },
+    "windy_text":  { "apex": "windytext.com", "api": "api.windytext.com" },
+    "windy_call":  { "apex": "windycall.com", "api": "api.windycall.com" },
+    "windy_mobile": { "apex": "windymobile.com" },
+    "windy_mind":  { "apex": "windymind.ai", "api": "api.windymind.ai" },
+    "eternitas":   { "apex": "eternitas.ai", "api": "api.eternitas.ai", "app": "app.eternitas.ai" },
     "windy_translate": { "apex": "windytranslate.com" },
     "windy_traveler":  { "apex": "windytraveler.com" },
-    "windy_search":    { "apex": "windysearch.com" },
-    "windy_call":      { "apex": "windycall.com", "api": "api.windycall.com" },
+    "windy_search":    { "apex": "windysearch.com", "api": "api.windysearch.com" },
     "hifly":            { "apex": "hifly.ai" }
   },
   "banned": [
@@ -49,8 +52,8 @@
     "api.windyword.com",
     "api.windycloud.com",
     "api.windyclone.com",
-    "https://eternitas.ai",
-    "http://eternitas.ai",
+    "https://eternitas.ai/api",
+    "http://eternitas.ai/api",
     "windypro.thewindstorm.uk",
     "account.windypro.thewindstorm.uk",
     "eternitas.thewindstorm.uk",
@@ -62,7 +65,7 @@
     "windychat.com": "squatted by third party (Eric Frost) — never use",
     "windypro.com": "not owned; windy-pro is a legacy repo name not a brand",
     "api.windyword.ai": "zombie Phase-1 host with stale RS256 keypair — use account.windyword.ai",
-    "https://eternitas.ai (URL form)": "eternitas.ai is the marketing apex; the API is api.eternitas.ai. Code/configs that hit https://eternitas.ai/api/* hit a private 401 endpoint, not the canonical trust API. ADR-003 — coordinated fix-forward sweep.",
+    "https://eternitas.ai/api (URL form, path-specific)": "eternitas.ai is the marketing apex (valid CORS origin); the API is api.eternitas.ai/v1/*. Code/configs that hit https://eternitas.ai/api/* hit a private 401 endpoint, not the canonical trust API. v8 narrowed from bare-apex to /api path so the legitimate CORS allowlist entry in eternitas/main.py:160 passes lint. Companion to eternitas Path A refactor (chore/path-a-url-refactor-2026-05-13).",
     "*.thewindstorm.uk": "legacy dev-stage URLs from before Phase 7 brand cutover"
   }
 }
