@@ -36,7 +36,6 @@ from typing import Any
 import httpx
 
 from windyfly.agent.capabilities.descriptor import (
-    Band,
     Capability,
     Reversibility,
     SandboxTier,
