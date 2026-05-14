@@ -126,7 +126,7 @@ def _attempt_download(voice: str, cache_dir: Path) -> bool:
         # Newer piper-tts versions expose download_voices as a
         # callable from the module.
         from piper import download_voices
-        download_voices.download_voice(voice, str(cache_dir))
+        download_voices.download_voice(voice, cache_dir)
         return True
     except Exception:
         pass

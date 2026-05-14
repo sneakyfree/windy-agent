@@ -281,7 +281,7 @@ def register_vision_capabilities(
             path=path, url=url, timeout_s=timeout_s,
         )
 
-    image_input_schema = {
+    image_input_schema: dict[str, Any] = {
         "type": "object",
         "properties": {
             "path": {
