@@ -132,9 +132,17 @@ def _attempt_download(voice: str, cache_dir: Path) -> bool:
         pass
     try:
         import subprocess
+        import sys
         # Fall back to the CLI module path that ships with the package.
+        # Use sys.executable so we invoke the SAME interpreter that's
+        # running the bot — hardcoded "python" exits 127 on systems
+        # whose venv only has python3 on PATH (no python symlink).
+        # Surfaced 2026-05-14 on Windy 0 when the primary import path
+        # failed → fallback shelled out to "python" → 127 → the parent
+        # bot process exited with the child's status → systemd
+        # marked the service deactivating → outage.
         result = subprocess.run(
-            ["python", "-m", "piper.download_voices", voice,
+            [sys.executable, "-m", "piper.download_voices", voice,
              "--data-dir", str(cache_dir)],
             capture_output=True, text=True, timeout=120,
         )
