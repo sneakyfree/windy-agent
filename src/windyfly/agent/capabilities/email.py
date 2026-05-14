@@ -153,6 +153,31 @@ def _send_email_handler(
     }
 
     if not _is_configured():
+        # Resend fallback (PR #177 + #178, 2026-05-14). When Gmail OAuth
+        # isn't wired but Resend env IS, route through tools/mail.py's
+        # Resend path. The capability stays in charge of header-injection
+        # checks + size caps + plan-shape (all done above); we just
+        # substitute the SEND mechanism. Without this fall-through, the
+        # LLM saw "dormant_integration" and routed to the setup wizard
+        # even though Resend was perfectly available — the actual bug
+        # the user hit 2026-05-14 with the Austin-TX-mortgage prompt.
+        from windyfly.tools.mail import _resend_configured, _resend_send
+        if _resend_configured():
+            send_result = _resend_send(to, subject, body)
+            if send_result.get("status") == "sent":
+                return {
+                    "plan": plan,
+                    "executed": True,
+                    "message_id": send_result.get("message_id"),
+                    "provider": "resend",
+                }
+            return {
+                "plan": plan,
+                "executed": False,
+                "error": send_result.get("error") or "Resend send failed",
+                "provider": "resend",
+            }
+
         from windyfly.agent.setup_status import dormant_nudge
         return {
             "executed": False,
