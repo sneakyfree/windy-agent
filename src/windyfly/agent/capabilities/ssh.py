@@ -40,13 +40,11 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 import subprocess
 import time
 from typing import Any
 
 from windyfly.agent.capabilities.descriptor import (
-    Band,
     Capability,
     Reversibility,
     SandboxTier,

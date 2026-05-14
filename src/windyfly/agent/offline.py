@@ -190,8 +190,8 @@ def _call_ollama(
         # bare error messages on every chat). Best-effort wrap;
         # falls through to bare string on import failure.
         bare = (
-            f"Local model error: timed out talking to my backup brain. "
-            f"Your message is queued; I'll try again when I'm healthier."
+            "Local model error: timed out talking to my backup brain. "
+            "Your message is queued; I'll try again when I'm healthier."
         )
         try:
             from windyfly.observability.recovery_hint import with_recovery_hint
