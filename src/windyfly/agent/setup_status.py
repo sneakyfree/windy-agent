@@ -44,10 +44,27 @@ class IntegrationStatus(TypedDict):
     note: str | None    # extra detail (token scope, what unlocks, etc.)
 
 
+def _resend_configured() -> bool:
+    # Resend fallback (PR #177, 2026-05-14). When both env vars are
+    # set, `tools/mail.py::send_email` routes through Resend's HTTP
+    # API instead of WindyMail/JMAP — so for the purpose of "can
+    # this agent send email?", Resend counts as configured.
+    return bool(
+        os.environ.get("RESEND_API_KEY")
+        and os.environ.get("RESEND_FROM_ADDRESS")
+    )
+
+
 def _gmail_configured() -> bool:
     # Mirror the check in capabilities.email (token file presence).
+    # Also returns True when Resend is configured — the integration
+    # key is named "gmail" for backwards compat, but the question
+    # the LLM cares about is "can this agent send email?", and a
+    # Resend-wired bot answers yes without any Gmail OAuth. Without
+    # this, the LLM sees email as dormant when Resend is wired and
+    # routes the user to the OAuth wizard instead of just sending.
     token_path = Path(os.environ.get("GMAIL_TOKEN", "data/gmail_token.json"))
-    return token_path.exists()
+    return token_path.exists() or _resend_configured()
 
 
 def _calendar_configured() -> bool:
@@ -85,15 +102,20 @@ def get_setup_status() -> dict[str, Any]:
     integrations: list[IntegrationStatus] = [
         {
             "key": "gmail",
-            "name": "Gmail (sending email)",
+            "name": "Email sending (Gmail OAuth or Resend)",
             "configured": _gmail_configured(),
             "setup_kinds": ["cli", "chat"],
             "cli_command": "windy setup-gmail",
             "chat_intent": "set up email",
             "note": (
-                "OAuth2 with gmail.send scope. CLI flow opens a browser; "
-                "chat flow walks the user through cloudconsole.cloud.google.com "
-                "step by step (preferred for non-technical users)."
+                "Counts configured when EITHER Gmail OAuth is wired "
+                "(token file present) OR Resend env is set "
+                "(RESEND_API_KEY + RESEND_FROM_ADDRESS). The send_email "
+                "tool dispatches automatically — Gmail-OAuth-preferred "
+                "for personal mailbox, Resend for transactional / "
+                "verified-domain sends. CLI flow opens a browser for "
+                "Gmail OAuth; chat flow walks the user through "
+                "cloudconsole.cloud.google.com step by step."
             ),
         },
         {
