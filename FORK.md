@@ -66,36 +66,44 @@ banner. This is the soul of the framework.
 
 ---
 
-## What Stays EXCLUSIVE to Windy Fly (Proprietary)
+## What Goes Into HiFly WITH EPT GATING (per ADR-020 + ADR-025)
 
-Windy ecosystem integrations that require Windy services:
+These integrations are **included in HiFly** but **require a valid Eternitas Personal Token (EPT)** at runtime. HiFly OSS forks can use them with proper credentials — Eternitas is the gatekeeper, not Windy Fly. This makes the Windy ecosystem services usable by any Eternitas-credentialed agent regardless of provenance, and gives Eternitas a single revocation surface that cascades across the comms diptych.
 
-### Identity
-- Eternitas auto-registration (passport on hatch)
+### Identity (EPT-gated)
+- **Eternitas auto-registration at hatch** — passport (`ET26-XXXX-XXXX`) + EPT (365-day ES256 JWT) — included in HiFly, requires Eternitas API endpoint accessible to the fork
 - Birth certificate PDF generation
 - Neural fingerprint
-- Trust score + clearance levels
+- Trust score + clearance levels surfaced from Eternitas Integrity Index
 
-### Communication
-- Windy Chat integration (Matrix auto-provisioning on chat.windychat.ai)
-- Windy Mail integration (owned inbox @windymail.ai)
-- Phone number from Windy pool (not Twilio direct)
+### Communication (EPT-gated, per ADR-020 + ADR-025)
+- **Windy Chat integration** — Matrix auto-provisioning on chat.windychat.ai; HiFly forks CAN provision accounts BUT only with valid EPTs from Eternitas (per ADR-020)
+- **Windy Mail integration** — owned inbox @mail.windymail.ai; HiFly forks CAN provision mailboxes BUT only with valid EPTs from Eternitas (per ADR-025)
+- **Windy Cell phone number** — number from Windy pool via Cell registry; EPT-gated provisioning (per ADR-017 Master Plan §C.2 once writes ship)
 
-### Ecosystem
+### Cloud (EPT-gated)
+- Windy Cloud backup (encrypted to Cloudflare R2) — EPT-gated bucket access
+- VPS deployment via Windy Cloud — EPT-gated
+- Windy Pro API tools (recordings, translations, clone) — EPT-gated where applicable; Pro JWKS validation downstream of Eternitas
+
+---
+
+## What Stays EXCLUSIVE to Windy Fly (Proprietary, NOT in HiFly)
+
+These are Windy-specific branding + UI that don't make sense outside the Windy ecosystem and are stripped during the HiFly fork generation:
+
+### Ecosystem UI/UX (Windy-specific)
 - "Born Into the Windy Ecosystem" panel
-- Ecosystem status/health commands
-- Ecosystem URL configuration ([ecosystem] section)
-- Dashboard Identity page (passport, trust score, QR code)
-
-### Cloud
-- Windy Cloud backup (encrypted to Cloudflare R2)
-- VPS deployment via Windy Cloud
-- Windy Pro API tools (recordings, translations, clone)
+- Ecosystem status/health commands referencing Windy services by hardcoded name
+- Default `[ecosystem]` config block pointing at Windy service URLs
+- Dashboard Identity page UI (passport + trust score + QR code visualization)
 
 ### Branding
 - "Windy Fly" name and 🪰 branding
-- windyfly.ai domain
-- Windy ecosystem service URLs
+- windyfly.ai domain references
+- Windy ecosystem service URLs hardcoded as defaults
+
+HiFly forks REPLACE these with generic placeholders + their own branding. HiFly's `[ecosystem]` block is empty by default; forks point it at any Eternitas-compatible service stack (Windy's, their own, or a competitor's).
 
 ---
 
