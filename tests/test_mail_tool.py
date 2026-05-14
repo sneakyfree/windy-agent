@@ -91,7 +91,13 @@ class TestSendEmailHappyPath:
         )
 
         adapter.send_email.assert_called_once_with("alice@example.com", "Hello", "Body text")
-        assert result == {"status": "sent", "message_id": "abc-123"}
+        # 2026-05-14: send_email annotates the result with a ``provider``
+        # key ("windymail" or "resend") so downstream observability + the
+        # LLM can reason about which send path answered. Adapter fields
+        # still pass through unchanged.
+        assert result["status"] == "sent"
+        assert result["message_id"] == "abc-123"
+        assert result["provider"] == "windymail"
 
     @patch("windyfly.tools.mail._adapter")
     def test_no_recipients_after_split_is_failed(self, mock_adapter: MagicMock) -> None:

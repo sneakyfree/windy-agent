@@ -7,6 +7,15 @@ when those aren't set (e.g. agent never went through hatch with a
 provisioned mailbox), tools return a structured "unavailable" result
 the LLM can interpret rather than crashing the whole tool call.
 
+**Send fallback via Resend (PR 2026-05-14):** when WindyMail isn't
+configured but ``RESEND_API_KEY`` IS, ``send_email`` falls through to
+Resend's HTTP API. This unblocks any agent whose hatch couldn't
+provision a JMAP mailbox (Stalwart 0.16 Bearer-auth issue, locked
+service tokens, fresh installs, etc.) — Resend has its own verified-
+domain pool and works out-of-the-box with just a key + a sender
+address from a verified domain. ``list_inbox`` still requires
+WindyMail (Resend is send-only).
+
 Why not fold this into ``channels/email.py``? That file holds the
 CLASSES that own the auth/rate-limit lifecycle. This module turns
 those classes into LLM-callable tool functions with OpenAI-format
@@ -18,11 +27,16 @@ without touching the other.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 from windyfly.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
+
+
+_RESEND_API_URL = "https://api.resend.com/emails"
+_RESEND_TIMEOUT_S = 15
 
 
 def _adapter() -> Any | None:
@@ -43,6 +57,80 @@ def _adapter() -> Any | None:
         return None
 
 
+def _resend_configured() -> bool:
+    """Resend send-path requires both an API key and a verified
+    sender address. Either one missing means we can't use Resend."""
+    return bool(
+        os.environ.get("RESEND_API_KEY")
+        and os.environ.get("RESEND_FROM_ADDRESS")
+    )
+
+
+def _resend_send(to: str, subject: str, body: str) -> dict[str, Any]:
+    """Send a single email via Resend's HTTP API.
+
+    Used as the fallback when WindyMailAdapter isn't configured but
+    ``RESEND_API_KEY`` + ``RESEND_FROM_ADDRESS`` are. Returns the same
+    ``{status, message_id, error}`` shape as the WindyMail adapter so
+    callers don't have to branch on send-path.
+    """
+    import httpx as _httpx
+
+    api_key = os.environ["RESEND_API_KEY"]
+    from_addr = os.environ["RESEND_FROM_ADDRESS"]
+    try:
+        resp = _httpx.post(
+            _RESEND_API_URL,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "from": from_addr,
+                "to": [to],
+                "subject": subject,
+                "text": body,
+            },
+            timeout=_RESEND_TIMEOUT_S,
+        )
+    except _httpx.TimeoutException:
+        return {
+            "status": "failed",
+            "error": f"Resend request timed out after {_RESEND_TIMEOUT_S}s",
+            "provider": "resend",
+        }
+    except _httpx.HTTPError as e:
+        return {
+            "status": "failed",
+            "error": f"Resend transport error: {e}",
+            "provider": "resend",
+        }
+
+    if resp.status_code in (200, 201, 202):
+        try:
+            data = resp.json()
+        except Exception:
+            data = {}
+        logger.info("Resend sent to %s — %s", to, subject)
+        return {
+            "status": "sent",
+            "message_id": data.get("id"),
+            "provider": "resend",
+        }
+
+    # Non-2xx — surface a trimmed body; Resend returns useful errors
+    # like "from address not verified" or "invalid api key".
+    body_preview = (resp.text or "")[:300]
+    logger.warning(
+        "Resend send failed HTTP %s: %s", resp.status_code, body_preview,
+    )
+    return {
+        "status": "failed",
+        "error": f"Resend HTTP {resp.status_code}: {body_preview}",
+        "provider": "resend",
+    }
+
+
 def _split_recipients(to: str) -> list[str]:
     """Accept a single address or a comma-separated list.
 
@@ -61,13 +149,26 @@ def send_email(to: str, subject: str, body: str) -> dict[str, Any]:
     succeeded; ``partial`` if some failed; ``failed`` if all failed.
     """
     adapter = _adapter()
-    if adapter is None:
+
+    # Pick the send path. WindyMail wins if configured (it carries the
+    # trust-gate + rate-limiter plumbing). Otherwise Resend, if its
+    # env is configured. If neither, return a structured "unavailable"
+    # the LLM can explain to the user.
+    if adapter is not None:
+        send_fn = adapter.send_email
+        path = "windymail"
+    elif _resend_configured():
+        send_fn = _resend_send
+        path = "resend"
+    else:
         return {
             "status": "unavailable",
             "error": (
-                "Email is not configured for this agent. "
-                "WINDYMAIL_EMAIL and WINDYMAIL_JMAP_TOKEN must be set "
-                "(usually populated by mail provisioning during hatch)."
+                "Email is not configured for this agent. Either "
+                "WINDYMAIL_EMAIL + WINDYMAIL_JMAP_TOKEN (preferred — "
+                "uses the agent's provisioned mailbox), or "
+                "RESEND_API_KEY + RESEND_FROM_ADDRESS (fallback — "
+                "uses Resend's verified-domain pool) must be set."
             ),
         }
 
@@ -76,19 +177,22 @@ def send_email(to: str, subject: str, body: str) -> dict[str, Any]:
         return {"status": "failed", "error": "No recipients provided"}
 
     if len(recipients) == 1:
-        result = adapter.send_email(recipients[0], subject, body)
-        # Adapter returns {status, message_id} or {status, error}; pass through.
+        result = send_fn(recipients[0], subject, body)
+        # Annotate with the chosen path so downstream observability /
+        # the LLM can reason about which provider answered.
+        result.setdefault("provider", path)
         return result
 
     per_recipient: list[dict[str, Any]] = []
     successes = 0
     for recipient in recipients:
         try:
-            result = adapter.send_email(recipient, subject, body)
+            result = send_fn(recipient, subject, body)
         except Exception as exc:  # rate limiter / trust gate may raise
             result = {"status": "failed", "error": str(exc)}
         if result.get("status") == "sent":
             successes += 1
+        result.setdefault("provider", path)
         per_recipient.append({"to": recipient, **result})
 
     if successes == len(recipients):
