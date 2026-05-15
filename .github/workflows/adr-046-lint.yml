@@ -1,0 +1,26 @@
+name: adr-046-lint
+
+# Enforces ADR-046 (compose project naming discipline).
+# See ~/kit-army-config/docs/adr-046-compose-project-naming-discipline-2026-05-15.md
+# Vendored script: .github/lint/lint-adr-046-compose-naming.sh
+# Source-of-truth: kit-army-config/scripts/lint-adr-046-compose-naming.sh
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    paths:
+      - '**/docker-compose*.yml'
+      - '**/docker-compose*.yaml'
+      - '**/compose.yml'
+      - '**/compose.yaml'
+      - '.github/lint/lint-adr-046-compose-naming.sh'
+      - '.github/workflows/adr-046-lint.yml'
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: ADR-046 compose-naming lint
+        run: bash .github/lint/lint-adr-046-compose-naming.sh .
