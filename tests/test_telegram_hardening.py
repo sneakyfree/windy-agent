@@ -587,7 +587,19 @@ def test_B_three_round_tool_loop(db_and_wq, fresh_registry, mock_llm):
     mock_llm.queue("OK done")
     out = _run_agent_respond(db, wq, "do two things")
     assert "OK done" in out
-    assert len(mock_llm.calls) == 3  # initial + tool + tool + final = 3 LLM calls
+    # The main tool loop is 3 LLM calls: initial → tool result → tool result → final.
+    # The agent ALSO writes a diary entry after each interaction (a separate
+    # small LLM call with max_tokens: 80 and a short 2-message context).
+    # Filter to the main-conversation calls by max_tokens (main calls use
+    # the configured agent max_tokens which is much larger than the diary's 80).
+    main_calls = [
+        c for c in mock_llm.calls
+        if c.get("kwargs", {}).get("max_tokens", 0) > 100
+    ]
+    assert len(main_calls) == 3, (
+        f"expected 3 main-conversation LLM calls (max_tokens > 100), got {len(main_calls)}; "
+        f"all calls: {[(c.get('kwargs', {}).get('max_tokens'), len(c.get('kwargs', {}).get('messages', []))) for c in mock_llm.calls]}"
+    )
 
 
 # ════════════════════════════════════════════════════════════════════

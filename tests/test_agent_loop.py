@@ -696,10 +696,16 @@ class TestToolExecution:
 
         call_args = mock_llm.call_args
         assert call_args is not None
-        # tools kwarg should contain the registered tool
+        # Verify the registered tool reaches the LLM. The agent MAY auto-append
+        # provider-specific tools (e.g., Anthropic injects `web_search` on some
+        # models), so the total count is environment-dependent. Assert on the
+        # presence of OUR registered tool rather than a brittle count.
         _, kwargs = call_args
         assert kwargs.get("tools") is not None
-        assert len(kwargs["tools"]) == 1
+        tools_passed = kwargs["tools"]
+        assert len(tools_passed) >= 1, "no tools reached LLM"
+        tool_names = [t.get("function", {}).get("name") or t.get("name") for t in tools_passed]
+        assert "test_tool" in tool_names, f"registered tool missing from LLM call; saw: {tool_names}"
 
         wq.stop()
         db.close()
