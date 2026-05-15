@@ -9,6 +9,9 @@
 #
 # Note: the obsolete `version: '3.8'` directive was removed — Compose
 # v2 ignores it with a warning.
+#
+# Explicit project name per ADR-046 (compose project naming discipline).
+name: windyfly-dev
 
 services:
   agent:
