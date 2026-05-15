@@ -587,7 +587,18 @@ def test_B_three_round_tool_loop(db_and_wq, fresh_registry, mock_llm):
     mock_llm.queue("OK done")
     out = _run_agent_respond(db, wq, "do two things")
     assert "OK done" in out
-    assert len(mock_llm.calls) == 3  # initial + tool + tool + final = 3 LLM calls
+    # The main tool loop is 3 LLM calls: initial → tool result → tool result → final.
+    # The agent ALSO writes a diary entry after each interaction (a separate LLM
+    # call with the "You write brief, genuine diary entries." system prompt and
+    # max_tokens: 80). Filter to count only the main-conversation calls.
+    main_calls = [
+        c for c in mock_llm.calls
+        if "diary" not in (c.get("kwargs", {}).get("messages", [{}])[0].get("content", "").lower())
+    ]
+    assert len(main_calls) == 3, (
+        f"expected 3 main-conversation LLM calls, got {len(main_calls)} "
+        f"(total calls including diary: {len(mock_llm.calls)})"
+    )
 
 
 # ════════════════════════════════════════════════════════════════════
