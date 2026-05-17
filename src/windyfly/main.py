@@ -302,13 +302,33 @@ def main() -> None:
                     # still catches SIGINT for ctrl-c interactive runs.
                     pass
 
-            await manager.start_all()
-            # Tell systemd we're ready (Type=notify). No-op outside
-            # systemd. Watchdog pings come from the heartbeat loop in
-            # each channel adapter.
+            # Start channels BEFORE notify_ready(). If any registered
+            # channel can't start, `start_all()` raises
+            # ChannelStartupError — surface it as a fatal exit so
+            # systemd's Restart=always retries from a clean process
+            # rather than getting a READY=1 from a zombie. Prevents
+            # the 2026-05-17 outage pattern: channel ImportError →
+            # swallowed → notify_ready() → no heartbeat → watchdog
+            # SIGABRT every 10 min, forever.
+            from windyfly.channels.manager import ChannelStartupError
             from windyfly.observability.sd_notify import (
                 notify_ready, notify_stopping,
             )
+            try:
+                await manager.start_all()
+            except ChannelStartupError as exc:
+                logger.critical(
+                    "FATAL: %s. Refusing to send READY=1. Exiting "
+                    "non-zero so the supervisor restarts us from a "
+                    "clean slate.", exc,
+                )
+                # Use sys.exit so the asyncio loop unwinds cleanly,
+                # giving systemd a normal exit status (1) instead of
+                # a SIGABRT'd watchdog-kill 10 min from now.
+                raise SystemExit(1) from exc
+            # Tell systemd we're ready (Type=notify). No-op outside
+            # systemd. Watchdog pings come from the heartbeat loop in
+            # each channel adapter.
             notify_ready()
 
             # If we're starting up after a panic-reset, the previous
