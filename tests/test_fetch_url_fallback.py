@@ -185,21 +185,14 @@ class TestFetchUrlFallback:
         assert "direct also dead" in (out.get("error") or "")
         assert out["windy_search_error"] == "HTTP 502"
 
-    def test_unrouted_path_still_works(self, monkeypatch):
-        """When windy-search routing is not configured, fetch_url
-        must still work via the direct path. Keep parity with
-        existing behavior."""
+    def test_unrouted_path_raises_hard_gate_error(self, monkeypatch):
+        """Hard gate (Search V1, 2026-05-17): unrouted fetch_url must
+        raise loudly rather than silently degrade to direct httpx. The
+        old "pre-B.12 parity" behavior was duplicate infrastructure
+        that bypassed Search V1's cost-cap + per-EII rate-limit + audit
+        machinery."""
         monkeypatch.delenv("WINDY_SEARCH_BASE_URL", raising=False)
         monkeypatch.delenv("WINDY_PASSPORT_EPT", raising=False)
 
-        with patch("windyfly.tools.web_search.httpx.get") as direct:
-            mock_resp = MagicMock()
-            mock_resp.text = "<html><body>hello</body></html>"
-            mock_resp.raise_for_status = MagicMock()
-            direct.return_value = mock_resp
-            out = fetch_url("https://example.com/")
-
-        assert direct.called is True
-        assert "hello" in out["content"]
-        # In unrouted mode, provider should mark it as 'direct'.
-        assert out["provider"] == "direct"
+        with pytest.raises(RuntimeError, match="Search V1 hard gate"):
+            fetch_url("https://example.com/")

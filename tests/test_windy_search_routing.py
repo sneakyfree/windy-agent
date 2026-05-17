@@ -1,14 +1,26 @@
-"""B.12 — opt-in routing of web_search/fetch_url through windy-search.
+"""Search V1 hard gate (2026-05-17) — windy-agent must route ALL
+web_search/fetch_url through windy-search (api.windysearch.com).
 
-When WINDY_SEARCH_BASE_URL and WINDY_PASSPORT_EPT are both set, the
-existing web_search() / fetch_url() helpers MUST route through the
-centralized service. When either is missing, behavior is unchanged
-from the pre-B.12 direct-Brave/DDG path.
+Pre-hard-gate behavior (Brave-direct → DuckDuckGo fallback) was deleted
+because it was duplicate infrastructure: windy-search has its own
+Brave→Google provider failover internally, and the consumer-side
+fallback bypassed Search V1's cost-cap, per-EII rate-limit, and
+integrity-event audit machinery.
+
+If WINDY_SEARCH_BASE_URL or WINDY_PASSPORT_EPT is missing,
+web_search/fetch_url raise RuntimeError — fail loud at first call.
+
+The fetch_url 5xx rescue path (direct httpx when windy-search itself
+returns 5xx / timeout / connect error) is INTENTIONALLY KEPT — it's a
+circuit breaker that keeps the agent functional when our own service
+hiccups, not a competing search provider.
 """
 
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from windyfly.tools.web_search import fetch_url, web_search
 from windyfly.tools.windy_search_client import is_routed_through_search
@@ -36,80 +48,96 @@ class TestRoutingDecision:
         assert is_routed_through_search() is True
 
 
-class TestSearchRouting:
-    def test_falls_back_to_brave_when_windy_search_not_configured(self, monkeypatch):
-        """Default behavior (no opt-in) is unchanged from pre-B.12."""
+class TestSearchHardGate:
+    def test_web_search_raises_when_not_configured(self, monkeypatch):
+        """Hard gate: missing env → RuntimeError with actionable message."""
         monkeypatch.delenv("WINDY_SEARCH_BASE_URL", raising=False)
         monkeypatch.delenv("WINDY_PASSPORT_EPT", raising=False)
-        monkeypatch.setenv("BRAVE_SEARCH_API_KEY", "fake-key")
+        # Setting a Brave key MUST NOT enable a fallback — hard gate.
+        monkeypatch.setenv("BRAVE_SEARCH_API_KEY", "fake-brave-key")
 
-        with patch("windyfly.tools.web_search._brave_search") as brave, \
-             patch("windyfly.tools.web_search.search_via_windy_search") as ws:
-            brave.return_value = {"query": "x", "results": [], "provider": "brave"}
-            web_search("x")
-            assert brave.called
-            assert not ws.called
+        with pytest.raises(RuntimeError, match="Search V1 hard gate"):
+            web_search("anything")
 
-    def test_falls_back_to_ddg_when_no_creds(self, monkeypatch):
+    def test_web_search_raises_when_only_ept_set(self, monkeypatch):
         monkeypatch.delenv("WINDY_SEARCH_BASE_URL", raising=False)
+        monkeypatch.setenv("WINDY_PASSPORT_EPT", "ey...test...")
+        with pytest.raises(RuntimeError, match="Search V1 hard gate"):
+            web_search("anything")
+
+    def test_web_search_raises_when_only_base_url_set(self, monkeypatch):
+        monkeypatch.setenv("WINDY_SEARCH_BASE_URL", "https://api.windysearch.com")
         monkeypatch.delenv("WINDY_PASSPORT_EPT", raising=False)
-        monkeypatch.delenv("BRAVE_SEARCH_API_KEY", raising=False)
+        with pytest.raises(RuntimeError, match="Search V1 hard gate"):
+            web_search("anything")
 
-        with patch("windyfly.tools.web_search._ddg_search") as ddg, \
-             patch("windyfly.tools.web_search.search_via_windy_search") as ws:
-            ddg.return_value = {"query": "x", "results": [], "provider": "duckduckgo"}
-            web_search("x")
-            assert ddg.called
-            assert not ws.called
-
-    def test_routes_through_windy_search_when_configured(self, monkeypatch):
-        """Both env vars set → calls windy-search, NOT Brave or DDG."""
+    def test_web_search_routes_through_when_configured(self, monkeypatch):
+        """Both env vars set → calls windy-search, returns its result verbatim."""
         monkeypatch.setenv("WINDY_SEARCH_BASE_URL", "https://api.windysearch.com")
         monkeypatch.setenv("WINDY_PASSPORT_EPT", "ey...test...")
-        # Setting BRAVE shouldn't change anything — windy-search wins.
-        monkeypatch.setenv("BRAVE_SEARCH_API_KEY", "fake-brave")
 
-        with patch("windyfly.tools.web_search.search_via_windy_search") as ws, \
-             patch("windyfly.tools.web_search._brave_search") as brave, \
-             patch("windyfly.tools.web_search._ddg_search") as ddg:
-            ws.return_value = {"query": "x", "results": [{"title": "T", "snippet": "S", "url": "U"}],
-                               "provider": "windy-search:brave"}
+        with patch("windyfly.tools.web_search.search_via_windy_search") as ws:
+            ws.return_value = {
+                "query": "x",
+                "results": [{"title": "T", "snippet": "S", "url": "U"}],
+                "provider": "windy-search:brave",
+            }
             result = web_search("x", limit=3)
-            assert ws.called
-            ws.assert_called_with("x", 3)
-            assert not brave.called
-            assert not ddg.called
+            ws.assert_called_once_with("x", 3)
             assert result["provider"] == "windy-search:brave"
 
 
-class TestFetchRouting:
-    def test_routes_through_windy_search_when_configured(self, monkeypatch):
+class TestFetchHardGate:
+    def test_fetch_url_raises_when_not_configured(self, monkeypatch):
+        monkeypatch.delenv("WINDY_SEARCH_BASE_URL", raising=False)
+        monkeypatch.delenv("WINDY_PASSPORT_EPT", raising=False)
+        with pytest.raises(RuntimeError, match="Search V1 hard gate"):
+            fetch_url("https://example.com/")
+
+    def test_fetch_url_routes_through_when_configured(self, monkeypatch):
         monkeypatch.setenv("WINDY_SEARCH_BASE_URL", "https://api.windysearch.com")
         monkeypatch.setenv("WINDY_PASSPORT_EPT", "ey...test...")
 
         with patch("windyfly.tools.web_search.fetch_via_windy_search") as ws, \
-             patch("windyfly.tools.web_search.httpx.get") as direct:
+             patch("windyfly.tools.web_search._direct_fetch_url") as direct:
             ws.return_value = {"url": "U", "content": "hi", "total_length": 2}
             fetch_url("https://example.com/")
             assert ws.called
             assert not direct.called
 
-    def test_falls_back_to_direct_when_not_configured(self, monkeypatch):
-        monkeypatch.delenv("WINDY_SEARCH_BASE_URL", raising=False)
-        monkeypatch.delenv("WINDY_PASSPORT_EPT", raising=False)
+    def test_fetch_url_rescues_when_windy_search_5xx(self, monkeypatch):
+        """5xx from windy-search → direct httpx rescue (circuit breaker)."""
+        monkeypatch.setenv("WINDY_SEARCH_BASE_URL", "https://api.windysearch.com")
+        monkeypatch.setenv("WINDY_PASSPORT_EPT", "ey...test...")
 
         with patch("windyfly.tools.web_search.fetch_via_windy_search") as ws, \
-             patch("windyfly.tools.web_search.httpx.get") as direct:
-            mock_resp = MagicMock()
-            mock_resp.text = "<html><body>hi</body></html>"
-            mock_resp.raise_for_status = MagicMock()
-            direct.return_value = mock_resp
-            fetch_url("https://example.com/")
+             patch("windyfly.tools.web_search._direct_fetch_url") as direct:
+            ws.return_value = {"url": "U", "content": "", "error": "HTTP 502"}
+            direct.return_value = {"url": "U", "content": "rescued", "total_length": 7}
+            result = fetch_url("https://example.com/")
             assert direct.called
-            assert not ws.called
+            assert result["provider"] == "direct-fallback"
+            assert result["windy_search_error"] == "HTTP 502"
+
+    def test_fetch_url_no_rescue_on_pass_through_4xx(self, monkeypatch):
+        """4xx from windy-search means the TARGET refused — direct would
+        get the same answer. No rescue."""
+        monkeypatch.setenv("WINDY_SEARCH_BASE_URL", "https://api.windysearch.com")
+        monkeypatch.setenv("WINDY_PASSPORT_EPT", "ey...test...")
+
+        with patch("windyfly.tools.web_search.fetch_via_windy_search") as ws, \
+             patch("windyfly.tools.web_search._direct_fetch_url") as direct:
+            ws.return_value = {"url": "U", "content": "", "error": "HTTP 403"}
+            result = fetch_url("https://example.com/")
+            assert not direct.called
+            assert result["error"] == "HTTP 403"
 
 
 class TestWindySearchClient:
+    """Tests for the thin client itself (windy_search_client module).
+    Kept verbatim from the pre-hard-gate test suite — these test the
+    transport layer, not the routing decision."""
+
     def test_search_via_windy_search_happy_path(self, monkeypatch):
         monkeypatch.setenv("WINDY_SEARCH_BASE_URL", "https://api.windysearch.com")
         monkeypatch.setenv("WINDY_PASSPORT_EPT", "ey...test...")
@@ -131,7 +159,6 @@ class TestWindySearchClient:
             assert result["query"] == "test"
             assert result["provider"] == "windy-search:ddg"
             assert len(result["results"]) == 1
-            # Verify Authorization header was set with Bearer + EPT
             kwargs = post.call_args.kwargs
             assert kwargs["headers"]["Authorization"] == "Bearer ey...test..."
 

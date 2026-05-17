@@ -123,19 +123,19 @@ class TestToolExecution:
         assert "added" in result.lower() or "buy groceries" in result.lower()
         db.close()
 
-    def test_web_search_via_registry(self):
-        """web_search should return results."""
+    def test_web_search_via_registry(self, monkeypatch):
+        """web_search should return results when env is configured.
+        Post Search V1 hard gate (2026-05-17): routes through
+        api.windysearch.com — mock the windy-search client, not httpx."""
+        monkeypatch.setenv("WINDY_SEARCH_BASE_URL", "https://api.windysearch.com")
+        monkeypatch.setenv("WINDY_PASSPORT_EPT", "ey...test...")
         registry, db = _make_registry()
-        with patch("windyfly.tools.web_search.httpx.get") as mock_get:
-            resp = MagicMock()
-            resp.status_code = 200
-            resp.json.return_value = {
-                "Abstract": "Python is a programming language",
-                "Heading": "Python",
-                "AbstractURL": "https://python.org",
-                "RelatedTopics": [],
+        with patch("windyfly.tools.web_search.search_via_windy_search") as ws:
+            ws.return_value = {
+                "query": "python",
+                "results": [{"title": "Python", "snippet": "Python is a programming language", "url": "https://python.org"}],
+                "provider": "windy-search:brave",
             }
-            mock_get.return_value = resp
             result = registry.execute("web_search", {"query": "python"})
             assert "python" in result.lower()
         db.close()
@@ -147,14 +147,20 @@ class TestToolExecution:
         assert "2.25" in result
         db.close()
 
-    def test_fetch_url_via_registry(self):
-        """fetch_url should strip HTML and return text."""
+    def test_fetch_url_via_registry(self, monkeypatch):
+        """fetch_url should return cleaned text when env is configured.
+        Post Search V1 hard gate (2026-05-17): routes through
+        api.windysearch.com — mock the windy-search client, not httpx."""
+        monkeypatch.setenv("WINDY_SEARCH_BASE_URL", "https://api.windysearch.com")
+        monkeypatch.setenv("WINDY_PASSPORT_EPT", "ey...test...")
         registry, db = _make_registry()
-        with patch("windyfly.tools.web_search.httpx.get") as mock_get:
-            resp = MagicMock()
-            resp.status_code = 200
-            resp.text = "<html><body><p>Hello world</p></body></html>"
-            mock_get.return_value = resp
+        with patch("windyfly.tools.web_search.fetch_via_windy_search") as ws:
+            ws.return_value = {
+                "url": "https://example.com",
+                "content": "Hello world",
+                "total_length": 11,
+                "provider": "windy-search",
+            }
             result = registry.execute("fetch_url", {"url": "https://example.com"})
             assert "Hello world" in result
         db.close()

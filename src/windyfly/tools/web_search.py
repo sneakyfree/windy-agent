@@ -1,22 +1,31 @@
-"""Web search tool — Windy Search (preferred when configured) +
-Brave Search + DuckDuckGo fallbacks.
+"""Web search tool — hard-gated through Windy Search (api.windysearch.com).
 
-Resolution order:
-  1. If WINDY_SEARCH_BASE_URL and WINDY_PASSPORT_EPT are both set, route
-     through the centralized Windy Search service (master plan B.12).
-     This is opt-in — nothing changes for agents that don't set both.
-  2. Else if BRAVE_SEARCH_API_KEY is set, call Brave directly (free tier
-     2000/month, high quality).
-  3. Else fall back to DuckDuckGo instant-answer (no key, low quality).
+**Hard gate (Search V1 — 2026-05-17):** all agent web search and fetch
+MUST route through windy-search. The service has its own Brave→Google
+provider failover internally; a second consumer-side fallback (the
+old Brave-direct → DuckDuckGo chain) was duplicate infrastructure
+that bypassed Search V1's cost-cap, per-EII-tier rate-limit, and
+integrity-event audit machinery.
 
-Also includes fetch_url for reading specific web pages, with the same
-opt-in routing.
+Requires both env vars at first call:
+  WINDY_SEARCH_BASE_URL  e.g. https://api.windysearch.com
+  WINDY_PASSPORT_EPT     the agent's bot-passport EPT (JWT)
+
+If either is missing, web_search()/fetch_url() raise RuntimeError with
+an actionable message. Fail loud at first call rather than silently
+degrade — that's the whole point of the hard gate.
+
+`fetch_url` keeps a smart rescue path: when windy-search itself returns
+5xx (its own fetcher gets anti-bot blocked, etc.), fall back to direct
+httpx with browser-shaped headers. This is NOT a competing search
+provider — it's a circuit breaker that keeps the agent functional when
+our own service has a hiccup. Pass-through 4xx (target site refused)
+does NOT trigger the rescue; direct httpx would get the same answer.
 """
 
 from __future__ import annotations
 
 import logging
-import os
 import re
 from typing import Any
 
@@ -44,81 +53,19 @@ _BROWSER_HEADERS = {
     "Accept-Language": "en-US,en;q=0.5",
 }
 
+_HARD_GATE_ERROR = (
+    "Search V1 hard gate (2026-05-17): web_search/fetch_url require "
+    "both WINDY_SEARCH_BASE_URL and WINDY_PASSPORT_EPT environment "
+    "variables. Set them in your soul-repo env/launcher to enable "
+    "agent web access through api.windysearch.com."
+)
+
 
 def web_search(query: str, limit: int = 5) -> dict[str, Any]:
-    """Search the web.
-
-    Routing (master plan B.12):
-      - WINDY_SEARCH_BASE_URL + WINDY_PASSPORT_EPT set → centralized service
-      - BRAVE_SEARCH_API_KEY set                       → direct Brave
-      - else                                            → DuckDuckGo
-    """
-    if is_routed_through_search():
-        return search_via_windy_search(query, limit)
-    if os.environ.get("BRAVE_SEARCH_API_KEY"):
-        return _brave_search(query, limit)
-    return _ddg_search(query, limit)
-
-
-def _brave_search(query: str, limit: int = 5) -> dict[str, Any]:
-    """Search using Brave Search API."""
-    api_key = os.environ.get("BRAVE_SEARCH_API_KEY", "")
-    try:
-        resp = httpx.get(
-            "https://api.search.brave.com/res/v1/web/search",
-            params={"q": query, "count": limit},
-            headers={"X-Subscription-Token": api_key, "Accept": "application/json"},
-            timeout=_TIMEOUT,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-
-        results = []
-        for item in data.get("web", {}).get("results", [])[:limit]:
-            results.append({
-                "title": item.get("title", ""),
-                "snippet": item.get("description", ""),
-                "url": item.get("url", ""),
-            })
-
-        return {"query": query, "results": results, "provider": "brave"}
-    except Exception as e:
-        logger.warning("Brave search failed, falling back to DuckDuckGo: %s", e)
-        return _ddg_search(query, limit)
-
-
-def _ddg_search(query: str, limit: int = 5) -> dict[str, Any]:
-    """Search using DuckDuckGo instant answer API (no API key)."""
-    try:
-        response = httpx.get(
-            "https://api.duckduckgo.com/",
-            params={"q": query, "format": "json", "no_html": 1},
-            timeout=_TIMEOUT,
-        )
-        response.raise_for_status()
-        data = response.json()
-
-        results: list[dict[str, str]] = []
-
-        if data.get("Abstract"):
-            results.append({
-                "title": data.get("Heading", ""),
-                "snippet": data["Abstract"],
-                "url": data.get("AbstractURL", ""),
-            })
-
-        for topic in data.get("RelatedTopics", [])[:limit]:
-            if isinstance(topic, dict) and topic.get("Text"):
-                results.append({
-                    "title": topic.get("Text", "")[:100],
-                    "snippet": topic.get("Text", ""),
-                    "url": topic.get("FirstURL", ""),
-                })
-
-        return {"query": query, "results": results[:limit], "provider": "duckduckgo"}
-    except httpx.HTTPError as e:
-        logger.error("Web search failed: %s", e)
-        return {"query": query, "results": [], "error": str(e)}
+    """Search the web through windy-search (hard-gated)."""
+    if not is_routed_through_search():
+        raise RuntimeError(_HARD_GATE_ERROR)
+    return search_via_windy_search(query, limit)
 
 
 # Errors that indicate the windy-search service itself is broken
@@ -205,61 +152,39 @@ def fetch_url(
     max_chars: int = 20000,
     offset: int = 0,
 ) -> dict[str, Any]:
-    """Fetch a URL and return its text content (HTML stripped).
+    """Fetch a URL through windy-search (hard-gated) with a 5xx rescue.
 
-    Routing + failover:
-      1. If WINDY_SEARCH_BASE_URL + WINDY_PASSPORT_EPT are set, route
-         through the centralized service (cross-tenant cache, SSRF
-         protection, integrity-event audit).
-      2. If windy-search itself fails (502 / 503 / 504 / timeout /
-         connect error — not a pass-through 4xx), fall back to direct
-         httpx with browser-shaped headers. The target site often
-         responds differently to a direct request than to windy-
-         search's fetcher (different IP, different UA), so the
-         fallback rescues a meaningful fraction of fetches.
-      3. Otherwise direct httpx is used from the start.
+    Hard gate (Search V1, 2026-05-17): WINDY_SEARCH_BASE_URL +
+    WINDY_PASSPORT_EPT must be set or RuntimeError is raised.
 
-    Surfaced 2026-05-10: windy-search /web/fetch was returning 502s
-    on 2 fetches in a turn (upstream sites 403'ing windy-search's
-    fetcher). The bot reported "network is down" and gave up despite
-    direct httpx being viable. Failover added.
+    Rescue path (kept): if windy-search itself returns 5xx / timeout /
+    connect error (its fetcher got anti-bot blocked, target IP refuses
+    its UA, etc.), fall back to direct httpx with browser-shaped
+    headers. This is NOT a competing search provider — it's a circuit
+    breaker. Pass-through 4xx from windy-search means the target site
+    refused; direct httpx would get the same answer, so no rescue.
 
-    Stress harness v4 round-3 finding: the prior 5000-char cap meant
-    the bot couldn't read past the opening of any real article (most
-    Wikipedia bodies are 30-100KB of text). Default raised to 20000
-    chars and an ``offset`` parameter added so the bot can read past
-    the cap by repeating the call with offset += max_chars. The
-    response always includes ``total_length`` so the LLM can decide
-    whether another fetch is worth it.
-
-    Useful for "Read this article for me: [URL]" and "give me the
-    last paragraph of [URL]".
+    Pagination: response includes total_length + next_offset; call
+    again with offset=next_offset to read past the slice cap.
     """
-    if is_routed_through_search():
-        result = fetch_via_windy_search(url, max_chars=max_chars, offset=offset)
-        # If windy-search itself broke (not a pass-through of a
-        # target-side 4xx), try direct httpx as a rescue. Don't
-        # fall back on pass-through 4xx — direct would get the
-        # same answer.
-        if _is_windy_search_failure(result.get("error")):
-            logger.info(
-                "windy-search /web/fetch failed (%s); falling back "
-                "to direct httpx for %s",
-                result.get("error"), url,
-            )
-            direct = _direct_fetch_url(url, max_chars=max_chars, offset=offset)
-            if direct.get("content"):
-                # Annotate so debugging / logs show the rescue.
-                direct["provider"] = "direct-fallback"
-                direct["windy_search_error"] = result.get("error")
-                return direct
-            # Direct also failed — return it (it carries its own
-            # error string) so the caller sees the real problem.
-            direct["provider"] = "direct-fallback-failed"
+    if not is_routed_through_search():
+        raise RuntimeError(_HARD_GATE_ERROR)
+    result = fetch_via_windy_search(url, max_chars=max_chars, offset=offset)
+    if _is_windy_search_failure(result.get("error")):
+        logger.info(
+            "windy-search /web/fetch failed (%s); falling back "
+            "to direct httpx for %s",
+            result.get("error"), url,
+        )
+        direct = _direct_fetch_url(url, max_chars=max_chars, offset=offset)
+        if direct.get("content"):
+            direct["provider"] = "direct-fallback"
             direct["windy_search_error"] = result.get("error")
             return direct
-        return result
-    return _direct_fetch_url(url, max_chars=max_chars, offset=offset)
+        direct["provider"] = "direct-fallback-failed"
+        direct["windy_search_error"] = result.get("error")
+        return direct
+    return result
 
 
 def register_web_search_tool(registry: ToolRegistry) -> None:
