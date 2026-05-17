@@ -174,9 +174,19 @@ main() {
 
     echo ""
 
-    # Install Python dependencies
+    # Install Python dependencies — `--extra telegram` is REQUIRED.
+    # `python-telegram-bot` is declared as an optional extra in
+    # pyproject.toml, and `uv sync` without `--extra` silently skips
+    # extras. A venv built that way still imports `windyfly` fine, but
+    # the Telegram channel ImportErrors at start_all() — the channel
+    # manager logs an ERROR and the rest of the service keeps booting,
+    # so systemd sees `active (running)` while the bot has no live
+    # channel. Watchdog then kills the service every WatchdogSec
+    # (10 min) in an infinite loop. Surfaced 2026-05-17: venv was
+    # rebuilt 2026-05-14 without the extra, bot was zombie-running
+    # for 3 days before Grant noticed messages weren't being answered.
     info "Installing Python dependencies..."
-    uv sync --quiet 2>/dev/null || uv sync
+    uv sync --extra telegram --quiet 2>/dev/null || uv sync --extra telegram
     ok "Python dependencies installed"
 
     # Install gateway dependencies
