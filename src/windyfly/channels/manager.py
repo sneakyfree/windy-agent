@@ -11,6 +11,29 @@ from windyfly.channels.base import ChannelAdapter, IncomingMessage
 logger = logging.getLogger(__name__)
 
 
+class ChannelStartupError(RuntimeError):
+    """Raised when one or more registered channels fail to start.
+
+    A registered channel is one the operator explicitly opted into;
+    failing to start it means the service cannot perform its job.
+    Callers should treat this as fatal — log it, do NOT call
+    sd_notify(READY=1), and exit non-zero so the process supervisor
+    (systemd Restart=always) retries from a clean slate rather than
+    leaving an `active (running)` service with no live channel.
+
+    Surfaced 2026-05-17 outage: a missing optional dep
+    (``python-telegram-bot``) made the Telegram channel ImportError
+    at ``start()``. The previous implementation swallowed the
+    exception with ``logger.error`` and returned normally, so
+    ``windyfly.main`` then called ``notify_ready()`` and systemd's
+    watchdog killed the zombie service every 10 min for 3 days.
+    """
+
+    def __init__(self, message: str, failures: list[tuple[str, BaseException]]) -> None:
+        super().__init__(message)
+        self.failures = failures
+
+
 class ChannelManager:
     """Manages all active messaging channels.
 
@@ -76,13 +99,36 @@ class ChannelManager:
             return classified.user_message
 
     async def start_all(self) -> None:
-        """Start all registered channels."""
+        """Start all registered channels.
+
+        Raises:
+            ChannelStartupError: if any registered channel's ``start()``
+                raises. Channels that succeeded earlier in the loop
+                are left running so the caller can stop them as part
+                of clean shutdown — failures don't roll back the rest.
+
+        Channels we registered are channels we want running; a failure
+        to start one means the service is not operable. The caller
+        (``windyfly.main._run``) catches this and exits non-zero
+        BEFORE calling ``notify_ready()``, which prevents the
+        "active (running) but functionally dead" state that fooled
+        systemd into watchdog-killing a useless process every 10 min
+        during the 2026-05-17 outage.
+        """
+        failures: list[tuple[str, BaseException]] = []
         for name, ch in self.channels.items():
             try:
                 await ch.start()
                 logger.info("Channel started: %s", name)
             except Exception as exc:
                 logger.error("Channel %s failed to start: %s", name, exc)
+                failures.append((name, exc))
+        if failures:
+            names = ", ".join(n for n, _ in failures)
+            raise ChannelStartupError(
+                f"channel(s) failed to start: {names}",
+                failures=failures,
+            )
 
     async def stop_all(self) -> None:
         """Stop all registered channels."""
