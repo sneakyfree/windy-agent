@@ -101,6 +101,32 @@ class TestRuntimeGuardrailInPrompt:
         assert "Kit 0" in sys_text
         assert "OC1" in sys_text or "OC7" in sys_text
 
+    def test_guardrail_prevents_host_confabulation(self, db):
+        """Surfaced 2026-05-17 by a Telegram screenshot where the bot,
+        asked which API key it was using, replied 'ssh root@72.60.118.54
+        / grep ANTHROPIC ~/.windy/windy-0.env' — directing Grant to
+        check his Kit 0 VPS when in fact Windy 0 lives on his Fedora
+        workstation. The bot confabulated its own host by conflating
+        itself with the sister agent (Kit 0) that DOES live on the VPS.
+
+        Guardrail must spell out that the bot cannot introspect its
+        own env from inside the conversation and must not invent an
+        SSH command to a remote host."""
+        from windyfly.agent.prompt import assemble_prompt
+        msgs = assemble_prompt(_make_config(), db, "hi", "session-host")
+        sys_text = msgs[0]["content"]
+        # 4th pillar must be present.
+        assert "HOST" in sys_text
+        # The exact failure mode from the screenshot must be banned.
+        assert "ssh root@" in sys_text.lower()
+        # Must offer the corrective phrasing as a template.
+        assert "can't introspect" in sys_text.lower() or \
+               "cannot introspect" in sys_text.lower()
+        # Must explicitly call out the Kit-0 conflation that drove
+        # the original bug — sister agents may live remote, this one
+        # may not.
+        assert "Kit 0" in sys_text
+
     def test_guardrail_present_in_grandma_band_too(self, db):
         """The grandma-mode block goes AFTER runtime guardrail, so
         guardrail must still be present even when band=USER triggers
