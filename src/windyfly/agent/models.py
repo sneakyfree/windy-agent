@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import re
 import time
 from typing import Any
@@ -113,13 +114,98 @@ def _max_oauth_active() -> bool:
     """Per ADR-022 exception register: when Grant's Anthropic Max OAuth
     token is active, allow direct Anthropic SDK calls. Routing through
     Mind would force pay-per-call api03 billing instead of the Max sub.
-    All non-Max-OAuth LLM calls MUST route through Mind per ADR-010 §8."""
+    All non-Max-OAuth LLM calls MUST route through Mind per ADR-010 §8.
+
+    Two detection paths, mirroring ``_call_anthropic`` at line ~590:
+
+    1. Explicit OAuth env vars handled by ``OAuthManager``
+       (``ANTHROPIC_OAUTH_ACCESS_TOKEN`` / refresh / expires_at).
+    2. Fallback: oat token stuffed directly in ``ANTHROPIC_API_KEY``.
+       Most installers and quickstart paths default to the latter —
+       there's no separate prompt for an "OAuth token" vs an "API key",
+       so the user pastes whatever they have into the one creds field
+       and the prefix tells us which path to use.
+
+    Without (2), ``_max_oauth_active()`` returned False whenever an
+    operator put the oat token in ``ANTHROPIC_API_KEY``, and the chain
+    routed through Mind on every call. Today Mind happens to be
+    unreachable so the chain falls through to the direct Anthropic
+    provider (which DOES detect the prefix) — but that's an accident
+    of infrastructure state, not a design property. The moment Mind
+    comes online with Anthropic models registered, Max-plan users
+    silently start paying API03 billing.
+
+    Surfaced 2026-05-17 while diagnosing windy-0 — Grant's env had the
+    oat token in ``ANTHROPIC_API_KEY``, the direct call site honored
+    it (Max plan billing), but this gate didn't, so the Mind bypass
+    was a coin flip on whether Mind was up that minute.
+    """
     try:
         from windyfly.agent.oauth import get_oauth_manager
         oauth = get_oauth_manager()
-        return bool(oauth and getattr(oauth, "access_token", None))
+        if oauth and getattr(oauth, "access_token", None):
+            return True
+        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        return api_key.startswith("sk-ant-oat01-")
     except Exception:
         return False
+
+
+_ANTHROPIC_AUTH_PATH_LOGGED = False
+
+
+def _log_anthropic_auth_path_once(
+    *, oauth_via_manager: bool, oauth_via_api_key: bool, api_key_only: bool,
+) -> None:
+    """First-Anthropic-call telemetry: log which auth path is live.
+
+    Without this, the bot has no way to answer the question "am I on
+    Max plan or paying API03 rates?" — which was the literal question
+    the user asked over Telegram on 2026-05-17 and the bot couldn't
+    answer because it has no env introspection. The httpx log line
+    only shows ``POST https://api.anthropic.com/v1/messages 200 OK``
+    regardless of which header carried auth.
+
+    Logs at INFO level on the FIRST anthropic call after process
+    start, then never again — module-level flag keeps it from
+    spamming every request. The three signals carry enough detail
+    to disambiguate billing without leaking the token.
+    """
+    global _ANTHROPIC_AUTH_PATH_LOGGED
+    if _ANTHROPIC_AUTH_PATH_LOGGED:
+        return
+    _ANTHROPIC_AUTH_PATH_LOGGED = True
+    if oauth_via_manager:
+        logger.info(
+            "Anthropic auth path: OAuth Max plan via OAuthManager "
+            "(ANTHROPIC_OAUTH_ACCESS_TOKEN env). Billing flows "
+            "against your Claude subscription, not pay-per-token."
+        )
+    elif oauth_via_api_key:
+        logger.info(
+            "Anthropic auth path: OAuth Max plan via ANTHROPIC_API_KEY "
+            "fallback (sk-ant-oat01- prefix detected). Billing flows "
+            "against your Claude subscription, not pay-per-token. "
+            "Optional hardening: move the token to "
+            "ANTHROPIC_OAUTH_ACCESS_TOKEN (+ refresh token / "
+            "expires_at) so the OAuthManager handles auto-refresh "
+            "when the token nears expiry."
+        )
+    elif api_key_only:
+        logger.warning(
+            "Anthropic auth path: API key (pay-per-token). NOT on "
+            "Max plan — every call bills against your Anthropic "
+            "Console balance at full API rates. If you have a Claude "
+            "Max subscription, set ANTHROPIC_API_KEY=sk-ant-oat01-… "
+            "(or ANTHROPIC_OAUTH_ACCESS_TOKEN=…) to switch to flat-"
+            "rate billing."
+        )
+    else:
+        logger.warning(
+            "Anthropic auth path: NO credentials in env. SDK will "
+            "use whatever its default discovery finds (~/.config "
+            "files, etc.) or raise on the next call."
+        )
 
 
 def _try_mind_broker(
@@ -592,6 +678,11 @@ def _call_anthropic(
     oauth = get_oauth_manager()
     oauth_token = oauth.access_token if oauth else (
         api_key if api_key.startswith("sk-ant-oat01-") else ""
+    )
+    _log_anthropic_auth_path_once(
+        oauth_via_manager=oauth is not None,
+        oauth_via_api_key=bool(oauth_token) and oauth is None,
+        api_key_only=bool(api_key) and not oauth_token,
     )
     if oauth_token:
         client = anthropic.Anthropic(
