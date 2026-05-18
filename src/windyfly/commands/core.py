@@ -265,8 +265,14 @@ def _register_all():
         email = os.environ.get("WINDYMAIL_EMAIL", "none")
         db_path = os.environ.get("WINDYFLY_DB_PATH", "data/windyfly.db")
         size = f"{os.path.getsize(db_path)/1024/1024:.1f}MB" if os.path.exists(db_path) else "no db"
-        return (f"🪰 Status\nModel: {model}\nPassport: {passport}\n"
-                f"Email: {email}\nDB: {size}")
+        # Auth-path line answers the recurring "am I on Max plan?"
+        # question without the bot having to introspect or guess
+        # (PR #192 — surfaced 2026-05-17/18 when the bot kept
+        # fabricating "ssh root@<vps>" instructions for its own env).
+        from windyfly.agent.models import get_anthropic_auth_path
+        auth = get_anthropic_auth_path()["label_short"]
+        return (f"🪰 Status\nModel: {model}\nAuth: {auth}\n"
+                f"Passport: {passport}\nEmail: {email}\nDB: {size}")
     _r("status", "Quick status summary", "02_diagnostics", cmd_status, aliases=["info"])
 
     async def cmd_pulse(ctx):
