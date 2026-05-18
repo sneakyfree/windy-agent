@@ -320,6 +320,37 @@ _SELF_ENV_CONFAB_PATTERNS = (
     "my environment does not allow",
     "this lambda environment",
     "anthropic-hosted sandbox",
+    # ── HOST confabulation patterns (PR #190, 2026-05-18) ──
+    # Companion to PR #188's prompt-level HOST guardrail. The prompt
+    # rule alone wasn't enough: even with the HOST bullet present,
+    # the model still emitted "windy-0.env on your VPS / ssh
+    # root@72.60.118.54" the next morning, likely because (a) the
+    # prior tainted reply was in conversation memory and (b) the
+    # bot has no positive truth about where it lives, only "don't
+    # claim X". These post-hoc detectors catch the most reliable
+    # surface forms of the confabulation so the retry can scrub
+    # them before they reach the user.
+    #
+    # All patterns are conservative co-occurrences: bot's own env
+    # file name + a "this is on remote infra" framing. Each phrase
+    # is essentially impossible to emit by accident in a legitimate
+    # answer — you'd have to be quoting the bot's earlier bad reply.
+    "windy-0.env on your vps",
+    "windy-0.env on the vps",
+    ".windy/windy-0.env on your",
+    ".windy/windy-0.env on the vps",
+    "on your vps for the anthropic",
+    "ssh root@72.60.118.54",  # the specific IP it keeps inventing
+    # Self-uncertainty hedges. When the bot writes a "run this on
+    # X" instruction without knowing where X actually is, it papers
+    # over the gap with phrases like "or wherever the bot process
+    # lives". That hedge is itself the signature — a confident
+    # instruction wouldn't need it. Specific enough not to false-
+    # positive on legitimate uncertainty about user infra.
+    "wherever the bot process lives",
+    "wherever the bot lives",
+    "wherever windy fly lives",
+    "wherever windy 0 lives",
 )
 
 
