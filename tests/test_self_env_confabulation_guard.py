@@ -184,6 +184,42 @@ class TestTripwireDetection:
             assert _looks_self_env_confabulated(text) is False, \
                 f"false positive: {text!r}"
 
+    def test_host_confabulation_detected(self):
+        """Reproduced 2026-05-18 even after PR #188's prompt-level
+        HOST bullet — model still emitted 'windy-0.env on your VPS /
+        ssh root@72.60.118.54'. Tripwire is the second line of
+        defense for the specific surface forms we keep seeing."""
+        from windyfly.agent.loop import _looks_self_env_confabulated
+        cases = [
+            # The 2026-05-17 / 2026-05-18 screenshot phrases verbatim
+            "Check `~/.windy/windy-0.env` on your VPS for the "
+            "ANTHROPIC_API_KEY value",
+            "Run that on your VPS (or wherever the bot process lives)",
+            "ssh root@72.60.118.54\ngrep ANTHROPIC ~/.windy/windy-0.env",
+            # Plausible variants the bot might drift into next
+            "windy-0.env on the vps where I run",
+            "check ~/.windy/windy-0.env on your remote host",
+        ]
+        for text in cases:
+            assert _looks_self_env_confabulated(text) is True, \
+                f"missed HOST confab: {text!r}"
+
+    def test_host_legitimate_uses_pass(self):
+        """User-instruction context for actual VPSes Grant operates
+        should NOT trip the host tripwire — patterns target the bot's
+        OWN env file name (windy-0.env) co-occurring with remote-host
+        framing, not generic SSH-to-VPS discussion."""
+        from windyfly.agent.loop import _looks_self_env_confabulated
+        cases = [
+            "To SSH into your kit, run: ssh kit-0c3",
+            "You can ssh root@example.com to your own server.",
+            "The VPS at kit-army-config has the lockbox file.",
+            "Edit your env file at /etc/myapp/.env on the VPS.",
+        ]
+        for text in cases:
+            assert _looks_self_env_confabulated(text) is False, \
+                f"false positive on HOST tripwire: {text!r}"
+
     def test_empty_response_returns_false(self):
         from windyfly.agent.loop import _looks_self_env_confabulated
         assert _looks_self_env_confabulated("") is False
