@@ -156,8 +156,68 @@ def assemble_prompt(
         "remote host (Kit 0 lives on a VPS; you, Windy Fly, may not) "
         "— that conflation produces a confidently-wrong SSH "
         "instruction the user will then execute against the wrong "
-        "machine."
+        "machine. (See RUNTIME CONTEXT below for facts you DO know.)"
     )
+
+    # Positive truth — the "you DO know" side of the HOST guardrail.
+    # The negative rules above tell the model what NOT to claim;
+    # without something positive to anchor to, the model fills the
+    # gap with training-era priors (Docker sandbox, VPS, etc.).
+    # RUNTIME CONTEXT pins the facts the model otherwise guesses at.
+    #
+    # Surfaced 2026-05-18: even after PR #188's HOST bullet, the bot
+    # still emitted "ssh root@72.60.118.54 / windy-0.env on your VPS"
+    # because (a) it had no positive truth to lean on, only a "don't
+    # say X" rule, and (b) yesterday's bad replies were in context.
+    # Tripwire (PR #190/191) catches (b); this block fixes (a).
+    runtime_context_parts = ["RUNTIME CONTEXT (true facts, not guesses — quote these instead of inventing):"]
+
+    # Active model (from config — chain failover can swap at request
+    # time, but the configured default is what the user is asking
+    # about when they say "which model are you?")
+    active_model = config.get("agent", {}).get("default_model") or \
+        config.get("default_model", "unknown")
+    runtime_context_parts.append(f"- Model: {active_model}")
+
+    # Anthropic auth path — answers "am I on Max plan?" without
+    # introspection or env access.
+    try:
+        from windyfly.agent.models import get_anthropic_auth_path
+        auth = get_anthropic_auth_path()
+        runtime_context_parts.append(f"- Anthropic auth: {auth['label_long']}")
+    except Exception:
+        # Importing models.py during prompt assembly should never
+        # fail in production, but guard so a transient import error
+        # doesn't take the prompt offline.
+        runtime_context_parts.append("- Anthropic auth: unknown")
+
+    # Process supervisor — runtime-detected, no instance hardcode.
+    # Matches the Wave 15 #0 architectural rule (no per-instance
+    # config in this repo) by reading env signals at assembly time
+    # rather than baking a host name into the prompt.
+    import os as _os
+    if _os.environ.get("INVOCATION_ID"):
+        # systemd sets INVOCATION_ID for every service invocation.
+        supervisor = "native systemd service"
+    elif _os.path.exists("/.dockerenv"):
+        supervisor = "Docker container"
+    elif _os.environ.get("KUBERNETES_SERVICE_HOST"):
+        supervisor = "Kubernetes pod"
+    elif _os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
+        supervisor = "AWS Lambda"
+    else:
+        supervisor = "unsupervised process"
+    runtime_context_parts.append(
+        f"- Process: {supervisor} on the operator's machine "
+        "(NOT a remote VPS unless you can name a tool that proves it)"
+    )
+
+    runtime_context_parts.append(
+        "If asked which model / auth / billing / host you have, "
+        "QUOTE the corresponding line above. Do not hedge with "
+        "'I can't tell you exactly' — these lines ARE the answer."
+    )
+    system_parts.append("\n".join(runtime_context_parts))
 
     # First-contact guard: when the bot has no prior memory at all,
     # the LLM's default warmth kicks in and produces "welcome back" /

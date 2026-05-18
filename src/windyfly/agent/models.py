@@ -151,6 +151,71 @@ def _max_oauth_active() -> bool:
         return False
 
 
+def get_anthropic_auth_path() -> dict[str, str]:
+    """Return labeled facts about the active Anthropic auth path.
+
+    Sibling of ``_max_oauth_active`` — this one exposes the same
+    detection in human-readable form for /status, prompt RUNTIME
+    CONTEXT injection, and any other surface that wants to tell the
+    user (or the bot itself) "am I on Max plan?"
+
+    Returns a dict with two strings:
+      - ``kind``: machine-readable enum (oauth_manager / oauth_api_key
+        / api_key / none)
+      - ``label_short``: 1-line label for /status ("OAuth Max",
+        "OAuth Max (via API_KEY)", "API key (pay-per-token)", "none")
+      - ``label_long``: full sentence for the prompt ("OAuth Max plan
+        — flat-rate subscription billing") so the bot can quote
+        verbatim when asked
+
+    Read-only / no side effects; safe to call once per turn during
+    prompt assembly.
+    """
+    try:
+        from windyfly.agent.oauth import get_oauth_manager
+        oauth = get_oauth_manager()
+        if oauth and getattr(oauth, "access_token", None):
+            return {
+                "kind": "oauth_manager",
+                "label_short": "OAuth Max",
+                "label_long": (
+                    "OAuth Max plan via OAuthManager — flat-rate "
+                    "subscription billing, not pay-per-token"
+                ),
+            }
+        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        if api_key.startswith("sk-ant-oat01-"):
+            return {
+                "kind": "oauth_api_key",
+                "label_short": "OAuth Max (via API_KEY)",
+                "label_long": (
+                    "OAuth Max plan via ANTHROPIC_API_KEY env "
+                    "(sk-ant-oat01- prefix) — flat-rate subscription "
+                    "billing, not pay-per-token"
+                ),
+            }
+        if api_key:
+            return {
+                "kind": "api_key",
+                "label_short": "API key (pay-per-token)",
+                "label_long": (
+                    "Regular API key (ANTHROPIC_API_KEY, sk-ant-api…) "
+                    "— pay-per-token billing against Anthropic Console"
+                ),
+            }
+        return {
+            "kind": "none",
+            "label_short": "no auth",
+            "label_long": "no Anthropic credentials in env",
+        }
+    except Exception:
+        return {
+            "kind": "unknown",
+            "label_short": "unknown",
+            "label_long": "unable to determine Anthropic auth path",
+        }
+
+
 _ANTHROPIC_AUTH_PATH_LOGGED = False
 
 
