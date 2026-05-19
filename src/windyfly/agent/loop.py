@@ -586,7 +586,26 @@ def agent_respond(
     # 1. Assemble prompt
     # Pass current session's pct_remaining so the prompt assembler
     # can inject the low-context hint at < 10%.
-    _max_ctx = 200_000
+    #
+    # PR #197 — per-channel memory cap. The user's /memory pick wins
+    # over the model native cap, which wins over the hardcoded 200K
+    # legacy default. ``effective_context_cap`` centralizes the
+    # decision so /status and prompt assembly agree on the number.
+    from windyfly.agent.session_reset import (
+        parse_session_id, get_memory_cap, get_model,
+    )
+    from windyfly.agent.models_catalog import resolve as _resolve_model
+    _plat, _chan, _ = parse_session_id(session_id)
+    _user_cap = (
+        get_memory_cap(_plat, _chan)
+        if (_plat and _chan) else None
+    )
+    _model_for_call = config.get("agent", {}).get(
+        "default_model", "claude-sonnet-4-6"
+    )
+    _model_info = _resolve_model(_model_for_call)
+    _native_cap = _model_info.native_cap if _model_info else 200_000
+    _max_ctx = _user_cap if _user_cap is not None else _native_cap
     _used = _session_tokens.get(session_id, 0)
     _pct_remaining = max(0.0, 100.0 - (_used / _max_ctx) * 100)
     messages = assemble_prompt(
@@ -701,15 +720,20 @@ def agent_respond(
         })
 
     # 1.75. Budget enforcement
-    # Model selection precedence: env DEFAULT_MODEL > config
-    # agent.default_model > "gpt-4o-mini" last-resort. Without env
-    # precedence here, the chain-fail auto-resurrect log labeled
-    # previous_model=gpt-4o-mini even when the actual call_llm was
-    # using claude-haiku-4-5 from env (PR #150 hardening fix). Now
-    # the local `model` variable reflects what call_llm actually
-    # used so logs/audit fields are accurate.
+    # Model selection precedence (PR #197):
+    #   1. Per-channel /model preference (session_reset.get_model)
+    #   2. env DEFAULT_MODEL
+    #   3. config agent.default_model
+    #   4. "gpt-4o-mini" last-resort
+    # Per-channel preference wins so /model opus on a Telegram
+    # channel actually routes that channel's next reply to Opus,
+    # without affecting other channels or restarting the process.
+    _channel_model = (
+        get_model(_plat, _chan) if (_plat and _chan) else None
+    )
     model = (
-        os.environ.get("DEFAULT_MODEL")
+        _channel_model
+        or os.environ.get("DEFAULT_MODEL")
         or config.get("agent", {}).get("default_model")
         or "gpt-4o-mini"
     )
@@ -893,6 +917,7 @@ def agent_respond(
                 max_tokens=max_tokens,
                 tools=tools,
                 config=config,
+                session_id=session_id,
             )
         except Exception as native_exc:
             # Defensive retry: Anthropic may reject the native
@@ -923,6 +948,7 @@ def agent_respond(
                     max_tokens=max_tokens,
                     tools=tools_no_native,
                     config=config,
+                    session_id=session_id,
                 )
             else:
                 raise
@@ -1132,6 +1158,7 @@ def agent_respond(
         retry = call_llm(
             messages, model=model, temperature=temperature,
             max_tokens=max_tokens, tools=tools, config=config,
+            session_id=session_id,
         )
         response_text = retry["content"]
         input_tokens += retry["input_tokens"]
