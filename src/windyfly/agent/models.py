@@ -151,6 +151,13 @@ def _max_oauth_active() -> bool:
         return False
 
 
+def supports_cap(model_id: str, cap: int) -> tuple[bool, str | None]:
+    """Re-export of ``models_catalog.supports_cap`` so call sites that
+    already import from ``models`` don't need a second import."""
+    from windyfly.agent.models_catalog import supports_cap as _sc
+    return _sc(model_id, cap)
+
+
 def _fingerprint_token(token: str) -> str:
     """Return a redacted token identifier safe to print to chat / logs.
 
@@ -428,6 +435,7 @@ def call_llm(
     max_tokens: int = 2000,
     tools: list[dict] | None = None,
     config: dict[str, Any] | None = None,
+    session_id: str | None = None,
 ) -> dict[str, Any]:
     """Call an LLM, walking the configured failover chain on failures.
 
@@ -495,7 +503,8 @@ def call_llm(
         try:
             if provider_type == "anthropic":
                 result = _call_anthropic(
-                    messages, chain_model, temperature, max_tokens, tools, api_key,
+                    messages, chain_model, temperature, max_tokens, tools,
+                    api_key, session_id=session_id,
                 )
             else:
                 result = _call_openai(
@@ -779,6 +788,7 @@ def _call_anthropic(
     max_tokens: int,
     tools: list[dict] | None,
     api_key: str = "",
+    session_id: str | None = None,
 ) -> dict[str, Any]:
     """Call Anthropic Messages API.
 
@@ -826,10 +836,31 @@ def _call_anthropic(
         oauth_via_api_key=bool(oauth_token) and oauth is None,
         api_key_only=bool(api_key) and not oauth_token,
     )
+    # PR #197 — auto-attach extended-context beta when the caller's
+    # requested memory cap exceeds the model's native limit. The
+    # session_reset module tracks the user's /memory pick; when it's
+    # set to e.g. 1M on Sonnet 4.6, we need this beta or Anthropic
+    # truncates back to 200K silently.
+    betas = ["oauth-2025-04-20"]
+    try:
+        from windyfly.agent.session_reset import (
+            parse_session_id, get_memory_cap,
+        )
+        if session_id:
+            plat, chan, _ = parse_session_id(session_id)
+            cap = get_memory_cap(plat, chan) if (plat and chan) else None
+            if cap is not None:
+                ok, beta = supports_cap(model, cap)
+                if ok and beta:
+                    betas.append(beta)
+    except Exception:
+        pass  # never fail the call over a beta-header optimization
+    beta_header = ",".join(betas)
+
     if oauth_token:
         client = anthropic.Anthropic(
             auth_token=oauth_token,
-            default_headers={"anthropic-beta": "oauth-2025-04-20"},
+            default_headers={"anthropic-beta": beta_header},
         )
         # Anthropic's OAuth gate is strict: the first system content
         # block must be EXACTLY the Claude Code identifier — not even a

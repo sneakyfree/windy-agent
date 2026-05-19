@@ -878,6 +878,224 @@ def _register_all():
         )
     _r("new", "Start a new conversation (clear context, keep memory)", "03_chat", cmd_new, aliases=["fresh"])
 
+    def _resolve_active_model(
+        platform: str | None, channel_id: str | None,
+    ) -> str:
+        """Resolution order for "which model is active for this turn":
+          1. Per-channel ``/model`` preference (if set)
+          2. ``DEFAULT_MODEL`` env var
+          3. ``[agent].default_model`` from config
+          4. Hardcoded fallback ``claude-sonnet-4-6``
+        Mirrors the read path used by the agent loop in PR #197 so
+        ``/model`` and ``/memory`` agree with what actually fires."""
+        if platform and channel_id:
+            try:
+                from windyfly.agent.session_reset import get_model
+                m = get_model(platform, channel_id)
+                if m:
+                    return m
+            except Exception:
+                pass
+        env = os.environ.get("DEFAULT_MODEL")
+        if env:
+            return env
+        cfg = (_config or {}).get("agent", {}).get("default_model")
+        if cfg:
+            return cfg
+        return "claude-sonnet-4-6"
+
+    # ── /model ─ pick which brain powers replies on this channel ──
+    async def cmd_model(ctx):
+        """Show current model + list catalog, or switch with an arg.
+
+        Per-channel preference: takes effect on the NEXT reply; does
+        NOT force a fresh session (use /new explicitly for a clean
+        break). Per the 2026-05-19 design discussion with Grant.
+        """
+        from windyfly.agent.models_catalog import (
+            list_models, resolve, format_cap, family_emoji,
+        )
+        platform = (ctx or {}).get("platform")
+        channel_id = (ctx or {}).get("channel_id")
+        raw = (ctx or {}).get("_raw", "") or ""
+        arg = raw.strip()
+
+        # ── No arg: render the picker UI ─────────────────────────
+        if not arg:
+            current_model = _resolve_active_model(platform, channel_id)
+            current_info = resolve(current_model)
+            lines = ["🤖 Current model: " + (
+                f"{current_info.id} — {current_info.description}"
+                if current_info else current_model
+            )]
+            lines.append("")
+            lines.append("Available models:")
+            for m in list_models():
+                ext = (
+                    f" (or {format_cap(m.extended_cap)} extended)"
+                    if m.extended_cap else ""
+                )
+                marker = " ← current" if (
+                    current_info and m.id == current_info.id
+                ) else ""
+                lines.append(
+                    f"  {family_emoji(m.family)} `{m.aliases[0]}` "
+                    f"({m.id}) — {m.description}; "
+                    f"{format_cap(m.native_cap)} memory{ext}{marker}"
+                )
+            lines.append("")
+            lines.append(
+                "Switch with: /model opus  (or sonnet / haiku / "
+                "smartest / balanced / fastest)"
+            )
+            return "\n".join(lines)
+
+        # ── With arg: resolve + persist ──────────────────────────
+        target = resolve(arg)
+        if target is None:
+            return (
+                f"🤔 I don't know the model '{arg}'. Try one of: "
+                "opus, sonnet, haiku (or smartest, balanced, fastest)."
+            )
+        if not platform or not channel_id:
+            return (
+                "🪰 /model received but I couldn't identify your "
+                "chat session — channel context missing. The change "
+                "wasn't saved."
+            )
+        from windyfly.agent.session_reset import (
+            set_model, get_memory_cap,
+        )
+        set_model(platform, channel_id, target.id)
+
+        # If the user has a memory_cap pinned that this new model
+        # can't deliver, surface it now rather than at the next /status.
+        pinned_cap = get_memory_cap(platform, channel_id)
+        suffix = ""
+        if pinned_cap is not None:
+            from windyfly.agent.models_catalog import supports_cap
+            ok, beta = supports_cap(target.id, pinned_cap)
+            if not ok:
+                from windyfly.agent.models_catalog import format_cap as _fc
+                suffix = (
+                    f"\n\n⚠️ Your memory is set to "
+                    f"{_fc(pinned_cap)}, but {target.id} tops out at "
+                    f"{_fc(target.native_cap)}"
+                    f"{' (or ' + _fc(target.extended_cap) + ' extended)' if target.extended_cap else ''}"
+                    ". I'll clamp to what this model can do. Type "
+                    "`/memory default` to use its native size."
+                )
+        return (
+            f"🤖 Switched to {target.id} — {target.description}. "
+            f"Effective on your next message; current conversation "
+            f"carries over. Use /new for a clean break.{suffix}"
+        )
+
+    _r("model", "Show or switch the model powering replies",
+       "03_chat", cmd_model, aliases=["brain"])
+
+    # ── /memory ─ pick the context-window cap for this channel ───
+    async def cmd_memory(ctx):
+        """Show or set the context-window cap on this channel.
+
+        Conflict resolution (single matrix, four-way):
+          - cap ≤ model native    → just set
+          - cap == model native   → just set
+          - cap ≤ model extended  → set + auto-attach 1M beta header
+                                    on future Anthropic calls
+          - cap >  model extended → refuse + suggest /model switch
+        """
+        from windyfly.agent.models_catalog import (
+            resolve, supports_cap, parse_cap, format_cap,
+        )
+        platform = (ctx or {}).get("platform")
+        channel_id = (ctx or {}).get("channel_id")
+        raw = (ctx or {}).get("_raw", "") or ""
+        arg = raw.strip()
+        args_list = (ctx or {}).get("_args", []) or []
+
+        # ── Developer subcommands (search/nodes/export/clear/stats) ─
+        # Routed to the dispatcher merged from the old /memory; if it
+        # returns "" the input wasn't a recognized subcommand and we
+        # fall through to the new cap-setting behavior.
+        if args_list:
+            sub = await cmd_memory_subcommand(args_list)
+            if sub:
+                return sub
+
+        # ── No arg: show current ─────────────────────────────────
+        if not arg:
+            current_model = _resolve_active_model(platform, channel_id)
+            info = resolve(current_model)
+            if platform and channel_id:
+                from windyfly.agent.session_reset import get_memory_cap
+                pinned = get_memory_cap(platform, channel_id)
+            else:
+                pinned = None
+            native = info.native_cap if info else 200_000
+            ext = info.extended_cap if info else None
+            effective = pinned if pinned is not None else native
+            origin = "your pick" if pinned is not None else "model default"
+            lines = [
+                f"🧠 Current memory cap: {format_cap(effective)} "
+                f"({origin})",
+                "",
+                f"Model: {current_model} — native {format_cap(native)}"
+                + (f", extended up to {format_cap(ext)}" if ext else ""),
+                "",
+                "Set with: `/memory 1M` (or `/memory 500K`, `/memory "
+                "default`, `/memory 200K`).",
+            ]
+            return "\n".join(lines)
+
+        # ── With arg: parse + validate + persist ─────────────────
+        if not platform or not channel_id:
+            return (
+                "🪰 /memory received but I couldn't identify your "
+                "chat session — channel context missing."
+            )
+        from windyfly.agent.session_reset import (
+            set_memory_cap, get_memory_cap,
+        )
+        if arg.lower() in ("default", "reset", "clear"):
+            set_memory_cap(platform, channel_id, None)
+            return (
+                "🧠 Memory cap cleared — using your model's native "
+                "default. Effective on your next message."
+            )
+        cap = parse_cap(arg)
+        if cap is None:
+            return (
+                f"🤔 I couldn't parse '{arg}' as a memory size. "
+                "Try `/memory 1M`, `/memory 500K`, or `/memory "
+                "default`."
+            )
+        current_model = _resolve_active_model(platform, channel_id)
+        ok, beta = supports_cap(current_model, cap)
+        if not ok:
+            info = resolve(current_model)
+            top = (info.extended_cap or info.native_cap) if info else 200_000
+            return (
+                f"🚫 {current_model} can't deliver {format_cap(cap)} "
+                f"memory — its max is {format_cap(top)}. Switch to a "
+                "bigger model first with `/model opus` (1M native), "
+                "then set the cap."
+            )
+        set_memory_cap(platform, channel_id, cap)
+        note = ""
+        if beta:
+            note = (
+                " — extended-context tier engaged (same Max-plan "
+                "flat rate)"
+            )
+        return (
+            f"🧠 Memory cap set to {format_cap(cap)}{note}. "
+            "Effective on your next message."
+        )
+
+    _r("memory", "Show or set this channel's context-window cap",
+       "03_chat", cmd_memory)
+
     async def cmd_reset_chat(ctx):
         return "RESET_SESSION"
     _r("reset", "Reset conversation context completely", "03_chat", cmd_reset_chat)
@@ -958,21 +1176,13 @@ def _register_all():
         lines.append("\nChange: /model set <model-name>")
         return "\n".join(lines)
 
-    async def cmd_model(ctx):
-        args = ctx.get("_args", [])
-        if not args:
-            model = os.environ.get("DEFAULT_MODEL", "not set")
-            return f"Current model: {model}"
-        if args[0] == "set" and len(args) > 1:
-            new_model = args[1]
-            os.environ["DEFAULT_MODEL"] = new_model
-            return f"Model switched to: {new_model}"
-        if args[0] == "test":
-            return "MODEL_TEST"
-        if args[0] == "list":
-            return await cmd_models(ctx)
-        return "Usage: /model, /model set <name>, /model test, /model list"
-    _r("model", "Show or change the LLM model", "04_model", cmd_model, usage="model [set <name> | test | list]")
+    # The /model command is registered earlier in this file via PR
+    # #197 — it's per-channel-preference-aware (uses
+    # session_reset.set_model) instead of mutating the process-wide
+    # DEFAULT_MODEL env var. The old env-mutating /model was deleted
+    # here: it affected every channel and disagreed with /status,
+    # which read from per-channel preference after PR #197. Single
+    # registration site.
     _r("models", "List all available models and providers", "04_model", cmd_models, aliases=["providers"])
 
     async def cmd_provider(ctx):
@@ -1121,8 +1331,16 @@ def _register_all():
     # MEMORY & KNOWLEDGE (51-62)
     # ═══════════════════════════════════════════════════════════════
 
-    async def cmd_memory(ctx):
-        args = ctx.get("_args", [])
+    # /memory subcommands (search / nodes / export / clear / stats)
+    # — these are the developer-flavored memory-DB operations from
+    # before PR #197. PR #197 made bare `/memory` and `/memory <size>`
+    # control the context-window cap (the grandma use case). To keep
+    # both, the new /memory command (registered earlier) routes
+    # ``search`` / ``nodes`` / ``export`` / ``clear`` / ``stats``
+    # subcommands here, so URL stays the same and discoverability is
+    # unified under one name. See cmd_memory_subcommand below.
+    async def cmd_memory_subcommand(args: list[str]) -> str:
+        """Dispatch the old developer-flavored /memory subcommands."""
         if args and args[0] == "search" and len(args) > 1:
             query = " ".join(args[1:])
             if not _db:
@@ -1157,21 +1375,20 @@ def _register_all():
             return "MEMORY_EXPORT"
         if args and args[0] == "clear":
             return "Run 'windy memory clear --confirm' from terminal. This is irreversible."
-        if not _db:
-            return "Database not available."
-        try:
-            from windyfly.memory.nodes import count_nodes
-            from windyfly.memory.episodes import count_episodes
-            nodes = count_nodes(_db)
-            episodes = count_episodes(_db)
-            db_path = os.environ.get("WINDYFLY_DB_PATH", "data/windyfly.db")
-            size = os.path.getsize(db_path) / 1024 / 1024 if os.path.exists(db_path) else 0
-            return f"Memory: {nodes} nodes, {episodes} episodes | DB: {size:.1f} MB"
-        except Exception as e:
-            return f"Error: {e}"
-
-    _r("memory", "Memory operations (stats, search, nodes, export, clear)", "06_memory", cmd_memory,
-        aliases=["mem"], usage="memory [search <query> | nodes [type] | export | clear]")
+        if args and args[0] == "stats":
+            if not _db:
+                return "Database not available."
+            try:
+                from windyfly.memory.nodes import count_nodes
+                from windyfly.memory.episodes import count_episodes
+                nodes = count_nodes(_db)
+                episodes = count_episodes(_db)
+                db_path = os.environ.get("WINDYFLY_DB_PATH", "data/windyfly.db")
+                size = os.path.getsize(db_path) / 1024 / 1024 if os.path.exists(db_path) else 0
+                return f"Memory: {nodes} nodes, {episodes} episodes | DB: {size:.1f} MB"
+            except Exception as e:
+                return f"Error: {e}"
+        return ""  # no matching subcommand
 
     async def cmd_intents(ctx):
         if not _db:

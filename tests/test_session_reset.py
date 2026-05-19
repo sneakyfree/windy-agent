@@ -150,8 +150,29 @@ class TestPersistence:
         reset_session("discord", "abc")
         data = json.loads(tmp_counter_path.read_text())
         assert isinstance(data, dict)
-        assert data["telegram:1"] == 1
-        assert data["discord:abc"] == 1
+        # PR #197: schema bumped from plain int to dict-per-channel.
+        # Both shapes still load (see test_legacy_int_format_loads
+        # below) but new writes always emit the dict shape.
+        assert data["telegram:1"] == {
+            "reset_count": 1, "model": None, "memory_cap": None,
+        }
+        assert data["discord:abc"] == {
+            "reset_count": 1, "model": None, "memory_cap": None,
+        }
+
+    def test_legacy_int_format_loads(self, tmp_counter_path):
+        """Files written by PR #193 used a plain-int counter per
+        channel. PR #197 must auto-upgrade those entries to the
+        dict shape — never break an existing deployment."""
+        tmp_counter_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_counter_path.write_text(
+            json.dumps({"telegram:legacy": 5, "discord:old": 2})
+        )
+        _reset_module_state_for_tests()
+        # Reset count is recovered from the int values
+        assert next_session_id("telegram", "legacy") == \
+            "telegram:legacy:v5"
+        assert next_session_id("discord", "old") == "discord:old:v2"
 
 
 class TestCmdNewIntegration:

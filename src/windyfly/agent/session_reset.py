@@ -1,41 +1,28 @@
-"""Per-channel session reset / rolling session_id support.
+"""Per-channel session reset + per-channel settings store.
 
-Pre-2026-05-19 the bot built ``session_id = "{platform}:{channel_id}"``
-once and used it forever. Two consequences observed in the 2026-05-18
-Telegram screenshot:
+Pre-PR-193 the bot built ``session_id = "{platform}:{channel_id}"``
+once and used it forever. PR #193 introduced a rolling counter so
+``/new`` increments it (``"telegram:8545546994:v3"``). PR #197
+extends the same per-channel state to carry user preferences:
 
-  1. ``_session_tokens[session_id]`` accumulated input+output tokens
-     across every turn ever. After ~30 turns the cumulative was high
-     enough that ``pct_remaining`` (computed against a 200K cap) fell
-     below 10% and the ``LOW WORKING MEMORY`` block in prompt.py
-     started firing on every reply — even on what the user considered
-     a fresh start.
+  - ``model``       — which model powers replies for this channel
+                      (``/model opus`` etc., PR #197)
+  - ``memory_cap``  — preferred context-window cap in tokens
+                      (``/memory 1M`` etc., PR #197)
 
-  2. ``/new`` returned the literal string ``"NEW_SESSION"`` which
-     **nothing read**. The channel layer just posted the sentinel as
-     a reply to the user. Neither the token counter nor
-     ``get_recent_episodes()`` filtering changed, so the bot kept
-     loading the same prior turns into its prompt and generating
-     "in this long conversation" lines about a conversation the user
-     thought they'd left behind.
+On-disk schema per channel:
 
-This module introduces a per-(platform, channel_id) reset counter,
-persisted to disk so it survives bot restart. ``session_id`` is now
-``"{platform}:{channel_id}:v{N}"`` where N starts at 0 and increments
-on every ``/new``. After a reset:
+    {
+      "reset_count": int,           # /new counter
+      "model":       str | None,    # /model preference
+      "memory_cap":  int | None,    # /memory preference
+    }
 
-  - The OLD session_id's ``_session_tokens`` entry is cleared so it
-    doesn't linger in the process dict forever.
-  - The NEW session_id has no episodes tagged with it in the DB, so
-    ``get_recent_episodes(session_id=...)`` returns empty until the
-    user lands new turns. The model's prompt is genuinely fresh —
-    NOT a relabel of stale context.
-
-Counter persistence: ``~/.windy/session-counters.json`` by default,
-overridable via ``WINDYFLY_SESSION_COUNTER_PATH`` env var (mostly for
-tests). If the path is unwritable the module falls back to in-memory
-only and logs a warning at first failure — bot still functions, just
-loses /new survival across restarts.
+Persisted to ``~/.windy/session-counters.json`` by default,
+overridable via ``WINDYFLY_SESSION_COUNTER_PATH`` env var (tests).
+Atomic write (tempfile + rename). Thread-safe via a single module
+lock. Backward compat: old plain-integer entries from PR-193-era
+files auto-migrate to ``{"reset_count": N}`` on first load.
 """
 
 from __future__ import annotations
@@ -45,12 +32,13 @@ import logging
 import os
 import threading
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 
 def _default_counter_path() -> Path:
-    """Resolve the counter-file path. Order:
+    """Resolve the state-file path. Order:
       1. WINDYFLY_SESSION_COUNTER_PATH env var (used by tests)
       2. ~/.windy/session-counters.json
     """
@@ -61,27 +49,41 @@ def _default_counter_path() -> Path:
 
 
 # Single in-process state. Lock guards both the dict and the file
-# I/O so two concurrent /new requests (e.g., from multiple channels)
-# can't race and lose a bump.
+# I/O so two concurrent writers (e.g., /new + /model from racing
+# channels) can't corrupt the file or lose updates.
 _lock = threading.Lock()
-_counters: dict[str, int] | None = None
+_state: dict[str, dict[str, Any]] | None = None
 _persist_warned = False
+
+_EMPTY_ENTRY: dict[str, Any] = {
+    "reset_count": 0,
+    "model": None,
+    "memory_cap": None,
+}
 
 
 def _key(platform: str, channel_id: str) -> str:
     return f"{platform}:{channel_id}"
 
 
-def _load_counters() -> dict[str, int]:
-    """Load counters from disk on first access. Returns empty dict if
-    file missing / unreadable — first /new will create it on save."""
-    global _counters
-    if _counters is not None:
-        return _counters
+def _empty_entry() -> dict[str, Any]:
+    return dict(_EMPTY_ENTRY)
+
+
+def _load() -> dict[str, dict[str, Any]]:
+    """Load full state from disk on first access. Returns empty dict
+    if file missing / unreadable. Accepts both the new dict-shape
+    schema and the legacy plain-integer schema from PR-193 era —
+    legacy entries auto-upgrade to ``{"reset_count": N}`` so callers
+    see a uniform shape.
+    """
+    global _state
+    if _state is not None:
+        return _state
     path = _default_counter_path()
     if not path.exists():
-        _counters = {}
-        return _counters
+        _state = {}
+        return _state
     try:
         raw = path.read_text()
         parsed = json.loads(raw) if raw.strip() else {}
@@ -90,96 +92,152 @@ def _load_counters() -> dict[str, int]:
                 "session-counters.json malformed (not a dict) — "
                 "starting empty: %s", path,
             )
-            _counters = {}
-        else:
-            # Defensive: cast values to int; ignore non-int.
-            _counters = {
-                str(k): int(v) for k, v in parsed.items()
-                if isinstance(v, (int, str)) and str(v).lstrip("-").isdigit()
-            }
+            _state = {}
+            return _state
+        out: dict[str, dict[str, Any]] = {}
+        for k, v in parsed.items():
+            if isinstance(v, dict):
+                out[str(k)] = {
+                    "reset_count": int(v.get("reset_count", 0)),
+                    "model": v.get("model"),
+                    "memory_cap": (
+                        int(v["memory_cap"])
+                        if v.get("memory_cap") is not None else None
+                    ),
+                }
+            elif isinstance(v, int) or (
+                isinstance(v, str) and v.lstrip("-").isdigit()
+            ):
+                # Legacy plain-integer counter — upgrade in place.
+                out[str(k)] = {
+                    "reset_count": int(v),
+                    "model": None,
+                    "memory_cap": None,
+                }
+        _state = out
+        return _state
     except (OSError, json.JSONDecodeError) as exc:
         logger.warning(
             "session-counters.json unreadable (%s) — starting empty",
             exc,
         )
-        _counters = {}
-    return _counters
+        _state = {}
+        return _state
 
 
-def _save_counters(counters: dict[str, int]) -> None:
-    """Write counters atomically (write to .tmp then rename). Logs
-    once and continues if the path is unwritable — the bot must not
-    die because we can't persist a /new counter."""
+def _save(state: dict[str, dict[str, Any]]) -> None:
+    """Atomic write — temp file + rename. Logs once and continues if
+    the path is unwritable; the bot must not die because state can't
+    be persisted."""
     global _persist_warned
     path = _default_counter_path()
     tmp = path.with_suffix(path.suffix + ".tmp")
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp.write_text(json.dumps(counters, sort_keys=True, indent=2))
+        tmp.write_text(json.dumps(state, sort_keys=True, indent=2))
         os.replace(tmp, path)
     except OSError as exc:
         if not _persist_warned:
             logger.warning(
                 "could not persist session-counters.json to %s (%s) — "
-                "/new will work for this process but won't survive "
+                "settings will work for this process but won't survive "
                 "restart. This warning won't repeat.", path, exc,
             )
             _persist_warned = True
 
 
-def get_reset_count(platform: str, channel_id: str) -> int:
-    """Return the current /new reset count for this channel.
+# ── Public API ─────────────────────────────────────────────────────
 
-    Used by /status (PR #194) so the operator can see how many fresh
-    starts they've done without parsing the v-suffix off
-    ``next_session_id``. Returns 0 for channels that have never been
-    reset (= they're on the original v0 session).
-    """
+
+def get_settings(platform: str, channel_id: str) -> dict[str, Any]:
+    """Return this channel's full settings dict (a copy — safe to
+    mutate). Missing channels return the default empty entry."""
     with _lock:
-        counters = _load_counters()
-        return counters.get(_key(platform, channel_id), 0)
+        state = _load()
+        return dict(state.get(_key(platform, channel_id), _empty_entry()))
+
+
+def get_reset_count(platform: str, channel_id: str) -> int:
+    return int(get_settings(platform, channel_id).get("reset_count", 0))
+
+
+def get_model(platform: str, channel_id: str) -> str | None:
+    """Return the per-channel model preference, or None if the user
+    hasn't picked one (caller should fall back to env / config
+    default)."""
+    return get_settings(platform, channel_id).get("model")
+
+
+def get_memory_cap(platform: str, channel_id: str) -> int | None:
+    """Return the per-channel memory cap preference (in tokens),
+    or None if the user hasn't picked one (caller should fall back
+    to the model's native cap from ``models_catalog``)."""
+    return get_settings(platform, channel_id).get("memory_cap")
+
+
+def set_model(platform: str, channel_id: str, model: str | None) -> None:
+    """Set the per-channel model preference. ``None`` clears it
+    (reverts to env / config default)."""
+    _update_field(platform, channel_id, "model", model)
+
+
+def set_memory_cap(
+    platform: str, channel_id: str, cap: int | None,
+) -> None:
+    """Set the per-channel memory cap (in tokens). ``None`` clears
+    it (reverts to the model's native cap)."""
+    _update_field(platform, channel_id, "memory_cap", cap)
+
+
+def _update_field(
+    platform: str, channel_id: str, field: str, value: Any,
+) -> None:
+    if field not in ("model", "memory_cap"):
+        raise ValueError(f"unknown setting: {field}")
+    with _lock:
+        state = _load()
+        k = _key(platform, channel_id)
+        entry = dict(state.get(k, _empty_entry()))
+        entry[field] = value
+        state[k] = entry
+        _save(state)
 
 
 def next_session_id(platform: str, channel_id: str) -> str:
     """Return the current rolling session_id for this channel.
 
     Shape: ``"{platform}:{channel_id}:v{N}"`` where N defaults to 0
-    and increments on every successful ``reset_session()`` call.
+    and increments on every ``reset_session()`` call.
 
     Idempotent and side-effect-free — safe to call on every incoming
     message in the channel handler.
     """
-    with _lock:
-        counters = _load_counters()
-        n = counters.get(_key(platform, channel_id), 0)
+    n = get_reset_count(platform, channel_id)
     return f"{platform}:{channel_id}:v{n}"
 
 
 def reset_session(platform: str, channel_id: str) -> str:
-    """Increment the counter for this channel, clear the OLD
+    """Increment the reset counter for this channel, clear the OLD
     session_id's token-tracker entry, persist, and return the NEW
-    session_id.
-
-    Returns the new ``"{platform}:{channel_id}:v{N+1}"`` string so the
-    caller (cmd_new) can include it in confirmation telemetry if
-    desired.
+    session_id. Preserves model + memory_cap preferences (they're
+    settings, not session-scoped).
     """
     with _lock:
-        counters = _load_counters()
+        state = _load()
         k = _key(platform, channel_id)
-        old_n = counters.get(k, 0)
+        entry = dict(state.get(k, _empty_entry()))
+        old_n = int(entry.get("reset_count", 0))
         new_n = old_n + 1
-        counters[k] = new_n
+        entry["reset_count"] = new_n
+        state[k] = entry
         old_session_id = f"{platform}:{channel_id}:v{old_n}"
         new_session_id = f"{platform}:{channel_id}:v{new_n}"
-        # Local import: avoid circular if loop.py ever needs to
-        # import from this module (it doesn't today; defensive).
         try:
             from windyfly.agent.loop import _session_tokens
             _session_tokens.pop(old_session_id, None)
         except ImportError:
             pass
-        _save_counters(counters)
+        _save(state)
     logger.info(
         "session reset: %s -> %s (counter %d -> %d)",
         old_session_id, new_session_id, old_n, new_n,
@@ -187,10 +245,27 @@ def reset_session(platform: str, channel_id: str) -> str:
     return new_session_id
 
 
+def parse_session_id(session_id: str) -> tuple[str, str, int]:
+    """Split ``"telegram:8545546994:v3"`` into ``("telegram", "8545546994", 3)``.
+
+    Accepts the legacy ``"{platform}:{channel_id}"`` shape too, returning
+    version 0. Returns ``("", "", 0)`` for completely unparseable input —
+    callers should treat that as "no per-channel state".
+    """
+    if not session_id or ":" not in session_id:
+        return (session_id or "", "", 0)
+    parts = session_id.rsplit(":", 2)
+    if len(parts) == 3 and parts[2].startswith("v") and parts[2][1:].isdigit():
+        return (parts[0], parts[1], int(parts[2][1:]))
+    # Legacy "platform:channel_id" pre-PR-193
+    platform, _, channel_id = session_id.partition(":")
+    return (platform, channel_id, 0)
+
+
 # Test-only: reset the module's in-memory state. Used by fixtures so
-# one test's counter doesn't leak into the next.
+# one test's state doesn't leak into the next.
 def _reset_module_state_for_tests() -> None:
-    global _counters, _persist_warned
+    global _state, _persist_warned
     with _lock:
-        _counters = None
+        _state = None
         _persist_warned = False
