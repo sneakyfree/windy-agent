@@ -151,6 +151,78 @@ def _max_oauth_active() -> bool:
         return False
 
 
+def _fingerprint_token(token: str) -> str:
+    """Return a redacted token identifier safe to print to chat / logs.
+
+    Format: ``{first 15 chars}…{last 4 chars}`` — e.g. for an oat token
+    that becomes ``sk-ant-oat01-Vw…wAAA``. Enough for an operator with
+    multiple credentials to identify which one is live at a glance,
+    without spilling the body anywhere.
+
+    Returns ``"(empty)"`` for an empty / too-short input rather than
+    leaking truncated low-entropy bytes.
+
+    Surfaced 2026-05-19 when Grant asked /status to disambiguate
+    OAuth tokens — pre-fix /status just said "OAuth Max" with no
+    fingerprint, so multi-token setups had no way to tell which.
+    """
+    if not token or len(token) < 20:
+        return "(empty)"
+    return f"{token[:15]}…{token[-4:]}"
+
+
+# Per-model context-window caps. Used by /status and the
+# LOW WORKING MEMORY block in prompt.py.
+#
+# Anthropic's pre-2026 default was 200K. Opus 4.7 shipped with 1M as
+# the default; Sonnet 4.6 + Haiku 4.5 require the ``context-1m-
+# 2025-08-07`` beta header to access 1M (the bot does NOT currently
+# enable this beta, so they stay at 200K in practice). Stay
+# accurate per model — overstating the cap makes pct_remaining lie
+# in the user's favor (e.g., "94% free" when actually 28% free).
+#
+# Keep this list in sync with the model_versions config; when the
+# config gains a new model, add it here too.
+_MODEL_CONTEXT_CAPS: dict[str, int] = {
+    # Anthropic
+    "claude-opus-4-7":            1_000_000,
+    "claude-opus-4-7[1m]":        1_000_000,
+    "claude-sonnet-4-6":          200_000,
+    "claude-sonnet-4-6-20251022": 200_000,
+    "claude-haiku-4-5":           200_000,
+    "claude-haiku-4-5-20251001":  200_000,
+    # OpenAI
+    "gpt-4o":                     128_000,
+    "gpt-4o-mini":                128_000,
+    "o1":                         200_000,
+    "o3":                         200_000,
+    # Ollama (the most common local fallbacks)
+    "llama3.2:3b":                 8_192,
+    "llama3.1:8b":               128_000,
+}
+
+
+def get_context_cap(model: str) -> int:
+    """Return the model's context-window size in tokens.
+
+    Falls back to a conservative 200K for unknown Claude models and
+    to 8K for everything else (small-model assumption). Heuristic
+    fallback so an unrecognized variant doesn't make /status crash.
+    """
+    if not model:
+        return 200_000
+    if model in _MODEL_CONTEXT_CAPS:
+        return _MODEL_CONTEXT_CAPS[model]
+    low = model.lower()
+    if "opus" in low:
+        return 1_000_000
+    if "sonnet" in low or "haiku" in low:
+        return 200_000
+    if "gpt" in low or low.startswith("o1") or low.startswith("o3"):
+        return 128_000
+    return 8_192
+
+
 def get_anthropic_auth_path() -> dict[str, str]:
     """Return labeled facts about the active Anthropic auth path.
 
@@ -182,6 +254,7 @@ def get_anthropic_auth_path() -> dict[str, str]:
                     "OAuth Max plan via OAuthManager — flat-rate "
                     "subscription billing, not pay-per-token"
                 ),
+                "fingerprint": _fingerprint_token(oauth.access_token),
             }
         api_key = os.environ.get("ANTHROPIC_API_KEY", "")
         if api_key.startswith("sk-ant-oat01-"):
@@ -193,6 +266,7 @@ def get_anthropic_auth_path() -> dict[str, str]:
                     "(sk-ant-oat01- prefix) — flat-rate subscription "
                     "billing, not pay-per-token"
                 ),
+                "fingerprint": _fingerprint_token(api_key),
             }
         if api_key:
             return {
@@ -202,17 +276,20 @@ def get_anthropic_auth_path() -> dict[str, str]:
                     "Regular API key (ANTHROPIC_API_KEY, sk-ant-api…) "
                     "— pay-per-token billing against Anthropic Console"
                 ),
+                "fingerprint": _fingerprint_token(api_key),
             }
         return {
             "kind": "none",
             "label_short": "no auth",
             "label_long": "no Anthropic credentials in env",
+            "fingerprint": "(empty)",
         }
     except Exception:
         return {
             "kind": "unknown",
             "label_short": "unknown",
             "label_long": "unable to determine Anthropic auth path",
+            "fingerprint": "(empty)",
         }
 
 

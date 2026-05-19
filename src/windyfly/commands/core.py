@@ -260,75 +260,121 @@ def _register_all():
        "02_diagnostics", cmd_doctor, aliases=["health", "check", "diag"])
 
     async def cmd_status(ctx):
-        # ── Model + Auth (PR #189/192) ──
-        model = os.environ.get("DEFAULT_MODEL", "not set")
-        from windyfly.agent.models import get_anthropic_auth_path
-        auth = get_anthropic_auth_path()["label_short"]
+        """Grandma-friendly /status — emoji headers, plain-English
+        memory state, OAuth fingerprint, per-model context cap.
 
-        # ── Resurrection state — if the paid LLM 401'd and we
-        # auto-failed-over to Ollama, the Model line should reflect
-        # the LIVE model (not the configured default) plus a brief
-        # reason. Without this the user sees "Model: claude-sonnet-4-6"
-        # but the actual reply came from llama3.2:3b — exactly the
-        # confusion that drove the 2026-05-17 OAuth investigation.
+        Designed so a non-technical operator can read it top-to-bottom
+        and know everything that matters about their agent:
+        health, memory, brain, billing, uptime, what it remembers
+        about you, what tools it can use.
+
+        See PR #194 + #195 for the full design rationale; PR #194
+        was a developer-flavored first cut, this revision (PR #195)
+        leans hard on plain-English labels per Grant's 2026-05-19
+        feedback: "this is a great opportunity for a grandma or
+        a normie to know everything that's going on with their
+        agent."
+        """
+        from windyfly.agent.models import (
+            get_anthropic_auth_path, get_context_cap,
+        )
+
+        # ── Model + degradation status ────────────────────────────
+        # The CONFIGURED default model from env. May differ from the
+        # LIVE model when resurrection (Ollama fallback) is active.
+        configured_model = os.environ.get("DEFAULT_MODEL", "not set")
+        live_model = configured_model
+        degraded_reason = None
         try:
-            from windyfly.agent.resurrect import is_resurrected, resurrection_state
+            from windyfly.agent.resurrect import (
+                is_resurrected, resurrection_state,
+            )
             if is_resurrected():
                 state = resurrection_state() or {}
-                live = state.get("model") or "unknown"
-                prev = state.get("previous_model") or model
-                model = f"{live} ⚠️ degraded (was {prev})"
+                live_model = state.get("model") or "unknown"
+                actor = state.get("actor") or "auto"
+                degraded_reason = (
+                    f"on {live_model} fallback ({actor})"
+                )
         except Exception:
             pass
 
-        # ── Context / session info — needs platform + channel_id
-        # from the command ctx (plumbed by PR #193). Degrade
-        # gracefully when called from CLI / pulse with no channel.
-        ctx_line = None
-        session_line = None
+        # Health: visual signal at the top of the report.
+        if degraded_reason:
+            health_line = (
+                f"🟡 Health: degraded — {degraded_reason}"
+            )
+        else:
+            health_line = "🟢 Health: all good"
+
+        # ── Memory (context-window) ──────────────────────────────
+        # Plain-English descriptors so a normie understands at a
+        # glance. The raw K/K numbers stay for the operator who
+        # wants precision.
+        memory_line = None
         platform = (ctx or {}).get("platform")
         channel_id = (ctx or {}).get("channel_id")
         if platform and channel_id:
             try:
-                from windyfly.agent.session_reset import (
-                    next_session_id, get_reset_count,
-                )
+                from windyfly.agent.session_reset import next_session_id
                 from windyfly.agent.loop import _session_tokens
-                from windyfly.agent.context_header import _state_emoji
                 sid = next_session_id(platform, channel_id)
                 used = _session_tokens.get(sid, 0)
-                max_ctx = 200_000
-                pct_rem = max(0.0, 100.0 - (used / max_ctx) * 100)
-                emoji = _state_emoji(pct_rem, False)
-                ctx_line = (
-                    f"Context: {used/1000:.1f}K / {max_ctx//1000}K "
-                    f"({pct_rem:.0f}% remaining {emoji})"
+                max_ctx = get_context_cap(live_model)
+                pct_rem = (
+                    max(0.0, 100.0 - (used / max_ctx) * 100)
+                    if max_ctx else 0.0
                 )
-                resets = get_reset_count(platform, channel_id)
-                plural = "s" if resets != 1 else ""
-                session_line = (
-                    f"Session: {sid} ({resets} fresh start{plural})"
+                # Plain-English descriptor band
+                if pct_rem >= 90:
+                    phrase, dot = "feels fresh", "🟢"
+                elif pct_rem >= 70:
+                    phrase, dot = "mostly free", "🟢"
+                elif pct_rem >= 30:
+                    phrase, dot = "moderate", "🟡"
+                elif pct_rem >= 10:
+                    phrase, dot = "getting full", "🟡"
+                else:
+                    phrase, dot = "nearly full — type /new", "🔴"
+                # K vs M cap rendering
+                if max_ctx >= 1_000_000:
+                    cap_str = f"{max_ctx // 1_000_000}M"
+                else:
+                    cap_str = f"{max_ctx // 1000}K"
+                memory_line = (
+                    f"🧠 Memory: {phrase} — {pct_rem:.0f}% free "
+                    f"({used/1000:.1f}K of {cap_str} used) {dot}"
                 )
             except Exception:
-                pass  # silent — better to drop the line than crash /status
+                pass
 
-        # ── Uptime ──
+        # ── Brain (model + context cap) ───────────────────────────
+        cap = get_context_cap(live_model)
+        if cap >= 1_000_000:
+            cap_human = f"{cap // 1_000_000}M context"
+        else:
+            cap_human = f"{cap // 1000}K context"
+        brain_line = f"🤖 Brain: {live_model} ({cap_human})"
+        if degraded_reason:
+            brain_line += f" — was {configured_model}"
+
+        # ── Plan (auth + token fingerprint) ───────────────────────
+        auth = get_anthropic_auth_path()
+        plan_line = (
+            f"💳 Plan: {auth['label_short']} — {auth['fingerprint']}"
+        )
+
+        # ── Uptime ────────────────────────────────────────────────
         uptime_line = None
         if _init_time:
             up = int(time.time() - _init_time)
             h, rem = divmod(up, 3600)
             m, s = divmod(rem, 60)
             uptime_line = (
-                f"Up: {h}h {m}m" if h else f"Up: {m}m {s}s"
+                f"⏱️ Up: {h}h {m}m" if h else f"⏱️ Up: {m}m {s}s"
             )
 
-        # ── Today's cost vs budget ──
-        # Pulls from cost_ledger (per-call USD log) and the
-        # [costs].daily_budget_usd config field. On Max plan today's
-        # spend should be ~$0 because direct-Anthropic OAuth calls
-        # don't bill against the per-token ledger — but the line is
-        # still useful as a regression alarm: if it suddenly shows
-        # real money, something is routing through API-key billing.
+        # ── Today's cost vs budget ────────────────────────────────
         today_line = None
         try:
             from windyfly.memory.cost_ledger import get_daily_spend
@@ -337,36 +383,83 @@ def _register_all():
                 budget = float(((_config or {}).get("costs") or {})
                                .get("daily_budget_usd", 5.0))
                 pct_used = (spend / budget) * 100 if budget else 0.0
+                suffix = ""
+                if auth["kind"] in ("oauth_manager", "oauth_api_key"):
+                    suffix = " (Max = flat rate)"
                 today_line = (
-                    f"Today: ${spend:.2f} / ${budget:.2f} budget "
-                    f"({pct_used:.0f}% used)"
+                    f"💰 Today: ${spend:.2f} of ${budget:.2f} budget "
+                    f"({pct_used:.0f}% used){suffix}"
                 )
         except Exception:
             pass
 
-        # ── DB size ──
+        # ── Session info (rolling counter from PR #193) ───────────
+        session_line = None
+        if platform and channel_id:
+            try:
+                from windyfly.agent.session_reset import (
+                    next_session_id, get_reset_count,
+                )
+                sid = next_session_id(platform, channel_id)
+                resets = get_reset_count(platform, channel_id)
+                plural = "s" if resets != 1 else ""
+                session_line = (
+                    f"✨ Session: {sid} ({resets} fresh start{plural})"
+                )
+            except Exception:
+                pass
+
+        # ── What I remember about you (node count) ────────────────
+        facts_line = None
+        try:
+            if _db:
+                row = _db.fetchone("SELECT COUNT(*) AS c FROM nodes")
+                n = (row or {}).get("c", 0)
+                facts_line = (
+                    f"📚 Memory of you: {n} fact{'s' if n != 1 else ''}"
+                )
+        except Exception:
+            pass
+
+        # ── Tools I can use (capability registry count) ───────────
+        tools_line = None
+        try:
+            from windyfly.agent.capabilities import capability_registry
+            n = capability_registry.count()
+            tools_line = (
+                f"🛠️ Tools available: {n}"
+            )
+        except Exception:
+            pass
+
+        # ── Persistence / identity ────────────────────────────────
         db_path = os.environ.get("WINDYFLY_DB_PATH", "data/windyfly.db")
         size = (
             f"{os.path.getsize(db_path)/1024/1024:.1f}MB"
             if os.path.exists(db_path) else "no db"
         )
-
-        # ── Passport / Email (existing) ──
         passport = os.environ.get("ETERNITAS_PASSPORT", "none")
         email = os.environ.get("WINDYMAIL_EMAIL", "none")
 
-        # ── Assemble in display order (tightest signal first) ──
-        lines = ["🪰 Status", f"Model: {model}", f"Auth: {auth}"]
-        if ctx_line:
-            lines.append(ctx_line)
-        if session_line:
-            lines.append(session_line)
+        # ── Compose ───────────────────────────────────────────────
+        lines = ["🪰 Windy Fly status", "", health_line]
+        if memory_line:
+            lines.append(memory_line)
+        lines.append(brain_line)
+        lines.append(plan_line)
         if uptime_line:
             lines.append(uptime_line)
         if today_line:
             lines.append(today_line)
-        lines.extend([f"Passport: {passport}", f"Email: {email}",
-                      f"DB: {size}"])
+        if session_line:
+            lines.append(session_line)
+        if facts_line:
+            lines.append(facts_line)
+        if tools_line:
+            lines.append(tools_line)
+        lines.extend(["", f"📂 Memory file: {size}",
+                      f"🪪 Passport: {passport}",
+                      f"📧 Email: {email}"])
         return "\n".join(lines)
     _r("status", "Quick status summary", "02_diagnostics", cmd_status, aliases=["info"])
 
