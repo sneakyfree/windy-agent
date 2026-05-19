@@ -204,6 +204,42 @@ class TestTripwireDetection:
             assert _looks_self_env_confabulated(text) is True, \
                 f"missed HOST confab: {text!r}"
 
+    def test_kit_0_delegation_confab_detected(self):
+        """Surfaced 2026-05-19: bot diagnosed a (real) prompt-injection
+        bug by blaming a non-existent soul-file directive and punted
+        the fix to Kit 0 ("Kit 0 should remove that line from the
+        soul prompt"). Kit 0 is the VPS coordinator — it doesn't own
+        windy-agent's source. The bot was conflating sister-agent
+        roles. Tripwire catches the imperative-delegation surface
+        form."""
+        from windyfly.agent.loop import _looks_self_env_confabulated
+        cases = [
+            "Kit 0 should remove that line from the soul prompt.",
+            "Kit 0 should fix this in the prompt module.",
+            "Kit 0 should update the SOUL.md to remove this.",
+            "Have Kit 0 fix the prompt-injection issue.",
+            "Kit 0 can fix this by editing prompt.py.",
+            "Kit 0 needs to update the soul prompt configuration.",
+        ]
+        for text in cases:
+            assert _looks_self_env_confabulated(text) is True, \
+                f"missed Kit 0 delegation confab: {text!r}"
+
+    def test_kit_0_legitimate_mentions_pass(self):
+        """Third-person mentions of Kit 0 in legitimate contexts
+        (explanations, status reports) should NOT trip — patterns
+        target imperative 'Kit 0 should/can fix X' shape."""
+        from windyfly.agent.loop import _looks_self_env_confabulated
+        cases = [
+            "Kit 0 is the VPS coordinator at 72.60.118.54.",
+            "I'd defer to Kit 0 on VPS-side questions.",
+            "Kit 0's lockbox file is the canonical credential store.",
+            "What does Kit 0 do in the fleet architecture?",
+        ]
+        for text in cases:
+            assert _looks_self_env_confabulated(text) is False, \
+                f"false positive on Kit 0 mention: {text!r}"
+
     def test_host_legitimate_uses_pass(self):
         """User-instruction context for actual VPSes Grant operates
         should NOT trip the host tripwire — patterns target the bot's

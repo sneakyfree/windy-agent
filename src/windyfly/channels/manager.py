@@ -82,7 +82,11 @@ class ChannelManager:
 
     async def _handle_message(self, msg: IncomingMessage) -> str:
         """Route incoming message to agent loop, return response."""
-        session_id = f"{msg.platform}:{msg.channel_id}"
+        # Rolling session_id — bumped on /new so prior turns drop out
+        # of get_recent_episodes() and the per-session token tracker
+        # restarts at zero. See windyfly.agent.session_reset for why.
+        from windyfly.agent.session_reset import next_session_id
+        session_id = next_session_id(msg.platform, msg.channel_id)
         try:
             result = self.agent_respond(msg.text, session_id)
             if asyncio.iscoroutine(result):
