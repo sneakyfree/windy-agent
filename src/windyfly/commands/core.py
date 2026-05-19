@@ -260,19 +260,114 @@ def _register_all():
        "02_diagnostics", cmd_doctor, aliases=["health", "check", "diag"])
 
     async def cmd_status(ctx):
+        # ── Model + Auth (PR #189/192) ──
         model = os.environ.get("DEFAULT_MODEL", "not set")
-        passport = os.environ.get("ETERNITAS_PASSPORT", "none")
-        email = os.environ.get("WINDYMAIL_EMAIL", "none")
-        db_path = os.environ.get("WINDYFLY_DB_PATH", "data/windyfly.db")
-        size = f"{os.path.getsize(db_path)/1024/1024:.1f}MB" if os.path.exists(db_path) else "no db"
-        # Auth-path line answers the recurring "am I on Max plan?"
-        # question without the bot having to introspect or guess
-        # (PR #192 — surfaced 2026-05-17/18 when the bot kept
-        # fabricating "ssh root@<vps>" instructions for its own env).
         from windyfly.agent.models import get_anthropic_auth_path
         auth = get_anthropic_auth_path()["label_short"]
-        return (f"🪰 Status\nModel: {model}\nAuth: {auth}\n"
-                f"Passport: {passport}\nEmail: {email}\nDB: {size}")
+
+        # ── Resurrection state — if the paid LLM 401'd and we
+        # auto-failed-over to Ollama, the Model line should reflect
+        # the LIVE model (not the configured default) plus a brief
+        # reason. Without this the user sees "Model: claude-sonnet-4-6"
+        # but the actual reply came from llama3.2:3b — exactly the
+        # confusion that drove the 2026-05-17 OAuth investigation.
+        try:
+            from windyfly.agent.resurrect import is_resurrected, resurrection_state
+            if is_resurrected():
+                state = resurrection_state() or {}
+                live = state.get("model") or "unknown"
+                prev = state.get("previous_model") or model
+                model = f"{live} ⚠️ degraded (was {prev})"
+        except Exception:
+            pass
+
+        # ── Context / session info — needs platform + channel_id
+        # from the command ctx (plumbed by PR #193). Degrade
+        # gracefully when called from CLI / pulse with no channel.
+        ctx_line = None
+        session_line = None
+        platform = (ctx or {}).get("platform")
+        channel_id = (ctx or {}).get("channel_id")
+        if platform and channel_id:
+            try:
+                from windyfly.agent.session_reset import (
+                    next_session_id, get_reset_count,
+                )
+                from windyfly.agent.loop import _session_tokens
+                from windyfly.agent.context_header import _state_emoji
+                sid = next_session_id(platform, channel_id)
+                used = _session_tokens.get(sid, 0)
+                max_ctx = 200_000
+                pct_rem = max(0.0, 100.0 - (used / max_ctx) * 100)
+                emoji = _state_emoji(pct_rem, False)
+                ctx_line = (
+                    f"Context: {used/1000:.1f}K / {max_ctx//1000}K "
+                    f"({pct_rem:.0f}% remaining {emoji})"
+                )
+                resets = get_reset_count(platform, channel_id)
+                plural = "s" if resets != 1 else ""
+                session_line = (
+                    f"Session: {sid} ({resets} fresh start{plural})"
+                )
+            except Exception:
+                pass  # silent — better to drop the line than crash /status
+
+        # ── Uptime ──
+        uptime_line = None
+        if _init_time:
+            up = int(time.time() - _init_time)
+            h, rem = divmod(up, 3600)
+            m, s = divmod(rem, 60)
+            uptime_line = (
+                f"Up: {h}h {m}m" if h else f"Up: {m}m {s}s"
+            )
+
+        # ── Today's cost vs budget ──
+        # Pulls from cost_ledger (per-call USD log) and the
+        # [costs].daily_budget_usd config field. On Max plan today's
+        # spend should be ~$0 because direct-Anthropic OAuth calls
+        # don't bill against the per-token ledger — but the line is
+        # still useful as a regression alarm: if it suddenly shows
+        # real money, something is routing through API-key billing.
+        today_line = None
+        try:
+            from windyfly.memory.cost_ledger import get_daily_spend
+            if _db:
+                spend = get_daily_spend(_db)
+                budget = float(((_config or {}).get("costs") or {})
+                               .get("daily_budget_usd", 5.0))
+                pct_used = (spend / budget) * 100 if budget else 0.0
+                today_line = (
+                    f"Today: ${spend:.2f} / ${budget:.2f} budget "
+                    f"({pct_used:.0f}% used)"
+                )
+        except Exception:
+            pass
+
+        # ── DB size ──
+        db_path = os.environ.get("WINDYFLY_DB_PATH", "data/windyfly.db")
+        size = (
+            f"{os.path.getsize(db_path)/1024/1024:.1f}MB"
+            if os.path.exists(db_path) else "no db"
+        )
+
+        # ── Passport / Email (existing) ──
+        passport = os.environ.get("ETERNITAS_PASSPORT", "none")
+        email = os.environ.get("WINDYMAIL_EMAIL", "none")
+
+        # ── Assemble in display order (tightest signal first) ──
+        lines = ["🪰 Status", f"Model: {model}", f"Auth: {auth}"]
+        if ctx_line:
+            lines.append(ctx_line)
+        if session_line:
+            lines.append(session_line)
+        if uptime_line:
+            lines.append(uptime_line)
+        if today_line:
+            lines.append(today_line)
+        lines.extend([f"Passport: {passport}", f"Email: {email}",
+                      f"DB: {size}"])
+        return "\n".join(lines)
     _r("status", "Quick status summary", "02_diagnostics", cmd_status, aliases=["info"])
 
     async def cmd_pulse(ctx):

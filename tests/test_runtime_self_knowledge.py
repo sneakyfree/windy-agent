@@ -130,6 +130,100 @@ class TestStatusCommandIncludesAuth:
             f"/status didn't surface pay-per-token warning: {reply!r}"
         )
 
+    @pytest.mark.asyncio
+    async def test_status_includes_context_session_uptime(
+        self, monkeypatch, tmp_path,
+    ):
+        """PR #194 Tier-1 additions: when called with a platform +
+        channel_id in ctx, /status must show Context (token usage),
+        Session (rolling id + reset count), and Up (uptime)."""
+        monkeypatch.delenv("ANTHROPIC_OAUTH_ACCESS_TOKEN", raising=False)
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-oat01-X")
+        monkeypatch.setenv("DEFAULT_MODEL", "claude-sonnet-4-6")
+        monkeypatch.setenv("WINDYFLY_DB_PATH", "/nonexistent/path.db")
+        monkeypatch.setenv(
+            "WINDYFLY_SESSION_COUNTER_PATH",
+            str(tmp_path / "counters.json"),
+        )
+        from windyfly.agent.session_reset import (
+            _reset_module_state_for_tests,
+        )
+        _reset_module_state_for_tests()
+
+        from windyfly.commands.registry import registry
+        from windyfly.commands import core
+        core.init_core()
+        cmd = registry.get("status")
+
+        reply = await cmd.handler({
+            "platform": "telegram", "channel_id": "1234",
+        })
+
+        assert "Context:" in reply, f"missing Context line: {reply!r}"
+        assert "remaining" in reply
+        assert "Session: telegram:1234:v0" in reply
+        assert "0 fresh starts" in reply
+        assert "Up:" in reply
+
+    @pytest.mark.asyncio
+    async def test_status_session_line_reflects_resets(
+        self, monkeypatch, tmp_path,
+    ):
+        """After /new bumps the counter, /status must show the new
+        session_id and reset count — confirms PR #193 + #194 wiring
+        agrees end-to-end."""
+        monkeypatch.delenv("ANTHROPIC_OAUTH_ACCESS_TOKEN", raising=False)
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-oat01-X")
+        monkeypatch.setenv("DEFAULT_MODEL", "claude-sonnet-4-6")
+        monkeypatch.setenv("WINDYFLY_DB_PATH", "/nonexistent/path.db")
+        monkeypatch.setenv(
+            "WINDYFLY_SESSION_COUNTER_PATH",
+            str(tmp_path / "counters.json"),
+        )
+        from windyfly.agent.session_reset import (
+            _reset_module_state_for_tests, reset_session,
+        )
+        _reset_module_state_for_tests()
+        reset_session("telegram", "1234")
+        reset_session("telegram", "1234")
+        reset_session("telegram", "1234")
+
+        from windyfly.commands.registry import registry
+        from windyfly.commands import core
+        core.init_core()
+        cmd = registry.get("status")
+
+        reply = await cmd.handler({
+            "platform": "telegram", "channel_id": "1234",
+        })
+
+        assert "Session: telegram:1234:v3" in reply
+        assert "3 fresh starts" in reply
+
+    @pytest.mark.asyncio
+    async def test_status_without_channel_id_omits_context_lines(
+        self, monkeypatch,
+    ):
+        """CLI / pulse invocations without channel context still get
+        the rest of /status — Context + Session lines just drop."""
+        monkeypatch.delenv("ANTHROPIC_OAUTH_ACCESS_TOKEN", raising=False)
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-oat01-X")
+        monkeypatch.setenv("DEFAULT_MODEL", "claude-sonnet-4-6")
+        monkeypatch.setenv("WINDYFLY_DB_PATH", "/nonexistent/path.db")
+        from windyfly.commands.registry import registry
+        from windyfly.commands import core
+        core.init_core()
+        cmd = registry.get("status")
+
+        reply = await cmd.handler(None)
+
+        assert "Context:" not in reply
+        assert "Session:" not in reply
+        # But the rest still appears
+        assert "Model:" in reply
+        assert "Auth:" in reply
+        assert "DB:" in reply
+
 
 class TestRuntimeContextInPrompt:
 
