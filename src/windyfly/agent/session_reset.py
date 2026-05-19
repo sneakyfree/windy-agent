@@ -127,6 +127,19 @@ def _save_counters(counters: dict[str, int]) -> None:
             _persist_warned = True
 
 
+def get_reset_count(platform: str, channel_id: str) -> int:
+    """Return the current /new reset count for this channel.
+
+    Used by /status (PR #194) so the operator can see how many fresh
+    starts they've done without parsing the v-suffix off
+    ``next_session_id``. Returns 0 for channels that have never been
+    reset (= they're on the original v0 session).
+    """
+    with _lock:
+        counters = _load_counters()
+        return counters.get(_key(platform, channel_id), 0)
+
+
 def next_session_id(platform: str, channel_id: str) -> str:
     """Return the current rolling session_id for this channel.
 
