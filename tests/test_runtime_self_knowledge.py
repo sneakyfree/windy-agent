@@ -337,6 +337,94 @@ class TestStatusCommandIncludesAuth:
         assert "3 fresh starts" in reply
 
     @pytest.mark.asyncio
+    async def test_status_today_line_max_plan_says_zero_billed(
+        self, monkeypatch, tmp_path,
+    ):
+        """On Max plan the headline Today: number must read $0 billed
+        (because the OAuth subscription is flat-rate) with the
+        per-token estimate as a parenthetical for capacity planning.
+        Pre-fix (PR #195) the line started with the estimate which
+        Grant correctly flagged as cognitive friction next to
+        '(Max = flat rate)' — looked like real spend."""
+        monkeypatch.delenv("ANTHROPIC_OAUTH_ACCESS_TOKEN", raising=False)
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-oat01-VwLong" * 4)
+        monkeypatch.setenv("DEFAULT_MODEL", "claude-sonnet-4-6")
+        monkeypatch.setenv("WINDYFLY_DB_PATH", "/nonexistent/path.db")
+        monkeypatch.setenv(
+            "WINDYFLY_SESSION_COUNTER_PATH",
+            str(tmp_path / "counters.json"),
+        )
+
+        from windyfly.memory.database import Database
+        from windyfly.memory.cost_ledger import log_cost
+        from windyfly.agent.session_reset import _reset_module_state_for_tests
+        _reset_module_state_for_tests()
+        db = Database(":memory:")
+        # Seed a couple of "calls" so daily spend > 0
+        log_cost(db, model="claude-sonnet-4-6", input_tokens=10_000,
+                 output_tokens=2_000, cost_usd=0.29)
+
+        from windyfly.commands.registry import registry
+        from windyfly.commands import core
+        core.init_core(db=db)
+        cmd = registry.get("status")
+        reply = await cmd.handler({
+            "platform": "telegram", "channel_id": "1",
+        })
+
+        # Headline must be $0 billed — the truthful Max-plan number.
+        assert "$0 billed" in reply, (
+            f"Today line should lead with $0 billed on Max plan: {reply!r}"
+        )
+        # Estimate must still be visible for capacity planning.
+        assert "$0.29" in reply
+        assert "token estimate" in reply
+        assert "Max plan" in reply
+        # The "of $5.00 budget" phrasing must NOT leak through —
+        # budget doesn't apply on flat-rate subscription.
+        assert "of $5.00 budget" not in reply
+
+        db.close()
+
+    @pytest.mark.asyncio
+    async def test_status_today_line_api_key_shows_real_spend(
+        self, monkeypatch, tmp_path,
+    ):
+        """On regular API key (pay-per-token) the original budget-
+        framing is correct — keep it."""
+        monkeypatch.delenv("ANTHROPIC_OAUTH_ACCESS_TOKEN", raising=False)
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api03-X" * 5)
+        monkeypatch.setenv("DEFAULT_MODEL", "claude-sonnet-4-6")
+        monkeypatch.setenv("WINDYFLY_DB_PATH", "/nonexistent/path.db")
+        monkeypatch.setenv(
+            "WINDYFLY_SESSION_COUNTER_PATH",
+            str(tmp_path / "counters.json"),
+        )
+
+        from windyfly.memory.database import Database
+        from windyfly.memory.cost_ledger import log_cost
+        from windyfly.agent.session_reset import _reset_module_state_for_tests
+        _reset_module_state_for_tests()
+        db = Database(":memory:")
+        log_cost(db, model="claude-sonnet-4-6", input_tokens=10_000,
+                 output_tokens=2_000, cost_usd=0.29)
+
+        from windyfly.commands.registry import registry
+        from windyfly.commands import core
+        core.init_core(db=db, config={"costs": {"daily_budget_usd": 5.0}})
+        cmd = registry.get("status")
+        reply = await cmd.handler({
+            "platform": "telegram", "channel_id": "1",
+        })
+
+        # On pay-per-token, $X.XX of $Y.YY budget is the right framing
+        assert "$0.29 of $5.00 budget" in reply
+        assert "$0 billed" not in reply
+        assert "Max plan" not in reply
+
+        db.close()
+
+    @pytest.mark.asyncio
     async def test_status_without_channel_id_omits_memory_lines(
         self, monkeypatch,
     ):

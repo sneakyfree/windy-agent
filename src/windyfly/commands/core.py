@@ -375,21 +375,45 @@ def _register_all():
             )
 
         # ── Today's cost vs budget ────────────────────────────────
+        # Honest framing on Max plan: the cost ledger logs estimated
+        # cost on every call (input+output tokens × API03 per-token
+        # rates) regardless of auth path. On OAuth Max that estimate
+        # ISN'T actually billed — Anthropic bills flat $200/mo. So
+        # /status used to show "$0.29 of $5.00 budget (Max = flat
+        # rate)" which is cognitive friction: a non-zero number next
+        # to "flat rate" reads as real spend.
+        #
+        # Surfaced 2026-05-19 by Grant after PR #195 went live —
+        # /status said Max plan but also showed $0.29 today, which
+        # made him wonder if a cost-leak slipped through PR #189.
+        # It didn't (the ledger just estimates everything); fix is
+        # to split the line into "$0 actually billed" + "~$X token
+        # estimate" so the headline number is truthful AND the
+        # capacity-planning estimate stays visible as a parenthetical
+        # — and so a REAL cost leak would jump out (wildly higher
+        # estimate would stand out against $0 billed).
         today_line = None
         try:
             from windyfly.memory.cost_ledger import get_daily_spend
             if _db:
                 spend = get_daily_spend(_db)
-                budget = float(((_config or {}).get("costs") or {})
-                               .get("daily_budget_usd", 5.0))
-                pct_used = (spend / budget) * 100 if budget else 0.0
-                suffix = ""
                 if auth["kind"] in ("oauth_manager", "oauth_api_key"):
-                    suffix = " (Max = flat rate)"
-                today_line = (
-                    f"💰 Today: ${spend:.2f} of ${budget:.2f} budget "
-                    f"({pct_used:.0f}% used){suffix}"
-                )
+                    today_line = (
+                        f"💰 Today: $0 billed · ~${spend:.2f} token "
+                        f"estimate (Max plan)"
+                    )
+                else:
+                    budget = float(
+                        ((_config or {}).get("costs") or {})
+                        .get("daily_budget_usd", 5.0)
+                    )
+                    pct_used = (
+                        (spend / budget) * 100 if budget else 0.0
+                    )
+                    today_line = (
+                        f"💰 Today: ${spend:.2f} of ${budget:.2f} "
+                        f"budget ({pct_used:.0f}% used)"
+                    )
         except Exception:
             pass
 
