@@ -1149,9 +1149,13 @@ class TelegramChannel(ChannelAdapter):
             asyncio.create_task(self._trigger_self_restart())
             return
 
-        # Unified command detection
+        # Unified command detection. Pass channel_id so session-aware
+        # commands (e.g., /new) can identify which session to roll.
         from windyfly.channels.base import handle_incoming
-        was_command, cmd_response = await handle_incoming(text, {"platform": "telegram"})
+        was_command, cmd_response = await handle_incoming(text, {
+            "platform": "telegram",
+            "channel_id": str(update.message.chat_id),
+        })
         if was_command:
             await self._send_long_reply(update.message, cmd_response)
             self._last_message_at = time.time()

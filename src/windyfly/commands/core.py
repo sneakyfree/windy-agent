@@ -637,7 +637,33 @@ def _register_all():
     _r("chat", "Start CLI chat mode", "03_chat", cmd_chat)
 
     async def cmd_new(ctx):
-        return "NEW_SESSION"
+        """Roll the session counter so the bot's prompt starts fresh
+        on the next turn — clears _session_tokens for the old id and
+        bumps to a new id so get_recent_episodes() no longer pulls
+        prior turns. Long-term memory (nodes, turnover letter,
+        identity facts) survives because it isn't session-scoped.
+
+        Pre-fix this returned the literal 'NEW_SESSION' string which
+        nothing in the channel layer read — /new was a stub that
+        only posted the sentinel back to the user (see 2026-05-19
+        Telegram screenshot)."""
+        platform = (ctx or {}).get("platform")
+        channel_id = (ctx or {}).get("channel_id")
+        if not platform or not channel_id:
+            return (
+                "🪰 /new received but I couldn't identify your "
+                "chat session — the channel layer didn't pass "
+                "channel_id into the command context. /new is a "
+                "no-op until that's fixed."
+            )
+        from windyfly.agent.session_reset import reset_session
+        reset_session(platform, channel_id)
+        return (
+            "🪰 Fresh start. Working memory cleared — I've got a "
+            "clean slate to think on. Long-term memory (who you "
+            "are, what we've been working on) is still intact. "
+            "What's on your mind?"
+        )
     _r("new", "Start a new conversation (clear context, keep memory)", "03_chat", cmd_new, aliases=["fresh"])
 
     async def cmd_reset_chat(ctx):

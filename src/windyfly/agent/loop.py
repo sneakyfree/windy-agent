@@ -351,6 +351,23 @@ _SELF_ENV_CONFAB_PATTERNS = (
     "wherever the bot lives",
     "wherever windy fly lives",
     "wherever windy 0 lives",
+    # Kit-0 delegation confab — bot punts a fix to Kit 0 as if Kit 0
+    # owned Windy Fly's source. Kit 0 is the VPS coordinator (a
+    # sister agent), not the windy-agent maintainer. Surfaced
+    # 2026-05-19 even after PR #188 + PR #190 + PR #192: the model
+    # said "Kit 0 should remove that line from the soul prompt"
+    # while confabulating about a non-existent soul-file directive.
+    # Patterns target the verbatim phrase shape; legitimate user
+    # questions about Kit 0 (e.g., "what does Kit 0 do?") don't hit
+    # because those use third-person framing, not imperative.
+    "kit 0 should remove",
+    "kit 0 should fix",
+    "kit 0 should update",
+    "kit 0 should edit",
+    "have kit 0 fix",
+    "have kit 0 remove",
+    "kit 0 can fix this",
+    "kit 0 needs to update",
 )
 
 
