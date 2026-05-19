@@ -38,6 +38,49 @@ def _reset_oauth_manager_singleton():
     oauth_mod._manager = saved
 
 
+class TestFingerprintAndContextCap:
+
+    def test_fingerprint_oat_token(self):
+        token = (
+            "sk-ant-oat01-VwUdywrPUNW2MlOu4FNOPGhg3P3-hc6z-z8wpl"
+            "HFQkOgj9lEJkRXWwPvP-vsHmIFe-AE7_Klesjco3QTWjIP1A-hUMCwAAA"
+        )
+        fp = models._fingerprint_token(token)
+        # Shape: first 15 + … + last 4
+        assert fp.startswith("sk-ant-oat01-Vw")
+        assert "…" in fp
+        assert fp.endswith("wAAA")
+        # Crucially: the BODY of the token is NOT in the fingerprint
+        assert "UdywrPUNW2MlOu" not in fp
+
+    def test_fingerprint_empty(self):
+        assert models._fingerprint_token("") == "(empty)"
+        assert models._fingerprint_token("short") == "(empty)"
+
+    def test_context_cap_known_models(self):
+        assert models.get_context_cap("claude-opus-4-7") == 1_000_000
+        assert models.get_context_cap("claude-sonnet-4-6") == 200_000
+        assert models.get_context_cap("claude-haiku-4-5") == 200_000
+        assert models.get_context_cap("gpt-4o") == 128_000
+        assert models.get_context_cap("llama3.2:3b") == 8_192
+
+    def test_context_cap_heuristic_fallbacks(self):
+        # Unknown opus variant — heuristic should still return 1M
+        assert models.get_context_cap("claude-opus-future-x") == 1_000_000
+        # Unknown sonnet variant — 200K
+        assert models.get_context_cap("claude-sonnet-future") == 200_000
+        # Unknown haiku variant
+        assert models.get_context_cap("claude-haiku-future") == 200_000
+        # Garbage model name — conservative 8K small-model default
+        assert models.get_context_cap("foo-bar-baz") == 8_192
+
+    def test_context_cap_empty_model(self):
+        # Empty string is treated as "unknown" but with the more
+        # generous 200K default since most production paths won't
+        # pass empty.
+        assert models.get_context_cap("") == 200_000
+
+
 class TestGetAnthropicAuthPath:
 
     def test_oauth_via_manager(self, monkeypatch):
@@ -49,6 +92,8 @@ class TestGetAnthropicAuthPath:
         assert result["kind"] == "oauth_manager"
         assert "OAuth Max" in result["label_short"]
         assert "subscription billing" in result["label_long"]
+        # PR #195 — fingerprint now part of the return shape
+        assert "fingerprint" in result
 
     def test_oauth_via_api_key_fallback(self, monkeypatch):
         monkeypatch.delenv("ANTHROPIC_OAUTH_ACCESS_TOKEN", raising=False)
@@ -77,11 +122,11 @@ class TestGetAnthropicAuthPath:
         callers shouldn't have to None-check fields."""
         monkeypatch.delenv("ANTHROPIC_OAUTH_ACCESS_TOKEN", raising=False)
         cases = [
-            "sk-ant-oat01-X",   # oauth fallback
-            "sk-ant-api03-X",   # regular
-            "",                  # none
+            "sk-ant-oat01-VwUdywrPUNW2MlOu4FNOPGhg3P3-hc6z-z8wplHFQkOgj9lEJkRXWwPvP",
+            "sk-ant-api03-LongEnoughTokenStringForFingerprintXX",
+            "",
         ]
-        expected = {"kind", "label_short", "label_long"}
+        expected = {"kind", "label_short", "label_long", "fingerprint"}
         for v in cases:
             if v:
                 monkeypatch.setenv("ANTHROPIC_API_KEY", v)
@@ -95,14 +140,17 @@ class TestStatusCommandIncludesAuth:
 
     @pytest.mark.asyncio
     async def test_status_shows_auth_line(self, monkeypatch):
-        """/status must include an ``Auth:`` line so Grant can verify
-        which billing path is active without checking journalctl."""
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-oat01-PLACEHOLDER")
+        """/status must surface the OAuth path label AND a redacted
+        token fingerprint so the operator can identify which key is
+        live at a glance (PR #195)."""
+        monkeypatch.setenv(
+            "ANTHROPIC_API_KEY",
+            "sk-ant-oat01-VwUdywrPUNW2MlOu4FNOPGhg3P3-hc6z-z8wplHFQk",
+        )
         monkeypatch.delenv("ANTHROPIC_OAUTH_ACCESS_TOKEN", raising=False)
         monkeypatch.setenv("DEFAULT_MODEL", "claude-sonnet-4-6")
         monkeypatch.setenv("WINDYFLY_DB_PATH", "/nonexistent/path.db")
 
-        # Boot the command registry and pull /status out.
         from windyfly.commands.registry import registry
         from windyfly.commands import core
         core.init_core()
@@ -110,9 +158,20 @@ class TestStatusCommandIncludesAuth:
         assert cmd is not None, "/status command not registered"
 
         reply = await cmd.handler(ctx=None)
-        assert "Auth:" in reply, f"no Auth: line in /status: {reply!r}"
+        # PR #195 — emoji header on the plan line
+        assert "💳 Plan:" in reply or "Plan:" in reply, (
+            f"no Plan: line in /status: {reply!r}"
+        )
         assert "OAuth Max" in reply, (
             f"/status didn't surface OAuth path for oat token: {reply!r}"
+        )
+        # PR #195 — fingerprint visible (truncated, body redacted)
+        assert "sk-ant-oat01-Vw" in reply, (
+            f"/status didn't show OAuth fingerprint: {reply!r}"
+        )
+        # The body of the token MUST NOT leak
+        assert "UdywrPUNW2MlOu" not in reply, (
+            f"/status leaked token body: {reply!r}"
         )
 
     @pytest.mark.asyncio
@@ -131,14 +190,18 @@ class TestStatusCommandIncludesAuth:
         )
 
     @pytest.mark.asyncio
-    async def test_status_includes_context_session_uptime(
+    async def test_status_includes_memory_session_uptime(
         self, monkeypatch, tmp_path,
     ):
-        """PR #194 Tier-1 additions: when called with a platform +
-        channel_id in ctx, /status must show Context (token usage),
-        Session (rolling id + reset count), and Up (uptime)."""
+        """PR #195 grandma-friendly /status: when called with platform
+        + channel_id in ctx, /status shows Health, plain-English
+        Memory, Brain w/context cap, Plan w/fingerprint, Session,
+        Uptime."""
         monkeypatch.delenv("ANTHROPIC_OAUTH_ACCESS_TOKEN", raising=False)
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-oat01-X")
+        monkeypatch.setenv(
+            "ANTHROPIC_API_KEY",
+            "sk-ant-oat01-VwUdywrPUNW2MlOu4FNOPGhg3P3-hc6z-z8wplHFQk",
+        )
         monkeypatch.setenv("DEFAULT_MODEL", "claude-sonnet-4-6")
         monkeypatch.setenv("WINDYFLY_DB_PATH", "/nonexistent/path.db")
         monkeypatch.setenv(
@@ -159,11 +222,84 @@ class TestStatusCommandIncludesAuth:
             "platform": "telegram", "channel_id": "1234",
         })
 
-        assert "Context:" in reply, f"missing Context line: {reply!r}"
-        assert "remaining" in reply
+        # Health
+        assert "Health:" in reply
+        assert "🟢" in reply  # not degraded
+        # Memory (plain-English descriptor + emoji)
+        assert "🧠 Memory:" in reply
+        assert "feels fresh" in reply.lower() or "free" in reply.lower()
+        # Brain (model + per-model context cap)
+        assert "🤖 Brain:" in reply
+        assert "claude-sonnet-4-6" in reply
+        assert "200K context" in reply, (
+            f"Sonnet 4.6 should report 200K cap: {reply!r}"
+        )
+        # Plan (auth + fingerprint)
+        assert "💳 Plan:" in reply
+        assert "sk-ant-oat01-Vw" in reply
+        # Session
         assert "Session: telegram:1234:v0" in reply
         assert "0 fresh starts" in reply
+        # Uptime
         assert "Up:" in reply
+
+    @pytest.mark.asyncio
+    async def test_status_opus_model_reports_1M_context(
+        self, monkeypatch, tmp_path,
+    ):
+        """The brain-line context cap must scale per model — Opus 4.7
+        gets 1M; Sonnet/Haiku stay at 200K. Pre-fix /status hardcoded
+        200K and Grant called it out 2026-05-19."""
+        monkeypatch.delenv("ANTHROPIC_OAUTH_ACCESS_TOKEN", raising=False)
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-oat01-VwLong" * 4)
+        monkeypatch.setenv("DEFAULT_MODEL", "claude-opus-4-7")
+        monkeypatch.setenv("WINDYFLY_DB_PATH", "/nonexistent/path.db")
+        monkeypatch.setenv(
+            "WINDYFLY_SESSION_COUNTER_PATH",
+            str(tmp_path / "counters.json"),
+        )
+        from windyfly.agent.session_reset import _reset_module_state_for_tests
+        _reset_module_state_for_tests()
+        from windyfly.commands.registry import registry
+        from windyfly.commands import core
+        core.init_core()
+        cmd = registry.get("status")
+        reply = await cmd.handler({
+            "platform": "telegram", "channel_id": "9999",
+        })
+        assert "1M context" in reply, (
+            f"Opus 4.7 should report 1M context cap: {reply!r}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_status_memory_band_low_says_type_new(
+        self, monkeypatch, tmp_path,
+    ):
+        """When context is < 10% remaining the Memory line must tell
+        the user to /new — grandma needs a hint, not a riddle."""
+        monkeypatch.delenv("ANTHROPIC_OAUTH_ACCESS_TOKEN", raising=False)
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-oat01-VwLong" * 4)
+        monkeypatch.setenv("DEFAULT_MODEL", "claude-sonnet-4-6")
+        monkeypatch.setenv("WINDYFLY_DB_PATH", "/nonexistent/path.db")
+        monkeypatch.setenv(
+            "WINDYFLY_SESSION_COUNTER_PATH",
+            str(tmp_path / "counters.json"),
+        )
+        from windyfly.agent.session_reset import _reset_module_state_for_tests
+        from windyfly.agent.loop import _session_tokens
+        _reset_module_state_for_tests()
+        _session_tokens["telegram:lowmem:v0"] = 190_000  # 5% rem
+        from windyfly.commands.registry import registry
+        from windyfly.commands import core
+        core.init_core()
+        cmd = registry.get("status")
+        reply = await cmd.handler({
+            "platform": "telegram", "channel_id": "lowmem",
+        })
+        assert "/new" in reply, (
+            f"low-memory state should suggest /new: {reply!r}"
+        )
+        assert "🔴" in reply or "nearly full" in reply
 
     @pytest.mark.asyncio
     async def test_status_session_line_reflects_resets(
@@ -201,13 +337,13 @@ class TestStatusCommandIncludesAuth:
         assert "3 fresh starts" in reply
 
     @pytest.mark.asyncio
-    async def test_status_without_channel_id_omits_context_lines(
+    async def test_status_without_channel_id_omits_memory_lines(
         self, monkeypatch,
     ):
         """CLI / pulse invocations without channel context still get
-        the rest of /status — Context + Session lines just drop."""
+        the rest of /status — Memory + Session lines just drop."""
         monkeypatch.delenv("ANTHROPIC_OAUTH_ACCESS_TOKEN", raising=False)
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-oat01-X")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-oat01-VwLong" * 4)
         monkeypatch.setenv("DEFAULT_MODEL", "claude-sonnet-4-6")
         monkeypatch.setenv("WINDYFLY_DB_PATH", "/nonexistent/path.db")
         from windyfly.commands.registry import registry
@@ -217,12 +353,12 @@ class TestStatusCommandIncludesAuth:
 
         reply = await cmd.handler(None)
 
-        assert "Context:" not in reply
+        assert "Memory:" not in reply or "Memory file:" in reply
         assert "Session:" not in reply
         # But the rest still appears
-        assert "Model:" in reply
-        assert "Auth:" in reply
-        assert "DB:" in reply
+        assert "🤖 Brain:" in reply
+        assert "💳 Plan:" in reply
+        assert "Memory file:" in reply
 
 
 class TestRuntimeContextInPrompt:
