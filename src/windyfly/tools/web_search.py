@@ -54,10 +54,13 @@ _BROWSER_HEADERS = {
 }
 
 _HARD_GATE_ERROR = (
-    "Search V1 hard gate (2026-05-17): web_search/fetch_url require "
-    "both WINDY_SEARCH_BASE_URL and WINDY_PASSPORT_EPT environment "
-    "variables. Set them in your soul-repo env/launcher to enable "
-    "agent web access through api.windysearch.com."
+    "WEB_SEARCH_UNAVAILABLE: I'm not connected to the web right now "
+    "— web_search and fetch_url require windy-search to be enabled "
+    "(env vars WINDY_SEARCH_BASE_URL + WINDY_PASSPORT_EPT). Tell "
+    "the user I can't browse the web in this configuration; "
+    "offer to answer from what I know, or suggest the operator "
+    "enable windy-search if web access matters for this task. Do "
+    "NOT retry — the gate is intentional, not a transient error."
 )
 
 

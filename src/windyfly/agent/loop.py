@@ -74,6 +74,39 @@ def _bump_session_tokens(session_id: str, count: int) -> int:
 _DEFAULT_TOOL_ROUNDS = 5
 
 
+_OS_STATE_TRIGGERS = (
+    # Disk/storage
+    "disk usage", "disk space", "free space", "how much space",
+    "how big is", "directory size", "folder size", "df ",
+    # Memory
+    "memory usage", "free memory", "how much memory", "ram",
+    "free -h", "memory pressure",
+    # Process / load / cpu
+    "process", "running", "pid", "kill", "ps ", "top",
+    "load average", "cpu load", "cpu usage", "uptime",
+    # Network
+    "ip address", "interface", "ifconfig", "ip addr", "netstat",
+    "what's my ip", "open port", "ports open",
+    # Files / system inspection (read-only)
+    "what's installed", "is installed", "which version", "version of",
+    "what version", "hostname", "kernel", "uname",
+)
+
+
+def _user_message_asks_os_state(text: str) -> bool:
+    """Heuristic for v15 finding #3: bot doesn't try shell.exec for
+    OS-state queries even when capability is registered. False
+    positives waste ~70 tokens of prompt; false negatives mean the
+    bot says 'I can't check that for you' when it could just shell.
+
+    Conservative — only trips on clear OS-inspection vocabulary.
+    """
+    if not text:
+        return False
+    lower = text.lower()
+    return any(t in lower for t in _OS_STATE_TRIGGERS)
+
+
 def _user_message_mentions_local(text: str) -> bool:
     """Heuristic: does the message reference a local file/path/repo?
 
@@ -621,6 +654,34 @@ def agent_respond(
     # Inject a tight instruction per-call so it picks correctly. Only
     # fires when the registry actually has fs.* capabilities AND the
     # message looks path-ish — otherwise we waste tokens.
+    # 1.0.6 — shell.exec discoverability nudge (v15 finding #3).
+    # The bot wasn't picking shell.exec for "what's my disk usage"
+    # / "how much memory free" / etc., because the BIAS TO ACTION
+    # block mentions shell.exec abstractly but doesn't connect
+    # OS-state vocabulary to specific commands. Inject when the
+    # capability is registered AND the question looks OS-shaped.
+    if (
+        capability_registry.get("shell.exec")
+        and _user_message_asks_os_state(user_message)
+    ):
+        messages.insert(1, {
+            "role": "system",
+            "content": (
+                "The user is asking about local OS state — use "
+                "shell.exec to inspect the machine and quote the "
+                "actual output. Common commands:\n"
+                "  - Disk usage: `df -h` (filesystem) or `du -sh <path>` (dir)\n"
+                "  - Free memory: `free -h`\n"
+                "  - Running processes: `ps aux --sort=-%cpu | head -10`\n"
+                "  - Load average / uptime: `uptime`\n"
+                "  - Network interfaces: `ip -brief addr`\n"
+                "  - Installed version: `which X` / `X --version`\n"
+                "Pick the right command, run it via shell.exec, then "
+                "summarize the result. Don't tell the user you 'can't "
+                "check' — you can."
+            ),
+        })
+
     if (
         capability_registry.get("fs.read_file")
         and _user_message_mentions_local(user_message)
@@ -1576,6 +1637,30 @@ def agent_respond(
         # facing reply on an evaluator hiccup. Log + carry on.
         logger.warning("[req:%s] /goal evaluator path errored: %s",
                        request_id_short(), e)
+
+    # 8.7. Per-reply 🎯 visibility footer (deferred from Phase 1,
+    # shipped in the UX polish bundle). When an active goal exists
+    # AND we didn't just complete/expire it, append a subtle footer
+    # so the user can see at a glance that the bot is on a mission.
+    # Skipped when the response already contains "Goal achieved"
+    # or "auto-cleared" so we don't double up on the completion /
+    # expiry messaging the evaluator path emitted above.
+    try:
+        from windyfly.memory.goals import get_active_goal
+        still_active = get_active_goal(db, session_id)
+        if (
+            still_active
+            and "Goal achieved" not in response_text
+            and "auto-cleared" not in response_text
+        ):
+            goal_excerpt = still_active["text"][:60]
+            if len(still_active["text"]) > 60:
+                goal_excerpt += "..."
+            response_text = (
+                f"{response_text}\n\n_🎯 still on: {goal_excerpt}_"
+            )
+    except Exception as e:
+        logger.debug("/goal visibility footer errored: %s", e)
 
     return response_text
 
