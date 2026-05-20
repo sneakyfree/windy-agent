@@ -230,6 +230,20 @@ def resurrect(
         actor, model, previous_model,
     )
 
+    # Clear the consecutive-Ollama-failure counter on every fresh
+    # lifeboat entry. The wedged-escape check fires after 3
+    # consecutive Ollama failures; without zeroing here, failures
+    # from a previous lifeboat session (or from test-state bleed)
+    # would carry over and instantly trip the escape on the new
+    # entry. Best-effort — the counter is a single file; failure
+    # to clear just means escape might fire a turn sooner than
+    # intended.
+    try:
+        from windyfly.agent.offline import _record_ollama_outcome
+        _record_ollama_outcome(success=True)
+    except Exception as e:
+        logger.debug("ollama counter clear failed during resurrect: %s", e)
+
     # Pre-load the model so the user's first chat doesn't pay the
     # 1.5-2s model-load cost on top of CPU inference. Best-effort —
     # if the warmup itself fails, the next real chat will just load

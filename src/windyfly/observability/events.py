@@ -49,6 +49,7 @@ EVENT_TYPES = frozenset({
     "offline.chain_exhausted",
     "lifeboat.exited",
     "lifeboat.recovery_failed",
+    "lifeboat.escaped_wedged",
     # Provider-native web search lifecycle (PR #164)
     "web_search.native_enabled",
     "web_search.native_skipped",
