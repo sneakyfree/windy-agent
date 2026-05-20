@@ -1379,6 +1379,53 @@ class TelegramChannel(ChannelAdapter):
             self._last_message_at = time.time()
             return
 
+        # ── /forget — user-facing skill demotion (PR 2026-05-20 #3) ──
+        # When an auto-promoted correction skill is bad advice, the
+        # user types /forget <substring> and we demote any matching
+        # promoted skills. Row stays for audit + future re-promotion
+        # via the bridge UDS server; demotion just stops the loop
+        # from injecting it into the system prompt.
+        from windyfly.channels.slash_commands import parse_forget_command
+        is_forget, forget_arg = parse_forget_command(text)
+        if is_forget:
+            from windyfly.skills.manager import demote_skill_by_name
+            if not forget_arg:
+                ack = (
+                    "Usage: `/forget <skill-name-or-substring>` — e.g. "
+                    "`/forget factual_error` to drop the "
+                    "correction-factual_error skill, or `/forget "
+                    "correction-` to clear all auto-corrections."
+                )
+            else:
+                demoted = demote_skill_by_name(self._db, forget_arg)
+                if not demoted:
+                    ack = (
+                        f"No promoted skill matched `{forget_arg}`. "
+                        f"Try `/forget correction-` to see if any "
+                        f"auto-correction skills exist at all."
+                    )
+                else:
+                    names = ", ".join(
+                        f"`{r['name']}`" for r in demoted[:5]
+                    )
+                    more = (
+                        f" (+{len(demoted)-5} more)"
+                        if len(demoted) > 5 else ""
+                    )
+                    ack = (
+                        f"🧠 *Forgotten.* Demoted {len(demoted)} "
+                        f"skill(s): {names}{more}\n\n"
+                        f"_I won't apply these on future turns. "
+                        f"Re-promote via the bridge UDS server if "
+                        f"you change your mind._"
+                    )
+            try:
+                await self._send_long_reply(update.message, ack)
+            except Exception as e:
+                logger.warning("/forget reply failed: %s", e)
+            self._last_message_at = time.time()
+            return
+
         if _is_normal_message(text):
             from windyfly.agent.resurrect import normalize as _normalize
             result = _normalize()
