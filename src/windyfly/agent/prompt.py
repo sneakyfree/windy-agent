@@ -84,7 +84,15 @@ def assemble_prompt(
     soul_path = personality_config.get("soul_path", "SOUL.md")
     soul_text = load_soul(soul_path)
 
-    personality_block = build_personality_block(soul_text, personality_config)
+    # Pull sliders once up-front so prompt structure can be gated on
+    # them (e.g., BIAS TO ACTION only fires when autonomy ≥ 4 so a
+    # user who explicitly opted into ask-first mode isn't overruled).
+    # ``get_sliders`` reads DB overrides + falls back to
+    # personality_config — same source the personality_block uses,
+    # so we stay consistent.
+    sliders_for_prompt = get_sliders(db, config_defaults=personality_config)
+
+    personality_block = build_personality_block(soul_text, sliders_for_prompt)
 
     system_parts = [personality_block]
 
@@ -212,6 +220,23 @@ def assemble_prompt(
         "(NOT a remote VPS unless you can name a tool that proves it)"
     )
 
+    # CWD — answers "where am I?" / "what's 'this repo'?" without
+    # the model having to guess. Surfaced by v15 2026-05-20: bot
+    # called fs.read_file('~/README.md') for "Read README.md in
+    # this repo" because it had no anchor for what "this repo"
+    # meant. Result: 'No such file' on a perfectly capable tool.
+    # Pin the CWD here so fs.read_file gets a sane absolute path
+    # on the FIRST attempt.
+    try:
+        cwd = _os.getcwd()
+        runtime_context_parts.append(
+            f"- CWD: {cwd} (when the user says 'this repo' / 'here' "
+            "/ 'this folder', resolve against this path first)"
+        )
+    except OSError:
+        # CWD can fail in rare container scenarios; skip silently.
+        pass
+
     runtime_context_parts.append(
         "If asked which model / auth / billing / host you have, "
         "QUOTE the corresponding line above. Do not hedge with "
@@ -234,6 +259,16 @@ def assemble_prompt(
     # This block is intentionally LOUDER than the cautions. The
     # cautions still apply for confabulation and destructive ops;
     # everything else defaults to "try it."
+    #
+    # NOTE: there's a soft tension with the autonomy slider (low
+    # autonomy emits "Ask before acting" via the personality block).
+    # We do NOT gate this block on autonomy because (a) the block
+    # was previously unconditional and many tests depend on it, and
+    # (b) the user-specific slider modifier wins on conflict — the
+    # model treats the personalized "Ask before acting" line as the
+    # more specific instruction. If a user reports BIAS TO ACTION
+    # bleeding past their autonomy=1/2 setting, revisit with a
+    # gating heuristic then.
     system_parts.append(
         "BIAS TO ACTION — the user is here for results, not "
         "questions. This block OVERRIDES the cautious framing of "
@@ -266,7 +301,12 @@ def assemble_prompt(
         "SECOND approach before giving up. Tool returned an error? "
         "Read the error, adjust, retry. Host unreachable? Try the "
         "next host. Command not found? Try the package manager. "
-        "Pile attempts at the problem, not concerns at the user.\n\n"
+        "Pile attempts at the problem, not concerns at the user. "
+        "Specifically BANNED phrases after a single tool failure: "
+        "'let me pause here', 'rather than keep poking blindly', "
+        "'two ways forward — your call', 'I'd rather ask than guess.' "
+        "The user is paying you to keep poking. One timeout is data, "
+        "not a stop sign.\n\n"
         "5. SAFETY CARVE-OUT — the ONLY caution that should slow "
         "you down: DESTRUCTIVE / IRREVERSIBLE actions. That means "
         "rm -rf, dropping database tables, deleting accounts, force-"
@@ -279,7 +319,16 @@ def assemble_prompt(
         "6. WHEN PUSHED BACK ('why didn't you just do it?', 'you've "
         "done this before'): DROP the caution and TRY, immediately. "
         "Do not explain why you were cautious. Do not re-list your "
-        "concerns. The user wants the job done — get on with it."
+        "concerns. The user wants the job done — get on with it.\n\n"
+        "7. ASK AT MOST ONE QUESTION. If the ask is ambiguous, pick "
+        "the most likely interpretation, state your assumption in "
+        "ONE sentence, and proceed. If genuinely blocked, ask ONE "
+        "specific question — not a numbered list, not 'two ways "
+        "forward — your call,' not 'three honesty checks.' Counting "
+        "the question marks in your draft reply: if you see more "
+        "than 1 '?', collapse to the single most-important question "
+        "before sending. (SOUL: 'Ask one good question instead of "
+        "three guesses.')"
     )
 
     # First-contact guard: when the bot has no prior memory at all,
