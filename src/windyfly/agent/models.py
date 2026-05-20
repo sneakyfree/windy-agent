@@ -48,6 +48,14 @@ COST_MAP: dict[str, dict[str, float]] = {
 # 30 doomed calls per minute against a 503-ing endpoint.
 _COOLDOWN_BASE_S = 30
 _COOLDOWN_MAX_S = 300
+# Cooldown to apply on permanent-auth errors (401 invalid x-api-key,
+# 403 permission denied, credit-balance-too-low). The cooldown
+# escalator is meant for *transient* failures that recover on their
+# own — a permanent-auth failure won't fix itself this process
+# lifetime, so a long cooldown short-circuits 119 doomed calls
+# per hour. Companion to PR #209's auto-resurrect short-circuit:
+# both layers now agree that perma-auth ≠ transient.
+_COOLDOWN_AUTH_DEAD_S = 60 * 60  # 1 hour
 # provider_key → (cooldown_until_ts, consecutive_failure_count)
 _provider_cooldowns: dict[str, tuple[float, int]] = {}
 
@@ -60,14 +68,35 @@ def _is_provider_in_cooldown(provider_key: str) -> bool:
     return time.time() < cooldown_until
 
 
-def _record_provider_failure(provider_key: str) -> None:
+def _record_provider_failure(
+    provider_key: str,
+    error_str: str | None = None,
+) -> None:
+    """Record a provider failure + set a cooldown window. When
+    ``error_str`` is classified as permanent-auth (matches PR
+    #209's ``is_permanent_auth_error``), use a long 1-hour
+    cooldown so the chain skips the doomed provider until the
+    operator refreshes credentials. Transient failures keep the
+    exponential 30s→300s escalator they had pre-PR.
+    """
     _, prev_count = _provider_cooldowns.get(provider_key, (0.0, 0))
     new_count = prev_count + 1
-    cooldown_s = min(_COOLDOWN_BASE_S * new_count, _COOLDOWN_MAX_S)
+    # Lazy import to avoid a circular import (resurrect imports
+    # models indirectly through the agent loop in some test paths).
+    try:
+        from windyfly.agent.resurrect import is_permanent_auth_error
+        is_perma_auth = is_permanent_auth_error(error_str)
+    except Exception:
+        is_perma_auth = False
+    if is_perma_auth:
+        cooldown_s = _COOLDOWN_AUTH_DEAD_S
+    else:
+        cooldown_s = min(_COOLDOWN_BASE_S * new_count, _COOLDOWN_MAX_S)
     _provider_cooldowns[provider_key] = (time.time() + cooldown_s, new_count)
     logger.warning(
-        "Provider %s in cooldown for %ds (consecutive failures: %d)",
+        "Provider %s in cooldown for %ds (consecutive failures: %d%s)",
         provider_key, cooldown_s, new_count,
+        " — permanent auth failure, long cooldown" if is_perma_auth else "",
     )
 
 
@@ -519,7 +548,7 @@ def call_llm(
                 "Provider %s (%s) failed: %s",
                 provider_key, chain_model, e,
             )
-            _record_provider_failure(provider_key)
+            _record_provider_failure(provider_key, error_str=str(e))
 
     summary = f"attempted={attempted}"
     if skipped:
