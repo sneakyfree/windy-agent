@@ -127,6 +127,78 @@ class TestRuntimeGuardrailInPrompt:
         # may not.
         assert "Kit 0" in sys_text
 
+    def test_bias_to_action_block_present(self, db):
+        """PR #200 — counterbalances the cautious guardrails with a
+        positive 'try first, ask last' directive. Surfaced 2026-05-19
+        when the bot refused fleet operations it had tools for,
+        deferred to sister agents, and piled clarifying questions on
+        the user instead of just using ssh.exec."""
+        from windyfly.agent.prompt import assemble_prompt
+        msgs = assemble_prompt(_make_config(), db, "hi", "session-bias")
+        sys_text = msgs[0]["content"]
+        assert "BIAS TO ACTION" in sys_text
+        # The block must explicitly override caution for non-
+        # destructive tasks — otherwise the existing guardrails
+        # silently dominate.
+        assert "OVERRIDES" in sys_text or "overrides" in sys_text
+
+    def test_bias_to_action_tells_model_to_try_first(self, db):
+        """The 'try first' directive must be explicit and concrete —
+        list real tools the bot has, so the model knows which path to
+        take instead of refusing."""
+        from windyfly.agent.prompt import assemble_prompt
+        msgs = assemble_prompt(_make_config(), db, "hi", "session-try")
+        sys_text = msgs[0]["content"]
+        assert "TRY FIRST" in sys_text
+        # Specific tools named so the model anchors on real
+        # capabilities rather than generic "use your tools" advice.
+        assert "ssh.exec" in sys_text
+        assert "shell.exec" in sys_text or "fs.read_file" in sys_text
+
+    def test_bias_to_action_kills_kit0_deflection(self, db):
+        """Specific anti-pattern from the 2026-05-19 screenshot: bot
+        said 'I'm not the right agent to dispatch OpenClaw directly'
+        and refused. New block must explicitly call out that sister-
+        agent mentions are NOT a green light to defer fleet ops."""
+        from windyfly.agent.prompt import assemble_prompt
+        msgs = assemble_prompt(_make_config(), db, "hi", "session-kit")
+        sys_text = msgs[0]["content"]
+        # The negation must be explicit — "X does NOT mean Y"
+        assert "GATEKEEPERS" in sys_text or "gatekeepers" in sys_text
+        # The corrective phrasing must be spelled out
+        assert "let me ssh in and do it" in sys_text.lower() or \
+            "ssh in and do it" in sys_text.lower()
+
+    def test_bias_to_action_has_destructive_carveout(self, db):
+        """An aggressive bot without a safety carve-out is dangerous.
+        Block must preserve caution for destructive/irreversible ops
+        (rm -rf, dropping tables, deleting accounts) while greenlighting
+        reads / restarts / updates / config additions."""
+        from windyfly.agent.prompt import assemble_prompt
+        msgs = assemble_prompt(_make_config(), db, "hi", "session-safe")
+        sys_text = msgs[0]["content"]
+        assert "SAFETY CARVE-OUT" in sys_text or \
+            "safety carve-out" in sys_text.lower()
+        # Specific destructive patterns named
+        assert "rm -rf" in sys_text
+        # Specific safe patterns named so the model has a positive list
+        sys_lower = sys_text.lower()
+        assert "restart" in sys_lower
+        assert "update" in sys_lower
+
+    def test_bias_to_action_includes_pushback_directive(self, db):
+        """When the user pushes back, the bot must DROP caution
+        rather than re-justify. Closes the 2026-05-19 'why are you
+        asking now' loop."""
+        from windyfly.agent.prompt import assemble_prompt
+        msgs = assemble_prompt(_make_config(), db, "hi", "session-push")
+        sys_text = msgs[0]["content"]
+        sys_lower = sys_text.lower()
+        # The directive must explicitly handle pushback
+        assert "pushed back" in sys_lower or "push back" in sys_lower
+        # Must say to drop caution, not explain it
+        assert "drop the caution" in sys_lower or "drop caution" in sys_lower
+
     def test_guardrail_present_in_grandma_band_too(self, db):
         """The grandma-mode block goes AFTER runtime guardrail, so
         guardrail must still be present even when band=USER triggers
