@@ -683,18 +683,22 @@ class TelegramChannel(ChannelAdapter):
         # /goal Phase 2: user reply resets the ignored-fires counter
         # on any active paced goal in this session. They're engaged;
         # don't auto-pause pacing on them.
+        # /goal Phase 3: user reply during a running autorun cancels
+        # it — they want to take control back interactively.
         try:
+            from windyfly.agent.goal_autorun import cancel_autorun_for_session
             from windyfly.agent.session_reset import next_session_id
             from windyfly.memory.goals import (
                 get_active_goal as _gag,
                 reset_ignored_fires as _rif,
             )
             _sid = next_session_id("telegram", str(update.message.chat_id))
+            cancel_autorun_for_session(self._db, _sid)
             _active = _gag(self._db, _sid)
             if _active and int(_active.get("ignored_pace_fires") or 0) > 0:
                 _rif(self._db, _active["id"])
         except Exception as e:
-            logger.debug("goal-pacing reset-on-reply errored: %s", e)
+            logger.debug("goal hooks on user reply errored: %s", e)
 
         self._last_message_at = time.time()
 
@@ -1211,6 +1215,83 @@ class TelegramChannel(ChannelAdapter):
                     })
                 else:
                     ack = "No active goal to close. Type `/goal <text>` to set one."
+            elif goal_sub in ("autorun_start", "autorun_stop", "autorun_invalid"):
+                # Phase 3 — bounded autonomous loop. Hard-capped by
+                # AUTORUN_MAX_TURNS_HARD_CAP regardless of N.
+                from windyfly.memory.goals import (
+                    AUTORUN_MAX_TURNS_HARD_CAP, start_autorun, stop_autorun,
+                )
+                active = _get_active_goal(
+                    self._db, session_id, user_id=str(sender_id),
+                )
+                if goal_sub == "autorun_invalid":
+                    ack = (
+                        f"I didn't understand `{goal_text}`. Try "
+                        f"`/goal autorun` (default 5 turns), "
+                        f"`/goal autorun 3` (specific count), or "
+                        f"`/goal autorun stop`."
+                    )
+                elif goal_sub == "autorun_stop":
+                    if active and int(active.get("autorun_remaining") or 0) > 0:
+                        stop_autorun(self._db, active["id"])
+                        # Also cancel the asyncio task if present
+                        from windyfly.agent.goal_autorun import (
+                            cancel_autorun_for_session,
+                        )
+                        cancel_autorun_for_session(self._db, session_id)
+                        ack = "⏸ Autorun stopped. Goal stays active."
+                    else:
+                        ack = "No autorun is currently running on this goal."
+                else:  # autorun_start
+                    if not active:
+                        ack = "Set a goal first with `/goal <text>`, then autorun it."
+                    else:
+                        requested = int(goal_text or "5")
+                        actual = start_autorun(
+                            self._db, active["id"],
+                            max_turns=requested,
+                            chat_id=str(update.message.chat_id),
+                        )
+                        # Kick off the asyncio orchestrator. It
+                        # registers itself in goal_autorun's task
+                        # registry so cancellation can find it.
+                        from windyfly.agent.goal_autorun import (
+                            register_autorun_task, run_autorun,
+                        )
+                        from windyfly.agent.loop import agent_respond
+                        from windyfly.config import load_config
+                        cfg = load_config(os.environ.get(
+                            "WINDYFLY_CONFIG", "windyfly.toml",
+                        ))
+
+                        async def _autorun_deliver(chat_id: str, text: str) -> None:
+                            await self._app.bot.send_message(
+                                chat_id=chat_id, text=text,
+                                parse_mode="Markdown",
+                            )
+
+                        task = asyncio.create_task(run_autorun(
+                            goal_id=active["id"], db=self._db,
+                            deliver=_autorun_deliver,
+                            agent_respond=agent_respond,
+                            config=cfg, write_queue=self._write_queue,
+                        ))
+                        register_autorun_task(active["id"], task)
+                        capped_note = (
+                            f" (capped from {requested} — "
+                            f"hard max is {AUTORUN_MAX_TURNS_HARD_CAP})"
+                            if requested != actual else ""
+                        )
+                        ack = (
+                            f"🤖 *Autorun started* — {actual} turns"
+                            f"{capped_note}\n\n"
+                            f"> {active['text'][:200]}\n\n"
+                            f"_I'll work autonomously and ping you "
+                            f"with a single summary when done. Send "
+                            f"any message to cancel and switch back "
+                            f"to interactive. /goal autorun stop also "
+                            f"works._"
+                        )
             elif goal_sub in ("pace_set", "pace_status", "pace_invalid"):
                 # Phase 2 pacing surface — set/clear/status/invalid
                 from windyfly.memory.goals import (
