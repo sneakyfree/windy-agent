@@ -190,3 +190,69 @@ class TestSingleEmojiPrefix:
         # NOT double-prefixed (i.e., no bare emoji + bracketed panel)
         assert not result.startswith("🟢 [")
         assert not result.startswith("🟡 [")
+
+
+class TestEffectiveCapHonored:
+    """PR #199 — ``maybe_prepend_header`` accepts ``max_tokens`` so
+    the gas-tank reflects the per-channel effective cap (pinned via
+    /memory, else model native). Pre-fix the tracker hardcoded 200K
+    and a 1M-pinned channel hit 🔴 0% after ~30K tokens — the live
+    bug reproduced 2026-05-19 on Grant's Windy 0."""
+
+    def test_1M_cap_at_30K_used_shows_healthy(self) -> None:
+        """The reproduction case: opus + /memory 1M + ~30K used
+        should NOT show 🔴; it's only ~3% consumed."""
+        import windyfly.agent.context_header as ch
+        ch._tracker = None
+        result = maybe_prepend_header(
+            "reply", 30_000, max_tokens=1_000_000,
+        )
+        # 97% remaining → 🟢
+        assert "🔴" not in result, (
+            f"30K of 1M should NOT be 🔴; got: {result[:80]}"
+        )
+        # Tracker should reflect the passed cap
+        tracker = ch.get_tracker()
+        assert tracker.max_context_tokens == 1_000_000
+        assert tracker.pct_remaining > 95
+
+    def test_200K_cap_at_30K_used_shows_yellow(self) -> None:
+        """Same 30K usage on a 200K cap is genuinely 🟡 (15% used,
+        85% remaining)."""
+        import windyfly.agent.context_header as ch
+        ch._tracker = None
+        # Establish baseline
+        maybe_prepend_header("setup", 0, max_tokens=200_000)
+        # Now 30K of 200K = 85% remaining → still 🟢 (≥ 50%)
+        result = maybe_prepend_header("reply", 30_000, max_tokens=200_000)
+        assert "🟢" in result
+        # But 180K of 200K = 10% → 🟡
+        result2 = maybe_prepend_header(
+            "reply", 180_000, max_tokens=200_000,
+        )
+        assert "🟡" in result2 or "🔴" in result2
+
+    def test_cap_can_change_mid_conversation(self) -> None:
+        """User does /memory 1M when tracker was at 195K/200K (= 🔴).
+        Next reply should reflect the new 1M cap (= ~80% remaining,
+        🟢) — pinning the cap on each call avoids stale state."""
+        import windyfly.agent.context_header as ch
+        ch._tracker = None
+        # Pre-cap-change: nearly full at 200K
+        r1 = maybe_prepend_header("a", 195_000, max_tokens=200_000)
+        assert "🔴" in r1 or "🟡" in r1
+        # Post-/memory 1M: SAME tokens_used but new cap
+        r2 = maybe_prepend_header("b", 195_000, max_tokens=1_000_000)
+        # 195K of 1M = 80.5% remaining → 🟢
+        assert "🟢" in r2, (
+            f"After /memory 1M the bar should swing back to 🟢: {r2[:80]}"
+        )
+
+    def test_default_cap_backward_compat(self) -> None:
+        """Calls that don't pass max_tokens still get the 200K
+        default (pre-PR-199 callers won't break)."""
+        import windyfly.agent.context_header as ch
+        ch._tracker = None
+        maybe_prepend_header("setup", 0)
+        tracker = ch.get_tracker()
+        assert tracker.max_context_tokens == 200_000

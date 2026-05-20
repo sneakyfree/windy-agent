@@ -1434,10 +1434,17 @@ def agent_respond(
     )
 
     # 8. Context gas tank header (signature feature)
+    # PR #199 — pass the EFFECTIVE per-channel cap (computed at the
+    # top of this function: ``_max_ctx``) so the gas tank reports
+    # accurately when the user has /memory pinned at 1M. Pre-fix
+    # this used a hardcoded 200K default in ContextTracker, so a
+    # session at 30K tokens on a 1M-pinned channel showed 🔴 0%.
     session_total = _bump_session_tokens(
         session_id, input_tokens + output_tokens,
     )
-    response_text = maybe_prepend_header(response_text, session_total)
+    response_text = maybe_prepend_header(
+        response_text, session_total, max_tokens=_max_ctx,
+    )
 
     # 8.5. Recovery notice — when step 1.7 detected paid LLM is
     # healthy again and dropped the resurrect flag, surface the

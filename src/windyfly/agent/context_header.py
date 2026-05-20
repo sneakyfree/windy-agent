@@ -143,7 +143,10 @@ def get_tracker(max_tokens: int = 200_000) -> ContextTracker:
     return _tracker
 
 
-def maybe_prepend_header(response_text: str, tokens_used: int) -> str:
+def maybe_prepend_header(
+    response_text: str, tokens_used: int,
+    max_tokens: int = 200_000,
+) -> str:
     """Prepend a state marker to the response.
 
     Two paths (mutually exclusive):
@@ -153,6 +156,13 @@ def maybe_prepend_header(response_text: str, tokens_used: int) -> str:
       - Threshold NOT met: prepend just the single-emoji marker
         (PR #144). Cheap visual telemetry on every reply.
 
+    ``max_tokens`` — the effective context-window cap for this
+    session (PR #199). Pre-fix the tracker hardcoded 200K, so a
+    Windy 0 channel that had ``/memory 1M`` pinned on Opus saw the
+    gas tank report 🔴 0% after only ~30K tokens of cumulative
+    usage. Pass the per-channel effective cap and the header
+    reflects reality.
+
     Empty response is returned unchanged — no point prefixing
     nothing.
     """
@@ -160,6 +170,12 @@ def maybe_prepend_header(response_text: str, tokens_used: int) -> str:
         return response_text
 
     tracker = get_tracker()
+    # Update tracker's cap each call — the user can /memory 1M
+    # mid-conversation and the very next reply should reflect the
+    # new cap. (Per-channel races aren't a concern on Windy 0 which
+    # is a single-user instance; future multi-user deployments
+    # should switch to per-session trackers, see issue tracker.)
+    tracker.max_context_tokens = max_tokens
     tracker.tokens_used = tokens_used
 
     if tracker.should_show_header():
