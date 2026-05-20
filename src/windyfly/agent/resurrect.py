@@ -229,6 +229,20 @@ def resurrect(
         "RESURRECTED: actor=%s model=%s previous=%s — bot now using local Ollama",
         actor, model, previous_model,
     )
+
+    # Pre-load the model so the user's first chat doesn't pay the
+    # 1.5-2s model-load cost on top of CPU inference. Best-effort —
+    # if the warmup itself fails, the next real chat will just load
+    # the model itself; we don't want a warmup failure to break the
+    # lifeboat entry. Skip when WINDY_SKIP_OLLAMA_WARMUP is set
+    # (used by the test suite to avoid hitting a real Ollama).
+    if not os.environ.get("WINDY_SKIP_OLLAMA_WARMUP"):
+        try:
+            from windyfly.agent.offline import warm_ollama_model
+            warm_ollama_model(model)
+        except Exception as e:
+            logger.debug("warm_ollama_model failed during resurrect: %s", e)
+
     return {"ok": True, "active": True, **payload}
 
 

@@ -119,29 +119,40 @@ def get_offline_response(
     )
 
 
-def _call_ollama(
-    user_message: str,
-    context: list[dict[str, str]] | None = None,
-) -> str:
-    """Call local Ollama for offline response.
+# Default Ollama HTTP timeout. The previous 30s default was tuned
+# for a model already warm in RAM serving a trivial prompt, which
+# is not the typical lifeboat case. On a 2017-vintage iMac (i7-7700K,
+# no GPU) llama3.2:3b takes ~14s end-to-end on "hi" cold, and
+# prompt-eval on a typical conversation context (5 messages, ~3KB
+# total) scales to 60-120s before the first token is generated.
+# 30s was guaranteed to time out under the exact conditions
+# lifeboat is supposed to rescue. 180s is generous enough that
+# realistic CPU inference completes; the user can override
+# downward on faster hardware via WINDY_OLLAMA_TIMEOUT_S.
+_DEFAULT_OLLAMA_TIMEOUT_S = 180.0
 
-    Model selection priority (highest to lowest):
-      1. Resurrection-mode chosen model (PR #133): when /resurrect
-         is active, the user-picked best-installed model wins.
-      2. WINDY_OLLAMA_MODEL env var override (operator-level).
-      3. Hardcoded "llama3.2" default — kept for backwards compat
-         with the pre-#133 behavior.
+# Per-message and message-count caps for the context we feed
+# Ollama. Small local models don't benefit from long context the way
+# frontier models do, and every extra token costs ~0.5-1s of
+# prompt-eval on CPU. Hard truncation here is what keeps lifeboat
+# usable on slow hardware. Aligns roughly with llama3.2:3b's sweet
+# spot of <1K tokens for fast first-token latency.
+_OFFLINE_CONTEXT_MAX_MESSAGES = 3
+_OFFLINE_CONTEXT_MAX_CHARS_PER_MESSAGE = 400
+
+
+def _pick_offline_model() -> str:
+    """Pick the Ollama model for an offline / lifeboat reply.
+
+    Priority (highest first):
+      1. Resurrection-mode chosen model (the user's explicit pick).
+      2. ``WINDY_OLLAMA_MODEL`` env override (operator-level).
+      3. Auto-pick best from installed Ollama models — closes the
+         bug where the hardcoded "llama3.2" default 404'd on
+         machines that have e.g. "llama3.2:3b" installed but not
+         the bare-name variant.
+      4. Hardcoded "llama3.2" as last-resort (pre-PR backwards compat).
     """
-    import httpx
-
-    # Model selection priority (highest first):
-    #   1. Resurrection-mode chosen model (the user's explicit pick)
-    #   2. WINDY_OLLAMA_MODEL env override (operator-level)
-    #   3. Auto-pick best from installed Ollama models — closes the
-    #      bug where the hardcoded "llama3.2" default 404'd on
-    #      machines that have e.g. "llama3.2:3b" installed but not
-    #      the bare-name variant. Surfaced 2026-05-07 hardening pass.
-    #   4. Hardcoded "llama3.2" as last-resort (pre-PR backwards compat)
     model = "llama3.2"
     try:
         from windyfly.agent.resurrect import (
@@ -159,13 +170,99 @@ def _call_ollama(
                 model = best
     except Exception:
         pass
-    model = os.environ.get("WINDY_OLLAMA_MODEL", model)
+    return os.environ.get("WINDY_OLLAMA_MODEL", model)
 
-    messages = []
-    if context:
-        messages.extend(context[-5:])  # Last 5 messages for context
+
+def _truncate_offline_context(
+    context: list[dict[str, str]] | None,
+) -> list[dict[str, str]]:
+    """Aggressively trim conversation context for CPU-only inference.
+
+    Each extra context message is ~0.5-1s of prompt eval on a 2017
+    iMac. Lifeboat's job is "stay responsive on commodity hardware,"
+    not "match frontier-context quality." So cap at 3 messages and
+    400 chars each — enough for the model to know what topic the
+    user is on, not enough to blow first-token latency past the
+    timeout.
+    """
+    if not context:
+        return []
+    trimmed: list[dict[str, str]] = []
+    for msg in context[-_OFFLINE_CONTEXT_MAX_MESSAGES:]:
+        content = (msg.get("content") or "")[
+            :_OFFLINE_CONTEXT_MAX_CHARS_PER_MESSAGE
+        ]
+        trimmed.append({"role": msg.get("role", "user"), "content": content})
+    return trimmed
+
+
+def _ollama_timeout_s() -> float:
+    """Honor ``WINDY_OLLAMA_TIMEOUT_S`` override; otherwise default."""
+    raw = os.environ.get("WINDY_OLLAMA_TIMEOUT_S")
+    if not raw:
+        return _DEFAULT_OLLAMA_TIMEOUT_S
+    try:
+        return max(1.0, float(raw))
+    except ValueError:
+        return _DEFAULT_OLLAMA_TIMEOUT_S
+
+
+def warm_ollama_model(model: str | None = None) -> bool:
+    """Pre-load a model into Ollama's RAM cache.
+
+    Called right after ``resurrect()`` succeeds so the user's first
+    lifeboat message hits a warm model instead of paying the ~1.5s
+    model-load cost on top of CPU inference. Returns True on
+    success, False otherwise — best-effort; failure is non-fatal
+    because the user's actual chat will still try to load the
+    model itself.
+    """
+    import httpx
+
+    chosen = model or _pick_offline_model()
+    try:
+        # ``num_predict: 1`` keeps the warmup cheap: load weights,
+        # generate one token, return. ~1.5s on the iMac vs ~14s for
+        # a full reply, but the model stays resident for ~5 minutes
+        # so the user's first chat is fast.
+        resp = httpx.post(
+            "http://localhost:11434/api/generate",
+            json={
+                "model": chosen,
+                "prompt": "hi",
+                "stream": False,
+                "options": {"num_predict": 1},
+            },
+            timeout=_ollama_timeout_s(),
+        )
+        if resp.status_code != 200:
+            return False
+        logger.info("Ollama model %s warmed", chosen)
+        return True
+    except Exception as e:
+        logger.debug("Ollama warmup failed (model=%s): %s", chosen, e)
+        return False
+
+
+def _call_ollama(
+    user_message: str,
+    context: list[dict[str, str]] | None = None,
+) -> str:
+    """Call local Ollama for offline response.
+
+    See ``_pick_offline_model`` for model selection and
+    ``_truncate_offline_context`` for the context-shrinking
+    rationale (CPU inference costs ~1s/extra message).
+    """
+    import httpx
+
+    model = _pick_offline_model()
+
+    messages: list[dict[str, str]] = []
+    messages.extend(_truncate_offline_context(context))
     messages.append({"role": "user", "content": user_message})
 
+    timeout_s = _ollama_timeout_s()
     try:
         response = httpx.post(
             "http://localhost:11434/api/chat",
@@ -174,30 +271,92 @@ def _call_ollama(
                 "messages": messages,
                 "stream": False,
             },
-            timeout=30,
+            timeout=timeout_s,
         )
         response.raise_for_status()
         data = response.json()
-        return data.get("message", {}).get("content", "No response from local model.")
+        content = data.get("message", {}).get("content", "")
+        if not content.strip():
+            raise RuntimeError("ollama returned empty content")
+        _record_ollama_outcome(success=True)
+        return content
     except Exception as e:
+        _record_ollama_outcome(success=False)
         logger.error("Ollama call failed (model=%s): %s", model, e)
-        # Wrap with the standard recovery hint (PR #141) so the user
-        # sees /reset and /resurrect when Ollama times out — the
-        # raw error string used to ship without it, leaving the
-        # user staring at "Local model error: timed out" with no
-        # idea what to do (surfaced 2026-05-10: bot stuck in
-        # resurrected mode, every Ollama call timed out, user got
-        # bare error messages on every chat). Best-effort wrap;
-        # falls through to bare string on import failure.
-        bare = (
-            "Local model error: timed out talking to my backup brain. "
-            "Your message is queued; I'll try again when I'm healthier."
-        )
+        # Distinguish a timeout from a transport / 5xx so the user
+        # gets accurate guidance. A timeout on commodity hardware
+        # usually means "the model IS thinking, just slowly" — a
+        # connect failure means "Ollama itself isn't running."
+        is_timeout = isinstance(e, httpx.TimeoutException) or "timed out" in str(e).lower()
+        if is_timeout:
+            bare = (
+                f"My backup brain ({model}) is running, but took longer than "
+                f"{int(timeout_s)}s to reply — that's CPU-only inference on a "
+                "small local model. Your message is saved. Try a shorter "
+                "question, or type /normal to switch back to the fast paid model."
+            )
+        else:
+            bare = (
+                f"Local model hiccup ({type(e).__name__}). Your message is "
+                "queued; I'll try again when I'm healthier."
+            )
         try:
             from windyfly.observability.recovery_hint import with_recovery_hint
             return with_recovery_hint(bare)
         except Exception:
             return bare
+
+
+# ── Lifeboat stuck-state escape (consecutive-failure tracker) ───────
+#
+# Companion to ``resurrect.attempt_paid_recovery``: that one
+# unsticks lifeboat when the PAID side comes back. This one unsticks
+# lifeboat when the LOCAL side proves it can't deliver — three
+# consecutive Ollama failures means the user is staring at error
+# messages on every chat, and staying in lifeboat is worse than
+# bouncing them back to the offline-queued message (at least the
+# offline path tells them clearly what's happening).
+_OLLAMA_FAILURE_COUNTER_PATH = Path(os.environ.get(
+    "WINDY_OLLAMA_FAILURE_COUNTER",
+    "/home/grantwhitmer/.windy/.ollama_fail_count",
+))
+_OLLAMA_MAX_CONSECUTIVE_FAILURES = 3
+
+
+def _record_ollama_outcome(success: bool) -> None:
+    """Track consecutive Ollama failures so we can auto-escape from
+    a wedged lifeboat. Resets on any success."""
+    try:
+        if success:
+            _OLLAMA_FAILURE_COUNTER_PATH.unlink(missing_ok=True)
+            return
+        _OLLAMA_FAILURE_COUNTER_PATH.parent.mkdir(parents=True, exist_ok=True)
+        current = 0
+        if _OLLAMA_FAILURE_COUNTER_PATH.exists():
+            try:
+                current = int(_OLLAMA_FAILURE_COUNTER_PATH.read_text().strip())
+            except ValueError:
+                current = 0
+        _OLLAMA_FAILURE_COUNTER_PATH.write_text(str(current + 1))
+    except Exception as e:
+        logger.debug("ollama outcome record failed: %s", e)
+
+
+def consecutive_ollama_failures() -> int:
+    """Read-only count of consecutive Ollama failures since the last
+    success. Used by the agent loop's lifeboat-escape check."""
+    if not _OLLAMA_FAILURE_COUNTER_PATH.exists():
+        return 0
+    try:
+        return int(_OLLAMA_FAILURE_COUNTER_PATH.read_text().strip())
+    except (ValueError, OSError):
+        return 0
+
+
+def should_escape_lifeboat() -> bool:
+    """True iff Ollama has failed N times in a row. Caller (loop)
+    clears the resurrect flag and notifies the user."""
+    return consecutive_ollama_failures() >= _OLLAMA_MAX_CONSECUTIVE_FAILURES
 
 
 # ---------------------------------------------------------------------------

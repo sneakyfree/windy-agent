@@ -787,31 +787,66 @@ def agent_respond(
                 "reason": recovery.get("reason"),
                 "probe": recovery.get("probe"),
             })
-            logger.info("[req:%s] resurrection active — routing through Ollama",
-                        request_id_short())
-            from windyfly.agent.offline import queue_message
-            context = [{"role": m["role"], "content": m["content"]} for m in messages[-5:]]
-            offline_response = get_offline_response(user_message, context)
-            # Lifeboat-mode visibility (Fix #4): explicitly prefix
-            # the 🛟 emoji so the user always sees they're on the
-            # local model. The resurrection short-circuit returns
-            # before PR #144's state-emoji prefix runs, so users
-            # had no per-reply indication of lifeboat mode.
-            if not offline_response.lstrip().startswith("🛟"):
-                offline_response = f"🛟 {offline_response}"
-            # Honor the "queued; I'll try again" promise the offline
-            # path makes when Ollama itself fails — PR #160 added the
-            # user-facing text but the resurrection branch never
-            # called queue_message(), so the message vanished. The
-            # true-offline branch below (line ~742) already does this;
-            # parity here closes the unkept-promise bug surfaced by
-            # the 2026-05-11 overnight stress harness (#34-#38, #89-#90).
-            if "Local model error" in offline_response or "I'm currently offline" in offline_response:
-                queue_message(user_message, session_id)
-            write_queue.enqueue(Priority.HIGH, save_episode, db, "user", user_message, session_id=session_id)
-            write_queue.enqueue(Priority.HIGH, save_episode, db, "assistant", offline_response, session_id=session_id)
-            log_event(db, write_queue, "resurrect.dispatch", {"message": user_message[:100]})
-            return offline_response
+            # Wedged-lifeboat escape: if Ollama has failed 3 times
+            # in a row (timeouts on CPU-only inference, model
+            # missing, etc.) the user is staring at error messages
+            # on every chat. Clearing the resurrect flag here lets
+            # the loop fall through to the paid path — even if the
+            # paid path also fails the user sees a fresh attempt
+            # rather than another lifeboat error. Surfaced 2026-05-20:
+            # screenshot showed bot stuck in resurrected mode after
+            # rate-limit, every Ollama reply timed out, user got
+            # "timed out talking to my backup brain" on every chat
+            # with no escape until they typed /normal.
+            from windyfly.agent.offline import (
+                queue_message,
+                should_escape_lifeboat,
+                consecutive_ollama_failures,
+            )
+            if should_escape_lifeboat():
+                from windyfly.agent.resurrect import normalize as _normalize
+                fails = consecutive_ollama_failures()
+                _normalize()
+                logger.warning(
+                    "[req:%s] lifeboat wedged (%d consecutive Ollama "
+                    "failures) — clearing flag and retrying paid",
+                    request_id_short(), fails,
+                )
+                log_event(db, write_queue, "lifeboat.escaped_wedged", {
+                    "consecutive_failures": fails,
+                })
+                _recovery_notice = (
+                    f"⚠️ My backup brain wasn't keeping up "
+                    f"({fails} consecutive timeouts), so I switched "
+                    f"back to the paid model. Retrying your message…\n\n"
+                )
+                # Fall out of the resurrect branch entirely — the
+                # paid path below will handle the actual reply.
+            else:
+                logger.info("[req:%s] resurrection active — routing through Ollama",
+                            request_id_short())
+                context = [{"role": m["role"], "content": m["content"]} for m in messages[-5:]]
+                offline_response = get_offline_response(user_message, context)
+                # Lifeboat-mode visibility (Fix #4): explicitly prefix
+                # the 🛟 emoji so the user always sees they're on the
+                # local model. The resurrection short-circuit returns
+                # before PR #144's state-emoji prefix runs, so users
+                # had no per-reply indication of lifeboat mode.
+                if not offline_response.lstrip().startswith("🛟"):
+                    offline_response = f"🛟 {offline_response}"
+                # Honor the "queued; I'll try again" promise the offline
+                # path makes when Ollama itself fails — PR #160 added the
+                # user-facing text but the resurrection branch never
+                # called queue_message(), so the message vanished. The
+                # true-offline branch below (line ~742) already does this;
+                # parity here closes the unkept-promise bug surfaced by
+                # the 2026-05-11 overnight stress harness (#34-#38, #89-#90).
+                if "Local model error" in offline_response or "I'm currently offline" in offline_response:
+                    queue_message(user_message, session_id)
+                write_queue.enqueue(Priority.HIGH, save_episode, db, "user", user_message, session_id=session_id)
+                write_queue.enqueue(Priority.HIGH, save_episode, db, "assistant", offline_response, session_id=session_id)
+                log_event(db, write_queue, "resurrect.dispatch", {"message": user_message[:100]})
+                return offline_response
 
     # 1.8. Offline detection — fall back to local model if API unreachable
     if not is_online():
