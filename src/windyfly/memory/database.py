@@ -298,6 +298,43 @@ _MIGRATIONS: dict[int, tuple[str, str]] = {
         # a partially-migrated DB must not fail. Indices are normal SQL.
         "__callable__",
     ),
+    8: (
+        "/goal slash command — session-scoped persistent objectives "
+        "with two-model evaluator pattern (windy-agent feature parity "
+        "with Claude Code 2.1.139, Codex CLI, Hermes Agent 0.13.0)",
+        """
+        CREATE TABLE IF NOT EXISTS goals (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            user_id TEXT NOT NULL DEFAULT 'default',
+            text TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'active',
+                -- active | completed | abandoned | expired
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            completed_at DATETIME,
+            closing_note TEXT,
+                -- summary written when status moves to completed
+            turns_count INTEGER NOT NULL DEFAULT 0,
+            tokens_input INTEGER NOT NULL DEFAULT 0,
+            tokens_output INTEGER NOT NULL DEFAULT 0,
+            evaluator_history TEXT NOT NULL DEFAULT '[]',
+                -- JSON list: [{turn, verdict, reason, progress_note}]
+            consecutive_unrelated INTEGER NOT NULL DEFAULT 0,
+                -- auto-expire trigger; resets on any non-unrelated verdict
+            evaluator_model TEXT
+                -- captured at create time so /goal status can show
+                -- which model judged completion
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_goals_session_active
+            ON goals(session_id, status);
+        CREATE INDEX IF NOT EXISTS idx_goals_user
+            ON goals(user_id, created_at DESC);
+
+        INSERT OR IGNORE INTO schema_version (version, description)
+            VALUES (8, '/goal slash command — goals table');
+        """,
+    ),
 }
 
 
