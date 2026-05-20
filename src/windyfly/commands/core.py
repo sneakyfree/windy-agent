@@ -280,9 +280,18 @@ def _register_all():
         )
 
         # ── Model + degradation status ────────────────────────────
-        # The CONFIGURED default model from env. May differ from the
-        # LIVE model when resurrection (Ollama fallback) is active.
-        configured_model = os.environ.get("DEFAULT_MODEL", "not set")
+        # PR #198 — read the per-channel preference (set via /model)
+        # FIRST. Pre-fix /status was reading os.environ DEFAULT_MODEL
+        # directly, which lied to the user after a /model switch:
+        # they'd see "Brain: claude-sonnet-4-6" even though the agent
+        # loop was about to dispatch the next reply to claude-opus-4-7.
+        # _resolve_active_model walks the same precedence the loop
+        # uses (per-channel pref > env > config > default).
+        platform_early = (ctx or {}).get("platform")
+        channel_id_early = (ctx or {}).get("channel_id")
+        configured_model = _resolve_active_model(
+            platform_early, channel_id_early,
+        )
         live_model = configured_model
         degraded_reason = None
         try:
@@ -311,16 +320,27 @@ def _register_all():
         # Plain-English descriptors so a normie understands at a
         # glance. The raw K/K numbers stay for the operator who
         # wants precision.
+        # PR #198 — effective cap = per-channel pinned (/memory) cap
+        # if set, else model native cap. Pre-fix /status used native
+        # only, so /memory 1M on Sonnet still showed "200K" — exactly
+        # the misleading screenshot Grant pushed back on.
         memory_line = None
         platform = (ctx or {}).get("platform")
         channel_id = (ctx or {}).get("channel_id")
+        pinned_cap = None
         if platform and channel_id:
             try:
-                from windyfly.agent.session_reset import next_session_id
+                from windyfly.agent.session_reset import (
+                    next_session_id, get_memory_cap,
+                )
                 from windyfly.agent.loop import _session_tokens
+                pinned_cap = get_memory_cap(platform, channel_id)
                 sid = next_session_id(platform, channel_id)
                 used = _session_tokens.get(sid, 0)
-                max_ctx = get_context_cap(live_model)
+                native_cap = get_context_cap(live_model)
+                max_ctx = (
+                    pinned_cap if pinned_cap is not None else native_cap
+                )
                 pct_rem = (
                     max(0.0, 100.0 - (used / max_ctx) * 100)
                     if max_ctx else 0.0
@@ -348,12 +368,23 @@ def _register_all():
             except Exception:
                 pass
 
-        # ── Brain (model + context cap) ───────────────────────────
-        cap = get_context_cap(live_model)
-        if cap >= 1_000_000:
-            cap_human = f"{cap // 1_000_000}M context"
+        # ── Brain (model + effective context cap) ─────────────────
+        # PR #198 — show the cap actually in effect for this channel
+        # (pinned via /memory, else model native), not the raw model
+        # native. Keeps Brain and Memory lines numerically aligned.
+        native_cap = get_context_cap(live_model)
+        effective_cap = (
+            pinned_cap if pinned_cap is not None else native_cap
+        )
+        if effective_cap >= 1_000_000:
+            cap_human = f"{effective_cap // 1_000_000}M context"
         else:
-            cap_human = f"{cap // 1000}K context"
+            cap_human = f"{effective_cap // 1000}K context"
+        # Indicate when the cap is extended past native (so the user
+        # knows the 1M-beta tier is active rather than thinking the
+        # model itself is bigger now).
+        if pinned_cap is not None and pinned_cap > native_cap:
+            cap_human += " — extended tier"
         brain_line = f"🤖 Brain: {live_model} ({cap_human})"
         if degraded_reason:
             brain_line += f" — was {configured_model}"
@@ -993,6 +1024,22 @@ def _register_all():
 
     _r("model", "Show or switch the model powering replies",
        "03_chat", cmd_model, aliases=["brain"])
+
+    # PR #198 — direct shortcuts so users can type `/opus` instead of
+    # `/model opus`. Grandma will guess the shorter form first; the
+    # current "Unknown command" rejection is friction.
+    def _make_model_alias_handler(alias: str):
+        async def _handler(ctx):
+            ctx2 = dict(ctx or {})
+            ctx2["_raw"] = alias
+            ctx2["_args"] = [alias]
+            return await cmd_model(ctx2)
+        return _handler
+
+    for _alias in ("opus", "sonnet", "haiku",
+                   "smartest", "balanced", "fastest"):
+        _r(_alias, f"Switch model to {_alias} (shortcut for /model {_alias})",
+           "03_chat", _make_model_alias_handler(_alias))
 
     # ── /memory ─ pick the context-window cap for this channel ───
     async def cmd_memory(ctx):

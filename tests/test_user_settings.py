@@ -375,3 +375,156 @@ class TestCmdMemory:
         })
         assert "couldn't parse" in reply.lower() or \
             "couldn't" in reply.lower() or "parse" in reply.lower()
+
+
+class TestStatusReadsPerChannelPrefs:
+    """PR #198 — /status was reading global env DEFAULT_MODEL and
+    model native cap, contradicting what /model and the agent loop
+    actually use. The Brain + Memory lines must reflect the SAME
+    per-channel state the loop will dispatch."""
+
+    @pytest.mark.asyncio
+    async def test_status_brain_reflects_channel_model_pref(
+        self, tmp_state_path, monkeypatch,
+    ):
+        """User did /model opus on this channel. /status must show
+        claude-opus-4-7, NOT whatever env DEFAULT_MODEL says."""
+        monkeypatch.setenv(
+            "ANTHROPIC_API_KEY",
+            "sk-ant-oat01-VwLong" * 4,
+        )
+        monkeypatch.delenv("ANTHROPIC_OAUTH_ACCESS_TOKEN", raising=False)
+        monkeypatch.setenv("DEFAULT_MODEL", "claude-sonnet-4-6")
+        monkeypatch.setenv("WINDYFLY_DB_PATH", "/nonexistent/path.db")
+
+        from windyfly.agent.session_reset import set_model
+        set_model("telegram", "999", "claude-opus-4-7")
+
+        from windyfly.commands.registry import registry
+        from windyfly.commands import core
+        core.init_core()
+        cmd = registry.get("status")
+        reply = await cmd.handler({
+            "platform": "telegram", "channel_id": "999",
+        })
+        assert "claude-opus-4-7" in reply, (
+            f"/status must show per-channel model, got: {reply!r}"
+        )
+        # The env-var fallback model must NOT leak through
+        assert "claude-sonnet-4-6" not in reply
+
+    @pytest.mark.asyncio
+    async def test_status_memory_reflects_pinned_cap(
+        self, tmp_state_path, monkeypatch,
+    ):
+        """User did /memory 1M on Sonnet. /status Memory + Brain
+        lines must show 1M (extended), not 200K (native)."""
+        monkeypatch.setenv(
+            "ANTHROPIC_API_KEY", "sk-ant-oat01-VwLong" * 4,
+        )
+        monkeypatch.delenv("ANTHROPIC_OAUTH_ACCESS_TOKEN", raising=False)
+        monkeypatch.setenv("DEFAULT_MODEL", "claude-sonnet-4-6")
+        monkeypatch.setenv("WINDYFLY_DB_PATH", "/nonexistent/path.db")
+
+        from windyfly.agent.session_reset import set_memory_cap
+        set_memory_cap("telegram", "888", 1_000_000)
+
+        from windyfly.commands.registry import registry
+        from windyfly.commands import core
+        core.init_core()
+        cmd = registry.get("status")
+        reply = await cmd.handler({
+            "platform": "telegram", "channel_id": "888",
+        })
+        assert "1M" in reply, (
+            f"/status must reflect /memory 1M pin, got: {reply!r}"
+        )
+        # Should mention extended-tier since 1M on Sonnet is past native
+        assert "extended" in reply.lower()
+
+    @pytest.mark.asyncio
+    async def test_status_opus_with_1M_shows_no_extended_label(
+        self, tmp_state_path, monkeypatch,
+    ):
+        """Opus is 1M native — no extended-tier label needed even
+        when the user pinned exactly 1M."""
+        monkeypatch.setenv(
+            "ANTHROPIC_API_KEY", "sk-ant-oat01-VwLong" * 4,
+        )
+        monkeypatch.delenv("ANTHROPIC_OAUTH_ACCESS_TOKEN", raising=False)
+        monkeypatch.setenv("DEFAULT_MODEL", "claude-sonnet-4-6")
+        monkeypatch.setenv("WINDYFLY_DB_PATH", "/nonexistent/path.db")
+
+        from windyfly.agent.session_reset import (
+            set_model, set_memory_cap,
+        )
+        set_model("telegram", "777", "claude-opus-4-7")
+        set_memory_cap("telegram", "777", 1_000_000)
+
+        from windyfly.commands.registry import registry
+        from windyfly.commands import core
+        core.init_core()
+        cmd = registry.get("status")
+        reply = await cmd.handler({
+            "platform": "telegram", "channel_id": "777",
+        })
+        assert "claude-opus-4-7" in reply
+        assert "1M" in reply
+        # Opus is 1M NATIVE — should NOT say extended
+        brain_line = [
+            line for line in reply.split("\n") if "Brain:" in line
+        ]
+        assert brain_line, "Brain line missing"
+        assert "extended" not in brain_line[0].lower()
+
+
+class TestModelAliasShortcuts:
+    """/opus, /sonnet, /haiku (and friendly aliases) work as direct
+    shortcuts for /model <alias>."""
+
+    @pytest.mark.asyncio
+    async def test_opus_shortcut(self, tmp_state_path):
+        from windyfly.agent.session_reset import get_model
+        from windyfly.commands.registry import registry
+        from windyfly.commands import core
+        core.init_core()
+        cmd = registry.get("opus")
+        assert cmd is not None, "/opus shortcut not registered"
+        reply = await cmd.handler({
+            "platform": "telegram", "channel_id": "1",
+        })
+        assert "claude-opus-4-7" in reply
+        assert get_model("telegram", "1") == "claude-opus-4-7"
+
+    @pytest.mark.asyncio
+    async def test_sonnet_shortcut(self, tmp_state_path):
+        from windyfly.agent.session_reset import get_model
+        from windyfly.commands.registry import registry
+        from windyfly.commands import core
+        core.init_core()
+        cmd = registry.get("sonnet")
+        assert cmd is not None
+        await cmd.handler({"platform": "telegram", "channel_id": "1"})
+        assert get_model("telegram", "1") == "claude-sonnet-4-6"
+
+    @pytest.mark.asyncio
+    async def test_haiku_shortcut(self, tmp_state_path):
+        from windyfly.agent.session_reset import get_model
+        from windyfly.commands.registry import registry
+        from windyfly.commands import core
+        core.init_core()
+        cmd = registry.get("haiku")
+        assert cmd is not None
+        await cmd.handler({"platform": "telegram", "channel_id": "1"})
+        assert get_model("telegram", "1") == "claude-haiku-4-5"
+
+    @pytest.mark.asyncio
+    async def test_friendly_aliases_registered(self, tmp_state_path):
+        """smartest / balanced / fastest are top-level too."""
+        from windyfly.commands.registry import registry
+        from windyfly.commands import core
+        core.init_core()
+        for name in ("smartest", "balanced", "fastest"):
+            assert registry.get(name) is not None, (
+                f"/{name} shortcut not registered"
+            )
