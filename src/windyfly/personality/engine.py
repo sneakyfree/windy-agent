@@ -92,6 +92,63 @@ def build_personality_block(soul_text: str, sliders: dict) -> str:
     if reasoning_depth > 7:
         modifiers.append("Show your reasoning process when solving problems.")
 
+    # Autonomy — controls "act first" vs. "ask first" behavior. This
+    # slider has been *defined* in control_panel.py since the agent
+    # shipped, with semantics documented as "Always asks before doing
+    # anything" at low end and "Takes initiative" at high end. But it
+    # was never wired into the prompt — sat purely cosmetic. The
+    # 2026-05-20 screenshot (bot asked "3 honesty checks" before
+    # touching a fleet operation it had every tool to perform) made
+    # this concrete: the unused slider was the architectural reason
+    # PR #200's BIAS TO ACTION block kept losing to the conservative
+    # default behavior. Wire it now, with three tiers:
+    #   ≤3  — explicit ask-permission posture
+    #   4-6 — balanced: try one obvious action, then ask if blocked
+    #   ≥7  — action-bias: investigate with tools, ask only as last resort
+    autonomy = sliders.get("autonomy", 5)
+    if autonomy >= 7:
+        modifiers.append(
+            "ACT FIRST. When the user asks you to do something, USE "
+            "your available tools immediately. Don't ask permission, "
+            "don't list options — pick the most likely interpretation, "
+            "state your assumption in one sentence, and act. Questions "
+            "are a last resort, not a first response."
+        )
+    elif autonomy <= 3:
+        modifiers.append(
+            "Ask before acting. Confirm the user's intent before "
+            "invoking any tool, especially anything that changes state. "
+            "When in doubt, surface options and let the user pick."
+        )
+    else:
+        # Median band — the default user. Keep it short, but anchor
+        # the behavior so it isn't accidentally read as "no opinion."
+        modifiers.append(
+            "When the user asks for something you can attempt with "
+            "your tools, attempt it. Use at most one clarifying "
+            "question if the ask is truly ambiguous; otherwise pick "
+            "the most likely interpretation and proceed."
+        )
+
+    # Epistemic strictness — same shape as autonomy: documented in
+    # control_panel.py since launch ("Uses everything it remembers,
+    # even hunches" → "Only cites verified facts"), never read by the
+    # prompt. Wire it so the user's calibration of confidence actually
+    # propagates. Default 5 produces the median.
+    epistemic = sliders.get("epistemic_strictness", 5)
+    if epistemic >= 7:
+        modifiers.append(
+            "Only state facts you are confident about. If memory is "
+            "fuzzy or you're inferring, say so explicitly. Prefer "
+            "'I don't know — let me check' over a confident guess."
+        )
+    elif epistemic <= 3:
+        modifiers.append(
+            "Use everything you remember, including informed hunches. "
+            "Flag a guess as a guess, but don't refuse to answer just "
+            "because you can't 100% verify."
+        )
+
     if modifiers:
         result += "\n\n## Behavioral Modifiers\n"
         result += "\n".join(f"- {m}" for m in modifiers)
