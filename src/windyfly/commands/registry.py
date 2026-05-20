@@ -55,6 +55,20 @@ _REMOTE_ALLOWED_CATEGORIES = frozenset({
     "08_budget",
     "09_identity",     # whoami, channels, passport view
     "13_help",
+    # Added 2026-05-20 per Grant's "stress test until solid +
+    # bot must do things for grandma out of the box" mandate.
+    # The original goal explicitly listed sending email + SMS
+    # as core capabilities — pre-PR, /send-mail and /sms were
+    # silently telegram-blocked at this allow-list, so the bot
+    # could NOT perform its core advertised function from the
+    # chat surface. Mutating commands in these categories
+    # carry ``dangerous=True`` (require ``--confirm``) so an
+    # adversarial telegram message can't fire a real send
+    # without an explicit confirmation token. Read-only views
+    # (/inbox, /read-mail, /mail-stats, /sms-history,
+    # /voicemail) stay one-tap — they don't mutate state.
+    "14_email",        # /inbox, /read-mail (R/O) + /send-mail, /reply-mail (gated)
+    "15_phone",        # /sms-history, /voicemail (R/O) + /sms (gated)
 })
 
 # Channel → allowed category set. Unlisted platforms get the remote
