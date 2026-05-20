@@ -836,10 +836,32 @@ def _register_all():
             return "Database not available for benchmark."
         start = time.monotonic()
         try:
+            # Pre-fix: called agent_respond with positional args in
+            # the wrong order and missing write_queue + config.
+            # agent_respond's signature is
+            # (config, db, write_queue, user_message, session_id,
+            #  tool_registry=None, band=None). Build a minimal
+            # config + transient write_queue for the one-off call.
+            # agent_respond is sync — don't await it.
             from windyfly.agent.loop import agent_respond
-            response = await agent_respond("What is 2+2? Reply with just the number.", "benchmark-session", _db)
+            from windyfly.config import load_config
+            from windyfly.memory.write_queue import WriteQueue
+            cfg = load_config(os.environ.get("WINDYFLY_CONFIG", "windyfly.toml"))
+            wq = WriteQueue()
+            wq.start()
+            try:
+                response = agent_respond(
+                    cfg, _db, wq,
+                    "What is 2+2? Reply with just the number.",
+                    "benchmark-session",
+                )
+            finally:
+                try:
+                    wq.stop()
+                except Exception:
+                    pass
             elapsed = time.monotonic() - start
-            return f"Benchmark: {elapsed:.2f}s\nResponse: {response[:100]}"
+            return f"⏱ Benchmark: {elapsed:.2f}s\nResponse: {response[:100]}"
         except Exception as e:
             return f"Benchmark failed: {e}"
     _r("benchmark", "Speed test — time a simple prompt", "02_diagnostics", cmd_benchmark, aliases=["bench"])
@@ -1262,11 +1284,24 @@ def _register_all():
         if not _db:
             return "Database not available."
         try:
-            from windyfly.memory.cost_tracker import get_daily_cost
-            cost = get_daily_cost(_db)
-            return f"Session tokens: (tracked via cost ledger)\nToday's cost: ${cost:.4f}"
-        except Exception:
-            return "Token tracking not available."
+            # Pre-fix: imported `get_daily_cost` which has never
+            # existed in cost_tracker. Use `get_monthly_spend` and
+            # derive today's cost from the cost_ledger directly.
+            from windyfly.memory.cost_tracker import get_monthly_spend
+            monthly = get_monthly_spend(_db)
+            # Today's spend via direct ledger query
+            row = _db.fetchone(
+                "SELECT COALESCE(SUM(cost_usd), 0) AS daily FROM cost_ledger "
+                "WHERE created_at >= datetime('now', 'start of day')",
+            )
+            daily = float((row or {}).get("daily", 0))
+            return (
+                f"💰 *Token cost (USD)*\n"
+                f"Today:   ${daily:.4f}\n"
+                f"30 days: ${monthly:.4f}"
+            )
+        except Exception as e:
+            return f"Token tracking unavailable: {e}"
     _r("tokens", "Show token usage for current session", "04_model", cmd_tokens)
 
     async def cmd_context(ctx):
@@ -1461,8 +1496,11 @@ def _register_all():
         if not _db:
             return "Database not available."
         try:
-            from windyfly.memory.intents import get_active_intents
-            intents = get_active_intents(_db)
+            # Pre-fix: imported `get_active_intents` which has
+            # never existed. Use the actual `surface_pending_intents`
+            # entry point.
+            from windyfly.memory.intents import surface_pending_intents
+            intents = surface_pending_intents(_db)
             if not intents:
                 return "No active intents/goals."
             lines = ["Active intents:\n"]
@@ -1522,8 +1560,13 @@ def _register_all():
         if not _db:
             return "Database not available."
         try:
-            from windyfly.memory.failures import get_unresolved_failures
-            failures = get_unresolved_failures(_db)
+            # Pre-fix: imported `get_unresolved_failures` which has
+            # never existed. `get_recent_failures` is the actual
+            # entry point; filter for unresolved (resolved_at IS NULL)
+            # to preserve the original "Never Wrong Twice" intent.
+            from windyfly.memory.failures import get_recent_failures
+            recent = get_recent_failures(_db, limit=20)
+            failures = [f for f in recent if not f.get("resolved_at")]
             if not failures:
                 return "No unresolved failures. (Never Wrong Twice log is clean)"
             lines = ["Never Wrong Twice — unresolved failures:\n"]
@@ -1538,8 +1581,30 @@ def _register_all():
         if not _db:
             return "Database not available."
         try:
+            # Pre-fix: `run_decay(_db)` missing required write_queue
+            # arg. Build a transient WriteQueue for the manual
+            # invocation — the real production decay runs via the
+            # cron with the bot's persistent write_queue, but
+            # manual /decay needs a one-off queue to satisfy the
+            # signature without leaking threads.
             from windyfly.memory.decay import run_decay
-            run_decay(_db)
+            from windyfly.memory.write_queue import WriteQueue
+            wq = WriteQueue()
+            wq.start()
+            try:
+                result = run_decay(_db, wq)
+                # Drain the queue before returning so the caller
+                # sees the actual decay outcome reflected in DB
+                import time as _t
+                _t.sleep(0.2)
+            finally:
+                try:
+                    wq.stop()
+                except Exception:
+                    pass
+            if isinstance(result, dict) and result:
+                items = ", ".join(f"{k}={v}" for k, v in result.items())
+                return f"Cognitive decay cycle completed: {items}"
             return "Cognitive decay cycle completed. Stale memories pruned."
         except Exception as e:
             return f"Error: {e}"
@@ -1629,20 +1694,35 @@ def _register_budget_through_help():
         if not _db:
             return "Database not available."
         try:
-            from windyfly.memory.cost_tracker import get_daily_cost
+            # Pre-fix: imported `get_daily_cost` which has never
+            # existed. Compute today's spend from cost_ledger
+            # directly + use `get_monthly_spend` for the 30-day
+            # rollup the "month" subcommand wants.
+            from windyfly.memory.cost_tracker import get_monthly_spend
+            def _today_cost() -> float:
+                row = _db.fetchone(
+                    "SELECT COALESCE(SUM(cost_usd), 0) AS daily "
+                    "FROM cost_ledger "
+                    "WHERE created_at >= datetime('now', 'start of day')",
+                )
+                return float((row or {}).get("daily", 0))
             limit = float(os.environ.get("DAILY_BUDGET_USD", "5.00"))
             if args and args[0] == "set" and len(args) > 1:
                 new_limit = float(args[1])
                 os.environ["DAILY_BUDGET_USD"] = str(new_limit)
                 return f"Daily budget set to ${new_limit:.2f}"
             if args and args[0] == "month":
-                daily = get_daily_cost(_db)
-                return f"This month's estimated spend: ${daily * 30:.2f} (based on today: ${daily:.4f})"
+                monthly = get_monthly_spend(_db)
+                daily = _today_cost()
+                return (
+                    f"This month's actual spend: ${monthly:.2f} "
+                    f"(today so far: ${daily:.4f})"
+                )
             if args and args[0] == "breakdown":
                 return "Cost breakdown by model:\n(Available in the gateway dashboard at localhost:3000)"
-            cost = get_daily_cost(_db)
+            cost = _today_cost()
             pct = (cost / limit * 100) if limit > 0 else 0
-            bar = "█" * int(pct / 10) + "░" * (10 - int(pct / 10))
+            bar = "█" * min(10, int(pct / 10)) + "░" * max(0, 10 - int(pct / 10))
             return f"Budget: ${cost:.4f} / ${limit:.2f} [{bar}] {pct:.1f}%"
         except Exception as e:
             return f"Error: {e}"
