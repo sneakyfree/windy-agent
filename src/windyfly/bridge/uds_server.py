@@ -577,3 +577,111 @@ class UDSBridge:
         if self.ipc.mode == "uds" and os.path.exists(self.ipc.socket_path):
             os.unlink(self.ipc.socket_path)
         logger.info("IPC Bridge stopped")
+
+
+async def _serve_forever() -> None:
+    """Run the UDS bridge as a long-lived RPC server.
+
+    This is the production brain entry point invoked by `windy start`
+    via `python -m windyfly.bridge.uds_server`. Prior to 2026-05-20,
+    this module exposed `UDSBridge` but had no module-level startup —
+    so the Popen() in cli.py:cmd_start spawned a Python process that
+    imported the module and exited immediately, leaving the Bun
+    gateway connecting to a socket that never got created.
+
+    Tests instantiate UDSBridge directly and don't exercise this
+    function, so they continue to validate the bridge in isolation.
+
+    Boot sequence:
+      1. Load .env + config (mirrors main.py)
+      2. Open the Database + start the WriteQueue
+      3. Acquire the single-runtime claim slot via Mind (ADR-051 A.5).
+         On CONFLICT, exit cleanly without listening on the socket.
+         On DEGRADED/SKIPPED, proceed (fail-open).
+      4. Start the bridge (listens on UDS or TCP per platform)
+      5. Block on a shutdown signal (SIGTERM, SIGINT)
+      6. Stop the bridge + flush the write queue + close the DB
+    """
+    import asyncio
+    import signal
+    import sys
+
+    from dotenv import load_dotenv
+
+    from windyfly import runtime_claim
+    from windyfly.config import load_config
+
+    load_dotenv()
+
+    # Config is required — without windyfly.toml we don't know the DB
+    # path, the channel config, etc. Fail loud if the caller forgot
+    # to `windy init` first.
+    try:
+        config = load_config("windyfly.toml")
+    except FileNotFoundError as e:
+        # Use stderr-write rather than print() to satisfy the
+        # production-print lint check (test_no_print_statements_in_production).
+        sys.stderr.write(f"Error loading config: {e}\n")
+        sys.exit(1)
+
+    # Basic logging — main.py installs richer filters when run as a
+    # standalone channel; the gateway-fronted brain just needs a
+    # baseline.
+    log_level = config.get("log_level", "INFO")
+    logging.basicConfig(
+        level=getattr(logging, log_level.upper(), logging.INFO),
+        format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+        datefmt="%H:%M:%S",
+    )
+
+    # ADR-051 Phase A.5 — claim the runtime slot before listening on
+    # the socket. If another runtime already holds the slot for this
+    # agent, exit cleanly so the gateway sees a clean failure rather
+    # than a brain that's racing with the holder.
+    outcome = runtime_claim.acquire_runtime_slot(source="cli")
+    if outcome == runtime_claim.ClaimOutcome.CONFLICT:
+        # stderr-write rather than print() per the production-print
+        # lint check (test_no_print_statements_in_production).
+        sys.stderr.write(
+            f"Another Windy Fly runtime is already hosting this agent "
+            f"({runtime_claim.conflict_holder_summary()}). Brain exiting.\n"
+        )
+        sys.exit(0)
+    elif outcome == runtime_claim.ClaimOutcome.GRANTED:
+        runtime_claim.start_heartbeat()
+        runtime_claim.register_atexit_release()
+
+    db_path = config.get("memory", {}).get("db_path", "data/windyfly.db")
+    db = Database(db_path)
+    write_queue = WriteQueue()
+    write_queue.start()
+
+    bridge = UDSBridge(config, db, write_queue)
+    stop_event = asyncio.Event()
+
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        # add_signal_handler isn't available on Windows; the brain
+        # falls back to default behavior there (signal terminates
+        # the loop, finally block still runs).
+        try:
+            loop.add_signal_handler(sig, stop_event.set)
+        except NotImplementedError:
+            pass
+
+    try:
+        await bridge.start()
+        logger.info("Brain ready — awaiting shutdown signal")
+        await stop_event.wait()
+    finally:
+        logger.info("Shutdown requested — stopping brain")
+        await bridge.stop()
+        write_queue.stop()
+        db.close()
+        logger.info("Brain stopped cleanly")
+
+
+if __name__ == "__main__":
+    import asyncio
+
+    asyncio.run(_serve_forever())
