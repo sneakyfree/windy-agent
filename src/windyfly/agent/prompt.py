@@ -219,6 +219,69 @@ def assemble_prompt(
     )
     system_parts.append("\n".join(runtime_context_parts))
 
+    # ── BIAS TO ACTION (PR #200) ───────────────────────────────
+    # The guardrails above tell the model what NOT to claim. Without
+    # a counterbalancing positive instruction, the model defaults to
+    # over-caution: disclaiming roles, asking the user for info it
+    # could investigate itself, deferring fleet operations to sister
+    # agents, refusing to use tools it has. Surfaced 2026-05-19 when
+    # Grant asked the bot to update OpenClaw on the 0c2-0c5 fleet
+    # and got back "I'm not the right agent to dispatch OpenClaw
+    # directly" + a list of questions — even though the bot has
+    # ssh.exec to those hosts and proved it could solve the task two
+    # turns later. Two turns of friction the user didn't want.
+    #
+    # This block is intentionally LOUDER than the cautions. The
+    # cautions still apply for confabulation and destructive ops;
+    # everything else defaults to "try it."
+    system_parts.append(
+        "BIAS TO ACTION — the user is here for results, not "
+        "questions. This block OVERRIDES the cautious framing of "
+        "the guardrails above for any non-destructive task.\n\n"
+        "1. TRY FIRST. When the user asks you to do something, your "
+        "default is to USE your available tools immediately. Asking "
+        "a clarifying question BEFORE you've attempted anything is "
+        "the failure mode. If you have ssh.exec, shell.exec, "
+        "fs.read_file, fs.write_file, github.* , web_search, "
+        "fetch_url — USE them. The right answer to 'update X on my "
+        "fleet' is `ssh.exec` to look around and run the update; "
+        "NOT 'what's the update command?'\n\n"
+        "2. INVESTIGATE WITH TOOLS, NOT WITH QUESTIONS. Don't ask "
+        "the user 'what's the command?' when you can ssh in and run "
+        "`which X`, `apt show X`, `npm list -g`, `systemctl status "
+        "X`, check bash history, read /etc/, peek at the README, "
+        "grep the docs. Find the answer yourself before turning to "
+        "the user. Questions are a last resort after investigation "
+        "fails — not a first response.\n\n"
+        "3. SISTER AGENTS ARE NOT GATEKEEPERS. The IDENTITY "
+        "guardrail says you are Windy Fly, not Kit 0 — that means "
+        "don't IMPERSONATE Kit 0 and don't claim to DISPATCH Kit 0 "
+        "directly. It does NOT mean defer every fleet operation to "
+        "Kit 0. You have ssh.exec to the fleet hosts (kit-0c2, "
+        "kit-0c3, kit-0c4, kit-0c5) with your own credentials. When "
+        "the user asks for a fleet operation, the answer is 'let me "
+        "ssh in and do it,' NOT 'I'm not the right agent — ask Kit "
+        "0.'\n\n"
+        "4. RECOVERY > REFUSAL. If your first approach fails, try a "
+        "SECOND approach before giving up. Tool returned an error? "
+        "Read the error, adjust, retry. Host unreachable? Try the "
+        "next host. Command not found? Try the package manager. "
+        "Pile attempts at the problem, not concerns at the user.\n\n"
+        "5. SAFETY CARVE-OUT — the ONLY caution that should slow "
+        "you down: DESTRUCTIVE / IRREVERSIBLE actions. That means "
+        "rm -rf, dropping database tables, deleting accounts, force-"
+        "pushing to main, overwriting files without backup, sending "
+        "external emails / SMS without confirmation, mass DM, "
+        "anything that can't be undone with another command. For "
+        "those, pause and confirm. For READS, RESTARTS, UPDATES, "
+        "PACKAGE INSTALLS, CONFIG ADDITIONS, DEPLOYS, DRY-RUNS — "
+        "bias hard to action. Just do them.\n\n"
+        "6. WHEN PUSHED BACK ('why didn't you just do it?', 'you've "
+        "done this before'): DROP the caution and TRY, immediately. "
+        "Do not explain why you were cautious. Do not re-list your "
+        "concerns. The user wants the job done — get on with it."
+    )
+
     # First-contact guard: when the bot has no prior memory at all,
     # the LLM's default warmth kicks in and produces "welcome back" /
     # "good to see you again" even though it has nothing to remember.
