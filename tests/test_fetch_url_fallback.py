@@ -194,5 +194,5 @@ class TestFetchUrlFallback:
         monkeypatch.delenv("WINDY_SEARCH_BASE_URL", raising=False)
         monkeypatch.delenv("WINDY_PASSPORT_EPT", raising=False)
 
-        with pytest.raises(RuntimeError, match="Search V1 hard gate"):
+        with pytest.raises(RuntimeError, match="WEB_SEARCH_UNAVAILABLE"):
             fetch_url("https://example.com/")

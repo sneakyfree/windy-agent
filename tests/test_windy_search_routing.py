@@ -56,19 +56,19 @@ class TestSearchHardGate:
         # Setting a Brave key MUST NOT enable a fallback — hard gate.
         monkeypatch.setenv("BRAVE_SEARCH_API_KEY", "fake-brave-key")
 
-        with pytest.raises(RuntimeError, match="Search V1 hard gate"):
+        with pytest.raises(RuntimeError, match="WEB_SEARCH_UNAVAILABLE"):
             web_search("anything")
 
     def test_web_search_raises_when_only_ept_set(self, monkeypatch):
         monkeypatch.delenv("WINDY_SEARCH_BASE_URL", raising=False)
         monkeypatch.setenv("WINDY_PASSPORT_EPT", "ey...test...")
-        with pytest.raises(RuntimeError, match="Search V1 hard gate"):
+        with pytest.raises(RuntimeError, match="WEB_SEARCH_UNAVAILABLE"):
             web_search("anything")
 
     def test_web_search_raises_when_only_base_url_set(self, monkeypatch):
         monkeypatch.setenv("WINDY_SEARCH_BASE_URL", "https://api.windysearch.com")
         monkeypatch.delenv("WINDY_PASSPORT_EPT", raising=False)
-        with pytest.raises(RuntimeError, match="Search V1 hard gate"):
+        with pytest.raises(RuntimeError, match="WEB_SEARCH_UNAVAILABLE"):
             web_search("anything")
 
     def test_web_search_routes_through_when_configured(self, monkeypatch):
@@ -91,7 +91,7 @@ class TestFetchHardGate:
     def test_fetch_url_raises_when_not_configured(self, monkeypatch):
         monkeypatch.delenv("WINDY_SEARCH_BASE_URL", raising=False)
         monkeypatch.delenv("WINDY_PASSPORT_EPT", raising=False)
-        with pytest.raises(RuntimeError, match="Search V1 hard gate"):
+        with pytest.raises(RuntimeError, match="WEB_SEARCH_UNAVAILABLE"):
             fetch_url("https://example.com/")
 
     def test_fetch_url_routes_through_when_configured(self, monkeypatch):
