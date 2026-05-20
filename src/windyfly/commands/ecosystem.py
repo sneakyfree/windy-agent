@@ -20,12 +20,19 @@ def init_ecosystem(db=None):
     _register_ecosystem()
 
 
-def _re(name, desc, cat, handler, aliases=None, usage=""):
-    """Register an ecosystem-exclusive command."""
+def _re(name, desc, cat, handler, aliases=None, usage="", dangerous=False):
+    """Register an ecosystem-exclusive command.
+
+    ``dangerous=True`` routes the command through the
+    confirmation-token gate in ``registry.dispatch`` — the user
+    must add ``--confirm`` (or ``yes`` / ``CONFIRM``) to actually
+    fire. Use for commands with permanent side effects (real
+    email/SMS sends, deletes, force-pushes, etc.).
+    """
     registry.register(Command(
         name=name, description=desc, category=cat,
         handler=handler, aliases=aliases or [],
-        ecosystem_only=True, usage=usage,
+        ecosystem_only=True, usage=usage, dangerous=dangerous,
     ))
 
 
@@ -58,7 +65,8 @@ def _register_ecosystem():
         except Exception as e:
             return f"Error: {e}"
     _re("send-mail", "Send an email", "14_email", cmd_send_mail,
-        aliases=["sendmail"], usage="send-mail <to> <subject>")
+        aliases=["sendmail"], usage="send-mail <to> <subject>",
+        dangerous=True)
 
     async def cmd_inbox(ctx):
         args = ctx.get("_args", [])
@@ -99,7 +107,8 @@ def _register_ecosystem():
         if not args:
             return "Usage: /reply-mail <id>"
         return f"REPLY_MAIL:{args[0]}"
-    _re("reply-mail", "Reply to an email", "14_email", cmd_reply_mail, usage="reply-mail <id>")
+    _re("reply-mail", "Reply to an email", "14_email", cmd_reply_mail,
+        usage="reply-mail <id>", dangerous=True)
 
     async def cmd_mail_stats(ctx):
         email = os.environ.get("WINDYMAIL_EMAIL", "not provisioned")
@@ -130,7 +139,8 @@ def _register_ecosystem():
             return "Twilio SDK not installed. Run: pip install twilio"
         except Exception as e:
             return f"SMS failed: {e}"
-    _re("sms", "Send an SMS message", "15_phone", cmd_sms, usage="sms <number> <message>")
+    _re("sms", "Send an SMS message", "15_phone", cmd_sms,
+        usage="sms <number> <message>", dangerous=True)
 
     async def cmd_call(ctx):
         args = ctx.get("_args", [])
