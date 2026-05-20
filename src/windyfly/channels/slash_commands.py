@@ -262,6 +262,58 @@ def parse_goal_command(
     if arg_lower in _GOAL_DONE_WORDS:
         return True, "done", None
 
+    # /goal pace <duration> — Phase 2 timer pacing. Parsed here
+    # because the subcommand has its own argument format. Returns
+    # ("pace", <seconds-as-int-string-or-'off'>).
+    if arg_lower.startswith("pace"):
+        rest = arg[4:].strip()
+        if not rest or rest.lower() in ("status", "?"):
+            return True, "pace_status", None
+        if rest.lower() in ("off", "no", "stop", "disable", "0"):
+            return True, "pace_set", "0"
+        # Duration parse: 30m, 1h, 4h, 8h, daily, or bare seconds
+        seconds = _parse_duration(rest)
+        if seconds is None:
+            return True, "pace_invalid", rest
+        return True, "pace_set", str(seconds)
+
     # Anything else is treated as setting a new goal. Including
     # multi-word objectives, sentences with question marks, etc.
     return True, "set", arg
+
+
+def _parse_duration(text: str) -> int | None:
+    """Parse user-friendly durations to seconds. Accepts:
+      - ``30m`` / ``30min`` / ``30minutes``
+      - ``2h`` / ``2hr`` / ``2hour`` / ``2hours``
+      - ``daily`` / ``hourly``
+      - bare integer (treated as seconds — power-user escape hatch)
+    Returns None on parse failure.
+    """
+    t = text.strip().lower()
+    if t == "daily":
+        return 24 * 60 * 60
+    if t == "hourly":
+        return 60 * 60
+    # Numeric prefix + optional unit. The unit-table avoids the
+    # rstrip("s") trap where "s" plural-stripped becomes "" and
+    # silently misses the seconds case.
+    import re
+    m = re.match(
+        r"^(\d+)\s*(s|sec|secs|second|seconds|"
+        r"m|min|mins|minute|minutes|"
+        r"h|hr|hrs|hour|hours)?$",
+        t,
+    )
+    if not m:
+        return None
+    n = int(m.group(1))
+    unit = m.group(2) or "s"
+    multipliers = {
+        "s": 1, "sec": 1, "secs": 1, "second": 1, "seconds": 1,
+        "m": 60, "min": 60, "mins": 60, "minute": 60, "minutes": 60,
+        "h": 3600, "hr": 3600, "hrs": 3600, "hour": 3600, "hours": 3600,
+    }
+    if unit not in multipliers:
+        return None
+    return n * multipliers[unit]

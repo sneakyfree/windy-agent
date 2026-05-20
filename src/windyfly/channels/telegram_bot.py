@@ -149,6 +149,24 @@ def _parse_yolo_command(text: str | None) -> tuple[bool, str | int | None]:
         return True, "invalid"
 
 
+def _human_duration(seconds: int) -> str:
+    """Grandma-friendly duration string. 4h, 30m, 1d. Avoids the
+    "14400 seconds" verbiage that makes the /goal pace ack feel
+    technical."""
+    if seconds <= 0:
+        return "off"
+    if seconds >= 86400 and seconds % 86400 == 0:
+        d = seconds // 86400
+        return f"{d}d" if d > 1 else "day"
+    if seconds >= 3600 and seconds % 3600 == 0:
+        h = seconds // 3600
+        return f"{h}h"
+    if seconds >= 60:
+        m = seconds // 60
+        return f"{m}m"
+    return f"{seconds}s"
+
+
 def _format_spend_summary(summary: dict) -> str:
     """Friendly grandma-readable rendering of the spend summary."""
     lines = ["💰 *Today's spending*"]
@@ -269,6 +287,10 @@ class TelegramChannel(ChannelAdapter):
         # has texted, which is fine.
         self._last_message_at: float = 0.0
         self._heartbeat_task: asyncio.Task[None] | None = None
+        # /goal Phase 2 scheduler — wakes on a cadence to fire
+        # scheduled progress checks against active paced goals.
+        self._pacing_task: asyncio.Task[None] | None = None
+        self._pacing_stop_event: asyncio.Event | None = None
 
     async def start(self) -> None:
         token = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -329,6 +351,12 @@ class TelegramChannel(ChannelAdapter):
 
         # Heartbeat task runs until stop() is called.
         self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+
+        # /goal Phase 2 pacing scheduler. Starts iff a DB + config
+        # + on_message-bound agent_respond is available — same
+        # preconditions the chat loop has. Survives reconnects
+        # because we kill + restart on stop().
+        self._pacing_task = asyncio.create_task(self._start_goal_pacing())
 
     async def _on_polling_error(self, update: Any, context: Any) -> None:
         """Catch errors raised during update processing.
@@ -651,6 +679,22 @@ class TelegramChannel(ChannelAdapter):
             and os.environ.get("WINDY_VOICE_OUT", "1") != "0"
         ):
             await self._send_synth_voice_reply(update.message, outgoing)
+
+        # /goal Phase 2: user reply resets the ignored-fires counter
+        # on any active paced goal in this session. They're engaged;
+        # don't auto-pause pacing on them.
+        try:
+            from windyfly.agent.session_reset import next_session_id
+            from windyfly.memory.goals import (
+                get_active_goal as _gag,
+                reset_ignored_fires as _rif,
+            )
+            _sid = next_session_id("telegram", str(update.message.chat_id))
+            _active = _gag(self._db, _sid)
+            if _active and int(_active.get("ignored_pace_fires") or 0) > 0:
+                _rif(self._db, _active["id"])
+        except Exception as e:
+            logger.debug("goal-pacing reset-on-reply errored: %s", e)
 
         self._last_message_at = time.time()
 
@@ -1167,6 +1211,78 @@ class TelegramChannel(ChannelAdapter):
                     })
                 else:
                     ack = "No active goal to close. Type `/goal <text>` to set one."
+            elif goal_sub in ("pace_set", "pace_status", "pace_invalid"):
+                # Phase 2 pacing surface — set/clear/status/invalid
+                from windyfly.memory.goals import (
+                    MAX_PACE_SECONDS, MIN_PACE_SECONDS, set_goal_pace,
+                )
+                active = _get_active_goal(
+                    self._db, session_id, user_id=str(sender_id),
+                )
+                if goal_sub == "pace_status":
+                    if active and int(active.get("pace_seconds") or 0) > 0:
+                        secs = int(active["pace_seconds"])
+                        ack = (
+                            f"⏰ *Pacing:* every "
+                            f"{_human_duration(secs)}\n"
+                            f"_Ignored fires:_ "
+                            f"{active.get('ignored_pace_fires', 0)}/"
+                            f"{3}\n\n"
+                            f"_Disable with /goal pace off. Quiet hours "
+                            f"are honored (23:00-07:00 local)._"
+                        )
+                    elif active:
+                        ack = (
+                            "⏰ *Pacing: off.*\n\n"
+                            "Enable with `/goal pace <duration>` — e.g. "
+                            "`/goal pace 4h`, `/goal pace 30m`, "
+                            "`/goal pace daily`."
+                        )
+                    else:
+                        ack = "No active goal. Set one with `/goal <text>` first."
+                elif goal_sub == "pace_invalid":
+                    ack = (
+                        f"I didn't understand `{goal_text}`. Try one "
+                        f"of: `/goal pace 30m`, `/goal pace 4h`, "
+                        f"`/goal pace daily`, or `/goal pace off`."
+                    )
+                else:  # pace_set
+                    if not active:
+                        ack = "Set a goal first with `/goal <text>`, then pace it."
+                    else:
+                        new_secs = int(goal_text or "0")
+                        try:
+                            set_goal_pace(
+                                self._db, active["id"],
+                                pace_seconds=new_secs,
+                                chat_id=str(update.message.chat_id),
+                            )
+                        except ValueError as e:
+                            ack = (
+                                f"⚠ Can't pace at that rate — "
+                                f"min {_human_duration(MIN_PACE_SECONDS)}, "
+                                f"max {_human_duration(MAX_PACE_SECONDS)} "
+                                f"(error: {e})"
+                            )
+                        else:
+                            if new_secs == 0:
+                                ack = (
+                                    "⏰ *Pacing off.*\n\n"
+                                    "Goal stays active — you just won't "
+                                    "get scheduled nudges. Re-enable "
+                                    "with /goal pace <duration>."
+                                )
+                            else:
+                                ack = (
+                                    f"⏰ *Pacing on:* every "
+                                    f"{_human_duration(new_secs)}\n\n"
+                                    f"I'll wake up on that cadence and "
+                                    f"make concrete progress on:\n"
+                                    f"> {active['text']}\n\n"
+                                    f"_Quiet hours: 23:00-07:00 local. "
+                                    f"Auto-paused after 3 ignored fires. "
+                                    f"/goal pace off to disable._"
+                                )
             else:  # invalid — never reached given parser, but safe default
                 ack = (
                     "Try one of these:\n"
@@ -1414,8 +1530,54 @@ class TelegramChannel(ChannelAdapter):
             # revives us. Worst case we lose write-queue flush.
             os._exit(75)
 
+    async def _start_goal_pacing(self) -> None:
+        """Start the /goal Phase 2 pacing scheduler. Best-effort —
+        if config/db/agent_respond aren't wired, log + skip rather
+        than blow up the channel start path."""
+        if self._db is None or self._write_queue is None:
+            logger.info("goal-pacing: no db/write_queue — pacing disabled")
+            return
+        try:
+            from windyfly.agent.goal_pacing import scheduler_loop
+            from windyfly.agent.loop import agent_respond
+            from windyfly.config import load_config
+            cfg = load_config(os.environ.get(
+                "WINDYFLY_CONFIG", "windyfly.toml",
+            ))
+        except Exception as e:
+            logger.warning("goal-pacing: setup failed (%s) — disabled", e)
+            return
+
+        async def deliver(chat_id: str, text: str) -> None:
+            if self._app is None:
+                return
+            await self._app.bot.send_message(
+                chat_id=chat_id, text=text, parse_mode="Markdown",
+            )
+
+        self._pacing_stop_event = asyncio.Event()
+        try:
+            await scheduler_loop(
+                db=self._db, deliver=deliver, agent_respond=agent_respond,
+                config=cfg, write_queue=self._write_queue,
+                stop_event=self._pacing_stop_event,
+            )
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.warning("goal-pacing scheduler exited with error: %s", e)
+
     async def stop(self) -> None:
         self._shutting_down = True
+        if self._pacing_stop_event is not None:
+            self._pacing_stop_event.set()
+        if self._pacing_task is not None:
+            self._pacing_task.cancel()
+            try:
+                await self._pacing_task
+            except (asyncio.CancelledError, Exception):
+                pass
+            self._pacing_task = None
         if self._heartbeat_task is not None:
             self._heartbeat_task.cancel()
             try:
