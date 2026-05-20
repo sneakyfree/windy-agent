@@ -57,6 +57,8 @@ EVENT_TYPES = frozenset({
     "goal.completed",
     "goal.abandoned",
     "goal.expired",
+    # Permanent-auth short-circuit (don't-auto-resurrect-on-401)
+    "auth.permanent_failure",
     # Provider-native web search lifecycle (PR #164)
     "web_search.native_enabled",
     "web_search.native_skipped",
