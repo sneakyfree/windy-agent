@@ -167,6 +167,30 @@ def main() -> None:
     db_path = config.get("memory", {}).get("db_path", "data/windyfly.db")
     _start_decay_scheduler(config, db_path)
 
+    # ADR-051 Phase A.5 — single-runtime claim invariant.
+    # Try to claim the agent's runtime slot on Mind before dispatching
+    # to a channel. On CONFLICT, exit cleanly with a friendly message
+    # so the user knows their agent is already running elsewhere. On
+    # GRANTED, start the 30s heartbeat + register the atexit release.
+    # On DEGRADED/SKIPPED, proceed without claim discipline (fail-open).
+    from windyfly import runtime_claim
+
+    _claim_outcome = runtime_claim.acquire_runtime_slot(source="cli")
+    if _claim_outcome == runtime_claim.ClaimOutcome.CONFLICT:
+        # Per ADR-051 §"A.5 acceptance": the losing runtime logs the
+        # conflict and goes idle. Idle == exit-clean for the CLI runtime,
+        # since there's no UI to "stay idle but visible" the way a Word
+        # status pill (A.6) would offer. Surface the holder to the user.
+        print(
+            f"Another Windy Fly runtime is already hosting this agent "
+            f"({runtime_claim.conflict_holder_summary()}). Exiting.",
+            file=sys.stderr,
+        )
+        sys.exit(0)
+    elif _claim_outcome == runtime_claim.ClaimOutcome.GRANTED:
+        runtime_claim.start_heartbeat()
+        runtime_claim.register_atexit_release()
+
     # Launch channel
     if args.channel == "cli":
         from windyfly.channels.cli import run_cli
