@@ -1299,45 +1299,65 @@ def _register_all():
         if not _db:
             return "Database not available."
         try:
-            from windyfly.control_panel import get_all_sliders
-            sliders = get_all_sliders(_db)
-            lines = ["Personality Sliders:\n"]
+            # ``get_sliders`` is the actual function name; the
+            # original code imported ``get_all_sliders`` which has
+            # never existed → /sliders raised ImportError on every
+            # invocation since this file shipped. Surfaced
+            # 2026-05-20 by Grant asking "is there a slash command
+            # for the sliders?"
+            from windyfly.control_panel import get_sliders
+            sliders = get_sliders(_db)
+            lines = ["*Personality Sliders:*\n"]
             for name, value in sorted(sliders.items()):
                 val = int(float(value))
                 bar = "█" * val + "░" * (10 - val)
-                lines.append(f"  {name:22s} [{bar}] {val}/10")
+                lines.append(f"  `{name:22s}` [{bar}] {val}/10")
+            lines.append("\n_Tune one: /slider <name> <value>_")
+            lines.append("_Apply preset: /preset <name>  ·  list: /presets_")
             return "\n".join(lines)
         except Exception as e:
             return f"Error loading sliders: {e}"
-    _r("sliders", "Show all 17 personality sliders", "05_personality", cmd_sliders)
+    _r("sliders", "Show all personality sliders", "05_personality", cmd_sliders)
 
     async def cmd_slider_set(ctx):
         args = ctx.get("_args", [])
+        # Tolerate both `/slider humor 8` and the docstring's
+        # original `/slider set humor 8` syntax.
+        if args and args[0] == "set":
+            args = args[1:]
         if len(args) < 2:
-            return "Usage: /slider set <name> <value> (e.g. /slider set humor 8)"
+            return "Usage: `/slider <name> <value>` (e.g. `/slider humor 8`)"
         name, value = args[0], args[1]
         if not _db:
             return "Database not available."
         try:
+            # FIX: signature is set_slider(db, slider_name, value,
+            # user_id="default"). Pre-fix code passed (_db, None,
+            # name, value) which mapped to slider_name=None →
+            # ValueError. Has never worked since launch.
             from windyfly.control_panel import set_slider
-            set_slider(_db, None, name, float(value))
-            return f"Slider '{name}' set to {value}"
+            set_slider(_db, name, int(float(value)))
+            return f"✅ Slider `{name}` set to `{value}`"
         except Exception as e:
             return f"Error: {e}"
     _r("slider", "Set a personality slider", "05_personality", cmd_slider_set,
-       usage="slider set <name> <value>")
+       usage="slider <name> <value>")
 
     async def cmd_preset(ctx):
         args = ctx.get("_args", [])
         if not args:
             return ("Available presets: buddy, engineer, coder, friend, writer, researcher, powerhouse, silent\n"
-                    "Usage: /preset <name>")
+                    "Usage: `/preset <name>`")
         if not _db:
             return "Database not available."
         try:
+            # FIX: signature is apply_preset(db, preset_name,
+            # user_id="default"). Pre-fix code passed (_db, None,
+            # args[0]) → preset_name=None → "Unknown preset 'None'"
+            # on every invocation. Has never worked since launch.
             from windyfly.control_panel import apply_preset
-            result = apply_preset(_db, None, args[0])
-            return f"Preset '{args[0]}' applied!" if result else f"Unknown preset: {args[0]}"
+            result = apply_preset(_db, args[0])
+            return f"✅ Preset `{args[0]}` applied — `/sliders` to see the new values" if result else f"Unknown preset: {args[0]}"
         except Exception as e:
             return f"Error: {e}"
     _r("preset", "Switch personality preset", "05_personality", cmd_preset, usage="preset <name>")
