@@ -77,6 +77,15 @@ def save_episode(
     return episode_id
 
 
+def count_episodes(db: Database) -> int:
+    """Total episode count — backs the ``/memory stats`` command. The
+    import was failing silently inside a swallow-all try/except so
+    /memory stats had been returning ``"Error: cannot import name
+    'count_episodes'"`` for an unknown duration."""
+    row = db.fetchone("SELECT COUNT(*) AS n FROM episodes")
+    return int((row or {}).get("n", 0))
+
+
 def get_recent_episodes(
     db: Database,
     limit: int = 20,

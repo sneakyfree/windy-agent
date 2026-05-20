@@ -130,6 +130,11 @@ EXCLUDE_PATHS=(
   "**/docs/audit/**"
   "**/docs/hardening/artifacts/**"
   "**/wave11-evidence/**"
+  # Dual-domain nginx config — intentionally serves both the legacy
+  # fly.windyword.ai and the new windyfly.ai apex during the
+  # brand-cutover period (see PR #190). Drop this exclusion once the
+  # legacy server_name is removed from the live nginx.
+  "**/deploy/aws/phase5/nginx-windyfly.conf"
 )
 
 # File patterns to skip. Dated audit reports look like FOO_2026-04-21.md or

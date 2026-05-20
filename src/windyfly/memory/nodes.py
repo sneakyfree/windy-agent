@@ -91,6 +91,37 @@ def upsert_node(
     return node_id
 
 
+def get_all_nodes(
+    db: Database,
+    *,
+    node_type: str | None = None,
+    limit: int = 20,
+) -> list[dict]:
+    """List nodes, optionally filtered by ``node_type``.
+
+    Backs the ``/memory nodes [type]`` slash command — without this
+    the command was silently returning ``"Error: cannot import name
+    'get_all_nodes'"`` because the import was inside a swallow-all
+    try/except. Recency-first; default 20 to keep slash-command
+    replies bounded.
+    """
+    if node_type:
+        return db.fetchall(
+            "SELECT * FROM nodes WHERE type = ? ORDER BY updated_at DESC LIMIT ?",
+            (node_type, limit),
+        )
+    return db.fetchall(
+        "SELECT * FROM nodes ORDER BY updated_at DESC LIMIT ?",
+        (limit,),
+    )
+
+
+def count_nodes(db: Database) -> int:
+    """Total node count — backs ``/memory stats``. Pure SQL."""
+    row = db.fetchone("SELECT COUNT(*) AS n FROM nodes")
+    return int((row or {}).get("n", 0))
+
+
 def get_nodes_by_type(
     db: Database,
     type: str,

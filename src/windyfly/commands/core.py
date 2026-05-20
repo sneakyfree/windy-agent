@@ -1428,11 +1428,11 @@ def _register_all():
             try:
                 from windyfly.memory.nodes import count_nodes
                 from windyfly.memory.episodes import count_episodes
-                nodes = count_nodes(_db)
-                episodes = count_episodes(_db)
+                node_count = count_nodes(_db)
+                episode_count = count_episodes(_db)
                 db_path = os.environ.get("WINDYFLY_DB_PATH", "data/windyfly.db")
                 size = os.path.getsize(db_path) / 1024 / 1024 if os.path.exists(db_path) else 0
-                return f"Memory: {nodes} nodes, {episodes} episodes | DB: {size:.1f} MB"
+                return f"Memory: {node_count} nodes, {episode_count} episodes | DB: {size:.1f} MB"
             except Exception as e:
                 return f"Error: {e}"
         return ""  # no matching subcommand
