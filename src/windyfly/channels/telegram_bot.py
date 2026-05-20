@@ -358,6 +358,126 @@ class TelegramChannel(ChannelAdapter):
         # because we kill + restart on stop().
         self._pacing_task = asyncio.create_task(self._start_goal_pacing())
 
+        # Register the top-100 telegram-allowed commands with
+        # Telegram's setMyCommands API so the user's autocomplete
+        # popup (the "/" menu) reflects what the bot can actually
+        # do. Pre-2026-05-20 the bot never registered with this
+        # API, so the popup was whatever was last typed into
+        # @BotFather manually — usually a handful of commands,
+        # leaving 100+ features hidden from discovery. Telegram
+        # caps the popup at 100 entries; we honor that by sorting
+        # and truncating. Best-effort: failures don't block boot.
+        try:
+            await self._register_telegram_commands()
+        except Exception as e:
+            logger.warning("setMyCommands failed (non-fatal): %s", e)
+
+    async def _register_telegram_commands(self) -> None:
+        """Tell Telegram which commands to surface in the "/" popup.
+
+        Telegram's autocomplete is fed by ``bot.set_my_commands``
+        — separate from the bot's internal registry. Without this
+        call the popup is whatever was last typed manually into
+        @BotFather, leaving most of the bot's 130+ commands
+        undiscoverable. We compute the list dynamically each boot
+        so the popup tracks newly-added commands automatically.
+
+        Constraints (Telegram Bot API):
+          - Max 100 BotCommand entries
+          - command: 1-32 chars, ``[a-z0-9_]`` only
+          - description: 3-256 chars
+
+        Filtering rules:
+          - Only commands a Telegram caller may invoke (skip
+            terminal-only categories like 12_developer)
+          - Skip commands with non-Telegram-safe names (any char
+            outside ``[a-z0-9_]``)
+          - Skip aliases — duplicate entries would clutter the
+            popup; the canonical name covers them
+          - Prefer commonly-tapped categories first (process,
+            help, identity, model, personality, memory, goal)
+            so the truncation-at-100 keeps the most-useful set
+        """
+        from telegram import BotCommand
+        from windyfly.commands.registry import (
+            _platform_may_invoke, registry,
+        )
+
+        # Category sort key — lower = higher priority. Categories
+        # we don't recognize land at the end.
+        priority = {
+            "01_process": 1,
+            "13_help": 2,
+            "02_diagnostics": 3,
+            "09_identity": 4,
+            "04_model": 5,
+            "05_personality": 6,
+            "03_chat": 7,
+            "06_memory": 8,
+            "08_budget": 9,
+            "14_email": 10,
+            "15_phone": 11,
+        }
+
+        import re
+        VALID = re.compile(r"^[a-z0-9_]{1,32}$")
+
+        candidates: list[tuple[int, str, str]] = []
+        for cmd in registry.all():
+            name = cmd.name.replace("-", "_")  # telegram dislikes hyphens
+            if not VALID.match(name):
+                continue
+            if not _platform_may_invoke("telegram", cmd.category):
+                continue
+            desc = (cmd.description or name)[:256]
+            if len(desc) < 3:
+                desc = (desc + "  ")[:3]
+            prio = priority.get(cmd.category, 99)
+            candidates.append((prio, name, desc))
+
+        # Channel-layer commands that don't live in the unified
+        # registry (handled directly by parse_*_command in
+        # slash_commands.py + per-channel routing here). Add
+        # them explicitly so the popup includes them.
+        CHANNEL_LAYER_EXTRAS: list[tuple[int, str, str]] = [
+            (1, "panic", "Emergency reset — bot acting weird"),
+            (5, "goal", "Set/show/clear a goal · /goal pace 4h · /goal autorun 3"),
+            (5, "forget", "Demote an auto-promoted correction skill"),
+            (5, "objective", "Alias for /goal"),
+            (5, "mission", "Alias for /goal"),
+            (1, "resurrect", "Switch to free local backup model"),
+            (1, "normal", "Switch back from lifeboat to paid model"),
+            (1, "lifeboat", "Show lifeboat status"),
+            (1, "auto_resurrect", "Toggle auto-switch on rate limit"),
+            (8, "spend", "Today's spending by provider"),
+            (8, "pause", "Stop me from spending money"),
+            (8, "resume", "Wake me up after a pause"),
+            (8, "yolo", "Let me cook hard (24h, no auto-pause)"),
+            (8, "yolo24", "YOLO mode for 24 hours"),
+            (8, "yolo48", "YOLO mode for 48 hours"),
+            (6, "guest", "Switch into grandma-mode for a demo"),
+            (4, "model", "Show or switch my LLM"),
+        ]
+        existing_names = {n for _p, n, _d in candidates}
+        for prio, name, desc in CHANNEL_LAYER_EXTRAS:
+            if name not in existing_names and VALID.match(name):
+                candidates.append((prio, name, desc))
+
+        # Sort by (priority, name) for deterministic ordering
+        candidates.sort(key=lambda x: (x[0], x[1]))
+        # Telegram caps at 100 — take top by priority
+        candidates = candidates[:100]
+
+        bot_commands = [BotCommand(n, d) for _p, n, d in candidates]
+        try:
+            await self._app.bot.set_my_commands(bot_commands)
+            logger.info(
+                "Registered %d commands with Telegram's autocomplete",
+                len(bot_commands),
+            )
+        except Exception as e:
+            logger.warning("set_my_commands API call failed: %s", e)
+
     async def _on_polling_error(self, update: Any, context: Any) -> None:
         """Catch errors raised during update processing.
 
