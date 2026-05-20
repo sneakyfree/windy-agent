@@ -1067,12 +1067,17 @@ def agent_respond(
             # is never silent — that's the failure mode PR #117 era
             # taught us to always avoid.
             notification = ""
+            ar_reason: str | None = None
             try:
                 from windyfly.agent.resurrect import auto_resurrect_attempt
                 ar_result = auto_resurrect_attempt(
                     actor="auto-chain-exhausted",
                     previous_model=model,
+                    error_str=msg,  # NEW: pass the chain-fail error
+                                    # so resurrect can classify and
+                                    # SKIP on permanent auth failures
                 )
+                ar_reason = ar_result.get("reason")
                 if ar_result.get("ok"):
                     chosen_model = ar_result.get("model", "(local)")
                     notification = (
@@ -1089,14 +1094,13 @@ def agent_respond(
                         "previous_model": model,
                     })
                 else:
-                    # Disabled / cooldown / Ollama unavailable — log
-                    # the reason but otherwise fall through silently.
-                    # The user gets the standard offline message
-                    # which already mentions /resurrect via the
-                    # PR #141 recovery footer; they can manually
-                    # trigger.
+                    # Disabled / cooldown / permanent-auth / Ollama
+                    # unavailable — log the reason. The
+                    # permanent_auth_failure branch below produces a
+                    # dedicated reply; other reasons fall through to
+                    # the standard offline message.
                     log_event(db, write_queue, "auto_resurrect.skipped", {
-                        "reason": ar_result.get("reason", "?"),
+                        "reason": ar_reason or "?",
                     })
             except Exception as ex:
                 # Auto-resurrect itself shouldn't crash the recovery
@@ -1104,6 +1108,36 @@ def agent_respond(
                 logger.warning(
                     "auto-resurrect attempt raised: %s", ex,
                 )
+
+            # Permanent auth failure short-circuit: skip the
+            # lifeboat-with-Ollama path entirely, return a clean
+            # "your auth is dead" reply. Lifeboat would just wedge —
+            # every escape would 401 again.
+            if ar_reason == "permanent_auth_failure":
+                auth_reply = (
+                    "🔑 *Your API key looks invalid* — I got `401 "
+                    "invalid x-api-key` from Anthropic on this turn.\n\n"
+                    "This usually means an OAuth Max token expired or "
+                    "a regular API key was rotated. Refresh the "
+                    "credential in your bot's env file (e.g. "
+                    "`~/.windy/windy-0.env` for Windy 0) and restart "
+                    "the bot. Until then I can't reach the paid "
+                    "model.\n\n"
+                    "_(I'm NOT auto-switching to the local backup "
+                    "model — that would just wedge me, since every "
+                    "retry would 401 again. Fix the token and we're "
+                    "back.)_"
+                )
+                from windyfly.observability.recovery_hint import (
+                    with_recovery_hint,
+                )
+                full_response = with_recovery_hint(auth_reply)
+                write_queue.enqueue(Priority.HIGH, save_episode, db, "user", user_message, session_id=session_id)
+                write_queue.enqueue(Priority.HIGH, save_episode, db, "assistant", full_response, session_id=session_id)
+                log_event(db, write_queue, "auth.permanent_failure", {
+                    "error": msg[:200],
+                })
+                return full_response
 
             from windyfly.agent.offline import queue_message
             context = [{"role": m["role"], "content": m["content"]} for m in messages[-5:]]

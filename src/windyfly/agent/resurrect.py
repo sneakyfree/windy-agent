@@ -396,9 +396,51 @@ def _mark_auto_attempt() -> None:
         logger.debug("auto-resurrect mark failed: %s", e)
 
 
+def is_permanent_auth_error(error_str: str | None) -> bool:
+    """Classify a chain-exhaustion error string as permanent-auth
+    vs. transient. Permanent-auth = the provider rejected the
+    credential itself (401 invalid x-api-key, 403 permission
+    denied on org). Transient = rate limit, 5xx, network blip —
+    those WILL eventually clear; resurrect is the right answer
+    for them. Permanent-auth WON'T clear without operator
+    intervention, so resurrecting just wedges the bot in lifeboat
+    while paid keeps 401-ing on every escape attempt.
+
+    Surfaced 2026-05-20: Grant's OAuth Max token (sk-ant-oat01-…)
+    expired; auto_resurrect kept firing on every 401, wedging
+    lifeboat. PR #201's escape mechanism worked correctly but
+    couldn't overcome the underlying permanent failure — the
+    bot needed to STOP trying lifeboat and surface "your auth is
+    dead" instead.
+
+    Conservative pattern: require BOTH "401" (HTTP status) AND
+    one of the auth-specific Anthropic markers ("authentication_
+    error" / "invalid x-api-key" / "invalid api key"). The
+    double-signal requirement avoids treating ambiguous 401s
+    (e.g., from a 5xx mis-labeled by some intermediate proxy)
+    as permanent. Falls back to "transient" (resurrect-OK) on
+    any uncertainty — safer to enter lifeboat than to strand
+    the user.
+    """
+    if not error_str:
+        return False
+    s = error_str.lower()
+    has_401 = "401" in s or "403" in s
+    auth_markers = (
+        "authentication_error", "authentication error",
+        "invalid x-api-key", "invalid api key",
+        "invalid_api_key", "invalid_authentication",
+        "permission_error",
+        "credit balance is too low",
+    )
+    has_auth_marker = any(m in s for m in auth_markers)
+    return has_401 and has_auth_marker
+
+
 def auto_resurrect_attempt(
     actor: str = "auto",
     previous_model: str | None = None,
+    error_str: str | None = None,
 ) -> dict[str, Any]:
     """Try to flip into lifeboat mode automatically.
 
@@ -409,6 +451,11 @@ def auto_resurrect_attempt(
         {"ok": False, "reason": "disabled"} when user opted out.
         {"ok": False, "reason": "cooldown"} when within 60s of
             previous attempt.
+        {"ok": False, "reason": "permanent_auth_failure"} when
+            ``error_str`` is classified as permanent-auth (caller
+            should surface a dedicated "your auth is dead" reply
+            instead of falling back to offline_response — lifeboat
+            won't help and the loop would just wedge).
         {"ok": False, "reason": "ollama_not_running"} / etc. when
             the underlying ``resurrect()`` call fails.
 
@@ -417,6 +464,16 @@ def auto_resurrect_attempt(
     catch needed)."""
     if is_auto_resurrect_disabled():
         return {"ok": False, "reason": "disabled"}
+    # Permanent-auth short-circuit: skip lifeboat entirely when the
+    # underlying failure was a credential rejection. Resurrect is
+    # for transient problems; this one needs the operator to
+    # refresh the token.
+    if is_permanent_auth_error(error_str):
+        return {
+            "ok": False,
+            "reason": "permanent_auth_failure",
+            "error_str": (error_str or "")[:300],
+        }
     if _within_post_recovery_grace():
         # We JUST climbed out of lifeboat. A chain-fail on this
         # turn is almost certainly the same flap that caused the
