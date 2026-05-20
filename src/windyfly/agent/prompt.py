@@ -100,6 +100,38 @@ def assemble_prompt(
     if mode_override:
         system_parts.append(mode_override)
 
+    # ── Active /goal block (Phase 1 of windy-agent /goal feature) ──
+    # When the user has a /goal active for this session, surface it
+    # right after the personality block — it's the SECOND-most-
+    # important thing the model needs to know after "who you are."
+    # Worker-model orientation: every turn should orient toward
+    # advancing this objective. Don't recap the goal text at the
+    # user — they set it, they know. Just work on it.
+    try:
+        from windyfly.memory.goals import get_active_goal
+        active_goal = get_active_goal(db, session_id)
+    except Exception:  # pragma: no cover — defensive only
+        # Goal lookup must never break prompt assembly. Failure here
+        # just means the worker model proceeds without a goal block;
+        # the user can re-set with /goal if anything was lost.
+        active_goal = None
+    if active_goal:
+        system_parts.append(
+            "🎯 ACTIVE GOAL — the user set this objective for the "
+            "session. Orient every turn around concrete progress on "
+            f"it.\n\n  > {active_goal['text']}\n\n"
+            "Rules while a goal is active:\n"
+            "1. Don't recap the goal back at the user. They set it; "
+            "they know. Just work on it.\n"
+            "2. If the user goes off-topic, briefly say 'we're paused "
+            "on the goal' and follow them — don't refuse.\n"
+            "3. When the goal is genuinely met (deliverable produced "
+            "OR user explicitly thanks you), say so explicitly — the "
+            "evaluator will see your confirmation and close the goal.\n"
+            "4. The user can type /goal status, /goal done, or "
+            "/goal clear any time."
+        )
+
     # Add epistemic instruction
     system_parts.append(
         "When you state a fact from memory, indicate your confidence level. "

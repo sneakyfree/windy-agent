@@ -199,3 +199,69 @@ def is_whoami_message(text: str | None) -> bool:
     if not text:
         return False
     return text.strip().lower() in WHOAMI_EXACT
+
+
+# ── /goal (Phase 1: persistent objective, two-model evaluator) ────
+#
+# windy-agent parity with Claude Code 2.1.139's /goal and Codex CLI
+# / Hermes Agent 0.13.0's identical command. Surface:
+#
+#   /goal <text>     — set or replace the active goal
+#   /goal            — show status (alias: /goal status)
+#   /goal status     — show status
+#   /goal clear      — abandon active goal
+#   /goal done       — mark active goal complete
+#
+# Returns (is_cmd, subcommand, text_arg) where subcommand is one
+# of {"set", "status", "clear", "done", "invalid"} and text_arg is
+# the goal text when subcommand=="set" (else None).
+GOAL_PREFIXES = ("/goal", "/objective", "/mission")
+_GOAL_STATUS_WORDS = frozenset({"status", "show", "?"})
+_GOAL_CLEAR_WORDS = frozenset({"clear", "cancel", "abandon", "stop", "reset"})
+_GOAL_DONE_WORDS = frozenset({"done", "complete", "finished", "finish"})
+
+
+def parse_goal_command(
+    text: str | None,
+) -> tuple[bool, str | None, str | None]:
+    """Parse ``/goal [...]`` slash command.
+
+    Returns ``(is_cmd, subcommand, text_arg)`` where:
+      - ``is_cmd`` — True iff message starts with /goal (or alias)
+      - ``subcommand`` — one of "set", "status", "clear", "done", "invalid"
+      - ``text_arg`` — the new goal text when subcommand == "set"
+    """
+    if not text:
+        return False, None, None
+    t = text.strip()
+    if not t:
+        return False, None, None
+
+    lower = t.lower()
+    matched_prefix = None
+    for prefix in GOAL_PREFIXES:
+        if lower == prefix:
+            return True, "status", None
+        if lower.startswith(prefix + " "):
+            matched_prefix = prefix
+            break
+    if matched_prefix is None:
+        return False, None, None
+
+    # Everything after the prefix (preserving original case for the
+    # goal text — users type "Plan my Yellowstone trip" not "plan...").
+    arg = t[len(matched_prefix) + 1:].strip()
+    if not arg:
+        return True, "status", None
+
+    arg_lower = arg.lower()
+    if arg_lower in _GOAL_STATUS_WORDS:
+        return True, "status", None
+    if arg_lower in _GOAL_CLEAR_WORDS:
+        return True, "clear", None
+    if arg_lower in _GOAL_DONE_WORDS:
+        return True, "done", None
+
+    # Anything else is treated as setting a new goal. Including
+    # multi-word objectives, sentences with question marks, etc.
+    return True, "set", arg

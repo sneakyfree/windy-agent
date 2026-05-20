@@ -1488,6 +1488,95 @@ def agent_respond(
     if _recovery_notice:
         response_text = _recovery_notice + response_text
 
+    # 8.6. /goal evaluator pass — windy-agent feature parity with
+    # Claude Code 2.1.139 /goal. When an active goal exists in
+    # this session, fire the fast Haiku evaluator after every
+    # worker-model reply. Three possible outcomes:
+    #
+    #   met        → mark goal completed, append "🎯 Goal achieved" footer
+    #   unrelated  → bump consecutive-unrelated counter; auto-expire after 3
+    #   advanced   → log progress note for /goal status to surface
+    #   blocked    → no-op besides logging
+    #
+    # We do this AFTER the reply text is finalized so the evaluator
+    # sees what the user will actually see. record_turn() bumps the
+    # turn count and token tallies regardless of verdict.
+    try:
+        from windyfly.memory.goals import (
+            AUTO_EXPIRE_AFTER_CONSECUTIVE_UNRELATED,
+            VERDICT_MET, VERDICT_UNRELATED,
+            complete_goal, expire_goal, get_active_goal,
+            record_evaluation, record_turn,
+        )
+        active_goal = get_active_goal(db, session_id)
+        if active_goal:
+            record_turn(
+                db, active_goal["id"],
+                tokens_input=input_tokens, tokens_output=output_tokens,
+            )
+            # Build the recent-transcript view from the messages list
+            # the agent loop has already assembled — same context the
+            # worker model saw, so the evaluator's judgment lines up
+            # with what the user just experienced.
+            eval_messages = [
+                {"role": m.get("role", ""), "content": m.get("content", "")}
+                for m in messages
+                if m.get("role") in ("user", "assistant")
+            ]
+            eval_messages.append({"role": "assistant", "content": response_text})
+
+            from windyfly.agent.goal_evaluator import evaluate_goal
+            verdict_dict = evaluate_goal(
+                active_goal["text"], eval_messages, config=config,
+            )
+            record_evaluation(
+                db, active_goal["id"],
+                verdict=verdict_dict["verdict"],
+                reason=verdict_dict["reason"],
+                progress_note=verdict_dict.get("progress_note"),
+                turn=int(active_goal.get("turns_count") or 0) + 1,
+            )
+            log_event(db, write_queue, "goal.evaluated", {
+                "goal_id": active_goal["id"],
+                "verdict": verdict_dict["verdict"],
+            })
+
+            if verdict_dict["verdict"] == VERDICT_MET:
+                complete_goal(
+                    db, active_goal["id"],
+                    closing_note=verdict_dict["reason"],
+                )
+                response_text = (
+                    f"{response_text}\n\n"
+                    f"🎯 *Goal achieved* — "
+                    f"{verdict_dict['reason']}\n"
+                    f"_Type /goal <new objective> to set another, "
+                    f"or just chat normally._"
+                )
+                log_event(db, write_queue, "goal.completed", {
+                    "goal_id": active_goal["id"],
+                    "reason": verdict_dict["reason"],
+                })
+            elif verdict_dict["verdict"] == VERDICT_UNRELATED:
+                refreshed = get_active_goal(db, session_id)
+                if refreshed and int(refreshed.get("consecutive_unrelated") or 0) >= AUTO_EXPIRE_AFTER_CONSECUTIVE_UNRELATED:
+                    expire_goal(db, refreshed["id"])
+                    response_text = (
+                        f"{response_text}\n\n"
+                        f"_(Quick heads-up: I auto-cleared your earlier "
+                        f"goal because we've drifted off it for "
+                        f"{AUTO_EXPIRE_AFTER_CONSECUTIVE_UNRELATED} turns. "
+                        f"Type /goal <objective> to set a fresh one.)_"
+                    )
+                    log_event(db, write_queue, "goal.expired", {
+                        "goal_id": refreshed["id"],
+                    })
+    except Exception as e:
+        # Goal evaluation is best-effort — never break the user-
+        # facing reply on an evaluator hiccup. Log + carry on.
+        logger.warning("[req:%s] /goal evaluator path errored: %s",
+                       request_id_short(), e)
+
     return response_text
 
 

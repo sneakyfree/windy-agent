@@ -50,6 +50,13 @@ EVENT_TYPES = frozenset({
     "lifeboat.exited",
     "lifeboat.recovery_failed",
     "lifeboat.escaped_wedged",
+    # /goal slash command (windy-agent feature parity with Claude
+    # Code 2.1.139, Codex CLI, Hermes Agent 0.13.0)
+    "goal.set",
+    "goal.evaluated",
+    "goal.completed",
+    "goal.abandoned",
+    "goal.expired",
     # Provider-native web search lifecycle (PR #164)
     "web_search.native_enabled",
     "web_search.native_skipped",

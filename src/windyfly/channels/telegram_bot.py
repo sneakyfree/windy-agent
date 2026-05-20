@@ -1033,6 +1033,155 @@ class TelegramChannel(ChannelAdapter):
             self._last_message_at = time.time()
             return
 
+        # ── /goal slash routing ────────────────────────────────────
+        # windy-agent /goal — feature parity with Claude Code 2.1.139.
+        # /goal <text> sets, /goal status shows, /goal clear abandons,
+        # /goal done completes. The system-prompt block + evaluator
+        # are wired in assemble_prompt + agent_respond respectively;
+        # this is just the channel-side surface.
+        from windyfly.channels.slash_commands import (
+            parse_goal_command as _parse_goal,
+        )
+        is_goal, goal_sub, goal_text = _parse_goal(text)
+        if is_goal:
+            from windyfly.memory.goals import (
+                abandon_goal as _abandon_goal,
+                complete_goal as _complete_goal,
+                create_goal as _create_goal,
+                get_active_goal as _get_active_goal,
+                get_progress_notes as _get_progress_notes,
+                list_goals as _list_goals,
+            )
+            # Build the session_id the same way channels/manager.py
+            # does for agent_respond calls — PR #193 model:
+            # "{platform}:{channel_id}:vN" with N rolled by /new.
+            from windyfly.agent.session_reset import next_session_id
+            session_id = next_session_id(
+                "telegram", str(update.message.chat_id),
+            )
+            if goal_sub == "set":
+                # Parser guarantees goal_text is non-None when
+                # subcommand is "set", but be defensive for mypy +
+                # any future parser refactor.
+                assert goal_text is not None
+                goal_id = _create_goal(
+                    self._db, session_id=session_id,
+                    text=goal_text, user_id=str(sender_id),
+                )
+                ack = (
+                    f"🎯 *Goal set.*\n\n"
+                    f"> {goal_text}\n\n"
+                    f"I'll orient every reply around making concrete "
+                    f"progress on this. When it's done — either you "
+                    f"tell me, or I'll surface it — I'll close the "
+                    f"loop.\n\n"
+                    f"_Type /goal status any time. /goal done to mark "
+                    f"complete. /goal clear to abandon._"
+                )
+                from windyfly.observability.events import log_event
+                log_event(self._db, self._write_queue, "goal.set", {
+                    "goal_id": goal_id, "text": goal_text[:200],
+                })
+            elif goal_sub == "status":
+                active = _get_active_goal(
+                    self._db, session_id, user_id=str(sender_id),
+                )
+                if active:
+                    notes = _get_progress_notes(active, limit=5)
+                    note_block = (
+                        "\n\n*Recent progress:*\n"
+                        + "\n".join(f"  • {n}" for n in notes)
+                    ) if notes else ""
+                    ack = (
+                        f"🎯 *Active goal*\n\n"
+                        f"> {active['text']}\n\n"
+                        f"*Turns:* {active['turns_count']}  "
+                        f"*Tokens:* "
+                        f"{active['tokens_input'] + active['tokens_output']:,}"
+                        f"{note_block}\n\n"
+                        f"_/goal done to close. /goal clear to abandon._"
+                    )
+                else:
+                    recent = _list_goals(
+                        self._db, session_id=session_id,
+                        user_id=str(sender_id), limit=3,
+                    )
+                    if recent:
+                        lines = [
+                            f"  • [{g['status']}] {g['text'][:80]}"
+                            for g in recent
+                        ]
+                        ack = (
+                            "🎯 *No active goal.*\n\n"
+                            "*Recent goals:*\n"
+                            + "\n".join(lines)
+                            + "\n\n_Type /goal <objective> to set a new one._"
+                        )
+                    else:
+                        ack = (
+                            "🎯 *No active goal.*\n\n"
+                            "Type `/goal <objective>` to set one — e.g. "
+                            "`/goal plan my Yellowstone trip` — and I'll "
+                            "orient every reply around making progress."
+                        )
+            elif goal_sub == "clear":
+                active = _get_active_goal(
+                    self._db, session_id, user_id=str(sender_id),
+                )
+                if active:
+                    _abandon_goal(
+                        self._db, active["id"],
+                        closing_note=f"abandoned via /goal clear by {sender_id}",
+                    )
+                    ack = (
+                        f"🎯 *Goal cleared.*\n\n"
+                        f"> {active['text'][:200]}\n\n"
+                        f"_No goal active. Type /goal <text> to set a new one._"
+                    )
+                    from windyfly.observability.events import log_event
+                    log_event(self._db, self._write_queue, "goal.abandoned", {
+                        "goal_id": active["id"],
+                    })
+                else:
+                    ack = "No active goal to clear. Type `/goal <text>` to set one."
+            elif goal_sub == "done":
+                active = _get_active_goal(
+                    self._db, session_id, user_id=str(sender_id),
+                )
+                if active:
+                    _complete_goal(
+                        self._db, active["id"],
+                        closing_note=f"marked done by {sender_id}",
+                    )
+                    ack = (
+                        f"🎯 *Goal complete!* ✅\n\n"
+                        f"> {active['text']}\n\n"
+                        f"*Turns:* {active['turns_count']}  "
+                        f"*Tokens:* "
+                        f"{active['tokens_input'] + active['tokens_output']:,}\n\n"
+                        f"_Nice work. Type /goal <new objective> when ready._"
+                    )
+                    from windyfly.observability.events import log_event
+                    log_event(self._db, self._write_queue, "goal.completed", {
+                        "goal_id": active["id"], "via": "user",
+                    })
+                else:
+                    ack = "No active goal to close. Type `/goal <text>` to set one."
+            else:  # invalid — never reached given parser, but safe default
+                ack = (
+                    "Try one of these:\n"
+                    "• `/goal <objective>` — set a goal\n"
+                    "• `/goal status` — show current goal + progress\n"
+                    "• `/goal done` — mark complete\n"
+                    "• `/goal clear` — abandon"
+                )
+            try:
+                await self._send_long_reply(update.message, ack)
+            except Exception as e:
+                logger.warning("/goal ack reply failed: %s", e)
+            self._last_message_at = time.time()
+            return
+
         if _is_normal_message(text):
             from windyfly.agent.resurrect import normalize as _normalize
             result = _normalize()
