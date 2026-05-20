@@ -85,11 +85,27 @@ def get_active_correction_skills(
       - ordered by last_used DESC, then created_at DESC
       - capped at ``limit`` (default 5) to bound prompt growth
 
+    Side effect: lazily expires stale correction skills (>30 days
+    of inactivity, demoted but row kept for audit). This means a
+    skill the user no longer needs eventually stops paying its
+    ~100 token-per-turn cost without operator intervention.
+
     Why this exists: pre-2026-05-20 the agent loop never read
     skills back into the prompt — correction skills were saved on
     recurring failures but never applied. v18 e2e harness +
     grep audit caught this; PR ships the read path.
     """
+    # Lazy expiry pass — cheap query against an indexed column,
+    # bounded to skills past their 30-day idle horizon. Safer than
+    # a separate cron because cleanup happens whenever the read
+    # path is exercised.
+    try:
+        from windyfly.skills.manager import expire_stale_correction_skills
+        expire_stale_correction_skills(db)
+    except Exception:
+        # Never fail the read path on an expiry hiccup; future
+        # expiry attempts will catch up.
+        pass
     return db.fetchall(
         """
         SELECT * FROM skills

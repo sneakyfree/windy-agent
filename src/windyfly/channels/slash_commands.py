@@ -334,3 +334,35 @@ def _parse_duration(text: str) -> int | None:
     if unit not in multipliers:
         return None
     return n * multipliers[unit]
+
+
+# ── /forget — user-facing skill demotion ──────────────────────────
+#
+# When an auto-promoted correction skill is bad advice (false
+# positive on friction, over-cautious correction, etc.) the user
+# types ``/forget <name-or-substring>`` to demote it. Demotion
+# keeps the row for audit + future re-promotion via the bridge
+# UDS server — it just stops the loop from injecting it into the
+# system prompt.
+FORGET_PREFIXES = ("/forget", "/demote", "/unlearn")
+
+
+def parse_forget_command(text: str | None) -> tuple[bool, str | None]:
+    """Returns (is_cmd, name_substring).
+      - (True, "factual_error") — demote correction-factual_error
+      - (True, None) — bare /forget (caller should show usage)
+      - (False, None) — not a /forget command
+    """
+    if not text:
+        return False, None
+    t = text.strip()
+    lower = t.lower()
+    for prefix in FORGET_PREFIXES:
+        if lower == prefix:
+            return True, None
+        if lower.startswith(prefix + " "):
+            arg = t[len(prefix) + 1:].strip()
+            if not arg:
+                return True, None
+            return True, arg
+    return False, None

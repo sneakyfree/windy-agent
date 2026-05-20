@@ -54,6 +54,102 @@ def promote_skill(db: Database, skill_id: str) -> None:
     logger.info("Promoted skill %s (%s)", skill_id, skill["name"])
 
 
+def demote_skill(db: Database, skill_id: str) -> bool:
+    """Mark a skill as not-promoted (history kept). Used by the
+    user-facing ``/forget`` slash command when an auto-promoted
+    correction skill turns out to be bad advice, and by the
+    automatic expiry path when a correction skill hasn't been
+    needed for N successful turns.
+
+    Returns True iff a row was actually updated (False = skill_id
+    not found; caller should surface "no such skill").
+    """
+    skill = get_skill(db, skill_id)
+    if not skill:
+        return False
+    db.execute(
+        "UPDATE skills SET promoted = FALSE WHERE id = ?",
+        (skill_id,),
+    )
+    db.commit()
+    logger.info("Demoted skill %s (%s)", skill_id, skill["name"])
+    return True
+
+
+def expire_stale_correction_skills(
+    db: Database,
+    *,
+    max_age_days: int = 30,
+) -> int:
+    """Demote promoted ``correction-*`` skills whose ``last_used``
+    is older than ``max_age_days``. Returns the count demoted.
+
+    Rationale: a correction skill exists because the user kept
+    making the same fault. Once that fault stops recurring (user
+    learned, topic moved on, etc.), the skill should stop being
+    injected into every prompt — keeping it active forever means
+    paying 100 tokens per turn for advice the user no longer
+    needs.
+
+    ``last_used`` is set at promotion time and re-bumped when
+    handle_friction creates a NEW skill of the same fault_type
+    (recurring detection). So a skill that hasn't been re-touched
+    in 30 days = the fault_type has been quiet for 30 days = safe
+    to retire from active rotation. The row stays for audit + can
+    be re-promoted via the bridge UDS server if it turns out the
+    pattern returns.
+
+    Called lazily from ``get_active_correction_skills`` so cleanup
+    happens on read without a separate cron. Bounded query — no
+    table scan over inactive skills.
+    """
+    rows = db.fetchall(
+        """
+        SELECT id FROM skills
+        WHERE name LIKE 'correction-%' AND promoted = TRUE
+          AND (
+            last_used < datetime('now', ?)
+            OR (last_used IS NULL AND created_at < datetime('now', ?))
+          )
+        """,
+        (f"-{max_age_days} days", f"-{max_age_days} days"),
+    )
+    n = 0
+    for r in rows:
+        if demote_skill(db, r["id"]):
+            n += 1
+    if n:
+        logger.info(
+            "Expired %d stale correction skill(s) (>%dd inactive)",
+            n, max_age_days,
+        )
+    return n
+
+
+def demote_skill_by_name(db: Database, name_substring: str) -> list[dict]:
+    """User-facing demote that matches by name substring (the user
+    types ``/forget factual_error`` rather than a UUID). Returns
+    the list of demoted skill rows so the caller can confirm what
+    was actually affected — handles the common case where the user
+    types a fault-type and we demote ALL matching correction
+    skills.
+
+    Matches are case-insensitive and SQL-LIKE-shaped (no regex);
+    safer for a freeform user input than trusting them with full
+    LIKE wildcards.
+    """
+    safe = name_substring.lower().strip()
+    if not safe:
+        return []
+    rows = db.fetchall(
+        "SELECT * FROM skills WHERE LOWER(name) LIKE ? AND promoted = TRUE",
+        (f"%{safe}%",),
+    )
+    for r in rows:
+        demote_skill(db, r["id"])
+    return rows
+
+
 def increment_usage(
     db: Database,
     write_queue: WriteQueue,
