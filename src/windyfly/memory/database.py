@@ -298,6 +298,11 @@ _MIGRATIONS: dict[int, tuple[str, str]] = {
         # a partially-migrated DB must not fail. Indices are normal SQL.
         "__callable__",
     ),
+    9: (
+        "/goal Phase 2 — additive pacing columns on goals table for "
+        "timer-driven progress nudges. Idempotent ADD COLUMNs.",
+        "__callable__",
+    ),
     8: (
         "/goal slash command — session-scoped persistent objectives "
         "with two-model evaluator pattern (windy-agent feature parity "
@@ -374,8 +379,50 @@ def _migration_7_tracing(conn) -> None:
     """)
 
 
+def _migration_9_goal_pacing(conn) -> None:
+    """/goal Phase 2 — pacing columns on goals table.
+
+    Additive ADD COLUMNs (idempotent — "duplicate column" treated
+    as success). Same shape as migration 7.
+    """
+    import sqlite3
+    columns = {
+        # 0 = pacing disabled; >0 = seconds between scheduled
+        # progress-check nudges
+        "pace_seconds":   "INTEGER NOT NULL DEFAULT 0",
+        # Timestamp of last scheduled-pacing fire (NOT the same as
+        # the user-driven turn timestamp). Used to compute "due
+        # for next pacing fire?" without scanning all events.
+        "last_paced_at":  "DATETIME",
+        # chat_id where the pacing nudge should be delivered. We
+        # capture this at /goal pace time rather than re-derive
+        # from session_id so that channel-specific delivery (e.g.,
+        # Telegram chat_id) stays clean.
+        "chat_id":        "TEXT",
+        # Count of consecutive scheduled fires the user hasn't
+        # replied to. After N (default 3), auto-pause pacing —
+        # the user is clearly ignoring nudges.
+        "ignored_pace_fires": "INTEGER NOT NULL DEFAULT 0",
+    }
+    for col, coldef in columns.items():
+        try:
+            conn.execute(f"ALTER TABLE goals ADD COLUMN {col} {coldef}")
+        except sqlite3.OperationalError as e:
+            if "duplicate column" not in str(e).lower():
+                raise
+
+    conn.executescript("""
+        CREATE INDEX IF NOT EXISTS idx_goals_paced
+            ON goals(pace_seconds, last_paced_at) WHERE pace_seconds > 0;
+
+        INSERT OR IGNORE INTO schema_version (version, description)
+            VALUES (9, '/goal Phase 2 — pacing columns on goals table');
+    """)
+
+
 _CALLABLE_MIGRATIONS = {
     7: _migration_7_tracing,
+    9: _migration_9_goal_pacing,
 }
 
 

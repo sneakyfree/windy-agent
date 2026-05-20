@@ -262,6 +262,122 @@ def expire_goal(db: Database, goal_id: str) -> None:
     db.commit()
 
 
+# ── Phase 2: timer-driven pacing ──────────────────────────────────
+#
+# Pacing lets a user opt a goal into scheduled "progress check"
+# nudges: "/goal pace 4h" tells the bot to wake up every 4 hours,
+# make one concrete advance on the goal, and ping the user with the
+# result. Off by default. One pace cadence per goal (one goal per
+# session, so effectively per-session).
+#
+# Anti-spam guards live here, not in the scheduler — easier to test
+# and audit when the rules co-locate with the storage:
+#   - Quiet hours (configurable, defaults 23:00-07:00 local) skip fire
+#   - Recent-user-activity threshold (don't nudge if user just spoke)
+#   - Ignored-fire counter auto-pauses after N consecutive misses
+
+MIN_PACE_SECONDS = 5 * 60         # 5 minutes — anything less is spam
+MAX_PACE_SECONDS = 24 * 60 * 60   # 24 hours — anything more isn't pacing
+AUTO_PAUSE_AFTER_IGNORED = 3      # consecutive ignored fires → pace off
+
+
+def set_goal_pace(
+    db: Database,
+    goal_id: str,
+    *,
+    pace_seconds: int,
+    chat_id: str | None = None,
+) -> None:
+    """Set or update the pacing cadence for a goal.
+
+    pace_seconds == 0 disables pacing. Validated against MIN/MAX
+    range otherwise. chat_id is captured at this call so the
+    scheduler knows where to deliver; if not provided, prior
+    chat_id (if any) is preserved.
+    """
+    if pace_seconds < 0:
+        raise ValueError(f"pace_seconds must be >= 0, got {pace_seconds}")
+    if 0 < pace_seconds < MIN_PACE_SECONDS:
+        raise ValueError(
+            f"pace_seconds must be >= {MIN_PACE_SECONDS} (5 minutes); "
+            f"got {pace_seconds}"
+        )
+    if pace_seconds > MAX_PACE_SECONDS:
+        raise ValueError(
+            f"pace_seconds must be <= {MAX_PACE_SECONDS} (24 hours); "
+            f"got {pace_seconds}"
+        )
+    if chat_id is not None:
+        db.execute(
+            "UPDATE goals SET pace_seconds = ?, chat_id = ?, "
+            "ignored_pace_fires = 0 WHERE id = ?",
+            (pace_seconds, chat_id, goal_id),
+        )
+    else:
+        db.execute(
+            "UPDATE goals SET pace_seconds = ?, "
+            "ignored_pace_fires = 0 WHERE id = ?",
+            (pace_seconds, goal_id),
+        )
+    db.commit()
+
+
+def mark_paced(db: Database, goal_id: str, *, fired: bool = True) -> None:
+    """Update last_paced_at when a scheduled fire occurs. When
+    ``fired`` is True the timestamp is set to now; when False the
+    counter is bumped (used to record skipped fires)."""
+    if fired:
+        db.execute(
+            "UPDATE goals SET last_paced_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (goal_id,),
+        )
+    db.commit()
+
+
+def bump_ignored_fires(db: Database, goal_id: str) -> int:
+    """Increment ignored_pace_fires; return new count. Caller pauses
+    pacing once count >= AUTO_PAUSE_AFTER_IGNORED."""
+    db.execute(
+        "UPDATE goals SET ignored_pace_fires = ignored_pace_fires + 1 "
+        "WHERE id = ?",
+        (goal_id,),
+    )
+    db.commit()
+    row = db.fetchone(
+        "SELECT ignored_pace_fires AS n FROM goals WHERE id = ?",
+        (goal_id,),
+    )
+    return int((row or {}).get("n", 0))
+
+
+def reset_ignored_fires(db: Database, goal_id: str) -> None:
+    """Called when the user replies after a paced fire — they're
+    engaged, reset the auto-pause counter."""
+    db.execute(
+        "UPDATE goals SET ignored_pace_fires = 0 WHERE id = ?",
+        (goal_id,),
+    )
+    db.commit()
+
+
+def goals_due_for_pacing(db: Database) -> list[dict[str, Any]]:
+    """Active goals whose ``pace_seconds`` has elapsed since their
+    ``last_paced_at`` (or since ``created_at`` if never paced).
+    Used by the scheduler loop to find work each tick.
+    """
+    return db.fetchall(
+        "SELECT *, "
+        "  CAST((julianday('now') - "
+        "        julianday(COALESCE(last_paced_at, created_at))) * 86400 "
+        "       AS INTEGER) AS seconds_since "
+        "FROM goals "
+        "WHERE status = 'active' AND pace_seconds > 0 "
+        "  AND CAST((julianday('now') - "
+        "            julianday(COALESCE(last_paced_at, created_at))) * 86400 "
+        "           AS INTEGER) >= pace_seconds",
+    )
+
+
 def get_progress_notes(goal: dict[str, Any], limit: int = 5) -> list[str]:
     """Pull the last ``limit`` progress notes out of the evaluator
     history for the /goal status reply. Returns most-recent-first."""
