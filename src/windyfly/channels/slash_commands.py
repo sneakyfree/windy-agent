@@ -262,6 +262,23 @@ def parse_goal_command(
     if arg_lower in _GOAL_DONE_WORDS:
         return True, "done", None
 
+    # /goal autorun [N|stop] — Phase 3 bounded autonomous loop.
+    # Returns subcommand ∈ {autorun_start, autorun_stop, autorun_invalid}.
+    if arg_lower.startswith("autorun"):
+        rest = arg[7:].strip()
+        if not rest:
+            return True, "autorun_start", "5"  # default 5 turns
+        if rest.lower() in ("stop", "cancel", "off", "abort"):
+            return True, "autorun_stop", None
+        # Numeric N
+        try:
+            n = int(rest)
+            if n < 1:
+                return True, "autorun_invalid", rest
+            return True, "autorun_start", str(n)
+        except ValueError:
+            return True, "autorun_invalid", rest
+
     # /goal pace <duration> — Phase 2 timer pacing. Parsed here
     # because the subcommand has its own argument format. Returns
     # ("pace", <seconds-as-int-string-or-'off'>).

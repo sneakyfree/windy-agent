@@ -378,6 +378,91 @@ def goals_due_for_pacing(db: Database) -> list[dict[str, Any]]:
     )
 
 
+# ── Phase 3: autorun (bounded autonomous loop) ─────────────────────
+#
+# /goal autorun N runs the agent for up to N turns without user
+# input, then delivers a single summary message. Off by default;
+# explicit opt-in. Hard caps live here in storage to keep them
+# audit-friendly and uniformly enforced regardless of caller.
+#
+# The orchestrator that consumes these helpers lives in
+# ``agent/goal_autorun.py``.
+
+AUTORUN_MAX_TURNS_HARD_CAP = 10        # cannot be overridden
+AUTORUN_MAX_TOKENS_PER_RUN = 50_000    # cost-overrun protection
+AUTORUN_MAX_WALL_SECONDS = 5 * 60      # 5 minutes wall-clock cap
+
+
+def start_autorun(
+    db: Database,
+    goal_id: str,
+    *,
+    max_turns: int,
+    chat_id: str | None = None,
+) -> int:
+    """Begin an autorun on the goal. Returns the effective
+    max_turns (clamped to AUTORUN_MAX_TURNS_HARD_CAP).
+
+    Idempotent in spirit: calling on an already-running autorun
+    REPLACES it with the new max_turns (use case: user wants more
+    turns mid-run). chat_id is captured for the summary delivery.
+    """
+    if max_turns < 1:
+        raise ValueError(f"max_turns must be >= 1, got {max_turns}")
+    capped = min(max_turns, AUTORUN_MAX_TURNS_HARD_CAP)
+    if chat_id is not None:
+        db.execute(
+            "UPDATE goals SET autorun_remaining = ?, autorun_max_turns = ?, "
+            "autorun_started_at = CURRENT_TIMESTAMP, "
+            "autorun_tokens_used = 0, chat_id = ? WHERE id = ?",
+            (capped, capped, chat_id, goal_id),
+        )
+    else:
+        db.execute(
+            "UPDATE goals SET autorun_remaining = ?, autorun_max_turns = ?, "
+            "autorun_started_at = CURRENT_TIMESTAMP, "
+            "autorun_tokens_used = 0 WHERE id = ?",
+            (capped, capped, goal_id),
+        )
+    db.commit()
+    return capped
+
+
+def decrement_autorun(
+    db: Database,
+    goal_id: str,
+    *,
+    tokens_used: int = 0,
+) -> int:
+    """Decrement remaining turns + accumulate token usage. Returns
+    the new ``autorun_remaining``. The orchestrator calls this
+    AFTER each turn so the count reflects "turns left to run."
+    """
+    db.execute(
+        "UPDATE goals SET autorun_remaining = MAX(0, autorun_remaining - 1), "
+        "autorun_tokens_used = autorun_tokens_used + ? WHERE id = ?",
+        (tokens_used, goal_id),
+    )
+    db.commit()
+    row = db.fetchone(
+        "SELECT autorun_remaining AS n FROM goals WHERE id = ?", (goal_id,),
+    )
+    return int((row or {}).get("n", 0))
+
+
+def stop_autorun(db: Database, goal_id: str) -> None:
+    """Force-stop the autorun on a goal. Called by:
+      - User typing ``/goal autorun stop``
+      - Channel detecting user message during autorun (cancellation)
+      - Cost/wall-clock/turn caps tripping
+    """
+    db.execute(
+        "UPDATE goals SET autorun_remaining = 0 WHERE id = ?",
+        (goal_id,),
+    )
+    db.commit()
+
+
 def get_progress_notes(goal: dict[str, Any], limit: int = 5) -> list[str]:
     """Pull the last ``limit`` progress notes out of the evaluator
     history for the /goal status reply. Returns most-recent-first."""

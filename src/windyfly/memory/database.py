@@ -303,6 +303,11 @@ _MIGRATIONS: dict[int, tuple[str, str]] = {
         "timer-driven progress nudges. Idempotent ADD COLUMNs.",
         "__callable__",
     ),
+    10: (
+        "/goal Phase 3 — additive autorun columns on goals table for "
+        "bounded autonomous loop. Idempotent ADD COLUMNs.",
+        "__callable__",
+    ),
     8: (
         "/goal slash command — session-scoped persistent objectives "
         "with two-model evaluator pattern (windy-agent feature parity "
@@ -420,9 +425,50 @@ def _migration_9_goal_pacing(conn) -> None:
     """)
 
 
+def _migration_10_goal_autorun(conn) -> None:
+    """/goal Phase 3 — autorun (bounded autonomous loop) columns.
+
+    Additive ADD COLUMNs (idempotent — "duplicate column" treated
+    as success). Reuses chat_id from migration 9 for delivery.
+    """
+    import sqlite3
+    columns = {
+        # Countdown from autorun_max_turns to 0. When 0, no autorun
+        # is active. When >0, the agent loop is iterating
+        # autonomously on this goal.
+        "autorun_remaining":    "INTEGER NOT NULL DEFAULT 0",
+        # Captured at autorun start so /goal status can show the
+        # ratio (e.g., "3/10 turns remaining"). Doesn't decrement.
+        "autorun_max_turns":    "INTEGER NOT NULL DEFAULT 0",
+        # Timestamp of the most recent autorun start. Used for
+        # wall-clock safety cap (autorun aborts after N minutes
+        # regardless of turns remaining).
+        "autorun_started_at":   "DATETIME",
+        # Running tally of tokens consumed during the current
+        # autorun. Hard-capped by AUTORUN_MAX_TOKENS_PER_RUN —
+        # aborts when exceeded (cost-overrun protection).
+        "autorun_tokens_used":  "INTEGER NOT NULL DEFAULT 0",
+    }
+    for col, coldef in columns.items():
+        try:
+            conn.execute(f"ALTER TABLE goals ADD COLUMN {col} {coldef}")
+        except sqlite3.OperationalError as e:
+            if "duplicate column" not in str(e).lower():
+                raise
+
+    conn.executescript("""
+        CREATE INDEX IF NOT EXISTS idx_goals_autorun_active
+            ON goals(autorun_remaining) WHERE autorun_remaining > 0;
+
+        INSERT OR IGNORE INTO schema_version (version, description)
+            VALUES (10, '/goal Phase 3 — autorun columns on goals table');
+    """)
+
+
 _CALLABLE_MIGRATIONS = {
     7: _migration_7_tracing,
     9: _migration_9_goal_pacing,
+    10: _migration_10_goal_autorun,
 }
 
 
