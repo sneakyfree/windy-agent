@@ -732,6 +732,39 @@ def agent_respond(
         messages.insert(1, {"role": "system", "content": get_capability_nudge()})
         mark_capabilities_nudged(db)
 
+    # 1.45. Lessons learned — inject promoted correction skills
+    # from past recurring failures into the system prompt. This
+    # closes the "agent self-improves over time" loop: PR #211
+    # made correction-skill CREATION actually fire on recurring
+    # friction; this hook makes those skills actually APPLY on
+    # future turns. Without it, skills accumulated in the DB but
+    # the bot never read them — the evolves-over-time claim
+    # silently no-op'd from launch through 2026-05-20.
+    try:
+        from windyfly.memory.skills import (
+            extract_correction_text, get_active_correction_skills,
+        )
+        active_corrections = get_active_correction_skills(db, limit=5)
+        if active_corrections:
+            lessons: list[str] = []
+            for sk in active_corrections:
+                txt = extract_correction_text(sk.get("code") or "")
+                if txt:
+                    lessons.append(f"- ({sk.get('name','correction')}) {txt}")
+            if lessons:
+                messages.insert(1, {
+                    "role": "system",
+                    "content": (
+                        "## Lessons learned from past corrections\n\n"
+                        "The user has corrected you on these patterns in "
+                        "the past. Apply them proactively this turn — "
+                        "don't wait to be corrected again.\n\n"
+                        + "\n".join(lessons)
+                    ),
+                })
+    except Exception as e:
+        logger.debug("correction-skill injection errored: %s", e)
+
     # 1.5. Friction detection (Never Wrong Twice)
     from windyfly.agent.failure_detector import detect_friction, handle_friction
 
