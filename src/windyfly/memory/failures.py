@@ -118,25 +118,44 @@ def resolve_failure(
 def check_recurring_failure(
     db: Database,
     fault_type: str,
-    description: str,
+    description: str,  # noqa: ARG001 — kept for back-compat call sites
 ) -> bool:
-    """Check if a similar failure occurred in the last 7 days.
+    """Check if a same-fault-type failure occurred in the last 7 days.
+
+    Surfaced 2026-05-20 (v18 self-improvement e2e harness): the
+    pre-fix version required ``description LIKE %<desc[:50]>%`` —
+    which means recurring detection only fired when the user's
+    correction text was nearly IDENTICAL to a prior one. Different
+    factual errors (e.g., "Berlin not Paris" vs "Tanzania not
+    Kenya") produced no match → recurring never detected →
+    auto-correction-skill creation never fired → the "agent
+    self-improves over time" claim was broken in production.
+
+    The intent per ``handle_friction``'s docstring is to detect
+    when the user keeps correcting the agent on the SAME PATTERN
+    (factual_error vs preference_miss vs execution_failure), not
+    the same specific fact. The fault_type IS the pattern; the
+    description is per-incident detail. Match on fault_type alone
+    within the 7-day window.
+
+    ``description`` arg kept (unused) so call sites don't have to
+    change their signature.
 
     Args:
         db: Database instance.
         fault_type: The failure type to check.
-        description: Description to match against.
+        description: (Unused — kept for back-compat.)
 
     Returns:
-        True if a similar failure exists recently.
+        True iff at least one prior failure of the same
+        ``fault_type`` was logged in the last 7 days.
     """
     row = db.fetchone(
         """
         SELECT COUNT(*) as count FROM failures
         WHERE fault_type = ?
-          AND description LIKE ?
           AND created_at >= datetime('now', '-7 days')
         """,
-        (fault_type, f"%{description[:50]}%"),
+        (fault_type,),
     )
     return bool(row and row["count"] > 0)
