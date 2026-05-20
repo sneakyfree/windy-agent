@@ -418,7 +418,7 @@ class TestLoopIntegration:
         config, db, wq = stack
         captured: dict = {}
 
-        def fake_call(messages, *, model, temperature, max_tokens, tools, config):
+        def fake_call(messages, *, model, temperature, max_tokens, tools, config, **kwargs):
             captured["tools"] = tools
             return {
                 "content": "Researched answer", "input_tokens": 50,
@@ -440,7 +440,7 @@ class TestLoopIntegration:
         monkeypatch.setenv("WINDY_NATIVE_WEB_SEARCH", "0")
         captured: dict = {}
 
-        def fake_call(messages, *, model, temperature, max_tokens, tools, config):
+        def fake_call(messages, *, model, temperature, max_tokens, tools, config, **kwargs):
             captured["tools"] = tools
             return {
                 "content": "Standard answer", "input_tokens": 10,
@@ -483,7 +483,7 @@ class TestLoopIntegration:
         config, db, wq = stack
         retry_capture: dict = {"calls": []}
 
-        def fake_call(messages, *, model, temperature, max_tokens, tools, config):
+        def fake_call(messages, *, model, temperature, max_tokens, tools, config, **kwargs):
             retry_capture["calls"].append(tools)
             if len(retry_capture["calls"]) == 1:
                 # First call has the native tool — reject with

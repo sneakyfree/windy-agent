@@ -685,7 +685,10 @@ def test_A_path_nudge_inserts_system_message_when_caps_present(
     _run_agent_respond(db, wq, "what's in my SOUL.md file?")
     first_msgs = mock_llm.calls[0]["messages"]
     system_msgs = [m["content"] for m in first_msgs if m.get("role") == "system"]
-    assert any("fs.read_file" in s for s in system_msgs), (
+    # Use the path-nudge-specific phrase (rather than just the bare
+    # "fs.read_file" substring) so this stays a precise check after
+    # PR #200's static BIAS TO ACTION block also mentioned fs.read_file.
+    assert any("on the local machine" in s for s in system_msgs), (
         "expected the path-mention nudge system message to be injected"
     )
 
@@ -701,7 +704,11 @@ def test_A_path_nudge_does_NOT_fire_when_no_fs_capability(
     _run_agent_respond(db, wq, "what's in my SOUL.md?")
     first_msgs = mock_llm.calls[0]["messages"]
     system_msgs = [m["content"] for m in first_msgs if m.get("role") == "system"]
-    assert not any("fs.read_file" in s for s in system_msgs)
+    # Look for the path-nudge-specific phrase rather than just the bare
+    # "fs.read_file" substring — PR #200 added a BIAS TO ACTION block
+    # that mentions fs.read_file in the static system prompt, which
+    # would false-positive a substring check.
+    assert not any("on the local machine" in s for s in system_msgs)
 
 
 def test_A_path_nudge_does_NOT_fire_for_non_local_message(
@@ -716,4 +723,8 @@ def test_A_path_nudge_does_NOT_fire_for_non_local_message(
     _run_agent_respond(db, wq, "what's the weather in SF?")
     first_msgs = mock_llm.calls[0]["messages"]
     system_msgs = [m["content"] for m in first_msgs if m.get("role") == "system"]
-    assert not any("fs.read_file" in s for s in system_msgs)
+    # Look for the path-nudge-specific phrase rather than just the bare
+    # "fs.read_file" substring — PR #200 added a BIAS TO ACTION block
+    # that mentions fs.read_file in the static system prompt, which
+    # would false-positive a substring check.
+    assert not any("on the local machine" in s for s in system_msgs)
