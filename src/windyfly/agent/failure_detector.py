@@ -94,6 +94,21 @@ def handle_friction(
                 description=f"Auto-generated correction for recurring {fault_type}",
                 risk_level="low",
             )
+            # Auto-promote so the skill is actually USED in future
+            # turns. Without auto-promotion, correction skills sit
+            # in the DB unread — the "evolves over time" claim was
+            # silently broken from launch through 2026-05-20 v18
+            # finding. Low risk_level + low-confidence advice
+            # ("double-check facts") justifies opt-out-not-opt-in
+            # promotion. Operators can demote manually via the
+            # bridge UDS server.
+            try:
+                from windyfly.skills.manager import promote_skill
+                promote_skill(db, correction_skill_id)
+            except Exception as pe:
+                logger.debug(
+                    "Could not auto-promote correction skill: %s", pe,
+                )
         except Exception as e:
             logger.debug("Could not create correction skill: %s", e)
 
