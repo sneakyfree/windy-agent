@@ -83,6 +83,46 @@ def main() -> int:
         lines.append("_Nothing needs fixing this week. Just enjoy the bot._")
         lines.append("")
 
+    # Phase 6.4 — launch gauntlet roll-up.
+    # Best-effort: skip silently if RESULTS.json missing or malformed.
+    try:
+        import json as _json
+        from pathlib import Path as _Path
+        gauntlet_path = (
+            _Path.home() / ".windy-stress" / "LAUNCH_GAUNTLET_RESULTS.json"
+        )
+        if gauntlet_path.exists():
+            gdata = _json.loads(gauntlet_path.read_text())
+            gcounts: dict[str, int] = {}
+            gtotal = 0
+            for phase in gdata.get("phases", []):
+                for sub in phase.get("subs", []) or []:
+                    s = sub.get("status", "not_started")
+                    gcounts[s] = gcounts.get(s, 0) + 1
+                    gtotal += 1
+            if gtotal:
+                ggreen = gcounts.get("green", 0)
+                gpct = (ggreen / gtotal * 100) if gtotal else 0
+                lines.append("*Launch Gauntlet:*")
+                lines.append(
+                    f"  {ggreen}/{gtotal} cells green ({gpct:.0f}%)"
+                )
+                if ggreen < gtotal:
+                    unresolved = sum(
+                        gcounts.get(k, 0)
+                        for k in ("not_started", "in_progress", "red")
+                    )
+                    blocked = gcounts.get("blocked", 0)
+                    if unresolved:
+                        lines.append(
+                            f"  ⏳ {unresolved} unresolved, 🚫 {blocked} blocked"
+                        )
+                else:
+                    lines.append("  🎉 *Gauntlet fully green!*")
+                lines.append("")
+    except Exception:  # noqa: BLE001 — best-effort recap enrichment
+        pass
+
     lines.append("Whenever you want a fresh start, just say /reset.")
     print("\n".join(lines))
     return 0
