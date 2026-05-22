@@ -125,6 +125,72 @@ def current_state() -> LifeboatState:
     return LifeboatState.HEALTHY
 
 
+class LifeboatFSM:
+    """Explicit FSM facade for the lifeboat system (Phase 2.2.2).
+
+    Thin wrapper over the existing transition primitives (resurrect,
+    normalize, attempt_paid_recovery, auto_resurrect_attempt). Each
+    method names a transition explicitly and emits a structured log
+    event so operators can trace state changes after the fact.
+
+    The underlying file-flag mechanics are unchanged — this class is
+    a NAMING layer, not a behavior layer. Existing callers (loop.py,
+    telegram_bot.py) can migrate to FSM.transition_*() incrementally;
+    the old function-level API stays public for back-compat.
+
+    States: HEALTHY / DEGRADED / LIFEBOAT / RECOVERING / AUTH_DEAD
+    (see LifeboatState enum + docs/LIFEBOAT_FSM_AS_BUILT.md).
+    """
+
+    @staticmethod
+    def state() -> "LifeboatState":
+        """Current FSM state — see current_state() for precedence."""
+        return current_state()
+
+    @staticmethod
+    def enter_lifeboat(
+        actor: str = "user",
+        previous_model: str | None = None,
+    ) -> dict[str, Any]:
+        """Transition * → LIFEBOAT (manual or auto)."""
+        prior = current_state()
+        result = resurrect(actor=actor, previous_model=previous_model)
+        new = current_state()
+        logger.info(
+            "fsm.transition from=%s to=%s trigger=enter_lifeboat actor=%s ok=%s",
+            prior.value, new.value, actor, result.get("ok"),
+        )
+        return result
+
+    @staticmethod
+    def exit_to_healthy() -> dict[str, Any]:
+        """Transition LIFEBOAT → HEALTHY via /normal."""
+        prior = current_state()
+        result = normalize()
+        new = current_state()
+        logger.info(
+            "fsm.transition from=%s to=%s trigger=exit_to_healthy ok=%s",
+            prior.value, new.value, result.get("ok"),
+        )
+        return result
+
+    @staticmethod
+    def probe_recovery() -> dict[str, Any]:
+        """LIFEBOAT → RECOVERING (success) or LIFEBOAT (probe failed)."""
+        prior = current_state()
+        result = attempt_paid_recovery()
+        new = current_state()
+        logger.info(
+            "fsm.transition from=%s to=%s trigger=probe_recovery recovered=%s",
+            prior.value, new.value, result.get("recovered"),
+        )
+        return result
+
+
+# Module-level singleton (parallel to capability_registry pattern).
+fsm = LifeboatFSM()
+
+
 # ── Curated preference list ───────────────────────────────────────
 #
 # Ordered best-quality first within each tier. The picker walks this
