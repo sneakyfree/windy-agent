@@ -33,6 +33,7 @@ the chosen model. ``offline.get_offline_response`` honors the
 
 from __future__ import annotations
 
+import enum
 import json
 import logging
 import os
@@ -41,6 +42,77 @@ from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+# ── Lifeboat FSM observability layer ─────────────────────────────
+#
+# Phase 2.2.2 — observability-only enum mapping the implicit state
+# machine documented in docs/LIFEBOAT_FSM_AS_BUILT.md. NO BEHAVIOR
+# CHANGE in this commit — `current_state()` reads the existing flags
+# and returns the matching enum value. The full FSM-enforcement
+# refactor (transitions own side effects) is gated on the 5 design
+# questions in §5 of the as-built doc.
+#
+# State definitions match the §5 proposal:
+#   HEALTHY   — no resurrect flag, no provider cooldowns active
+#   DEGRADED  — no resurrect flag, ≥1 provider cooldown active
+#   LIFEBOAT  — resurrect flag present (subsumes _HEALTHY / _PROBING /
+#               _WEDGED — those are tick-internal behaviors, not
+#               durable states per as-built doc §5 mapping)
+#   RECOVERING — post-recovery grace window active (anti-ping-pong)
+#   AUTH_DEAD — provider in perma-auth long cooldown (1h via #210)
+#
+# AUTH_DEAD is currently emergent (no durable flag — only the
+# _provider_cooldowns dict). This enum surfaces it as a first-class
+# state even before the durability refactor lands.
+
+
+class LifeboatState(enum.Enum):
+    HEALTHY = "healthy"
+    DEGRADED = "degraded"
+    LIFEBOAT = "lifeboat"
+    RECOVERING = "recovering"
+    AUTH_DEAD = "auth_dead"
+
+
+def current_state() -> LifeboatState:
+    """Read the current implicit FSM state from flag files + module
+    state. NO side effects — just observability.
+
+    Precedence (most-derived first so callers get the most useful
+    label when multiple conditions hold):
+      1. LIFEBOAT (resurrect flag present)
+      2. RECOVERING (5-min grace window after successful probe)
+      3. AUTH_DEAD (any provider in perma-auth long cooldown)
+      4. DEGRADED (any provider in regular cooldown)
+      5. HEALTHY (none of the above)
+    """
+    if _flag_path().exists():
+        return LifeboatState.LIFEBOAT
+    if _within_post_recovery_grace():
+        return LifeboatState.RECOVERING
+    # Check provider cooldowns — import lazily so resurrect.py stays
+    # importable without the models module being fully initialized.
+    try:
+        from windyfly.agent.models import _provider_cooldowns  # noqa: PLC0415
+        import time as _time
+        now = _time.time()
+        for _provider, val in (_provider_cooldowns or {}).items():
+            if not (isinstance(val, tuple) and len(val) == 2):
+                continue
+            until, _attempts = val
+            if until <= now:
+                continue
+            remaining = until - now
+            # If remaining cooldown is "long" (>15min), classify as
+            # AUTH_DEAD per #210 (1h perma-auth cooldown).
+            if remaining > 900:
+                return LifeboatState.AUTH_DEAD
+            return LifeboatState.DEGRADED
+    except Exception:  # noqa: BLE001 — observability path, never raise
+        logger.debug("current_state: provider cooldown probe failed",
+                     exc_info=True)
+    return LifeboatState.HEALTHY
 
 
 # ── Curated preference list ───────────────────────────────────────
