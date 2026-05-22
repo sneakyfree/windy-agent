@@ -97,6 +97,11 @@ def current_state() -> LifeboatState:
         from windyfly.agent.models import _provider_cooldowns  # noqa: PLC0415
         import time as _time
         now = _time.time()
+        # Scan ALL cooldowns first so precedence is determined by the
+        # highest-priority match (AUTH_DEAD beats DEGRADED) regardless
+        # of dict iteration order.
+        has_auth_dead = False
+        has_degraded = False
         for _provider, val in (_provider_cooldowns or {}).items():
             if not (isinstance(val, tuple) and len(val) == 2):
                 continue
@@ -107,7 +112,12 @@ def current_state() -> LifeboatState:
             # If remaining cooldown is "long" (>15min), classify as
             # AUTH_DEAD per #210 (1h perma-auth cooldown).
             if remaining > 900:
-                return LifeboatState.AUTH_DEAD
+                has_auth_dead = True
+            else:
+                has_degraded = True
+        if has_auth_dead:
+            return LifeboatState.AUTH_DEAD
+        if has_degraded:
             return LifeboatState.DEGRADED
     except Exception:  # noqa: BLE001 — observability path, never raise
         logger.debug("current_state: provider cooldown probe failed",
