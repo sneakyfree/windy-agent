@@ -168,6 +168,69 @@ def _register_all():
                 f"Model: {model} | Budget: ${budget}/day")
     _r("version", "Show version, Python, OS, architecture", "01_process", cmd_version, aliases=["ver", "v"])
 
+    async def cmd_launch_readiness(ctx):
+        """Print the gauntlet dashboard summary.
+
+        Reads ~/.windy-stress/LAUNCH_GAUNTLET_RESULTS.json, returns a
+        compact roll-up. Heavy lifting is in
+        scripts/render_gauntlet_dashboard.py which produces the full
+        markdown view; this slash command surfaces the headline so
+        Grant can /launch-readiness from Telegram on the go.
+        """
+        import json as _json
+        path = Path.home() / ".windy-stress" / "LAUNCH_GAUNTLET_RESULTS.json"
+        if not path.exists():
+            return (
+                "🚀 Launch gauntlet not initialized — "
+                f"{path} missing. Run the launch-gauntlet bootstrap first."
+            )
+        try:
+            d = _json.loads(path.read_text())
+        except (_json.JSONDecodeError, OSError) as e:
+            return f"🚀 Launch gauntlet: couldn't read RESULTS — {e}"
+
+        # Roll up status counts
+        counts: dict[str, int] = {}
+        total = 0
+        leftmost = None
+        for phase in d.get("phases", []):
+            for sub in phase.get("subs", []) or []:
+                s = sub.get("status", "not_started")
+                counts[s] = counts.get(s, 0) + 1
+                total += 1
+                if (leftmost is None
+                        and s in ("not_started", "in_progress", "red")):
+                    leftmost = (phase.get("id"), sub.get("id"), sub.get("name", ""))
+
+        emoji_map = {
+            "green": "✅", "in_progress": "⏳", "blocked": "🚫",
+            "backlog": "📦", "not_started": "⚪", "red": "❌",
+        }
+        lines = [f"🚀 *Windy Fly Launch Gauntlet* — {total} cells"]
+        for k in ("green", "in_progress", "blocked", "backlog",
+                  "not_started", "red"):
+            c = counts.get(k, 0)
+            if c:
+                pct = (c / total * 100) if total else 0
+                lines.append(f"  {emoji_map[k]} {k}: {c} ({pct:.0f}%)")
+        green = counts.get("green", 0)
+        unresolved = (counts.get("not_started", 0)
+                      + counts.get("in_progress", 0)
+                      + counts.get("red", 0))
+        if green == total and unresolved == 0:
+            lines.append("\n🎉 *FULLY GREEN — ready for canary!*")
+        elif leftmost:
+            ph_id, sub_id, name = leftmost
+            lines.append(f"\nNext: Phase {ph_id}/{sub_id} — {name[:60]}")
+        return "\n".join(lines)
+
+    _r(
+        "launch-readiness",
+        "Show gauntlet pass/fail roll-up (Phase 6.3)",
+        "02_diagnostics", cmd_launch_readiness,
+        aliases=["launch", "readiness", "gauntlet"],
+    )
+
     async def cmd_uptime(ctx):
         pid_file = Path("data/windyfly.pid")
         if pid_file.exists():
