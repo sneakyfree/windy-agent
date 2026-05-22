@@ -218,8 +218,12 @@ def _register_all():
                     nodes = count_nodes(_db)
                     episodes = count_episodes(_db)
                     lines.append(f"  ✓ {nodes} nodes, {episodes} episodes")
-                except Exception:
-                    lines.append("  ? Could not query database")
+                except Exception as e:
+                    logger.warning("doctor: db count query failed", exc_info=True)
+                    lines.append(
+                        f"  ? Could not query database — "
+                        f"{type(e).__name__}: {e}"
+                    )
         else:
             lines.append(f"  ✗ {db_path} — NOT FOUND")
         lines.append("\nAudio:")
@@ -306,7 +310,10 @@ def _register_all():
                     f"on {live_model} fallback ({actor})"
                 )
         except Exception:
-            pass
+            logger.debug(
+                "/status: resurrection_state lookup failed",
+                exc_info=True,
+            )
 
         # Health: visual signal at the top of the report.
         if degraded_reason:
@@ -366,7 +373,10 @@ def _register_all():
                     f"({used/1000:.1f}K of {cap_str} used) {dot}"
                 )
             except Exception:
-                pass
+                logger.debug(
+                    "/status: memory-line enrichment failed",
+                    exc_info=True,
+                )
 
         # ── Brain (model + effective context cap) ─────────────────
         # PR #198 — show the cap actually in effect for this channel
@@ -446,7 +456,10 @@ def _register_all():
                         f"budget ({pct_used:.0f}% used)"
                     )
         except Exception:
-            pass
+            logger.debug(
+                "/status: today-line cost ledger lookup failed",
+                exc_info=True,
+            )
 
         # ── Session info (rolling counter from PR #193) ───────────
         session_line = None
@@ -462,7 +475,10 @@ def _register_all():
                     f"✨ Session: {sid} ({resets} fresh start{plural})"
                 )
             except Exception:
-                pass
+                logger.debug(
+                    "/status: session-line lookup failed",
+                    exc_info=True,
+                )
 
         # ── What I remember about you (node count) ────────────────
         facts_line = None
@@ -474,7 +490,10 @@ def _register_all():
                     f"📚 Memory of you: {n} fact{'s' if n != 1 else ''}"
                 )
         except Exception:
-            pass
+            logger.debug(
+                "/status: facts-line node count failed",
+                exc_info=True,
+            )
 
         # ── Tools I can use (capability registry count) ───────────
         tools_line = None
@@ -485,7 +504,10 @@ def _register_all():
                 f"🛠️ Tools available: {n}"
             )
         except Exception:
-            pass
+            logger.debug(
+                "/status: tools-line capability registry lookup failed",
+                exc_info=True,
+            )
 
         # ── Persistence / identity ────────────────────────────────
         db_path = os.environ.get("WINDYFLY_DB_PATH", "data/windyfly.db")
@@ -948,7 +970,11 @@ def _register_all():
                 if m:
                     return m
             except Exception:
-                pass
+                logger.debug(
+                    "_resolve_active_model: session_reset lookup failed; "
+                    "falling through to env/config/default",
+                    exc_info=True,
+                )
         env = os.environ.get("DEFAULT_MODEL")
         if env:
             return env
