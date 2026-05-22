@@ -396,45 +396,11 @@ def _mark_auto_attempt() -> None:
         logger.debug("auto-resurrect mark failed: %s", e)
 
 
-def is_permanent_auth_error(error_str: str | None) -> bool:
-    """Classify a chain-exhaustion error string as permanent-auth
-    vs. transient. Permanent-auth = the provider rejected the
-    credential itself (401 invalid x-api-key, 403 permission
-    denied on org). Transient = rate limit, 5xx, network blip —
-    those WILL eventually clear; resurrect is the right answer
-    for them. Permanent-auth WON'T clear without operator
-    intervention, so resurrecting just wedges the bot in lifeboat
-    while paid keeps 401-ing on every escape attempt.
-
-    Surfaced 2026-05-20: Grant's OAuth Max token (sk-ant-oat01-…)
-    expired; auto_resurrect kept firing on every 401, wedging
-    lifeboat. PR #201's escape mechanism worked correctly but
-    couldn't overcome the underlying permanent failure — the
-    bot needed to STOP trying lifeboat and surface "your auth is
-    dead" instead.
-
-    Conservative pattern: require BOTH "401" (HTTP status) AND
-    one of the auth-specific Anthropic markers ("authentication_
-    error" / "invalid x-api-key" / "invalid api key"). The
-    double-signal requirement avoids treating ambiguous 401s
-    (e.g., from a 5xx mis-labeled by some intermediate proxy)
-    as permanent. Falls back to "transient" (resurrect-OK) on
-    any uncertainty — safer to enter lifeboat than to strand
-    the user.
-    """
-    if not error_str:
-        return False
-    s = error_str.lower()
-    has_401 = "401" in s or "403" in s
-    auth_markers = (
-        "authentication_error", "authentication error",
-        "invalid x-api-key", "invalid api key",
-        "invalid_api_key", "invalid_authentication",
-        "permission_error",
-        "credit balance is too low",
-    )
-    has_auth_marker = any(m in s for m in auth_markers)
-    return has_401 and has_auth_marker
+# Phase 2.2.2 Q5 — is_permanent_auth_error moved to agent/auth_state.py
+# so models.py and resurrect.py share one classifier. Re-exported here
+# for backwards compatibility (test_no_resurrect_on_401.py and many
+# other call sites import from agent.resurrect).
+from windyfly.agent.auth_state import is_permanent_auth_error  # noqa: F401, E402
 
 
 def auto_resurrect_attempt(
