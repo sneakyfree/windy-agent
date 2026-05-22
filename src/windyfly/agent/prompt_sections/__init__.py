@@ -14,6 +14,7 @@ caller in prompt.py imports BIAS_TO_ACTION_TEXT and appends it to
 system_parts exactly where the inline string used to be.
 """
 
+from windyfly.agent.prompt_sections.active_goal import render_active_goal
 from windyfly.agent.prompt_sections.bias_to_action import BIAS_TO_ACTION_TEXT
 from windyfly.agent.prompt_sections.epistemic import EPISTEMIC_TEXT
 from windyfly.agent.prompt_sections.first_contact import FIRST_CONTACT_TEXT
@@ -28,4 +29,5 @@ __all__ = [
     "GRANDMA_MODE_TEXT",
     "LOW_WORKING_MEMORY_TEXT",
     "RUNTIME_GUARDRAIL_TEXT",
+    "render_active_goal",
 ]

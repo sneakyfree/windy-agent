@@ -116,21 +116,8 @@ def assemble_prompt(
         # the user can re-set with /goal if anything was lost.
         active_goal = None
     if active_goal:
-        system_parts.append(
-            "🎯 ACTIVE GOAL — the user set this objective for the "
-            "session. Orient every turn around concrete progress on "
-            f"it.\n\n  > {active_goal['text']}\n\n"
-            "Rules while a goal is active:\n"
-            "1. Don't recap the goal back at the user. They set it; "
-            "they know. Just work on it.\n"
-            "2. If the user goes off-topic, briefly say 'we're paused "
-            "on the goal' and follow them — don't refuse.\n"
-            "3. When the goal is genuinely met (deliverable produced "
-            "OR user explicitly thanks you), say so explicitly — the "
-            "evaluator will see your confirmation and close the goal.\n"
-            "4. The user can type /goal status, /goal done, or "
-            "/goal clear any time."
-        )
+        from windyfly.agent.prompt_sections import render_active_goal
+        system_parts.append(render_active_goal(active_goal["text"]))
 
     # Phase 2.3.2 (partial — 3rd section). See prompt_sections/epistemic.py
     from windyfly.agent.prompt_sections import EPISTEMIC_TEXT
