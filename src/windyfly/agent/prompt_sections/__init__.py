@@ -15,6 +15,7 @@ system_parts exactly where the inline string used to be.
 """
 
 from windyfly.agent.prompt_sections.bias_to_action import BIAS_TO_ACTION_TEXT
+from windyfly.agent.prompt_sections.epistemic import EPISTEMIC_TEXT
 from windyfly.agent.prompt_sections.runtime_guardrail import RUNTIME_GUARDRAIL_TEXT
 
-__all__ = ["BIAS_TO_ACTION_TEXT", "RUNTIME_GUARDRAIL_TEXT"]
+__all__ = ["BIAS_TO_ACTION_TEXT", "EPISTEMIC_TEXT", "RUNTIME_GUARDRAIL_TEXT"]

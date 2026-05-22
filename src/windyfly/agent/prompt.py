@@ -132,11 +132,9 @@ def assemble_prompt(
             "/goal clear any time."
         )
 
-    # Add epistemic instruction
-    system_parts.append(
-        "When you state a fact from memory, indicate your confidence level. "
-        "If a fact is marked INFERRED, say so."
-    )
+    # Phase 2.3.2 (partial — 3rd section). See prompt_sections/epistemic.py
+    from windyfly.agent.prompt_sections import EPISTEMIC_TEXT
+    system_parts.append(EPISTEMIC_TEXT)
 
     # Runtime guardrail — anti-self-environment-confabulation.
     # Surfaced 2026-05-10 by a screenshot where the LLM, asked to act
