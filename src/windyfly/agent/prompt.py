@@ -284,15 +284,8 @@ def assemble_prompt(
     # This is a real product issue for grandma's first interaction —
     # the bot needs to know it's meeting her for the first time.
     if _is_first_contact(db):
-        system_parts.append(
-            "FIRST CONTACT: You have no prior memory of this user — "
-            "no episodes, no extracted facts, no turnover letter. "
-            "They have never spoken with you before. Greet them as a "
-            "brand-new acquaintance. DO NOT use 'welcome back', 'good "
-            "to see you again', 'as we discussed', 'picking up where "
-            "we left off', or ANY phrase implying prior interaction. "
-            "Introduce yourself naturally if appropriate."
-        )
+        from windyfly.agent.prompt_sections import FIRST_CONTACT_TEXT
+        system_parts.append(FIRST_CONTACT_TEXT)
 
     # Low-context hint: when this session has less than 10% of the
     # context window left, the gas-tank header shows 🔴 and replies
@@ -305,17 +298,8 @@ def assemble_prompt(
     # returned engineer-mode jargon at 🔴 0% with no hint to the user
     # that a /new was the cure.
     if pct_remaining is not None and pct_remaining < 10:
-        system_parts.append(
-            "LOW WORKING MEMORY: This conversation has used most of "
-            "its context window. After answering the user's current "
-            "question naturally, add a short, plain-English line "
-            "letting them know your working memory is getting full "
-            "and that they can type /new whenever they want to start "
-            "a fresh conversation — your long-term memory of them "
-            "stays. Do not say 'context window' or 'tokens' — say "
-            "'working memory' or 'short-term memory'. Keep the "
-            "suggestion friendly and one sentence."
-        )
+        from windyfly.agent.prompt_sections import LOW_WORKING_MEMORY_TEXT
+        system_parts.append(LOW_WORKING_MEMORY_TEXT)
 
     # Band-aware tone. The personality block is tuned for Grant
     # (engineer-OK, jargon-OK). When the band drops to USER (paired
