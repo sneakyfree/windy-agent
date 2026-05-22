@@ -3,7 +3,7 @@
 # Convenience targets — keep this file thin. Anything beyond ~5 lines
 # of shell belongs in scripts/, not here.
 
-.PHONY: help test lint typecheck check release-tag image image-run release-dry-run
+.PHONY: help test lint typecheck check audit release-tag image image-run release-dry-run
 
 help:
 	@echo "Common targets:"
@@ -11,6 +11,7 @@ help:
 	@echo "  make lint          — ruff check src/"
 	@echo "  make typecheck     — mypy src/"
 	@echo "  make check         — lint + typecheck + test"
+	@echo "  make audit         — capability extractor + v19 slash audit (release smoke)"
 	@echo "  make image         — build local Docker image (windy-fly:dev)"
 	@echo "  make image-run     — run the local image w/ env from ~/.windy/windy-0.env"
 	@echo ""
@@ -29,6 +30,13 @@ typecheck:
 	.venv/bin/python -m mypy src/windyfly/ --ignore-missing-imports
 
 check: lint typecheck test
+
+# Capability-surface audit + v19 slash audit. Confirms every advertised
+# command actually works and refreshes ~/.windy-stress/capability_matrix.csv.
+# Runs in ~5s — no LLM calls — so safe to run before every release.
+audit:
+	.venv/bin/python scripts/extract_capabilities.py
+	.venv/bin/python -m pytest tests/test_slash_audit_v19.py -v
 
 # ── Image ──────────────────────────────────────────────────────────
 
