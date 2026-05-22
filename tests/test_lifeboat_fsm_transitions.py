@@ -123,13 +123,12 @@ class TestT14_GraceExpiry:
         # Stamp grace
         _r._mark_post_recovery()
         assert current_state() == LifeboatState.RECOVERING
-        # Force the marker file to be old enough that
-        # _within_post_recovery_grace returns False — simulate by
-        # backdating mtime past _POST_RECOVERY_GRACE_S.
+        # _within_post_recovery_grace reads the timestamp from FILE
+        # CONTENT (not mtime) — overwrite with an old timestamp to
+        # simulate expiry past _POST_RECOVERY_GRACE_S (5 min).
         grace_path = _r._post_recovery_grace_path()
         old_ts = time.time() - (_r._POST_RECOVERY_GRACE_S + 60)
-        import os as _os
-        _os.utime(grace_path, (old_ts, old_ts))
+        grace_path.write_text(str(old_ts))
         assert current_state() == LifeboatState.HEALTHY
 
 
