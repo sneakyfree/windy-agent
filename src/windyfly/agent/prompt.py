@@ -163,71 +163,10 @@ def assemble_prompt(
     # because (a) it had no positive truth to lean on, only a "don't
     # say X" rule, and (b) yesterday's bad replies were in context.
     # Tripwire (PR #190/191) catches (b); this block fixes (a).
-    runtime_context_parts = ["RUNTIME CONTEXT (true facts, not guesses — quote these instead of inventing):"]
-
-    # Active model (from config — chain failover can swap at request
-    # time, but the configured default is what the user is asking
-    # about when they say "which model are you?")
-    active_model = config.get("agent", {}).get("default_model") or \
-        config.get("default_model", "unknown")
-    runtime_context_parts.append(f"- Model: {active_model}")
-
-    # Anthropic auth path — answers "am I on Max plan?" without
-    # introspection or env access.
-    try:
-        from windyfly.agent.models import get_anthropic_auth_path
-        auth = get_anthropic_auth_path()
-        runtime_context_parts.append(f"- Anthropic auth: {auth['label_long']}")
-    except Exception:
-        # Importing models.py during prompt assembly should never
-        # fail in production, but guard so a transient import error
-        # doesn't take the prompt offline.
-        runtime_context_parts.append("- Anthropic auth: unknown")
-
-    # Process supervisor — runtime-detected, no instance hardcode.
-    # Matches the Wave 15 #0 architectural rule (no per-instance
-    # config in this repo) by reading env signals at assembly time
-    # rather than baking a host name into the prompt.
-    import os as _os
-    if _os.environ.get("INVOCATION_ID"):
-        # systemd sets INVOCATION_ID for every service invocation.
-        supervisor = "native systemd service"
-    elif _os.path.exists("/.dockerenv"):
-        supervisor = "Docker container"
-    elif _os.environ.get("KUBERNETES_SERVICE_HOST"):
-        supervisor = "Kubernetes pod"
-    elif _os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
-        supervisor = "AWS Lambda"
-    else:
-        supervisor = "unsupervised process"
-    runtime_context_parts.append(
-        f"- Process: {supervisor} on the operator's machine "
-        "(NOT a remote VPS unless you can name a tool that proves it)"
-    )
-
-    # CWD — answers "where am I?" / "what's 'this repo'?" without
-    # the model having to guess. Surfaced by v15 2026-05-20: bot
-    # called fs.read_file('~/README.md') for "Read README.md in
-    # this repo" because it had no anchor for what "this repo"
-    # meant. Result: 'No such file' on a perfectly capable tool.
-    # Pin the CWD here so fs.read_file gets a sane absolute path
-    # on the FIRST attempt.
-    try:
-        cwd = _os.getcwd()
-        runtime_context_parts.append(
-            f"- CWD: {cwd} (when the user says 'this repo' / 'here' "
-            "/ 'this folder', resolve against this path first)"
-        )
-    except OSError:
-        # CWD can fail in rare container scenarios; skip silently.
-        pass
-
-    runtime_context_parts.append(
-        "If asked which model / auth / billing / host you have, "
-        "QUOTE the corresponding line above. Do not hedge with "
-        "'I can't tell you exactly' — these lines ARE the answer."
-    )
-    system_parts.append("\n".join(runtime_context_parts))
+    # Phase 2.3.2 — last section extracted. See
+    # prompt_sections/runtime_context.py.
+    from windyfly.agent.prompt_sections import render_runtime_context
+    system_parts.append(render_runtime_context(config))
 
     # ── BIAS TO ACTION (PR #200) ───────────────────────────────
     # The guardrails above tell the model what NOT to claim. Without
