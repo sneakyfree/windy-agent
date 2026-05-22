@@ -1,0 +1,12 @@
+[Unit]
+Description=Windy Fly canary morning triage (Phase 7.3 of launch gauntlet)
+Documentation=docs/ESCALATION.md docs/RUNBOOK.md
+
+[Timer]
+# 09:00 local every day
+OnCalendar=*-*-* 09:00:00
+Persistent=true
+Unit=canary-morning-triage.service
+
+[Install]
+WantedBy=timers.target

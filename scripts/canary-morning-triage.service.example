@@ -1,0 +1,8 @@
+[Unit]
+Description=Windy Fly canary morning triage (Phase 7.3)
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/home/grantwhitmer/Desktop/Grant's Folder/windy-agent/scripts/canary-morning-triage.sh
+Nice=10
