@@ -316,6 +316,19 @@ def _register_all():
         else:
             health_line = "🟢 Health: all good"
 
+        # Phase 2.2.5 — surface lifeboat FSM state when not HEALTHY.
+        # Operator-facing detail; appended only when the FSM has
+        # something interesting to say. Per gauntlet doc §6 the full
+        # FSM refactor still pends design Qs, but the observability
+        # layer (LifeboatState enum + current_state()) is committed.
+        try:
+            from windyfly.agent.resurrect import current_state, LifeboatState
+            fsm = current_state()
+            if fsm != LifeboatState.HEALTHY:
+                health_line += f"  · FSM: {fsm.value}"
+        except Exception:  # noqa: BLE001 — display path is best-effort
+            pass
+
         # ── Memory (context-window) ──────────────────────────────
         # Plain-English descriptors so a normie understands at a
         # glance. The raw K/K numbers stay for the operator who
