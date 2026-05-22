@@ -31,12 +31,19 @@ typecheck:
 
 check: lint typecheck test
 
-# Capability-surface audit + v19 slash audit. Confirms every advertised
-# command actually works and refreshes ~/.windy-stress/capability_matrix.csv.
-# Runs in ~5s — no LLM calls — so safe to run before every release.
+# Capability-surface audit. Refreshes ~/.windy-stress/capability_matrix.csv
+# (1s, no LLM calls). Once the Phase 2.1 v19 pytest is merged, extend
+# this target with `pytest tests/test_slash_audit_v19.py -v`.
 audit:
 	.venv/bin/python scripts/extract_capabilities.py
-	.venv/bin/python -m pytest tests/test_slash_audit_v19.py -v
+	@if [ -f tests/test_slash_audit_v19.py ]; then \
+	  .venv/bin/python -m pytest tests/test_slash_audit_v19.py -v; \
+	else \
+	  echo ""; \
+	  echo "(skipping v19 slash audit — tests/test_slash_audit_v19.py"; \
+	  echo " not on this branch; merge gauntlet/phase-2-1-blind-excepts"; \
+	  echo " to enable)"; \
+	fi
 
 # ── Image ──────────────────────────────────────────────────────────
 
