@@ -33,22 +33,23 @@ export function useApi<T>(path: string, deps: unknown[] = []) {
 export function useWebSocket(path: string) {
   const wsRef = useRef<WebSocket | null>(null)
   const [connected, setConnected] = useState(false)
+  const [reconnectTick, setReconnectTick] = useState(0)
   const listenersRef = useRef<((msg: unknown) => void)[]>([])
 
   useEffect(() => {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
     const ws = new WebSocket(`${proto}//${location.host}${path}`)
     wsRef.current = ws
+    let closed = false
 
     ws.onopen = () => setConnected(true)
     ws.onclose = () => {
       setConnected(false)
-      // Auto-reconnect after 3s
-      setTimeout(() => {
-        if (wsRef.current === ws) {
-          wsRef.current = null
-        }
-      }, 3000)
+      if (wsRef.current === ws) wsRef.current = null
+      // Auto-reconnect after 3s by bumping the effect dependency, which
+      // tears down and re-runs this effect with a fresh socket. (The old
+      // code only nulled the ref and never actually reconnected.)
+      if (!closed) setTimeout(() => setReconnectTick(t => t + 1), 3000)
     }
     ws.onmessage = (e) => {
       try {
@@ -57,8 +58,8 @@ export function useWebSocket(path: string) {
       } catch { /* ignore non-JSON */ }
     }
 
-    return () => { ws.close(); wsRef.current = null }
-  }, [path])
+    return () => { closed = true; ws.close(); wsRef.current = null }
+  }, [path, reconnectTick])
 
   const send = useCallback((data: unknown) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {

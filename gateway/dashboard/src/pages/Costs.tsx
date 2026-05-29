@@ -74,7 +74,7 @@ export default function Costs() {
           <div className="text-xs text-[#64748b] uppercase tracking-wide mb-1">Daily Budget</div>
           <div className="text-3xl font-bold text-white">${budget.toFixed(2)}</div>
           <div className="text-sm text-[#64748b]">per day limit</div>
-          <div className="text-xs text-[#64748b] mt-3">~${(budget * 30).toFixed(0)}/month max</div>
+          <div className="text-xs text-[#64748b] mt-3">~${(budget * 30).toFixed(0)}/mo at daily limit</div>
         </div>
       </div>
 
