@@ -465,6 +465,7 @@ def call_llm(
     tools: list[dict] | None = None,
     config: dict[str, Any] | None = None,
     session_id: str | None = None,
+    reasoning_depth: int | None = None,
 ) -> dict[str, Any]:
     """Call an LLM, walking the configured failover chain on failures.
 
@@ -534,6 +535,7 @@ def call_llm(
                 result = _call_anthropic(
                     messages, chain_model, temperature, max_tokens, tools,
                     api_key, session_id=session_id,
+                    reasoning_depth=reasoning_depth,
                 )
             else:
                 result = _call_openai(
@@ -810,6 +812,28 @@ def _openai_messages_to_anthropic(
     return ("\n".join(system_parts).strip(), api_messages)
 
 
+# Opus models that support (and default to) extended thinking. Both
+# deprecate plain ``temperature`` in favor of a thinking budget; see
+# _call_anthropic for the per-version temperature handling.
+_EXTENDED_THINKING_PREFIXES = ("claude-opus-4-7", "claude-opus-4-8")
+
+
+def _thinking_budget(model: str, reasoning_depth: int | None) -> int:
+    """Map the ``reasoning_depth`` slider (0–10, the "ultrathink" dial)
+    to an extended-thinking token budget for thinking-capable Opus models.
+
+    Returns 0 (no thinking) for non-thinking models or low depth. ``None``
+    means the caller didn't specify → treated as the mid default (5).
+    depth 4 → 1024 (Anthropic's floor), depth 10 → ~8192.
+    """
+    if not any(model.startswith(p) for p in _EXTENDED_THINKING_PREFIXES):
+        return 0
+    depth = 5 if reasoning_depth is None else max(0, min(10, reasoning_depth))
+    if depth < 4:
+        return 0
+    return int(round(1024 + (depth - 4) * (8192 - 1024) / 6))
+
+
 def _call_anthropic(
     messages: list[dict],
     model: str,
@@ -818,6 +842,7 @@ def _call_anthropic(
     tools: list[dict] | None,
     api_key: str = "",
     session_id: str | None = None,
+    reasoning_depth: int | None = None,
 ) -> dict[str, Any]:
     """Call Anthropic Messages API.
 
@@ -836,20 +861,23 @@ def _call_anthropic(
         "max_tokens": max_tokens,
         "temperature": temperature,
     }
-    # Opus 4.7 deprecated the `temperature` parameter (400s if sent) and
-    # opted into extended-thinking-by-default — pair it with a thinking
-    # budget so the model can deliberate. Budget covers grandma-friendly
-    # short replies up to nontrivial reasoning; stays well below
-    # max_tokens so visible response space isn't crowded out.
+    # Extended thinking (Opus 4.7+). Temperature handling differs by
+    # version: opus-4-7 deprecated `temperature` entirely (400s if sent);
+    # opus-4-8 accepts it EXCEPT alongside thinking ("temperature may only
+    # be set to 1 when thinking is enabled"). So drop temperature always
+    # for 4-7, and whenever we enable a thinking budget. The budget scales
+    # with the caller's reasoning_depth (the "ultrathink" slider) and is
+    # ADDITIVE to max_tokens so the visible reply keeps its full allowance.
     if model.startswith("claude-opus-4-7"):
         kwargs.pop("temperature", None)
-        # Anthropic requires max_tokens > budget_tokens.
-        budget = min(4096, max(1024, max_tokens // 2))
-        if budget < max_tokens:
-            kwargs["thinking"] = {
-                "type": "enabled",
-                "budget_tokens": budget,
-            }
+    thinking_budget = _thinking_budget(model, reasoning_depth)
+    if thinking_budget:
+        kwargs.pop("temperature", None)
+        kwargs["max_tokens"] = max_tokens + thinking_budget
+        kwargs["thinking"] = {
+            "type": "enabled",
+            "budget_tokens": thinking_budget,
+        }
     if system_text:
         kwargs["system"] = system_text
     if tools:
