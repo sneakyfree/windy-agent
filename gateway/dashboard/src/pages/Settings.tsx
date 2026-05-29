@@ -73,10 +73,16 @@ export default function Settings() {
       {/* Export/Import */}
       <Section title="Data">
         <div className="flex gap-3 flex-wrap">
-          <button className="px-4 py-2 bg-[#111827] border border-[#1e293b] rounded-lg text-sm hover:border-[#00d4ff] transition-colors">
+          <button
+            onClick={() => alert('Run: windy export\n\nBacks up the full agent (memory, personality, skills, identity) to a portable archive.')}
+            className="px-4 py-2 bg-[#111827] border border-[#1e293b] rounded-lg text-sm hover:border-[#00d4ff] transition-colors"
+          >
             Export Agent Data
           </button>
-          <button className="px-4 py-2 bg-[#111827] border border-[#1e293b] rounded-lg text-sm hover:border-[#00d4ff] transition-colors">
+          <button
+            onClick={() => alert('Run: windy import <backup-file>\n\nRestores the agent from an archive created by windy export.')}
+            className="px-4 py-2 bg-[#111827] border border-[#1e293b] rounded-lg text-sm hover:border-[#00d4ff] transition-colors"
+          >
             Import Agent Data
           </button>
         </div>

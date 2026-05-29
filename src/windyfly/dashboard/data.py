@@ -38,6 +38,7 @@ def get_dashboard_summary(
     costs_cfg = cfg.get("costs", {})
     eco = cfg.get("ecosystem", {})
     matrix = cfg.get("matrix", {})
+    trust_banner = _get_trust_banner(db)
     return {
         "memory": _get_memory_stats(db, user_id),
         "costs": _get_cost_stats(db),
@@ -47,7 +48,13 @@ def get_dashboard_summary(
         "personality": _get_personality_stats(db, user_id),
         "journal": _get_journal_entries(db, user_id),
         "self_assessment": _get_latest_assessment(db),
-        "trust_banner": _get_trust_banner(db),
+        "trust_banner": trust_banner,
+        # Identity / contact block. The frontend (Home, Identity, Email,
+        # Windy Chat) reads these; before this existed they read the
+        # response top-level, which the bridge never populated, so the
+        # agent's real name/passport/contacts silently rendered as
+        # "Windy Fly" / "None" / "Not provisioned" even when set.
+        "identity": _get_identity(cfg, trust_banner),
         # Live agent config + ecosystem (Settings page). Empty when no
         # config is passed (e.g. brain-offline fallbacks).
         "config": {
@@ -89,6 +96,48 @@ _CLEARANCE_UNLOCKS: dict[str, list[str]] = {
         "commit_push", "broadcast", "mention_strangers", "bypass_rate_caps",
     ],
 }
+
+
+def _get_identity(cfg: dict[str, Any], trust_banner: dict[str, Any]) -> dict[str, Any]:
+    """Agent identity + contact details for Home / Identity / Email / Chat.
+
+    Sources, in priority order: an explicit ``[identity]`` block in the
+    soul config (written at hatch), then the relevant typed config
+    blocks (``[agent]``, ``[matrix]``, ``[ecosystem]``), then the live
+    Eternitas passport from the environment. Every field falls back to
+    ``None`` so an un-hatched agent honestly renders empty states rather
+    than stale placeholders.
+    """
+    import os
+
+    agent = cfg.get("agent", {})
+    ident = cfg.get("identity", {})
+
+    passport = (
+        os.environ.get("ETERNITAS_PASSPORT")
+        or ident.get("passport_id")
+        or (trust_banner.get("passport") or None)
+    )
+    # Contact fields (email/phone/matrix/certificate) come ONLY from an
+    # explicit [identity] block, which is written at hatch. We do NOT
+    # fall back to the [matrix]/[agent] config blocks: those can carry
+    # template/homeserver defaults for an agent that was never actually
+    # provisioned, which would falsely light up the Email/Chat tabs and
+    # embed an external client that isn't really this agent's.
+    return {
+        "agent_name": ident.get("agent_name") or agent.get("name"),
+        "passport_id": passport or None,
+        "passport_status": (
+            ident.get("passport_status")
+            or (trust_banner.get("status") if passport else None)
+        ),
+        "trust_score": trust_banner.get("integrity_score", 0),
+        "email": ident.get("email"),
+        "phone": ident.get("phone"),
+        "matrix_user": ident.get("matrix_user"),
+        "certificate_number": ident.get("certificate_number"),
+        "neural_fingerprint": ident.get("neural_fingerprint"),
+    }
 
 
 def _get_trust_banner(db: Database) -> dict[str, Any]:

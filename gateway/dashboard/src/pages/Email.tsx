@@ -17,7 +17,11 @@ export default function Email() {
   useEffect(() => {
     Promise.all([
       api<Record<string, unknown>>('/api/dashboard')
-        .then(d => setData({ email: (d.email as string) ?? undefined }))
+        .then(d => {
+          const dash = (d.dashboard as Record<string, unknown>) || d
+          const id = (dash.identity as Record<string, unknown>) || {}
+          setData({ email: (id.email as string) ?? undefined })
+        })
         .catch(() => {}),
       api<{ delegated: boolean }>('/api/email/delegation')
         .then(d => setDelegated(d.delegated))

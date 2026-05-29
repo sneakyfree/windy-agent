@@ -8,15 +8,17 @@ interface DashboardResponse {
     skills: { total: number; promoted: number }
     intents: { active: number; completed: number; abandoned: number }
     personality: { preset: string; estimated_monthly_cost: number }
+    // Live config + identity — the backend nests these under `dashboard`.
+    config?: { model?: string; daily_budget?: number }
+    identity?: {
+      agent_name?: string
+      passport_id?: string
+      email?: string
+      phone?: string
+      matrix_user?: string
+    }
   }
-  agent_name?: string
-  passport_id?: string
-  email?: string
-  phone?: string
-  matrix_user?: string
-  model?: string
   uptime?: string
-  daily_budget?: number
   _offline?: boolean
 }
 
@@ -41,15 +43,17 @@ export default function Home() {
 
   const connected = health?.brain_connected ?? false
   const d = dash?.dashboard
+  const id = d?.identity
+  const cfg = d?.config
   const spend = d?.costs.today_usd ?? 0
-  const budget = dash?.daily_budget ?? 5
+  const budget = cfg?.daily_budget ?? 5
   const offline = dash?._offline ?? !connected
 
   const ecosystemServices = [
-    { name: 'Eternitas', ok: !!dash?.passport_id },
-    { name: 'Mail', ok: !!dash?.email },
-    { name: 'Chat', ok: !!dash?.matrix_user },
-    { name: 'Phone', ok: !!dash?.phone },
+    { name: 'Eternitas', ok: !!id?.passport_id },
+    { name: 'Mail', ok: !!id?.email },
+    { name: 'Chat', ok: !!id?.matrix_user },
+    { name: 'Phone', ok: !!id?.phone },
   ]
 
   if (loading && !dash) {
@@ -79,7 +83,7 @@ export default function Home() {
           🪰
         </div>
         <div>
-          <h1 className="text-2xl font-bold text-white">{dash?.agent_name || 'Windy Fly'}</h1>
+          <h1 className="text-2xl font-bold text-white">{id?.agent_name || 'Windy Fly'}</h1>
           <div className="flex items-center gap-2 text-sm text-[#64748b]">
             <div className={`w-2 h-2 rounded-full ${connected ? 'bg-[#22c55e]' : 'bg-[#ef4444]'}`} />
             {connected ? 'Running' : 'Offline'}
@@ -91,7 +95,7 @@ export default function Home() {
       {/* Status cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
         <Card label="Status" value={connected ? '🟢 Running' : '🔴 Offline'} />
-        <Card label="Brain" value={dash?.model || 'Not set'} />
+        <Card label="Brain" value={cfg?.model || 'Not set'} />
         <Card label="Cost Today" value={`$${spend.toFixed(2)} / $${budget.toFixed(2)}`} />
         <Card label="Episodes" value={String(d?.memory.total_episodes ?? 0)} />
       </div>
@@ -131,7 +135,7 @@ export default function Home() {
         <Card label="Knowledge Nodes" value={String(d?.memory.total_nodes ?? 0)} />
         <Card label="Skills" value={String(d?.skills.total ?? 0)} />
         <Card label="Active Goals" value={String(d?.intents.active ?? 0)} />
-        <Card label="Passport" value={dash?.passport_id ? dash.passport_id.slice(0, 12) : 'None'} />
+        <Card label="Passport" value={id?.passport_id ? id.passport_id.slice(0, 12) : 'None'} />
       </div>
     </div>
   )

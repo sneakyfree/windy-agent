@@ -17,7 +17,11 @@ export default function ChatEmbed() {
   useEffect(() => {
     Promise.all([
       api<Record<string, unknown>>('/api/dashboard')
-        .then(d => setData({ matrix_user: (d.matrix_user as string) ?? undefined }))
+        .then(d => {
+          const dash = (d.dashboard as Record<string, unknown>) || d
+          const id = (dash.identity as Record<string, unknown>) || {}
+          setData({ matrix_user: (id.matrix_user as string) ?? undefined })
+        })
         .catch(() => {}),
       api<{ online: boolean }>('/api/chat/status')
         .then(d => setOnline(d.online))
