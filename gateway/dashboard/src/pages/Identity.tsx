@@ -43,15 +43,20 @@ export default function Identity() {
         const flat: DashData = {}
         const src = resp as Record<string, unknown>
         const dashboard = (src.dashboard as Record<string, unknown>) || src
-        flat.agent_name = (src.agent_name as string) ?? undefined
-        flat.passport_id = (src.passport_id as string) ?? undefined
-        flat.passport_status = (src.passport_status as string) ?? undefined
-        flat.trust_score = (src.trust_score as number) ?? undefined
-        flat.email = (src.email as string) ?? undefined
-        flat.phone = (src.phone as string) ?? undefined
-        flat.matrix_user = (src.matrix_user as string) ?? undefined
-        flat.certificate_number = (src.certificate_number as string) ?? undefined
-        flat.neural_fingerprint = (src.neural_fingerprint as string) ?? undefined
+        // Identity/contact fields live under dashboard.identity (added
+        // server-side). They used to be read off the response top level,
+        // where they never existed — so a hatched agent's real name,
+        // passport, and contacts silently rendered as placeholders.
+        const identity = (dashboard.identity as Record<string, unknown>) || {}
+        flat.agent_name = (identity.agent_name as string) ?? undefined
+        flat.passport_id = (identity.passport_id as string) ?? undefined
+        flat.passport_status = (identity.passport_status as string) ?? undefined
+        flat.trust_score = (identity.trust_score as number) ?? undefined
+        flat.email = (identity.email as string) ?? undefined
+        flat.phone = (identity.phone as string) ?? undefined
+        flat.matrix_user = (identity.matrix_user as string) ?? undefined
+        flat.certificate_number = (identity.certificate_number as string) ?? undefined
+        flat.neural_fingerprint = (identity.neural_fingerprint as string) ?? undefined
         flat.trust_banner = (dashboard.trust_banner as TrustBanner) ?? undefined
         setData(flat)
       })

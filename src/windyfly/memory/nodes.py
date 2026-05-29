@@ -122,6 +122,27 @@ def count_nodes(db: Database) -> int:
     return int((row or {}).get("n", 0))
 
 
+def delete_node(db: Database, node_id: str, user_id: str = "default") -> bool:
+    """Delete a single knowledge node and any edges touching it.
+
+    Backs the dashboard Memory page's per-result Delete button, which
+    previously POSTed to a route that didn't exist. Scoped by
+    ``user_id`` so one user can't delete another's nodes. Returns True
+    if a node row was removed.
+    """
+    # Drop relationships first so we never leave dangling edges.
+    db.execute(
+        "DELETE FROM edges WHERE source_id = ? OR target_id = ?",
+        (node_id, node_id),
+    )
+    cur = db.execute(
+        "DELETE FROM nodes WHERE id = ? AND user_id = ?",
+        (node_id, user_id),
+    )
+    db.commit()
+    return bool(getattr(cur, "rowcount", 0))
+
+
 def get_nodes_by_type(
     db: Database,
     type: str,

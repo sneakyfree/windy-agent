@@ -794,15 +794,67 @@ async function handleRequest(req: Request, server: import("bun").Server<any>): P
       }
     }
 
-    // Memory search
+    // Memory search. The brain returns raw node rows under `nodes`;
+    // the dashboard expects `results` with {id, content, relevance,
+    // timestamp, type}. Without this mapping the UI read `data.results`
+    // (undefined) and rendered "No memories found" on every search,
+    // even when the brain returned matches.
     if (path === "/api/memory/search" && req.method === "GET") {
       const query = url.searchParams.get("q") || "";
       const limit = parseInt(url.searchParams.get("limit") || "10");
       try {
-        const result = await bridge.call("memory.search", { query, limit });
-        return Response.json(result, { headers });
+        const result = (await bridge.call("memory.search", { query, limit })) as {
+          nodes?: Array<Record<string, unknown>>;
+        };
+        const results = (result.nodes ?? []).map((n) => ({
+          id: n.id,
+          content: n.name,
+          relevance: typeof n.confidence === "number" ? n.confidence : 1,
+          timestamp: n.created_at,
+          type: n.type,
+        }));
+        return Response.json({ results }, { headers });
       } catch {
         return Response.json({ results: [], _offline: true }, { headers });
+      }
+    }
+
+    // Memory delete — backs the Memory page's per-result Delete button.
+    const memDelMatch = path.match(/^\/api\/memory\/([^/]+)$/);
+    if (memDelMatch && memDelMatch[1] !== "search" && req.method === "DELETE") {
+      try {
+        const result = await bridge.call("memory.delete", { node_id: memDelMatch[1] });
+        return Response.json(result, { headers });
+      } catch {
+        return Response.json({ error: "Brain offline", _offline: true }, { status: 503, headers });
+      }
+    }
+
+    // Email delegation status — backs the Email tab's status dot.
+    // Derived from whether the agent has a provisioned address; without
+    // this route the page got a 404 and showed "Unknown" forever.
+    if (path === "/api/email/delegation" && req.method === "GET") {
+      try {
+        const result = (await bridge.call("dashboard.summary")) as {
+          dashboard?: { identity?: { email?: string | null } };
+        };
+        return Response.json({ delegated: !!result?.dashboard?.identity?.email }, { headers });
+      } catch {
+        return Response.json({ delegated: false, _offline: true }, { headers });
+      }
+    }
+
+    // Windy Chat (Matrix) online status — backs the Windy Chat tab's
+    // status dot. Derived from whether the agent has a chat identity;
+    // without this route the page got a 404 and showed "Unknown".
+    if (path === "/api/chat/status" && req.method === "GET") {
+      try {
+        const result = (await bridge.call("dashboard.summary")) as {
+          dashboard?: { identity?: { matrix_user?: string | null } };
+        };
+        return Response.json({ online: !!result?.dashboard?.identity?.matrix_user }, { headers });
+      } catch {
+        return Response.json({ online: false, _offline: true }, { headers });
       }
     }
 

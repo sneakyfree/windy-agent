@@ -98,6 +98,7 @@ class UDSBridge:
         handlers = {
             "agent.respond": self._handle_respond,
             "memory.search": self._handle_search,
+            "memory.delete": self._handle_memory_delete,
             "sliders.get": self._handle_sliders_get,
             "sliders.set": self._handle_sliders_set,
             "sliders.info": self._handle_sliders_info,
@@ -164,6 +165,15 @@ class UDSBridge:
         limit = params.get("limit", 10)
         nodes = search_nodes(self.db, query, limit=limit)
         return {"nodes": nodes}
+
+    async def _handle_memory_delete(self, params: dict) -> dict:
+        from windyfly.memory.nodes import delete_node
+        node_id = params.get("node_id", "")
+        user_id = params.get("user_id", "default")
+        if not node_id:
+            return {"deleted": False, "error": "missing node_id"}
+        deleted = delete_node(self.db, node_id, user_id=user_id)
+        return {"deleted": deleted}
 
     async def _handle_sliders_get(self, params: dict) -> dict:
         sliders = get_sliders(self.db)

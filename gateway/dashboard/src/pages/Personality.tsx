@@ -11,10 +11,14 @@ interface SliderInfo {
   impact_high?: string
 }
 
+// Preset quick-sets. Every key MUST be a real slider name returned by
+// /api/sliders — "assertiveness" was previously listed but is not a
+// slider, so applying any preset fired a PUT /api/sliders/assertiveness
+// that the brain rejected (silent console noise + a no-op write).
 const PRESETS: Record<string, Record<string, number>> = {
-  companion: { humor: 8, formality: 2, proactivity: 7, verbosity: 6, reasoning_depth: 5, autonomy: 4, epistemic_strictness: 4, warmth: 9, creativity: 7, assertiveness: 4 },
-  focused: { humor: 2, formality: 6, proactivity: 3, verbosity: 3, reasoning_depth: 9, autonomy: 5, epistemic_strictness: 8, warmth: 4, creativity: 4, assertiveness: 6 },
-  neutral: { humor: 5, formality: 5, proactivity: 5, verbosity: 5, reasoning_depth: 5, autonomy: 5, epistemic_strictness: 5, warmth: 5, creativity: 5, assertiveness: 5 },
+  companion: { humor: 8, formality: 2, proactivity: 7, verbosity: 6, reasoning_depth: 5, autonomy: 4, epistemic_strictness: 4, warmth: 9, creativity: 7 },
+  focused: { humor: 2, formality: 6, proactivity: 3, verbosity: 3, reasoning_depth: 9, autonomy: 5, epistemic_strictness: 8, warmth: 4, creativity: 4 },
+  neutral: { humor: 5, formality: 5, proactivity: 5, verbosity: 5, reasoning_depth: 5, autonomy: 5, epistemic_strictness: 5, warmth: 5, creativity: 5 },
 }
 
 export default function Personality() {
