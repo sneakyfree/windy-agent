@@ -27,6 +27,7 @@ import re
 
 import pytest
 
+from windyfly.channels.telegram_bot import TELEGRAM_MENU_DENYLIST
 from windyfly.commands.registry import (
     _platform_may_invoke,
     registry,
@@ -87,6 +88,8 @@ def _build_candidates():
         name = cmd.name.replace("-", "_")
         if not _VALID.match(name):
             continue
+        if name in TELEGRAM_MENU_DENYLIST:
+            continue
         if not _platform_may_invoke("telegram", cmd.category):
             continue
         desc = (cmd.description or name)[:256]
@@ -95,10 +98,24 @@ def _build_candidates():
         cands.append((_PRIORITY.get(cmd.category, 99), name, desc))
     existing = {n for _p, n, _d in cands}
     for prio, name, desc in _CHANNEL_LAYER_EXTRAS:
+        if name in TELEGRAM_MENU_DENYLIST:
+            continue
         if name not in existing and _VALID.match(name):
             cands.append((prio, name, desc))
     cands.sort(key=lambda x: (x[0], x[1]))
     return cands[:100]
+
+
+def test_destructive_commands_hidden_from_popup():
+    """Service-killing / re-hatch commands must NOT appear in the "/"
+    autocomplete — a non-technical user could tap them by accident. They
+    remain functional when typed (set_my_commands only feeds the popup)."""
+    names = {n for _p, n, _d in _build_candidates()}
+    for hidden in ("kill", "shutdown", "stop", "restart", "go", "ps"):
+        assert hidden not in names, f"/{hidden} should be hidden from popup"
+    # Recovery commands stay discoverable — they help a stuck bot.
+    assert "resurrect" in names
+    assert "panic" in names
 
 
 def test_candidate_count_under_100():

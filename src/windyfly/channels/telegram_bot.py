@@ -64,6 +64,16 @@ _REPLY_CHUNK_SIZE = 4000
 # while a reply is being computed so grandma sees the bot is working.
 _TYPING_REFRESH_S = 4.0
 
+# Commands kept fully functional but HIDDEN from the Telegram "/"
+# autocomplete popup. These stop/break the service or re-hatch identity —
+# a non-technical user could tap them by accident. set_my_commands only
+# controls the suggestion list, so these still run when typed. Recovery
+# commands (resurrect / normal / lifeboat / panic) are deliberately NOT
+# hidden — they help a stuck bot rather than break a healthy one.
+TELEGRAM_MENU_DENYLIST = frozenset({
+    "kill", "shutdown", "stop", "restart", "go", "ps",
+})
+
 
 # ── Nuclear reset / panic button ───────────────────────────────────
 #
@@ -427,6 +437,8 @@ class TelegramChannel(ChannelAdapter):
             name = cmd.name.replace("-", "_")  # telegram dislikes hyphens
             if not VALID.match(name):
                 continue
+            if name in TELEGRAM_MENU_DENYLIST:
+                continue
             if not _platform_may_invoke("telegram", cmd.category):
                 continue
             desc = (cmd.description or name)[:256]
@@ -460,6 +472,8 @@ class TelegramChannel(ChannelAdapter):
         ]
         existing_names = {n for _p, n, _d in candidates}
         for prio, name, desc in CHANNEL_LAYER_EXTRAS:
+            if name in TELEGRAM_MENU_DENYLIST:
+                continue
             if name not in existing_names and VALID.match(name):
                 candidates.append((prio, name, desc))
 
