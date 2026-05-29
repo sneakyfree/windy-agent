@@ -836,6 +836,20 @@ def _call_anthropic(
         "max_tokens": max_tokens,
         "temperature": temperature,
     }
+    # Opus 4.7 deprecated the `temperature` parameter (400s if sent) and
+    # opted into extended-thinking-by-default — pair it with a thinking
+    # budget so the model can deliberate. Budget covers grandma-friendly
+    # short replies up to nontrivial reasoning; stays well below
+    # max_tokens so visible response space isn't crowded out.
+    if model.startswith("claude-opus-4-7"):
+        kwargs.pop("temperature", None)
+        # Anthropic requires max_tokens > budget_tokens.
+        budget = min(4096, max(1024, max_tokens // 2))
+        if budget < max_tokens:
+            kwargs["thinking"] = {
+                "type": "enabled",
+                "budget_tokens": budget,
+            }
     if system_text:
         kwargs["system"] = system_text
     if tools:
@@ -887,10 +901,23 @@ def _call_anthropic(
     beta_header = ",".join(betas)
 
     if oauth_token:
-        client = anthropic.Anthropic(
-            auth_token=oauth_token,
-            default_headers={"anthropic-beta": beta_header},
-        )
+        # Anthropic SDK auto-reads ANTHROPIC_API_KEY from env at client
+        # construction and emits an X-Api-Key header EVEN when an explicit
+        # auth_token= is also passed. Server then rejects with
+        # "401 invalid x-api-key" because OAuth tokens aren't accepted on
+        # that header. Pop the env var across construction so only the
+        # Bearer header lands in auth_headers; restore immediately after
+        # so other call sites that still rely on ANTHROPIC_API_KEY (e.g.,
+        # provider routing, /status) keep working.
+        _saved_env_key = os.environ.pop("ANTHROPIC_API_KEY", None)
+        try:
+            client = anthropic.Anthropic(
+                auth_token=oauth_token,
+                default_headers={"anthropic-beta": beta_header},
+            )
+        finally:
+            if _saved_env_key is not None:
+                os.environ["ANTHROPIC_API_KEY"] = _saved_env_key
         # Anthropic's OAuth gate is strict: the first system content
         # block must be EXACTLY the Claude Code identifier — not even a
         # trailing newline of extra text passes. Concatenating Windy's
