@@ -1047,6 +1047,7 @@ def agent_respond(
                 tools=tools,
                 config=config,
                 session_id=session_id,
+                reasoning_depth=loop_sliders.get("reasoning_depth", 5),
             )
         except Exception as native_exc:
             # Defensive retry: Anthropic may reject the native
@@ -1078,6 +1079,7 @@ def agent_respond(
                     tools=tools_no_native,
                     config=config,
                     session_id=session_id,
+                    reasoning_depth=loop_sliders.get("reasoning_depth", 5),
                 )
             else:
                 raise
@@ -1268,6 +1270,7 @@ def agent_respond(
             result = call_llm(
                 messages, model=model, temperature=temperature,
                 max_tokens=max_tokens, tools=tools, config=config,
+                reasoning_depth=loop_sliders.get("reasoning_depth", 5),
             )
             response_text = result["content"]
             input_tokens += result["input_tokens"]
