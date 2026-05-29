@@ -19,7 +19,6 @@ from windyfly.control_panel import get_slider_info, get_sliders, set_slider
 from windyfly.dashboard.data import get_dashboard_summary
 from windyfly.memory.cost_ledger import get_daily_spend
 from windyfly.memory.database import Database
-from windyfly.memory.intents import surface_pending_intents
 from windyfly.memory.nodes import search_nodes
 from windyfly.memory.write_queue import WriteQueue
 from windyfly.platform import get_ipc_config, IPCConfig
@@ -214,12 +213,18 @@ class UDSBridge:
             return {"success": False, "error": str(e)}
 
     async def _handle_intents_list(self, params: dict) -> dict:
-        intents = surface_pending_intents(self.db)
-        return {"intents": intents}
+        # Return all active intents (matches the "active" count on Home).
+        # surface_pending_intents() is the 24h chat-inferred inbox and left
+        # the dashboard "Active Goals" list empty despite a non-zero count.
+        from windyfly.dashboard.data import get_active_intents
+        user_id = params.get("user_id", "default")
+        return {"intents": get_active_intents(self.db, user_id)}
 
     async def _handle_dashboard_summary(self, params: dict) -> dict:
         user_id = params.get("user_id", "default")
-        summary = get_dashboard_summary(self.db, user_id=user_id)
+        summary = get_dashboard_summary(
+            self.db, user_id=user_id, config=self.config
+        )
         return {"dashboard": summary}
 
     async def _handle_trust_webhook(self, params: dict) -> dict:

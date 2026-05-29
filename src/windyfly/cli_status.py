@@ -236,6 +236,25 @@ def print_status(config: dict[str, Any] | None = None) -> None:
         logger.debug("Uptime check failed: %s", e)
         uptime_str = "unknown"
 
+    # Fallback: an externally-managed instance (e.g. a systemd unit like
+    # windy-0.service) doesn't write the CLI pid file, so the check above
+    # reports "not running" even when the agent is live. Detect the actual
+    # brain process. The pattern matches the channel launch, never the
+    # `windyfly status` command itself.
+    if uptime_str in ("not running", "unknown"):
+        try:
+            import shutil
+            import subprocess
+            if shutil.which("pgrep"):
+                r = subprocess.run(
+                    ["pgrep", "-f", "windyfly.main --channel"],
+                    capture_output=True, text=True, timeout=3,
+                )
+                if r.returncode == 0 and r.stdout.strip():
+                    uptime_str = "running (external)"
+        except Exception as e:
+            logger.debug("External-process check failed: %s", e)
+
     # ── Build the tree ────────────────────────────────────────────
 
     tree = Tree(
