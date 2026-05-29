@@ -15,19 +15,29 @@ from windyfly.memory.database import Database
 def get_dashboard_summary(
     db: Database,
     user_id: str = "default",
+    config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Return the complete dashboard summary.
 
     Aggregates: memory stats, cost breakdown, failure analysis,
-    skills overview, intent counts, and personality state.
+    skills overview, intent counts, personality state, and (when
+    ``config`` is supplied) the live agent config + ecosystem URLs so the
+    Settings page reflects the running instance instead of UI defaults.
 
     Args:
         db: Database instance.
         user_id: User ID.
+        config: The loaded agent config (so the dashboard can surface the
+            real model / temperature / budget / ecosystem URLs).
 
     Returns:
         Comprehensive dashboard dict.
     """
+    cfg = config or {}
+    agent = cfg.get("agent", {})
+    costs_cfg = cfg.get("costs", {})
+    eco = cfg.get("ecosystem", {})
+    matrix = cfg.get("matrix", {})
     return {
         "memory": _get_memory_stats(db, user_id),
         "costs": _get_cost_stats(db),
@@ -38,6 +48,21 @@ def get_dashboard_summary(
         "journal": _get_journal_entries(db, user_id),
         "self_assessment": _get_latest_assessment(db),
         "trust_banner": _get_trust_banner(db),
+        # Live agent config + ecosystem (Settings page). Empty when no
+        # config is passed (e.g. brain-offline fallbacks).
+        "config": {
+            "model": agent.get("default_model"),
+            "temperature": agent.get("temperature"),
+            "max_tokens": agent.get("max_response_tokens"),
+            "daily_budget": costs_cfg.get("daily_budget_usd"),
+        },
+        "ecosystem": {
+            "eternitas_url": eco.get("eternitas_url"),
+            "windy_mail_url": eco.get("windy_mail_url"),
+            "matrix_homeserver": matrix.get("homeserver"),
+            "windy_cloud_url": eco.get("windy_cloud_url"),
+            "windy_pro_url": eco.get("windy_pro_url"),
+        },
     }
 
 
@@ -242,6 +267,38 @@ def _get_intent_stats(db: Database, user_id: str) -> dict[str, Any]:
         "completed": completed["c"] if completed else 0,
         "abandoned": paused["c"] if paused else 0,
     }
+
+
+def get_active_intents(
+    db: Database, user_id: str = "default", limit: int = 50
+) -> list[dict[str, Any]]:
+    """Active intents as a list — matches the ``active`` count shown on Home.
+
+    The dashboard's intent endpoint previously used
+    ``surface_pending_intents`` (only chat-inferred intents from the last
+    24h), so the "Active Goals" list was empty even when Home reported N
+    active. This returns all active intents and maps the table's
+    ``description`` column to the ``goal`` field the UI expects.
+    """
+    rows = db.fetchall(
+        """
+        SELECT id, description, status, created_at
+        FROM intents
+        WHERE status = 'active' AND user_id = ?
+        ORDER BY created_at DESC
+        LIMIT ?
+        """,
+        (user_id, limit),
+    )
+    return [
+        {
+            "id": r["id"],
+            "goal": r["description"],
+            "status": r["status"],
+            "created_at": r["created_at"],
+        }
+        for r in rows
+    ]
 
 
 def _get_personality_stats(db: Database, user_id: str) -> dict[str, Any]:

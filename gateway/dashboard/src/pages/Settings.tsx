@@ -3,15 +3,20 @@ import { api } from '../hooks/useApi'
 
 export default function Settings() {
   const [config, setConfig] = useState<Record<string, unknown>>({})
+  const [ecosystem, setEcosystem] = useState<Record<string, string>>({})
   const [status, setStatus] = useState('')
 
   useEffect(() => {
-    api<Record<string, unknown>>('/api/dashboard')
-      .then(d => setConfig(d))
+    // /api/dashboard returns { dashboard: { config, ecosystem, ... } }.
+    // The old code read these off the top level (always undefined), so
+    // every field fell back to a hardcoded default ("not set"/0.7/etc.).
+    api<{ dashboard?: { config?: Record<string, unknown>; ecosystem?: Record<string, string> } }>('/api/dashboard')
+      .then(d => {
+        setConfig(d.dashboard?.config ?? {})
+        setEcosystem(d.dashboard?.ecosystem ?? {})
+      })
       .catch(() => {})
   }, [])
-
-  const ecosystem = (config as Record<string, Record<string, string>>).ecosystem ?? {}
 
   return (
     <div>
