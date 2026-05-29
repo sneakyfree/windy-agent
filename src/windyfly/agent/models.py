@@ -861,18 +861,18 @@ def _call_anthropic(
         "max_tokens": max_tokens,
         "temperature": temperature,
     }
-    # Extended thinking (Opus 4.7+). Temperature handling differs by
-    # version: opus-4-7 deprecated `temperature` entirely (400s if sent);
-    # opus-4-8 accepts it EXCEPT alongside thinking ("temperature may only
-    # be set to 1 when thinking is enabled"). So drop temperature always
-    # for 4-7, and whenever we enable a thinking budget. The budget scales
-    # with the caller's reasoning_depth (the "ultrathink" slider) and is
-    # ADDITIVE to max_tokens so the visible reply keeps its full allowance.
-    if model.startswith("claude-opus-4-7"):
+    # Extended thinking (Opus 4.7+). The whole 4.7+ Opus line deprecates
+    # `temperature` outright — both 4-7 and 4-8 now 400 ("temperature is
+    # deprecated for this model" without thinking; "temperature may only
+    # be set to 1 when thinking is enabled" with it). So drop it for any
+    # thinking-capable Opus regardless of whether we enable a budget.
+    # The thinking budget scales with the caller's reasoning_depth (the
+    # "ultrathink" slider) and is ADDITIVE to max_tokens so the visible
+    # reply keeps its full allowance.
+    if any(model.startswith(p) for p in _EXTENDED_THINKING_PREFIXES):
         kwargs.pop("temperature", None)
     thinking_budget = _thinking_budget(model, reasoning_depth)
     if thinking_budget:
-        kwargs.pop("temperature", None)
         kwargs["max_tokens"] = max_tokens + thinking_budget
         kwargs["thinking"] = {
             "type": "enabled",
