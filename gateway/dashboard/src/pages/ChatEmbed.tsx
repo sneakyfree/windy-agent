@@ -53,13 +53,26 @@ export default function ChatEmbed() {
         </div>
       </div>
 
-      {/* Embedded chat */}
-      <iframe
-        src={CHAT_URL}
-        className="flex-1 w-full border-0"
-        title="Windy Chat"
-        allow="clipboard-read; clipboard-write"
-      />
+      {/* Embedded chat — only when connected. Otherwise the iframe loads the
+          external chat host and surfaces its raw error/not-found page. */}
+      {data?.matrix_user || online === true ? (
+        <iframe
+          src={CHAT_URL}
+          className="flex-1 w-full border-0"
+          title="Windy Chat"
+          allow="clipboard-read; clipboard-write"
+        />
+      ) : (
+        <div className="flex-1 flex flex-col items-center justify-center gap-3 text-center px-4">
+          <div className="text-5xl">💬</div>
+          <div className="text-[#e2e8f0] text-base font-medium">No chat identity yet</div>
+          <div className="text-[#64748b] text-sm max-w-md">
+            Windy Chat connects your agent to Matrix. Run{' '}
+            <code className="bg-[#1e293b] px-1.5 py-0.5 rounded text-[#94a3b8]">windy go</code>{' '}
+            to hatch an identity and join the chat network.
+          </div>
+        </div>
+      )}
     </div>
   )
 }

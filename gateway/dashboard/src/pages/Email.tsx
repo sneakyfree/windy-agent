@@ -57,13 +57,26 @@ export default function Email() {
         </div>
       </div>
 
-      {/* Embedded mail */}
-      <iframe
-        src={MAIL_URL}
-        className="flex-1 w-full border-0"
-        title="Windy Mail"
-        allow="clipboard-read; clipboard-write"
-      />
+      {/* Embedded mail — only when provisioned. Otherwise the iframe loads
+          the external mail host and surfaces its raw auth/error page. */}
+      {data?.email || delegated === true ? (
+        <iframe
+          src={MAIL_URL}
+          className="flex-1 w-full border-0"
+          title="Windy Mail"
+          allow="clipboard-read; clipboard-write"
+        />
+      ) : (
+        <div className="flex-1 flex flex-col items-center justify-center gap-3 text-center px-4">
+          <div className="text-5xl">📧</div>
+          <div className="text-[#e2e8f0] text-base font-medium">No email provisioned yet</div>
+          <div className="text-[#64748b] text-sm max-w-md">
+            Windy Mail gives your agent its own inbox. Run{' '}
+            <code className="bg-[#1e293b] px-1.5 py-0.5 rounded text-[#94a3b8]">windy go</code>{' '}
+            to hatch an identity and provision email.
+          </div>
+        </div>
+      )}
     </div>
   )
 }

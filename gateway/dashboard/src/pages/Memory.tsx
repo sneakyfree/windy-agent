@@ -13,8 +13,10 @@ interface Moment {
   id: string
   summary: string
   participants?: string[]
-  timestamp: string
-  emotion?: string
+  // API (/api/moments) returns these keys — the old `timestamp`/`emotion`
+  // names didn't exist on the payload, so dates rendered "Invalid Date".
+  created_at: string
+  emotional_context?: string
 }
 
 interface Intent {
@@ -176,13 +178,13 @@ export default function Memory() {
               >
                 <p className="text-[#e2e8f0] text-sm">{m.summary}</p>
                 <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-[#64748b]">
-                  {m.emotion && (
-                    <span className="bg-[#1e293b] px-2 py-0.5 rounded">{m.emotion}</span>
+                  {m.emotional_context && (
+                    <span className="bg-[#1e293b] px-2 py-0.5 rounded">{m.emotional_context}</span>
                   )}
                   {m.participants && m.participants.length > 0 && (
                     <span>{m.participants.join(', ')}</span>
                   )}
-                  <span className="ml-auto">{new Date(m.timestamp).toLocaleDateString()}</span>
+                  <span className="ml-auto">{m.created_at ? new Date(m.created_at.replace(' ', 'T')).toLocaleDateString() : ''}</span>
                 </div>
               </div>
             ))}

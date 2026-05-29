@@ -56,7 +56,9 @@ export default function Chat() {
       ...prev,
       { role: 'user', content: trimmed, timestamp: Date.now() },
     ])
-    send({ message: trimmed, session_id: sessionId })
+    // Protocol: the gateway WS handler requires { type: "message", content }.
+    // Sending { message } silently no-ops on the server (no type match).
+    send({ type: 'message', content: trimmed, session_id: sessionId })
     setInput('')
   }
 

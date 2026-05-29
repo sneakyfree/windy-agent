@@ -41,7 +41,7 @@ import * as providers from "./providers";
 import * as machines from "./machines";
 import { handleHatchRemote } from "./hatch-remote";
 
-const PORT = 3000;
+const PORT = Number(process.env.GATEWAY_PORT) || 3000;
 const PUBLIC_DIR = resolve(import.meta.dir, "../public");
 
 // ── Sentry error reporting (optional) ───────────────────────────
@@ -658,11 +658,14 @@ async function handleRequest(req: Request, server: import("bun").Server<any>): P
         );
       }
       try {
-        const response = await bridge.call("agent.respond", {
+        // bridge.call() already unwraps the JSON-RPC `.result`, so this IS
+        // the brain's return value: { response: "<text>" }. The old code
+        // read `.result` again → undefined → empty {} on every reply.
+        const result = (await bridge.call("agent.respond", {
           message,
           session_id: `web:${body.user_id || "anonymous"}`,
-        });
-        return Response.json({ response: response.result }, { headers });
+        })) as { response?: string };
+        return Response.json({ response: result?.response ?? "" }, { headers });
       } catch {
         return Response.json(
           { response: "Agent is processing... try again in a moment." },

@@ -3,7 +3,7 @@ import { api } from '../hooks/useApi'
 
 const NAV_ITEMS = [
   { id: 'home', label: 'Home', icon: '🏠' },
-  { id: 'chat', label: 'Terminal', icon: '🖥️' },
+  { id: 'chat', label: 'Chat', icon: '🖥️' },
   { id: 'personality', label: 'Personality', icon: '🎛️' },
   { id: 'memory', label: 'Memory', icon: '🧠' },
   { id: 'skills', label: 'Skills', icon: '⚡' },
