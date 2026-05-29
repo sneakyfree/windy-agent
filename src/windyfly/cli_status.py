@@ -246,11 +246,11 @@ def print_status(config: dict[str, Any] | None = None) -> None:
             import shutil
             import subprocess
             if shutil.which("pgrep"):
-                r = subprocess.run(
+                proc = subprocess.run(
                     ["pgrep", "-f", "windyfly.main --channel"],
                     capture_output=True, text=True, timeout=3,
                 )
-                if r.returncode == 0 and r.stdout.strip():
+                if proc.returncode == 0 and proc.stdout.strip():
                     uptime_str = "running (external)"
         except Exception as e:
             logger.debug("External-process check failed: %s", e)
