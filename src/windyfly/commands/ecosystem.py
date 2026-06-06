@@ -361,7 +361,8 @@ def _register_ecosystem():
         passport = os.environ.get("ETERNITAS_PASSPORT", "")
         if not passport:
             return "No Eternitas passport. Run /go to register."
-        api_url = os.environ.get("ETERNITAS_API_URL", "")
+        from windyfly.eternitas.url import resolve_eternitas_url
+        api_url = resolve_eternitas_url()
         if api_url:
             try:
                 import httpx

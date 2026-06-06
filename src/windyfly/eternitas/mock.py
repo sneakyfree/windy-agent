@@ -1,6 +1,6 @@
 """Mock Eternitas client — full lifecycle backed by SQLite.
 
-Used when ETERNITAS_API_URL is unset or set to ``mock://local``.
+Used when ETERNITAS_URL is unset or set to ``mock://local``.
 Generates local passport IDs (ET-LXXXX) and stores everything in the
 same windyfly.db database.
 """

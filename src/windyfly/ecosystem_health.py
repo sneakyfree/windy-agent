@@ -12,6 +12,7 @@ import time
 import httpx
 
 from windyfly.config import load_config
+from windyfly.eternitas.url import resolve_eternitas_url
 
 
 async def check_ecosystem_health() -> str:
@@ -28,7 +29,7 @@ async def check_ecosystem_health() -> str:
     lines = ["\U0001f310 Windy Ecosystem Status\n"]
 
     # ── Eternitas ──
-    eternitas_url = eco.get("eternitas_url") or os.environ.get("ETERNITAS_API_URL", "")
+    eternitas_url = eco.get("eternitas_url") or resolve_eternitas_url()
     passport_id = os.environ.get("ETERNITAS_PASSPORT", "")
     if eternitas_url:
         status, latency = await _check_health(eternitas_url, "/api/v1/health")

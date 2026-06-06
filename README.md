@@ -120,7 +120,7 @@ All config lives in `windyfly.toml`:
 ```toml
 [agent]
 name = "Windy Fly"
-default_model = "gpt-4o-mini"
+default_model = "kimi-k2.5"
 
 [personality]
 preset = "buddy"          # buddy, engineer, powerhouse, coder, friend

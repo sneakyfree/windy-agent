@@ -227,9 +227,10 @@ def _register_all():
         lines.append(f"  {'✓' if sound_file.exists() else '✗'} {sound_file}")
         lines.append("\nEcosystem:")
         import httpx
+        from windyfly.eternitas.url import resolve_eternitas_url
         for name, url in [
             ("Windy Pro", os.environ.get("WINDY_API_URL", "")),
-            ("Eternitas", os.environ.get("ETERNITAS_API_URL", "")),
+            ("Eternitas", resolve_eternitas_url()),
             ("Windy Mail", os.environ.get("WINDYMAIL_API_URL", "")),
         ]:
             if url:

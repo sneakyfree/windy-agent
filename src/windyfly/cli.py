@@ -770,8 +770,9 @@ def _check_ecosystem_connectivity() -> None:
     checks = []
 
     # Eternitas
+    from windyfly.eternitas.url import resolve_eternitas_url
     passport = os.environ.get("ETERNITAS_PASSPORT", "")
-    eternitas_url = os.environ.get("ETERNITAS_API_URL", "")
+    eternitas_url = resolve_eternitas_url()
     if eternitas_url and passport:
         checks.append(("Eternitas", f"{eternitas_url}/api/v1/registry/verify/{passport}"))
     elif eternitas_url:

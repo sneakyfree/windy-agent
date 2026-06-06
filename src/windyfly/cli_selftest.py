@@ -27,6 +27,8 @@ from typing import Iterable
 
 from rich.console import Console
 
+from windyfly.eternitas.url import resolve_eternitas_url
+
 console = Console()
 
 
@@ -57,10 +59,7 @@ def _build_ecosystem_checks() -> list[EcosystemCheck]:
     checks: list[EcosystemCheck] = []
 
     # Eternitas — /registry/verify/{passport} when we have one, else /health.
-    eternitas_base = (
-        os.environ.get("ETERNITAS_API_URL")
-        or os.environ.get("ETERNITAS_URL", "")
-    ).rstrip("/")
+    eternitas_base = resolve_eternitas_url()
     if eternitas_base:
         passport = os.environ.get("ETERNITAS_PASSPORT", "").strip()
         if passport:

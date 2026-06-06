@@ -323,7 +323,8 @@ def cmd_doctor(_args: argparse.Namespace) -> None:
     console.print("[bold]External Services[/bold]")
 
     # Eternitas API
-    eternitas_url = os.environ.get("ETERNITAS_API_URL", "")
+    from windyfly.eternitas.url import resolve_eternitas_url
+    eternitas_url = resolve_eternitas_url()
     if eternitas_url:
         try:
             import httpx
@@ -333,10 +334,10 @@ def cmd_doctor(_args: argparse.Namespace) -> None:
                      "API returned error" if not reachable else None)
         except Exception:
             _doc_row("Eternitas API", eternitas_url, False,
-                     "Unreachable — check ETERNITAS_API_URL")
+                     "Unreachable — check ETERNITAS_URL")
             warnings.append("Eternitas API unreachable")
     else:
-        _doc_row("Eternitas API", "not configured", True, "Set ETERNITAS_API_URL to enable")
+        _doc_row("Eternitas API", "not configured", True, "Set ETERNITAS_URL to enable")
 
     # Windy Pro API
     windy_api_url = os.environ.get("WINDY_API_URL", "")
@@ -1016,7 +1017,8 @@ def cmd_passport(_args: argparse.Namespace) -> None:
     # Try to look up details from Eternitas
     try:
         import httpx
-        url = os.environ.get("ETERNITAS_API_URL", "")
+        from windyfly.eternitas.url import resolve_eternitas_url
+        url = resolve_eternitas_url()
         if url:
             r = httpx.get(f"{url}/api/v1/registry/verify/{passport_id}", timeout=5)
             if r.status_code == 200:

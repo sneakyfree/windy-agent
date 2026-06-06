@@ -34,7 +34,7 @@ services:
       - ${WINDY_ENV_FILE:-/home/grantwhitmer/.windy/windy-0.env}
     environment:
       # Defaults for fields the env_file might not set.
-      - DEFAULT_MODEL=${DEFAULT_MODEL:-claude-haiku-4-5-20251001}
+      - DEFAULT_MODEL=${DEFAULT_MODEL:-kimi-k2.5}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     volumes:
       - agent-data:/app/data
