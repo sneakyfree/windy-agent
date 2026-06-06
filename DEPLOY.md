@@ -222,7 +222,7 @@ Matching env-var overrides (populated by the systemd unit's
 
 | Env var             | Prod value                         |
 |---------------------|------------------------------------|
-| `ETERNITAS_API_URL` | `https://api.eternitas.ai`             |
+| `ETERNITAS_URL`     | `https://api.eternitas.ai`             |
 | `WINDY_PRO_URL`     | `https://windyword.ai`             |
 | `WINDY_API_URL`     | `https://windyword.ai`             |
 | `MATRIX_HOMESERVER` | `https://chat.windychat.ai`        |

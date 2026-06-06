@@ -256,9 +256,9 @@ def verify_webhook(
     """
     strict = os.environ.get("WINDYFLY_TRUST_STRICT", "").lower() in ("1", "true", "yes")
     hmac_secret = hmac_secret if hmac_secret is not None else os.environ.get("ETERNITAS_WEBHOOK_SECRET", "")
-    eternitas_url = eternitas_url if eternitas_url is not None else (
-        os.environ.get("ETERNITAS_URL", "") or os.environ.get("ETERNITAS_API_URL", "")
-    )
+    if eternitas_url is None:
+        from windyfly.eternitas.url import resolve_eternitas_url
+        eternitas_url = resolve_eternitas_url()
 
     hmac_header = _header(headers, "X-Eternitas-Signature")
     jws_header = _header(headers, "X-Windy-Signature")

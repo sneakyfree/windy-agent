@@ -44,7 +44,10 @@ def load_config(path: str = "windyfly.toml") -> dict[str, Any]:
         "MATRIX_BOT_PASSWORD": (["matrix", "bot_password"], str),
         "WINDY_API_URL": (["windy_api", "base_url"], str),
         "WINDY_JWT": (["windy_api", "jwt"], str),
+        # ETERNITAS_API_URL is the legacy name (back-compat); ETERNITAS_URL
+        # is canonical and, being listed later, wins when both are set.
         "ETERNITAS_API_URL": (["ecosystem", "eternitas_url"], str),
+        "ETERNITAS_URL": (["ecosystem", "eternitas_url"], str),
         "WINDYMAIL_API_URL": (["ecosystem", "windy_mail_url"], str),
         "WINDY_CLOUD_URL": (["ecosystem", "windy_cloud_url"], str),
         "WINDY_PRO_URL": (["ecosystem", "windy_pro_url"], str),

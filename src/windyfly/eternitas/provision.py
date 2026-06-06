@@ -37,7 +37,8 @@ class EternitasProvisionResult:
 def get_eternitas_client(db=None, config: dict | None = None):
     """Return the appropriate Eternitas client based on configuration.
 
-    Checks ecosystem.eternitas_url from config, then ETERNITAS_API_URL env var.
+    Checks ecosystem.eternitas_url from config, then the ETERNITAS_URL env var
+    (with ETERNITAS_API_URL as a deprecated fallback).
     Uses real HTTP client when a URL is set, mock client otherwise.
     """
     from windyfly.eternitas.url import resolve_eternitas_url
