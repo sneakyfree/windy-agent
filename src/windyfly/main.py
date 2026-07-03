@@ -175,7 +175,13 @@ def main() -> None:
     # On DEGRADED/SKIPPED, proceed without claim discipline (fail-open).
     from windyfly import runtime_claim
 
-    _claim_outcome = runtime_claim.acquire_runtime_slot(source="cli")
+    # The claim source IS the channel, so Mind gives each channel its own
+    # per-(passport, source) slot — this agent can run one runtime per channel
+    # (Telegram + Windy Chat + Discord …) at the same time without them fighting
+    # over a single lock. Two runtimes of the SAME channel still conflict (no
+    # double replies). Heartbeat/release resolve the slot from runtime_id, so
+    # they need no source. (`cli` keeps the shared base <passport> slot.)
+    _claim_outcome = runtime_claim.acquire_runtime_slot(source=args.channel)
     if _claim_outcome == runtime_claim.ClaimOutcome.CONFLICT:
         # Per ADR-051 §"A.5 acceptance": the losing runtime logs the
         # conflict and goes idle. Idle == exit-clean for the CLI runtime,
