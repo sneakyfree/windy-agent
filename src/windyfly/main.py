@@ -68,6 +68,123 @@ def _start_decay_scheduler(
     return t
 
 
+def _run_bot_channel(
+    config: dict,
+    db_path: str,
+    platform: str,
+    adapter_factory,
+    preflight=None,
+) -> None:
+    """Generic runner for manager-based, BYO-token chat channels.
+
+    Discord, Slack, and any future "paste-a-token-and-go" channel share this:
+    it boots the agent stack, registers the channel adapter with the
+    ChannelManager, wires runtime state, sends systemd READY once the channel
+    is up, and runs until SIGTERM/SIGINT. Each channel runs as its own process
+    (``--channel <name>``) and claims its own per-(passport, source) runtime
+    slot, so an agent can be live on several channels at once.
+
+    The telegram branch keeps its own bespoke runner (owner-gating, guest
+    mode, post-panic greeting); everything else shares this path.
+
+    - ``adapter_factory(db, write_queue)`` returns a ready ``ChannelAdapter``.
+    - ``preflight()`` is an optional env-var check that may ``sys.exit(1)``.
+    """
+    import asyncio
+    import signal as _signal_mod
+
+    from windyfly.agent.boot import (
+        BootContext, BootSequence,
+        default_capability_registration_sequence,
+    )
+    from windyfly.agent.capabilities import capability_registry
+    from windyfly.agent.loop import agent_respond
+    from windyfly.channels.manager import ChannelManager, ChannelStartupError
+    from windyfly.commands.core import wire_runtime
+    from windyfly.memory.database import Database
+    from windyfly.memory.write_queue import WriteQueue
+    from windyfly.observability.sd_notify import notify_ready, notify_stopping
+    from windyfly.tools.registry import ToolRegistry
+
+    if preflight is not None:
+        preflight()
+
+    db = Database(db_path)
+    write_queue = WriteQueue()
+    write_queue.start()
+    tool_registry = ToolRegistry()
+
+    # Same canonical capability + tool registration the telegram/matrix
+    # branches run, so every channel exposes identical tools by construction.
+    BootSequence(default_capability_registration_sequence()).run(
+        BootContext(
+            config=config, db=db, write_queue=write_queue,
+            tool_registry=tool_registry,
+            capability_registry=capability_registry,
+        )
+    )
+
+    async def _respond(text: str, session_id: str) -> str:
+        # Respect the global guest-mode flag on every channel (demo audiences
+        # get GRANDMA MODE), same as telegram.
+        from windyfly.agent.capabilities import Band
+        from windyfly.agent.guest_mode import is_guest_active
+        band = Band.USER if is_guest_active() else Band.OWNER
+        return agent_respond(
+            config, db, write_queue, text, session_id, tool_registry,
+            band=band,
+        )
+
+    manager = ChannelManager(_respond)
+    manager.register(adapter_factory(db, write_queue))
+    wire_runtime(db=db, channel_manager=manager)
+
+    async def _run() -> None:
+        stop_event = asyncio.Event()
+        loop = asyncio.get_running_loop()
+
+        def _on_signal(signum: int) -> None:
+            logger.info("Received signal %s — initiating shutdown", signum)
+            stop_event.set()
+
+        for sig in (_signal_mod.SIGTERM, _signal_mod.SIGINT):
+            try:
+                loop.add_signal_handler(sig, _on_signal, sig)
+            except (NotImplementedError, RuntimeError):
+                pass
+
+        # Start channels BEFORE notify_ready(): a failed start must exit
+        # non-zero so the supervisor restarts clean, not send READY from a
+        # zombie (the 2026-05-17 outage pattern).
+        try:
+            await manager.start_all()
+        except ChannelStartupError as exc:
+            logger.critical(
+                "FATAL: %s. Refusing to send READY=1. Exiting non-zero so "
+                "the supervisor restarts from a clean slate.", exc,
+            )
+            raise SystemExit(1) from exc
+
+        notify_ready()
+        logger.info("Channel '%s' ready", platform)
+        try:
+            await stop_event.wait()
+        finally:
+            notify_stopping()
+            logger.info("Stopping channels...")
+            await manager.stop_all()
+
+    try:
+        asyncio.run(_run())
+    except KeyboardInterrupt:
+        pass
+    finally:
+        logger.info("Flushing write queue and closing database...")
+        write_queue.stop()
+        db.close()
+        logger.info("Windy Fly shut down cleanly")
+
+
 def main() -> None:
     """Main entry point for Windy Fly."""
     load_dotenv()
@@ -78,7 +195,7 @@ def main() -> None:
     # Legacy --channel mode
     parser.add_argument(
         "--channel",
-        choices=["cli", "matrix", "sms", "telegram"],
+        choices=["cli", "matrix", "sms", "telegram", "discord", "slack"],
         default="cli",
         help="Channel to run (default: cli)",
     )
@@ -400,6 +517,46 @@ def main() -> None:
             write_queue.stop()
             db.close()
             logger.info("Windy Fly shut down cleanly")
+    elif args.channel == "discord":
+        from windyfly.channels.discord_bot import DiscordChannel
+
+        def _discord_preflight() -> None:
+            if not os.environ.get("DISCORD_BOT_TOKEN"):
+                print(
+                    "Error: DISCORD_BOT_TOKEN not set. Create a bot at "
+                    "discord.com/developers → Bot → Reset Token, enable the "
+                    "Message Content intent, and invite it to your server.",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+
+        _run_bot_channel(
+            config, db_path, "discord",
+            lambda db, wq: DiscordChannel(),
+            preflight=_discord_preflight,
+        )
+    elif args.channel == "slack":
+        from windyfly.channels.slack_bot import SlackChannel
+
+        def _slack_preflight() -> None:
+            if not (
+                os.environ.get("SLACK_BOT_TOKEN")
+                and os.environ.get("SLACK_APP_TOKEN")
+            ):
+                print(
+                    "Error: SLACK_BOT_TOKEN and SLACK_APP_TOKEN not set. "
+                    "Create a Slack app at api.slack.com/apps with Socket "
+                    "Mode on (App-Level Token → SLACK_APP_TOKEN, Bot User "
+                    "OAuth Token → SLACK_BOT_TOKEN).",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+
+        _run_bot_channel(
+            config, db_path, "slack",
+            lambda db, wq: SlackChannel(),
+            preflight=_slack_preflight,
+        )
     elif args.channel == "sms":
         import asyncio
         from windyfly.channels.sms import WindyFlySMS
