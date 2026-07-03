@@ -522,11 +522,10 @@ def main() -> None:
 
         def _discord_preflight() -> None:
             if not os.environ.get("DISCORD_BOT_TOKEN"):
-                print(
-                    "Error: DISCORD_BOT_TOKEN not set. Create a bot at "
+                logger.error(
+                    "DISCORD_BOT_TOKEN not set. Create a bot at "
                     "discord.com/developers → Bot → Reset Token, enable the "
-                    "Message Content intent, and invite it to your server.",
-                    file=sys.stderr,
+                    "Message Content intent, and invite it to your server."
                 )
                 sys.exit(1)
 
@@ -543,12 +542,11 @@ def main() -> None:
                 os.environ.get("SLACK_BOT_TOKEN")
                 and os.environ.get("SLACK_APP_TOKEN")
             ):
-                print(
-                    "Error: SLACK_BOT_TOKEN and SLACK_APP_TOKEN not set. "
+                logger.error(
+                    "SLACK_BOT_TOKEN and SLACK_APP_TOKEN not set. "
                     "Create a Slack app at api.slack.com/apps with Socket "
                     "Mode on (App-Level Token → SLACK_APP_TOKEN, Bot User "
-                    "OAuth Token → SLACK_BOT_TOKEN).",
-                    file=sys.stderr,
+                    "OAuth Token → SLACK_BOT_TOKEN)."
                 )
                 sys.exit(1)
 
