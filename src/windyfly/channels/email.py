@@ -99,7 +99,7 @@ class WindyMailAdapter:
                 json={
                     "to": [to],
                     "subject": subject,
-                    "body": body,
+                    "body_text": body,
                     "mode": "independent",
                 },
                 headers={"Authorization": f"Bearer {self.jmap_token}"},
