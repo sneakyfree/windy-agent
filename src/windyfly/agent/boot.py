@@ -336,6 +336,23 @@ def _step_register_fleet(ctx: BootContext) -> None:
     register_fleet_capabilities(ctx.capability_registry, ctx.config)
 
 
+def _step_register_skill_learning(ctx: BootContext) -> None:
+    from windyfly.agent.capabilities.skill_learning import (
+        register_skill_learning_capabilities,
+    )
+    register_skill_learning_capabilities(
+        ctx.capability_registry, ctx.db, ctx.write_queue, ctx.config,
+    )
+
+
+def _step_sync_skill_files(ctx: BootContext) -> None:
+    """Ingest ~/.windy/skills/*.md into the skill lifecycle (Sprint 3).
+    Files are the human-facing mirror of learned skills — dropping a
+    SKILL.md in and restarting teaches the agent."""
+    from windyfly.skills.files import sync_skill_files
+    sync_skill_files(ctx.db)
+
+
 def default_capability_registration_sequence() -> list[Step]:
     """The canonical post-DB-open registration order for both channels.
 
@@ -431,5 +448,15 @@ def default_capability_registration_sequence() -> list[Step]:
             "capabilities.fleet",
             _step_register_fleet,
             requires=("capabilities.audit",),
+        ),
+        Step(
+            "capabilities.skill_learning",
+            _step_register_skill_learning,
+            requires=("capabilities.audit",),
+        ),
+        Step(
+            "skills.file_sync",
+            _step_sync_skill_files,
+            optional=True,  # a malformed skill file must not block boot
         ),
     ]
