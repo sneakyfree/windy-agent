@@ -107,7 +107,9 @@ class TestLayering:
         # naming the command.
         was_cmd, reply = _handle("/ping")
         assert was_cmd
-        assert "ping" in reply.lower()
+        # Loaded registry answers "Pong"; bare registry answers
+        # "Unknown command: ping". Either proves rescue passed it on.
+        assert "pong" in reply.lower() or "ping" in reply.lower()
 
     def test_plain_chat_is_not_a_command(self):
         was_cmd, reply = _handle("hello there, how are you?")
