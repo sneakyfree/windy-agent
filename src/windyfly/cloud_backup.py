@@ -9,16 +9,18 @@ Config (windyfly.toml):
     auto_backup = true
     backup_interval = "24h"
 
-API:
-    POST   /api/v1/archive/agent   — Upload encrypted backup
-    GET    /api/v1/archive/agent   — List available backups
-    GET    /api/v1/archive/agent/{id} — Download backup
-    DELETE /api/v1/archive/agent/{id} — Delete backup
+Windy Cloud archive contract (canonical, 2026-07-04):
+    POST /api/v1/archive/agent                    — multipart upload (file + metadata + filename)
+    GET  /api/v1/archive/list/windy_fly           — list backups (newest first)
+    GET  /api/v1/archive/retrieve/windy_fly/{name} — download one by filename
+
+Encryption is AES-256-GCM, key from WINDY_BACKUP_KEY (zero-knowledge if
+set) or passport-derived (convenient, not zero-knowledge) — see
+_get_encryption_key.
 """
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import json
 import logging
@@ -37,6 +39,7 @@ logger = logging.getLogger(__name__)
 PROJECT_ROOT = get_project_root()
 _BACKUP_STATE_FILE = PROJECT_ROOT / "data" / "backup_state.json"
 _TIMEOUT = 60.0  # Backups can be large
+_RETENTION_COUNT = 5  # keep the 5 most recent backups (Cloud enforces)
 
 
 def _get_cloud_url(config: dict | None = None) -> str:
@@ -54,37 +57,51 @@ def _get_cloud_token() -> str:
 
 
 def _get_encryption_key() -> bytes:
-    """Derive encryption key from passport ID + agent name.
+    """Derive the 32-byte backup key.
 
-    Uses PBKDF2 with SHA-256 for key derivation. The backup is
-    encrypted client-side so the cloud service is zero-knowledge.
+    Prefers a user-held secret ``WINDY_BACKUP_KEY`` — set it (e.g. from
+    the Eternitas recovery phrase) for a genuinely zero-knowledge backup
+    the cloud cannot decrypt. Otherwise falls back to a passport-derived
+    key: convenient (restore "just works" on a new device with the same
+    passport) but NOT zero-knowledge, since the passport + agent name are
+    semi-public. Either way the key feeds AES-256-GCM below.
     """
+    user_secret = os.environ.get("WINDY_BACKUP_KEY", "")
+    if user_secret:
+        return hashlib.pbkdf2_hmac(
+            "sha256", user_secret.encode(), b"windy-backup-kdf-v2", 200_000
+        )
     passport = os.environ.get("ETERNITAS_PASSPORT", "windyfly-local")
     agent_name = os.environ.get("WINDYFLY_AGENT_NAME", "Windy Fly")
-    salt = f"{passport}:{agent_name}".encode()
-    return hashlib.pbkdf2_hmac("sha256", salt, b"windyfly-backup-v1", 100_000)
+    material = f"{passport}:{agent_name}".encode()
+    return hashlib.pbkdf2_hmac("sha256", material, b"windy-backup-kdf-v2", 200_000)
+
+
+_GCM_NONCE_BYTES = 12
 
 
 def _encrypt_data(data: bytes, key: bytes) -> bytes:
-    """Encrypt data using XOR stream cipher with key-derived pad.
+    """AES-256-GCM. Output = nonce(12) || ciphertext+tag.
 
-    This is a simple encryption for backup data. For production,
-    consider using AES-256-GCM via the cryptography library.
+    Replaces the pre-2026-07-04 SHA-256-keystream XOR, which had no
+    integrity tag and reused the keystream structure across backups.
+    GCM gives authenticated encryption; a fresh random nonce per backup.
     """
-    # Generate a keystream by hashing the key repeatedly
-    encrypted = bytearray(len(data))
-    block_size = 32  # SHA-256 output
-    for i in range(0, len(data), block_size):
-        block_key = hashlib.sha256(key + i.to_bytes(8, "big")).digest()
-        chunk = data[i:i + block_size]
-        for j, byte in enumerate(chunk):
-            encrypted[i + j] = byte ^ block_key[j]
-    return bytes(encrypted)
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+    nonce = os.urandom(_GCM_NONCE_BYTES)
+    ct = AESGCM(key).encrypt(nonce, data, None)
+    return nonce + ct
 
 
 def _decrypt_data(data: bytes, key: bytes) -> bytes:
-    """Decrypt data — XOR is symmetric."""
-    return _encrypt_data(data, key)
+    """Inverse of _encrypt_data. Raises on a bad tag (tamper/wrong key)."""
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+    if len(data) < _GCM_NONCE_BYTES + 16:
+        raise ValueError("backup ciphertext too short")
+    nonce, ct = data[:_GCM_NONCE_BYTES], data[_GCM_NONCE_BYTES:]
+    return AESGCM(key).decrypt(nonce, ct, None)
 
 
 async def backup_to_cloud(config: dict | None = None) -> dict:
@@ -131,18 +148,23 @@ async def backup_to_cloud(config: dict | None = None) -> dict:
     encrypted = _encrypt_data(raw_data, key)
     checksum = hashlib.sha256(raw_data).hexdigest()
 
-    # Upload
-    payload = {
-        "agent_name": os.environ.get("WINDYFLY_AGENT_NAME", "Windy Fly"),
-        "passport_id": os.environ.get("ETERNITAS_PASSPORT", ""),
-        "data_base64": base64.b64encode(encrypted).decode("ascii"),
+    # Deterministic, sortable filename so list→retrieve round-trips.
+    ts = datetime.now(timezone.utc)
+    backup_name = f"windyfly-{ts.strftime('%Y%m%dT%H%M%SZ')}.enc"
+    metadata = json.dumps({
+        "encrypted": True,
         "checksum_sha256": checksum,
         "size_bytes": len(raw_data),
-        "encrypted": True,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    }
+        "agent_name": os.environ.get("WINDYFLY_AGENT_NAME", "Windy Fly"),
+        "passport_id": os.environ.get("ETERNITAS_PASSPORT", ""),
+        "timestamp": ts.isoformat(),
+        # keep a few backups; Cloud enforces retention server-side
+        "retention_count": _RETENTION_COUNT,
+    })
 
     try:
+        # Canonical archive contract (2026-07-04): multipart upload to
+        # /archive/agent, NOT the old JSON body the server never accepted.
         target_url = f"{cloud_url}/api/v1/archive/agent"
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             with audit_bot_key_call(
@@ -152,26 +174,29 @@ async def backup_to_cloud(config: dict | None = None) -> dict:
             ) as ctx:
                 resp = await client.post(
                     target_url,
-                    json=payload,
-                    headers={
-                        **auth_header,
-                        "Content-Type": "application/json",
-                    },
+                    files={"file": (backup_name, encrypted, "application/octet-stream")},
+                    data={"metadata": metadata, "filename": backup_name},
+                    headers=auth_header,
                 )
                 ctx["response_status"] = resp.status_code
             resp.raise_for_status()
             result = resp.json()
 
-            # Save backup state
             _save_backup_state({
-                "last_backup": datetime.now(timezone.utc).isoformat(),
-                "backup_id": result.get("backup_id", ""),
+                "last_backup": ts.isoformat(),
+                "backup_id": backup_name,
+                "file_id": result.get("file_id", ""),
                 "size_bytes": len(raw_data),
                 "checksum": checksum,
             })
 
-            logger.info("Backup uploaded: %s (%d bytes)", result.get("backup_id", ""), len(raw_data))
-            return {"success": True, **result}
+            logger.info("Backup uploaded: %s (%d bytes)", backup_name, len(raw_data))
+            return {
+                "success": True,
+                "backup_id": backup_name,
+                "file_id": result.get("file_id", ""),
+                "size_bytes": len(raw_data),
+            }
 
     except httpx.ConnectError:
         return {"success": False, "error": f"Cannot reach Windy Cloud at {cloud_url}"}
@@ -206,8 +231,18 @@ async def restore_from_cloud(
     if config:
         db_path = Path(config.get("memory", {}).get("db_path", "data/windyfly.db"))
 
+    # Resolve "latest" to a real filename via the list endpoint.
+    filename = backup_id
+    if backup_id in ("", "latest"):
+        listed = await list_backups(config)
+        backups = listed.get("backups", [])
+        if not backups:
+            return {"success": False, "error": "No backups found"}
+        filename = backups[0]["filename"]  # list is newest-first
+
     try:
-        target_url = f"{cloud_url}/api/v1/archive/agent/{backup_id}"
+        # Canonical: fetch raw encrypted bytes by filename.
+        target_url = f"{cloud_url}/api/v1/archive/retrieve/windy_fly/{filename}"
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             with audit_bot_key_call(
                 key_id=audit_key_id,
@@ -217,17 +252,18 @@ async def restore_from_cloud(
                 resp = await client.get(target_url, headers=auth_header)
                 ctx["response_status"] = resp.status_code
             resp.raise_for_status()
-            data = resp.json()
+            encrypted = resp.content
 
-            encrypted = base64.b64decode(data["data_base64"])
             key = _get_encryption_key()
-            decrypted = _decrypt_data(encrypted, key)
-
-            # Verify checksum
-            checksum = hashlib.sha256(decrypted).hexdigest()
-            expected = data.get("checksum_sha256", "")
-            if expected and checksum != expected:
-                return {"success": False, "error": "Checksum mismatch — backup may be corrupted"}
+            try:
+                decrypted = _decrypt_data(encrypted, key)
+            except Exception:
+                return {
+                    "success": False,
+                    "error": "Could not decrypt backup — wrong key or "
+                    "corrupted data. If you set WINDY_BACKUP_KEY on the "
+                    "source device, set the same value here.",
+                }
 
             # Back up current DB before overwriting
             if db_path.exists():
@@ -239,10 +275,10 @@ async def restore_from_cloud(
             db_path.parent.mkdir(parents=True, exist_ok=True)
             db_path.write_bytes(decrypted)
 
-            logger.info("Database restored from backup %s (%d bytes)", backup_id, len(decrypted))
+            logger.info("Database restored from backup %s (%d bytes)", filename, len(decrypted))
             return {
                 "success": True,
-                "backup_id": backup_id,
+                "backup_id": filename,
                 "size_bytes": len(decrypted),
                 "restored_at": datetime.now(timezone.utc).isoformat(),
             }
@@ -272,7 +308,10 @@ async def list_backups(config: dict | None = None) -> dict:
     audit_key_id = cred.key_id if cred else ""
 
     try:
-        target_url = f"{cloud_url}/api/v1/archive/agent"
+        # Canonical list endpoint (2026-07-04). Server returns
+        # {product, count, files:[{filename, size_bytes, created_at,...}]}
+        # newest-first; normalize the key to "backups" for callers.
+        target_url = f"{cloud_url}/api/v1/archive/list/windy_fly"
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             with audit_bot_key_call(
                 key_id=audit_key_id,
@@ -283,7 +322,7 @@ async def list_backups(config: dict | None = None) -> dict:
                 ctx["response_status"] = resp.status_code
             resp.raise_for_status()
             data = resp.json()
-            return {"success": True, "backups": data.get("backups", [])}
+            return {"success": True, "backups": data.get("files", [])}
     except Exception as e:
         return {"success": False, "backups": [], "error": str(e)}
 
