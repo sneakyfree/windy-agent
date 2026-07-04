@@ -33,6 +33,7 @@ the chosen model. ``offline.get_offline_response`` honors the
 
 from __future__ import annotations
 
+import enum
 import json
 import logging
 import os
@@ -43,6 +44,153 @@ from windyfly.platform import windy_state_dir
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+# ── Lifeboat FSM observability layer ─────────────────────────────
+#
+# Phase 2.2.2 — observability-only enum mapping the implicit state
+# machine documented in docs/LIFEBOAT_FSM_AS_BUILT.md. NO BEHAVIOR
+# CHANGE in this commit — `current_state()` reads the existing flags
+# and returns the matching enum value. The full FSM-enforcement
+# refactor (transitions own side effects) is gated on the 5 design
+# questions in §5 of the as-built doc.
+#
+# State definitions match the §5 proposal:
+#   HEALTHY   — no resurrect flag, no provider cooldowns active
+#   DEGRADED  — no resurrect flag, ≥1 provider cooldown active
+#   LIFEBOAT  — resurrect flag present (subsumes _HEALTHY / _PROBING /
+#               _WEDGED — those are tick-internal behaviors, not
+#               durable states per as-built doc §5 mapping)
+#   RECOVERING — post-recovery grace window active (anti-ping-pong)
+#   AUTH_DEAD — provider in perma-auth long cooldown (1h via #210)
+#
+# AUTH_DEAD is currently emergent (no durable flag — only the
+# _provider_cooldowns dict). This enum surfaces it as a first-class
+# state even before the durability refactor lands.
+
+
+class LifeboatState(enum.Enum):
+    HEALTHY = "healthy"
+    DEGRADED = "degraded"
+    LIFEBOAT = "lifeboat"
+    RECOVERING = "recovering"
+    AUTH_DEAD = "auth_dead"
+
+
+def current_state() -> LifeboatState:
+    """Read the current implicit FSM state from flag files + module
+    state. NO side effects — just observability.
+
+    Precedence (most-derived first so callers get the most useful
+    label when multiple conditions hold):
+      1. LIFEBOAT (resurrect flag present)
+      2. RECOVERING (5-min grace window after successful probe)
+      3. AUTH_DEAD (any provider in perma-auth long cooldown)
+      4. DEGRADED (any provider in regular cooldown)
+      5. HEALTHY (none of the above)
+    """
+    if _flag_path().exists():
+        return LifeboatState.LIFEBOAT
+    if _within_post_recovery_grace():
+        return LifeboatState.RECOVERING
+    # Check provider cooldowns — import lazily so resurrect.py stays
+    # importable without the models module being fully initialized.
+    try:
+        from windyfly.agent.models import _provider_cooldowns  # noqa: PLC0415
+        import time as _time
+        now = _time.time()
+        # Scan ALL cooldowns first so precedence is determined by the
+        # highest-priority match (AUTH_DEAD beats DEGRADED) regardless
+        # of dict iteration order.
+        has_auth_dead = False
+        has_degraded = False
+        for _provider, val in (_provider_cooldowns or {}).items():
+            if not (isinstance(val, tuple) and len(val) == 2):
+                continue
+            until, _attempts = val
+            if until <= now:
+                continue
+            remaining = until - now
+            # If remaining cooldown is "long" (>15min), classify as
+            # AUTH_DEAD per #210 (1h perma-auth cooldown).
+            if remaining > 900:
+                has_auth_dead = True
+            else:
+                has_degraded = True
+        if has_auth_dead:
+            return LifeboatState.AUTH_DEAD
+        if has_degraded:
+            return LifeboatState.DEGRADED
+    except Exception:  # noqa: BLE001 — observability path, never raise
+        logger.debug("current_state: provider cooldown probe failed",
+                     exc_info=True)
+    return LifeboatState.HEALTHY
+
+
+class LifeboatFSM:
+    """Explicit FSM facade for the lifeboat system (Phase 2.2.2).
+
+    Thin wrapper over the existing transition primitives (resurrect,
+    normalize, attempt_paid_recovery, auto_resurrect_attempt). Each
+    method names a transition explicitly and emits a structured log
+    event so operators can trace state changes after the fact.
+
+    The underlying file-flag mechanics are unchanged — this class is
+    a NAMING layer, not a behavior layer. Existing callers (loop.py,
+    telegram_bot.py) can migrate to FSM.transition_*() incrementally;
+    the old function-level API stays public for back-compat.
+
+    States: HEALTHY / DEGRADED / LIFEBOAT / RECOVERING / AUTH_DEAD
+    (see LifeboatState enum + docs/LIFEBOAT_FSM_AS_BUILT.md).
+    """
+
+    @staticmethod
+    def state() -> "LifeboatState":
+        """Current FSM state — see current_state() for precedence."""
+        return current_state()
+
+    @staticmethod
+    def enter_lifeboat(
+        actor: str = "user",
+        previous_model: str | None = None,
+    ) -> dict[str, Any]:
+        """Transition * → LIFEBOAT (manual or auto)."""
+        prior = current_state()
+        result = resurrect(actor=actor, previous_model=previous_model)
+        new = current_state()
+        logger.info(
+            "fsm.transition from=%s to=%s trigger=enter_lifeboat actor=%s ok=%s",
+            prior.value, new.value, actor, result.get("ok"),
+        )
+        return result
+
+    @staticmethod
+    def exit_to_healthy() -> dict[str, Any]:
+        """Transition LIFEBOAT → HEALTHY via /normal."""
+        prior = current_state()
+        result = normalize()
+        new = current_state()
+        logger.info(
+            "fsm.transition from=%s to=%s trigger=exit_to_healthy ok=%s",
+            prior.value, new.value, result.get("ok"),
+        )
+        return result
+
+    @staticmethod
+    def probe_recovery() -> dict[str, Any]:
+        """LIFEBOAT → RECOVERING (success) or LIFEBOAT (probe failed)."""
+        prior = current_state()
+        result = attempt_paid_recovery()
+        new = current_state()
+        logger.info(
+            "fsm.transition from=%s to=%s trigger=probe_recovery recovered=%s",
+            prior.value, new.value, result.get("recovered"),
+        )
+        return result
+
+
+# Module-level singleton (parallel to capability_registry pattern).
+fsm = LifeboatFSM()
 
 
 # ── Curated preference list ───────────────────────────────────────
