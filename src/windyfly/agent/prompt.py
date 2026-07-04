@@ -568,13 +568,19 @@ def assemble_prompt(
     # closes that gap.
     earlier_relevant: list[dict] = []
     if keywords:
-        from windyfly.memory.episodes import search_episodes
+        # Hybrid retrieval (Sprint 3): FTS5 keyword search fused with
+        # cosine similarity over stored embeddings via RRF. Built and
+        # tested in the semantic-memory sprint but never wired here —
+        # the agent ran keyword-only recall while the better retriever
+        # sat idle (2026-07-04 audit). Degrades to FTS-only
+        # automatically when embeddings are unavailable.
+        from windyfly.memory.episodes import search_episodes_hybrid
         # Filter to non-empty str ids — the comprehension already
         # excludes falsy ids but mypy can't narrow that to set[str].
         recent_ids: set[str] = {
             ep["id"] for ep in recent if ep.get("id")
         }
-        earlier_relevant = search_episodes(
+        earlier_relevant = search_episodes_hybrid(
             db,
             query=keywords,
             limit=10,
