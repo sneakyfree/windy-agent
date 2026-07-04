@@ -235,8 +235,8 @@ def main() -> None:
     try:
         config = load_config(args.config)
     except FileNotFoundError as e:
-        print(f"Error: {e}", file=sys.stderr)
         print(
+            f"Error: {e}\n"
             "Run 'windy go' to create one, or pass --config <path>.",
             file=sys.stderr,
         )
