@@ -1,6 +1,6 @@
 """Handler for Eternitas trust.changed webhooks.
 
-Contract: `/Users/thewindstorm/eternitas/docs/trust-api.md#trust.changed`.
+Contract: `eternitas/docs/trust-api.md#trust.changed` (eternitas repo).
 Either band pair OR clearance pair will be populated for a given
 event — not necessarily both.
 

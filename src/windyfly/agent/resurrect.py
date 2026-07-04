@@ -38,6 +38,8 @@ import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
+
+from windyfly.platform import windy_state_dir
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -82,7 +84,7 @@ PREFERRED_MODELS: tuple[str, ...] = (
 def _flag_path() -> Path:
     return Path(os.environ.get(
         "WINDY_RESURRECT_FLAG",
-        "/home/grantwhitmer/.windy/.resurrected",
+        str(windy_state_dir() / ".resurrected"),
     ))
 
 
@@ -315,7 +317,7 @@ def _auto_disable_flag_path() -> Path:
     """When this file exists, auto-resurrect stays OFF."""
     return Path(os.environ.get(
         "WINDY_AUTO_RESURRECT_DISABLED",
-        "/home/grantwhitmer/.windy/.auto_resurrect_disabled",
+        str(windy_state_dir() / ".auto_resurrect_disabled"),
     ))
 
 
@@ -324,7 +326,7 @@ def _auto_attempt_marker_path() -> Path:
     cooldown enforcement. Single line: a Unix timestamp."""
     return Path(os.environ.get(
         "WINDY_AUTO_RESURRECT_LAST",
-        "/home/grantwhitmer/.windy/.auto_resurrect_last",
+        str(windy_state_dir() / ".auto_resurrect_last"),
     ))
 
 
@@ -525,7 +527,7 @@ def _post_recovery_grace_path() -> Path:
     into lifeboat."""
     return Path(os.environ.get(
         "WINDY_POST_RECOVERY_GRACE",
-        "/home/grantwhitmer/.windy/.post_recovery_grace",
+        str(windy_state_dir() / ".post_recovery_grace"),
     ))
 
 
@@ -629,7 +631,7 @@ def _recovery_probe_marker_path() -> Path:
     lifeboat, this one is for the BACKWARD trip out)."""
     return Path(os.environ.get(
         "WINDY_RECOVERY_PROBE_LAST",
-        "/home/grantwhitmer/.windy/.recovery_probe_last",
+        str(windy_state_dir() / ".recovery_probe_last"),
     ))
 
 

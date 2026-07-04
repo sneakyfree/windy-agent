@@ -1,6 +1,6 @@
 """Fetch and cache the agent's trust snapshot from Eternitas.
 
-Canonical contract: `/Users/thewindstorm/eternitas/docs/trust-api.md`.
+Canonical contract: `eternitas/docs/trust-api.md` (eternitas repo).
 
     GET {ETERNITAS_URL}/api/v1/trust/{passport}    (public, no auth)
     Rate: 100 req/min/IP, server-side Redis cache 5 min
