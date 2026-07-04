@@ -77,7 +77,10 @@ def _no_real_process_kills(request):
     if "real_process_kill" in request.keywords:
         yield
         return
-    with patch("windyfly.cli.kill_by_name", return_value=None):
+    # rescue.schedule_restart SIGTERMs the running process (the /reset
+    # panic path) — under pytest that's the test runner itself.
+    with patch("windyfly.cli.kill_by_name", return_value=None), \
+         patch("windyfly.channels.rescue.schedule_restart"):
         yield
 
 

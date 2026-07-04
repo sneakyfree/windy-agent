@@ -64,8 +64,26 @@ class ChannelAdapter(ABC):
 
 
 async def handle_incoming(text: str, context: dict | None = None) -> tuple[bool, str]:
-    """Check if text is a command and execute it. Returns (was_command, response)."""
+    """Check if text is a command and execute it. Returns (was_command, response).
+
+    Rescue commands (/pause, /resurrect, /reset panic, grandma phrases
+    like "my bot is broken") are checked FIRST — they must work on every
+    channel even when the registry, DB, or LLM is wedged, because being
+    wedged is exactly when they're needed. Telegram short-circuits these
+    in its own handlers before reaching here; every other channel gets
+    this shared layer (Sprint 2, 2026-07-04 audit).
+    """
+    from windyfly.channels.rescue import try_rescue
     from windyfly.commands.registry import registry, is_command, parse_command
+
+    ctx = context or {}
+    rescue_reply = try_rescue(
+        text,
+        platform=str(ctx.get("platform", "unknown")),
+        channel_id=ctx.get("channel_id"),
+    )
+    if rescue_reply is not None:
+        return True, rescue_reply
 
     if is_command(text):
         response = await registry.execute(parse_command(text), context)
