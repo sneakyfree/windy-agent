@@ -1,3 +1,9 @@
+> **⚠️ POINT-IN-TIME SNAPSHOT (moved to docs/audit/ 2026-07-04).**
+> Findings here reflect the repo as of the audit date in the text —
+> several are already fixed. Verify against current code before acting.
+> The current architectural assessment is the 2026-07-04 Fable audit
+> (see CHANGELOG 0.6.0 + Sprint 1/2 PRs #231-#239).
+
 # Integration Endpoint Audit
 
 ## Summary
