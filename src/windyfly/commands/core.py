@@ -964,7 +964,21 @@ def _register_all():
                 "channel_id into the command context. /new is a "
                 "no-op until that's fixed."
             )
-        from windyfly.agent.session_reset import reset_session
+        from windyfly.agent.session_reset import next_session_id, reset_session
+        # Write the handoff BEFORE rolling the counter — the letter
+        # digests the session that's ending (Sprint 3: this reader
+        # existed since launch; the writer never did).
+        try:
+            if _db is not None:
+                from windyfly.agent.turnover import write_turnover_letter
+                write_turnover_letter(
+                    _db, None,
+                    platform=platform,
+                    channel_id=channel_id,
+                    session_id=next_session_id(platform, channel_id),
+                )
+        except Exception:
+            pass  # /new is a rescue path — never let the letter block it
         reset_session(platform, channel_id)
         return (
             "🪰 Fresh start. Working memory cleared — I've got a "
