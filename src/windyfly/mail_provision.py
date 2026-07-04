@@ -29,9 +29,22 @@ async def provision_mail(
     if not api_url:
         api_url = os.environ.get("WINDYMAIL_API_URL", "https://api.windymail.ai")
     service_token = os.environ.get("WINDYMAIL_PROVISION_SERVICE_TOKEN") or os.environ.get("WINDYMAIL_SERVICE_TOKEN")
+    # The agent's own EPT is the keyless auth path (windy-mail PR #62):
+    # provisioning verifies it against the Eternitas JWKS and mints the
+    # mailbox for the token's passport — no shared secret needed. The
+    # EPT is captured + persisted at hatch (PR #247).
+    ept = os.environ.get("ETERNITAS_PASSPORT_TOKEN")
 
-    if not service_token:
-        logger.info("WINDYMAIL_PROVISION_SERVICE_TOKEN not set — skipping mail provisioning")
+    headers: dict[str, str] = {}
+    if ept:
+        headers["Authorization"] = f"Bearer {ept}"
+    elif service_token:
+        headers["X-Service-Token"] = service_token
+    else:
+        logger.info(
+            "No ETERNITAS_PASSPORT_TOKEN or service token — skipping mail "
+            "provisioning (hatch the agent first so it has a passport)"
+        )
         return None
 
     identity_id = windy_identity_id or owner_id
@@ -46,7 +59,7 @@ async def provision_mail(
                     "owner_id": owner_id,
                     "windy_identity_id": identity_id,
                 },
-                headers={"X-Service-Token": service_token},
+                headers=headers,
             )
             if resp.status_code in (200, 201):
                 data = resp.json()
