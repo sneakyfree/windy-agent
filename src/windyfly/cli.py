@@ -1212,6 +1212,10 @@ def main() -> None:
         help="API key (auto-detects provider). Skips all prompts.",
     )
     go_parser.add_argument(
+        "--keyless", action="store_true",
+        help="No key — free agent powered by Windy Mind. Skips all prompts.",
+    )
+    go_parser.add_argument(
         "--model", "-m",
         help="Override default model (e.g., gpt-4o, claude-3-5-sonnet-latest)",
     )
