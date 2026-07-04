@@ -813,6 +813,17 @@ def agent_respond(
             "content": "The user is excited! Match their enthusiasm and energy.",
         })
 
+    # 1.72. Skill-capture nudge (Sprint 3, the Hermes pattern): if the
+    # PREVIOUS turn executed heavy tool work, remind the model once
+    # that persisting the workflow via skill.save is an option.
+    try:
+        from windyfly.skills.nudge import pending_nudge
+        _skill_nudge = pending_nudge(session_id)
+        if _skill_nudge:
+            messages.insert(1, {"role": "system", "content": _skill_nudge})
+    except Exception:
+        pass
+
     # 1.75. Budget enforcement
     # Model selection precedence (PR #197):
     #   1. Per-channel /model preference (session_reset.get_model)
@@ -1237,6 +1248,7 @@ def agent_respond(
     # used by the write-intent tripwire (PR #165) to detect "I'll
     # write…" text that ends a turn with no actual write tool call.
     _turn_tool_names: set[str] = set()
+    _turn_tool_exec_count = 0
     if tool_calls and (tool_registry or capability_registry.count() > 0):
         tool_executed = True
         max_tool_rounds = loop_sliders.get("tool_reloop_rounds", _DEFAULT_TOOL_ROUNDS)
@@ -1247,6 +1259,7 @@ def agent_respond(
                 fn_name = tc["function"]["name"]
                 fn_args = tc["function"]["arguments"]
                 _turn_tool_names.add(fn_name)
+                _turn_tool_exec_count += 1
                 logger.info("Executing tool: %s (round %d)", fn_name, _round + 1)
                 tool_result = _dispatch_tool_call(
                     fn_name, fn_args, tool_registry, capability_registry,
@@ -1528,6 +1541,15 @@ def agent_respond(
             })
         except Exception:
             pass
+
+    # 2.97. Record this turn's tool weight for the skill-capture
+    # nudge (Sprint 3): a heavy turn primes a one-shot next-turn
+    # reminder that skill.save exists.
+    try:
+        from windyfly.skills.nudge import record_turn
+        record_turn(session_id, _turn_tool_exec_count)
+    except Exception:
+        pass
 
     # 3. Save episodes via write queue (HIGH priority)
     cost_usd = estimate_cost(model, input_tokens, output_tokens)

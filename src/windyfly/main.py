@@ -53,6 +53,14 @@ def _start_decay_scheduler(
                     logger.info("Drift check complete: no drift detected")
             except Exception as e:
                 logger.error("Drift check failed: %s", e)
+            # Skill-library curation (Sprint 3): demote failing skills,
+            # cap the promoted playbook library (LRU). Demote-only.
+            try:
+                from windyfly.skills.curator import run_curation
+                cstats = run_curation(decay_db)
+                logger.info("Skill curation complete: %s", cstats)
+            except Exception as e:
+                logger.error("Skill curation failed: %s", e)
             # Cloud backup check
             try:
                 from windyfly.cloud_backup import run_backup_if_due
