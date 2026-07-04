@@ -132,13 +132,18 @@ def _run_bot_channel(
         )
     )
 
-    async def _respond(text: str, session_id: str) -> str:
+    async def _respond(
+        text: str, session_id: str, band=None,
+    ) -> str:
         # Respect the global guest-mode flag on every channel (demo audiences
         # get GRANDMA MODE), same as telegram.
         from windyfly.agent.capabilities import Band
         from windyfly.agent.executor import run_turn
-        from windyfly.agent.guest_mode import is_guest_active
-        band = Band.USER if is_guest_active() else Band.OWNER
+        if band is None:
+            # Fallback for non-manager callers; the manager resolves
+            # sender→band via channels.identity (guest capping included).
+            from windyfly.agent.guest_mode import is_guest_active
+            band = Band.USER if is_guest_active() else Band.OWNER
         # Off-loop: a long turn must not starve heartbeats or the other
         # channels this process serves (see agent/executor.py).
         return await run_turn(
@@ -425,15 +430,18 @@ def main() -> None:
         owner_id = os.environ.get("AGENT_OWNER_TELEGRAM_ID", "8545546994")
         dm_policy = config.get("telegram", {}).get("dm_policy", "pairing")
 
-        async def _respond(text: str, session_id: str) -> str:
+        async def _respond(
+            text: str, session_id: str, band=None,
+        ) -> str:
             # Guest-mode toggle: when Grant has flipped /guest on (file
             # flag at ~/.windy/.guest), demote every message to
             # Band.USER so prompt assembly engages GRANDMA MODE for
             # demo audiences. Default OWNER otherwise.
             from windyfly.agent.capabilities import Band
             from windyfly.agent.executor import run_turn
-            from windyfly.agent.guest_mode import is_guest_active
-            band = Band.USER if is_guest_active() else Band.OWNER
+            if band is None:
+                from windyfly.agent.guest_mode import is_guest_active
+                band = Band.USER if is_guest_active() else Band.OWNER
             # Off-loop: keeps the watchdog heartbeat + /panic path
             # responsive during long turns (see agent/executor.py).
             return await run_turn(

@@ -206,7 +206,11 @@ class WindyFlyMatrixBot(ChannelAdapter):
 
         # Unified command detection (Matrix uses ! prefix)
         from windyfly.channels.base import handle_incoming
-        was_command, cmd_response = await handle_incoming(body, {"platform": "matrix"})
+        was_command, cmd_response = await handle_incoming(body, {
+            "platform": "matrix",
+            "channel_id": room_id,
+            "sender_id": sender,
+        })
         if was_command:
             try:
                 await self.client.room_send(
@@ -233,10 +237,12 @@ class WindyFlyMatrixBot(ChannelAdapter):
         # the typing indicator can refresh — see agent/executor.py)
         try:
             from windyfly.agent.executor import run_turn
+            from windyfly.channels.identity import resolve_band
             response_text = await run_turn(
                 agent_respond,
                 self.config, self.db, self.write_queue,
                 body, session_id, self.tool_registry,
+                band=resolve_band("matrix", sender, config=self.config),
             )
         except Exception as e:
             from windyfly.channels.errors import classify

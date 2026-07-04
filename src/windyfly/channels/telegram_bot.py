@@ -1682,6 +1682,7 @@ class TelegramChannel(ChannelAdapter):
         was_command, cmd_response = await handle_incoming(text, {
             "platform": "telegram",
             "channel_id": str(update.message.chat_id),
+            "sender_id": sender_id,
         })
         if was_command:
             await self._send_long_reply(update.message, cmd_response)

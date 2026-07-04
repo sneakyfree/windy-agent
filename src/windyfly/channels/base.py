@@ -77,9 +77,31 @@ async def handle_incoming(text: str, context: dict | None = None) -> tuple[bool,
     from windyfly.commands.registry import registry, is_command, parse_command
 
     ctx = context or {}
+    platform = str(ctx.get("platform", "unknown"))
+
+    # Sender gating (Sprint 4): when an owner allowlist is configured
+    # for this platform, strangers resolve to SANDBOX — they can chat,
+    # but commands and the rescue kit are owner-side controls.
+    from windyfly.agent.capabilities import Band
+    from windyfly.channels.identity import resolve_band
+    band = resolve_band(platform, ctx.get("sender_id"))
+
+    from windyfly.channels.rescue import looks_like_rescue
+    if band < Band.TRUSTED and looks_like_rescue(text):
+        return True, (
+            "🔒 Only my owner can use recovery commands on this "
+            "channel. If that's you, ask them to add your "
+            f"{platform} ID to WINDY_OWNER_IDS."
+        )
+    if band <= Band.SANDBOX and is_command(text):
+        return True, (
+            "🔒 Commands are owner-only on this channel — but you can "
+            "just chat with me normally."
+        )
+
     rescue_reply = try_rescue(
         text,
-        platform=str(ctx.get("platform", "unknown")),
+        platform=platform,
         channel_id=ctx.get("channel_id"),
     )
     if rescue_reply is not None:

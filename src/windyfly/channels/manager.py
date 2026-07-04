@@ -52,6 +52,7 @@ class ChannelManager:
         """
         self.agent_respond = agent_respond
         self.channels: dict[str, ChannelAdapter] = {}
+        self._accepts_band: bool | None = None
 
     def register(self, adapter: ChannelAdapter) -> None:
         """Register a channel adapter."""
@@ -87,8 +88,27 @@ class ChannelManager:
         # restarts at zero. See windyfly.agent.session_reset for why.
         from windyfly.agent.session_reset import next_session_id
         session_id = next_session_id(msg.platform, msg.channel_id)
+        # Sender → band (Sprint 4): identity finally survives past the
+        # adapter boundary. Callbacks that accept ``band=`` get the
+        # resolved trust level; older two-arg callbacks (tests, custom
+        # embeddings) keep working unchanged.
+        from windyfly.channels.identity import resolve_band
+        band = resolve_band(msg.platform, msg.sender_id)
+        if self._accepts_band is None:
+            import inspect
+            try:
+                params = inspect.signature(self.agent_respond).parameters
+                self._accepts_band = "band" in params or any(
+                    prm.kind is inspect.Parameter.VAR_KEYWORD
+                    for prm in params.values()
+                )
+            except (TypeError, ValueError):
+                self._accepts_band = False
         try:
-            result = self.agent_respond(msg.text, session_id)
+            if self._accepts_band:
+                result = self.agent_respond(msg.text, session_id, band=band)
+            else:
+                result = self.agent_respond(msg.text, session_id)
             if asyncio.iscoroutine(result):
                 result = await result
             # agent_respond is typed Callable[..., Awaitable[str] | str];
