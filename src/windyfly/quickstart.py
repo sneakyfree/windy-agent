@@ -43,62 +43,31 @@ PROJECT_ROOT = get_project_root()
 # Key detection — identify provider from key format
 # ═══════════════════════════════════════════════════════════════════════
 
-# Order matters: more specific prefixes first
+# Single source of truth: windyfly.provider_defaults (Sprint 2 —
+# this table used to be one of THREE divergent copies; see that
+# module's docstring). Dict shapes preserved for downstream callers.
+from windyfly.provider_defaults import PROVIDER_DEFAULTS, key_detection_order
+
 KEY_PATTERNS: list[dict[str, str]] = [
     {
-        "prefix": "sk-ant-",
-        "env_var": "ANTHROPIC_API_KEY",
-        "provider": "Anthropic",
-        "model": "claude-3-5-sonnet-latest",
-        "url": "https://console.anthropic.com/settings/keys",
-    },
-    {
-        "prefix": "xai-",
-        "env_var": "GROK_API_KEY",
-        "provider": "xAI Grok",
-        "model": "grok-3-mini",
-        "url": "https://console.x.ai",
-    },
-    {
-        "prefix": "AIza",
-        "env_var": "GEMINI_API_KEY",
-        "provider": "Google Gemini",
-        "model": "gemini-2.5-flash",
-        "url": "https://aistudio.google.com/apikey",
-    },
-    {
-        # OpenAI keys: sk-proj-... or sk-... (but NOT sk-ant-)
-        "prefix": "sk-",
-        "env_var": "OPENAI_API_KEY",
-        "provider": "OpenAI",
-        "model": "gpt-4o-mini",
-        "url": "https://platform.openai.com/api-keys",
-    },
-    {
-        # DeepSeek also uses sk- but typically longer; we'll catch it
-        # if the user explicitly says DeepSeek or via fallback
-        "prefix": "dsk-",
-        "env_var": "DEEPSEEK_API_KEY",
-        "provider": "DeepSeek",
-        "model": "deepseek-chat",
-        "url": "https://platform.deepseek.com",
-    },
+        "prefix": p["key_prefix"],
+        "env_var": p["env_var"],
+        "provider": p["name"],
+        "model": p["default_model"],
+        "url": p["url"],
+    }
+    for p in key_detection_order()
 ]
 
 # Providers the user can choose if we can't auto-detect
 PROVIDER_MENU = [
-    {"name": "OpenAI", "env_var": "OPENAI_API_KEY", "model": "gpt-4o-mini",
-     "url": "https://platform.openai.com/api-keys"},
-    {"name": "Anthropic", "env_var": "ANTHROPIC_API_KEY", "model": "claude-3-5-sonnet-latest",
-     "url": "https://console.anthropic.com/settings/keys"},
-    {"name": "xAI Grok", "env_var": "GROK_API_KEY", "model": "grok-3-mini",
-     "url": "https://console.x.ai"},
-    {"name": "Google Gemini (free tier)", "env_var": "GEMINI_API_KEY", "model": "gemini-2.5-flash",
-     "url": "https://aistudio.google.com/apikey"},
-    {"name": "DeepSeek", "env_var": "DEEPSEEK_API_KEY", "model": "deepseek-chat",
-     "url": "https://platform.deepseek.com"},
-    {"name": "Mistral", "env_var": "MISTRAL_API_KEY", "model": "mistral-large-latest",
-     "url": "https://console.mistral.ai/api-keys"},
+    {
+        "name": p["name"],
+        "env_var": p["env_var"],
+        "model": p["default_model"],
+        "url": p["url"],
+    }
+    for p in PROVIDER_DEFAULTS
 ]
 
 
