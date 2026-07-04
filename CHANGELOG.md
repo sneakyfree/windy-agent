@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.6.0
+
+Ten weeks of merged work (PRs #151–#233) finally reaches the release
+channel — PyPI had been frozen at 0.5.1 since April while master moved on.
+
+### Stability ("tank" sprint, from the 2026-07-04 architecture audit)
+- Recovery-layer portability: lifeboat/pause/guest/panic flags now default
+  to `~/.windy` via `windy_state_dir()` instead of a hardcoded dev-box path
+  (they silently did nothing on customer machines) — with a tripwire test
+- Corrupt `windyfly.toml` boots on safe defaults + loud warning + `/status`
+  notice instead of crash-looping under systemd
+- Updates record a rollback version, verify the new install in a fresh
+  interpreter, and auto-roll back on a broken release; `windy rollback`
+  works with no argument; pre-release version strings compare correctly
+
+### Channels
+- Discord + Slack as first-class BYO-token channels; per-channel runtime
+  claim so one agent can live on several channels at once
+- Telegram menu curation (destructive commands hidden from autocomplete)
+
+### Models
+- Opus 4.8 support: temperature deprecation handled across the 4.7+ line,
+  reasoning-depth wired to extended thinking, OAuth x-api-key collision fix
+
+### Fixes
+- `/lifeboat` "Since:" line rendered (wrong state key since May)
+- WindyMailAdapter sends `body_text`; `ETERNITAS_URL` canonicalized
+- Dashboard chat protocol + systemd status detection fixes
+
+
 ## 0.5.1
 
 ### Bug Fixes
