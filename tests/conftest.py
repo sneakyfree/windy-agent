@@ -62,6 +62,10 @@ def _isolate_production_flags(monkeypatch, tmp_path):
     # Correction distillation makes a real LLM call in production;
     # tests always use the deterministic template path.
     monkeypatch.setenv("WINDY_LLM_CORRECTIONS", "0")
+    # An EPT in the host env would make the Mind broker fire real HTTP
+    # from any unmocked call_llm test (Sprint 5) — never inherit it.
+    monkeypatch.delenv("ETERNITAS_PASSPORT_TOKEN", raising=False)
+    monkeypatch.delenv("ETERNITAS_PASSPORT", raising=False)
     yield
 
 
