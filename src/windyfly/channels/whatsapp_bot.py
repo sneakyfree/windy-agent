@@ -53,12 +53,22 @@ class WhatsAppChannel(ChannelAdapter):
         def webhook():
             text = request.form.get("Body", "")
 
-            # Unified command detection (sync wrapper for Flask)
-            from windyfly.commands.registry import registry, is_command, parse_command
-            if is_command(text):
+            # Unified command detection (sync wrapper for Flask) —
+            # routed through handle_incoming so sender gating + the
+            # rescue layer apply here too (Sprint 4; this block used
+            # to import the registry directly and drift).
+            from windyfly.channels.base import handle_incoming
+            from windyfly.commands.registry import is_command
+            _wa_sender = request.form.get("From", "")
+            from windyfly.channels.rescue import looks_like_rescue
+            if is_command(text) or looks_like_rescue(text):
                 import asyncio as _aio
-                cmd_response = _aio.run_coroutine_threadsafe(
-                    registry.execute(parse_command(text), {"platform": "whatsapp"}), loop
+                _was_cmd, cmd_response = _aio.run_coroutine_threadsafe(
+                    handle_incoming(text, {
+                        "platform": "whatsapp",
+                        "channel_id": _wa_sender,
+                        "sender_id": _wa_sender,
+                    }), loop
                 ).result(timeout=15)
                 from twilio.twiml.messaging_response import MessagingResponse
                 resp = MessagingResponse()

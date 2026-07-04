@@ -68,7 +68,10 @@ class SignalChannel(ChannelAdapter):
                                 # Unified command detection
                                 from windyfly.channels.base import handle_incoming
                                 was_command, cmd_response = await handle_incoming(
-                                    text, {"platform": "signal"}
+                                    text, {
+                                        "platform": "signal",
+                                        "sender_id": envelope.get("source", ""),
+                                    }
                                 )
                                 if was_command:
                                     await self.send(

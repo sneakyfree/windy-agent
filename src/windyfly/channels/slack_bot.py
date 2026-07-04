@@ -49,7 +49,11 @@ class SlackChannel(ChannelAdapter):
 
             # Unified command detection
             from windyfly.channels.base import handle_incoming
-            was_command, cmd_response = await handle_incoming(text, {"platform": "slack"})
+            was_command, cmd_response = await handle_incoming(text, {
+                "platform": "slack",
+                "channel_id": message.get("channel", ""),
+                "sender_id": message.get("user", ""),
+            })
             if was_command:
                 await say(cmd_response)
                 return

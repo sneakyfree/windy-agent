@@ -179,6 +179,26 @@ def _panic_reply(platform: str, channel_id: str | None) -> str:
     )
 
 
+def looks_like_rescue(text: str | None) -> bool:
+    """Recognition only — True if ``text`` would be handled by
+    try_rescue. Used by the sender gate so strangers get a polite
+    denial instead of executing owner-side recovery controls."""
+    if not text:
+        return False
+    if (
+        sc.is_pause_message(text)
+        or sc.is_resume_message(text)
+        or sc.is_spend_message(text)
+        or sc.is_lifeboat_status_message(text)
+        or sc.is_resurrect_message(text)
+        or sc.is_normal_message(text)
+        or sc.is_panic_message(text)
+    ):
+        return True
+    is_ar, _ = sc.parse_auto_resurrect_command(text)
+    return is_ar
+
+
 def try_rescue(
     text: str | None,
     *,

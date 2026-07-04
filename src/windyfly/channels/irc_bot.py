@@ -53,11 +53,18 @@ class IRCChannel(ChannelAdapter):
                 return
 
             # Unified command detection (sync wrapper for threaded IRC)
-            from windyfly.commands.registry import registry, is_command, parse_command
-            if is_command(text):
+            # — routed through handle_incoming so sender gating + the
+            # rescue layer apply here too (Sprint 4).
+            from windyfly.channels.base import handle_incoming
+            from windyfly.channels.rescue import looks_like_rescue
+            from windyfly.commands.registry import is_command
+            if is_command(text) or looks_like_rescue(text):
                 try:
-                    cmd_response = asyncio.run_coroutine_threadsafe(
-                        registry.execute(parse_command(text), {"platform": "irc"}), loop
+                    _was_cmd, cmd_response = asyncio.run_coroutine_threadsafe(
+                        handle_incoming(text, {
+                            "platform": "irc",
+                            "sender_id": event.source,
+                        }), loop
                     ).result(timeout=15)
                     connection.privmsg(event.target, cmd_response)
                 except Exception as exc:
