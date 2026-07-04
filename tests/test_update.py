@@ -4,14 +4,25 @@ import json
 import time
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from windyfly.update import (
     CACHE_FILE,
     apply_update,
     check_for_update,
     get_installed_version,
     get_latest_version,
+    get_previous_version,
     is_newer,
+    rollback,
 )
+
+
+@pytest.fixture(autouse=True)
+def _isolate_update_history(monkeypatch, tmp_path):
+    """apply_update records rollback history under windy_state_dir();
+    keep it out of the real ~/.windy during tests."""
+    monkeypatch.setenv("WINDY_STATE_DIR", str(tmp_path / "state"))
 
 
 def test_is_newer():
@@ -137,8 +148,9 @@ def test_apply_update_with_version(mock_run, tmp_path):
     with patch("windyfly.update.CACHE_FILE", tmp_path / ".update_check"):
         success, msg = apply_update(target_version="0.4.0")
         assert success is True
-        # Verify pip was called with pinned version
-        call_args = mock_run.call_args[0][0]
+        # Verify pip (the FIRST subprocess call; the second is the
+        # post-install import verification) was pinned to the version
+        call_args = mock_run.call_args_list[0][0][0]
         assert "windyfly==0.4.0" in call_args
 
 
@@ -150,3 +162,58 @@ def test_is_newer_partial_version():
     """Handles versions with only major.minor (no patch)."""
     assert is_newer("1.0", "0.5.1") is True  # (1, 0) > (0, 5, 1) via tuple comparison
     assert is_newer("0.5", "0.5.1") is False  # (0, 5) < (0, 5, 1)
+
+
+# ── 2026-07-04 update-safety contract ──────────────────────────────
+
+
+def test_is_newer_prerelease_ordering():
+    """Pre-releases sort before their own final release, after
+    everything below — previously any suffix meant 'not newer'."""
+    assert is_newer("1.0.0rc1", "0.9.9") is True
+    assert is_newer("1.0.0", "1.0.0rc1") is True
+    assert is_newer("1.0.0rc1", "1.0.0") is False
+    assert is_newer("1.0.0rc2", "1.0.0rc1") is True
+
+
+def test_update_history_round_trip():
+    from windyfly.update import record_update
+
+    assert get_previous_version() is None
+    record_update("0.5.1", "0.6.0")
+    record_update("0.6.0", "0.7.0")
+    assert get_previous_version() == "0.6.0"
+
+
+def test_rollback_without_version_uses_history():
+    from windyfly.update import record_update
+
+    record_update("0.5.1", "0.6.0")
+    with patch("windyfly.update._pip_install") as mock_pip, \
+         patch("windyfly.update.verify_install") as mock_verify:
+        mock_pip.return_value = MagicMock(returncode=0)
+        mock_verify.return_value = (True, "0.5.1")
+        success, msg = rollback()
+    assert success is True
+    mock_pip.assert_called_with("windyfly==0.5.1")
+
+
+def test_rollback_without_version_or_history_errors():
+    success, msg = rollback()
+    assert success is False
+    assert "No previous version recorded" in msg
+
+
+def test_apply_update_auto_rolls_back_on_broken_install():
+    """A release that installs but can't import must not brick the
+    agent: apply_update rolls back to the recorded prior version."""
+    with patch("windyfly.update._pip_install") as mock_pip, \
+         patch("windyfly.update.verify_install") as mock_verify:
+        mock_pip.return_value = MagicMock(returncode=0)
+        mock_verify.return_value = (False, "ImportError: boom")
+        success, msg = apply_update(target_version="9.9.9")
+    assert success is False
+    assert "rolled back" in msg.lower()
+    # second pip call must pin the prior (currently running) version
+    from windyfly import __version__
+    assert mock_pip.call_args_list[-1][0][0] == f"windyfly=={__version__}"

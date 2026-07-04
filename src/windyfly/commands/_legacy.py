@@ -510,9 +510,18 @@ def cmd_rollback(args: argparse.Namespace) -> None:
 
     version = getattr(args, "version", None)
     if not version:
-        console.print("[red]Usage: windy rollback <version>[/red]")
-        console.print("[dim]  Example: windy rollback 0.5.0[/dim]")
-        return
+        from windyfly.update import get_previous_version
+        version = get_previous_version()
+        if not version:
+            console.print(
+                "[red]No previous version recorded — "
+                "usage: windy rollback <version>[/red]"
+            )
+            console.print("[dim]  Example: windy rollback 0.5.0[/dim]")
+            return
+        console.print(
+            f"[dim]No version given — using last recorded: {version}[/dim]"
+        )
 
     current = get_installed_version()
     console.print(f"  [cyan]Rolling back v{current} → v{version}...[/cyan]")
