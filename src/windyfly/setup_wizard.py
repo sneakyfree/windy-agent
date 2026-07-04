@@ -34,61 +34,49 @@ CONFIG_FILE = PROJECT_ROOT / "windyfly.toml"
 DATA_DIR = PROJECT_ROOT / "data"
 
 # ── Provider metadata ──────────────────────────────────────────────────
+# Derived from windyfly.provider_defaults — the single source of truth
+# (this table used to disagree with quickstart's and the gateway's).
+from windyfly.provider_defaults import PROVIDER_DEFAULTS as _PD
+
 PROVIDERS: list[dict[str, str]] = [
     {
-        "key": "OPENAI_API_KEY",
-        "name": "OpenAI",
-        "hint": "Starts with sk-...",
-        "models": "gpt-4o, gpt-4o-mini, o3-mini",
-        "url": "https://platform.openai.com/api-keys",
-    },
-    {
-        "key": "ANTHROPIC_API_KEY",
-        "name": "Anthropic",
-        "hint": "Starts with sk-ant-...",
-        "models": "claude-3-5-sonnet, claude-3-5-haiku, claude-4-opus",
-        "url": "https://console.anthropic.com/settings/keys",
-    },
-    {
-        "key": "GROK_API_KEY",
-        "name": "xAI Grok",
-        "hint": "xai-...",
-        "models": "grok-3, grok-3-mini",
-        "url": "https://console.x.ai",
-    },
-    {
-        "key": "GEMINI_API_KEY",
-        "name": "Google Gemini",
-        "hint": "AIza...",
-        "models": "gemini-2.5-pro, gemini-2.5-flash",
-        "url": "https://aistudio.google.com/apikey",
-    },
-    {
-        "key": "DEEPSEEK_API_KEY",
-        "name": "DeepSeek",
-        "hint": "sk-...",
-        "models": "deepseek-chat, deepseek-reasoner",
-        "url": "https://platform.deepseek.com",
-    },
-    {
-        "key": "MISTRAL_API_KEY",
-        "name": "Mistral",
-        "hint": "...",
-        "models": "mistral-large, mistral-small",
-        "url": "https://console.mistral.ai/api-keys",
-    },
+        "key": p["env_var"],
+        "name": p["name"],
+        "hint": p["hint"],
+        "models": p["models"],
+        "url": p["url"],
+    }
+    for p in _PD
 ]
 
 # ── Model choices per provider ─────────────────────────────────────────
+_TIER_DESC = {
+    "claude-sonnet-4-6": ("💛 Balanced", "Best all-rounder. Excellent at coding and conversation."),
+    "claude-haiku-4-5": ("💚 Budget-Friendly", "Ultra-fast Anthropic model. Great for quick responses."),
+    "gpt-4o-mini": ("💚 Budget-Friendly", "Fast, cheap, surprisingly capable. Great default."),
+    "gpt-4o": ("💛 Balanced", "Full-power GPT-4o. Excellent reasoning."),
+    "grok-3-mini": ("💚 Budget-Friendly", "Fast, unfiltered reasoning. Think-outside-the-box vibes."),
+    "grok-3": ("🔥 Premium", "xAI's flagship. Excellent reasoning, witty responses."),
+    "deepseek-chat": ("💚 Budget-Friendly", "Extremely cheap. Great for high-volume use."),
+    "gemini-2.5-flash": ("💚 Budget-Friendly", "Google's fast model. Free tier available."),
+    "gemini-2.5-pro": ("💛 Balanced", "Google's strongest reasoning model."),
+    "claude-opus-4-7": ("🔥 Premium", "Anthropic's deepest reasoner. For the hardest problems."),
+    "mistral-large-latest": ("💛 Balanced", "Mistral's flagship. Strong multilingual reasoning."),
+    "mistral-small-latest": ("💚 Budget-Friendly", "Fast, inexpensive European model."),
+}
+
 MODEL_OPTIONS: list[dict[str, str]] = [
-    {"id": "gpt-4o-mini", "provider": "OpenAI", "tier": "💚 Budget-Friendly", "desc": "Fast, cheap, surprisingly capable. Great default."},
-    {"id": "gpt-4o", "provider": "OpenAI", "tier": "💛 Balanced", "desc": "Full-power GPT-4o. Excellent reasoning."},
-    {"id": "claude-3-5-sonnet-latest", "provider": "Anthropic", "tier": "💛 Balanced", "desc": "Best all-rounder. Excellent at coding and conversation."},
-    {"id": "claude-3-5-haiku-latest", "provider": "Anthropic", "tier": "💚 Budget-Friendly", "desc": "Ultra-fast Anthropic model. Great for quick responses."},
-    {"id": "grok-3-mini", "provider": "xAI Grok", "tier": "💚 Budget-Friendly", "desc": "Fast, unfiltered reasoning. Think-outside-the-box vibes."},
-    {"id": "grok-3", "provider": "xAI Grok", "tier": "🔥 Premium", "desc": "xAI's flagship. Excellent reasoning, witty responses."},
-    {"id": "deepseek-chat", "provider": "DeepSeek", "tier": "💚 Budget-Friendly", "desc": "Extremely cheap. Great for high-volume use."},
-    {"id": "gemini-2.5-flash", "provider": "Google Gemini", "tier": "💚 Budget-Friendly", "desc": "Google's fast model. Free tier available."},
+    {
+        "id": model_id,
+        "provider": p["name"],
+        "tier": _TIER_DESC[model_id][0],
+        "desc": _TIER_DESC[model_id][1],
+    }
+    for p in _PD
+    for model_id in dict.fromkeys(
+        [p["budget_model"], p["default_model"], p.get("premium_model")]
+    )
+    if model_id and model_id in _TIER_DESC
 ]
 
 # ── Personality presets ────────────────────────────────────────────────
