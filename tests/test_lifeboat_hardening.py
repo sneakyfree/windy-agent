@@ -249,6 +249,29 @@ class TestLifeboatStatus:
         assert s["model"] == "llama3.2:3b"
         assert s["actor"] == "user"
         assert s["previous_model"] == "claude-haiku"
+        # Regression guard for the "since"-always-None bug: resurrect()
+        # writes the timestamp under "ts" but lifeboat_status was
+        # reading "at" → since was silently None on every lifeboat.
+        assert s["since"] is not None, "since field must populate"
+        assert "T" in s["since"], "since must be ISO-8601 (has 'T' sep)"
+
+    def test_format_status_active_includes_since(
+        self, monkeypatch, tmp_path,
+    ):
+        """The formatted /lifeboat output must show the 'Since:' line
+        when a timestamp is present. Pre-fix this line was unreachable
+        because status['since'] was always None.
+        """
+        monkeypatch.setenv("WINDY_RESURRECT_FLAG", str(tmp_path / ".r"))
+        with patch.object(_r, "list_installed_ollama_models", return_value=[
+            {"name": "llama3.2:3b", "size": 2_000_000_000},
+        ]):
+            _r.resurrect(actor="user", previous_model="claude-haiku")
+        out = _r.format_lifeboat_status()
+        assert "Since:" in out, (
+            "Lifeboat status must surface the 'Since:' line so users "
+            "can tell how long they've been in lifeboat mode."
+        )
 
     def test_format_status_inactive_text(self, monkeypatch, tmp_path):
         monkeypatch.setenv("WINDY_RESURRECT_FLAG", str(tmp_path / ".r"))

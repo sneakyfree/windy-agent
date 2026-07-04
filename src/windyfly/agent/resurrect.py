@@ -754,7 +754,12 @@ def lifeboat_status() -> dict[str, Any]:
     return {
         "in_lifeboat": bool(state.get("active")),
         "model": state.get("model"),
-        "since": state.get("at"),
+        # resurrect() writes the timestamp under "ts" (see _write_state
+        # call ~line 211); reading "at" here silently returned None on
+        # every lifeboat entry so the /lifeboat command's "Since:" line
+        # never rendered. Caught by the FSM as-built audit in Phase
+        # 2.2.1 of the launch gauntlet.
+        "since": state.get("ts"),
         "actor": state.get("actor"),
         "previous_model": state.get("previous_model"),
         "auto_resurrect_enabled": auto["enabled"],
