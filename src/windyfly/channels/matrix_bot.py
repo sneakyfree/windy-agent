@@ -229,9 +229,12 @@ class WindyFlyMatrixBot(ChannelAdapter):
         except Exception as e:
             logger.debug("Failed to set typing indicator: %s", e)
 
-        # Generate response
+        # Generate response (off-loop so the client keeps syncing and
+        # the typing indicator can refresh — see agent/executor.py)
         try:
-            response_text = agent_respond(
+            from windyfly.agent.executor import run_turn
+            response_text = await run_turn(
+                agent_respond,
                 self.config, self.db, self.write_queue,
                 body, session_id, self.tool_registry,
             )

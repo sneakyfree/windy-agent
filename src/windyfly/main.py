@@ -128,9 +128,13 @@ def _run_bot_channel(
         # Respect the global guest-mode flag on every channel (demo audiences
         # get GRANDMA MODE), same as telegram.
         from windyfly.agent.capabilities import Band
+        from windyfly.agent.executor import run_turn
         from windyfly.agent.guest_mode import is_guest_active
         band = Band.USER if is_guest_active() else Band.OWNER
-        return agent_respond(
+        # Off-loop: a long turn must not starve heartbeats or the other
+        # channels this process serves (see agent/executor.py).
+        return await run_turn(
+            agent_respond,
             config, db, write_queue, text, session_id, tool_registry,
             band=band,
         )
@@ -419,9 +423,13 @@ def main() -> None:
             # Band.USER so prompt assembly engages GRANDMA MODE for
             # demo audiences. Default OWNER otherwise.
             from windyfly.agent.capabilities import Band
+            from windyfly.agent.executor import run_turn
             from windyfly.agent.guest_mode import is_guest_active
             band = Band.USER if is_guest_active() else Band.OWNER
-            return agent_respond(
+            # Off-loop: keeps the watchdog heartbeat + /panic path
+            # responsive during long turns (see agent/executor.py).
+            return await run_turn(
+                agent_respond,
                 config, db, write_queue, text, session_id, tool_registry,
                 band=band,
             )
