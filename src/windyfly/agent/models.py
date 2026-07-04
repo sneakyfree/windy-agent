@@ -464,11 +464,25 @@ def _try_mind_broker(
     if not ept:
         return None  # OPT-IN: only fires when EPT is configured
 
+    # Mind's /v1/chat has no tools[]/tool-role support yet (2026-07-04
+    # audit) — sending tools would be silently dropped by its pydantic
+    # model and the agent would confabulate actions. Skip Mind for
+    # tool-bearing calls until the windy-mind tools PR deploys, then
+    # flip WINDY_MIND_SEND_TOOLS=1.
+    if tools and os.environ.get("WINDY_MIND_SEND_TOOLS") != "1":
+        return None
+
+    # Circuit breaker: Mind is the PRIMARY brain for keyless agents —
+    # give it the same cooldown discipline as direct providers instead
+    # of one silent 30s attempt per call.
+    if _is_provider_in_cooldown("windy-mind"):
+        return None
+
     mind_url = os.environ.get("MIND_API_URL", "https://api.windymind.ai").rstrip("/")
 
     body: dict[str, Any] = {
         "messages": messages,
-        "max_tokens": max_tokens,
+        "max_tokens": min(max_tokens, 8192) if max_tokens else 4096,
     }
     if model:
         body["model"] = model
@@ -490,15 +504,99 @@ def _try_mind_broker(
             timeout=30.0,
         )
         if resp.status_code != 200:
-            logger.info(
+            _record_provider_failure(
+                "windy-mind", f"mind http {resp.status_code}: {resp.text[:120]}",
+            )
+            logger.warning(
                 "Mind broker returned %s; falling through to direct chain",
                 resp.status_code,
             )
             return None
-        return resp.json()
+        translated = _translate_mind_response(resp)
+        if translated is None:
+            _record_provider_failure("windy-mind", "mind response shape invalid")
+            logger.warning(
+                "Mind broker response had no usable content; falling through",
+            )
+            return None
+        _record_provider_success("windy-mind")
+        return translated
     except Exception as e:
-        logger.info("Mind broker call failed (%s); falling through", e)
+        _record_provider_failure("windy-mind", str(e))
+        logger.warning("Mind broker call failed (%s); falling through", e)
         return None
+
+
+def _translate_mind_response(resp: Any) -> dict[str, Any] | None:
+    """Mind's /v1/chat → windyfly's uniform call_llm result shape.
+
+    Mind returns near-OpenAI JSON: {id, model, choices:[{message:{role,
+    content}, finish_reason}], usage:{prompt_tokens, completion_tokens},
+    provider}. The agent loop expects {content, input_tokens,
+    output_tokens, tool_calls, citations, server_tools_used}. PR #173
+    returned Mind's JSON verbatim, so the loop would have KeyError'd the
+    first time a real Mind reply came back — the integration was wired
+    but never load-bearing (2026-07-04 audit).
+
+    Also accepts the already-flat shape ({"content": ...}) for
+    forward-compat and test rigs.
+    """
+    try:
+        data = resp.json()
+    except Exception:
+        return None
+    if not isinstance(data, dict):
+        return None
+
+    usage = data.get("usage") or {}
+
+    # Already-flat shape (legacy rigs / future Mind versions)
+    if "content" in data and "choices" not in data:
+        return {
+            "content": data.get("content") or "",
+            "input_tokens": data.get("input_tokens", usage.get("prompt_tokens", 0)),
+            "output_tokens": data.get("output_tokens", usage.get("completion_tokens", 0)),
+            "tool_calls": data.get("tool_calls"),
+            "citations": data.get("citations", []),
+            "server_tools_used": data.get("server_tools_used", []),
+        }
+
+    choices = data.get("choices")
+    if not choices or not isinstance(choices, list):
+        return None
+    message = (choices[0] or {}).get("message") or {}
+    content = message.get("content")
+    tool_calls = message.get("tool_calls")
+    if content is None and not tool_calls:
+        return None
+    return {
+        "content": content or "",
+        "input_tokens": usage.get("prompt_tokens", 0),
+        "output_tokens": usage.get("completion_tokens", 0),
+        "tool_calls": tool_calls,
+        "citations": [],
+        "server_tools_used": [],
+        "mind_model": data.get("model"),
+        "mind_provider": data.get("provider"),
+    }
+
+
+def mind_broker_status() -> dict[str, Any]:
+    """Snapshot for /status: is the Mind brain route configured/healthy?"""
+    import os as _os
+
+    ept = _os.environ.get("ETERNITAS_PASSPORT_TOKEN") or _os.environ.get(
+        "ETERNITAS_PASSPORT"
+    )
+    configured = bool(ept) and not _max_oauth_active()
+    entry = _provider_cooldowns.get("windy-mind")
+    cooling = bool(entry and time.time() < entry[0])
+    return {
+        "configured": configured,
+        "url": _os.environ.get("MIND_API_URL", "https://api.windymind.ai"),
+        "in_cooldown": cooling,
+        "cooldown_remaining_s": max(0, int(entry[0] - time.time())) if cooling else 0,
+    }
 
 
 def call_llm(

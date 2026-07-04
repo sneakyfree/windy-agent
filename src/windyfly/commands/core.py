@@ -442,6 +442,21 @@ def _register_all():
         if pinned_cap is not None and pinned_cap > native_cap:
             cap_human += " — extended tier"
         brain_line = f"🤖 Brain: {live_model} ({cap_human})"
+        # Mind broker route (Sprint 5): keyless agents think through
+        # api.windymind.ai — say so, and say when it's cooling down.
+        try:
+            from windyfly.agent.models import mind_broker_status
+            _mind = mind_broker_status()
+            if _mind["configured"]:
+                if _mind["in_cooldown"]:
+                    brain_line += (
+                        f"  · Windy Mind route cooling down "
+                        f"({_mind['cooldown_remaining_s']}s) — using backups"
+                    )
+                else:
+                    brain_line += "  · via Windy Mind"
+        except Exception:
+            pass
         if degraded_reason:
             brain_line += f" — was {configured_model}"
 

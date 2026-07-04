@@ -271,10 +271,42 @@ async def _step_eternitas(
         result.passport_id = passport.passport_id
         result.passport_status = passport.status
         os.environ["ETERNITAS_PASSPORT"] = passport.passport_id
+        # The EPT is the agent's bearer credential for the Windy Mind
+        # broker (and every EPT-gated ecosystem service). Registration
+        # has returned it since the Eternitas client landed, but nothing
+        # captured it — ETERNITAS_PASSPORT_TOKEN had no producer, so the
+        # Fly→Mind pipe was wired but never fueled (2026-07-04 audit).
+        if getattr(passport, "ept_token", ""):
+            os.environ["ETERNITAS_PASSPORT_TOKEN"] = passport.ept_token
+            _persist_env_var("ETERNITAS_PASSPORT_TOKEN", passport.ept_token)
+            logger.info("Hatch: EPT captured + persisted for Mind broker")
         logger.info("Hatch: Eternitas passport %s issued", passport.passport_id)
     except Exception as exc:
         result.errors.append(f"Eternitas: {exc}")
         logger.warning("Hatch: Eternitas registration failed: %s", exc)
+
+
+def _persist_env_var(key: str, value: str) -> None:
+    """Upsert one var into the project .env (same pattern matrix
+    provisioning uses) so the credential survives restarts."""
+    try:
+        from windyfly.platform import get_project_root
+
+        env_file = get_project_root() / ".env"
+        lines: list[str] = []
+        written = False
+        if env_file.exists():
+            for line in env_file.read_text().splitlines():
+                if line.startswith(f"{key}="):
+                    lines.append(f"{key}={value}")
+                    written = True
+                else:
+                    lines.append(line)
+        if not written:
+            lines.append(f"{key}={value}")
+        env_file.write_text("\n".join(lines) + "\n")
+    except OSError as exc:
+        logger.warning("Could not persist %s to .env: %s", key, exc)
 
 
 def _resolve_windy_identity_id(owner_id: str) -> str:

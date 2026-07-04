@@ -95,7 +95,11 @@ def test_passport_present_calls_mind_first(monkeypatch):
             [{"role": "user", "content": "hi"}],
             model="gpt-4o-mini",
         )
-        assert result == mind_response
+        # Sprint 5: Mind's near-OpenAI JSON is translated into the flat
+        # windyfly result shape the loop consumes (raw passthrough
+        # would KeyError downstream — the pre-fix behavior).
+        assert result["content"] == "from mind"
+        assert result["mind_model"] == "cerebras-llama-3.3-70b"
         mock_post.assert_called_once()
         # Direct chain never invoked
         mock_openai.assert_not_called()
@@ -110,7 +114,7 @@ def test_passport_present_uses_custom_mind_url(monkeypatch):
     with patch("httpx.post") as mock_post:
         mock_post.return_value = MagicMock(
             status_code=200,
-            json=MagicMock(return_value={"choices": []}),
+            json=MagicMock(return_value={"choices": [{"message": {"role": "assistant", "content": "from mind"}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 1, "completion_tokens": 1}}),
         )
         models.call_llm([{"role": "user", "content": "hi"}], model="gpt-4o-mini")
         args, kwargs = mock_post.call_args
@@ -201,7 +205,7 @@ def test_max_oauth_unavailable_falls_through_to_mind(monkeypatch):
     ):
         mock_post.return_value = MagicMock(
             status_code=200,
-            json=MagicMock(return_value={"choices": []}),
+            json=MagicMock(return_value={"choices": [{"message": {"role": "assistant", "content": "from mind"}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 1, "completion_tokens": 1}}),
         )
         models.call_llm([{"role": "user", "content": "hi"}], model="gpt-4o-mini")
         mock_post.assert_called_once()
