@@ -10,6 +10,8 @@ import json
 import logging
 import os
 from pathlib import Path
+
+from windyfly.platform import windy_state_dir
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -318,7 +320,7 @@ def _call_ollama(
 # offline path tells them clearly what's happening).
 _OLLAMA_FAILURE_COUNTER_PATH = Path(os.environ.get(
     "WINDY_OLLAMA_FAILURE_COUNTER",
-    "/home/grantwhitmer/.windy/.ollama_fail_count",
+    str(windy_state_dir() / ".ollama_fail_count"),
 ))
 _OLLAMA_MAX_CONSECUTIVE_FAILURES = 3
 

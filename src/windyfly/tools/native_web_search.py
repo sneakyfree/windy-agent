@@ -38,6 +38,8 @@ import logging
 import os
 from datetime import date as _date
 from pathlib import Path
+
+from windyfly.platform import windy_state_dir
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -102,7 +104,7 @@ def _counter_path() -> Path:
     write so a torn write can't corrupt the count."""
     return Path(os.environ.get(
         "WINDY_DAILY_SEARCH_COUNTER",
-        "/home/grantwhitmer/.windy/.daily_search_count",
+        str(windy_state_dir() / ".daily_search_count"),
     ))
 
 

@@ -37,7 +37,7 @@ def _health_dir() -> Path:
     """Where v10 writes scorecards."""
     return Path(os.environ.get(
         "WINDY_HEALTH_DIR",
-        "/home/grantwhitmer/.windy-stress/health",
+        str(Path.home() / ".windy-stress" / "health"),
     ))
 
 

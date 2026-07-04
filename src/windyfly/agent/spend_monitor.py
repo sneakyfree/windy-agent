@@ -25,6 +25,8 @@ import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
+
+from windyfly.platform import windy_state_dir
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -39,7 +41,7 @@ def _pause_flag_path() -> Path:
     process. Operator must explicitly /resume."""
     return Path(os.environ.get(
         "WINDY_PAUSE_FLAG",
-        "/home/grantwhitmer/.windy/.paused",
+        str(windy_state_dir() / ".paused"),
     ))
 
 
@@ -67,7 +69,7 @@ _YOLO_MAX_HOURS = 7 * 24  # one week hard cap
 def _yolo_flag_path() -> Path:
     return Path(os.environ.get(
         "WINDY_YOLO_FLAG",
-        "/home/grantwhitmer/.windy/.yolo",
+        str(windy_state_dir() / ".yolo"),
     ))
 
 

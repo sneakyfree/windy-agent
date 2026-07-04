@@ -1,6 +1,6 @@
 """Verify trust.changed webhook signatures from Eternitas.
 
-Contract (per /Users/thewindstorm/eternitas/docs/webhooks.md):
+Contract (per eternitas/docs/webhooks.md (eternitas repo)):
   - `X-Eternitas-Signature`: HMAC-SHA256 of the raw body, shared
     secret between Eternitas and the receiver (env var
     ETERNITAS_WEBHOOK_SECRET).

@@ -46,6 +46,8 @@ import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
+
+from windyfly.platform import windy_state_dir
 from typing import Any
 
 from windyfly.agent.capabilities.descriptor import Capability, Tier
@@ -62,7 +64,7 @@ def _enabled() -> bool:
 def _journal_path() -> Path:
     return Path(os.environ.get(
         "WINDY_AUTO_REPAIR_JOURNAL",
-        "/home/grantwhitmer/.windy/auto-repair-journal.jsonl",
+        str(windy_state_dir() / "auto-repair-journal.jsonl"),
     ))
 
 

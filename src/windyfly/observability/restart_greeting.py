@@ -26,12 +26,14 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
+from windyfly.platform import windy_state_dir
+
 logger = logging.getLogger(__name__)
 
 
 def _flag_path() -> Path:
     """Where the pending-greeting flag lives."""
-    base = os.environ.get("WINDY_PENDING_GREETING_DIR", "/home/grantwhitmer/.windy")
+    base = os.environ.get("WINDY_PENDING_GREETING_DIR", str(windy_state_dir()))
     return Path(base) / ".pending_restart_greeting"
 
 

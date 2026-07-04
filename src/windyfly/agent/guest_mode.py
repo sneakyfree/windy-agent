@@ -29,6 +29,8 @@ import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
+
+from windyfly.platform import windy_state_dir
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -37,7 +39,7 @@ logger = logging.getLogger(__name__)
 def _guest_flag_path() -> Path:
     return Path(os.environ.get(
         "WINDY_GUEST_FLAG",
-        "/home/grantwhitmer/.windy/.guest",
+        str(windy_state_dir() / ".guest"),
     ))
 
 

@@ -92,6 +92,17 @@ class IPCConfig:
     tcp_port: int     # only used when mode == "tcp"
 
 
+def windy_state_dir() -> Path:
+    """Per-user runtime-state directory for flag files and counters.
+
+    Defaults to ``~/.windy``. Override with ``WINDY_STATE_DIR`` (used by
+    tests and non-standard fleet layouts). Individual flags keep their own
+    per-flag env overrides; this only supplies the *default* base so the
+    recovery layer works on any machine, not just the dev box.
+    """
+    return Path(os.environ.get("WINDY_STATE_DIR", str(Path.home() / ".windy")))
+
+
 def get_ipc_config() -> IPCConfig:
     """Build and return the resolved IPC configuration."""
     return IPCConfig(
