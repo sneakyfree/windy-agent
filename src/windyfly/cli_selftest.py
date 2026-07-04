@@ -22,6 +22,7 @@ import os
 import sys
 import time
 import uuid
+from pathlib import Path
 from dataclasses import dataclass
 from typing import Iterable
 
@@ -260,6 +261,33 @@ def run_self_test(*, exit_on_failure: bool = True) -> bool:
 
     session_id = f"selftest-{uuid.uuid4().hex[:8]}"
     test_message = "What is 2+2?"
+
+    # ── Step 0: Disk space (2026-07-04 audit) ──
+    # A full disk makes every memory write fail silently while chat
+    # keeps working; catch it here before it becomes amnesia.
+    try:
+        import shutil
+        free_mb = shutil.disk_usage(
+            Path(db_path).resolve().parent
+            if Path(db_path).parent.exists() else "."
+        ).free / (1024 * 1024)
+        if free_mb < 200:
+            details.append((
+                "Disk space", False,
+                f"only {free_mb:.0f} MB free — memory writes will fail",
+            ))
+            failed += 1
+        else:
+            note = (
+                f"{free_mb / 1024:.1f} GB free"
+                if free_mb >= 1024
+                else f"{free_mb:.0f} MB free — getting low"
+            )
+            details.append(("Disk space", True, note))
+            passed += 1
+    except OSError as e:
+        details.append(("Disk space", False, f"could not check: {e}"))
+        failed += 1
 
     # ── Step 1: Send message and get response ──
     try:

@@ -14,6 +14,35 @@ from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
 
+# Process-wide write-failure telemetry (2026-07-04 audit): a full disk
+# used to mean every episode save failed silently while the agent kept
+# chatting — memory loss discovered weeks later. Any WriteQueue instance
+# feeds these; /status reads them to surface "memory writes failing".
+_write_stats = {"failures": 0, "last_failure_ts": 0.0, "last_error": ""}
+_write_stats_lock = threading.Lock()
+
+
+def _note_write_failure(error: Exception) -> None:
+    import time
+    with _write_stats_lock:
+        _write_stats["failures"] += 1
+        _write_stats["last_failure_ts"] = time.time()
+        _write_stats["last_error"] = f"{type(error).__name__}: {error}"[:200]
+
+
+def get_write_stats() -> dict:
+    """Snapshot of process-wide write-failure telemetry."""
+    with _write_stats_lock:
+        return dict(_write_stats)
+
+
+def reset_write_stats() -> None:
+    """Test hook — zero the process-wide counters."""
+    with _write_stats_lock:
+        _write_stats.update(
+            {"failures": 0, "last_failure_ts": 0.0, "last_error": ""}
+        )
+
 
 class Priority(IntEnum):
     """Write queue priority levels."""
@@ -96,6 +125,7 @@ class WriteQueue:
 
             except Exception as e:
                 logger.exception("WriteQueue: error processing item (priority=%s): %s", priority, e)
+                _note_write_failure(e)
             finally:
                 self._queue.task_done()
 
@@ -111,6 +141,7 @@ class WriteQueue:
                 fn(*args, **kwargs)
             except Exception as e:
                 logger.exception("WriteQueue: error in batch item: %s", e)
+                _note_write_failure(e)
 
     def start(self) -> None:
         """Start the background worker thread."""

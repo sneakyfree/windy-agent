@@ -60,6 +60,49 @@ _COOLDOWN_AUTH_DEAD_S = 60 * 60  # 1 hour
 _provider_cooldowns: dict[str, tuple[float, int]] = {}
 
 
+def _cooldown_state_path():
+    from windyfly.platform import windy_state_dir
+    return windy_state_dir() / "provider-cooldowns.json"
+
+
+def _save_cooldowns() -> None:
+    """Persist the circuit breaker across restarts (best-effort, atomic).
+
+    Pre-fix the breaker was a module dict: every restart — including
+    panic-triggered and watchdog-kill restarts — zeroed all cooldown
+    history, so a crash-restart loop hammered a dead provider afresh
+    each cycle and a 1h perma-auth cooldown never survived the very
+    restart the auth failure tends to cause.
+    """
+    try:
+        path = _cooldown_state_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(_provider_cooldowns))
+        tmp.replace(path)
+    except OSError as e:
+        logger.debug("Could not persist provider cooldowns: %s", e)
+
+
+def _load_cooldowns() -> None:
+    """Restore unexpired cooldowns at import; drop stale entries."""
+    try:
+        raw = json.loads(_cooldown_state_path().read_text())
+    except (OSError, json.JSONDecodeError, ValueError):
+        return
+    now = time.time()
+    for provider, entry in raw.items():
+        try:
+            until, count = float(entry[0]), int(entry[1])
+        except (TypeError, ValueError, IndexError):
+            continue
+        if until > now:
+            _provider_cooldowns[provider] = (until, count)
+
+
+_load_cooldowns()
+
+
 def _is_provider_in_cooldown(provider_key: str) -> bool:
     entry = _provider_cooldowns.get(provider_key)
     if entry is None:
@@ -93,6 +136,7 @@ def _record_provider_failure(
     else:
         cooldown_s = min(_COOLDOWN_BASE_S * new_count, _COOLDOWN_MAX_S)
     _provider_cooldowns[provider_key] = (time.time() + cooldown_s, new_count)
+    _save_cooldowns()
     logger.warning(
         "Provider %s in cooldown for %ds (consecutive failures: %d%s)",
         provider_key, cooldown_s, new_count,
@@ -103,6 +147,7 @@ def _record_provider_failure(
 def _record_provider_success(provider_key: str) -> None:
     if provider_key in _provider_cooldowns:
         del _provider_cooldowns[provider_key]
+        _save_cooldowns()
 
 
 def _build_chain(
