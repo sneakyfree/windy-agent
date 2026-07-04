@@ -85,7 +85,10 @@ def handle_friction(
     correction_skill_id = None
     if is_recurring:
         try:
-            correction_code = _build_correction_code(fault_type, friction)
+            correction_code = (
+                _distill_correction_code(fault_type, friction)
+                or _build_correction_code(fault_type, friction)
+            )
             correction_skill_id = save_skill(
                 db,
                 name=f"correction-{fault_type}",
@@ -146,6 +149,72 @@ def handle_friction(
             "The user just corrected you. Acknowledge the correction gracefully, "
             "review what went wrong, and provide the right answer."
         )
+
+
+def _distill_correction_code(
+    fault_type: str,
+    friction: dict[str, Any],
+) -> str | None:
+    """LLM-distilled, situation-specific lesson (Sprint 3).
+
+    The template correction carried the identical canned sentence for
+    every failure of a fault_type — it "learned" nothing specific
+    (2026-07-04 audit). When a cheap model is reachable, distill the
+    actual mistake into one concrete instruction; on ANY failure fall
+    back to the template (this path must never make corrections less
+    reliable than before). Kill switch: WINDY_LLM_CORRECTIONS=0
+    (tests set it; operators can too).
+    """
+    import os as _os
+    if _os.environ.get("WINDY_LLM_CORRECTIONS", "1") == "0":
+        return None
+    try:
+        from windyfly.agent.models import call_llm
+
+        user_msg = friction.get("user_message", "")[:300]
+        agent_msg = friction.get("agent_message", "")[:300]
+        result = call_llm(
+            [
+                {
+                    "role": "system",
+                    "content": (
+                        "You distill agent mistakes into one reusable "
+                        "lesson. Reply with ONE imperative sentence "
+                        "(<200 chars) telling a future agent exactly "
+                        "what to do differently. No quotes, no preamble."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"Failure type: {fault_type}\n"
+                        f"The agent said: {agent_msg!r}\n"
+                        f"The user corrected it with: {user_msg!r}"
+                    ),
+                },
+            ],
+            model=_os.environ.get("WINDY_DISTILL_MODEL", "claude-haiku-4-5"),
+            temperature=None,
+            max_tokens=120,
+        )
+        lesson = (result.get("content") or "").strip()
+        # extract_correction_text() splits on quote chars — keep the
+        # lesson quote-free so it round-trips through the parser.
+        lesson = lesson.replace('"', "").replace("'", "").strip()
+        if not (15 <= len(lesson) <= 300):
+            return None
+        return (
+            f"# LLM-distilled correction skill for: {fault_type}\n"
+            f"# Triggered by user feedback: {friction.get('user_message', '')[:150]!r}\n"
+            f"\n"
+            f"FAULT_TYPE = {fault_type!r}\n"
+            f'CORRECTION = (\n'
+            f'    "{lesson}"\n'
+            f")\n"
+        )
+    except Exception as e:
+        logger.debug("correction distillation unavailable (%s) — using template", e)
+        return None
 
 
 def _build_correction_code(fault_type: str, friction: dict[str, Any]) -> str:
