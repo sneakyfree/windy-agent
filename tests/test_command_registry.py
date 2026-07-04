@@ -120,7 +120,8 @@ class TestCommandExecution:
             loaded_registry.execute("version")
         )
         assert "Windy Fly" in result
-        assert "0.5.1" in result
+        from windyfly import __version__
+        assert __version__ in result
 
     def test_ping_returns_pong(self, loaded_registry):
         result = asyncio.run(
