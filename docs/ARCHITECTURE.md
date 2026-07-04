@@ -3,6 +3,12 @@
 > **Status:** authoritative as of Wave 3 #1 (PR #56). Updated when wave
 > sequence advances or strategic framing shifts.
 >
+> **⚠️ 2026-07-04 note:** the code has out-run this document (~180 PRs).
+> The Capability Plane described as "scaffolded, first read-only hands"
+> below shipped Waves 4-6 (shell/ssh/github/cloudflare/vision/fleet/
+> collaborators + undo journal); Wave 7's Learning Plane optimizer has
+> not. Treat plane definitions as canon, statuses as historical.
+>
 > **Audience:** new contributors orienting cold. Skip to your area of
 > work via the table of contents — the file's long because it captures
 > the *why* behind every choice, but you don't need to read it linearly.
