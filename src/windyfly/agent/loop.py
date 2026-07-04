@@ -990,6 +990,12 @@ def agent_respond(
 
     # 2. Call LLM (with tools if registry provided)
     legacy_tools = tool_registry.get_schemas() if tool_registry else []
+    # Sprint 4: legacy ToolRegistry tools carry NO band metadata (sms,
+    # mail, cloud senders live there) — strangers resolved to SANDBOX
+    # by channels.identity get none of them. Capability tools below
+    # are already band-filtered by the registry.
+    if band <= Band.SANDBOX:
+        legacy_tools = []
     capability_tools = capability_registry.tool_schemas_for_band(band)
     tools = (legacy_tools + capability_tools) if (legacy_tools or capability_tools) else None
 

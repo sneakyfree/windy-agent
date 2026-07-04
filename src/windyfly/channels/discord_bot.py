@@ -60,7 +60,11 @@ class DiscordChannel(ChannelAdapter):
 
             # Unified command detection
             from windyfly.channels.base import handle_incoming
-            was_command, cmd_response = await handle_incoming(text, {"platform": "discord"})
+            was_command, cmd_response = await handle_incoming(text, {
+                "platform": "discord",
+                "channel_id": str(message.channel.id),
+                "sender_id": str(message.author.id),
+            })
             if was_command:
                 await message.reply(cmd_response)
                 return

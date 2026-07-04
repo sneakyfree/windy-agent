@@ -52,7 +52,10 @@ class TeamsChannel(ChannelAdapter):
                 # Unified command detection
                 from windyfly.channels.base import handle_incoming
                 was_command, cmd_response = await handle_incoming(
-                    text, {"platform": "teams"}
+                    text, {
+                        "platform": "teams",
+                        "sender_id": turn_context.activity.from_property.id,
+                    }
                 )
                 if was_command:
                     await turn_context.send_activity(cmd_response)
