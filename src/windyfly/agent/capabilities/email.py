@@ -301,12 +301,29 @@ def register_email_capabilities(
     registry: CapabilityRegistry,
     config: dict[str, Any] | None = None,
 ) -> None:
-    """Register ``email.send`` on the Capability Plane."""
-    configured = _is_configured()
+    """Register ``email.send`` on the Capability Plane — ONLY when it can
+    actually send (Gmail connected OR Resend configured).
+
+    Tool-ambiguity fix (2026-07-04 audit): the agent has TWO send tools —
+    the Windy Mail ``send_email`` (the agent's own inbox, the default for
+    every hatched agent) and this Gmail/Resend ``email.send``. Registering
+    ``email.send`` even when it's a dead stub let the LLM reach for a
+    non-working tool instead of the agent's Windy Mail inbox. Now it's
+    only registered when it has a live backend; a keyless grandma agent
+    (no Gmail, no Resend) sees just ``send_email`` and there's nothing to
+    confuse.
+    """
+    from windyfly.tools.mail import _resend_configured
+
+    if not (_is_configured() or _resend_configured()):
+        logger.info(
+            "email.* (Gmail/Resend) NOT registered — no live backend; the "
+            "agent uses its Windy Mail inbox (send_email) instead."
+        )
+        return
     logger.info(
-        "Registering email.* capabilities (Gmail OAuth, configured=%s, "
-        "token=%s)",
-        configured, _TOKEN_PATH if configured else "<missing>",
+        "Registering email.* capabilities (gmail=%s, resend=%s)",
+        _is_configured(), _resend_configured(),
     )
 
     def email_send(

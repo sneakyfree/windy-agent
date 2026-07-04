@@ -206,7 +206,11 @@ def test_send_email_service_factory_returns_none_becomes_error_dict(
 # ── Registration smoke test ────────────────────────────────────────
 
 
-def test_register_email_capabilities_adds_email_send():
+def test_register_email_capabilities_adds_email_send(monkeypatch):
+    # email.send only registers with a live backend now (2026-07-04
+    # tool-ambiguity fix); force one so this pins its descriptor.
+    from windyfly.agent.capabilities import email as email_mod
+    monkeypatch.setattr(email_mod, "_is_configured", lambda: True)
     registry = CapabilityRegistry()
     register_email_capabilities(registry, config={})
     cap = registry.get("email.send")
@@ -216,6 +220,15 @@ def test_register_email_capabilities_adds_email_send():
     # EXTERNAL_EFFECT defaults to TRUSTED band
     from windyfly.agent.capabilities.descriptor import Band
     assert cap.band_required == Band.TRUSTED
+
+
+def test_email_send_not_registered_without_backend(monkeypatch):
+    from windyfly.agent.capabilities import email as email_mod
+    monkeypatch.setattr(email_mod, "_is_configured", lambda: False)
+    monkeypatch.setattr("windyfly.tools.mail._resend_configured", lambda: False)
+    registry = CapabilityRegistry()
+    register_email_capabilities(registry, config={})
+    assert registry.get("email.send") is None
 
 
 # ── Boot wiring ────────────────────────────────────────────────────
