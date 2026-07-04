@@ -236,7 +236,18 @@ def main() -> None:
         config = load_config(args.config)
     except FileNotFoundError as e:
         print(f"Error: {e}", file=sys.stderr)
+        print(
+            "Run 'windy go' to create one, or pass --config <path>.",
+            file=sys.stderr,
+        )
         sys.exit(1)
+    if config.get("_config_error"):
+        logger.error(
+            "windyfly.toml could not be parsed (%s) — running on SAFE "
+            "DEFAULTS. Custom settings are NOT active until the file is "
+            "fixed or regenerated with 'windy go'.",
+            config["_config_error"],
+        )
 
     # Initialize Sentry error reporting (if configured)
     import os
