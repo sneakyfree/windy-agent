@@ -309,6 +309,18 @@ def _register_all():
         except Exception:
             pass
 
+        # Corrupt-config surfacing: load_config falls back to safe
+        # defaults instead of crash-looping, so /status is where the
+        # operator finds out their settings file needs attention.
+        if (
+            not degraded_reason
+            and isinstance(_config, dict)
+            and _config.get("_config_error")
+        ):
+            degraded_reason = (
+                "settings file unreadable — running on safe defaults"
+            )
+
         # Health: visual signal at the top of the report.
         if degraded_reason:
             health_line = (
