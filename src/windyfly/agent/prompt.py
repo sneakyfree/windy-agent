@@ -490,6 +490,32 @@ def assemble_prompt(
                 "content": f"## Last Session Handoff\n{summary}",
             })
 
+    # 1.6. Skills index — progressive disclosure level 0 (Sprint 3).
+    # Names + one-liners ONLY; the agent loads a body on demand with
+    # skill.view. Never inline the library (the Hermes token-economy
+    # lesson: a ~3k-token index beats a 100k-token dump).
+    try:
+        from windyfly.memory.skills import list_skills
+        playbooks = [
+            s for s in list_skills(db, promoted_only=True)
+            if s.get("language") == "playbook"
+        ][:12]
+        if playbooks:
+            skill_lines = [
+                "## Skills you know (playbooks — load with skill.view before doing these tasks):"
+            ]
+            for s in playbooks:
+                desc = (s.get("description") or "").strip()
+                skill_lines.append(
+                    f"- {s['name']}" + (f" — {desc[:90]}" if desc else "")
+                )
+            messages.append({
+                "role": "system",
+                "content": "\n".join(skill_lines),
+            })
+    except Exception:
+        pass  # skills index is enrichment — never block prompt assembly
+
     # 2. Memory context: relevant knowledge nodes
     max_nodes = config.get("memory", {}).get("max_nodes_per_context", 10)
 
