@@ -59,6 +59,69 @@ def _isolate_production_flags(monkeypatch, tmp_path):
 
 
 @pytest.fixture(autouse=True)
+def _no_real_process_kills(request):
+    """Block the pkill fall-through for every test by default.
+
+    ``cli.cmd_stop`` falls back to ``kill_by_name(["windyfly.main", ...])``
+    when no PID file matches — and on a machine running a live agent that
+    pattern kills the PRODUCTION process (observed 2026-07-04: running the
+    suite on Windy 0 stopped windy-0.service). Tests that genuinely
+    exercise process-kill behavior opt in via the ``real_process_kill``
+    marker; direct tests of ``windyfly.platform`` functions are unaffected
+    (we patch cli's imported reference, not the platform module).
+    """
+    if "real_process_kill" in request.keywords:
+        yield
+        return
+    with patch("windyfly.cli.kill_by_name", return_value=None):
+        yield
+
+
+@pytest.fixture(autouse=True)
+def _isolate_project_root(request, monkeypatch, tmp_path):
+    """Point every module-level PROJECT_ROOT copy at a per-test tmp dir.
+
+    Five modules snapshot ``get_project_root()`` at import time
+    (cli, quickstart, setup_wizard, commands.core, commands._legacy);
+    isolation used to be opt-in per test, and the omission failure mode
+    was real: test_pro_broker's quickstart test OVERWROTE the repo's
+    windyfly.toml/.env with fixture config (observed 2026-07-04 on 0c2).
+    Tests that need the real repo root (e.g. source-scanning tests that
+    use PROJECT_ROOT rather than __file__) opt in via the
+    ``real_project_root`` marker.
+    """
+    if "real_project_root" in request.keywords:
+        yield
+        return
+    import importlib
+
+    root = tmp_path / "project-root"
+    (root / "data").mkdir(parents=True, exist_ok=True)
+    for mod_name in (
+        "windyfly.cli",
+        "windyfly.quickstart",
+        "windyfly.setup_wizard",
+        "windyfly.commands.core",
+        "windyfly.commands._legacy",
+    ):
+        try:
+            mod = importlib.import_module(mod_name)
+        except Exception:
+            continue
+        if hasattr(mod, "PROJECT_ROOT"):
+            monkeypatch.setattr(mod, "PROJECT_ROOT", root)
+        # setup_wizard derives file paths from PROJECT_ROOT at import.
+        for attr, rel in (
+            ("ENV_FILE", ".env"),
+            ("CONFIG_FILE", "windyfly.toml"),
+            ("DATA_DIR", "data"),
+        ):
+            if hasattr(mod, attr):
+                monkeypatch.setattr(mod, attr, root / rel)
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _default_skip_first_contact_welcome(request):
     """Default OFF for the first-contact welcome shortcut so unit
     tests that mock call_llm aren't bypassed.
