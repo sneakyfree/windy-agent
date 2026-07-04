@@ -79,6 +79,10 @@ class TestKeylessFlow:
             key = None
             keyless = False
 
+        # Clear any provider key the ambient env carries, or cmd_go's
+        # "found a key in your environment" step short-circuits the menu.
+        for pat in qs.KEY_PATTERNS:
+            monkeypatch.delenv(pat["env_var"], raising=False)
         monkeypatch.setattr(qs, "can_run", lambda _tool: True)
         monkeypatch.setattr(qs, "_try_pro_broker", lambda _a: False)
         monkeypatch.setattr(qs, "read_clipboard", lambda: "")
