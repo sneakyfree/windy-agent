@@ -16,6 +16,11 @@ session-stickiness concerns. The two supported topologies are:
 2. **Managed-VPS** — the agent runs on an EC2 instance the user
    owns. Optional. Useful when the laptop sleeps or travels.
 
+Within either topology, pick an install tier first — **Docker is the
+official consumer path** (complete product, pinned deps); source
+checkout is the developer path; the pip wheel is headless-brain only.
+See [docs/DISTRIBUTION.md](docs/DISTRIBUTION.md).
+
 ---
 
 ## Table of contents

@@ -5,9 +5,13 @@
 Windy Fly is a personal AI agent — a lifelong, self-improving companion that remembers everything, learns your preferences, and connects to the entire Windy ecosystem. Talk to it from your terminal, phone, browser, or any messaging platform.
 
 ```bash
-pip install windyfly    # Install from PyPI
-windy go                # Interactive setup + hatch ceremony
+docker compose up -d    # The complete product — brain + dashboard
 ```
+
+Or for developers, from a source checkout: `windy go` (interactive
+setup + hatch ceremony). See [docs/DISTRIBUTION.md](docs/DISTRIBUTION.md)
+for which install path fits you — the `pip` wheel is the headless brain
+only (no dashboard).
 
 Your agent hatches, gets an identity, and starts chatting in under 2 minutes.
 
@@ -40,13 +44,18 @@ uv sync                    # Install dependencies
 uv run windy go            # Interactive setup + hatch
 ```
 
-### From PyPI (Users)
+### From PyPI (headless — no dashboard)
 
 ```bash
 pip install windyfly
 windy go                   # Setup wizard
-windy start                # Start agent + open dashboard
+windy start                # Start the agent (brain + channels only)
 ```
+
+The wheel ships the Python brain and every channel adapter, but NOT
+the gateway/dashboard (that's a Bun/TypeScript app that lives in the
+source checkout and the Docker image). Want the full product without
+a toolchain? Use Docker above. Details: docs/DISTRIBUTION.md.
 
 ### What Happens
 
