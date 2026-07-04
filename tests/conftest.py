@@ -55,6 +55,10 @@ def _isolate_production_flags(monkeypatch, tmp_path):
                        str(tmp_path / ".post_recovery_grace"))
     monkeypatch.setenv("WINDY_DAILY_SEARCH_COUNTER",
                        str(tmp_path / ".daily_search_count"))
+    # Base state dir (2026-07-04): windy_state_dir() derives every flag
+    # default AND holds provider-cooldowns.json + update-history.jsonl —
+    # keep all of it out of the real ~/.windy on dev/prod machines.
+    monkeypatch.setenv("WINDY_STATE_DIR", str(tmp_path / ".windy-state"))
     yield
 
 

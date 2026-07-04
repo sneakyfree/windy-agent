@@ -321,6 +321,36 @@ def _register_all():
                 "settings file unreadable — running on safe defaults"
             )
 
+        # Memory-write failures (disk full, DB locked/corrupt): the
+        # agent chats fine while silently losing every episode — the
+        # worst kind of invisible. Surface recent failures here.
+        if not degraded_reason:
+            try:
+                from windyfly.memory.write_queue import get_write_stats
+                ws = get_write_stats()
+                if ws["failures"] and (
+                    time.time() - ws["last_failure_ts"] < 3600
+                ):
+                    degraded_reason = (
+                        f"memory writes failing ({ws['failures']} errors "
+                        "— check disk space)"
+                    )
+            except Exception:
+                pass
+
+        # Low disk: warn before the write failures start.
+        if not degraded_reason:
+            try:
+                import shutil
+                free_mb = shutil.disk_usage(".").free / (1024 * 1024)
+                if free_mb < 500:
+                    degraded_reason = (
+                        f"low disk space ({free_mb:.0f} MB free) — "
+                        "memory writes at risk"
+                    )
+            except OSError:
+                pass
+
         # Health: visual signal at the top of the report.
         if degraded_reason:
             health_line = (
