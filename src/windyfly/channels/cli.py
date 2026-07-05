@@ -80,7 +80,7 @@ def run_cli(config: dict[str, Any]) -> None:
             if user_input.startswith("/") or user_input.startswith("!"):
                 import asyncio
                 from windyfly.channels.base import handle_incoming
-                _was_cmd, response = asyncio.get_event_loop().run_until_complete(
+                _was_cmd, response = asyncio.run(
                     handle_incoming(user_input, {"platform": "terminal"})
                 )
                 console.print(f"[fly]Fly:[/fly] {response}")
