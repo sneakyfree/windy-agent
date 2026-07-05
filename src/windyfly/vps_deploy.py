@@ -89,6 +89,18 @@ def _load_vps_state() -> VPSInstance | None:
         return None
 
 
+# Windy Cloud VPS plans (server-side names) mapped from instance types,
+# so the CLI can keep taking a familiar t3.* size while the API speaks
+# plans. Canonical source: windy-cloud aws_ec2.PLANS.
+_INSTANCE_TYPE_TO_PLAN = {
+    "t3.micro": "starter",
+    "t3.small": "basic",
+    "t3.medium": "standard",
+    "t3.large": "performance",
+    "t3.xlarge": "pro",
+}
+
+
 async def deploy_vps(
     config: dict | None = None,
     region: str = "us-east-1",
@@ -116,9 +128,6 @@ async def deploy_vps(
     if config:
         agent_name = config.get("agent", {}).get("name", "Windy Fly")
 
-    # Collect config files to upload
-    config_files = _collect_config_files()
-
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
@@ -126,20 +135,21 @@ async def deploy_vps(
 
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            # Step 1: Create server
+            # Provision + bootstrap in one canonical call. The server
+            # generates the install/systemd UserData; we just pass the
+            # plan, agent name, and the agent's EPT so the hosted agent
+            # boots keyless on Windy Mind (fly_bootstrap on the server).
+            plan = _INSTANCE_TYPE_TO_PLAN.get(instance_type, "basic")
             resp = await client.post(
-                f"{cloud_url}/api/v1/servers/create",
+                f"{cloud_url}/api/v1/servers/deploy-fly",
                 json={
-                    "agent_name": agent_name,
+                    "plan": plan,
                     "region": region,
-                    "instance_type": instance_type,
-                    "config_files": config_files,
-                    "setup_commands": [
-                        "curl -LsSf https://astral.sh/uv/install.sh | sh",
-                        "uv pip install windyfly",
-                        "systemctl --user enable windyfly",
-                        "systemctl --user start windyfly",
-                    ],
+                    "agent_name": agent_name,
+                    "eternitas_passport_token": os.environ.get(
+                        "ETERNITAS_PASSPORT_TOKEN", ""
+                    ),
+                    "owner_email": os.environ.get("OWNER_EMAIL", ""),
                 },
                 headers=headers,
             )
