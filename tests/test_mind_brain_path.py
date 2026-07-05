@@ -100,7 +100,20 @@ class TestBrokerResilience:
             assert self._call() is None
         assert "windy-mind" in models._provider_cooldowns
 
-    def test_tools_skip_mind_until_flag(self, monkeypatch):
+    def test_tools_flow_to_mind_by_default(self, monkeypatch):
+        """Default flipped 2026-07-05 (0c2 drill finding): Mind tools
+        shipped+verified live, so tool-bearing calls now go to Mind
+        unless explicitly opted out with WINDY_MIND_SEND_TOOLS=0."""
+        tools = [{"type": "function", "function": {"name": "fs_read"}}]
+        with patch("httpx.post", return_value=_resp(MIND_JSON)) as mock_post:
+            out = models._try_mind_broker(
+                [{"role": "user", "content": "hi"}], None, 0.7, 1024, tools,
+            )
+            assert out is not None
+            assert mock_post.call_args.kwargs["json"]["tools"] == tools
+
+    def test_tools_opt_out_restores_skip(self, monkeypatch):
+        monkeypatch.setenv("WINDY_MIND_SEND_TOOLS", "0")
         tools = [{"type": "function", "function": {"name": "fs_read"}}]
         with patch("httpx.post") as mock_post:
             out = models._try_mind_broker(
@@ -108,13 +121,6 @@ class TestBrokerResilience:
             )
             assert out is None
             mock_post.assert_not_called()
-        monkeypatch.setenv("WINDY_MIND_SEND_TOOLS", "1")
-        with patch("httpx.post", return_value=_resp(MIND_JSON)) as mock_post:
-            out = models._try_mind_broker(
-                [{"role": "user", "content": "hi"}], None, 0.7, 1024, tools,
-            )
-            assert out is not None
-            assert mock_post.call_args.kwargs["json"]["tools"] == tools
 
     def test_no_ept_is_noop(self, monkeypatch):
         monkeypatch.delenv("ETERNITAS_PASSPORT_TOKEN", raising=False)
