@@ -70,12 +70,18 @@ def run_cli(config: dict[str, Any]) -> None:
             if user_input.lower() in ("quit", "exit"):
                 break
 
-            # Command detection — /commands work in terminal chat too
+            # Command detection — /commands work in terminal chat too.
+            # Route through the shared rescue-first handler (channels.base)
+            # rather than the bare registry, so the grandma rescue kit
+            # (/normal, /resurrect, /pause, /resume, "my bot is broken")
+            # works here too. Before this, the CLI hit registry.execute
+            # directly and /normal — the very command the lifeboat banner
+            # tells the user to type — returned "Unknown command".
             if user_input.startswith("/") or user_input.startswith("!"):
                 import asyncio
-                from windyfly.commands.registry import registry
-                response = asyncio.get_event_loop().run_until_complete(
-                    registry.execute(user_input.lstrip("/!"), {"platform": "terminal"})
+                from windyfly.channels.base import handle_incoming
+                _was_cmd, response = asyncio.get_event_loop().run_until_complete(
+                    handle_incoming(user_input, {"platform": "terminal"})
                 )
                 console.print(f"[fly]Fly:[/fly] {response}")
                 console.print()

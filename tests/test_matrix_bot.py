@@ -275,3 +275,84 @@ class TestPendingResponseQueue:
         await bot._flush_pending()
         bot.client.room_send.assert_not_called()
         db.close()
+
+
+class TestMatrixBotGracefulShutdown:
+    """Regression for the 2026-07-04 prod SIGKILL: nio's sync_forever has its
+    own retry loop, so closing the client from a side task never unblocks it —
+    the process hung and systemd killed it (windy-0@matrix failed). A shutdown
+    signal must CANCEL the sync task so start() returns and graceful runs."""
+
+    @pytest.mark.asyncio
+    async def test_sigterm_cancels_sync_and_runs_graceful(self):
+        db = Database(":memory:")
+        wq = WriteQueue()
+        bot = WindyFlyMatrixBot(_make_config(), db, wq)
+
+        # Stub login + the reconnect-loop preamble so start() reaches sync.
+        bot.login = AsyncMock()
+        bot._flush_pending = AsyncMock()
+        bot._auto_trust_devices = AsyncMock()
+        bot._replay_offline_queue = AsyncMock()
+
+        # sync_forever blocks forever until cancelled — the real behavior.
+        async def _sync_forever(*a, **k):
+            await asyncio.Event().wait()
+
+        bot.client.sync_forever = _sync_forever
+        bot.client.add_event_callback = MagicMock()
+        bot.client.set_presence = AsyncMock()
+        bot.client.close = AsyncMock()
+
+        start_task = asyncio.create_task(bot.start())
+
+        # Wait until the sync task is actually in flight.
+        for _ in range(200):
+            if bot._sync_task is not None and not bot._sync_task.done():
+                break
+            await asyncio.sleep(0.01)
+        assert bot._sync_task is not None
+
+        # Fire the shutdown handler (what SIGTERM triggers).
+        bot._handle_shutdown_signal(15, asyncio.get_running_loop())
+
+        # start() must return promptly — no hang.
+        await asyncio.wait_for(start_task, timeout=5)
+
+        assert bot._graceful_done is True
+        bot.client.set_presence.assert_awaited()  # went offline
+        bot.client.close.assert_awaited()          # connection closed
+        db.close()
+
+    @pytest.mark.asyncio
+    async def test_graceful_shutdown_is_idempotent(self):
+        db = Database(":memory:")
+        wq = WriteQueue()
+        bot = WindyFlyMatrixBot(_make_config(), db, wq)
+        bot.client.set_presence = AsyncMock()
+        bot.client.close = AsyncMock()
+
+        await bot._graceful_shutdown()
+        await bot._graceful_shutdown()  # second call is a no-op
+
+        assert bot.client.close.await_count == 1
+        db.close()
+
+
+class TestMatrixCredentialsError:
+    @pytest.mark.asyncio
+    @patch.dict("os.environ", {}, clear=True)
+    async def test_no_creds_raises_typed_error(self):
+        """The launcher catches MatrixCredentialsError for a friendly message
+        instead of a raw traceback — so it must be a distinct type."""
+        from windyfly.channels.matrix_bot import MatrixCredentialsError
+
+        db = Database(":memory:")
+        wq = WriteQueue()
+        bot = WindyFlyMatrixBot(_make_config(), db, wq)
+        import os
+        os.environ.pop("MATRIX_BOT_TOKEN", None)
+        os.environ.pop("MATRIX_BOT_PASSWORD", None)
+        with pytest.raises(MatrixCredentialsError):
+            await bot.login()
+        db.close()

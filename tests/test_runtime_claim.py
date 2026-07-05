@@ -46,6 +46,60 @@ def test_skipped_when_passport_missing(monkeypatch):
 def test_skipped_when_jwt_missing(monkeypatch):
     monkeypatch.setenv("ETERNITAS_PASSPORT", "ET26-X-Y")
     monkeypatch.delenv("WINDY_JWT", raising=False)
+    monkeypatch.delenv("ETERNITAS_PASSPORT_TOKEN", raising=False)
+    out = runtime_claim.acquire_runtime_slot()
+    assert out == runtime_claim.ClaimOutcome.SKIPPED
+
+
+def _make_ept(passport: str) -> str:
+    """Build a minimal unsigned JWT whose `sub` is the passport id."""
+    import base64
+    import json
+
+    def b64(obj):
+        raw = json.dumps(obj).encode()
+        return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+    return f"{b64({'alg': 'ES256'})}.{b64({'sub': passport})}.sig"
+
+
+def test_passport_recovered_from_ept_sub(monkeypatch):
+    """Keyless drill finding: the hatch may write the EPT but not the bare
+    ETERNITAS_PASSPORT id. The passport must be recovered from the EPT's
+    `sub` claim so the claim isn't silently skipped (→ midwife never yields
+    → double replies)."""
+    monkeypatch.delenv("ETERNITAS_PASSPORT", raising=False)
+    monkeypatch.delenv("WINDY_JWT", raising=False)
+    monkeypatch.setenv("ETERNITAS_PASSPORT_TOKEN", _make_ept("ET26-KEYLESS-1"))
+    monkeypatch.setenv("MIND_BASE_URL", "https://api.windymind.test")
+
+    captured = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        captured["url"] = str(req.url)
+        return httpx.Response(
+            200,
+            json={
+                "claimed": True,
+                "expires_at": "2026-07-05T15:00:00.000Z",
+                "ttl_seconds": 90,
+                "heartbeat_interval_seconds": 30,
+            },
+        )
+
+    out = runtime_claim.acquire_runtime_slot(
+        transport=httpx.MockTransport(handler)
+    )
+    assert out == runtime_claim.ClaimOutcome.GRANTED
+    assert runtime_claim._state is not None
+    assert runtime_claim._state.passport == "ET26-KEYLESS-1"
+
+
+def test_malformed_ept_still_skips(monkeypatch):
+    """A garbage token must not crash; passport stays unknown → SKIPPED."""
+    monkeypatch.delenv("ETERNITAS_PASSPORT", raising=False)
+    monkeypatch.delenv("WINDY_JWT", raising=False)
+    monkeypatch.setenv("ETERNITAS_PASSPORT_TOKEN", "not-a-jwt")
     out = runtime_claim.acquire_runtime_slot()
     assert out == runtime_claim.ClaimOutcome.SKIPPED
 

@@ -110,9 +110,40 @@ def _read_creds() -> tuple[str, str] | None:
         os.environ.get("ETERNITAS_PASSPORT_TOKEN", "").strip()
         or os.environ.get("WINDY_JWT", "").strip()
     )
+    # Keyless grandma path (2026-07-05 drill finding): the hatch writes the
+    # EPT into ETERNITAS_PASSPORT_TOKEN but only writes ETERNITAS_PASSPORT
+    # (the bare id) when a REAL Eternitas provisioning succeeds. The exact
+    # keyless agents one-soul is for often have the token but not the id, so
+    # the claim was silently skipped and the midwife never yielded → double
+    # replies. The EPT's `sub` claim IS the passport id, so recover it from
+    # the token when the env var is absent.
+    if not passport and bearer:
+        passport = _passport_from_ept(bearer)
     if not passport or not bearer:
         return None
     return passport, bearer
+
+
+def _passport_from_ept(token: str) -> str:
+    """Best-effort passport id from an EPT's `sub` claim (no verification).
+
+    We only need the id string to name the runtime slot; Mind verifies the
+    token's signature server-side. Returns "" on any malformed input.
+    """
+    try:
+        import base64
+        import json
+
+        parts = token.split(".")
+        if len(parts) != 3:
+            return ""
+        payload = parts[1]
+        payload += "=" * (-len(payload) % 4)
+        claims = json.loads(base64.urlsafe_b64decode(payload.encode()))
+        sub = claims.get("sub", "")
+        return sub.strip() if isinstance(sub, str) else ""
+    except Exception:
+        return ""
 
 
 def _hostname() -> str:

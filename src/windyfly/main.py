@@ -378,11 +378,25 @@ def main() -> None:
             )
         )
 
+        from windyfly.channels.matrix_bot import MatrixCredentialsError
+
         bot = WindyFlyMatrixBot(config, db, write_queue, tool_registry)
         try:
             asyncio.run(bot.start())
         except KeyboardInterrupt:
             asyncio.run(bot.stop())
+        except MatrixCredentialsError:
+            # Grandma-friendly: this channel needs a hatched agent (its
+            # Eternitas passport) or a pasted Matrix token. Don't dump a
+            # traceback — tell the user what to do and exit non-zero so a
+            # supervisor doesn't hot-loop a mis-configured channel.
+            print(
+                "\n  💬  Windy Chat isn't set up yet.\n"
+                "  This channel needs your agent's passport (run `windy go` to "
+                "hatch it) or a Matrix token in .env (MATRIX_BOT_TOKEN).\n",
+                file=sys.stderr,
+            )
+            sys.exit(1)
         finally:
             write_queue.stop()
             db.close()
