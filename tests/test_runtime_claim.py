@@ -339,3 +339,41 @@ def test_heartbeat_exits_on_404(good_creds, monkeypatch):
     assert runtime_claim._state.heartbeat_thread is not None
     assert not runtime_claim._state.heartbeat_thread.is_alive()
     assert n_heartbeats["n"] >= 1
+
+
+class TestEptBearer:
+    """One-soul drill finding (2026-07-05): keyless agents have no
+    WINDY_JWT — the EPT must be an accepted bearer or the grandma-path
+    agents never claim their slot and the midwife never yields."""
+
+    def test_ept_token_alone_is_sufficient(self, monkeypatch):
+        from windyfly.runtime_claim import _read_creds
+
+        monkeypatch.setenv("ETERNITAS_PASSPORT", "ET26-X")
+        monkeypatch.setenv("ETERNITAS_PASSPORT_TOKEN", "ept-bearer")
+        monkeypatch.delenv("WINDY_JWT", raising=False)
+        assert _read_creds() == ("ET26-X", "ept-bearer")
+
+    def test_ept_preferred_over_jwt(self, monkeypatch):
+        from windyfly.runtime_claim import _read_creds
+
+        monkeypatch.setenv("ETERNITAS_PASSPORT", "ET26-X")
+        monkeypatch.setenv("ETERNITAS_PASSPORT_TOKEN", "ept-bearer")
+        monkeypatch.setenv("WINDY_JWT", "jwt-bearer")
+        assert _read_creds() == ("ET26-X", "ept-bearer")
+
+    def test_jwt_fallback_still_works(self, monkeypatch):
+        from windyfly.runtime_claim import _read_creds
+
+        monkeypatch.setenv("ETERNITAS_PASSPORT", "ET26-X")
+        monkeypatch.delenv("ETERNITAS_PASSPORT_TOKEN", raising=False)
+        monkeypatch.setenv("WINDY_JWT", "jwt-bearer")
+        assert _read_creds() == ("ET26-X", "jwt-bearer")
+
+    def test_no_bearer_skips(self, monkeypatch):
+        from windyfly.runtime_claim import _read_creds
+
+        monkeypatch.setenv("ETERNITAS_PASSPORT", "ET26-X")
+        monkeypatch.delenv("ETERNITAS_PASSPORT_TOKEN", raising=False)
+        monkeypatch.delenv("WINDY_JWT", raising=False)
+        assert _read_creds() is None

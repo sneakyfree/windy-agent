@@ -14,3 +14,8 @@
 {"timestamp": "2026-07-05T03:24:23.479871+00:00", "key_id": "", "scope_used": "cloud:download", "target_url": "https://cloud.windycloud.com/api/v1/archive/list/windy_fly", "response_status": 200, "latency_ms": 0.25}
 {"timestamp": "2026-07-05T03:24:23.481261+00:00", "key_id": "", "scope_used": "cloud:download", "target_url": "https://cloud.windycloud.com/api/v1/archive/list/windy_fly", "response_status": 200, "latency_ms": 0.3}
 {"timestamp": "2026-07-05T03:24:23.482504+00:00", "key_id": "", "scope_used": "cloud:download", "target_url": "https://cloud.windycloud.com/api/v1/archive/retrieve/windy_fly/windyfly-20260705T032423Z.enc", "response_status": 200, "latency_ms": 0.17}
+{"timestamp": "2026-07-05T09:27:01.825796+00:00", "key_id": "", "scope_used": "cloud:upload", "target_url": "https://cloud.windycloud.com/api/v1/archive/agent", "response_status": 201, "latency_ms": 0.03}
+{"timestamp": "2026-07-05T09:27:01.904515+00:00", "key_id": "", "scope_used": "cloud:upload", "target_url": "https://cloud.windycloud.com/api/v1/archive/agent", "response_status": 201, "latency_ms": 0.24}
+{"timestamp": "2026-07-05T09:27:01.905960+00:00", "key_id": "", "scope_used": "cloud:download", "target_url": "https://cloud.windycloud.com/api/v1/archive/list/windy_fly", "response_status": 200, "latency_ms": 0.24}
+{"timestamp": "2026-07-05T09:27:01.907522+00:00", "key_id": "", "scope_used": "cloud:download", "target_url": "https://cloud.windycloud.com/api/v1/archive/list/windy_fly", "response_status": 200, "latency_ms": 0.25}
+{"timestamp": "2026-07-05T09:27:01.908509+00:00", "key_id": "", "scope_used": "cloud:download", "target_url": "https://cloud.windycloud.com/api/v1/archive/retrieve/windy_fly/windyfly-20260705T092701Z.enc", "response_status": 200, "latency_ms": 0.19}
