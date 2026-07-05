@@ -76,6 +76,9 @@ class WindyFlyMatrixBot(ChannelAdapter):
         # Map room_id → session_id for session continuity per room
         self._room_sessions: dict[str, str] = {}
 
+        # DM room from the hatch, if the EPT session reports it
+        self._hatch_dm_room_id: str | None = None
+
         # Pending responses for offline queue
         self._pending_responses: list[tuple[str, str]] = []
 
@@ -95,9 +98,34 @@ class WindyFlyMatrixBot(ChannelAdapter):
     async def login(self) -> None:
         """Log into the Matrix homeserver.
 
-        Uses MATRIX_BOT_TOKEN if available, otherwise MATRIX_BOT_PASSWORD.
-        After login, uploads E2E encryption keys and trusts known devices.
+        Preferred path (one-soul, 2026-07-05): mint a session for the
+        agent's OWN ``@agent_<passport>`` identity from its Eternitas
+        passport token (chat_session.py → windy-chat #111) — the
+        identity the hatch provisioned and the one the midwife yields
+        to. Falls back to the legacy MATRIX_BOT_TOKEN / PASSWORD envs
+        for self-hosted setups without a passport.
         """
+        from windyfly.chat_session import fetch_agent_chat_session
+
+        session = await fetch_agent_chat_session(self.config)
+        if session and session.get("access_token"):
+            self.bot_user_id = session["matrix_user_id"]
+            self.client.user = self.bot_user_id
+            self.client.user_id = self.bot_user_id
+            self.client.access_token = session["access_token"]
+            # Use the minted device — a hardcoded id would desync the
+            # E2E store from the token's device and corrupt crypto state.
+            if session.get("device_id"):
+                self.client.device_id = session["device_id"]
+            if session.get("dm_room_id"):
+                self._hatch_dm_room_id = session["dm_room_id"]
+            logger.info(
+                "Windy Fly logged in as its own identity %s (one-soul)",
+                self.bot_user_id,
+            )
+            await self._setup_encryption()
+            return
+
         token = os.environ.get("MATRIX_BOT_TOKEN")
         password = os.environ.get("MATRIX_BOT_PASSWORD")
 
