@@ -33,6 +33,15 @@ from windyfly.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
+
+class MatrixCredentialsError(RuntimeError):
+    """No usable Matrix identity (no passport session, no token/password).
+
+    Distinct type so the launcher can show a friendly, grandma-readable
+    message instead of dumping a raw traceback.
+    """
+
+
 # Backoff constants
 _INITIAL_BACKOFF_S = 1
 _MAX_BACKOFF_S = 60
@@ -87,6 +96,14 @@ class WindyFlyMatrixBot(ChannelAdapter):
 
         # Shutdown flag for graceful termination
         self._shutting_down = False
+        # The in-flight sync_forever future, so a shutdown signal can cancel
+        # it directly. nio's sync_forever has its own internal retry loop, so
+        # closing the client from a side task does NOT unblock it — it just
+        # logs "Timed out, sleeping for 0s" forever and the process never
+        # exits, forcing systemd to SIGKILL (prod windy-0@matrix, 2026-07-04).
+        self._sync_task: asyncio.Task | None = None
+        # Guard so graceful shutdown runs exactly once (signal + finally).
+        self._graceful_done = False
 
         # Connection state tracking
         self._connected = False
@@ -139,7 +156,7 @@ class WindyFlyMatrixBot(ChannelAdapter):
                 raise RuntimeError(f"Matrix login failed: {response.message}")
             logger.info("Windy Fly logged in via password as %s", self.bot_user_id)
         else:
-            raise RuntimeError(
+            raise MatrixCredentialsError(
                 "No Matrix credentials found. Set MATRIX_BOT_TOKEN or "
                 "MATRIX_BOT_PASSWORD in your .env file."
             )
@@ -444,14 +461,29 @@ class WindyFlyMatrixBot(ChannelAdapter):
     def _handle_shutdown_signal(
         self, sig: int, loop: asyncio.AbstractEventLoop
     ) -> None:
-        """Handle shutdown signal by scheduling graceful stop."""
+        """Handle shutdown signal by cancelling the sync loop.
+
+        We do NOT run graceful shutdown from here — cancelling ``_sync_task``
+        unblocks ``start()``'s reconnect loop, which then runs the graceful
+        path inline in its ``finally`` and returns, so the process actually
+        exits (instead of a side task racing a wedged sync_forever).
+        """
         sig_name = signal.Signals(sig).name if hasattr(signal, "Signals") else str(sig)
         logger.info("Received %s — initiating graceful shutdown...", sig_name)
         self._shutting_down = True
-        loop.create_task(self._graceful_shutdown())
+        if self._sync_task is not None and not self._sync_task.done():
+            self._sync_task.cancel()
 
     async def _graceful_shutdown(self) -> None:
-        """Graceful shutdown: set offline, flush messages, close connection."""
+        """Graceful shutdown: set offline, flush messages, close connection.
+
+        Idempotent: the shutdown signal path and start()'s finally can both
+        reach here, but the body runs at most once.
+        """
+        if self._graceful_done:
+            return
+        self._graceful_done = True
+        self._shutting_down = True
         logger.info("Graceful shutdown: setting presence to offline...")
         try:
             await self.client.set_presence("offline", status_msg="Windy Fly shutting down")
@@ -534,14 +566,23 @@ class WindyFlyMatrixBot(ChannelAdapter):
                     # Replay offline-queued messages on reconnect
                     await self._replay_offline_queue()
 
-                    await self.client.sync_forever(
-                        timeout=30000,
-                        full_state=True,
+                    # Run sync as a cancellable task so a SIGTERM handler can
+                    # actually interrupt it (see _handle_shutdown_signal).
+                    self._sync_task = asyncio.ensure_future(
+                        self.client.sync_forever(
+                            timeout=30000,
+                            full_state=True,
+                        )
                     )
+                    await self._sync_task
                     # sync_forever only returns on error
                     self._backoff = _INITIAL_BACKOFF_S
                     self._connected = True
                     self._last_sync_success = time.time()
+                except asyncio.CancelledError:
+                    # Shutdown requested — leave the reconnect loop cleanly.
+                    logger.info("Sync cancelled — shutting down Matrix bot")
+                    break
                 except Exception as e:
                     self._connected = False
 
@@ -582,6 +623,10 @@ class WindyFlyMatrixBot(ChannelAdapter):
                 await heartbeat_task
             except asyncio.CancelledError:
                 pass
+            # Run graceful shutdown inline so presence-offline + flush + close
+            # complete BEFORE start() returns and the interpreter exits (which
+            # is what lets the atexit runtime-claim release fire). Idempotent.
+            await self._graceful_shutdown()
 
     async def send(self, message: OutgoingMessage) -> None:
         """Send a message to a Matrix room (ChannelAdapter interface)."""
