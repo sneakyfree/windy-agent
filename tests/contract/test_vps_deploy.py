@@ -6,7 +6,7 @@ mocks, plus each error branch (no token, connection refused, 404,
 HTTP error, malformed response).
 
 What we pin:
-- POST /api/v1/servers/create sends the agent_name/region/type it
+- POST /api/v1/servers/deploy-fly sends the agent_name/region/type it
   was asked for, with Bearer auth.
 - State is persisted to _VPS_STATE_FILE on every mutation.
 - destroy_vps removes the state file.
@@ -66,7 +66,7 @@ def _create_response(**overrides) -> dict:
 class TestDeploy:
     @respx.mock
     async def test_happy_path_posts_correct_body_and_persists(self, tmp_path):
-        route = respx.post(f"{CLOUD}/api/v1/servers/create").mock(
+        route = respx.post(f"{CLOUD}/api/v1/servers/deploy-fly").mock(
             return_value=httpx.Response(200, json=_create_response())
         )
 
@@ -80,9 +80,11 @@ class TestDeploy:
         body = json.loads(route.calls.last.request.content)
         assert body["agent_name"] == "grant-fly"
         assert body["region"] == "us-west-2"
-        assert body["instance_type"] == "t4g.small"
-        assert "config_files" in body
-        assert "setup_commands" in body
+        # instance_type is now mapped to a server-side plan; the server
+        # generates the bootstrap, so no client-dictated setup commands.
+        assert body["plan"] == "basic"  # t4g.small (unknown) → default basic
+        assert "eternitas_passport_token" in body
+        assert "config_files" not in body and "setup_commands" not in body
         assert route.calls.last.request.headers["Authorization"] == "Bearer cloud_token_test"
 
         assert instance.instance_id == "i-001"
@@ -92,7 +94,7 @@ class TestDeploy:
 
     @respx.mock
     async def test_dashboard_url_synthesized_when_missing(self):
-        respx.post(f"{CLOUD}/api/v1/servers/create").mock(
+        respx.post(f"{CLOUD}/api/v1/servers/deploy-fly").mock(
             return_value=httpx.Response(200, json=_create_response(dashboard_url=""))
         )
         instance = await deploy_vps()
@@ -107,7 +109,7 @@ class TestDeploy:
 
     @respx.mock
     async def test_connection_refused_returns_error(self):
-        respx.post(f"{CLOUD}/api/v1/servers/create").mock(
+        respx.post(f"{CLOUD}/api/v1/servers/deploy-fly").mock(
             side_effect=httpx.ConnectError("refused")
         )
         inst = await deploy_vps()
@@ -116,7 +118,7 @@ class TestDeploy:
 
     @respx.mock
     async def test_http_500_returns_error(self):
-        respx.post(f"{CLOUD}/api/v1/servers/create").mock(
+        respx.post(f"{CLOUD}/api/v1/servers/deploy-fly").mock(
             return_value=httpx.Response(500, text="boom")
         )
         inst = await deploy_vps()
@@ -206,3 +208,16 @@ class TestFormatStatus:
         out = format_vps_status(inst)
         assert "i-001" in out
         assert "203.0.113.10" in out
+
+
+class TestDeployFlyContract:
+    @respx.mock
+    async def test_instance_type_maps_to_plan_and_passes_ept(self, monkeypatch):
+        monkeypatch.setenv("ETERNITAS_PASSPORT_TOKEN", "ept-live-token")
+        route = respx.post(f"{CLOUD}/api/v1/servers/deploy-fly").mock(
+            return_value=httpx.Response(200, json=_create_response())
+        )
+        await deploy_vps(instance_type="t3.xlarge")
+        body = json.loads(route.calls.last.request.content)
+        assert body["plan"] == "pro"  # t3.xlarge → pro
+        assert body["eternitas_passport_token"] == "ept-live-token"
