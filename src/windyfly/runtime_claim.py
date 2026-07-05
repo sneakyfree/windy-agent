@@ -18,7 +18,8 @@ Architecture notes
   sms} contexts — sync code at startup + a separate daemon thread for
   heartbeats keeps this module orthogonal to the async loop chosen by
   each channel.
-* Reads `ETERNITAS_PASSPORT` and `WINDY_JWT` from the environment
+* Reads `ETERNITAS_PASSPORT` + a bearer (`ETERNITAS_PASSPORT_TOKEN`
+  preferred, `WINDY_JWT` fallback) from the environment
   (existing conventions per hatching.py + ecosystem_health.py). When
   either is missing the claim is skipped — agents that haven't yet
   paired with the ecosystem keep running (fail-open).
@@ -95,12 +96,23 @@ def _mind_base_url() -> str:
 
 
 def _read_creds() -> tuple[str, str] | None:
-    """Return (passport, jwt) if both are set; None otherwise."""
+    """Return (passport, bearer) if both are set; None otherwise.
+
+    Bearer preference (2026-07-05, one-soul drill finding): the agent's
+    own ETERNITAS_PASSPORT_TOKEN first — the keyless grandma path has
+    no WINDY_JWT, and Mind's claim endpoint verifies EPTs directly.
+    Requiring WINDY_JWT meant the exact agents one-soul was built for
+    never claimed their slot, so the midwife never yielded to them.
+    WINDY_JWT stays as the fallback for JWT-authed setups.
+    """
     passport = os.environ.get("ETERNITAS_PASSPORT", "").strip()
-    jwt = os.environ.get("WINDY_JWT", "").strip()
-    if not passport or not jwt:
+    bearer = (
+        os.environ.get("ETERNITAS_PASSPORT_TOKEN", "").strip()
+        or os.environ.get("WINDY_JWT", "").strip()
+    )
+    if not passport or not bearer:
         return None
-    return passport, jwt
+    return passport, bearer
 
 
 def _hostname() -> str:
