@@ -464,12 +464,15 @@ def _try_mind_broker(
     if not ept:
         return None  # OPT-IN: only fires when EPT is configured
 
-    # Mind's /v1/chat has no tools[]/tool-role support yet (2026-07-04
-    # audit) — sending tools would be silently dropped by its pydantic
-    # model and the agent would confabulate actions. Skip Mind for
-    # tool-bearing calls until the windy-mind tools PR deploys, then
-    # flip WINDY_MIND_SEND_TOOLS=1.
-    if tools and os.environ.get("WINDY_MIND_SEND_TOOLS") != "1":
+    # Mind tool-calling shipped + was live-verified 2026-07-04 (windy-mind
+    # PR #45: tools[] round-trip through gemini-2.5-flash returned real
+    # tool_use). Tools now flow to Mind BY DEFAULT — the 0c2 one-soul
+    # drill (2026-07-05) showed the old opt-in latch made every keyless
+    # agent skip Mind on essentially every real call (the loop always
+    # sends its toolset) and fall to the lifeboat. Set
+    # WINDY_MIND_SEND_TOOLS=0 to restore the old skip if Mind's tool
+    # path ever regresses.
+    if tools and os.environ.get("WINDY_MIND_SEND_TOOLS", "1") == "0":
         return None
 
     # Circuit breaker: Mind is the PRIMARY brain for keyless agents —
