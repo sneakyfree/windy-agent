@@ -687,8 +687,17 @@ def agent_respond(
     # block mentions shell.exec abstractly but doesn't connect
     # OS-state vocabulary to specific commands. Inject when the
     # capability is registered AND the question looks OS-shaped.
+    # These two nudges are OWNER-ONLY. They (a) point the model at
+    # shell.exec / fs.* — capabilities a non-owner's SANDBOX band was
+    # deliberately denied, so the nudge would advertise tools the model
+    # can't call — and (b) the fs nudge enumerates the owner's private
+    # repo names, ~/ layout, and ACCESS_LOCKBOX.md, which must never be
+    # spoken to a stranger. Gate on TRUSTED+ (owner / paired power user).
+    # band defaults to OWNER above, so existing owner callers are
+    # unaffected; only SANDBOX/USER (non-owner) sessions skip them.
     if (
-        capability_registry.get("shell.exec")
+        band >= Band.TRUSTED
+        and capability_registry.get("shell.exec")
         and _user_message_asks_os_state(user_message)
     ):
         messages.insert(1, {
@@ -710,7 +719,8 @@ def agent_respond(
         })
 
     if (
-        capability_registry.get("fs.read_file")
+        band >= Band.TRUSTED
+        and capability_registry.get("fs.read_file")
         and _user_message_mentions_local(user_message)
     ):
         messages.insert(1, {
