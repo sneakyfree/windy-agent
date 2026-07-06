@@ -1,5 +1,51 @@
 # Changelog
 
+## 0.6.1
+
+The keyless release (PRs #247–#256): 0.6.0 shipped hours before the
+keyless grandma path landed, so the published package had none of it.
+This release brings PyPI up to the runtime the ecosystem actually runs.
+
+### Keyless / Windy Mind brain
+- `windy go` option 1 = "Free — no key needed": keyless config, hatch,
+  and launch with the Windy Mind free-compute brain (#248)
+- Fly→Mind brain path is load-bearing: EPT captured + persisted at
+  hatch, Mind responses translated to the loop's shape, Mind on the
+  provider circuit breaker (#247); tool-bearing calls flow to Mind by
+  default now that Mind's tool-calling is live (#254)
+- Kiosk honesty: piped/no-TTY `windy go --keyless` no longer aborts the
+  hatch on EOF, installs uv/bun itself, and reports truthfully when the
+  free cloud brain could not be connected instead of claiming success
+  (#256)
+
+### One-soul chat identity
+- The Fly logs into Windy Chat as its own `@agent_<passport>` identity
+  minted from its Eternitas passport, with the hatch's DM room and the
+  minted device id; the roster midwife yields while the real Fly holds
+  the runtime claim (#252)
+- Runtime claim accepts the agent's EPT as bearer (#253) and recovers
+  the passport id from the EPT itself, so keyless agents actually claim
+  their slot — no more double replies from midwife + Fly (#255)
+
+### Reliability
+- Matrix channel shuts down cleanly on SIGTERM: the sync loop is
+  cancelled, presence goes offline, pending messages flush, and the
+  runtime claim is released immediately (was: process hung until the
+  supervisor SIGKILLed it and the claim orphaned for its full TTL) (#255)
+- The grandma rescue kit (`/normal`, `/resurrect`, `/pause`, `/resume`,
+  panic phrases) now works on the CLI channel too — previously the CLI
+  bypassed the rescue layer and reported "Unknown command" for the exact
+  commands the lifeboat banner suggests (#255)
+- `--channel matrix` without credentials prints a friendly pointer to
+  `windy go` instead of a raw traceback (#255)
+
+### Provisioning contracts
+- Agent provisions its own mailbox with its EPT; send-tool ambiguity
+  fixed (#249)
+- Cloud backup conforms to the canonical archive contract with
+  AES-256-GCM (#250); `windy deploy --vps` uses the canonical
+  deploy-fly contract (#251)
+
 ## 0.6.0
 
 Ten weeks of merged work (PRs #151–#233) finally reaches the release
