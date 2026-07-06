@@ -235,3 +235,36 @@ class TestErrorSurfacing:
         assert res["success"] is False
         assert res["error"], "error must never be empty (the Windy 0 bug)"
         assert "_Silent" in res["error"]
+
+
+class TestCompression:
+    """A 122 MB SQLite DB on Windy 0 gzipped to 28 MB (~4.3x). Shipping
+    the raw DB over a ~270 KB/s uplink is what blew the write timeout;
+    compress-then-encrypt is the fix. Restore must transparently handle
+    both compressed backups and older raw ones."""
+
+    def test_maybe_decompress_gzip_and_passthrough(self):
+        import gzip
+        raw = b"SQLite format 3\x00" + b"payload" * 1000
+        assert cb._maybe_decompress(gzip.compress(raw)) == raw
+        # A non-gzip (legacy raw SQLite) payload passes through untouched.
+        assert cb._maybe_decompress(raw) == raw
+
+    def test_compress_then_encrypt_round_trips(self):
+        import gzip
+        key = cb._get_encryption_key()
+        db_bytes = b"SQLite format 3\x00" + (b"repetitive" * 5000)
+        # backup does: gzip -> encrypt ; restore does: decrypt -> maybe_decompress
+        stored = cb._encrypt_data(gzip.compress(db_bytes), key)
+        restored = cb._maybe_decompress(cb._decrypt_data(stored, key))
+        assert restored == db_bytes
+        # and it actually shrank (highly compressible fixture)
+        assert len(gzip.compress(db_bytes)) < len(db_bytes)
+
+    def test_upload_timeout_is_generous_for_writes(self):
+        # A bulk upload must not use a 60s flat timeout (the WriteTimeout
+        # trap). Write phase gets real headroom; connect stays tight.
+        import httpx
+        assert isinstance(cb._TIMEOUT, httpx.Timeout)
+        assert cb._TIMEOUT.write >= 300
+        assert cb._TIMEOUT.connect <= 60
