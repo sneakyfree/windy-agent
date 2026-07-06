@@ -211,3 +211,27 @@ class TestWindySearchClient:
             assert result["next_offset"] == 53
             assert result["cache_hit"] is True
             assert result["provider"] == "windy-search"
+
+    def test_fetch_via_windy_search_sends_render_and_returns_rendered_via(self, monkeypatch):
+        monkeypatch.setenv("WINDY_SEARCH_BASE_URL", "https://api.windysearch.com")
+        monkeypatch.setenv("WINDY_PASSPORT_EPT", "ey...test...")
+        from windyfly.tools.windy_search_client import fetch_via_windy_search
+
+        with patch("windyfly.tools.windy_search_client.httpx.post") as post:
+            mock_resp = MagicMock()
+            mock_resp.json.return_value = {
+                "content": "hydrated", "total_chars": 8, "truncated": False,
+                "rendered_via": "browserbase",
+            }
+            mock_resp.raise_for_status = MagicMock()
+            post.return_value = mock_resp
+
+            # default render should be "auto" and land in the request body
+            result = fetch_via_windy_search("https://spa.test/")
+            body = post.call_args.kwargs["json"]
+            assert body["render"] == "auto"
+            assert result["rendered_via"] == "browserbase"
+
+            # explicit render="on" is forwarded
+            fetch_via_windy_search("https://spa.test/", render="on")
+            assert post.call_args.kwargs["json"]["render"] == "on"

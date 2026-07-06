@@ -154,11 +154,17 @@ def fetch_url(
     url: str,
     max_chars: int = 20000,
     offset: int = 0,
+    render: str = "auto",
 ) -> dict[str, Any]:
     """Fetch a URL through windy-search (hard-gated) with a 5xx rescue.
 
     Hard gate (Search V1, 2026-05-17): WINDY_SEARCH_BASE_URL +
     WINDY_PASSPORT_EPT must be set or RuntimeError is raised.
+
+    ``render`` (default "auto"): windy-search renders JS-heavy / bot-walled
+    pages in a Browserbase cloud browser when the plain fetch returns an
+    empty shell. "auto" is transparent (most pages stay cheap plain);
+    "on" forces a render; "off" is plain-only.
 
     Rescue path (kept): if windy-search itself returns 5xx / timeout /
     connect error (its fetcher got anti-bot blocked, target IP refuses
@@ -172,7 +178,7 @@ def fetch_url(
     """
     if not is_routed_through_search():
         raise RuntimeError(_HARD_GATE_ERROR)
-    result = fetch_via_windy_search(url, max_chars=max_chars, offset=offset)
+    result = fetch_via_windy_search(url, max_chars=max_chars, offset=offset, render=render)
     if _is_windy_search_failure(result.get("error")):
         logger.info(
             "windy-search /web/fetch failed (%s); falling back "
@@ -239,6 +245,17 @@ def register_web_search_tool(registry: ToolRegistry) -> None:
                         "Char offset to start the slice at (default 0). For "
                         "pagination through long pages: call with the prior "
                         "response's next_offset."
+                    ),
+                },
+                "render": {
+                    "type": "string",
+                    "enum": ["off", "auto", "on"],
+                    "description": (
+                        "How to handle JavaScript-heavy pages. 'auto' (default) "
+                        "renders in a real cloud browser only if the plain fetch "
+                        "comes back an empty shell — leave it on 'auto' for most "
+                        "pages. Use 'on' to force a full browser render for a "
+                        "known JS app / dashboard; 'off' for plain HTML only."
                     ),
                 },
             },
