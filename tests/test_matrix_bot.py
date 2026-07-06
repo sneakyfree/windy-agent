@@ -162,7 +162,8 @@ class TestMatrixBotMessage:
 
     @pytest.mark.asyncio
     @patch("windyfly.channels.matrix_bot.agent_respond")
-    async def test_ignores_old_messages(self, mock_respond):
+    async def test_ignores_backlog_messages(self, mock_respond):
+        # Genuinely stale (a reconnect backlog) — still filtered.
         db = Database(":memory:")
         wq = WriteQueue()
         config = _make_config()
@@ -174,10 +175,41 @@ class TestMatrixBotMessage:
         event = MagicMock()
         event.sender = "@user:chat.windychat.ai"
         event.body = "Old message"
-        event.server_timestamp = (time.time() - 60) * 1000  # 60 seconds old
+        event.server_timestamp = (time.time() - 180) * 1000  # 3 min old
 
         await bot._on_message(room, event)
         mock_respond.assert_not_called()
+        db.close()
+
+    @pytest.mark.asyncio
+    @patch("windyfly.agent.executor.run_turn", new_callable=AsyncMock)
+    @patch("windyfly.channels.matrix_bot.agent_respond")
+    async def test_processes_message_delayed_by_a_slow_prior_turn(
+        self, mock_respond, mock_run_turn,
+    ):
+        # A rapid follow-up ("oh wait, I meant air fryers!") that nio held
+        # for ~45s behind a slow web-search turn must NOT be dropped —
+        # 45s is well within the 120s window. Regression for the live
+        # grandma-double-text drop found stress-testing Windy 0.
+        mock_run_turn.return_value = "On it!"
+        db = Database(":memory:")
+        wq = WriteQueue()
+        config = _make_config()
+        bot = WindyFlyMatrixBot(config, db, wq)
+        bot.client.room_typing = AsyncMock()
+        bot.client.room_send = AsyncMock()
+
+        room = MagicMock()
+        room.room_id = "!test:chat.windychat.ai"
+        room.user_name.return_value = "Grandma"
+
+        event = MagicMock()
+        event.sender = "@user:chat.windychat.ai"
+        event.body = "oh wait, I meant air fryers!"
+        event.server_timestamp = (time.time() - 45) * 1000  # held 45s by a slow prior turn
+
+        await bot._on_message(room, event)
+        mock_run_turn.assert_called_once()
         db.close()
 
     @pytest.mark.asyncio
