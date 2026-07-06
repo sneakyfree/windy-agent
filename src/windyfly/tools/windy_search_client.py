@@ -33,6 +33,9 @@ import httpx
 logger = logging.getLogger(__name__)
 
 _TIMEOUT = 15.0
+# A Browserbase render spins up a real cloud browser (session create + CDP
+# navigate + hydrate), so it needs a longer budget than a plain fetch.
+_RENDER_TIMEOUT = 45.0
 
 
 def is_routed_through_search() -> bool:
@@ -90,19 +93,26 @@ def fetch_via_windy_search(
     url: str,
     max_chars: int = 20000,
     offset: int = 0,
+    render: str = "auto",
 ) -> dict[str, Any]:
     """Fetch a URL through windy-search. Returns the same dict shape as
     the existing direct fetch_url for caller compatibility:
 
         {url, content, offset, returned_chars, total_length, truncated,
          next_offset, length}
+
+    ``render`` (windy-search B.6): "off" = plain HTTP; "auto" (default) =
+    plain first, escalate to a Browserbase cloud browser only when the page
+    is an unhydrated JS shell or a bot-wall; "on" = always render. "auto"
+    gives the agent transparent JS rendering with no extra reasoning — most
+    pages stay on the cheap plain path, so it barely costs anything.
     """
     try:
         resp = httpx.post(
             f"{_base_url()}/web/fetch",
             headers={**_auth_header(), "Content-Type": "application/json"},
-            json={"url": url, "max_chars": max_chars, "offset": offset},
-            timeout=_TIMEOUT,
+            json={"url": url, "max_chars": max_chars, "offset": offset, "render": render},
+            timeout=_RENDER_TIMEOUT if render != "off" else _TIMEOUT,
         )
         resp.raise_for_status()
         payload = resp.json()
@@ -130,6 +140,7 @@ def fetch_via_windy_search(
         "truncated": truncated,
         "next_offset": end if truncated else None,
         "length": total,  # legacy alias for older callers
+        "rendered_via": payload.get("rendered_via"),  # None | "browserbase"
         "provider": "windy-search",
         "cache_hit": payload.get("cache_hit", False),
     }
