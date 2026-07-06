@@ -8,14 +8,13 @@ emotional context, intent detection, and epistemic filtering.
 from __future__ import annotations
 
 import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from windyfly.agent.loop import _extract_and_store_facts, agent_respond
 from windyfly.agent.prompt import _extract_keywords, assemble_prompt
 from windyfly.memory.database import Database
-from windyfly.memory.episodes import get_recent_episodes
 from windyfly.memory.write_queue import WriteQueue
 import windyfly.agent.context_header as _ch
 import windyfly.agent.loop as _loop
@@ -279,8 +278,13 @@ class TestAssemblePrompt:
         )
         system_content = messages[0]["content"]
         assert "WHEN USING TOOLS" in system_content
-        # Specific anti-leak markers
-        assert "wg-0c3" in system_content or "wg-" in system_content
+        # Anti-leak markers. The block must cover the tool-output →
+        # reply translation step WITHOUT itself naming real fleet hosts:
+        # naming wg-0c3 / kit-0c5 in a non-owner (USER) prompt is the
+        # very leak the 2026-07-06 fix closed, so we now assert the
+        # GENERIC instruction instead of a specific alias.
+        assert "Never quote raw alias names" in system_content
+        assert "internal machine nickname" in system_content
         db.close()
 
     def test_grandma_mode_covers_clarifying_questions(self):

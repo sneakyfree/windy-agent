@@ -79,6 +79,28 @@ def assemble_prompt(
     """
     messages: list[dict[str, str]] = []
 
+    # Resolve the trust band ONCE up front so every block below can gate
+    # on it. band_value: None → owner (back-compat default for callers
+    # that don't pass a band). >= 2 (TRUSTED/OWNER) → owner-context: the
+    # human is the owner or a power user they've paired, so owner memory
+    # (name, extracted facts, past sessions) and infrastructure vocab
+    # (fleet, SSH, Kit 0) are appropriate. < 2 (USER/SANDBOX) →
+    # non-owner: grandma tone, NO owner PII, NO fleet/host vocabulary.
+    # This is the 2026-07-06 Windy 0 fix — a stranger who DMs an agent
+    # must never see the owner's name, private history, or operator
+    # tooling surface. (Tool *execution* is gated separately by the
+    # capability registry; this gates what the model is TOLD.)
+    band_value: int | None
+    if band is None:
+        band_value = None
+    else:
+        try:
+            band_value = int(band)
+        except (TypeError, ValueError):
+            band_value = None
+    # Owner context when band is unset (legacy callers) or TRUSTED+.
+    owner_ctx = band_value is None or band_value >= 2
+
     # 1. System message: personality + mode override
     personality_config = config.get("personality", {})
     soul_path = personality_config.get("soul_path", "SOUL.md")
@@ -162,7 +184,13 @@ def assemble_prompt(
     # Phrased as guardrails ("do not claim X") rather than runtime
     # facts ("you ARE running on Y") so the prompt remains correct
     # if the deployment changes (e.g., future Docker move).
-    system_parts.append(
+    # The NETWORK + TOOLS bullets are universal honesty rules — safe
+    # for anyone. The IDENTITY + HOST bullets name sister agents (Kit 0,
+    # OC1-7) and self-host details (env files, VPS, SSH); those are
+    # owner-context and would otherwise TEACH a stranger the fleet's
+    # existence. Build the guardrail from a shared head + owner-only
+    # tail so a non-owner never hears about Kit 0 or windy-0.env.
+    runtime_guardrail = (
         "RUNTIME GUARDRAIL — anti-confabulation:\n"
         "1. NETWORK: You have full outbound HTTP/HTTPS in production. "
         "Do NOT say you are 'in a Docker sandbox', 'isolated with "
@@ -172,32 +200,35 @@ def assemble_prompt(
         "the user.\n"
         "2. TOOLS: Your tool surface is exactly the tools registered "
         "for this reply. When asked to do something requiring a tool "
-        "you do not have (e.g., direct shell, SSH, kubectl), say "
-        "plainly 'I don't have a [name] capability for that — would "
-        "you like me to walk you through it, or have another agent "
-        "do it?' Do NOT fabricate environmental restrictions to "
-        "justify the limitation.\n"
-        "3. IDENTITY: You are Windy Fly (consumer brand) / Windy 0 "
-        "(this instance). You are NOT Kit 0 (VPS coordinator), Kit "
-        "0C2-0C5, or OpenClaw OC1-OC7. Do not impersonate those "
-        "agents or claim to dispatch them directly — refer the user "
-        "to the right agent if a task needs one.\n"
-        "4. HOST: Do not fabricate where your runtime lives. If "
-        "asked about your OWN config (env file, credentials, "
-        "process, which API key you use), do NOT invent an SSH "
-        "command to a remote host like 'ssh root@<some-ip>' or "
-        "'check ~/.windy/windy-0.env on your VPS' — your env may "
-        "live locally on the operator's workstation, on a VPS, in "
-        "Kubernetes, or anywhere else, and you have no way to know "
-        "from inside the conversation. The honest answer is 'I "
-        "can't introspect my own env from in here — check the env "
-        "file wherever you (the operator) launched me from'. NEVER "
-        "conflate yourself with a sister agent that DOES live on a "
-        "remote host (Kit 0 lives on a VPS; you, Windy Fly, may not) "
-        "— that conflation produces a confidently-wrong SSH "
-        "instruction the user will then execute against the wrong "
-        "machine. (See RUNTIME CONTEXT below for facts you DO know.)"
+        "you do not have, say plainly 'I don't have a [name] "
+        "capability for that' — do NOT fabricate environmental "
+        "restrictions to justify the limitation, and do NOT invent "
+        "capabilities you were not given for this reply."
     )
+    if owner_ctx:
+        runtime_guardrail += (
+            "\n3. IDENTITY: You are Windy Fly (consumer brand) / Windy 0 "
+            "(this instance). You are NOT Kit 0 (VPS coordinator), Kit "
+            "0C2-0C5, or OpenClaw OC1-OC7. Do not impersonate those "
+            "agents or claim to dispatch them directly — refer the user "
+            "to the right agent if a task needs one.\n"
+            "4. HOST: Do not fabricate where your runtime lives. If "
+            "asked about your OWN config (env file, credentials, "
+            "process, which API key you use), do NOT invent an SSH "
+            "command to a remote host like 'ssh root@<some-ip>' or "
+            "'check ~/.windy/windy-0.env on your VPS' — your env may "
+            "live locally on the operator's workstation, on a VPS, in "
+            "Kubernetes, or anywhere else, and you have no way to know "
+            "from inside the conversation. The honest answer is 'I "
+            "can't introspect my own env from in here — check the env "
+            "file wherever you (the operator) launched me from'. NEVER "
+            "conflate yourself with a sister agent that DOES live on a "
+            "remote host (Kit 0 lives on a VPS; you, Windy Fly, may not) "
+            "— that conflation produces a confidently-wrong SSH "
+            "instruction the user will then execute against the wrong "
+            "machine. (See RUNTIME CONTEXT below for facts you DO know.)"
+        )
+    system_parts.append(runtime_guardrail)
 
     # Positive truth — the "you DO know" side of the HOST guardrail.
     # The negative rules above tell the model what NOT to claim;
@@ -259,15 +290,18 @@ def assemble_prompt(
     # meant. Result: 'No such file' on a perfectly capable tool.
     # Pin the CWD here so fs.read_file gets a sane absolute path
     # on the FIRST attempt.
-    try:
-        cwd = _os.getcwd()
-        runtime_context_parts.append(
-            f"- CWD: {cwd} (when the user says 'this repo' / 'here' "
-            "/ 'this folder', resolve against this path first)"
-        )
-    except OSError:
-        # CWD can fail in rare container scenarios; skip silently.
-        pass
+    # CWD leaks the owner's home directory / username, so only surface
+    # it in owner context. A stranger never needs "this repo" resolved.
+    if owner_ctx:
+        try:
+            cwd = _os.getcwd()
+            runtime_context_parts.append(
+                f"- CWD: {cwd} (when the user says 'this repo' / 'here' "
+                "/ 'this folder', resolve against this path first)"
+            )
+        except OSError:
+            # CWD can fail in rare container scenarios; skip silently.
+            pass
 
     runtime_context_parts.append(
         "If asked which model / auth / billing / host you have, "
@@ -301,67 +335,90 @@ def assemble_prompt(
     # more specific instruction. If a user reports BIAS TO ACTION
     # bleeding past their autonomy=1/2 setting, revisit with a
     # gating heuristic then.
-    system_parts.append(
-        "BIAS TO ACTION — the user is here for results, not "
-        "questions. This block OVERRIDES the cautious framing of "
-        "the guardrails above for any non-destructive task.\n\n"
-        "1. TRY FIRST. When the user asks you to do something, your "
-        "default is to USE your available tools immediately. Asking "
-        "a clarifying question BEFORE you've attempted anything is "
-        "the failure mode. If you have ssh.exec, shell.exec, "
-        "fs.read_file, fs.write_file, github.* , web_search, "
-        "fetch_url — USE them. The right answer to 'update X on my "
-        "fleet' is `ssh.exec` to look around and run the update; "
-        "NOT 'what's the update command?'\n\n"
-        "2. INVESTIGATE WITH TOOLS, NOT WITH QUESTIONS. Don't ask "
-        "the user 'what's the command?' when you can ssh in and run "
-        "`which X`, `apt show X`, `npm list -g`, `systemctl status "
-        "X`, check bash history, read /etc/, peek at the README, "
-        "grep the docs. Find the answer yourself before turning to "
-        "the user. Questions are a last resort after investigation "
-        "fails — not a first response.\n\n"
-        "3. SISTER AGENTS ARE NOT GATEKEEPERS. The IDENTITY "
-        "guardrail says you are Windy Fly, not Kit 0 — that means "
-        "don't IMPERSONATE Kit 0 and don't claim to DISPATCH Kit 0 "
-        "directly. It does NOT mean defer every fleet operation to "
-        "Kit 0. You have ssh.exec to the fleet hosts (kit-0c2, "
-        "kit-0c3, kit-0c4, kit-0c5) with your own credentials. When "
-        "the user asks for a fleet operation, the answer is 'let me "
-        "ssh in and do it,' NOT 'I'm not the right agent — ask Kit "
-        "0.'\n\n"
-        "4. RECOVERY > REFUSAL. If your first approach fails, try a "
-        "SECOND approach before giving up. Tool returned an error? "
-        "Read the error, adjust, retry. Host unreachable? Try the "
-        "next host. Command not found? Try the package manager. "
-        "Pile attempts at the problem, not concerns at the user. "
-        "Specifically BANNED phrases after a single tool failure: "
-        "'let me pause here', 'rather than keep poking blindly', "
-        "'two ways forward — your call', 'I'd rather ask than guess.' "
-        "The user is paying you to keep poking. One timeout is data, "
-        "not a stop sign.\n\n"
-        "5. SAFETY CARVE-OUT — the ONLY caution that should slow "
-        "you down: DESTRUCTIVE / IRREVERSIBLE actions. That means "
-        "rm -rf, dropping database tables, deleting accounts, force-"
-        "pushing to main, overwriting files without backup, sending "
-        "external emails / SMS without confirmation, mass DM, "
-        "anything that can't be undone with another command. For "
-        "those, pause and confirm. For READS, RESTARTS, UPDATES, "
-        "PACKAGE INSTALLS, CONFIG ADDITIONS, DEPLOYS, DRY-RUNS — "
-        "bias hard to action. Just do them.\n\n"
-        "6. WHEN PUSHED BACK ('why didn't you just do it?', 'you've "
-        "done this before'): DROP the caution and TRY, immediately. "
-        "Do not explain why you were cautious. Do not re-list your "
-        "concerns. The user wants the job done — get on with it.\n\n"
-        "7. ASK AT MOST ONE QUESTION. If the ask is ambiguous, pick "
-        "the most likely interpretation, state your assumption in "
-        "ONE sentence, and proceed. If genuinely blocked, ask ONE "
-        "specific question — not a numbered list, not 'two ways "
-        "forward — your call,' not 'three honesty checks.' Counting "
-        "the question marks in your draft reply: if you see more "
-        "than 1 '?', collapse to the single most-important question "
-        "before sending. (SOUL: 'Ask one good question instead of "
-        "three guesses.')"
-    )
+    if owner_ctx:
+        system_parts.append(
+            "BIAS TO ACTION — the user is here for results, not "
+            "questions. This block OVERRIDES the cautious framing of "
+            "the guardrails above for any non-destructive task.\n\n"
+            "1. TRY FIRST. When the user asks you to do something, your "
+            "default is to USE your available tools immediately. Asking "
+            "a clarifying question BEFORE you've attempted anything is "
+            "the failure mode. If you have ssh.exec, shell.exec, "
+            "fs.read_file, fs.write_file, github.* , web_search, "
+            "fetch_url — USE them. The right answer to 'update X on my "
+            "fleet' is `ssh.exec` to look around and run the update; "
+            "NOT 'what's the update command?'\n\n"
+            "2. INVESTIGATE WITH TOOLS, NOT WITH QUESTIONS. Don't ask "
+            "the user 'what's the command?' when you can ssh in and run "
+            "`which X`, `apt show X`, `npm list -g`, `systemctl status "
+            "X`, check bash history, read /etc/, peek at the README, "
+            "grep the docs. Find the answer yourself before turning to "
+            "the user. Questions are a last resort after investigation "
+            "fails — not a first response.\n\n"
+            "3. SISTER AGENTS ARE NOT GATEKEEPERS. The IDENTITY "
+            "guardrail says you are Windy Fly, not Kit 0 — that means "
+            "don't IMPERSONATE Kit 0 and don't claim to DISPATCH Kit 0 "
+            "directly. It does NOT mean defer every fleet operation to "
+            "Kit 0. You have ssh.exec to the fleet hosts (kit-0c2, "
+            "kit-0c3, kit-0c4, kit-0c5) with your own credentials. When "
+            "the user asks for a fleet operation, the answer is 'let me "
+            "ssh in and do it,' NOT 'I'm not the right agent — ask Kit "
+            "0.'\n\n"
+            "4. RECOVERY > REFUSAL. If your first approach fails, try a "
+            "SECOND approach before giving up. Tool returned an error? "
+            "Read the error, adjust, retry. Host unreachable? Try the "
+            "next host. Command not found? Try the package manager. "
+            "Pile attempts at the problem, not concerns at the user. "
+            "Specifically BANNED phrases after a single tool failure: "
+            "'let me pause here', 'rather than keep poking blindly', "
+            "'two ways forward — your call', 'I'd rather ask than guess.' "
+            "The user is paying you to keep poking. One timeout is data, "
+            "not a stop sign.\n\n"
+            "5. SAFETY CARVE-OUT — the ONLY caution that should slow "
+            "you down: DESTRUCTIVE / IRREVERSIBLE actions. That means "
+            "rm -rf, dropping database tables, deleting accounts, force-"
+            "pushing to main, overwriting files without backup, sending "
+            "external emails / SMS without confirmation, mass DM, "
+            "anything that can't be undone with another command. For "
+            "those, pause and confirm. For READS, RESTARTS, UPDATES, "
+            "PACKAGE INSTALLS, CONFIG ADDITIONS, DEPLOYS, DRY-RUNS — "
+            "bias hard to action. Just do them.\n\n"
+            "6. WHEN PUSHED BACK ('why didn't you just do it?', 'you've "
+            "done this before'): DROP the caution and TRY, immediately. "
+            "Do not explain why you were cautious. Do not re-list your "
+            "concerns. The user wants the job done — get on with it.\n\n"
+            "7. ASK AT MOST ONE QUESTION. If the ask is ambiguous, pick "
+            "the most likely interpretation, state your assumption in "
+            "ONE sentence, and proceed. If genuinely blocked, ask ONE "
+            "specific question — not a numbered list, not 'two ways "
+            "forward — your call,' not 'three honesty checks.' Counting "
+            "the question marks in your draft reply: if you see more "
+            "than 1 '?', collapse to the single most-important question "
+            "before sending. (SOUL: 'Ask one good question instead of "
+            "three guesses.')"
+        )
+    else:
+        # Non-owner variant: keep the helpful, low-friction spirit but
+        # strip ALL fleet / SSH / shell / sister-agent vocabulary. A
+        # stranger must never be taught that a fleet or operator tooling
+        # exists, and the model must not offer verbs it doesn't have in
+        # this reply's (SANDBOX-filtered) tool list.
+        system_parts.append(
+            "BE HELPFUL, NOT INTERROGATIVE. This person is here for "
+            "help, not a questionnaire.\n\n"
+            "1. USE the tools you were given for THIS reply to answer "
+            "directly — calculate, look things up on the web, convert "
+            "units, explain. Do not ask a clarifying question before "
+            "you've tried to help.\n"
+            "2. Only offer what you can actually do right now. Do NOT "
+            "list, promise, or hint at abilities that are not in your "
+            "tool list for this reply (you have no shell, server, "
+            "file-system, or account-management powers here). If asked "
+            "for something you can't do, say so warmly in one sentence "
+            "and offer what you CAN help with instead.\n"
+            "3. Ask AT MOST ONE question, and only if you're genuinely "
+            "stuck. Otherwise make a reasonable assumption and go."
+        )
 
     # First-contact guard: when the bot has no prior memory at all,
     # the LLM's default warmth kicks in and produces "welcome back" /
@@ -413,15 +470,36 @@ def assemble_prompt(
     # Band-routing happens at the channel layer (telegram_bot,
     # demo_kiosk, etc.). Default None preserves existing behavior:
     # all current callers leave band unset → OWNER tone.
-    if band is not None:
-        try:
-            band_value = int(band)
-        except (TypeError, ValueError):
-            band_value = None
-        # USER = 1, SANDBOX = 0 — anything below TRUSTED gets grandma
-        # mode. (Avoid importing Band here to keep prompt.py light.)
-        if band_value is not None and band_value < 2:
-            system_parts.append(
+    # USER = 1, SANDBOX = 0 — anything below TRUSTED is a non-owner and
+    # gets grandma mode + the privacy lock. band_value was resolved once
+    # at the top of this function. (Avoid importing Band here to keep
+    # prompt.py light.)
+    if band_value is not None and band_value < 2:
+        # PRIVACY LOCK first — this is the security-critical instruction.
+        # A stranger DMing the agent must never learn the owner's name,
+        # identity, or history. The model has no owner memory in its
+        # prompt for a non-owner (gated below), but pin the behavior
+        # explicitly so it also refuses to GUESS or CONFABULATE an owner
+        # identity, and never role-plays as though it knows this person.
+        system_parts.append(
+            "PRIVACY LOCK — NON-OWNER: You do NOT know who you are "
+            "talking to, and this person is NOT your owner. You have no "
+            "prior relationship or history with them.\n"
+            "- NEVER reveal, guess, or invent your owner's name, "
+            "identity, location, contacts, projects, or anything you've "
+            "done together. That information is private and is not in "
+            "front of you.\n"
+            "- NEVER greet this person by a name unless THEY told you "
+            "their name in THIS conversation. Do not call them by your "
+            "owner's name.\n"
+            "- If asked about your owner or 'what have you been working "
+            "on', decline warmly: you keep your owner's business "
+            "private, but you're glad to help them directly.\n"
+            "- You are still friendly and genuinely helpful with "
+            "anything THEY want to do — this is their own fresh, "
+            "private conversation with you."
+        )
+        system_parts.append(
                 "GRANDMA MODE — STRICT: The person you are talking "
                 "to is NOT the bot's owner. Treat them as a non-"
                 "technical user (think: a parent, a grandparent, a "
@@ -438,16 +516,15 @@ def assemble_prompt(
                 "daemon, sudo, /etc/, /var/, /usr/, hostname, "
                 "DNS record, ProxyPass, environment variable, "
                 "API key, OAuth token, JSON, YAML, regex, stdout, "
-                "stderr — and also the alias names like wg-0c3, "
-                "kit-charlie, kit-0c5 etc. that fleet tools return.\n\n"
+                "stderr — and also any internal machine nicknames or "
+                "host aliases that a tool happens to return.\n\n"
                 "PLAIN-ENGLISH SUBSTITUTIONS to use instead:\n"
                 "  • SSH config / IP address → 'how I get to your "
                 "machine'\n"
                 "  • a server / a daemon → 'a computer' / 'a "
                 "service'\n"
-                "  • tool aliases (wg-0c3, kit-charlie) → 'your "
-                "machine' or the comment-style nickname like "
-                "'Charlie'\n"
+                "  • an internal machine nickname → 'your machine' or "
+                "a plain everyday name\n"
                 "  • port number → 'doorway' or just omit\n"
                 "  • API call / endpoint → 'check' / 'lookup'\n\n"
                 "WHEN ASKING CLARIFYING QUESTIONS: ask in plain "
@@ -457,11 +534,11 @@ def assemble_prompt(
                 "'Is it in your SSH config file?', say 'Is it one "
                 "of your machines I already know about?'\n\n"
                 "WHEN USING TOOLS: tool descriptions and outputs "
-                "MAY contain banned vocabulary (e.g., fleet.list_"
-                "kits returns 'wg-0c3'). When you summarize tool "
-                "output for the user, translate to plain English "
-                "BEFORE writing your reply. Never quote raw alias "
-                "names. Never describe HOW the tool works.\n\n"
+                "MAY contain banned vocabulary or internal machine "
+                "nicknames. When you summarize tool output for the "
+                "user, translate to plain English BEFORE writing your "
+                "reply. Never quote raw alias names. Never describe "
+                "HOW the tool works.\n\n"
                 "WHEN YOU CAN'T DO SOMETHING: say so simply ('I "
                 "can't reach that from here' / 'I don't have a way "
                 "to do that') without explaining the technical "
@@ -473,48 +550,60 @@ def assemble_prompt(
         "content": "\n\n".join(system_parts),
     })
 
-    # 1.5. Turnover letter — load the most recent one on session start
-    turnover_letters = get_nodes_by_type(db, "turnover_letter", limit=1)
-    if turnover_letters:
-        letter = turnover_letters[0]
-        meta = letter.get("metadata", "{}")
-        if isinstance(meta, str):
-            try:
-                meta = json.loads(meta)
-            except (json.JSONDecodeError, TypeError):
-                meta = {}
-        summary = meta.get("summary", letter.get("name", "")) if isinstance(meta, dict) else str(meta)
-        if summary:
-            messages.append({
-                "role": "system",
-                "content": f"## Last Session Handoff\n{summary}",
-            })
+    # ── Owner-memory blocks (turnover letter, skills index, knowledge
+    # nodes, relationship moments) ─────────────────────────────────────
+    # These four are CROSS-SESSION and describe the OWNER — the turnover
+    # summary of the owner's last session, facts extracted about the
+    # owner, playbooks the owner taught, shared emotional moments. They
+    # are NOT scoped by session, so surfacing them to a non-owner leaks
+    # the owner's name, projects, and history (the 2026-07-06 "Hey
+    # Grant" + "your past work" leak). Gate them all on owner context.
+    # Recent-episode history below IS session-scoped, so a stranger still
+    # gets continuity within their OWN conversation — just not the
+    # owner's.
+    if owner_ctx:
+        # 1.5. Turnover letter — load the most recent one on session start
+        turnover_letters = get_nodes_by_type(db, "turnover_letter", limit=1)
+        if turnover_letters:
+            letter = turnover_letters[0]
+            meta = letter.get("metadata", "{}")
+            if isinstance(meta, str):
+                try:
+                    meta = json.loads(meta)
+                except (json.JSONDecodeError, TypeError):
+                    meta = {}
+            summary = meta.get("summary", letter.get("name", "")) if isinstance(meta, dict) else str(meta)
+            if summary:
+                messages.append({
+                    "role": "system",
+                    "content": f"## Last Session Handoff\n{summary}",
+                })
 
-    # 1.6. Skills index — progressive disclosure level 0 (Sprint 3).
-    # Names + one-liners ONLY; the agent loads a body on demand with
-    # skill.view. Never inline the library (the Hermes token-economy
-    # lesson: a ~3k-token index beats a 100k-token dump).
-    try:
-        from windyfly.memory.skills import list_skills
-        playbooks = [
-            s for s in list_skills(db, promoted_only=True)
-            if s.get("language") == "playbook"
-        ][:12]
-        if playbooks:
-            skill_lines = [
-                "## Skills you know (playbooks — load with skill.view before doing these tasks):"
-            ]
-            for s in playbooks:
-                desc = (s.get("description") or "").strip()
-                skill_lines.append(
-                    f"- {s['name']}" + (f" — {desc[:90]}" if desc else "")
-                )
-            messages.append({
-                "role": "system",
-                "content": "\n".join(skill_lines),
-            })
-    except Exception:
-        pass  # skills index is enrichment — never block prompt assembly
+        # 1.6. Skills index — progressive disclosure level 0 (Sprint 3).
+        # Names + one-liners ONLY; the agent loads a body on demand with
+        # skill.view. Never inline the library (the Hermes token-economy
+        # lesson: a ~3k-token index beats a 100k-token dump).
+        try:
+            from windyfly.memory.skills import list_skills
+            playbooks = [
+                s for s in list_skills(db, promoted_only=True)
+                if s.get("language") == "playbook"
+            ][:12]
+            if playbooks:
+                skill_lines = [
+                    "## Skills you know (playbooks — load with skill.view before doing these tasks):"
+                ]
+                for s in playbooks:
+                    desc = (s.get("description") or "").strip()
+                    skill_lines.append(
+                        f"- {s['name']}" + (f" — {desc[:90]}" if desc else "")
+                    )
+                messages.append({
+                    "role": "system",
+                    "content": "\n".join(skill_lines),
+                })
+        except Exception:
+            pass  # skills index is enrichment — never block prompt assembly
 
     # 2. Memory context: relevant knowledge nodes
     max_nodes = config.get("memory", {}).get("max_nodes_per_context", 10)
@@ -523,9 +612,13 @@ def assemble_prompt(
     sliders = get_sliders(db, config_defaults=personality_config)
     strictness = sliders.get("epistemic_strictness", 5)
 
-    # Extract keywords from user message for node search
+    # Extract keywords from user message. Used both for owner knowledge-
+    # node search (owner-only, below) AND for session-scoped anti-amnesia
+    # episode recall (all bands, further down) — so compute it
+    # unconditionally, but only search the owner's knowledge graph in
+    # owner context.
     keywords = _extract_keywords(user_message)
-    if keywords:
+    if owner_ctx and keywords:
         relevant_nodes = search_nodes(db, keywords, limit=max_nodes)
 
         # Filter nodes by epistemic strictness
@@ -555,25 +648,26 @@ def assemble_prompt(
                 "content": "\n".join(node_lines),
             })
 
-    # 2.5. Relationship moments — shared emotional experiences
-    moments = get_nodes_by_type(db, "relationship_moment", limit=10)
-    if moments:
-        moment_lines = ["## Shared Experiences:"]
-        for m in moments:
-            meta = m.get("metadata", "{}")
-            if isinstance(meta, str):
-                try:
-                    meta = json.loads(meta)
-                except (json.JSONDecodeError, TypeError):
-                    meta = {}
-            summary = meta.get("summary", m.get("name", "")) if isinstance(meta, dict) else str(meta)
-            if summary:
-                moment_lines.append(f"- {summary}")
-        if len(moment_lines) > 1:
-            messages.append({
-                "role": "system",
-                "content": "\n".join(moment_lines),
-            })
+    # 2.5. Relationship moments — shared emotional experiences (owner-only)
+    if owner_ctx:
+        moments = get_nodes_by_type(db, "relationship_moment", limit=10)
+        if moments:
+            moment_lines = ["## Shared Experiences:"]
+            for m in moments:
+                meta = m.get("metadata", "{}")
+                if isinstance(meta, str):
+                    try:
+                        meta = json.loads(meta)
+                    except (json.JSONDecodeError, TypeError):
+                        meta = {}
+                summary = meta.get("summary", m.get("name", "")) if isinstance(meta, dict) else str(meta)
+                if summary:
+                    moment_lines.append(f"- {summary}")
+            if len(moment_lines) > 1:
+                messages.append({
+                    "role": "system",
+                    "content": "\n".join(moment_lines),
+                })
 
     # 3. Conversation history: recent episodes from this session
     # context_window slider: 0 → 5 episodes, 10 → 55 episodes
