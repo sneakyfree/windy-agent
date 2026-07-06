@@ -61,6 +61,17 @@ def _start_decay_scheduler(
                 logger.info("Skill curation complete: %s", cstats)
             except Exception as e:
                 logger.error("Skill curation failed: %s", e)
+            # Retention: prune high-churn bookkeeping tables (soul_history
+            # heartbeat dupes + stale events) and VACUUM if it freed real
+            # space. Runs BEFORE the backup so the uploaded DB is already
+            # compacted — this is the fix for the 122 MB / 363k-row bloat
+            # that broke cloud backup on Windy 0.
+            try:
+                from windyfly.memory.retention import run_retention
+                rstats = run_retention(decay_db, config)
+                logger.info("Retention complete: %s", rstats)
+            except Exception as e:
+                logger.error("Retention failed: %s", e)
             # Cloud backup check
             try:
                 from windyfly.cloud_backup import run_backup_if_due
