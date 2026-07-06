@@ -267,9 +267,22 @@ class WindyFlyMatrixBot(ChannelAdapter):
         if event.sender == self.bot_user_id:
             return
 
-        # Ignore messages older than 30 seconds (prevent backlog processing)
+        # Skip stale messages so a reconnect doesn't replay a backlog.
+        #
+        # The window is 120s, not 30s: nio serializes sync callbacks, and a
+        # single turn that hits a web tool can run ~45-60s on the worker
+        # thread. During that time nio holds the NEXT message (e.g. a
+        # grandma's "oh wait, I meant air fryers!" correction fired 3s
+        # after her first request) until the current callback returns — by
+        # which point that follow-up is already ~45s old. At 30s it was
+        # silently dropped (this early return is *above* the "Message from"
+        # log, so it never even showed up), and the grandma got a confident
+        # answer to the request she'd just corrected. 120s comfortably
+        # covers the slowest single turn while still filtering a real
+        # reconnect backlog (messages minutes old). Rapid double-texting —
+        # extremely common for normies — no longer loses the second message.
         event_age = time.time() - (event.server_timestamp / 1000)
-        if event_age > 30:
+        if event_age > 120:
             return
 
         room_id = room.room_id
