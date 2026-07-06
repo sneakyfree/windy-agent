@@ -55,11 +55,38 @@ logger = logging.getLogger(__name__)
 _session_tokens: dict[str, int] = {}
 
 
-def _bump_session_tokens(session_id: str, count: int) -> int:
-    """Add `count` to the session's running total and return the new total."""
-    new_total = _session_tokens.get(session_id, 0) + count
-    _session_tokens[session_id] = new_total
-    return new_total
+def _record_session_footprint(session_id: str, footprint: int) -> int:
+    """Record this turn's context footprint and return the session's fill.
+
+    ``footprint`` is the CURRENT request's ``input_tokens + output_tokens``.
+    The provider's ``input_tokens`` (prompt_tokens) already counts the
+    ENTIRE prompt for this turn — system prompt + every tool definition +
+    the full conversation history + injected memory + the new message. It
+    is inherently cumulative; the window fill at turn N *is* turn N's
+    input_tokens.
+
+    So we keep the running MAX, not a running sum. Summing input_tokens
+    across turns N-counted the history (turn 1's tokens live inside turn
+    2's input_tokens, which live inside turn 3's, …), draining the gas
+    tank ~Nx too fast: a handful of short grandma turns pushed a barely-
+    used 200K window to 🔴. That false 🔴 is dangerous, not cosmetic —
+    the LLM sees it in the prior turn's header (part of history) and
+    emulates "I'm out of context," returning terse "I'm not responding"
+    replies on a healthy session (the exact stress_v7_endurance failure
+    the per-session fix targeted, still reachable within one session).
+
+    MAX (not last) because history only grows within a session, so the
+    footprint is monotonic in practice; MAX guards against a transient
+    provider undercount making the tank appear to refill mid-chat.
+    """
+    new_fill = max(_session_tokens.get(session_id, 0), footprint)
+    _session_tokens[session_id] = new_fill
+    return new_fill
+
+
+# Back-compat alias — some call sites/tests import the old name. Its
+# contract is now "record footprint (max)", NOT "add to a sum".
+_bump_session_tokens = _record_session_footprint
 
 # Default tool re-loop rounds (overridden by slider).
 #
@@ -1633,7 +1660,12 @@ def agent_respond(
     # accurately when the user has /memory pinned at 1M. Pre-fix
     # this used a hardcoded 200K default in ContextTracker, so a
     # session at 30K tokens on a 1M-pinned channel showed 🔴 0%.
-    session_total = _bump_session_tokens(
+    # The gas tank shows the CURRENT context fill, not a lifetime sum.
+    # input_tokens already includes all prior history for this turn, so
+    # the footprint is input+output; _record_session_footprint keeps the
+    # per-session max. (See the function's docstring for why summing was
+    # a grandma-killer.)
+    session_total = _record_session_footprint(
         session_id, input_tokens + output_tokens,
     )
     response_text = maybe_prepend_header(
