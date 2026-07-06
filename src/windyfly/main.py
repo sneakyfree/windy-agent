@@ -378,6 +378,16 @@ def main() -> None:
             )
         )
 
+        # Inject the live DB into the command registry. init_all_commands
+        # ran early in main() with config only (no db yet), so without this
+        # every command gated on the module-level `_db` — /budget, /tokens,
+        # /sliders, /facts, /history, /intents … — returns "Database not
+        # available" on the matrix channel. The telegram + generic-channel
+        # branches already wire this; matrix was the one that didn't
+        # (surfaced 2026-07-06 by a live Windy Chat command sweep).
+        from windyfly.commands.core import wire_runtime
+        wire_runtime(db=db)
+
         from windyfly.channels.matrix_bot import MatrixCredentialsError
 
         bot = WindyFlyMatrixBot(config, db, write_queue, tool_registry)
