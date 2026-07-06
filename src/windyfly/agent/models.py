@@ -602,6 +602,41 @@ def mind_broker_status() -> dict[str, Any]:
     }
 
 
+def _reload_oauth_token() -> bool:
+    """Re-sync ANTHROPIC_API_KEY from Claude Code's auto-refreshed
+    credentials. Returns True if the in-process token changed.
+
+    A long-running channel reads the OAuth token from os.environ set once at
+    process start. Claude Code rotates the token in
+    ~/.claude/.credentials.json (the 15-min sync timer updates the env FILE,
+    not this live process), so a mid-run rotation leaves the agent 401ing on
+    every message until someone restarts it — a grandma's agent going dark.
+    Reloading on an auth failure lets it self-heal. Never raises; a machine
+    without those credentials (non-Grant install) just gets False.
+    """
+    try:
+        import json
+        from pathlib import Path
+
+        creds = Path.home() / ".claude" / ".credentials.json"
+        if not creds.exists():
+            return False
+        fresh = (
+            (json.loads(creds.read_text()).get("claudeAiOauth") or {})
+            .get("accessToken", "")
+        )
+        if fresh and fresh != os.environ.get("ANTHROPIC_API_KEY", ""):
+            os.environ["ANTHROPIC_API_KEY"] = fresh
+            logger.info(
+                "Reloaded rotated OAuth token from credentials (…%s)",
+                fresh[-8:],
+            )
+            return True
+    except Exception as e:
+        logger.debug("OAuth token reload skipped: %s", e)
+    return False
+
+
 def call_llm(
     messages: list[dict[str, str]],
     *,
@@ -649,6 +684,7 @@ def call_llm(
     last_error: Exception | None = None
     attempted: list[str] = []
     skipped: list[str] = []
+    _oauth_reloaded = False  # one-shot mid-run token reload per call
 
     for chain_model in chain:
         provider = get_provider_for_model(chain_model, config)
@@ -696,7 +732,36 @@ def call_llm(
                 "Provider %s (%s) failed: %s",
                 provider_key, chain_model, e,
             )
-            _record_provider_failure(provider_key, error_str=str(e))
+            # Self-heal a mid-run OAuth rotation: a stale-token 401 on the
+            # Anthropic path is fixable by reloading the token Claude Code
+            # just rotated. Reload + retry this same provider ONCE before
+            # cooling it down and failing forward to the lifeboat.
+            from windyfly.agent.resurrect import is_permanent_auth_error
+            if (
+                provider_type == "anthropic"
+                and not _oauth_reloaded
+                and is_permanent_auth_error(str(e))
+                and _reload_oauth_token()
+            ):
+                _oauth_reloaded = True
+                try:
+                    result = _call_anthropic(
+                        messages, chain_model, temperature, max_tokens, tools,
+                        os.environ.get("ANTHROPIC_API_KEY", ""),
+                        session_id=session_id, reasoning_depth=reasoning_depth,
+                    )
+                    _record_provider_success(provider_key)
+                    logger.info(
+                        "Recovered after OAuth token reload (%s)", provider_key,
+                    )
+                    return result
+                except Exception as e2:
+                    last_error = e2
+                    logger.warning(
+                        "Provider %s retry after token reload also failed: %s",
+                        provider_key, e2,
+                    )
+            _record_provider_failure(provider_key, error_str=str(last_error))
 
     summary = f"attempted={attempted}"
     if skipped:

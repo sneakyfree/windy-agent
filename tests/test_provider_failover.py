@@ -224,3 +224,49 @@ def test_exhausted_chain_raises_with_attempted_summary(monkeypatch):
          patch.object(models, "_call_anthropic", side_effect=fake_call):
         with pytest.raises(RuntimeError, match="attempted"):
             models.call_llm([{"role": "user", "content": "hi"}], config=config)
+
+
+def test_oauth_reload_and_retry_on_stale_token_401(monkeypatch):
+    """A mid-run OAuth rotation shows up as a 401 on the Anthropic path.
+    The chain must reload the token and retry the SAME provider once,
+    recovering without falling to the lifeboat (grandma self-heal, 2026-07-06)."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "stale-token")
+    config = {"agent": {"failover_chain": ["claude-opus-4-8"]}}
+    calls: list[str] = []
+
+    def fake_anthropic(messages, model, temperature, max_tokens, tools,
+                       api_key="", **kwargs):
+        calls.append(api_key)
+        if api_key == "stale-token":
+            raise RuntimeError("401 invalid x-api-key")
+        return {"content": "ok", "tool_calls": None}
+
+    def fake_reload():
+        os.environ["ANTHROPIC_API_KEY"] = "fresh-token"
+        return True
+
+    with patch.object(models, "_call_anthropic", fake_anthropic), \
+         patch.object(models, "_reload_oauth_token", fake_reload), \
+         patch.object(models, "_try_mind_broker", return_value=None):
+        out = models.call_llm([{"role": "user", "content": "hi"}], config=config)
+
+    assert out["content"] == "ok"
+    assert calls == ["stale-token", "fresh-token"]  # retried with the new key
+
+
+def test_no_reload_retry_on_non_auth_error(monkeypatch):
+    """A 500 is not an auth problem — don't reload/retry, just fail forward."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "tok")
+    config = {"agent": {"failover_chain": ["claude-opus-4-8"]}}
+    reloaded = []
+
+    def fake_anthropic(messages, model, *a, **k):
+        raise RuntimeError("500 internal error")
+
+    with patch.object(models, "_call_anthropic", fake_anthropic), \
+         patch.object(models, "_reload_oauth_token",
+                      lambda: reloaded.append(1) or True), \
+         patch.object(models, "_try_mind_broker", return_value=None):
+        with pytest.raises(RuntimeError):
+            models.call_llm([{"role": "user", "content": "hi"}], config=config)
+    assert reloaded == []  # never attempted a token reload for a 500
