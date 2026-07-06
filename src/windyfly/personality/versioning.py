@@ -41,6 +41,26 @@ def snapshot_personality(
     soul_rows = get_all_soul(db, user_id=user_id)
 
     for row in soul_rows:
+        # Dedup: only record a row when this soul value actually differs
+        # from the most-recent recorded value. Pre-2026-07-06 this wrote
+        # 20 identical rows (old==new==current) on EVERY periodic run, so
+        # a stable personality still grew soul_history by 20 rows/run —
+        # and a restart-looping service ran the periodic check on every
+        # boot, ballooning Windy 0's DB to 363k rows / 122 MB. A snapshot
+        # of an UNCHANGED personality carries no information; skip it.
+        # soul_history thus becomes a true change-log (one row per real
+        # change), which is what rollback + drift detection already want
+        # (both read the most-recent row per soul_id).
+        last = db.fetchone(
+            """
+            SELECT new_value FROM soul_history
+            WHERE soul_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1
+            """,
+            (row["id"],),
+        )
+        if last is not None and last["new_value"] == row["value"]:
+            continue  # unchanged since last record — no-op snapshot
+
         entry_id = str(uuid.uuid4())
         db.execute(
             """
