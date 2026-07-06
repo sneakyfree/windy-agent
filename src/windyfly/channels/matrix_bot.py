@@ -161,8 +161,41 @@ class WindyFlyMatrixBot(ChannelAdapter):
                 "MATRIX_BOT_PASSWORD in your .env file."
             )
 
+        # The access token is the source of truth for WHO we are — not the
+        # config `matrix.bot_user`, which drifts. Windy 0 shipped with a
+        # MATRIX_BOT_TOKEN for @agent_<passport> but config still said
+        # @windyfly:chat.windyword.ai; the mismatch meant _on_invite
+        # (state_key == bot_user_id) ignored every invite addressed to the
+        # real identity, so the agent silently never joined a grandma's room
+        # and never replied on Windy Chat (2026-07-06). Resolve the true
+        # user id from the token and realign self-identity to it.
+        await self._resolve_identity_from_token()
+
         # Upload E2E encryption keys (G14)
         await self._setup_encryption()
+
+    async def _resolve_identity_from_token(self) -> None:
+        """Correct self.bot_user_id to the access token's real owner.
+
+        No-op if whoami is unavailable or already agrees. Never raises —
+        an identity we can't verify is better left as configured than a
+        crashed channel.
+        """
+        try:
+            resp = await self.client.whoami()
+            real_id = getattr(resp, "user_id", None)
+            if real_id and real_id != self.bot_user_id:
+                logger.warning(
+                    "Matrix identity mismatch: token is %s but config said "
+                    "%s — using the token's identity (invite-accept and "
+                    "self-filtering depend on it).",
+                    real_id, self.bot_user_id,
+                )
+                self.bot_user_id = real_id
+                self.client.user_id = real_id
+                self.client.user = real_id
+        except Exception as exc:
+            logger.debug("whoami identity resolution skipped: %s", exc)
 
     async def _relogin_with_password(self) -> bool:
         """Attempt to re-login with password when the access token expires.
