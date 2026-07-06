@@ -46,6 +46,70 @@ def is_routed_through_search() -> bool:
     )
 
 
+# ── Budget-notice wiring (2026-07-06) ────────────────────────────────
+#
+# windy-search meters every paid capability against a per-passport
+# monthly USD budget (B.9). The service emits two signals this client
+# relays into tool results so the *agent* can tell its user in its own
+# voice — the fly is the messenger, the server stays the meter:
+#
+#   1. `budget_warning: true` in a success body — edge-triggered
+#      server-side on exactly the request that crosses 80% of the cap,
+#      so relaying it can never nag.
+#   2. HTTP 429 with an `X-Cost-Cap-USD` header — budget exhausted
+#      (distinct from the per-minute rate-limit 429, which carries
+#      X-RateLimit-* headers instead).
+
+_WARNING_NOTICE = (
+    "HEADS-UP FOR YOUR USER (relay once, gently, woven into your reply "
+    "in your own words): this agent has used 80% of its included "
+    "monthly web-access allowance. Web access still works — nothing is "
+    "broken. The allowance resets on the 1st. If they want unlimited "
+    "web access, they can power this agent with a model that has "
+    "built-in web search (such as Claude or ChatGPT models), or raise "
+    "the allowance in their Windy account."
+)
+
+_EXHAUSTED_NOTICE = (
+    "BUDGET_EXHAUSTED — do not retry this tool. Tell your user, in a "
+    "friendly way: this month's included web-access allowance is used "
+    "up (it resets on the 1st). You can still help from what you "
+    "already know. To keep searching the web this month, they can "
+    "power you with a model that has built-in web search (such as "
+    "Claude or ChatGPT models), or raise the allowance in their Windy "
+    "account."
+)
+
+
+def _is_budget_exhausted(e: httpx.HTTPStatusError) -> bool:
+    """True iff this 429 is the monthly-budget gate, not the rate limit."""
+    return (
+        e.response.status_code == 429
+        and "X-Cost-Cap-USD" in e.response.headers
+    )
+
+
+def _budget_exhausted_fields(e: httpx.HTTPStatusError) -> dict[str, Any]:
+    """Friendly, actionable fields for a budget-429 tool result."""
+    return {
+        "budget_exhausted": True,
+        "budget_cap_usd": e.response.headers.get("X-Cost-Cap-USD"),
+        "notice_to_user": _EXHAUSTED_NOTICE,
+    }
+
+
+def _budget_warning_fields(payload: dict[str, Any]) -> dict[str, Any]:
+    """Thread the once-only 80% warning (plus context to phrase it)."""
+    if not payload.get("budget_warning"):
+        return {}
+    return {
+        "budget_warning": True,
+        "budget_used_usd": payload.get("budget_used_usd"),
+        "budget_cap_usd": payload.get("budget_cap_usd"),
+        "notice_to_user": _WARNING_NOTICE,
+    }
+
+
 def _base_url() -> str:
     return os.environ["WINDY_SEARCH_BASE_URL"].rstrip("/")
 
@@ -74,8 +138,11 @@ def search_via_windy_search(query: str, limit: int = 5) -> dict[str, Any]:
             "windy-search /web/search returned %d: %s",
             e.response.status_code, e.response.text[:200],
         )
-        return {"query": query, "results": [], "provider": "windy-search-error",
-                "error": f"HTTP {e.response.status_code}"}
+        result = {"query": query, "results": [], "provider": "windy-search-error",
+                  "error": f"HTTP {e.response.status_code}"}
+        if _is_budget_exhausted(e):
+            result.update(_budget_exhausted_fields(e))
+        return result
     except httpx.HTTPError as e:
         logger.warning("windy-search /web/search network error: %s", e)
         return {"query": query, "results": [], "provider": "windy-search-error",
@@ -86,6 +153,7 @@ def search_via_windy_search(query: str, limit: int = 5) -> dict[str, Any]:
         "results": payload.get("results", []),
         "provider": f"windy-search:{payload.get('backend', 'unknown')}",
         "cache_hit": payload.get("cache_hit", False),
+        **_budget_warning_fields(payload),
     }
 
 
@@ -121,8 +189,11 @@ def fetch_via_windy_search(
             "windy-search /web/fetch returned %d: %s",
             e.response.status_code, e.response.text[:200],
         )
-        return {"url": url, "content": "",
-                "error": f"HTTP {e.response.status_code}"}
+        result: dict[str, Any] = {"url": url, "content": "",
+                                  "error": f"HTTP {e.response.status_code}"}
+        if _is_budget_exhausted(e):
+            result.update(_budget_exhausted_fields(e))
+        return result
     except httpx.HTTPError as e:
         logger.warning("windy-search /web/fetch network error: %s", e)
         return {"url": url, "content": "", "error": str(e)}
@@ -143,4 +214,5 @@ def fetch_via_windy_search(
         "rendered_via": payload.get("rendered_via"),  # None | "browserbase"
         "provider": "windy-search",
         "cache_hit": payload.get("cache_hit", False),
+        **_budget_warning_fields(payload),
     }

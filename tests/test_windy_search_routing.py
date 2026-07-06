@@ -235,3 +235,132 @@ class TestWindySearchClient:
             # explicit render="on" is forwarded
             fetch_via_windy_search("https://spa.test/", render="on")
             assert post.call_args.kwargs["json"]["render"] == "on"
+
+
+class TestBudgetNotices:
+    """Budget-notice wiring (2026-07-06): windy-search's per-passport
+    budget signals reach the agent's tool results so the fly can tell
+    its user in its own voice. Server stays the meter (edge-triggered
+    80% warning + 429 cap); the fly is only the messenger."""
+
+    def _env(self, monkeypatch):
+        monkeypatch.setenv("WINDY_SEARCH_BASE_URL", "https://api.windysearch.com")
+        monkeypatch.setenv("WINDY_PASSPORT_EPT", "ey...test...")
+
+    def _budget_429(self):
+        """A windy-search budget-exhausted 429 (X-Cost-* headers present)."""
+        import httpx
+        resp = MagicMock()
+        resp.status_code = 429
+        resp.headers = {"X-Cost-Cap-USD": "5.00", "Retry-After": "86400"}
+        resp.text = "Monthly budget exhausted"
+        err = httpx.HTTPStatusError("429", request=MagicMock(), response=resp)
+        mock = MagicMock()
+        mock.raise_for_status.side_effect = err
+        return mock
+
+    def _rate_limit_429(self):
+        """A windy-search rate-limit 429 (X-RateLimit-*, no X-Cost-*)."""
+        import httpx
+        resp = MagicMock()
+        resp.status_code = 429
+        resp.headers = {"X-RateLimit-Limit": "50", "Retry-After": "60"}
+        resp.text = "Rate limit exceeded"
+        err = httpx.HTTPStatusError("429", request=MagicMock(), response=resp)
+        mock = MagicMock()
+        mock.raise_for_status.side_effect = err
+        return mock
+
+    def test_search_threads_warning_notice(self, monkeypatch):
+        self._env(monkeypatch)
+        from windyfly.tools.windy_search_client import search_via_windy_search
+
+        with patch("windyfly.tools.windy_search_client.httpx.post") as post:
+            mock_resp = MagicMock()
+            mock_resp.json.return_value = {
+                "query": "q", "results": [], "backend": "brave",
+                "budget_warning": True, "budget_used_usd": 4.0005,
+                "budget_cap_usd": 5.0,
+            }
+            mock_resp.raise_for_status = MagicMock()
+            post.return_value = mock_resp
+
+            result = search_via_windy_search("q")
+            assert result["budget_warning"] is True
+            assert "80%" in result["notice_to_user"]
+            assert result["budget_cap_usd"] == 5.0
+
+    def test_search_no_warning_means_no_notice(self, monkeypatch):
+        self._env(monkeypatch)
+        from windyfly.tools.windy_search_client import search_via_windy_search
+
+        with patch("windyfly.tools.windy_search_client.httpx.post") as post:
+            mock_resp = MagicMock()
+            mock_resp.json.return_value = {
+                "query": "q", "results": [], "backend": "brave",
+                "budget_warning": False, "budget_used_usd": 0.01,
+                "budget_cap_usd": 5.0,
+            }
+            mock_resp.raise_for_status = MagicMock()
+            post.return_value = mock_resp
+
+            result = search_via_windy_search("q")
+            assert "notice_to_user" not in result
+            assert "budget_warning" not in result
+
+    def test_fetch_threads_warning_notice(self, monkeypatch):
+        self._env(monkeypatch)
+        from windyfly.tools.windy_search_client import fetch_via_windy_search
+
+        with patch("windyfly.tools.windy_search_client.httpx.post") as post:
+            mock_resp = MagicMock()
+            mock_resp.json.return_value = {
+                "content": "body", "total_chars": 4, "truncated": False,
+                "budget_warning": True, "budget_used_usd": 4.05,
+                "budget_cap_usd": 5.0,
+            }
+            mock_resp.raise_for_status = MagicMock()
+            post.return_value = mock_resp
+
+            result = fetch_via_windy_search("https://x.test/")
+            assert result["budget_warning"] is True
+            assert "80%" in result["notice_to_user"]
+
+    def test_search_budget_429_returns_friendly_exhausted(self, monkeypatch):
+        self._env(monkeypatch)
+        from windyfly.tools.windy_search_client import search_via_windy_search
+
+        with patch("windyfly.tools.windy_search_client.httpx.post") as post:
+            post.return_value = self._budget_429()
+            result = search_via_windy_search("q")
+            assert result["budget_exhausted"] is True
+            assert "do not retry" in result["notice_to_user"]
+            assert "built-in web search" in result["notice_to_user"]
+            assert result["error"] == "HTTP 429"
+
+    def test_rate_limit_429_is_not_budget_exhausted(self, monkeypatch):
+        """The per-minute rate-limit 429 must NOT read as budget-exhausted —
+        it clears in 60s and carries no X-Cost-* headers."""
+        self._env(monkeypatch)
+        from windyfly.tools.windy_search_client import search_via_windy_search
+
+        with patch("windyfly.tools.windy_search_client.httpx.post") as post:
+            post.return_value = self._rate_limit_429()
+            result = search_via_windy_search("q")
+            assert "budget_exhausted" not in result
+            assert "notice_to_user" not in result
+            assert result["error"] == "HTTP 429"
+
+    def test_fetch_url_budget_429_skips_direct_rescue(self, monkeypatch):
+        """Budget-exhausted is intentional policy, not a windy-search
+        failure — the direct-httpx circuit breaker must NOT bypass it."""
+        self._env(monkeypatch)
+        from windyfly.tools.web_search import fetch_url
+
+        with patch("windyfly.tools.windy_search_client.httpx.post") as post, \
+             patch("windyfly.tools.web_search.httpx.get") as direct_get:
+            post.return_value = self._budget_429()
+            result = fetch_url("https://x.test/")
+            direct_get.assert_not_called()
+            assert result["budget_exhausted"] is True
+            assert "notice_to_user" in result
