@@ -42,6 +42,22 @@ _TIMEOUT = 60.0  # Backups can be large
 _RETENTION_COUNT = 5  # keep the 5 most recent backups (Cloud enforces)
 
 
+def _describe_error(exc: BaseException) -> str:
+    """Never-empty, typed description of an exception.
+
+    The scheduled backup was failing on Windy 0 with a blank reason —
+    "Scheduled backup failed: " with nothing after it — because several
+    exception types (a bare ``raise SomeError()``, some httpx/SSL errors,
+    a ``TrustDenied`` raised without a message) stringify to "". A blank
+    error is undiagnosable, which is exactly why the failure sat
+    unexplained. Always prefix with the exception class so the reason is
+    at minimum identifiable, even when the message is empty.
+    """
+    msg = str(exc).strip()
+    name = type(exc).__name__
+    return f"{name}: {msg}" if msg else name
+
+
 def _get_cloud_url(config: dict | None = None) -> str:
     """Get Windy Cloud URL from config or env."""
     if config:
@@ -116,7 +132,7 @@ async def backup_to_cloud(config: dict | None = None) -> dict:
     try:
         await require_trust("upload_file")
     except TrustDenied as denied:
-        return {"success": False, "error": str(denied)}
+        return {"success": False, "error": _describe_error(denied) + " (action=upload_file)"}
 
     cloud_url = _get_cloud_url(config)
     auth_header = await ecosystem_auth_header(fallback_token=_get_cloud_token())
@@ -203,7 +219,7 @@ async def backup_to_cloud(config: dict | None = None) -> dict:
     except httpx.HTTPStatusError as e:
         return {"success": False, "error": f"Upload failed: {e.response.status_code}"}
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": _describe_error(e)}
 
 
 async def restore_from_cloud(
@@ -290,7 +306,7 @@ async def restore_from_cloud(
             return {"success": False, "error": "No backups found"}
         return {"success": False, "error": f"Download failed: {e.response.status_code}"}
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": _describe_error(e)}
 
 
 async def list_backups(config: dict | None = None) -> dict:
@@ -324,7 +340,7 @@ async def list_backups(config: dict | None = None) -> dict:
             data = resp.json()
             return {"success": True, "backups": data.get("files", [])}
     except Exception as e:
-        return {"success": False, "backups": [], "error": str(e)}
+        return {"success": False, "backups": [], "error": _describe_error(e)}
 
 
 def _save_backup_state(state: dict) -> None:

@@ -189,3 +189,49 @@ class TestListAndRestoreRoundTrip:
 
         assert res["success"] is True
         assert db.read_bytes() == original  # exact round-trip through R2 + AES-GCM
+
+
+class TestErrorSurfacing:
+    """The scheduled backup on Windy 0 failed with a blank reason —
+    'Scheduled backup failed: ' with nothing after it — because some
+    exceptions stringify to ''. A backup that fails with no reason is
+    undiagnosable. Every failure must carry a non-empty, typed reason."""
+
+    def test_describe_error_never_empty(self):
+        # A bare exception with no message stringifies to "" — the exact
+        # trap that hid the real failure. Must still name the type.
+        class _Blank(Exception):
+            pass
+
+        assert cb._describe_error(_Blank()) == "_Blank"
+        assert cb._describe_error(ValueError("boom")) == "ValueError: boom"
+        # whitespace-only message collapses to just the type
+        assert cb._describe_error(RuntimeError("   ")) == "RuntimeError"
+
+    def test_backup_upload_returns_typed_error_on_blank_exception(self, monkeypatch, tmp_path):
+        # The realistic reproduction of the Windy 0 blank failure: the
+        # upload's generic `except Exception as e` caught something whose
+        # str() was "" → returned {"error": ""} → main.py logged
+        # "Scheduled backup failed: " (blank). Drive a message-less
+        # exception from the httpx call and assert the returned error is
+        # non-empty and names the type.
+        class _Silent(Exception):
+            pass  # str(_Silent()) == ""
+
+        db = tmp_path / "data" / "windyfly.db"
+        db.parent.mkdir(parents=True, exist_ok=True)
+        db.write_bytes(b"x" * 64)
+        monkeypatch.setenv("WINDY_JWT", "tok")  # auth-header fallback
+
+        import windyfly.trust.gate as gate
+        monkeypatch.setattr(gate, "require_trust", AsyncMock(), raising=False)
+
+        def _raise_client(*a, **k):
+            raise _Silent()  # inside the upload try → hits the generic except
+
+        monkeypatch.setattr("httpx.AsyncClient", _raise_client)
+
+        res = _run(cb.backup_to_cloud({"memory": {"db_path": str(db)}}))
+        assert res["success"] is False
+        assert res["error"], "error must never be empty (the Windy 0 bug)"
+        assert "_Silent" in res["error"]
