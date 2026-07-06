@@ -20,6 +20,18 @@ logger = logging.getLogger(__name__)
 
 _DECAY_INTERVAL_SECONDS = 24 * 60 * 60  # 24 hours
 
+# The launchable channels (`--channel <name>`). Module-level so it's the
+# single source of truth for the argparse choices AND importable by tests.
+# BYO-token chat channels (discord/slack/signal/irc/teams) all route
+# through the shared _run_bot_channel path; matrix/telegram have bespoke
+# runners; sms/cli are standalone. NOTE: WhatsApp is deliberately NOT here
+# — it's served by the Windy-run Matrix-bridge gateway (a separate repo),
+# not an in-agent adapter, per the locked ADR/gateway design.
+CHANNEL_CHOICES = [
+    "cli", "matrix", "sms", "telegram", "discord", "slack",
+    "signal", "irc", "teams",
+]
+
 
 def _start_decay_scheduler(
     config: dict,
@@ -231,7 +243,7 @@ def main() -> None:
     # Legacy --channel mode
     parser.add_argument(
         "--channel",
-        choices=["cli", "matrix", "sms", "telegram", "discord", "slack"],
+        choices=CHANNEL_CHOICES,
         default="cli",
         help="Channel to run (default: cli)",
     )
@@ -631,6 +643,65 @@ def main() -> None:
             config, db_path, "slack",
             lambda db, wq: SlackChannel(),
             preflight=_slack_preflight,
+        )
+    elif args.channel == "signal":
+        from windyfly.channels.signal_bot import SignalChannel
+
+        def _signal_preflight() -> None:
+            if not os.environ.get("SIGNAL_PHONE_NUMBER"):
+                logger.error(
+                    "SIGNAL_PHONE_NUMBER not set. Run a signal-cli-rest-api "
+                    "instance (bbernhard/signal-cli-rest-api), register/link "
+                    "a number, then set SIGNAL_PHONE_NUMBER (e.g. +15551234567) "
+                    "and SIGNAL_API_URL (default http://localhost:8080)."
+                )
+                sys.exit(1)
+
+        _run_bot_channel(
+            config, db_path, "signal",
+            lambda db, wq: SignalChannel(),
+            preflight=_signal_preflight,
+        )
+    elif args.channel == "irc":
+        from windyfly.channels.irc_bot import IRCChannel
+
+        # IRC needs no secret token — server/channel/nick all default.
+        # A tiny preflight just surfaces the effective target in the log.
+        def _irc_preflight() -> None:
+            logger.info(
+                "IRC: connecting to %s:%s as %s in %s (override via "
+                "IRC_SERVER/IRC_PORT/IRC_NICKNAME/IRC_CHANNEL).",
+                os.environ.get("IRC_SERVER", "irc.libera.chat"),
+                os.environ.get("IRC_PORT", "6667"),
+                os.environ.get("IRC_NICKNAME", "windyfly"),
+                os.environ.get("IRC_CHANNEL", "#windyfly"),
+            )
+
+        _run_bot_channel(
+            config, db_path, "irc",
+            lambda db, wq: IRCChannel(),
+            preflight=_irc_preflight,
+        )
+    elif args.channel == "teams":
+        from windyfly.channels.teams_bot import TeamsChannel
+
+        def _teams_preflight() -> None:
+            if not (
+                os.environ.get("TEAMS_APP_ID")
+                and os.environ.get("TEAMS_APP_PASSWORD")
+            ):
+                logger.error(
+                    "TEAMS_APP_ID and TEAMS_APP_PASSWORD not set. Register a "
+                    "bot at dev.teams.microsoft.com (Azure Bot), then point "
+                    "its messaging endpoint at this host's /api/messages "
+                    "(default port 3978; put it behind HTTPS)."
+                )
+                sys.exit(1)
+
+        _run_bot_channel(
+            config, db_path, "teams",
+            lambda db, wq: TeamsChannel(),
+            preflight=_teams_preflight,
         )
     elif args.channel == "sms":
         import asyncio
