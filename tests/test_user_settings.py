@@ -41,29 +41,29 @@ class TestModelsCatalog:
 
     def test_known_models_present(self):
         ids = [m.id for m in models_catalog.list_models()]
-        assert "claude-opus-4-7" in ids
+        assert "claude-opus-4-8" in ids
         assert "claude-sonnet-4-6" in ids
         assert "claude-haiku-4-5" in ids
 
     def test_resolve_canonical_id(self):
-        assert models_catalog.resolve("claude-opus-4-7").id == \
-            "claude-opus-4-7"
+        assert models_catalog.resolve("claude-opus-4-8").id == \
+            "claude-opus-4-8"
         assert models_catalog.resolve("claude-sonnet-4-6").id == \
             "claude-sonnet-4-6"
 
     def test_resolve_short_alias(self):
-        assert models_catalog.resolve("opus").id == "claude-opus-4-7"
+        assert models_catalog.resolve("opus").id == "claude-opus-4-8"
         assert models_catalog.resolve("sonnet").id == "claude-sonnet-4-6"
         assert models_catalog.resolve("haiku").id == "claude-haiku-4-5"
 
     def test_resolve_friendly_alias(self):
         """Grandma-friendly names — pick by intent, not technical id."""
-        assert models_catalog.resolve("smartest").id == "claude-opus-4-7"
+        assert models_catalog.resolve("smartest").id == "claude-opus-4-8"
         assert models_catalog.resolve("balanced").id == "claude-sonnet-4-6"
         assert models_catalog.resolve("fastest").id == "claude-haiku-4-5"
 
     def test_resolve_case_insensitive(self):
-        assert models_catalog.resolve("OPUS").id == "claude-opus-4-7"
+        assert models_catalog.resolve("OPUS").id == "claude-opus-4-8"
         assert models_catalog.resolve(" Sonnet ").id == "claude-sonnet-4-6"
 
     def test_resolve_dated_variant(self):
@@ -197,7 +197,7 @@ class TestCmdModel:
         reply = await cmd.handler({
             "platform": "telegram", "channel_id": "1", "_raw": "",
         })
-        assert "claude-opus-4-7" in reply
+        assert "claude-opus-4-8" in reply
         assert "claude-sonnet-4-6" in reply
         assert "claude-haiku-4-5" in reply
         assert "/model" in reply  # invites the user to switch
@@ -213,10 +213,10 @@ class TestCmdModel:
             "platform": "telegram", "channel_id": "1",
             "_raw": "opus",
         })
-        assert "claude-opus-4-7" in reply
+        assert "claude-opus-4-8" in reply
         assert "next message" in reply.lower()
         # Persisted
-        assert get_model("telegram", "1") == "claude-opus-4-7"
+        assert get_model("telegram", "1") == "claude-opus-4-8"
 
     @pytest.mark.asyncio
     async def test_cmd_model_switch_by_canonical_id(self, tmp_state_path):
@@ -493,8 +493,8 @@ class TestModelAliasShortcuts:
         reply = await cmd.handler({
             "platform": "telegram", "channel_id": "1",
         })
-        assert "claude-opus-4-7" in reply
-        assert get_model("telegram", "1") == "claude-opus-4-7"
+        assert "claude-opus-4-8" in reply
+        assert get_model("telegram", "1") == "claude-opus-4-8"
 
     @pytest.mark.asyncio
     async def test_sonnet_shortcut(self, tmp_state_path):

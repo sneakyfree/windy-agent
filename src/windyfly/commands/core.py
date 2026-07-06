@@ -169,6 +169,14 @@ def _register_all():
     _r("version", "Show version, Python, OS, architecture", "01_process", cmd_version, aliases=["ver", "v"])
 
     async def cmd_uptime(ctx):
+        # This process's own uptime (set by init_core) — the same source
+        # /pulse uses. The PID-file path only exists for `windy start`
+        # launches; under systemd there's no PID file, so /uptime used to
+        # claim "Agent is not running" while it was plainly answering you
+        # over chat (2026-07-06). Prefer the live process clock.
+        if _init_time:
+            up = int(time.time() - _init_time)
+            return f"Uptime: {up // 3600}h {(up % 3600) // 60}m"
         pid_file = Path("data/windyfly.pid")
         if pid_file.exists():
             try:
@@ -181,7 +189,7 @@ def _register_all():
                         return f"Uptime: {hours}h {mins}m"
             except Exception as e:
                 logger.debug("Uptime parse failed: %s", e)
-        return "Agent is not running (no PID file)."
+        return "Uptime: unknown (init time not recorded)."
     _r("uptime", "Show how long the agent has been running", "01_process", cmd_uptime)
 
     async def cmd_shutdown(ctx):
@@ -883,7 +891,7 @@ def _register_all():
     _r("debug", "Verbose diagnostic info for bug reports", "02_diagnostics", cmd_debug)
 
     async def cmd_logs(ctx):
-        log_file = Path("data/windyfly.log")
+        log_file = Path(os.environ.get("WINDYFLY_LOG_FILE", "data/windyfly.log"))
         n = 20
         if ctx.get("_args"):
             try:
@@ -938,7 +946,7 @@ def _register_all():
     _r("benchmark", "Speed test — time a simple prompt", "02_diagnostics", cmd_benchmark, aliases=["bench"])
 
     async def cmd_errors(ctx):
-        log_file = Path("data/windyfly.log")
+        log_file = Path(os.environ.get("WINDYFLY_LOG_FILE", "data/windyfly.log"))
         if log_file.exists():
             lines = log_file.read_text().strip().split("\n")
             errors = [line for line in lines if "ERROR" in line or "CRITICAL" in line]
@@ -1390,8 +1398,33 @@ def _register_all():
     _r("tokens", "Show token usage for current session", "04_model", cmd_tokens)
 
     async def cmd_context(ctx):
-        max_ctx = int(os.environ.get("MAX_CONTEXT_TOKENS", "8000"))
-        return f"Context window: {max_ctx} tokens max\n(Actual usage varies per conversation)"
+        # Report the ACTIVE model's real context window, not a hardcoded
+        # 8000 default that made an Opus agent (200K/1M native) look tiny
+        # (2026-07-06). Honor an explicit MAX_CONTEXT_TOKENS override if set.
+        override = os.environ.get("MAX_CONTEXT_TOKENS")
+        if override:
+            try:
+                return (
+                    f"Context window: {int(override):,} tokens max\n"
+                    "(Actual usage varies per conversation)"
+                )
+            except ValueError:
+                pass
+        try:
+            from windyfly.agent.models_catalog import resolve, format_cap
+            model = os.environ.get("DEFAULT_MODEL", "") or (
+                (_config or {}).get("agent", {}).get("default_model", "")
+            )
+            info = resolve(model)
+            if info:
+                return (
+                    f"Context window: {format_cap(info.native_cap)} "
+                    f"({model})\n(Actual usage varies per conversation)"
+                )
+        except Exception as e:
+            logger.debug("context cap resolve failed: %s", e)
+        return ("Context window: 8,000 tokens max\n"
+                "(Actual usage varies per conversation)")
     _r("context", "Show context window usage", "04_model", cmd_context, aliases=["ctx"])
 
     async def cmd_fast(ctx):
