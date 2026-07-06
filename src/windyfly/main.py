@@ -66,9 +66,17 @@ def _start_decay_scheduler(
                 from windyfly.cloud_backup import run_backup_if_due
                 result = asyncio.run(run_backup_if_due(config))
                 if result and not result.get("success"):
-                    logger.warning("Scheduled backup failed: %s", result.get("error"))
+                    # error is guaranteed non-empty by cloud_backup's
+                    # _describe_error; the `or` is a last-ditch guard so a
+                    # future caller can never reintroduce the blank line.
+                    logger.warning(
+                        "Scheduled backup failed: %s",
+                        result.get("error") or "unknown (no error detail)",
+                    )
             except Exception as e:
-                logger.debug("Backup check failed: %s", e)
+                # A raised (not returned) failure used to log at DEBUG —
+                # invisible in prod, another way this stayed unexplained.
+                logger.warning("Backup check raised: %s: %s", type(e).__name__, e)
             time.sleep(_DECAY_INTERVAL_SECONDS)
 
     t = threading.Thread(target=_decay_loop, daemon=True, name="decay-scheduler")
