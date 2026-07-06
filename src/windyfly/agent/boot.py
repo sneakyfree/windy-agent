@@ -300,6 +300,13 @@ def _step_register_github(ctx: BootContext) -> None:
     register_github_capabilities(ctx.capability_registry, ctx.config)
 
 
+def _step_register_windyword(ctx: BootContext) -> None:
+    from windyfly.agent.capabilities.windyword import (
+        register_windyword_capabilities,
+    )
+    register_windyword_capabilities(ctx.capability_registry, ctx.config)
+
+
 def _step_register_email(ctx: BootContext) -> None:
     from windyfly.agent.capabilities.email import (
         register_email_capabilities,
@@ -422,6 +429,11 @@ def default_capability_registration_sequence() -> list[Step]:
         Step(
             "capabilities.email",
             _step_register_email,
+            requires=("capabilities.audit",),
+        ),
+        Step(
+            "capabilities.windyword",
+            _step_register_windyword,
             requires=("capabilities.audit",),
         ),
         Step(
