@@ -449,7 +449,14 @@ async def _step_matrix(result: HatchResult, config: dict | None = None) -> None:
     try:
         from windyfly.matrix_provision import provision_matrix
 
-        mr = provision_matrix(config=config)
+        # Naming Ceremony consistency: the chat displayname honors the
+        # agent's GIVEN name ("Sunny 🪰"), not the hardcoded brand
+        # default. The localpart/identifier is unchanged. (The grandma
+        # web-hatch path provisions via windy-chat's agent-provision,
+        # which already does this; this aligns the CLI/orchestrator
+        # path.)
+        display = f"{result.agent_name} 🪰" if result.agent_name else "Windy Fly 🪰"
+        mr = provision_matrix(config=config, display_name=display)
         if mr.success:
             result.matrix_user_id = mr.user_id
             result.matrix_homeserver = mr.homeserver
