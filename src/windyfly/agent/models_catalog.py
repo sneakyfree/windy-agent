@@ -56,10 +56,13 @@ class ModelInfo:
 # reads naturally to a non-technical user.
 _MODELS: list[ModelInfo] = [
     ModelInfo(
-        id="claude-opus-4-7",
+        # Bumped 4-7 → 4-8 (the current default, e.g. Windy 0). Without a
+        # 4-8 entry /context and /memory fell back to an 8000-token default
+        # for the very model the agent runs (2026-07-06).
+        id="claude-opus-4-8",
         family="opus",
         native_cap=1_000_000,
-        aliases=("opus", "smartest", "claude-opus"),
+        aliases=("opus", "smartest", "claude-opus", "claude-opus-4-7"),
         description="Most capable, slower",
     ),
     ModelInfo(
