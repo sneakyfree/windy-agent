@@ -21,6 +21,7 @@ _get_encryption_key.
 
 from __future__ import annotations
 
+import gzip
 import hashlib
 import json
 import logging
@@ -38,8 +39,19 @@ logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = get_project_root()
 _BACKUP_STATE_FILE = PROJECT_ROOT / "data" / "backup_state.json"
-_TIMEOUT = 60.0  # Backups can be large
 _RETENTION_COUNT = 5  # keep the 5 most recent backups (Cloud enforces)
+
+# A backup is a BULK transfer, not an interactive call. The old flat
+# 60s httpx timeout applied to writes too, so on a normie's home/office
+# uplink (measured ~270 KB/s on Windy 0) a large DB upload hit
+# httpx.WriteTimeout at ~16 MB — and WriteTimeout stringifies to "",
+# which is how this failed silently for days (see 2026-07-06 audit +
+# _describe_error). Give the connect/pool phases a tight bound but let
+# the read/write phases run long enough for a multi-MB body over a slow
+# link. Compression (below) keeps the real payload ~4x smaller so this
+# ceiling is rarely approached, but the headroom matters for a first
+# backup on a big DB.
+_TIMEOUT = httpx.Timeout(connect=30.0, read=300.0, write=600.0, pool=30.0)
 
 
 def _describe_error(exc: BaseException) -> str:
@@ -91,6 +103,24 @@ def _get_encryption_key() -> bytes:
     agent_name = os.environ.get("WINDYFLY_AGENT_NAME", "Windy Fly")
     material = f"{passport}:{agent_name}".encode()
     return hashlib.pbkdf2_hmac("sha256", material, b"windy-backup-kdf-v2", 200_000)
+
+
+_GZIP_MAGIC = b"\x1f\x8b"
+
+
+def _maybe_decompress(data: bytes) -> bytes:
+    """Gunzip if the payload is gzip-framed, else return as-is.
+
+    Backups are gzipped before encryption (a 122 MB SQLite DB compressed
+    ~4.3x on Windy 0), so restore must decompress. Detect by gzip magic
+    bytes rather than a metadata flag: the retrieve endpoint returns only
+    the file bytes, and magic-byte detection restores BOTH new
+    (compressed) and pre-compression (raw SQLite, magic ``SQLite\x20``)
+    backups transparently — no metadata round-trip, backward compatible.
+    """
+    if data[:2] == _GZIP_MAGIC:
+        return gzip.decompress(data)
+    return data
 
 
 _GCM_NONCE_BYTES = 12
@@ -159,18 +189,26 @@ async def backup_to_cloud(config: dict | None = None) -> dict:
     finally:
         Path(tmp_path).unlink(missing_ok=True)
 
-    # Encrypt
+    # Compress THEN encrypt. SQLite compresses well (122 MB → 28 MB,
+    # ~4.3x, on Windy 0), and a smaller payload is the biggest lever
+    # against the slow-uplink WriteTimeout that was silently killing
+    # backups — plus it's less R2 to store/transfer. Order matters:
+    # encrypted bytes are incompressible, so gzip must come first.
+    # Restore reverses via _maybe_decompress (gzip-magic detection).
     key = _get_encryption_key()
-    encrypted = _encrypt_data(raw_data, key)
-    checksum = hashlib.sha256(raw_data).hexdigest()
+    compressed = gzip.compress(raw_data)
+    encrypted = _encrypt_data(compressed, key)
+    checksum = hashlib.sha256(raw_data).hexdigest()  # of the ORIGINAL db
 
     # Deterministic, sortable filename so list→retrieve round-trips.
     ts = datetime.now(timezone.utc)
     backup_name = f"windyfly-{ts.strftime('%Y%m%dT%H%M%SZ')}.enc"
     metadata = json.dumps({
         "encrypted": True,
+        "compressed": "gzip",
         "checksum_sha256": checksum,
         "size_bytes": len(raw_data),
+        "compressed_bytes": len(compressed),
         "agent_name": os.environ.get("WINDYFLY_AGENT_NAME", "Windy Fly"),
         "passport_id": os.environ.get("ETERNITAS_PASSPORT", ""),
         "timestamp": ts.isoformat(),
@@ -272,7 +310,7 @@ async def restore_from_cloud(
 
             key = _get_encryption_key()
             try:
-                decrypted = _decrypt_data(encrypted, key)
+                decrypted = _maybe_decompress(_decrypt_data(encrypted, key))
             except Exception:
                 return {
                     "success": False,
