@@ -78,8 +78,48 @@ class TestMatrixBotLogin:
         wq = WriteQueue()
         config = _make_config()
         bot = WindyFlyMatrixBot(config, db, wq)
+        bot._resolve_identity_from_token = AsyncMock()  # keep hermetic
         await bot.login()
         assert bot.client.access_token == "test-token-123"
+        db.close()
+
+    @pytest.mark.asyncio
+    @patch.dict("os.environ", {"MATRIX_BOT_TOKEN": "tok"})
+    async def test_identity_realigned_to_token_owner(self):
+        """The token is the source of truth for identity. If it belongs to a
+        different user than config's matrix.bot_user, the bot must adopt the
+        token's identity — otherwise _on_invite (state_key == bot_user_id)
+        ignores every invite to the real user and never joins (Windy 0 was
+        dark on Windy Chat for exactly this reason, 2026-07-06)."""
+        db = Database(":memory:")
+        wq = WriteQueue()
+        config = _make_config()  # bot_user = @windyfly:chat.windychat.ai
+        bot = WindyFlyMatrixBot(config, db, wq)
+        assert bot.bot_user_id == "@windyfly:chat.windychat.ai"
+
+        whoami = MagicMock()
+        whoami.user_id = "@agent_et26-t11v-npd1:chat.windychat.ai"
+        bot.client.whoami = AsyncMock(return_value=whoami)
+        bot._setup_encryption = AsyncMock()
+
+        await bot.login()
+
+        assert bot.bot_user_id == "@agent_et26-t11v-npd1:chat.windychat.ai"
+        assert bot.client.user_id == "@agent_et26-t11v-npd1:chat.windychat.ai"
+        db.close()
+
+    @pytest.mark.asyncio
+    @patch.dict("os.environ", {"MATRIX_BOT_TOKEN": "tok"})
+    async def test_identity_resolution_never_crashes_channel(self):
+        """whoami failing must not break login — an unverified identity is
+        better than a dead channel."""
+        db = Database(":memory:")
+        wq = WriteQueue()
+        bot = WindyFlyMatrixBot(_make_config(), db, wq)
+        bot.client.whoami = AsyncMock(side_effect=RuntimeError("network down"))
+        bot._setup_encryption = AsyncMock()
+        await bot.login()  # must not raise
+        assert bot.bot_user_id == "@windyfly:chat.windychat.ai"  # unchanged
         db.close()
 
     @pytest.mark.asyncio
