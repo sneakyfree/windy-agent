@@ -254,3 +254,32 @@ def test_welcome_wins_over_resurrection_on_virgin_db(mock_llm, _online, stack, m
         "impression must be deterministic"
     )
     assert mock_llm.call_count == 0
+
+
+# ── Naming Ceremony: welcome honors the given name ────────────────
+
+
+def test_welcome_introduces_agent_by_given_name():
+    """A helper the owner named "Sunny" must introduce itself as Sunny.
+
+    Pre-fix, the deterministic first-contact tour hardcoded "I'm Windy
+    Fly" and ignored config [agent] name entirely — a freshly-named
+    agent's very first greeting contradicted its naming ceremony."""
+    text = format_welcome({"agent": {"name": "Sunny"}})
+    assert "I'm Sunny —" in text
+    assert "Windy Fly" not in text
+    # The orientation body is unchanged — same recovery vocabulary.
+    assert "/reset" in text and "/resurrect" in text and "/spend" in text
+
+
+def test_welcome_unnamed_config_renders_legacy_text():
+    """No name / brand-default name → the exact historical text."""
+    assert format_welcome({}) == WELCOME_TEXT
+    assert format_welcome({"agent": {"name": ""}}) == WELCOME_TEXT
+    assert format_welcome({"agent": {"name": "Windy Fly"}}) == WELCOME_TEXT
+    assert format_welcome(None) == WELCOME_TEXT
+
+
+def test_welcome_named_still_under_telegram_cap():
+    """Even a max-length name keeps the message under 4096."""
+    assert len(format_welcome({"agent": {"name": "N" * 100}})) <= 4096

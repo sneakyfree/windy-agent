@@ -63,7 +63,10 @@ def is_first_contact(db: "Database") -> bool:
 
 
 # The exact welcome text. Hardcoded for predictability — every
-# grandma gets the same orientation.
+# grandma gets the same orientation. Only the agent's NAME is
+# interpolated (the Naming Ceremony's whole point is that her helper
+# introduces itself by the name she gave it — a bot she just named
+# "Sunny" greeting her as "Windy Fly" reads like it forgot already).
 #
 # Constraints:
 #   - Under 4096 chars (Telegram single-message cap)
@@ -72,8 +75,7 @@ def is_first_contact(db: "Database") -> bool:
 #   - Mention tap-/ for the menu (PR #139 surface)
 #   - Mention voice notes (PR #129 surface) so non-typists know
 #   - Sound like a person, not a manual
-WELCOME_TEXT = (
-    "🪰 *Hi! I'm Windy Fly — your personal AI companion.*\n\n"
+_WELCOME_BODY = (
     "I just hatched. Five things to know:\n\n"
     "🆘 If I stop responding — type /resurrect or /reset.\n"
     "💬 Tap / for a menu of things I can do.\n"
@@ -83,9 +85,25 @@ WELCOME_TEXT = (
     "What's on your mind?"
 )
 
+# Legacy constant — the unnamed/brand-name rendering. Kept because
+# callers and tests reference it as the canonical shape.
+WELCOME_TEXT = f"🪰 *Hi! I'm Windy Fly — your personal AI companion.*\n\n{_WELCOME_BODY}"
 
-def format_welcome() -> str:
-    """Return the welcome text. Function form (not constant) so
-    future per-language / per-band variants can be added without
-    breaking callers."""
-    return WELCOME_TEXT
+
+def format_welcome(config: dict | None = None) -> str:
+    """Return the welcome text, introducing the agent by its given name.
+
+    The name comes from config ``[agent] name`` — set at the Naming
+    Ceremony (quickstart Stage 2 / the web hatch). Falls back to the
+    brand name for unnamed/legacy configs, which renders the exact
+    historical WELCOME_TEXT. Function form (not constant) so future
+    per-language / per-band variants can be added without breaking
+    callers."""
+    name = ""
+    if config:
+        name = str((config.get("agent", {}) or {}).get("name", "") or "").strip()
+    if not name or name == "Windy Fly":
+        return WELCOME_TEXT
+    return (
+        f"🪰 *Hi! I'm {name} — your personal AI companion.*\n\n{_WELCOME_BODY}"
+    )

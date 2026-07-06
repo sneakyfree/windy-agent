@@ -634,7 +634,7 @@ def agent_respond(
         is_first_contact as _is_first_contact,
     )
     if _is_first_contact(db):
-        welcome = _format_welcome()
+        welcome = _format_welcome(config)
         write_queue.enqueue(Priority.HIGH, save_episode, db, "user",
                             user_message, session_id=session_id)
         write_queue.enqueue(Priority.HIGH, save_episode, db, "assistant",
