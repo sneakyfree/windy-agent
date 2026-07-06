@@ -191,8 +191,22 @@ async def get_bot_key(
 
     try:
         return await mint_bot_key(jwt, passport)
+    except RuntimeError as exc:
+        # Deterministic "can't mint here" states, raised BEFORE any
+        # network call: no account-server URL configured, or the only
+        # credential we hold is a passport token (EPT) rather than an
+        # owner JWT. This is the NORMAL steady state for a hatched agent
+        # that authenticates with its Eternitas passport — bot-key
+        # minting is a hatch-time step, and the caller falls back to the
+        # EPT, which every platform accepts. Not an error; DEBUG so it
+        # doesn't cry WARNING on every ecosystem call (was noise on every
+        # Windy 0 backup — see 2026-07-06 backup investigation).
+        logger.debug("Bot key not minted (%s); using passport-token fallback", exc)
+        return cached
     except Exception as exc:
-        logger.warning("Bot key mint failed: %s", exc)
+        # An actual mint was attempted (URL + owner JWT present) and
+        # failed — network/HTTP/parse error. That IS worth a warning.
+        logger.warning("Bot key mint failed unexpectedly: %s", exc)
         return cached
 
 
