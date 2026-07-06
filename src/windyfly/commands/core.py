@@ -1619,10 +1619,27 @@ def _register_all():
     _r("forget", "Remove specific knowledge", "06_memory", cmd_forget, dangerous=True)
 
     async def cmd_remember(ctx):
-        fact = ctx.get("_raw", "")
+        fact = (ctx.get("_raw", "") or "").strip()
         if not fact:
             return "Usage: /remember <fact> (e.g. /remember I'm allergic to shellfish)"
-        return f"REMEMBER:{fact}"
+        if not _db:
+            return "Database not available."
+        # Actually persist the fact. Before this, cmd_remember returned a
+        # bare "REMEMBER:<fact>" sentinel that NO layer ever intercepted —
+        # so the fact was echoed back to the user and never saved, on every
+        # channel (surfaced 2026-07-06 over Windy Chat: /remember then /facts
+        # showed nothing). Store it as an asserted user fact so /facts lists
+        # it and recall can find it.
+        try:
+            from windyfly.memory.nodes import upsert_node
+            upsert_node(
+                _db, type="fact", name=fact,
+                epistemic_status="asserted", source="user_explicit",
+                confidence=1.0,
+            )
+            return f"✓ Got it — I'll remember that: {fact}"
+        except Exception as e:
+            return f"Couldn't save that: {e}"
     _r("remember", "Manually add a fact to memory", "06_memory", cmd_remember, usage="remember <fact>")
 
     async def cmd_conflicts(ctx):
