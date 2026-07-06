@@ -175,3 +175,48 @@ class TestEcosystemAuthHeader:
     async def test_returns_empty_dict_with_no_auth(self):
         headers = await ecosystem_auth_header()
         assert headers == {}
+
+
+class TestMintLogHygiene:
+    """Log level for mint outcomes (2026-07-06 backup investigation).
+
+    An EPT-only agent (holds a passport token, not an owner JWT, and/or
+    no WINDY_PRO_URL) CANNOT mint a wk_ bot key — that's the normal
+    steady state, and it falls back to the EPT which every platform
+    accepts. It must NOT cry WARNING on every ecosystem call (it did:
+    'Bot key mint failed: WINDY_PRO_URL not configured' 2-4x per Windy 0
+    backup). Deterministic can't-mint states log at DEBUG; a real mint
+    attempt that fails over the wire still logs WARNING."""
+
+    import logging
+
+    async def test_not_configured_is_debug_not_warning(self, monkeypatch, caplog):
+        monkeypatch.delenv("WINDY_PRO_URL", raising=False)
+        monkeypatch.delenv("WINDY_API_URL", raising=False)
+        monkeypatch.setenv("WINDY_JWT", "ept-passport-token")
+        monkeypatch.setenv("ETERNITAS_PASSPORT", "ET26-T11V-NPD1")
+        clear_cached_bot_key()
+        with caplog.at_level(self.logging.DEBUG, logger="windyfly.auth.bot_credentials"):
+            cred = await get_bot_key()
+        assert cred is None  # nothing to mint, no cache
+        warnings = [r for r in caplog.records if r.levelno >= self.logging.WARNING]
+        assert not warnings, f"expected no WARNING, got {[r.message for r in warnings]}"
+        assert any("passport-token fallback" in r.message for r in caplog.records)
+
+    @respx.mock
+    async def test_real_mint_http_failure_is_warning(self, monkeypatch, caplog):
+        # URL + owner JWT present, no cache → a genuine mint attempt that
+        # 500s IS worth a WARNING.
+        monkeypatch.setenv("WINDY_JWT", "owner_jwt")
+        monkeypatch.setenv("ETERNITAS_PASSPORT", "ET26-T11V-NPD1")
+        clear_cached_bot_key()
+        respx.post(f"{PRO_BASE}/api/v1/identity/bot-keys/mint").mock(
+            return_value=httpx.Response(500, text="boom")
+        )
+        with caplog.at_level(self.logging.DEBUG, logger="windyfly.auth.bot_credentials"):
+            cred = await get_bot_key()
+        assert cred is None
+        assert any(
+            r.levelno >= self.logging.WARNING and "unexpectedly" in r.message
+            for r in caplog.records
+        )
