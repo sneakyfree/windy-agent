@@ -53,7 +53,8 @@ class TestKeylessConfig:
 class TestKeylessFlow:
     def test_go_keyless_writes_config_hatches_launches(self, project):
         calls = []
-        with patch.object(qs, "_try_hatch_provisioning",
+        with patch.object(qs, "can_run", lambda _t: True), \
+             patch.object(qs, "_try_hatch_provisioning",
                           side_effect=lambda *a, **k: calls.append("hatch")), \
              patch.object(qs, "_install_deps",
                           side_effect=lambda *a, **k: calls.append("deps")), \
@@ -63,6 +64,50 @@ class TestKeylessFlow:
         # Config written before hatch; hatch before launch.
         assert qs.is_keyless_configured()
         assert calls == ["hatch", "deps", "launch"]
+
+    def test_go_keyless_installs_missing_prereqs(self, project):
+        """The --keyless kiosk fast-path must install uv/bun itself — it skips
+        the interactive Step 1 that would otherwise do it (finding B2)."""
+        installed = []
+        with patch.object(qs, "can_run", lambda _t: False), \
+             patch.object(qs, "_install_prereqs",
+                          side_effect=lambda m: installed.extend(m)), \
+             patch.object(qs, "_try_hatch_provisioning"), \
+             patch.object(qs, "_install_deps"), \
+             patch.object(qs, "_launch"):
+            qs._go_keyless(args=object())
+        assert "uv" in installed and "bun" in installed
+
+    def test_go_keyless_hatches_non_interactively_when_no_tty(self, project):
+        """Piped/kiosk stdin (not a TTY) must run the hatch non-interactively,
+        or the naming Prompt.ask hits EOF and the ceremony aborts (finding B1)."""
+        captured = {}
+        with patch.object(qs, "can_run", lambda _t: True), \
+             patch.object(qs.sys.stdin, "isatty", lambda: False), \
+             patch.object(qs, "_try_hatch_provisioning",
+                          side_effect=lambda *a, **k: captured.update(k)), \
+             patch.object(qs, "_install_deps"), \
+             patch.object(qs, "_launch"):
+            qs._go_keyless(args=object())
+        assert captured.get("non_interactive") is True
+
+    def test_keyless_brain_status_warns_on_mock_ept(self, project, capsys):
+        (project / ".env").write_text("ETERNITAS_PASSPORT_TOKEN=mock-ept-abc\n")
+        qs._report_keyless_brain_status()
+        out = capsys.readouterr().out
+        assert "couldn't connect" in out.lower()
+
+    def test_keyless_brain_status_warns_on_empty_ept(self, project, capsys):
+        (project / ".env").write_text("ETERNITAS_PASSPORT_TOKEN=\n")
+        qs._report_keyless_brain_status()
+        out = capsys.readouterr().out
+        assert "couldn't connect" in out.lower()
+
+    def test_keyless_brain_status_ok_on_real_ept(self, project, capsys):
+        (project / ".env").write_text("ETERNITAS_PASSPORT_TOKEN=eyJhbGc.real.tok\n")
+        qs._report_keyless_brain_status()
+        out = capsys.readouterr().out
+        assert "connected" in out.lower()
 
     def test_keyless_flag_short_circuits_interactive(self, project):
         class Args:

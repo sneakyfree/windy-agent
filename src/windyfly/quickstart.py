@@ -339,12 +339,65 @@ def _go_keyless(args: Any) -> None:
     write_keyless_config()
     console.print("  [green]✓[/green] Config written — Windy Mind brain, 🤝 buddy preset")
     console.print()
-    # Hatch mints the Eternitas passport + EPT and persists the token
-    # into .env (hatch_orchestrator._step_eternitas, PR #247) — that's
-    # what the brain uses to reach Mind.
-    _try_hatch_provisioning()
+
+    # Prereqs: the interactive menu installs uv/bun before it ever reaches
+    # option 1, but the `--keyless` kiosk fast-path skips Step 1 entirely.
+    # Without this, `_launch` → `cmd_start` Popen('uv') dies with a raw
+    # FileNotFoundError traceback. can_run makes this idempotent for the
+    # menu path. (Stress finding B2, 2026-07-05.)
+    missing = [t for t in ("uv", "bun") if not can_run(t)]
+    if missing:
+        _install_prereqs(missing)
+        console.print()
+
+    # Hatch mints the Eternitas passport + EPT and persists the token into
+    # .env (hatch_orchestrator, PR #247) — that's what the brain uses to
+    # reach Mind. When stdin isn't a TTY (kiosk/piped/CI) we MUST run the
+    # hatch non-interactively — otherwise the naming Prompt.ask hits EOF and
+    # the whole ceremony aborts with no passport (stress finding B1).
+    non_interactive = not sys.stdin.isatty()
+    _try_hatch_provisioning(non_interactive=non_interactive)
+
+    # Honesty: don't imply a working free brain if the passport never
+    # provisioned (terminal hatch can 401 against Eternitas, or a mock EPT
+    # got written that Mind rejects). Say so plainly instead of "you're all
+    # set" — the local lifeboat still answers. (Stress finding B3.)
+    _report_keyless_brain_status()
+
     _install_deps()
     _launch(args)
+
+
+def _report_keyless_brain_status() -> None:
+    """Tell the user honestly whether their free Windy Mind brain is wired.
+
+    Reads the EPT the hatch was supposed to persist. Empty or a mock
+    placeholder → the cloud brain isn't connected; the agent will run on the
+    local Ollama lifeboat until it's hatched properly (e.g. on windyword.ai).
+    """
+    ept = ""
+    env_file = PROJECT_ROOT / ".env"
+    if env_file.exists():
+        for line in env_file.read_text().splitlines():
+            if line.startswith("ETERNITAS_PASSPORT_TOKEN="):
+                ept = line.split("=", 1)[1].strip()
+                break
+
+    if ept and not ept.startswith("mock-"):
+        console.print(
+            "  [green]✓[/green] Free Windy Mind brain connected "
+            "(via your agent's passport)."
+        )
+        return
+
+    console.print(
+        "  [yellow]⚠[/yellow]  I couldn't connect your free Windy Mind brain "
+        "yet — I didn't get a passport from Eternitas."
+    )
+    console.print(
+        "     [dim]I'll run on a local model for now. For the full free "
+        "cloud brain, hatch me at https://windyword.ai.[/dim]"
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════
