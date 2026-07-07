@@ -226,7 +226,10 @@ def windycode_list_projects() -> dict[str, Any]:
     root = _projects_dir()
     if not root.exists():
         return {"status": "ok", "projects": [], "note": "No projects yet."}
-    projects = sorted(p.name for p in root.iterdir() if p.is_dir())
+    projects = sorted(
+        p.name for p in root.iterdir()
+        if p.is_dir() and not p.name.startswith(".")
+    )
     return {"status": "ok", "projects": projects, "count": len(projects)}
 
 
