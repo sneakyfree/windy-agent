@@ -210,6 +210,11 @@ def _step_register_cloud(ctx: BootContext) -> None:
     register_cloud_tools(ctx.tool_registry)
 
 
+def _step_register_windycode(ctx: BootContext) -> None:
+    from windyfly.tools.windycode import register_windycode_tools
+    register_windycode_tools(ctx.tool_registry)
+
+
 def _step_register_web_search(ctx: BootContext) -> None:
     from windyfly.tools.web_search import register_web_search_tool
     register_web_search_tool(ctx.tool_registry)
@@ -378,6 +383,7 @@ def default_capability_registration_sequence() -> list[Step]:
         Step("tools.sms",            _step_register_sms),
         Step("tools.voice",          _step_register_voice),
         Step("tools.cloud",          _step_register_cloud),
+        Step("tools.windycode",      _step_register_windycode),
         Step("tools.web_search",     _step_register_web_search),
         Step("tools.reminders",      _step_register_reminders),
         Step("tools.todos",          _step_register_todos),
