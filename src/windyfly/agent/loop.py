@@ -1650,6 +1650,23 @@ def agent_respond(
         "emotional_context": emotional_context,
     })
 
+    # 7.1 Ecosystem cost ledger (ADR-WA-001): same turn totals, shipped
+    # to Windy Admin so fly spend on the house Anthropic token finally
+    # shows up next to roster/search burn. No-op unless configured.
+    try:
+        from windyfly.observability.admin_telemetry import emit_llm_call
+        emit_llm_call(
+            write_queue,
+            model=model,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cost_usd=cost_usd,
+            session_id=session_id,
+            had_tool_calls=bool(tool_calls),
+        )
+    except Exception:
+        pass  # telemetry must never break a reply
+
     # 7.5. Relationship moments — extract emotional snapshots
     warmth = loop_sliders.get("warmth", 5)
     if emotional_context != "neutral" and warmth >= 3:
