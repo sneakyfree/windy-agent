@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time as _time
 from typing import Any
 
 # capability_registry is re-exported as a module attribute on this
@@ -582,6 +583,9 @@ def agent_respond(
     set_current_session_id(session_id)
     logger.info("[req:%s] agent_respond start session=%s band=%s",
                 request_id_short(), session_id, band)
+    # Turn wall-clock for the admin-telemetry envelope (duration_ms was
+    # always null on llm.call events — the loop never timed itself).
+    _turn_started = _time.monotonic()
 
     # 0. Empty-message guard. Anthropic returns 400 on empty user
     # content (``messages.0: user messages must have non-empty
@@ -1675,6 +1679,7 @@ def agent_respond(
             cost_usd=cost_usd,
             session_id=session_id,
             had_tool_calls=bool(tool_calls),
+            duration_ms=int((_time.monotonic() - _turn_started) * 1000),
         )
     except Exception:
         pass  # telemetry must never break a reply
