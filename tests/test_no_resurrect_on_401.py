@@ -249,3 +249,37 @@ def test_agent_respond_still_resurrects_on_transient_429(
 
     assert "hit a rate limit" in reply.lower() or "auto-switched" in reply.lower()
     assert "local reply" in reply
+
+
+@patch("windyfly.agent.loop.is_online", return_value=True)
+@patch("windyfly.agent.loop.call_llm")
+def test_auth_reply_band_gated_for_strangers(
+    mock_llm, _online, stack, isolated_flags,
+):
+    """A SANDBOX-band sender must get the honest outage WITHOUT the
+    operator runbook — env-file paths, restart instructions, and the
+    recovery-hint commands are owner-band information."""
+    config, db, wq = stack
+    from windyfly.agent.capabilities import Band
+    from windyfly.agent.loop import agent_respond
+
+    mock_llm.side_effect = RuntimeError(
+        "LLM call failed across all providers in chain "
+        "(attempted=['anthropic(claude-haiku-4-5-20251001)']): "
+        "Error code: 401 - {'type': 'error', 'error': "
+        "{'type': 'authentication_error', 'message': "
+        "'invalid x-api-key'}}"
+    )
+    reply = agent_respond(
+        config, db, wq, "hello?", "auth-band-test", band=Band.SANDBOX,
+    )
+
+    # Honest about the outage…
+    assert "credentials" in reply
+    assert "operator" in reply
+    # …but no operator-facing surface
+    assert "~/.windy" not in reply
+    assert "env file" not in reply
+    assert "restart" not in reply.lower()
+    assert "/reset" not in reply
+    assert "/resurrect" not in reply

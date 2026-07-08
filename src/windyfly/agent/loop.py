@@ -1203,24 +1203,36 @@ def agent_respond(
             # "your auth is dead" reply. Lifeboat would just wedge —
             # every escape would 401 again.
             if ar_reason == "permanent_auth_failure":
-                auth_reply = (
-                    "🔑 *Your API key looks invalid* — I got `401 "
-                    "invalid x-api-key` from Anthropic on this turn.\n\n"
-                    "This usually means an OAuth Max token expired or "
-                    "a regular API key was rotated. Refresh the "
-                    "credential in your bot's env file (e.g. "
-                    "`~/.windy/windy-0.env` for Windy 0) and restart "
-                    "the bot. Until then I can't reach the paid "
-                    "model.\n\n"
-                    "_(I'm NOT auto-switching to the local backup "
-                    "model — that would just wedge me, since every "
-                    "retry would 401 again. Fix the token and we're "
-                    "back.)_"
-                )
-                from windyfly.observability.recovery_hint import (
-                    with_recovery_hint,
-                )
-                full_response = with_recovery_hint(auth_reply)
+                if band >= Band.TRUSTED:
+                    auth_reply = (
+                        "🔑 *Your API key looks invalid* — I got `401 "
+                        "invalid x-api-key` from Anthropic on this turn.\n\n"
+                        "This usually means an OAuth Max token expired or "
+                        "a regular API key was rotated. Refresh the "
+                        "credential in your bot's env file (e.g. "
+                        "`~/.windy/windy-0.env` for Windy 0) and restart "
+                        "the bot. Until then I can't reach the paid "
+                        "model.\n\n"
+                        "_(I'm NOT auto-switching to the local backup "
+                        "model — that would just wedge me, since every "
+                        "retry would 401 again. Fix the token and we're "
+                        "back.)_"
+                    )
+                    from windyfly.observability.recovery_hint import (
+                        with_recovery_hint,
+                    )
+                    full_response = with_recovery_hint(auth_reply)
+                else:
+                    # A SANDBOX/USER-band sender gets the honest outage
+                    # without the operator runbook — env-file paths and
+                    # restart instructions are owner-band information,
+                    # and the recovery-hint commands aren't theirs to run.
+                    full_response = (
+                        "🔑 I can't reach my language model right now — "
+                        "my access credentials have expired and need my "
+                        "operator's attention. Until that's fixed I "
+                        "can't answer properly. Please try again later."
+                    )
                 write_queue.enqueue(Priority.HIGH, save_episode, db, "user", user_message, session_id=session_id)
                 write_queue.enqueue(Priority.HIGH, save_episode, db, "assistant", full_response, session_id=session_id)
                 log_event(db, write_queue, "auth.permanent_failure", {

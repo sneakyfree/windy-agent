@@ -148,7 +148,13 @@ def get_all_providers(config: dict[str, Any] | None = None) -> dict[str, dict[st
 
     Priority: runtime overrides > toml config > builtins.
     """
-    providers = dict(BUILTIN_PROVIDERS)
+    # Copy each provider dict — a plain dict(BUILTIN_PROVIDERS) shares the
+    # nested per-provider dicts, so the env-resolution below would write
+    # api_key into the module-level builtins and freeze the first-seen
+    # token for the process lifetime. With rotating credentials (Claude
+    # Code's OAuth token refresh) that meant every call after a rotation
+    # 401'd with the fossilized key (windy-0 went dark, 2026-07-08).
+    providers = {key: dict(val) for key, val in BUILTIN_PROVIDERS.items()}
 
     # Merge from windyfly.toml [providers.*]
     if config:

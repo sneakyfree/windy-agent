@@ -270,3 +270,53 @@ def test_no_reload_retry_on_non_auth_error(monkeypatch):
         with pytest.raises(RuntimeError):
             models.call_llm([{"role": "user", "content": "hi"}], config=config)
     assert reloaded == []  # never attempted a token reload for a 500
+
+
+def test_api_key_re_read_from_env_on_every_call(monkeypatch):
+    """A rotated env token must be visible on the NEXT call — the
+    provider table cannot fossilize the first key it ever resolved
+    (windy-0 went dark on a rotated OAuth token, 2026-07-08)."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "token-one")
+    assert providers.get_all_providers()["anthropic"]["api_key"] == "token-one"
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "token-two")
+    assert providers.get_all_providers()["anthropic"]["api_key"] == "token-two"
+
+
+def test_builtin_providers_not_polluted_by_env_resolution(monkeypatch):
+    """get_all_providers must not write resolved keys back into the
+    module-level BUILTIN_PROVIDERS dicts."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "leaky-token")
+    providers.get_all_providers()
+    assert "api_key" not in providers.BUILTIN_PROVIDERS["anthropic"]
+    assert "configured" not in providers.BUILTIN_PROVIDERS["anthropic"]
+
+
+def test_401_retries_with_env_token_even_when_reload_reports_no_change(monkeypatch):
+    """The 401 retry must fire whenever the failed key differs from the
+    current env token, even if _reload_oauth_token() returns False —
+    the failed key may be a fossil (baked config / stale snapshot)
+    while a previous turn already refreshed the env. Without this,
+    the second 401 lands in the permanent-auth 1h cooldown with a
+    perfectly good token sitting in the env (windy-0, 2026-07-08)."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "fresh-token")
+    config = {
+        "agent": {"failover_chain": ["claude-opus-4-8"]},
+        "providers": {"anthropic": {"api_key": "stale-token"}},
+    }
+    calls: list[str] = []
+
+    def fake_anthropic(messages, model, temperature, max_tokens, tools,
+                       api_key="", **kwargs):
+        calls.append(api_key)
+        if api_key == "stale-token":
+            raise RuntimeError("401 invalid x-api-key")
+        return {"content": "ok", "tool_calls": None}
+
+    with patch.object(models, "_call_anthropic", fake_anthropic), \
+         patch.object(models, "_reload_oauth_token", return_value=False), \
+         patch.object(models, "_try_mind_broker", return_value=None):
+        out = models.call_llm([{"role": "user", "content": "hi"}], config=config)
+
+    assert out["content"] == "ok"
+    assert calls == ["stale-token", "fresh-token"]
+    assert "anthropic" not in models._provider_cooldowns
