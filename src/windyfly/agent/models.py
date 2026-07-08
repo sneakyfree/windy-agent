@@ -734,20 +734,30 @@ def call_llm(
             )
             # Self-heal a mid-run OAuth rotation: a stale-token 401 on the
             # Anthropic path is fixable by reloading the token Claude Code
-            # just rotated. Reload + retry this same provider ONCE before
-            # cooling it down and failing forward to the lifeboat.
+            # just rotated. Retry this same provider ONCE with the freshest
+            # known token before cooling it down and failing forward to the
+            # lifeboat. The retry must fire whenever the key that just
+            # failed differs from the current env token — not only when
+            # _reload_oauth_token() changed the env — because the failed
+            # key may be stale relative to an env a previous turn already
+            # reloaded (windy-0's double-401 → 1h cooldown, 2026-07-08).
             from windyfly.agent.resurrect import is_permanent_auth_error
+            retry_key = ""
             if (
                 provider_type == "anthropic"
                 and not _oauth_reloaded
                 and is_permanent_auth_error(str(e))
-                and _reload_oauth_token()
             ):
+                _reload_oauth_token()
+                env_key = os.environ.get("ANTHROPIC_API_KEY", "")
+                if env_key and env_key != api_key:
+                    retry_key = env_key
+            if retry_key:
                 _oauth_reloaded = True
                 try:
                     result = _call_anthropic(
                         messages, chain_model, temperature, max_tokens, tools,
-                        os.environ.get("ANTHROPIC_API_KEY", ""),
+                        retry_key,
                         session_id=session_id, reasoning_depth=reasoning_depth,
                     )
                     _record_provider_success(provider_key)
