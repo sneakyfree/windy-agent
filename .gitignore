@@ -32,3 +32,5 @@ data/audio/
 data/.update_check
 data/windyfly.pid
 .coverage
+data/audit/bot_key_usage.jsonl
+data/backup_state.json
