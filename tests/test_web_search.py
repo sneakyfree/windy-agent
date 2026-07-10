@@ -35,8 +35,9 @@ class TestDirectFetchUserAgent:
     browser-like UA so it actually has a chance of succeeding where
     windy-search's fetcher failed."""
 
+    @patch("windyfly.tools.web_search._host_ips", return_value=["93.184.216.34"])
     @patch("windyfly.tools.web_search.httpx.get")
-    def test_direct_fetch_sends_browser_user_agent(self, mock_get):
+    def test_direct_fetch_sends_browser_user_agent(self, mock_get, mock_ips):
         mock_response = MagicMock()
         mock_response.text = "<html><body>hello</body></html>"
         mock_response.raise_for_status = MagicMock()
@@ -61,8 +62,9 @@ class TestDirectFetchChunking:
     opening of any real article. Default raised to 20000 + offset
     parameter for chunked reading on long pages."""
 
+    @patch("windyfly.tools.web_search._host_ips", return_value=["93.184.216.34"])
     @patch("windyfly.tools.web_search.httpx.get")
-    def test_default_max_chars_is_20000(self, mock_get):
+    def test_default_max_chars_is_20000(self, mock_get, mock_ips):
         long_text = "x" * 50_000
         mock_response = MagicMock()
         mock_response.text = f"<html><body>{long_text}</body></html>"
@@ -75,8 +77,9 @@ class TestDirectFetchChunking:
         assert out["truncated"] is True
         assert out["next_offset"] == 20_000
 
+    @patch("windyfly.tools.web_search._host_ips", return_value=["93.184.216.34"])
     @patch("windyfly.tools.web_search.httpx.get")
-    def test_offset_returns_later_slice(self, mock_get):
+    def test_offset_returns_later_slice(self, mock_get, mock_ips):
         long_text = "ABCDEFGHIJ" * 5_000  # 50_000 chars
         mock_response = MagicMock()
         mock_response.text = f"<html><body>{long_text}</body></html>"
@@ -91,8 +94,9 @@ class TestDirectFetchChunking:
         assert out["truncated"] is True
         assert out["next_offset"] == 300
 
+    @patch("windyfly.tools.web_search._host_ips", return_value=["93.184.216.34"])
     @patch("windyfly.tools.web_search.httpx.get")
-    def test_offset_past_end_returns_empty(self, mock_get):
+    def test_offset_past_end_returns_empty(self, mock_get, mock_ips):
         mock_response = MagicMock()
         mock_response.text = "<html><body>short</body></html>"
         mock_response.raise_for_status = MagicMock()
@@ -102,6 +106,42 @@ class TestDirectFetchChunking:
         assert out["content"] == ""
         assert out["truncated"] is False
         assert out["next_offset"] is None
+
+
+class TestDirectFetchSsrfGuard:
+    """[I3] fetch_url's direct-httpx fallback must not be usable to reach cloud
+    metadata / internal services (SSRF) — including via a redirect."""
+
+    @patch("windyfly.tools.web_search.httpx.get")
+    def test_metadata_ip_blocked(self, mock_get):
+        out = _direct_fetch_url("http://169.254.169.254/latest/meta-data/")
+        assert out.get("content") == ""
+        assert "blocked" in out.get("error", "")
+        assert not mock_get.called  # request never made
+
+    @patch("windyfly.tools.web_search.httpx.get")
+    def test_localhost_blocked(self, mock_get):
+        out = _direct_fetch_url("http://127.0.0.1:8080/admin")
+        assert "blocked" in out.get("error", "")
+        assert not mock_get.called
+
+    @patch("windyfly.tools.web_search._host_ips", return_value=["10.0.0.5"])
+    @patch("windyfly.tools.web_search.httpx.get")
+    def test_hostname_resolving_to_private_blocked(self, mock_get, mock_ips):
+        out = _direct_fetch_url("https://evil.example.com/")
+        assert "blocked" in out.get("error", "")
+        assert not mock_get.called
+
+    @patch("windyfly.tools.web_search._host_ips", return_value=["93.184.216.34"])
+    @patch("windyfly.tools.web_search.httpx.get")
+    def test_redirect_to_internal_blocked(self, mock_get, mock_ips):
+        redirect = MagicMock()
+        redirect.status_code = 302
+        redirect.headers = {"location": "http://169.254.169.254/"}
+        mock_get.return_value = redirect
+        out = _direct_fetch_url("https://public.example.com/")
+        assert "blocked" in out.get("error", "")
+        assert mock_get.call_count == 1  # only the first (public) hop fired
 
     @patch("windyfly.tools.web_search.httpx.get")
     def test_short_page_not_truncated(self, mock_get):
