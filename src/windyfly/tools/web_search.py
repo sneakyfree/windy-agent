@@ -27,7 +27,10 @@ from __future__ import annotations
 
 import logging
 import re
+import ipaddress
+import socket
 from typing import Any
+from urllib.parse import urljoin, urlparse
 
 import httpx
 
@@ -106,6 +109,46 @@ def _is_windy_search_failure(error: str | None) -> bool:
     return any(ind in error for ind in _WINDY_SEARCH_FAILURE_INDICATORS)
 
 
+_REDIRECT_CODES = frozenset({301, 302, 303, 307, 308})
+_MAX_REDIRECTS = 5
+
+
+def _host_ips(host: str) -> list[str]:
+    """Resolve a hostname to its IP strings. Isolated so tests can patch it."""
+    return [info[4][0] for info in socket.getaddrinfo(host, None)]
+
+
+def _ip_blocked(ip_str: str) -> bool:
+    try:
+        addr = ipaddress.ip_address(ip_str)
+    except ValueError:
+        return True
+    return bool(
+        addr.is_private or addr.is_loopback or addr.is_link_local
+        or addr.is_reserved or addr.is_multicast or addr.is_unspecified
+    )
+
+
+def _assert_public_url(url: str) -> None:
+    """[I3] SSRF guard. Reject a non-http(s) scheme, or a host that resolves to a
+    private / loopback / link-local (169.254.169.254 cloud metadata) / reserved
+    address. Called before the initial fetch AND on every redirect hop, so an
+    attacker can't point (or redirect) fetch_url at internal services."""
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError(f"blocked URL scheme: {parsed.scheme!r}")
+    host = parsed.hostname
+    if not host:
+        raise ValueError("blocked URL: missing host")
+    try:
+        ipaddress.ip_address(host)
+        ips = [host]  # host is already an IP literal — check it directly
+    except ValueError:
+        ips = _host_ips(host)  # hostname — resolve (patchable in tests)
+    if not ips or any(_ip_blocked(ip) for ip in ips):
+        raise ValueError(f"blocked non-public host: {host}")
+
+
 def _direct_fetch_url(
     url: str,
     max_chars: int = 20000,
@@ -114,10 +157,27 @@ def _direct_fetch_url(
     """Direct httpx fetch with browser-shaped headers. Used both as
     the no-routing default AND as the windy-search failover."""
     try:
-        resp = httpx.get(
-            url, timeout=15.0, follow_redirects=True,
-            headers=_BROWSER_HEADERS,
-        )
+        # [I3] Validate the target and EVERY redirect hop against the SSRF guard,
+        # following redirects manually so a 3xx to an internal IP is blocked
+        # before the request is made.
+        current = url
+        resp = None
+        for _ in range(_MAX_REDIRECTS + 1):
+            _assert_public_url(current)
+            resp = httpx.get(
+                current, timeout=15.0, follow_redirects=False,
+                headers=_BROWSER_HEADERS,
+            )
+            location = (
+                resp.headers.get("location")
+                if resp.status_code in _REDIRECT_CODES
+                else None
+            )
+            if not location:
+                break
+            current = urljoin(current, location)
+        else:
+            raise ValueError("too many redirects")
         resp.raise_for_status()
         html = resp.text
 
