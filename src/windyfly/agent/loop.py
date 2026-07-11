@@ -285,6 +285,48 @@ _WRITE_CLASS_TOOLS = (
 )
 
 
+# [I2 taint model] Tools whose RESULTS are attacker-authored content. Reading any
+# of them "taints" the turn (see agent_respond's tool loop): inbound email bodies,
+# fetched web pages, news, and voicemail transcripts are authored by third parties
+# outside the owner and are the prompt-injection surface.
+UNTRUSTED_SOURCE_TOOLS = frozenset({
+    "list_inbox", "web_search", "fetch_url", "get_news", "get_recordings",
+})
+
+# [I2 taint model] External-effect / exfil / RCE tool_registry tools that BYPASS
+# the capability band gate (they run via tool_registry.execute, not
+# capability_registry.invoke). Once a turn is tainted these are refused outright:
+# capping the band only stops band-gated CAPABILITIES (shell/ssh/fleet/email.send/
+# destructive writes), so these plain tools need their own guard so an injected
+# instruction can't exfiltrate/act after the agent has read untrusted content.
+TAINT_FORBIDDEN_TOOLS = frozenset({
+    "send_email", "send_sms", "send_chat_message", "make_call",
+    "upload_to_cloud",
+    "windycode_run", "windycode_write_file", "windycode_save_to_git",
+    "windycode_create_project",
+})
+
+
+def _taint_gate(fn_name: str, turn_tainted: bool, band: Any) -> tuple[bool, Any]:
+    """[I2 taint model] Decide how a tool call runs given the turn's taint state.
+
+    Returns ``(deny, effective_band)``:
+      - ``deny=True`` when the turn is tainted and ``fn_name`` is an
+        external-effect tool_registry tool (bypasses the band gate) → the
+        caller returns a refusal instead of dispatching.
+      - otherwise ``effective_band`` is the band to dispatch at: capped to
+        ``USER`` once tainted so TRUSTED+ capabilities (shell/ssh/fleet/
+        email.send/destructive writes) are denied, while read/search/summarize
+        (USER and below) stay available.
+    """
+    from windyfly.agent.capabilities import Band
+    if turn_tainted and fn_name in TAINT_FORBIDDEN_TOOLS:
+        return True, band
+    if turn_tainted and band is not None and band > Band.USER:
+        return False, Band.USER
+    return False, band
+
+
 def _was_write_class_tool_invoked(tool_calls: list[dict] | None) -> bool:
     """True iff any tool call this turn was a write-class capability.
     Tool names are extracted from OpenAI-shaped tool_calls (which is
@@ -1308,6 +1350,12 @@ def agent_respond(
     # write…" text that ends a turn with no actual write tool call.
     _turn_tool_names: set[str] = set()
     _turn_tool_exec_count = 0
+    # [I2 taint model] Flips once this turn reads untrusted external content
+    # (email/web/news/voicemail). From then on, external-effect tools are
+    # refused and the band is capped for the rest of the turn — so an injected
+    # instruction inside that content can't drive the agent to exfiltrate or
+    # run privileged tools. Persists across ReAct rounds.
+    turn_tainted = False
     if tool_calls and (tool_registry or capability_registry.count() > 0):
         tool_executed = True
         max_tool_rounds = loop_sliders.get("tool_reloop_rounds", _DEFAULT_TOOL_ROUNDS)
@@ -1320,15 +1368,32 @@ def agent_respond(
                 _turn_tool_names.add(fn_name)
                 _turn_tool_exec_count += 1
                 logger.info("Executing tool: %s (round %d)", fn_name, _round + 1)
-                tool_result = _dispatch_tool_call(
-                    fn_name, fn_args, tool_registry, capability_registry,
-                    band, CapabilityDenied,
-                )
+                deny_tainted, effective_band = _taint_gate(fn_name, turn_tainted, band)
+                if deny_tainted:
+                    logger.warning(
+                        "Tainted turn: refusing external-effect tool %s", fn_name)
+                    tool_result = json.dumps({"error": (
+                        "tainted_turn_denied: this turn read untrusted external "
+                        "content (email/web), so acting tools (send/upload/run) "
+                        "are disabled. If the owner wants this, they can ask "
+                        "again in a fresh message.")})
+                else:
+                    tool_result = _dispatch_tool_call(
+                        fn_name, fn_args, tool_registry, capability_registry,
+                        effective_band, CapabilityDenied,
+                    )
                 tool_results.append({
                     "role": "tool",
                     "tool_call_id": tc["id"],
                     "content": tool_result,
                 })
+                # [I2 taint model] If this tool returned attacker-authored
+                # content, taint the rest of the turn.
+                if fn_name in UNTRUSTED_SOURCE_TOOLS:
+                    if not turn_tainted:
+                        logger.info(
+                            "Turn tainted by untrusted-source tool: %s", fn_name)
+                    turn_tainted = True
 
             # Append assistant tool_call message + tool results
             messages.append({
