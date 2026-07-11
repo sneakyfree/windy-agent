@@ -19,6 +19,7 @@ import uuid
 from typing import Any
 
 from windyfly.agent.loop import agent_respond
+from windyfly.channels.identity import resolve_band
 from windyfly.memory.database import Database
 from windyfly.memory.nodes import get_nodes_by_type, upsert_node
 from windyfly.memory.write_queue import WriteQueue
@@ -105,9 +106,14 @@ class WindyFlySMS:
             epistemic_status="verified",
         )
 
+        # [C1] Resolve the sender's trust band instead of defaulting to
+        # Band.OWNER. An unknown SMS sender maps to SANDBOX (no owner toolset:
+        # shell/fs/ssh/fleet/send-as-owner), same as the matrix/telegram
+        # channels already do — an inbound SMS is NOT proof of the owner.
         response = agent_respond(
             self.config, self.db, self.write_queue,
             body, session_id, self.tool_registry,
+            band=resolve_band("sms", from_number, config=self.config),
         )
 
         log_event(self.db, self.write_queue, "sms.inbound", {

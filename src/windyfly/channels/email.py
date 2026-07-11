@@ -18,6 +18,7 @@ import uuid
 from typing import Any
 
 from windyfly.agent.loop import agent_respond
+from windyfly.channels.identity import resolve_band
 from windyfly.memory.database import Database
 from windyfly.memory.nodes import upsert_node
 from windyfly.memory.write_queue import WriteQueue
@@ -244,9 +245,15 @@ class WindyFlyEmail:
         # Combine subject + body for context
         full_message = f"[Email from {from_email}] Subject: {subject}\n\n{body}"
 
+        # [C1] Resolve the sender's trust band instead of defaulting to
+        # Band.OWNER. An unknown email sender maps to SANDBOX (no owner toolset:
+        # shell/fs/ssh/fleet/send-as-owner), same as the matrix/telegram
+        # channels — an inbound email is NOT proof of the owner, and its body is
+        # attacker-controllable (indirect prompt-injection surface).
         response = agent_respond(
             self.config, self.db, self.write_queue,
             full_message, session_id, self.tool_registry,
+            band=resolve_band("email", from_email, config=self.config),
         )
 
         log_event(self.db, self.write_queue, "email.inbound", {
