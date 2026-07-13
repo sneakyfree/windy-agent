@@ -1,0 +1,42 @@
+{
+  "contract": "control.mcp.v1",
+  "doctrine": "ADR-060 v1.0",
+  "product": "windy-agent",
+  "class": "agent-host",
+  "server": "native",
+  "$comment": "Windy Fly (windy-agent) — Class A retrofit. Fly is both patient and doctor. Its control surface is NOT HTTP routes and NOT a Loom-woven JS proxy: it is a NATIVE Python MCP server (src/windyfly/mcp_server/) that projects Fly's in-process Capability Plane over MCP — tools/list = registry.tool_schemas_for_band(caller_band), tools/call = registry.invoke (band-gated + audited for free). The doctrine calls this 'a serialization shim' (§2). Therefore this manifest does NOT statically enumerate every tool (the registry is dynamic and band-filtered per caller); it declares the HEALING BASELINE Fly must expose so an outside agent can heal a wedged Fly, mapped to Fly's real capability ids, with gaps marked honestly. Conformance for Class A is STRUCTURAL: the MCP tool list must equal the Capability Plane's band-filtered schemas (proven in tests/test_mcp_control_bridge.py), and the baseline capabilities below must be present.",
+  "baseline_mapping": {
+    "$comment": "The 13-knob baseline mapped onto Fly's Capability Plane. 'implemented' = a real capability exists; 'gap' = Fly should grow this capability (punch list). These names are the DOCTRINE roles; Fly's real capability ids are in maps_to.",
+    "get_health": { "status": "implemented", "maps_to": "health.recent", "note": "health.* capability family already reports agent health + repair knobs." },
+    "get_status": { "status": "implemented", "maps_to": "mode.get / offline.status (IPC)", "note": "mode + connectivity state." },
+    "get_config": { "status": "gap", "note": "config is edited via raw windyfly.toml + config.reload; no read-config capability yet." },
+    "get_logs": { "status": "implemented", "maps_to": "journal.list / events.list / failures.list (IPC)", "note": "scrub content before exposing over MCP." },
+    "run_selftest": { "status": "implemented", "maps_to": "assessment.run", "note": "verify against the selftest contract." },
+    "get_capabilities": { "status": "implemented", "maps_to": "the MCP tools/list itself", "note": "the registry IS the capability probe; band-filtered." },
+    "reconnect": { "status": "gap", "note": "offline.status observes; no explicit reconnect capability." },
+    "restart_app": { "status": "gap", "note": "restart is out-of-band (systemd) — needs a supervisor beyond bare Restart=; §7." },
+    "enter_safe_mode": { "status": "gap", "note": "no minimal known-good overlay yet." },
+    "exit_safe_mode": { "status": "gap", "note": "pairs with enter_safe_mode." },
+    "set_setting": { "status": "implemented", "maps_to": "sliders.set / mode.set / config.reload (IPC)", "note": "typed sliders exist; wants a catalog + undo like Word's." },
+    "check_for_update": { "status": "gap", "note": "wire to the Steamroller fleet version manifest (L2)." },
+    "apply_update": { "status": "gap", "note": "attested self-update + last-known-good; agent updates itself is delicate — always_confirm, OWNER band." },
+    "reset_to_defaults": { "status": "gap", "note": "personality.rollback / soul restore exist but no full factory reset." }
+  },
+  "tools": [
+    {
+      "name": "health.recent",
+      "tier": "auto_allow",
+      "baseline_status": "implemented",
+      "description": "Read Windy Fly's own recent health — is the agent online, are its model providers reachable, is it in a crash loop. The FIRST tool when the user says their agent is acting up or has gone quiet.",
+      "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false }
+    },
+    {
+      "name": "health.list_repair_knobs",
+      "tier": "auto_allow",
+      "baseline_status": "implemented",
+      "description": "List the specific things that can be done to repair Windy Fly right now, each as a concrete follow-up action. This is the doctor's 'here is the wrench' — every health finding names its remediation.",
+      "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false }
+    }
+  ],
+  "$tools_note": "Only two example capabilities are enumerated here to anchor the contract; the LIVE surface is the full band-filtered Capability Plane served by the native server, NOT this static list. See baseline_mapping for the healing coverage and docs/handoffs/FLY-LANE-2026-07-13.md (windy-contracts) for the build order."
+}
