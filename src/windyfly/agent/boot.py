@@ -322,6 +322,13 @@ def _step_register_windyword(ctx: BootContext) -> None:
     register_windyword_capabilities(ctx.capability_registry, ctx.config)
 
 
+def _step_register_mcp_client(ctx: BootContext) -> None:
+    from windyfly.agent.capabilities.mcp_client import (
+        register_mcp_client_capabilities,
+    )
+    register_mcp_client_capabilities(ctx.capability_registry, ctx.config)
+
+
 def _step_register_email(ctx: BootContext) -> None:
     from windyfly.agent.capabilities.email import (
         register_email_capabilities,
@@ -452,6 +459,11 @@ def default_capability_registration_sequence() -> list[Step]:
         Step(
             "capabilities.windyword",
             _step_register_windyword,
+            requires=("capabilities.audit",),
+        ),
+        Step(
+            "capabilities.mcp_client",
+            _step_register_mcp_client,
             requires=("capabilities.audit",),
         ),
         Step(
