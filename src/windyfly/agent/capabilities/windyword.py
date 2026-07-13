@@ -34,6 +34,33 @@ def _base_url() -> str:
     return os.environ.get("WINDY_WORD_URL", "http://127.0.0.1:18765").rstrip("/")
 
 
+def _token_path() -> str:
+    return os.environ.get(
+        "WINDY_WORD_CONTROL_TOKEN_PATH",
+        os.path.expanduser("~/.windy-word/control.token"),
+    )
+
+
+def _headers() -> dict[str, str]:
+    """Per-install control token for Windy Word's security wall.
+
+    Token-aware Windy Word builds 401 every route without it (windy-pro
+    #231). Resolution: WINDY_WORD_CONTROL_TOKEN env -> token file at
+    WINDY_WORD_CONTROL_TOKEN_PATH / ~/.windy-word/control.token. Read
+    fresh per call so a token minted after Fly boots (first run of a
+    token-aware build) or rotated mid-session needs no restart. Absent
+    -> no header, compatible with pre-token apps.
+    """
+    token = os.environ.get("WINDY_WORD_CONTROL_TOKEN")
+    if not token:
+        try:
+            with open(_token_path(), encoding="utf-8") as f:
+                token = f.read().strip()
+        except OSError:
+            token = None
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
+
 def _app_down() -> dict[str, Any]:
     return {
         "ok": False,
@@ -48,9 +75,14 @@ def _get(path: str) -> dict[str, Any]:
     import httpx
 
     try:
-        r = httpx.get(f"{_base_url()}{path}", timeout=6.0)
+        r = httpx.get(f"{_base_url()}{path}", headers=_headers(), timeout=6.0)
         if r.status_code >= 400:
-            return {"ok": False, "error": f"Windy Word returned {r.status_code}"}
+            # The surface returns structured, agent-readable JSON on 4xx
+            # (a 401 names the token path + remediation) — pass it through.
+            try:
+                return {"ok": False, **r.json()}
+            except Exception:
+                return {"ok": False, "error": f"Windy Word returned {r.status_code}"}
         try:
             return r.json()
         except Exception:
@@ -65,7 +97,7 @@ def _post(path: str, body: dict[str, Any]) -> dict[str, Any]:
     import httpx
 
     try:
-        r = httpx.post(f"{_base_url()}{path}", json=body, timeout=6.0)
+        r = httpx.post(f"{_base_url()}{path}", json=body, headers=_headers(), timeout=6.0)
         if r.status_code >= 400:
             # The surface returns structured JSON on 4xx — pass it through.
             try:

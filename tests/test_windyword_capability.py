@@ -26,7 +26,7 @@ def _resp(status=200, json_body=None, text=""):
 
 
 def test_status_summarizes_sound_and_widget():
-    def fake_get(url, timeout=0):
+    def fake_get(url, headers=None, timeout=0):
         if url.endswith("/sound-effects/state"):
             return _resp(json_body={"ok": True, "state": {
                 "mode": "pack", "activePackName": "Wizard",
@@ -45,7 +45,7 @@ def test_status_summarizes_sound_and_widget():
 def test_set_master_volume_clamps_and_posts():
     seen = {}
 
-    def fake_post(url, json=None, timeout=0):
+    def fake_post(url, json=None, headers=None, timeout=0):
         seen["url"] = url
         seen["body"] = json
         return _resp(json_body={"ok": True, "masterVolume": json["volume"]})
@@ -63,13 +63,13 @@ def test_set_sound_requires_a_change():
 
 
 def test_set_sound_pack_resolves_friendly_name():
-    def fake_get(url, timeout=0):
+    def fake_get(url, headers=None, timeout=0):
         return _resp(json_body={"ok": True, "packs": [
             {"id": "_silent", "name": "🔇 Silent"},
             {"id": "wizard", "name": "🧙 Wizard"}]})
     posted = {}
 
-    def fake_post(url, json=None, timeout=0):
+    def fake_post(url, json=None, headers=None, timeout=0):
         posted["body"] = json
         return _resp(json_body={"ok": True, "activePackId": json["packId"]})
 
@@ -81,7 +81,7 @@ def test_set_sound_pack_resolves_friendly_name():
 
 
 def test_set_sound_pack_unknown_lists_options():
-    def fake_get(url, timeout=0):
+    def fake_get(url, headers=None, timeout=0):
         return _resp(json_body={"ok": True, "packs": [{"id": "wizard", "name": "Wizard"}]})
     with patch.object(httpx, "get", side_effect=fake_get):
         out = ww._set_sound_pack(pack_id="nonsense")
@@ -105,7 +105,7 @@ def test_app_down_fails_soft_not_raises():
 
 
 def test_set_setting_passes_structured_4xx_through():
-    def fake_post(url, json=None, timeout=0):
+    def fake_post(url, json=None, headers=None, timeout=0):
         return _resp(status=422, json_body={"path": json["path"],
                                             "error": "unknown setting"})
     with patch.object(httpx, "post", side_effect=fake_post):
@@ -133,3 +133,57 @@ def test_registration_can_be_disabled(monkeypatch):
     reg = CapabilityRegistry()
     ww.register_windyword_capabilities(reg)
     assert reg.get("windyword.status") is None
+
+
+# ── per-install control token (windy-pro #231 wall) ────────────────
+
+
+def test_token_from_env_sent_as_bearer(monkeypatch):
+    monkeypatch.setenv("WINDY_WORD_CONTROL_TOKEN", "e" * 64)
+    seen = {}
+
+    def fake_get(url, headers=None, timeout=0):
+        seen["headers"] = headers
+        return _resp(json_body={"ok": True, "state": {}})
+
+    with patch.object(httpx, "get", side_effect=fake_get):
+        ww._get("/sound-effects/state")
+    assert seen["headers"] == {"Authorization": "Bearer " + "e" * 64}
+
+
+def test_token_read_fresh_from_file_each_call(monkeypatch, tmp_path):
+    monkeypatch.delenv("WINDY_WORD_CONTROL_TOKEN", raising=False)
+    tok = tmp_path / "control.token"
+    monkeypatch.setenv("WINDY_WORD_CONTROL_TOKEN_PATH", str(tok))
+    seen = []
+
+    def fake_get(url, headers=None, timeout=0):
+        seen.append(headers)
+        return _resp(json_body={"ok": True})
+
+    with patch.object(httpx, "get", side_effect=fake_get):
+        ww._get("/x")                      # no file yet → no header
+        tok.write_text("a" * 64 + "\n")    # app mints token mid-session
+        ww._get("/x")                      # picked up without restart
+        tok.write_text("b" * 64 + "\n")    # rotation
+        ww._get("/x")
+    assert seen[0] == {}
+    assert seen[1] == {"Authorization": "Bearer " + "a" * 64}
+    assert seen[2] == {"Authorization": "Bearer " + "b" * 64}
+
+
+def test_401_body_passes_through_agent_readable(monkeypatch, tmp_path):
+    monkeypatch.delenv("WINDY_WORD_CONTROL_TOKEN", raising=False)
+    monkeypatch.setenv("WINDY_WORD_CONTROL_TOKEN_PATH", str(tmp_path / "missing"))
+
+    def fake_get(url, headers=None, timeout=0):
+        return _resp(status=401, json_body={
+            "ok": False, "error": "unauthorized",
+            "token_path": "~/.windy-word/control.token",
+            "detail": "read the token and retry"})
+
+    with patch.object(httpx, "get", side_effect=fake_get):
+        out = ww._get("/config")
+    assert out["ok"] is False
+    assert out["error"] == "unauthorized"
+    assert out["token_path"]  # remediation survives to the agent
