@@ -53,6 +53,7 @@ def _request(method: str, path: str, **kw: Any) -> dict[str, Any]:
             f"{_base_url()}{path}",
             headers={"Authorization": f"Bearer {_ept()}"},
             timeout=_TIMEOUT,
+            follow_redirects=True,
             **kw,
         )
     except httpx.HTTPError as e:
