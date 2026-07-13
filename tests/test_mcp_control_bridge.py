@@ -95,3 +95,27 @@ def test_build_registry_is_runnable_and_partial():
     reg = build_registry()
     tools = registry_to_mcp_tools(reg, Band.OWNER)
     assert any(t["name"].startswith("windyword.") for t in tools)
+
+
+def test_build_registry_full_exposes_the_whole_capability_plane(monkeypatch, tmp_path):
+    # Default (non-minimal) build runs the real boot sequence → the WHOLE
+    # Capability Plane is healable over MCP, not just the windyword subset.
+    monkeypatch.delenv("WINDY_MCP_SERVER_MINIMAL", raising=False)
+    # isolate: never touch the real agent db
+    monkeypatch.setenv("WINDYFLY_DB_PATH", str(tmp_path / "mcp_test.db"))
+    from windyfly.mcp_server.server import build_registry
+
+    reg = build_registry()
+    families = {t["name"].split(".")[0] for t in registry_to_mcp_tools(reg, Band.OWNER)}
+    # core operational + doctor families must be present (more than windyword)
+    assert {"fs", "shell", "health"} <= families, families
+    assert len(families) > 1
+
+
+def test_build_registry_minimal_flag_forces_subset(monkeypatch):
+    monkeypatch.setenv("WINDY_MCP_SERVER_MINIMAL", "1")
+    from windyfly.mcp_server.server import build_registry
+
+    reg = build_registry()
+    names = [t["name"] for t in registry_to_mcp_tools(reg, Band.OWNER)]
+    assert names and all(n.startswith("windyword.") for n in names)

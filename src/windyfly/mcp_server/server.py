@@ -14,6 +14,7 @@ remote agent gets exactly the tools its passport earns — the moat, over MCP.
 from __future__ import annotations
 
 import asyncio
+import os
 
 from windyfly.agent.capabilities.descriptor import Band
 from windyfly.mcp_server.bridge import (
@@ -24,25 +25,63 @@ from windyfly.mcp_server.bridge import (
 
 
 def build_registry() -> "CapabilityRegistry":  # noqa: F821
-    """Build the Capability Plane this MCP surface exposes.
+    """Build the FULL Capability Plane this MCP surface exposes.
 
-    SEAM (Fly lane): production parity means reusing boot's
-    ``default_capability_registration_sequence`` with a real context
-    (db + config + write_queue), so every capability the agent has is
-    healable over MCP. That wiring needs the boot context and belongs in a
-    focused PR — see docs/handoffs/FLY-LANE in windy-contracts.
+    Runs boot's ``default_capability_registration_sequence`` against a real
+    context (db + write_queue + config) — the SAME registration the running
+    agent performs — so every capability Fly has is healable over MCP, not
+    just the context-free subset. Uses the agent's own db_path so it reads
+    the same data.
 
-    For now this registers the context-free capability modules so the
-    entrypoint is runnable and honest about its (partial) surface rather
-    than importing a helper that doesn't exist. Adding a module here is
-    safe; it never touches the running agent (this entrypoint is opt-in).
+    Falls back to the context-free subset if the substrate can't be opened
+    (e.g. a read-only or partial environment), so the entrypoint is always
+    runnable rather than dead. Set WINDY_MCP_SERVER_MINIMAL=1 to force the
+    minimal surface deliberately.
     """
     from windyfly.agent.capabilities.registry import CapabilityRegistry
     from windyfly.agent.capabilities.windyword import register_windyword_capabilities
 
-    registry = CapabilityRegistry()
-    register_windyword_capabilities(registry, None)  # config-free, proven safe
-    return registry
+    def _minimal() -> "CapabilityRegistry":
+        registry = CapabilityRegistry()
+        register_windyword_capabilities(registry, None)
+        return registry
+
+    if os.environ.get("WINDY_MCP_SERVER_MINIMAL") == "1":
+        return _minimal()
+
+    try:
+        from windyfly.agent.boot import (
+            BootContext,
+            BootSequence,
+            default_capability_registration_sequence,
+        )
+        from windyfly.agent.capabilities import capability_registry
+        from windyfly.config import load_config
+        from windyfly.memory.database import Database
+        from windyfly.memory.write_queue import WriteQueue
+        from windyfly.tools.registry import ToolRegistry
+
+        config = load_config()
+        db_path = config.get("memory", {}).get("db_path", "data/windyfly.db")
+        db = Database(db_path)
+        write_queue = WriteQueue()
+        write_queue.start()
+        BootSequence(default_capability_registration_sequence()).run(
+            BootContext(
+                config=config,
+                db=db,
+                write_queue=write_queue,
+                tool_registry=ToolRegistry(),
+                capability_registry=capability_registry,
+            )
+        )
+        return capability_registry
+    except Exception as e:  # substrate unavailable — stay runnable, honestly partial
+        import logging
+        logging.getLogger(__name__).warning(
+            "mcp_server: full registry unavailable (%s) — serving the minimal surface", e
+        )
+        return _minimal()
 
 
 async def serve_stdio(band: Band = Band.OWNER) -> None:
