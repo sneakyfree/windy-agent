@@ -1,0 +1,6 @@
+{
+  "product": "windy-agent",
+  "class": "agent-host",
+  "server": "native",
+  "auth": {"kind": "ept", "token_env": "WINDY_EPT"}
+}
