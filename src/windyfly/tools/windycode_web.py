@@ -127,8 +127,13 @@ def windycodeweb_create_project(name: str, kind: str = "site") -> dict[str, Any]
 
 
 def windycodeweb_add_files(project_id: str, files: dict[str, str], label: str) -> dict[str, Any]:
+    import base64 as _b64
+
     if not isinstance(files, dict) or not files:
         return {"status": "failed", "error": "files must be a non-empty {path: content} object"}
+    # The wire contract is base64 (binary-safe, matches Windy Cloud Sites).
+    # The LLM thinks in plain text — encode here, never ask the model to.
+    files = {str(p): _b64.b64encode(str(c).encode()).decode() for p, c in files.items()}
     if not label or not label.strip():
         return {
             "status": "failed",

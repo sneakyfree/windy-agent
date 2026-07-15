@@ -106,7 +106,9 @@ def test_add_files_requires_label(builder_env: None) -> None:
     assert "label" in out["error"]
 
 
-def test_add_files_happy_path(builder_env: None) -> None:
+def test_add_files_happy_path_encodes_b64(builder_env: None) -> None:
+    import base64
+
     with patch("windyfly.tools.windycode_web.httpx.request") as req:
         req.return_value = _response(
             200, {"checkpoint": {"version_id": "v1"}, "created": True, "speak": "Saved."}
@@ -116,6 +118,9 @@ def test_add_files_happy_path(builder_env: None) -> None:
     args, kwargs = req.call_args
     assert args == ("POST", f"{BASE}/api/v1/projects/p1/checkpoints")
     assert kwargs["json"]["label"] == "Added the cover"
+    # the LLM sends TEXT; the wire carries BASE64 (the real sites cell decodes it)
+    sent = kwargs["json"]["files"]["index.html"]
+    assert base64.b64decode(sent).decode() == "<h1>hi</h1>"
 
 
 def test_builder_speak_errors_relayed(builder_env: None) -> None:
