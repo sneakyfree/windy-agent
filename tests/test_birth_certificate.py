@@ -153,3 +153,32 @@ class TestPDFRendering:
             with open(path, "rb") as f:
                 assert f.read(5) == b"%PDF-"
             assert cert.pdf_path == path
+
+    def test_full_hardware_spec_bottom_block_does_not_overflow(self):
+        """Regression (2026-07-15 cert audit): a full hardware spec (11 detail
+        rows) + a placeholder/short first-words used to push the Neural
+        Fingerprint / First Words / Waveform sections down onto the fixed
+        footer, overprinting 'Waveform Signature' with 'Issued by ...
+        eternitas.ai' and clipping the frame. The _ART_FLOOR guard + pinned
+        footer must render this worst case cleanly (visually verified; here we
+        guard the render path against a crash/regression on the tall case)."""
+        cert = generate_birth_certificate(
+            agent_name="TestFly",
+            passport_id="ET-TEST-12345",
+            first_words="(awaiting first interaction)",
+            model_id="claude-sonnet-4-20250514",
+            owner_name="Grant Whitmer",
+            email_address="testfly@windymail.ai",
+            phone_number="+1-555-0199",
+            hardware_specs={
+                "cpu": "Intel(R) Core(TM) i5-7500 CPU @ 3.40GHz",
+                "ram": "40.0 GB", "gpu": "Radeon Pro 570", "os": "macOS 13.7.8",
+            },
+        )
+        pdf_bytes = render_birth_certificate_pdf(cert)
+        assert pdf_bytes[:5] == b"%PDF-"
+        assert len(pdf_bytes) > 1000
+        # A very long first-words on top of the full spec must also render
+        # (the two-line cap keeps it out of the waveform/footer band).
+        cert.first_words = "x " * 200
+        assert render_birth_certificate_pdf(cert)[:5] == b"%PDF-"
