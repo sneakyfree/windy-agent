@@ -154,6 +154,56 @@ def windycodeweb_project_status(project_id: str) -> dict[str, Any]:
     return _request("GET", f"/{project_id}/status")
 
 
+def windycodeweb_preview(project_id: str) -> dict[str, Any]:
+    return _request("GET", f"/{project_id}/preview")
+
+
+def windycodeweb_unpublish(project_id: str, confirm_token: str = "") -> dict[str, Any]:
+    # Same external-effect posture as publish: trust plane first, then the
+    # builder's confirm relay does the human-consent half.
+    if _trust_gate_enabled():
+        from windyfly.trust.gate import TrustDenied, require_trust
+
+        try:
+            asyncio.run(require_trust(_PUBLISH_TRUST_ACTION))
+        except TrustDenied as denied:
+            return {"status": "denied", "reason": denied.reason, "band": denied.band,
+                    "action": _PUBLISH_TRUST_ACTION, "error": str(denied)}
+        except Exception as exc:
+            logger.warning("Trust gate check errored (fail-open): %s", exc)
+    body: dict[str, Any] = {}
+    if confirm_token.strip():
+        body["confirm_token"] = confirm_token.strip()
+    return _request("POST", f"/{project_id}/unpublish", body)
+
+
+def windycodeweb_connect_domain(
+    project_id: str,
+    fqdn: str,
+    confirm_token: str = "",
+    bundle_actions: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    if not fqdn or "." not in fqdn:
+        return {"status": "failed",
+                "error": "fqdn must be a full name like grandmarose.com"}
+    if _trust_gate_enabled():
+        from windyfly.trust.gate import TrustDenied, require_trust
+
+        try:
+            asyncio.run(require_trust(_PUBLISH_TRUST_ACTION))
+        except TrustDenied as denied:
+            return {"status": "denied", "reason": denied.reason, "band": denied.band,
+                    "action": _PUBLISH_TRUST_ACTION, "error": str(denied)}
+        except Exception as exc:
+            logger.warning("Trust gate check errored (fail-open): %s", exc)
+    body: dict[str, Any] = {"fqdn": fqdn.strip().lower()}
+    if confirm_token.strip():
+        body["confirm_token"] = confirm_token.strip()
+    if bundle_actions:
+        body["bundle_actions"] = bundle_actions
+    return _request("POST", f"/{project_id}/connect-domain", body)
+
+
 def windycodeweb_publish(project_id: str, confirm_token: str = "") -> dict[str, Any]:
     # Publish is an external effect: gate on the trust plane (ADR-019/020)
     # exactly like post_chat_message does, then let the builder's own
@@ -297,6 +347,63 @@ def register_windycodeweb_tools(registry: ToolRegistry) -> None:
         parameters={"type": "object", "properties": {"project_id": _pid},
                     "required": ["project_id"]},
         fn=windycodeweb_project_status,
+    )
+
+    registry.register(
+        name="windycodeweb_preview",
+        description=(
+            "A private 15-minute preview link of the project's WORKING "
+            "version. Use to show the user how it looks BEFORE publishing "
+            "('here's a private look: <preview_url>')."
+        ),
+        parameters={"type": "object", "properties": {"project_id": _pid},
+                    "required": ["project_id"]},
+        fn=windycodeweb_preview,
+    )
+
+    registry.register(
+        name="windycodeweb_unpublish",
+        description=(
+            "Make a live site PRIVATE again (visitors stop seeing it; nothing "
+            "is deleted). EXTERNAL EFFECT: if the result has confirm_required, "
+            "relay its 'speak' question VERBATIM, get the user's yes, call "
+            "again with the confirm_token."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {"project_id": _pid,
+                           "confirm_token": {"type": "string",
+                                             "description": "After the user says yes."}},
+            "required": ["project_id"],
+        },
+        fn=windycodeweb_unpublish,
+    )
+
+    registry.register(
+        name="windycodeweb_connect_domain",
+        description=(
+            "Put the user's project on their OWN domain ('put it on "
+            "grandmarose.com'). EXTERNAL EFFECT. Two paths: (a) standalone — "
+            "relay the confirm_required question, then retry with "
+            "confirm_token; (b) bundled with a purchase — pass the "
+            "Domains-issued bundle confirm_token AND bundle_actions verbatim "
+            "so buy+connect happens on the user's ONE yes. Never split a "
+            "bundle into two questions."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "project_id": _pid,
+                "fqdn": {"type": "string",
+                         "description": "Full name, e.g. grandmarose.com."},
+                "confirm_token": {"type": "string",
+                                  "description": "Own-flow token OR Domains bundle token."},
+                "bundle_actions": {"type": "array", "items": {"type": "object"},
+                                   "description": "EXACT actions list from the Domains bundle."},
+            },
+            "required": ["project_id", "fqdn"],
+        },
+        fn=windycodeweb_connect_domain,
     )
 
     registry.register(
