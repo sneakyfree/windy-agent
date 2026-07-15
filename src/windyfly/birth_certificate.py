@@ -455,10 +455,17 @@ def render_birth_certificate_pdf(cert: BirthCertificate) -> bytes:
     pdf.set_text_color(0, 0, 0)
     y += 10
 
-    # Neural art — use smaller size if we're running low on space
+    # Neural art. The bottom block (First Words -> Waveform -> Footer) still
+    # flows on `y`, and the footer is pinned just inside the frame, so the
+    # variable-height art MUST stop early enough to leave room for that block
+    # or it pushes First Words/Waveform down onto the footer (the overlap the
+    # 2026-07-15 cert audit caught). _ART_FLOOR reserves the bottom band.
+    _ART_FLOOR = 230.0
     art_lines = generate_neural_art(cert.neural_fingerprint, size=5)
     pdf.set_font("Courier", "", 10)
     for line in art_lines:
+        if y > _ART_FLOOR:
+            break
         pdf.set_xy(20, y)
         safe_line = line
         for orig, repl in [
@@ -481,8 +488,10 @@ def render_birth_certificate_pdf(cert: BirthCertificate) -> bytes:
 
     pdf.set_font("Helvetica", "I", 9)
     first_words = cert.first_words
-    if len(first_words) > 200:
-        first_words = first_words[:197] + "..."
+    # Cap to ~two lines (140mm at 9pt italic is ~55 chars/line) so a long
+    # quote can't grow down into the Waveform heading and footer.
+    if len(first_words) > 110:
+        first_words = first_words[:107] + "..."
     pdf.set_xy(35, y)
     pdf.multi_cell(140, 5, f'"{first_words}"', align="C")
     y = pdf.get_y() + 3
@@ -503,10 +512,11 @@ def render_birth_certificate_pdf(cert: BirthCertificate) -> bytes:
     pdf.set_xy(20, y)
     pdf.cell(170, 5, safe_wave, align="C")
 
-    # Footer
+    # Footer — pinned just inside the bottom frame (rect bottom = 279). The
+    # _ART_FLOOR guard above guarantees the Waveform section ends above this.
     pdf.set_font("Helvetica", "I", 8)
     pdf.set_text_color(120, 120, 120)
-    pdf.set_xy(20, 270)
+    pdf.set_xy(20, 274)
     pdf.cell(170, 5, "Issued by the Windy Fly Agent Registry | eternitas.ai", align="C")
 
     return pdf.output()
