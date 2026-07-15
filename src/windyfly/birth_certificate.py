@@ -299,6 +299,7 @@ def render_birth_certificate_terminal(cert: BirthCertificate) -> str:
     lines = [
         "",
         "  [bold]CERTIFICATE OF BIRTH[/bold]",
+        "  [dim]Issued by Eternitas · Hatched via Windy Fly[/dim]",
         f"  [dim]Certificate No: {cert.certificate_number}[/dim]",
         "",
         f"  [bold cyan]{cert.agent_name}[/bold cyan]",
@@ -369,7 +370,7 @@ def render_birth_certificate_pdf(cert: BirthCertificate) -> bytes:
     pdf.set_font("Helvetica", "", 10)
     pdf.set_text_color(120, 120, 120)
     pdf.set_xy(20, 43)
-    pdf.cell(170, 6, "Windy Fly Agent Registry", align="C")
+    pdf.cell(170, 6, "Issued by Eternitas  ·  Hatched via Windy Fly", align="C")
 
     pdf.set_text_color(0, 0, 0)
 
@@ -517,7 +518,7 @@ def render_birth_certificate_pdf(cert: BirthCertificate) -> bytes:
     pdf.set_font("Helvetica", "I", 8)
     pdf.set_text_color(120, 120, 120)
     pdf.set_xy(20, 274)
-    pdf.cell(170, 5, "Issued by the Windy Fly Agent Registry | eternitas.ai", align="C")
+    pdf.cell(170, 5, "Passport issued by Eternitas  ·  hatched via Windy Fly  ·  verify at eternitas.ai", align="C")
 
     return pdf.output()
 
