@@ -324,3 +324,39 @@ class TestLifeboatVisibilityAndRecoveryFlow:
         assert "Recovered" in reply
         # Paid-llm content appears
         assert "paid-llm reply" in reply
+
+
+class TestPaidHealthProbeOAuthTokens:
+    """OAuth (sk-ant-oat) tokens 401 the x-api-key path unconditionally, so
+    the probe must switch to Bearer + the oauth beta header — otherwise an
+    OAuth box can NEVER recover from lifeboat (Windy 0, 2026-07-13→15)."""
+
+    def _capture_headers(self, monkeypatch, key):
+        from windyfly.agent import resurrect as _r
+        monkeypatch.setenv("ANTHROPIC_API_KEY", key)
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        seen = {}
+
+        class _Resp:
+            status_code = 200
+
+        def fake_get(url, headers=None, timeout=None):
+            seen["url"] = url
+            seen["headers"] = headers
+            return _Resp()
+
+        with patch("httpx.get", side_effect=fake_get):
+            out = _r._paid_health_probe()
+        assert out["ok"] is True
+        return seen["headers"]
+
+    def test_oauth_token_probes_via_bearer_and_beta_header(self, monkeypatch):
+        h = self._capture_headers(monkeypatch, "sk-ant-oat01-sometoken")
+        assert h["Authorization"] == "Bearer sk-ant-oat01-sometoken"
+        assert h["anthropic-beta"] == "oauth-2025-04-20"
+        assert "x-api-key" not in h
+
+    def test_api_key_still_probes_via_x_api_key(self, monkeypatch):
+        h = self._capture_headers(monkeypatch, "sk-ant-api03-somekey")
+        assert h["x-api-key"] == "sk-ant-api03-somekey"
+        assert "Authorization" not in h

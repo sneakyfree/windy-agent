@@ -729,10 +729,23 @@ def _paid_health_probe(timeout: float = 4.0) -> dict[str, Any]:
 
     candidates: list[tuple[str, str, dict[str, str]]] = []
     if (key := os.environ.get("ANTHROPIC_API_KEY")):
+        if key.startswith("sk-ant-oat"):
+            # OAuth (Max-plan) tokens 401 the x-api-key path unconditionally,
+            # which made recovery IMPOSSIBLE on OAuth boxes — the probe saw
+            # "key dead" forever and the bot stayed latched in lifeboat
+            # (Windy 0, 2026-07-13→15). They must go Bearer + the oauth beta
+            # header, same as models.py's auth path and windy-fly-refresh-oauth.
+            headers = {
+                "Authorization": f"Bearer {key}",
+                "anthropic-beta": "oauth-2025-04-20",
+                "anthropic-version": "2023-06-01",
+            }
+        else:
+            headers = {"x-api-key": key, "anthropic-version": "2023-06-01"}
         candidates.append((
             "anthropic",
             "https://api.anthropic.com/v1/models",
-            {"x-api-key": key, "anthropic-version": "2023-06-01"},
+            headers,
         ))
     if (key := os.environ.get("OPENAI_API_KEY")):
         candidates.append((
