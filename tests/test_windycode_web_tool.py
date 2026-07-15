@@ -65,6 +65,9 @@ def test_registration_adds_all_tools() -> None:
         "windycodeweb_undo",
         "windycodeweb_project_status",
         "windycodeweb_publish",
+        "windycodeweb_preview",
+        "windycodeweb_unpublish",
+        "windycodeweb_connect_domain",
     }
 
 
@@ -169,3 +172,53 @@ def test_boot_registers_windycode_web() -> None:
     assert hasattr(boot, "_step_register_windycode_web")
     src = open(boot.__file__).read()
     assert 'Step("tools.windycode_web",  _step_register_windycode_web)' in src
+
+
+def test_connect_domain_bundle_passes_verbatim(builder_env: None) -> None:
+    from windyfly.tools.windycode_web import windycodeweb_connect_domain
+
+    bundle = [{"type": "register_domain", "fqdn": "grandmarose.com"},
+              {"type": "connect_domain_to_site", "fqdn": "grandmarose.com"}]
+    with patch("windyfly.tools.windycode_web.httpx.request") as req:
+        req.return_value = _response(200, {"state": "applying", "speak": "Connecting."})
+        out = windycodeweb_connect_domain("p1", "GrandmaRose.com",
+                                          confirm_token="bt_1", bundle_actions=bundle)
+    assert out["status"] == "ok"
+    sent = req.call_args.kwargs["json"]
+    assert sent["fqdn"] == "grandmarose.com"
+    assert sent["confirm_token"] == "bt_1"
+    assert sent["bundle_actions"] == bundle  # untouched — one yes, never split
+
+
+def test_connect_domain_rejects_junk(builder_env: None) -> None:
+    from windyfly.tools.windycode_web import windycodeweb_connect_domain
+
+    out = windycodeweb_connect_domain("p1", "nodots")
+    assert out["status"] == "failed"
+
+
+def test_unpublish_trust_denied_no_wire(builder_env: None,
+                                        monkeypatch: pytest.MonkeyPatch) -> None:
+    from windyfly.tools.windycode_web import windycodeweb_unpublish
+    from windyfly.trust.gate import TrustDenied
+
+    monkeypatch.setenv("ETERNITAS_PASSPORT", "ET26-TEST")
+    denied = TrustDenied(action="windycode_web_publish", band="critical",
+                         reason="integrity band below floor")
+    with patch("windyfly.tools.windycode_web.httpx.request") as req, patch(
+        "windyfly.trust.gate.require_trust", side_effect=denied
+    ):
+        out = windycodeweb_unpublish("p1")
+    assert out["status"] == "denied"
+    req.assert_not_called()
+
+
+def test_preview_happy_path(builder_env: None) -> None:
+    from windyfly.tools.windycode_web import windycodeweb_preview
+
+    with patch("windyfly.tools.windycode_web.httpx.request") as req:
+        req.return_value = _response(200, {"preview_url": "https://x/preview/t/index.html",
+                                           "expires_in_seconds": 900})
+        out = windycodeweb_preview("p1")
+    assert out["status"] == "ok"
+    assert out["preview_url"].startswith("https://x/preview/")
