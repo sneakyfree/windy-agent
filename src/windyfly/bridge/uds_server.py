@@ -16,6 +16,7 @@ from typing import Any
 
 from windyfly.agent.loop import agent_respond
 from windyfly.control_panel import get_slider_info, get_sliders, set_slider
+from windyfly.tools.registry import ToolRegistry
 from windyfly.dashboard.data import get_dashboard_summary
 from windyfly.memory.cost_ledger import get_daily_spend
 from windyfly.memory.database import Database
@@ -40,10 +41,17 @@ class UDSBridge:
         write_queue: WriteQueue,
         socket_path: str | None = None,
         ipc_config: IPCConfig | None = None,
+        tool_registry: ToolRegistry | None = None,
     ) -> None:
         self.config = config
         self.db = db
         self.write_queue = write_queue
+        # The agent's tool set (email/sites/domains/reminders/…). Built +
+        # boot-registered by _serve_forever and passed in, exactly as main.py
+        # builds it and hands it to the telegram/matrix bots. Left None when a
+        # test constructs the bridge directly, which keeps the old tool-less
+        # behavior — so the voice path gains tools without changing test setup.
+        self.tool_registry = tool_registry
         self.ipc = ipc_config or get_ipc_config()
         # Legacy socket_path arg overrides platform detection for UDS mode
         if socket_path is not None:
@@ -153,10 +161,18 @@ class UDSBridge:
     async def _handle_respond(self, params: dict) -> dict:
         message = params.get("message", "")
         session_id = params.get("session_id", str(uuid.uuid4()))
+        # Band gates which tools the loop exposes. The voice path is the OWNER
+        # talking to their own paired agent (authenticated upstream via the
+        # Eternitas passport), so OWNER unless guest-mode is on for a demo
+        # audience — identical to main.py's per-channel default.
+        from windyfly.agent.capabilities import Band
+        from windyfly.agent.guest_mode import is_guest_active
+        band = Band.USER if is_guest_active() else Band.OWNER
         loop = asyncio.get_event_loop()
         response = await loop.run_in_executor(
             None, agent_respond, self.config, self.db,
             self.write_queue, message, session_id,
+            self.tool_registry, band,
         )
         return {"response": response}
 
@@ -671,7 +687,30 @@ async def _serve_forever() -> None:
     write_queue = WriteQueue()
     write_queue.start()
 
-    bridge = UDSBridge(config, db, write_queue)
+    # Register the agent's tools + capabilities, exactly as the telegram/matrix
+    # channels do in main.py — otherwise the voice bridge runs the full loop but
+    # with an EMPTY tool set (it could converse + native web_search, but never
+    # fire email/sites/domains/reminders). Build the registry here and hand it
+    # to the bridge; the capability_registry global is populated by the boot
+    # steps below and read per-band inside agent_respond.
+    from windyfly.agent.boot import (
+        BootContext, BootSequence,
+        default_capability_registration_sequence,
+    )
+    from windyfly.agent.capabilities import capability_registry
+
+    tool_registry = ToolRegistry()
+    BootSequence(default_capability_registration_sequence()).run(
+        BootContext(
+            config=config, db=db, write_queue=write_queue,
+            tool_registry=tool_registry,
+            capability_registry=capability_registry,
+        )
+    )
+    logger.info("Voice bridge tools registered: %d legacy + capability set",
+                len(tool_registry.get_schemas()))
+
+    bridge = UDSBridge(config, db, write_queue, tool_registry=tool_registry)
     stop_event = asyncio.Event()
 
     loop = asyncio.get_running_loop()
