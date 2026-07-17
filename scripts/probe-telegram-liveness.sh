@@ -28,9 +28,10 @@
 #   WINDY_ENV_FILE              ~/.windy/windy-0.env
 #   WINDY_LIVENESS_STATUS_FILE  ~/.windy/liveness.status
 #   WINDY_LIVENESS_FAIL_LIMIT   3
-#   WINDY_AGENT_UNIT            windy-0.service
+#   WINDY_AGENT_UNITS           windy-0@telegram.service windy-0@matrix.service
+#                               (space-separated; one runtime per channel)
 #   WINDY_AGENT_SCOPE           user
-#   WINDY_AGENT_LOG             ~/.windy/windy-0.log
+#   WINDY_AGENT_LOG             ~/.windy/windy-0-telegram.log
 #   HEARTBEAT_MAX_AGE_SEC       900 (15 min — 3× the heartbeat interval)
 
 set -uo pipefail
@@ -38,9 +39,12 @@ set -uo pipefail
 ENV_FILE="${WINDY_ENV_FILE:-/home/grantwhitmer/.windy/windy-0.env}"
 STATUS_FILE="${WINDY_LIVENESS_STATUS_FILE:-/home/grantwhitmer/.windy/liveness.status}"
 FAIL_LIMIT="${WINDY_LIVENESS_FAIL_LIMIT:-3}"
-UNIT="${WINDY_AGENT_UNIT:-windy-0.service}"
+# Legacy WINDY_AGENT_UNIT still honoured so old installs don't silently
+# probe nothing; per-channel split (2026-07-08) means the default is now
+# BOTH channel units.
+UNITS="${WINDY_AGENT_UNITS:-${WINDY_AGENT_UNIT:-windy-0@telegram.service windy-0@matrix.service}}"
 SCOPE="${WINDY_AGENT_SCOPE:-user}"
-AGENT_LOG="${WINDY_AGENT_LOG:-/home/grantwhitmer/.windy/windy-0.log}"
+AGENT_LOG="${WINDY_AGENT_LOG:-/home/grantwhitmer/.windy/windy-0-telegram.log}"
 HEARTBEAT_MAX_AGE_SEC="${HEARTBEAT_MAX_AGE_SEC:-900}"
 
 if [[ -f "$ENV_FILE" ]]; then
@@ -70,6 +74,34 @@ write_status() {
     } > "$STATUS_FILE"
 }
 
+SCOPE_FLAG=""; [[ "$SCOPE" == "user" ]] && SCOPE_FLAG="--user"
+
+# Restart the given units and VERIFY they came back. Only a verified
+# restart resets the consecutive-fail counter — a failed restart (e.g.
+# unit renamed/masked, the 2026-07-17 15h outage) must keep counting
+# and keep screaming, never report RESTART_TRIGGERED and go quiet.
+attempt_restart() {
+    local reason="$1"; shift
+    local units=("$@") failed=""
+    for u in "${units[@]}"; do
+        systemctl $SCOPE_FLAG restart "$u" || true
+    done
+    sleep 3
+    for u in "${units[@]}"; do
+        if [[ "$(systemctl $SCOPE_FLAG is-active "$u" 2>/dev/null)" != "active" ]]; then
+            failed="$failed $u"
+        fi
+    done
+    if [[ -z "$failed" ]]; then
+        logger -t windy-liveness-probe "restarted ${units[*]} ($reason) — verified active"
+        write_status RESTART_TRIGGERED 0 "restarted ${units[*]} ($reason)"
+    else
+        logger -t windy-liveness-probe \
+            "RESTART FAILED for$failed ($reason) — agent still down, will keep retrying"
+        write_status RESTART_FAILED "$NEW_FAILS" "restart failed for$failed ($reason)"
+    fi
+}
+
 # ── Check 1: bot token + Telegram reachable ────────────────────────
 
 URL="https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getMe"
@@ -83,27 +115,24 @@ if [[ "$HTTP_CODE" != "200" ]] || [[ "$BODY" != *'"ok":true'* ]]; then
     NEW_FAILS=$((PREV_FAILS + 1))
     write_status FAIL "$NEW_FAILS" "getMe http=$HTTP_CODE body=${BODY:0:80}"
     if (( NEW_FAILS >= FAIL_LIMIT )); then
-        logger -t windy-liveness-probe \
-            "getMe failed ${NEW_FAILS}× — restarting $UNIT"
-        SCOPE_FLAG=""; [[ "$SCOPE" == "user" ]] && SCOPE_FLAG="--user"
-        systemctl $SCOPE_FLAG restart "$UNIT" || true
-        write_status RESTART_TRIGGERED 0 "restarted $UNIT after getMe fails"
+        # shellcheck disable=SC2086
+        attempt_restart "getMe failed ${NEW_FAILS}x" $UNITS
     fi
     exit 1
 fi
 
-# ── Check 2: agent process is actually active ──────────────────────
+# ── Check 2: agent processes are actually active ───────────────────
 
-SCOPE_FLAG=""; [[ "$SCOPE" == "user" ]] && SCOPE_FLAG="--user"
-ACTIVE=$(systemctl $SCOPE_FLAG is-active "$UNIT" 2>/dev/null || echo "missing")
-if [[ "$ACTIVE" != "active" ]]; then
+DEAD_UNITS=()
+for u in $UNITS; do
+    ACTIVE=$(systemctl $SCOPE_FLAG is-active "$u" 2>/dev/null || echo "missing")
+    [[ "$ACTIVE" != "active" ]] && DEAD_UNITS+=("$u:$ACTIVE")
+done
+if (( ${#DEAD_UNITS[@]} > 0 )); then
     NEW_FAILS=$((PREV_FAILS + 1))
-    write_status FAIL "$NEW_FAILS" "unit_state=$ACTIVE (token works but process is dead)"
+    write_status FAIL "$NEW_FAILS" "unit_state=${DEAD_UNITS[*]} (token works but process is dead)"
     if (( NEW_FAILS >= FAIL_LIMIT )); then
-        logger -t windy-liveness-probe \
-            "$UNIT inactive ${NEW_FAILS}× — restarting"
-        systemctl $SCOPE_FLAG restart "$UNIT" || true
-        write_status RESTART_TRIGGERED 0 "restarted $UNIT (was $ACTIVE)"
+        attempt_restart "units dead ${NEW_FAILS}x" "${DEAD_UNITS[@]%%:*}"
     fi
     exit 1
 fi
@@ -126,11 +155,8 @@ if [[ -r "$AGENT_LOG" ]]; then
             write_status FAIL "$NEW_FAILS" \
                 "heartbeat stale: ${AGE_SEC}s old (max=${HEARTBEAT_MAX_AGE_SEC}s)"
             if (( NEW_FAILS >= FAIL_LIMIT )); then
-                logger -t windy-liveness-probe \
-                    "heartbeat stale ${AGE_SEC}s ${NEW_FAILS}× — restarting $UNIT"
-                systemctl $SCOPE_FLAG restart "$UNIT" || true
-                write_status RESTART_TRIGGERED 0 \
-                    "restarted $UNIT (heartbeat ${AGE_SEC}s stale)"
+                # shellcheck disable=SC2086
+                attempt_restart "heartbeat stale ${AGE_SEC}s ${NEW_FAILS}x" $UNITS
             fi
             exit 1
         fi
@@ -138,5 +164,5 @@ if [[ -r "$AGENT_LOG" ]]; then
 fi
 
 # All three checks passed.
-write_status OK 0 "getMe ok, unit=$ACTIVE, heartbeat fresh"
+write_status OK 0 "getMe ok, units active ($UNITS), heartbeat fresh"
 exit 0
