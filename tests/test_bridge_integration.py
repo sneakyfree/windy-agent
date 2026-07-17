@@ -243,3 +243,69 @@ class TestAgentRespondViaBridge:
         time.sleep(0.5)
         wq.stop()
         db.close()
+
+
+# === Frame-level parsing (malformed / non-object) ===
+
+
+class TestFrameParsing:
+    """Drive _handle_client directly with an asyncio StreamReader so we
+    exercise the newline-frame parse path, not just _dispatch."""
+
+    def _drive(self, frames: bytes) -> list[dict]:
+        db = Database(":memory:")
+        wq = WriteQueue()
+        bridge = UDSBridge({}, db, wq)
+
+        async def go():
+            reader = asyncio.StreamReader()
+            reader.feed_data(frames)
+            reader.feed_eof()
+            written: list[bytes] = []
+
+            class FakeWriter:
+                def write(self, b):
+                    written.append(b)
+
+                async def drain(self):
+                    pass
+
+                def close(self):
+                    pass
+
+            await bridge._handle_client(reader, FakeWriter())
+            return [
+                json.loads(line)
+                for line in b"".join(written).split(b"\n")
+                if line.strip()
+            ]
+
+        try:
+            return _run(go())
+        finally:
+            db.close()
+
+    def test_invalid_json_returns_structured_error(self):
+        replies = self._drive(b"{not valid json\n")
+        assert replies[0]["error"] == "Invalid JSON"
+
+    def test_non_object_frames_get_structured_error_not_disconnect(self):
+        # Fuzz-caught 2026-07-17: these used to AttributeError past the
+        # error handler and silently tear down the connection.
+        for frame in (b"123\n", b'"a string"\n', b"[1,2,3]\n", b"null\n"):
+            replies = self._drive(frame)
+            assert len(replies) == 1, f"{frame!r} produced no reply"
+            assert replies[0]["result"] is None
+            assert "JSON object" in replies[0]["error"], frame
+
+    def test_connection_survives_bad_frame_then_serves_good(self):
+        # bad + good on ONE connection: the good frame must still answer.
+        replies = self._drive(
+            b"[1,2,3]\n"
+            + json.dumps({"id": "g", "method": "offline.status", "params": {}}).encode()
+            + b"\n"
+        )
+        assert replies[0]["error"] and "JSON object" in replies[0]["error"]
+        assert replies[1]["id"] == "g"
+        assert replies[1]["error"] is None
+        assert replies[1]["result"]["online"] in (True, False)
