@@ -283,3 +283,76 @@ def test_auth_reply_band_gated_for_strangers(
     assert "restart" not in reply.lower()
     assert "/reset" not in reply
     assert "/resurrect" not in reply
+
+
+@patch("windyfly.agent.loop.is_online", return_value=True)
+@patch("windyfly.agent.loop.call_llm")
+def test_auth_dead_grandma_gets_local_floor(
+    mock_llm, _online, stack, isolated_flags,
+):
+    """2026-07-17 honey-badger fix: a USER/SANDBOX-band sender can't fix
+    a token, so 'try again later' is a strand. When the local floor
+    (Ollama) is up, keep answering on it with an honest one-liner —
+    per-turn only, no lifeboat latch written."""
+    config, db, wq = stack
+    from windyfly.agent.capabilities import Band
+    from windyfly.agent.loop import agent_respond
+
+    mock_llm.side_effect = RuntimeError(
+        "LLM call failed across all providers in chain "
+        "(attempted=['anthropic(claude-haiku-4-5-20251001)']): "
+        "Error code: 401 - {'type': 'error', 'error': "
+        "{'type': 'authentication_error', 'message': "
+        "'invalid x-api-key'}}"
+    )
+    with patch(
+        "windyfly.agent.offline.is_ollama_available", return_value=True,
+    ), patch(
+        "windyfly.agent.offline.get_offline_response",
+        return_value="Here's my best local answer.",
+    ) as mock_floor:
+        reply = agent_respond(
+            config, db, wq, "hello?", "auth-floor-test", band=Band.SANDBOX,
+        )
+
+    # She still gets an ANSWER…
+    assert "Here's my best local answer." in reply
+    mock_floor.assert_called_once()
+    # …with the honest degraded-mode marker…
+    assert "🛟" in reply
+    assert "operator" in reply
+    # …and still no operator runbook.
+    assert "~/.windy" not in reply
+    assert "env file" not in reply
+    # No durable lifeboat latch was written (per-turn floor only).
+    from windyfly.agent.resurrect import is_resurrected
+    assert is_resurrected() is False
+
+
+@patch("windyfly.agent.loop.is_online", return_value=True)
+@patch("windyfly.agent.loop.call_llm")
+def test_auth_dead_grandma_no_floor_keeps_outage_message(
+    mock_llm, _online, stack, isolated_flags,
+):
+    """Floor down + auth dead → the previous honest outage message,
+    unchanged."""
+    config, db, wq = stack
+    from windyfly.agent.capabilities import Band
+    from windyfly.agent.loop import agent_respond
+
+    mock_llm.side_effect = RuntimeError(
+        "LLM call failed across all providers in chain "
+        "(attempted=['anthropic(claude-haiku-4-5-20251001)']): "
+        "Error code: 401 - {'type': 'error', 'error': "
+        "{'type': 'authentication_error', 'message': "
+        "'invalid x-api-key'}}"
+    )
+    with patch(
+        "windyfly.agent.offline.is_ollama_available", return_value=False,
+    ):
+        reply = agent_respond(
+            config, db, wq, "hello?", "auth-nofloor-test", band=Band.SANDBOX,
+        )
+
+    assert "try again later" in reply.lower()
+    assert "credentials" in reply
