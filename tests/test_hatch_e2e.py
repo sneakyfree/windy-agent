@@ -106,7 +106,9 @@ class TestOrchestrateHatchFlow:
         assert result.phone_is_mock is True
 
         # Step 5: Birth certificate
-        assert result.certificate_number.startswith("WF-")
+        # ADR-064: the certificate number is Eternitas's (ET- + record id
+        # slice), never the retired locally-minted WF- formula.
+        assert result.certificate_number.startswith("ET-")
         assert len(result.neural_fingerprint) == 64
 
         # Hardware specs collected

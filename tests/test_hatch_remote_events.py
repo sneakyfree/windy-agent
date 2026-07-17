@@ -105,7 +105,8 @@ async def test_birth_certificate_ready_payload_includes_rich(db, monkeypatch) ->
     assert "rich" in payload, "missing rich payload in ready event"
     rich = payload["rich"]
     assert rich["agent_name"] == "rich-fly"
-    assert rich["certificate_number"].startswith("WF-")
+    # ADR-064: Eternitas's certificate number (ET-…), not the retired WF- one.
+    assert rich["certificate_number"].startswith("ET-")
     assert rich["neural_art_svg"].startswith("<svg")
     # Eternitas only ships the QR endpoint — the neural-art SVG is
     # generated locally and must never carry a *_remote field.

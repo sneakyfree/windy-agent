@@ -69,7 +69,7 @@ class TestFullHatchIntegration:
 
         # Birth certificate
         assert result.neural_fingerprint != ""
-        assert result.certificate_number.startswith("WF-")
+        assert result.certificate_number.startswith("ET-")  # ADR-064: Eternitas's number, WF- retired
 
     async def test_hatch_passport_id_format(self, db):
         """Passport ID should match the Eternitas format (ET-LXXXXX for mock)."""

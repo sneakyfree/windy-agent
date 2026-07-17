@@ -99,6 +99,15 @@ class MockEternitasClient:
             status="active",
             trust_score=70,
             issued_at=now,
+            # ADR-064 parity with the real API: registration returns the
+            # canonical certificate block. Mock number is derived the same
+            # way the real one is (ET- + first 8 of the record id).
+            certificate={
+                "id": row_id,
+                "certificate_no": f"ET-{row_id[:8].upper()}",
+                "passport": passport_id,
+                "signed_at": now.isoformat(),
+            },
         )
 
     async def verify(self, passport_id: str) -> EternitasPassport | None:

@@ -62,7 +62,7 @@ class TestOrchestration:
 
         # Birth certificate should be generated
         assert result.neural_fingerprint != ""
-        assert result.certificate_number.startswith("WF-")
+        assert result.certificate_number.startswith("ET-")  # ADR-064: Eternitas's number, WF- retired
 
     async def test_hatch_generates_pdf(self, db):
         """Hatch should save a PDF birth certificate."""
