@@ -209,3 +209,67 @@ def test_max_oauth_unavailable_falls_through_to_mind(monkeypatch):
         )
         models.call_llm([{"role": "user", "content": "hi"}], model="gpt-4o-mini")
         mock_post.assert_called_once()
+
+
+# ─── Catalog-drift 422 retry (2026-07-17 live-caught) ────────────────
+
+
+def _mind_ok(payload_model="auto-picked"):
+    return MagicMock(
+        status_code=200,
+        json=MagicMock(return_value={
+            "model": payload_model,
+            "choices": [{
+                "message": {"role": "assistant", "content": "from mind"},
+                "finish_reason": "stop",
+            }],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+        }),
+    )
+
+
+def test_mind_422_on_model_retries_modelless(monkeypatch):
+    """Mind's /v1/chat validates `model` against a hardcoded enum. A slug
+    Mind doesn't know (e.g. claude-haiku-4-5) must NOT knock the agent off
+    its primary brain — retry once without `model` and let the broker
+    route. Live-caught 2026-07-17."""
+    monkeypatch.setenv("ETERNITAS_PASSPORT_TOKEN", "ept_test_token")
+
+    rejected = MagicMock(status_code=422, text='{"detail":[{"type":"enum","loc":["body","model"]}]}')
+    with patch("httpx.post") as mock_post:
+        mock_post.side_effect = [rejected, _mind_ok()]
+        result = models.call_llm(
+            [{"role": "user", "content": "hi"}],
+            model="claude-haiku-4-5",
+        )
+        assert result["content"] == "from mind"
+        assert mock_post.call_count == 2
+        first_body = mock_post.call_args_list[0].kwargs["json"]
+        retry_body = mock_post.call_args_list[1].kwargs["json"]
+        assert first_body["model"] == "claude-haiku-4-5"
+        assert "model" not in retry_body
+        # Everything else survives the retry untouched
+        assert retry_body["messages"] == first_body["messages"]
+
+
+def test_mind_422_retry_fails_falls_through(monkeypatch):
+    """If the model-less retry ALSO fails, fall through to the direct
+    chain exactly like any other Mind failure — no infinite retries."""
+    monkeypatch.setenv("OPENAI_API_KEY", "fake-openai")
+    monkeypatch.setenv("ETERNITAS_PASSPORT_TOKEN", "ept_test_token")
+
+    rejected = MagicMock(status_code=422, text="enum")
+    with patch.object(models, "_call_openai") as mock_openai, patch(
+        "httpx.post"
+    ) as mock_post:
+        mock_post.side_effect = [rejected, MagicMock(status_code=422, text="enum")]
+        mock_openai.return_value = {
+            "content": "direct", "input_tokens": 1, "output_tokens": 1,
+            "tool_calls": [], "citations": [], "server_tools_used": [],
+        }
+        result = models.call_llm(
+            [{"role": "user", "content": "hi"}],
+            model="gpt-4o-mini",
+        )
+        assert result["content"] == "direct"
+        assert mock_post.call_count == 2

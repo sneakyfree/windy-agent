@@ -506,6 +506,28 @@ def _try_mind_broker(
             json=body,
             timeout=30.0,
         )
+        if resp.status_code == 422 and "model" in body:
+            # Catalog drift: Mind's /v1/chat validates `model` against a
+            # hardcoded enum, and our configured slug may not be in it
+            # (live-caught 2026-07-17: claude-haiku-4-5 → 422 → a keyless
+            # agent silently skipped its PRIMARY brain and fell to the
+            # lifeboat). Model choice is the broker's job — retry once
+            # model-less and let Mind auto-route, instead of trying to
+            # mirror its catalog here.
+            logger.warning(
+                "Mind rejected model %r (422) — retrying model-less, "
+                "broker picks", body.get("model"),
+            )
+            retry_body = {k: v for k, v in body.items() if k != "model"}
+            resp = httpx.post(
+                f"{mind_url}/v1/chat",
+                headers={
+                    "Authorization": f"Bearer {ept}",
+                    "Content-Type": "application/json",
+                },
+                json=retry_body,
+                timeout=30.0,
+            )
         if resp.status_code != 200:
             _record_provider_failure(
                 "windy-mind", f"mind http {resp.status_code}: {resp.text[:120]}",
