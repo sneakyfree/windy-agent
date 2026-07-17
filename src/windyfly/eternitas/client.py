@@ -17,6 +17,11 @@ from windyfly.eternitas.models import (
 logger = logging.getLogger(__name__)
 
 _TIMEOUT = 10.0
+# Registration is measurably slow on prod (~30s): operator X-API-Key auth
+# bcrypt-scans every operator row (eternitas issue — O(n) auth). 10s made
+# the desktop hatch time out AFTER the server had already minted the
+# passport+certificate. Generous ceiling until eternitas indexes the key.
+_REGISTER_TIMEOUT = 60.0
 
 
 class EternitasClient:
@@ -54,7 +59,7 @@ class EternitasClient:
         Auth: X-API-Key (operator key)
         """
         try:
-            async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            async with httpx.AsyncClient(timeout=_REGISTER_TIMEOUT) as client:
                 resp = await client.post(
                     f"{self.api_url}/api/v1/bots/register",
                     json=request.to_api_payload(),
