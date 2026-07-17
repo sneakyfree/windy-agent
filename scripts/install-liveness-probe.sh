@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
 # Install the Telegram liveness probe as a systemd user timer.
 #
-# This is GENERIC — it picks up the agent unit name from $WINDY_AGENT_UNIT
-# (default windy-0.service). Running on another instance? Set the env
-# var first.
+# This is GENERIC — it picks up the agent unit name(s) from
+# $WINDY_AGENT_UNITS (space-separated; default = both per-channel
+# units, windy-0@telegram.service + windy-0@matrix.service). Running
+# on another instance? Set the env var first.
 #
 # Run: bash scripts/install-liveness-probe.sh
 
 set -euo pipefail
 
-UNIT_NAME="${WINDY_AGENT_UNIT:-windy-0.service}"
+UNIT_NAME="${WINDY_AGENT_UNITS:-${WINDY_AGENT_UNIT:-windy-0@telegram.service windy-0@matrix.service}}"
 INTERVAL="${WINDY_LIVENESS_INTERVAL:-5min}"
 SOURCE_PATH="$(cd "$(dirname "$0")" && pwd)/probe-telegram-liveness.sh"
 
@@ -36,7 +37,7 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-Environment=WINDY_AGENT_UNIT=${UNIT_NAME}
+Environment="WINDY_AGENT_UNITS=${UNIT_NAME}"
 Environment=WINDY_AGENT_SCOPE=user
 ExecStart=${INSTALLED_PATH}
 StandardOutput=journal
