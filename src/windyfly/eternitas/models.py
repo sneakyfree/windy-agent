@@ -19,11 +19,14 @@ class RegistrationRequest(BaseModel):
         default_factory=lambda: ["windy_chat", "windy_mail"]
     )
 
-    # Internal fields (not sent to API, used by mock)
+    # Internal fields (not sent as top-level API fields, used by mock and
+    # by the ADR-064 certificate seed below)
     owner_id: str = Field(default="", exclude=True)
     owner_name: str = Field(default="", exclude=True)
     model_id: str = Field(default="", exclude=True)
     hatch_machine_id: str = Field(default="", exclude=True)
+    hatch_timezone: str = Field(default="", exclude=True)
+    hardware_specs: dict = Field(default_factory=dict, exclude=True)
 
     def to_api_payload(self) -> dict[str, Any]:
         """Return the payload shape the Eternitas API expects."""
@@ -33,6 +36,17 @@ class RegistrationRequest(BaseModel):
             "bot_type": self.bot_type,
             "contact_email": self.contact_email,
             "intended_platforms": self.intended_platforms,
+            # ADR-064 — registration mints the canonical signed certificate
+            # at Eternitas; the seed carries the ceremony detail this lane
+            # holds at hatch time so the ONE certificate is the detailed one.
+            "certificate": {
+                "owner_name": self.owner_name,
+                "hatch_timezone": self.hatch_timezone or "UTC",
+                "machine_uuid": self.hatch_machine_id,
+                "brain_provider": "windyfly",
+                "model_id": self.model_id or None,
+                "hardware_specs": self.hardware_specs or None,
+            },
         }
 
 
@@ -52,6 +66,11 @@ class EternitasPassport(BaseModel):
         default_factory=dict,
         description="Services provisioned under this passport: matrix, mail, phone, etc.",
     )
+    # ADR-064 — the canonical certificate block registration now returns:
+    # {id, certificate_no, passport, signed_at, json_url, pdf_url, qr_url,
+    # verify_url}. Empty dict when Eternitas minted no cert (fail-open) or
+    # on older servers.
+    certificate: dict[str, Any] = Field(default_factory=dict)
 
     # Keep backward compat aliases
     @property
@@ -76,6 +95,7 @@ class EternitasPassport(BaseModel):
             api_key=data.get("api_key", ""),
             status=data.get("status", "active"),
             trust_score=data.get("trust_score", 70),
+            certificate=data.get("certificate") or {},
         )
 
 

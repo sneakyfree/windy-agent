@@ -344,7 +344,13 @@ def render_birth_certificate_terminal(cert: BirthCertificate) -> str:
 
 
 def render_birth_certificate_pdf(cert: BirthCertificate) -> bytes:
-    """Render a birth certificate as a PDF.
+    """Render a LOCAL PREVIEW of the birth certificate as a PDF.
+
+    ADR-064: this is NOT the certificate of record. The hatch ceremony
+    fetches Eternitas's ES256-signed PDF (``fetch_eternitas_certificate_pdf``)
+    — Eternitas is the ONE certificate authority. This renderer remains only
+    for offline previews and the visual test-bench; it must never be saved
+    as ``birth_certificate_<passport>.pdf`` in a real hatch.
 
     Returns raw PDF bytes suitable for saving to file.
     """
@@ -524,7 +530,12 @@ def render_birth_certificate_pdf(cert: BirthCertificate) -> bytes:
 
 
 def save_birth_certificate(cert: BirthCertificate, directory: str = "data") -> str:
-    """Save the birth certificate as a PDF and return the file path."""
+    """Save the LOCAL PREVIEW certificate as a PDF and return the file path.
+
+    ADR-064: no longer called by the hatch — the ceremony saves Eternitas's
+    signed PDF via ``fetch_eternitas_certificate_pdf`` instead. Kept for the
+    visual test-bench and offline previews only.
+    """
     pdf_bytes = render_birth_certificate_pdf(cert)
     path = Path(directory)
     path.mkdir(parents=True, exist_ok=True)
@@ -663,6 +674,126 @@ def fetch_eternitas_assets(
                 pass
 
     return out
+
+
+def _eternitas_get(
+    path: str,
+    *,
+    base_url: str | None = None,
+    http_client=None,
+    timeout_seconds: float = 6.0,
+):
+    """GET an Eternitas API path; returns the response or None on ANY failure.
+
+    Same survival contract as ``fetch_eternitas_assets``: the hatch ceremony
+    must succeed even when Eternitas is offline, so every failure path is
+    swallowed and reported as None.
+    """
+    from windyfly.eternitas.url import resolve_eternitas_url
+
+    base = base_url or resolve_eternitas_url()
+    if not base:
+        return None
+
+    own_client = False
+    if http_client is None:
+        try:
+            import httpx
+            http_client = httpx.Client(timeout=timeout_seconds)
+            own_client = True
+        except ImportError:
+            return None
+    try:
+        resp = http_client.get(f"{base.rstrip('/')}{path}")
+        if getattr(resp, "status_code", 0) == 200:
+            return resp
+        logger.debug("Eternitas GET %s -> %s", path, getattr(resp, "status_code", "?"))
+        return None
+    except Exception as exc:
+        logger.debug("Eternitas GET %s failed: %s", path, exc)
+        return None
+    finally:
+        if own_client:
+            try:
+                http_client.close()
+            except Exception:
+                pass
+
+
+def fetch_eternitas_certificate_json(
+    passport_id: str,
+    *,
+    base_url: str | None = None,
+    http_client=None,
+    timeout_seconds: float = 6.0,
+) -> dict:
+    """Fetch the canonical certificate record from Eternitas (ADR-064).
+
+    ``GET /api/v1/certificates/{passport}`` — the signed certificate of
+    record minted at registration. Returns {} on any failure (offline,
+    404 pre-mint, old server) so the ceremony survives.
+    """
+    if not passport_id:
+        return {}
+    resp = _eternitas_get(
+        f"/api/v1/certificates/{passport_id}",
+        base_url=base_url,
+        http_client=http_client,
+        timeout_seconds=timeout_seconds,
+    )
+    if resp is None:
+        return {}
+    try:
+        data = resp.json()
+        return data if isinstance(data, dict) else {}
+    except Exception as exc:
+        logger.debug("Eternitas certificate JSON parse failed: %s", exc)
+        return {}
+
+
+def fetch_eternitas_certificate_pdf(
+    passport_id: str,
+    directory: str = "data",
+    *,
+    base_url: str | None = None,
+    http_client=None,
+    timeout_seconds: float = 6.0,
+) -> str:
+    """Fetch Eternitas's signed certificate PDF and save it locally.
+
+    ADR-064 — this REPLACES the local fpdf render in the hatch path: the
+    document of record is rendered and ES256-signed by Eternitas, the ONE
+    certificate authority; the Fly is a fetch client. Saves to
+    ``{directory}/birth_certificate_{passport}.pdf`` (same filename the
+    old local renderer used, so downstream consumers — the birth email
+    attachment, the ceremony display — are unchanged).
+
+    Returns the saved path, or "" on any failure (the recovery mechanism
+    retries the fetch later; the ceremony continues either way).
+    """
+    if not passport_id:
+        return ""
+    resp = _eternitas_get(
+        f"/api/v1/certificates/{passport_id}/pdf",
+        base_url=base_url,
+        http_client=http_client,
+        timeout_seconds=timeout_seconds,
+    )
+    if resp is None:
+        return ""
+    pdf_bytes = getattr(resp, "content", b"")
+    if not pdf_bytes or not pdf_bytes.startswith(b"%PDF-"):
+        logger.debug("Eternitas PDF fetch returned non-PDF content")
+        return ""
+    try:
+        path = Path(directory)
+        path.mkdir(parents=True, exist_ok=True)
+        filepath = path / f"birth_certificate_{passport_id}.pdf"
+        filepath.write_bytes(pdf_bytes)
+        return str(filepath)
+    except OSError as exc:
+        logger.warning("Could not save Eternitas certificate PDF: %s", exc)
+        return ""
 
 
 def build_rich_certificate_payload(

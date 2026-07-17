@@ -81,6 +81,11 @@ class HatchResult:
     birth_certificate_path: str = ""
     certificate_number: str = ""
     neural_fingerprint: str = ""
+    # ADR-064 — the canonical certificate block Eternitas returns at
+    # registration ({certificate_no, pdf_url, verify_url, ...}). The
+    # certificate of record is Eternitas's; certificate_number above is
+    # ALWAYS its certificate_no (never a locally-minted number).
+    eternitas_certificate: dict = field(default_factory=dict)
 
     # SMS-on-hatch
     hatch_sms_sent: bool = False
@@ -255,6 +260,21 @@ async def _step_eternitas(
         from windyfly.eternitas.provision import get_eternitas_client
         from windyfly.eternitas.models import RegistrationRequest
 
+        # ADR-064 — registration mints the canonical signed certificate at
+        # Eternitas, so gather the ceremony detail (hardware, timezone) the
+        # certificate should carry BEFORE registering.
+        if not result.hardware_specs:
+            try:
+                from windyfly.birth_certificate import collect_hardware_specs
+
+                result.hardware_specs = collect_hardware_specs()
+            except Exception as exc:
+                logger.debug("Hardware spec collection failed: %s", exc)
+        try:
+            hatch_tz = datetime.now(timezone.utc).astimezone().tzname() or "UTC"
+        except Exception:
+            hatch_tz = "UTC"
+
         client = get_eternitas_client(db=db, config=config)
         passport = await client.register(
             RegistrationRequest(
@@ -266,10 +286,17 @@ async def _step_eternitas(
                 owner_id=owner_id,
                 owner_name=owner_name,
                 model_id=os.environ.get("DEFAULT_MODEL", ""),
+                hatch_timezone=hatch_tz,
+                hardware_specs=result.hardware_specs or {},
             )
         )
         result.passport_id = passport.passport_id
         result.passport_status = passport.status
+        # ADR-064 — capture the canonical certificate block; its
+        # certificate_no is THE certificate number every surface shows.
+        if getattr(passport, "certificate", None):
+            result.eternitas_certificate = passport.certificate
+            result.certificate_number = passport.certificate.get("certificate_no", "")
         os.environ["ETERNITAS_PASSPORT"] = passport.passport_id
         # The EPT is the agent's bearer credential for the Windy Mind
         # broker (and every EPT-gated ecosystem service). Registration
@@ -576,17 +603,28 @@ def _build_rich_certificate_payload(result: HatchResult) -> dict:
 async def _step_birth_certificate(
     result: HatchResult, config: dict | None
 ) -> None:
-    """Generate digital birth certificate."""
+    """Adopt the canonical Eternitas birth certificate (ADR-064).
+
+    Eternitas is the ONE certificate authority: registration minted the
+    signed certificate of record, so this step FETCHES it — the number
+    from the registration response (or the certificate JSON on a retry)
+    and the ES256-signed PDF. The old local fpdf render + self-minted
+    ``WF-`` number are retired from this path; local generation remains
+    only for the display data (neural art, waveform) the terminal panel
+    and rich payload show.
+    """
     if not result.passport_id:
         result.errors.append("Birth cert: skipped (no passport)")
         return
 
     try:
         from windyfly.birth_certificate import (
+            fetch_eternitas_certificate_json,
+            fetch_eternitas_certificate_pdf,
             generate_birth_certificate,
-            save_birth_certificate,
         )
 
+        # Display data (fingerprint art, waveform) — local, cosmetic only.
         cert = generate_birth_certificate(
             agent_name=result.agent_name,
             passport_id=result.passport_id,
@@ -599,20 +637,51 @@ async def _step_birth_certificate(
             hardware_specs=result.hardware_specs or None,
         )
         result.neural_fingerprint = cert.neural_fingerprint
-        result.certificate_number = cert.certificate_number
 
-        # Save PDF
+        # The certificate NUMBER comes from Eternitas — captured at
+        # registration, or re-fetched here (retry path / older flows).
+        if not result.certificate_number:
+            info = result.eternitas_certificate or fetch_eternitas_certificate_json(
+                result.passport_id
+            )
+            result.certificate_number = (info or {}).get("certificate_no", "")
+        cert.certificate_number = result.certificate_number or "(pending)"
+
+        # The certificate DOCUMENT comes from Eternitas — the signed PDF.
         data_dir = "data"
         if config and "memory" in config:
             from pathlib import Path
             data_dir = str(Path(config["memory"].get("db_path", "data/windyfly.db")).parent)
 
-        path = save_birth_certificate(cert, directory=data_dir)
-        result.birth_certificate_path = path
-        logger.info("Hatch: Birth certificate saved to %s", path)
+        from windyfly.eternitas.url import resolve_eternitas_url
+
+        if not resolve_eternitas_url():
+            # Mock/dev lane (no Eternitas configured): there is no remote
+            # authority to fetch from, so save the clearly-labeled local
+            # PREVIEW instead of leaving dev hatches in a recovery loop.
+            from windyfly.birth_certificate import save_birth_certificate
+
+            path = save_birth_certificate(cert, directory=data_dir)
+            result.birth_certificate_path = path
+            logger.info("Hatch: mock-mode preview certificate saved to %s", path)
+            return
+
+        path = fetch_eternitas_certificate_pdf(result.passport_id, directory=data_dir)
+        if path:
+            result.birth_certificate_path = path
+            cert.pdf_path = path
+            logger.info("Hatch: Eternitas birth certificate saved to %s", path)
+        else:
+            result.errors.append(
+                "Birth cert: Eternitas certificate pending (fetch failed; will retry)"
+            )
+            logger.warning(
+                "Hatch: Eternitas certificate PDF not fetched for %s — recovery will retry",
+                result.passport_id,
+            )
     except Exception as exc:
         result.errors.append(f"Birth cert: {exc}")
-        logger.warning("Hatch: Birth certificate generation failed: %s", exc)
+        logger.warning("Hatch: Birth certificate step failed: %s", exc)
 
 
 async def _step_hatch_sms(result: HatchResult) -> None:
@@ -753,6 +822,12 @@ def _save_recovery(result: HatchResult) -> None:
         phone_errors = [e for e in result.errors if e.startswith("Phone:")]
         if phone_errors:
             failed_steps.append("phone")
+    # ADR-064 — the canonical Eternitas certificate (number + signed PDF)
+    # is fetched, so an offline Eternitas leaves it pending; retry later.
+    if result.passport_id and (
+        not result.certificate_number or not result.birth_certificate_path
+    ):
+        failed_steps.append("birth_certificate")
 
     if not failed_steps:
         # All good — remove recovery file if it exists
@@ -832,6 +907,13 @@ async def retry_failed_provisioning(db=None) -> HatchResult | None:
         await _step_phone(result, agent_name, db)
         if result.phone_provisioned:
             failed_steps.remove("phone")
+
+    if "birth_certificate" in failed_steps:
+        # Re-fetch the canonical Eternitas certificate (number via the
+        # certificate JSON, then the signed PDF).
+        await _step_birth_certificate(result, None)
+        if result.certificate_number and result.birth_certificate_path:
+            failed_steps.remove("birth_certificate")
 
     if not failed_steps:
         _RECOVERY_PATH.unlink(missing_ok=True)

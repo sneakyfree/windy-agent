@@ -54,6 +54,10 @@ def clean_env(monkeypatch):
 async def _fill_eternitas(result, *args, **kwargs):
     result.passport_id = "ET-INT-99999"
     result.passport_status = "active"
+    # ADR-064 — registration returns the canonical certificate block; the
+    # certificate number is Eternitas's, never minted lane-side.
+    result.eternitas_certificate = {"certificate_no": "ET-INT99999"}
+    result.certificate_number = "ET-INT99999"
     os.environ["ETERNITAS_PASSPORT"] = "ET-INT-99999"
 
 
@@ -144,7 +148,7 @@ class TestHatchIntegration:
             assert Path(result.birth_certificate_path).stat().st_size > 0
 
             # ── Certificate metadata ──
-            assert result.certificate_number.startswith("WF-")
+            assert result.certificate_number.startswith("ET-")  # ADR-064: Eternitas's number, WF- retired
             assert result.neural_fingerprint != ""
 
             # ── No errors ──
