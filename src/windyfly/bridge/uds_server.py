@@ -81,6 +81,19 @@ class UDSBridge:
                     await self._send_error(writer, "invalid", "Invalid JSON")
                     continue
 
+                # A syntactically valid but non-object frame ([1,2,3],
+                # "str", 123) used to reach request.get(), AttributeError,
+                # and tear the connection down with NO error frame — a
+                # credentialed bot sending one stray scalar got a bare
+                # disconnect instead of a structured error (fuzz-caught
+                # 2026-07-17). Answer it like any other bad request and
+                # keep the connection alive.
+                if not isinstance(request, dict):
+                    await self._send_error(
+                        writer, "invalid", "Request must be a JSON object",
+                    )
+                    continue
+
                 request_id = request.get("id", str(uuid.uuid4()))
                 method = request.get("method", "")
                 params = request.get("params", {})
