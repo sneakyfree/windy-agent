@@ -1269,16 +1269,36 @@ def agent_respond(
                     )
                     full_response = with_recovery_hint(auth_reply)
                 else:
-                    # A SANDBOX/USER-band sender gets the honest outage
-                    # without the operator runbook — env-file paths and
-                    # restart instructions are owner-band information,
-                    # and the recovery-hint commands aren't theirs to run.
-                    full_response = (
-                        "🔑 I can't reach my language model right now — "
-                        "my access credentials have expired and need my "
-                        "operator's attention. Until that's fixed I "
-                        "can't answer properly. Please try again later."
+                    # A SANDBOX/USER-band sender can't fix a token — "try
+                    # again later" is a strand. If the local floor is up,
+                    # KEEP ANSWERING on it (per-turn only: no lifeboat
+                    # latch is written, so recovery semantics are
+                    # unchanged once the operator fixes the credential).
+                    # Only if there is no local floor do we fall back to
+                    # the honest outage message, minus the operator
+                    # runbook that isn't theirs to run.
+                    from windyfly.agent.offline import (
+                        get_offline_response as _offline_resp,
+                        is_ollama_available as _floor_up,
                     )
+                    if _floor_up():
+                        _ctx = [
+                            {"role": m["role"], "content": m["content"]}
+                            for m in messages[-5:]
+                        ]
+                        full_response = (
+                            "🛟 My usual brain is unavailable until my "
+                            "operator fixes my credentials, so I'm "
+                            "answering with my smaller backup brain for "
+                            "now.\n\n" + _offline_resp(user_message, _ctx)
+                        )
+                    else:
+                        full_response = (
+                            "🔑 I can't reach my language model right now — "
+                            "my access credentials have expired and need my "
+                            "operator's attention. Until that's fixed I "
+                            "can't answer properly. Please try again later."
+                        )
                 write_queue.enqueue(Priority.HIGH, save_episode, db, "user", user_message, session_id=session_id)
                 write_queue.enqueue(Priority.HIGH, save_episode, db, "assistant", full_response, session_id=session_id)
                 log_event(db, write_queue, "auth.permanent_failure", {
