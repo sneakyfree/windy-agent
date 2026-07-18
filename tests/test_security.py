@@ -123,7 +123,12 @@ class TestSQLInjectionPrevention:
             # - nodes.py: search_nodes builds OR'd LIKE clause from len(terms)
             #   but every value is passed via ? placeholders — same safe
             #   pattern as failures.py (verified 2026-05-05)
-            if py_file.name in ("decay.py", "failures.py", "nodes.py"):
+            # - journal.py: read_entries builds a dynamic WHERE from a
+            #   HARDCODED clause set (no user input in the SQL text); every
+            #   value (since/until/limit) is passed via ? placeholders
+            #   (verified 2026-07-18)
+            if py_file.name in ("decay.py", "failures.py", "nodes.py",
+                                "journal.py"):
                 continue
             matches = re.findall(
                 r'db\.(execute|fetchone|fetchall)\s*\(\s*f["\']',
