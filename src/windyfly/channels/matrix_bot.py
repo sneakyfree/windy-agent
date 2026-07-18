@@ -530,6 +530,15 @@ class WindyFlyMatrixBot(ChannelAdapter):
             return
         self._graceful_done = True
         self._shutting_down = True
+        # Leave a handoff for the next boot — same deterministic writer
+        # as /new, so a deliberate stop never strands the next session
+        # without context (Principle #7; the 2026-07-17 01:15 stop left
+        # no letter). Best-effort by contract.
+        try:
+            from windyfly.agent.turnover import write_shutdown_turnovers
+            write_shutdown_turnovers(self.db, "matrix")
+        except Exception as e:
+            logger.debug("shutdown turnover skipped: %s", e)
         logger.info("Graceful shutdown: setting presence to offline...")
         try:
             await self.client.set_presence("offline", status_msg="Windy Fly shutting down")

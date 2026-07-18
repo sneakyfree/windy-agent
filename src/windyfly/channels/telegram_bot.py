@@ -1832,6 +1832,13 @@ class TelegramChannel(ChannelAdapter):
 
     async def stop(self) -> None:
         self._shutting_down = True
+        # Leave a handoff for the next boot (Principle #7) — same
+        # deterministic writer as /new. Best-effort by contract.
+        try:
+            from windyfly.agent.turnover import write_shutdown_turnovers
+            write_shutdown_turnovers(self.db, "telegram")
+        except Exception as e:
+            logger.debug("shutdown turnover skipped: %s", e)
         if self._pacing_stop_event is not None:
             self._pacing_stop_event.set()
         if self._pacing_task is not None:
