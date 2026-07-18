@@ -194,9 +194,9 @@ def _default_skip_state_emoji_prefix(request):
     # make it the original text untouched.
     with patch(
         "windyfly.agent.context_header.maybe_prepend_header",
-        side_effect=lambda text, tokens, max_tokens=200_000: text,
+        side_effect=lambda text, tokens, max_tokens=200_000, **kw: text,
     ), patch(
         "windyfly.agent.loop.maybe_prepend_header",
-        side_effect=lambda text, tokens, max_tokens=200_000: text,
+        side_effect=lambda text, tokens, max_tokens=200_000, **kw: text,
     ):
         yield
