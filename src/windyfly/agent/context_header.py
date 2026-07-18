@@ -78,6 +78,13 @@ class ContextTracker:
         self.tokens_used = 0
         self._last_header_time: float = 0.0
         self._last_header_pct: float = 100.0
+        # Engine transparency (2026-07-18): the model that actually
+        # served the last reply — including a Mind-broker reroute the
+        # user didn't explicitly pick. Shown in the periodic panel
+        # ONLY (never the per-message emoji prefix — no bloat), so
+        # grandma watches engines swap and learns it's normal:
+        # "your agent, any engine."
+        self.last_engine: str | None = None
 
     def add_tokens(self, count: int) -> None:
         """Record tokens consumed in this session."""
@@ -128,6 +135,11 @@ class ContextTracker:
         self._last_header_time = time.time()
         self._last_header_pct = pct
 
+        if self.last_engine:
+            return (
+                f"[🪰 Windy Fly · {timestamp} · {indicator} {pct:.0f}% · "
+                f"{self.last_engine}]"
+            )
         return f"[🪰 Windy Fly · {timestamp} · {indicator} {pct:.0f}%]"
 
 
@@ -146,6 +158,7 @@ def get_tracker(max_tokens: int = 200_000) -> ContextTracker:
 def maybe_prepend_header(
     response_text: str, tokens_used: int,
     max_tokens: int = 200_000,
+    engine: str | None = None,
 ) -> str:
     """Prepend a state marker to the response.
 
@@ -177,6 +190,8 @@ def maybe_prepend_header(
     # should switch to per-session trackers, see issue tracker.)
     tracker.max_context_tokens = max_tokens
     tracker.tokens_used = tokens_used
+    if engine:
+        tracker.last_engine = engine
 
     if tracker.should_show_header():
         header = tracker.format_header()

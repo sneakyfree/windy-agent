@@ -1799,6 +1799,11 @@ def agent_respond(
     )
     response_text = maybe_prepend_header(
         response_text, session_total, max_tokens=_max_ctx,
+        # Engine transparency: what actually served this reply —
+        # mind_model when the Mind broker routed (incl. the 422
+        # model-less retry picking something else), else the direct
+        # provider's model.
+        engine=result.get("mind_model") or result.get("model"),
     )
 
     # 8.5. Recovery notice — when step 1.7 detected paid LLM is
