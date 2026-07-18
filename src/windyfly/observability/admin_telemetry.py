@@ -125,3 +125,38 @@ def emit_llm_call(write_queue: WriteQueue, **kwargs) -> None:
         write_queue.enqueue(Priority.LOW, _post_event, event)
     except Exception as e:  # noqa: BLE001
         logger.debug("admin telemetry enqueue failed: %s", e)
+
+
+def emit_command_invoked(
+    write_queue: WriteQueue | None,
+    command_name: str,
+    platform: str,
+) -> None:
+    """Queue one command.invoked envelope; a no-op unless configured.
+
+    Powers the data-driven de-bloat of the 131-command surface
+    (Sprint 2.2): after 30 days of real usage counts, handlers nobody
+    invokes get deleted by measurement, not opinion.
+
+    Privacy hard line: the command NAME only — never args, never
+    message content.
+    """
+    if not _configured() or write_queue is None:
+        return
+    passport = _own_passport()
+    if not passport:
+        return
+    event = {
+        "ts": datetime.now(UTC).isoformat(),
+        "platform": "windy-agent",
+        "service": "fly",
+        "event_type": "command.invoked",
+        "actor_type": "agent",
+        "actor_id": passport,
+        "session_id": None,
+        "metadata": {"command": command_name[:32], "channel": platform[:16]},
+    }
+    try:
+        write_queue.enqueue(Priority.LOW, _post_event, event)
+    except Exception as e:  # noqa: BLE001
+        logger.debug("command.invoked enqueue failed: %s", e)
