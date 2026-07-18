@@ -23,8 +23,19 @@ from __future__ import annotations
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
+from xml.sax.saxutils import escape as _xml_escape
 
 from windyfly.platform import IS_LINUX, IS_MAC, IS_WINDOWS
+
+
+def _xesc(value: str) -> str:
+    """Escape a value for safe interpolation into plist/task XML.
+
+    Mac-campaign finding 2026-07-18: both the launchd plist and the
+    Windows task XML interpolated paths/env RAW, so a value with & or <
+    (a path like ``A&B/``) produced invalid XML that fails to load.
+    """
+    return _xml_escape(str(value))
 
 
 @dataclass
@@ -131,29 +142,51 @@ class LaunchdBackend(SupervisorBackend):
     def _plist_path(self, name: str) -> Path:
         return Path.home() / "Library" / "LaunchAgents" / f"{self._label(name)}.plist"
 
-    def restart_command(self, name: str) -> list[str]:
-        # kickstart -k restarts the service (SIGKILL then relaunch).
+    def _domains(self) -> list[str]:
+        # Mac-campaign finding: `gui/<uid>` only works with a live Aqua
+        # session; a headless / SSH-only Mac (no GUI login) needs
+        # `user/<uid>`. Try gui first (the desktop grandma), fall back to
+        # user (headless self-host). Override with WINDY_LAUNCHD_DOMAIN.
         import os
+        forced = os.environ.get("WINDY_LAUNCHD_DOMAIN")
         uid = os.getuid()
-        return ["launchctl", "kickstart", "-k", f"gui/{uid}/{self._label(name)}"]
+        if forced:
+            return [f"{forced}/{uid}"]
+        return [f"gui/{uid}", f"user/{uid}"]
+
+    def restart_command(self, name: str) -> list[str]:
+        # Default single command (first domain) — used by tests + the
+        # base restart(); restart() below tries all domains.
+        return ["launchctl", "kickstart", "-k",
+                f"{self._domains()[0]}/{self._label(name)}"]
+
+    def restart(self, name: str) -> bool:
+        # Try each domain until one takes (gui → user fallback).
+        for dom in self._domains():
+            code, _ = self._run([
+                "launchctl", "kickstart", "-k", f"{dom}/{self._label(name)}",
+            ])
+            if code == 0:
+                return True
+        return False
 
     def is_active_command(self, name: str) -> list[str]:
         return ["launchctl", "list", self._label(name)]
 
     def install(self, unit: ServiceUnit) -> bool:
         prog = "".join(
-            f"        <string>{a}</string>\n" for a in unit.exec_args
+            f"        <string>{_xesc(a)}</string>\n" for a in unit.exec_args
         )
         envd = "".join(
-            f"        <key>{k}</key><string>{v}</string>\n"
+            f"        <key>{_xesc(k)}</key><string>{_xesc(v)}</string>\n"
             for k, v in unit.env.items()
         )
         plist = (
             '<?xml version="1.0" encoding="UTF-8"?>\n'
             '<plist version="1.0"><dict>\n'
-            f"  <key>Label</key><string>{self._label(unit.name)}</string>\n"
+            f"  <key>Label</key><string>{_xesc(self._label(unit.name))}</string>\n"
             f"  <key>ProgramArguments</key><array>\n{prog}  </array>\n"
-            f"  <key>WorkingDirectory</key><string>{unit.working_dir}</string>\n"
+            f"  <key>WorkingDirectory</key><string>{_xesc(unit.working_dir)}</string>\n"
             f"  <key>RunAtLoad</key><{'true' if unit.autostart else 'false'}/>\n"
             "  <key>KeepAlive</key><true/>\n"
             f"  <key>EnvironmentVariables</key><dict>\n{envd}  </dict>\n"
@@ -210,13 +243,13 @@ class WindowsTaskSchedulerBackend(SupervisorBackend):
     def _task_xml(self, unit: ServiceUnit) -> str:
         # Minimal ONLOGON task with restart-on-failure. LIMITED run
         # level = no elevation (grandma default). %-quote the argv.
-        cmd = unit.exec_args[0]
-        args = " ".join(unit.exec_args[1:])
+        cmd = _xesc(unit.exec_args[0])
+        args = _xesc(" ".join(unit.exec_args[1:]))
         return (
             '<?xml version="1.0" encoding="UTF-16"?>\n'
             '<Task version="1.2" '
             'xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">\n'
-            f"  <RegistrationInfo><Description>{unit.description}</Description>"
+            f"  <RegistrationInfo><Description>{_xesc(unit.description)}</Description>"
             "</RegistrationInfo>\n"
             "  <Triggers><LogonTrigger><Enabled>"
             f"{'true' if unit.autostart else 'false'}</Enabled></LogonTrigger>"
@@ -231,7 +264,7 @@ class WindowsTaskSchedulerBackend(SupervisorBackend):
             "  </Settings>\n"
             "  <Actions>\n"
             f"    <Exec><Command>{cmd}</Command><Arguments>{args}</Arguments>"
-            f"<WorkingDirectory>{unit.working_dir}</WorkingDirectory></Exec>\n"
+            f"<WorkingDirectory>{_xesc(unit.working_dir)}</WorkingDirectory></Exec>\n"
             "  </Actions>\n"
             "</Task>\n"
         )
