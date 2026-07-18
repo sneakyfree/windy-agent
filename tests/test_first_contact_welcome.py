@@ -283,3 +283,32 @@ def test_welcome_unnamed_config_renders_legacy_text():
 def test_welcome_named_still_under_telegram_cap():
     """Even a max-length name keeps the message under 4096."""
     assert len(format_welcome({"agent": {"name": "N" * 100}})) <= 4096
+
+
+# === Welcome-race latch (2026-07-18) ===
+
+
+class TestWelcomeRaceLatch:
+    def test_rapid_second_message_not_welcomed(self):
+        """Async episode writes lag the DB check; the in-process latch
+        must stop a second rapid message from re-triggering the welcome
+        (live-caught 2026-07-17: 4 canned welcomes in a row)."""
+        from windyfly.agent.welcome import is_first_contact, mark_welcomed
+        from windyfly.memory.database import Database
+
+        db = Database(":memory:")
+        assert is_first_contact(db) is True  # genuinely empty
+        mark_welcomed(db)  # what the loop now does before enqueueing
+        # DB is STILL empty (writes in flight) — latch must answer False.
+        assert is_first_contact(db) is False
+        db.close()
+
+    def test_latch_does_not_leak_across_db_objects(self):
+        from windyfly.agent.welcome import is_first_contact, mark_welcomed
+        from windyfly.memory.database import Database
+
+        a = Database(":memory:")
+        mark_welcomed(a)
+        b = Database(":memory:")  # fresh bot, fresh object
+        assert is_first_contact(b) is True
+        a.close(); b.close()

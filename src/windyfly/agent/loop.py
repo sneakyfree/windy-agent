@@ -678,8 +678,10 @@ def agent_respond(
     from windyfly.agent.welcome import (
         format_welcome as _format_welcome,
         is_first_contact as _is_first_contact,
+        mark_welcomed as _mark_welcomed,
     )
     if _is_first_contact(db):
+        _mark_welcomed(db)  # latch BEFORE the async episode writes land
         welcome = _format_welcome(config)
         write_queue.enqueue(Priority.HIGH, save_episode, db, "user",
                             user_message, session_id=session_id)
