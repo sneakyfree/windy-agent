@@ -114,7 +114,13 @@ def assemble_prompt(
     # so we stay consistent.
     sliders_for_prompt = get_sliders(db, config_defaults=personality_config)
 
-    personality_block = build_personality_block(soul_text, sliders_for_prompt)
+    # Raw-model mode (2026-07-18): soul + memory + native model tone, no
+    # slider-tuned directives injected. Doctrine: trust the frontier
+    # model's own emotional intelligence over our knob-tuning.
+    raw_mode = bool(sliders_for_prompt.get("raw_mode", 0))
+    personality_block = build_personality_block(
+        soul_text, sliders_for_prompt, raw=raw_mode,
+    )
 
     system_parts = [personality_block]
 

@@ -28,7 +28,9 @@ def load_soul(path: str = "SOUL.md") -> str:
     )
 
 
-def build_personality_block(soul_text: str, sliders: dict) -> str:
+def build_personality_block(
+    soul_text: str, sliders: dict, *, raw: bool = False,
+) -> str:
     """Build the personality system prompt block from SOUL.md and slider values.
 
     Args:
@@ -36,10 +38,34 @@ def build_personality_block(soul_text: str, sliders: dict) -> str:
         sliders: Dict of slider values from config/control panel.
             Keys: personality, humor, formality, proactivity, verbosity,
                   reasoning_depth, autonomy, epistemic_strictness.
+        raw: Raw-model mode (2026-07-18). When True, return the soul
+            UNTOUCHED — no slider line-filtering, no tone modifiers. The
+            agent's identity + memory still drive it; its tone is the
+            frontier model's own native read of the room. The honest
+            "don't muck it up" mode. (Autonomy's act-first/ask-first
+            posture is a safety/behavior directive, not tone tuning, so
+            it is still honored even in raw mode — see below.)
 
     Returns:
         Final personality prompt block (targeted under 600 tokens).
     """
+    if raw:
+        # Native model + soul + memory. The one thing we still append is
+        # the autonomy posture, because "act first vs ask first" is a
+        # behavior/safety contract the owner set, not a tone knob.
+        result = soul_text.strip()
+        autonomy = sliders.get("autonomy", 5)
+        if autonomy >= 7:
+            result += (
+                "\n\nACT FIRST — use your tools immediately, state your "
+                "assumption in one line, ask only as a last resort."
+            )
+        elif autonomy <= 3:
+            result += (
+                "\n\nAsk before acting — confirm intent before invoking "
+                "any state-changing tool."
+            )
+        return result
     lines = soul_text.strip().split("\n")
     # "humor" slider (0–10), fallback to legacy "humor_level" key
     humor = sliders.get("humor", sliders.get("humor_level", 5))
