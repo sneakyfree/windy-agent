@@ -167,7 +167,7 @@ def test_restore_undoes_delete_of_file(tmp_path, journal):
         "original_state": state,
     }
     restore_from_record(record)
-    assert target.read_text() == "the original"
+    assert target.read_text(encoding="utf-8") == "the original"
 
 
 def test_restore_undoes_delete_of_symlink(tmp_path, journal):
@@ -193,7 +193,7 @@ def test_restore_undoes_overwrite(tmp_path, journal):
     target.write_text("original")
     state = capture_file_state(target)
     target.write_text("new content")
-    assert target.read_text() == "new content"
+    assert target.read_text(encoding="utf-8") == "new content"
 
     record = {
         "id": "test", "capability_id": "fs.write_file",
@@ -201,7 +201,7 @@ def test_restore_undoes_overwrite(tmp_path, journal):
         "original_state": state,
     }
     restore_from_record(record)
-    assert target.read_text() == "original"
+    assert target.read_text(encoding="utf-8") == "original"
 
 
 def test_restore_undoes_move(tmp_path, journal):

@@ -364,7 +364,7 @@ def test_save_credential_cloudflare_happy_path(tmp_path, monkeypatch):
     assert out["hot_loaded"] is True
     assert out["validation"]["zones_visible"] == 21
     # Persisted to env file
-    contents = env_file.read_text()
+    contents = env_file.read_text(encoding="utf-8")
     assert "CLOUDFLARE_API_TOKEN=cfat_TESTtokenABCDEFGHIJKLMNOPQRSTU" in contents
     # Hot-loaded into the running process
     assert os.environ["CLOUDFLARE_API_TOKEN"] == "cfat_TESTtokenABCDEFGHIJKLMNOPQRSTU"
@@ -398,7 +398,7 @@ def test_save_credential_validation_failure_does_not_persist(tmp_path, monkeypat
     assert out["kind"] == "validation_failed"
     assert "401" in out["error"]
     # Critical: must NOT have persisted the bad token
-    assert not env_file.exists() or "INVALID" not in env_file.read_text()
+    assert not env_file.exists() or "INVALID" not in env_file.read_text(encoding="utf-8")
     assert "CLOUDFLARE_API_TOKEN" not in os.environ or \
            os.environ.get("CLOUDFLARE_API_TOKEN") != "cfat_INVALIDtokenABCDEFGHIJKLMNOP"
 
@@ -456,7 +456,7 @@ def test_atomic_upsert_creates_new_file(tmp_path):
     from windyfly.agent.capabilities.setup import _atomic_upsert_env_var
     env_file = tmp_path / "fresh.env"
     _atomic_upsert_env_var(env_file, "FOO", "bar")
-    assert env_file.read_text() == "FOO=bar\n"
+    assert env_file.read_text(encoding="utf-8") == "FOO=bar\n"
 
 
 def test_atomic_upsert_appends_to_existing_file(tmp_path):
@@ -464,7 +464,7 @@ def test_atomic_upsert_appends_to_existing_file(tmp_path):
     env_file = tmp_path / "existing.env"
     env_file.write_text("EXISTING=keep_me\n")
     _atomic_upsert_env_var(env_file, "NEW", "added")
-    contents = env_file.read_text()
+    contents = env_file.read_text(encoding="utf-8")
     assert "EXISTING=keep_me" in contents
     assert "NEW=added" in contents
 
@@ -475,7 +475,7 @@ def test_atomic_upsert_replaces_existing_var(tmp_path):
     env_file = tmp_path / "rotate.env"
     env_file.write_text("FOO=old_value\nOTHER=keep\n")
     _atomic_upsert_env_var(env_file, "FOO", "new_value")
-    contents = env_file.read_text()
+    contents = env_file.read_text(encoding="utf-8")
     assert "FOO=new_value" in contents
     assert "FOO=old_value" not in contents
     assert "OTHER=keep" in contents
@@ -520,11 +520,11 @@ def test_atomic_upsert_writes_through_symlink_does_not_replace_link(tmp_path):
         "writing through a symlinked env file must not replace the link"
     )
     # The real file must contain BOTH the original line and the new one.
-    real_text = real.read_text()
+    real_text = real.read_text(encoding="utf-8")
     assert "EXISTING=keep_me" in real_text
     assert "NEW_TOKEN=abc123" in real_text
     # Reading via the link must show the same content as the real file.
-    assert link.read_text() == real_text
+    assert link.read_text(encoding="utf-8") == real_text
 
 
 # ── Capability registration: 3 caps total now ─────────────────────

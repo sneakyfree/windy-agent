@@ -108,7 +108,7 @@ class TestWriteQuickConfig:
         write_quick_config("OPENAI_API_KEY", "sk-test123", "gpt-4o-mini")
         env_file = tmp_path / ".env"
         assert env_file.exists()
-        content = env_file.read_text()
+        content = env_file.read_text(encoding="utf-8")
         assert "OPENAI_API_KEY=sk-test123" in content
         assert "DEFAULT_MODEL=gpt-4o-mini" in content
 
@@ -120,7 +120,7 @@ class TestWriteQuickConfig:
         write_quick_config("OPENAI_API_KEY", "sk-test123", "gpt-4o-mini")
         toml_file = tmp_path / "windyfly.toml"
         assert toml_file.exists()
-        content = toml_file.read_text()
+        content = toml_file.read_text(encoding="utf-8")
         assert 'default_model = "gpt-4o-mini"' in content
 
     def test_uses_specified_preset(self, tmp_path: Path, monkeypatch):
@@ -130,7 +130,7 @@ class TestWriteQuickConfig:
 
         write_quick_config("OPENAI_API_KEY", "sk-test123", "gpt-4o-mini", preset="engineer")
         toml_file = tmp_path / "windyfly.toml"
-        content = toml_file.read_text()
+        content = toml_file.read_text(encoding="utf-8")
         assert 'preset = "engineer"' in content
 
     def test_handles_all_presets(self, tmp_path: Path, monkeypatch):
@@ -142,7 +142,7 @@ class TestWriteQuickConfig:
         for preset_name in PRESETS:
             write_quick_config("OPENAI_API_KEY", "sk-test123", "gpt-4o-mini", preset=preset_name)
             toml_file = tmp_path / "windyfly.toml"
-            content = toml_file.read_text()
+            content = toml_file.read_text(encoding="utf-8")
             assert f'preset = "{preset_name}"' in content
 
     def test_env_file_has_correct_format(self, tmp_path: Path, monkeypatch):
@@ -151,7 +151,7 @@ class TestWriteQuickConfig:
         monkeypatch.setattr("windyfly.setup_wizard.PROJECT_ROOT", tmp_path)
 
         write_quick_config("ANTHROPIC_API_KEY", "sk-ant-test123", "claude-3-5-sonnet-latest")
-        content = (tmp_path / ".env").read_text()
+        content = (tmp_path / ".env").read_text(encoding="utf-8")
         # The configured key should have the value
         assert "ANTHROPIC_API_KEY=sk-ant-test123" in content
         # Other keys should be empty

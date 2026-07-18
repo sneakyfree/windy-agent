@@ -83,7 +83,7 @@ class TestSaveViewList:
         assert result["version"] == 1
         path = skills_dir() / "deploy-website.md"
         assert path.exists()
-        assert "wrangler deploy" in path.read_text()
+        assert "wrangler deploy" in path.read_text(encoding="utf-8")
 
     def test_view_returns_body_and_counts_usage(self, reg, db):
         _save(reg)

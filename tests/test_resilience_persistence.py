@@ -26,7 +26,7 @@ class TestCooldownPersistence:
         monkeypatch.setenv("WINDY_STATE_DIR", str(tmp_path))
         monkeypatch.setattr(models, "_provider_cooldowns", {})
         models._record_provider_failure("testprov", "503 unavailable")
-        saved = json.loads((tmp_path / "provider-cooldowns.json").read_text())
+        saved = json.loads((tmp_path / "provider-cooldowns.json").read_text(encoding="utf-8"))
         assert "testprov" in saved
         until, count = saved["testprov"]
         assert until > time.time()
@@ -54,7 +54,7 @@ class TestCooldownPersistence:
         monkeypatch.setattr(models, "_provider_cooldowns", {})
         models._record_provider_failure("testprov", "503")
         models._record_provider_success("testprov")
-        saved = json.loads((tmp_path / "provider-cooldowns.json").read_text())
+        saved = json.loads((tmp_path / "provider-cooldowns.json").read_text(encoding="utf-8"))
         assert saved == {}
 
     def test_missing_state_file_is_harmless(self, monkeypatch, tmp_path):

@@ -69,7 +69,7 @@ def test_resurrect_writes_flag(isolated_flag):
         _r.resurrect(actor="user")
     flag = isolated_flag / ".resurrected"
     assert flag.exists()
-    data = json.loads(flag.read_text())
+    data = json.loads(flag.read_text(encoding="utf-8"))
     assert data["model"] == "llama3.2:3b"
 
 

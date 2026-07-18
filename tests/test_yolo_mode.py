@@ -193,7 +193,7 @@ def test_yolo_survives_simulated_restart(isolated_flags):
     # Simulate a fresh process by reading the flag from scratch
     flag = isolated_flags / ".yolo"
     assert flag.exists()
-    data = json.loads(flag.read_text())
+    data = json.loads(flag.read_text(encoding="utf-8"))
     assert data["hours"] == 12
     # New "process" reads it
     assert is_yolo_active() is True

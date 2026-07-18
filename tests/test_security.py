@@ -76,7 +76,7 @@ class TestSecretLeaks:
         """The .env file should be listed in .gitignore."""
         gitignore = PROJECT_ROOT / ".gitignore"
         assert gitignore.exists(), ".gitignore does not exist"
-        content = gitignore.read_text()
+        content = gitignore.read_text(encoding="utf-8")
         assert ".env" in content, ".env is not in .gitignore"
 
     def test_no_env_file_committed(self):
@@ -178,7 +178,7 @@ class TestTimeoutEnforcement:
     def test_windy_api_has_timeout(self):
         """All httpx calls in windy_api.py should use a timeout."""
         api_file = SRC_DIR / "windyfly" / "tools" / "windy_api.py"
-        content = api_file.read_text()
+        content = api_file.read_text(encoding="utf-8")
         # Count httpx.get/httpx.post calls and timeout= params
         http_calls = len(re.findall(r'httpx\.(get|post)\(', content))
         timeout_params = len(re.findall(r'timeout=', content))
@@ -189,13 +189,13 @@ class TestTimeoutEnforcement:
     def test_web_search_has_timeout(self):
         """Web search tool should enforce a timeout."""
         search_file = SRC_DIR / "windyfly" / "tools" / "web_search.py"
-        content = search_file.read_text()
+        content = search_file.read_text(encoding="utf-8")
         assert "timeout" in content, "web_search.py has no timeout on HTTP calls"
 
     def test_uds_bridge_has_timeout(self):
         """UDS bridge client should have a timeout on calls."""
         bridge_file = GATEWAY_DIR / "bridge.ts"
-        content = bridge_file.read_text()
+        content = bridge_file.read_text(encoding="utf-8")
         assert "timeout" in content.lower() or "timeoutMs" in content, (
             "bridge.ts has no timeout on UDS calls"
         )
@@ -208,13 +208,13 @@ class TestCORSConfiguration:
     def test_cors_headers_present(self):
         """Gateway should set CORS headers."""
         server_file = GATEWAY_DIR / "server.ts"
-        content = server_file.read_text()
+        content = server_file.read_text(encoding="utf-8")
         assert "Access-Control-Allow-Origin" in content
         assert "Access-Control-Allow-Methods" in content
 
     def test_cors_allows_options_preflight(self):
         """Gateway should handle OPTIONS preflight requests."""
         server_file = GATEWAY_DIR / "server.ts"
-        content = server_file.read_text()
+        content = server_file.read_text(encoding="utf-8")
         assert "OPTIONS" in content
         assert "204" in content

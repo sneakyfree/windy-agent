@@ -210,7 +210,7 @@ def test_prepare_command_writes_script(registered_registry):
     path = out["path"]
     assert os.path.exists(path)
     assert os.access(path, os.X_OK)  # chmod 0o755
-    text = open(path).read()
+    text = open(path, encoding="utf-8").read()
     assert "wg-0c3" in text
     assert "wg-veron" in text
     assert "DRY_RUN=1" in text
@@ -226,7 +226,7 @@ def test_prepare_command_defaults_to_dry_run(registered_registry):
         command="sudo reboot",
         targets=["wg-0c3"],
     )
-    text = open(out["path"]).read()
+    text = open(out["path"], encoding="utf-8").read()
     assert "DRY_RUN=1" in text
 
 

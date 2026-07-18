@@ -153,12 +153,12 @@ async def test_brief_does_not_mutate_anything(reg, monkeypatch):
     organs = {"memory": {"verdict": "yellow", "detail": "60%"}}
     snapshot_path = health_dir / "01.json"
     snapshot_path.write_text(json.dumps(_scorecard("01", organs)))
-    before = snapshot_path.read_text()
+    before = snapshot_path.read_text(encoding="utf-8")
     files_before = sorted(p.name for p in health_dir.iterdir())
 
     await r.invoke("health.weekly_brief", {}, Band.OWNER)
 
-    after = snapshot_path.read_text()
+    after = snapshot_path.read_text(encoding="utf-8")
     files_after = sorted(p.name for p in health_dir.iterdir())
     assert before == after, "weekly_brief must not mutate snapshots"
     assert files_before == files_after, "weekly_brief must not create files"

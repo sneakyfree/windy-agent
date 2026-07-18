@@ -168,7 +168,7 @@ async def test_apply_writes_journal_entry(reg_enabled):
     )
     journal = tmp_path / "journal.jsonl"
     assert journal.exists()
-    entries = [json.loads(l) for l in journal.read_text().splitlines() if l.strip()]
+    entries = [json.loads(l) for l in journal.read_text(encoding="utf-8").splitlines() if l.strip()]
     assert len(entries) == 1
     e = entries[0]
     assert e["kind"] == "apply_proposed"

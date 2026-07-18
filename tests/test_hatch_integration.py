@@ -206,7 +206,7 @@ class TestHatchIntegration:
 
             # Assert .env was written
             assert env_path.exists()
-            content = env_path.read_text()
+            content = env_path.read_text(encoding="utf-8")
             assert "ET-INT-99999" in content
             assert "testfly@windymail.ai" in content
             assert "+15551234567" in content

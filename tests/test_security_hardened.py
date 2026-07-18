@@ -145,7 +145,7 @@ class TestPathTraversal:
     def test_gateway_static_file_serving(self):
         """H5.6: Gateway should only serve from public/ directory."""
         server_ts = GATEWAY_DIR / "server.ts"
-        content = server_ts.read_text()
+        content = server_ts.read_text(encoding="utf-8")
         # Should serve files from a restricted directory (public/)
         assert "public" in content, "Gateway doesn't reference a public/ directory"
         # Should not have open file serving from project root
@@ -154,7 +154,7 @@ class TestPathTraversal:
     def test_no_directory_listing(self):
         """Gateway should not allow directory listing."""
         server_ts = GATEWAY_DIR / "server.ts"
-        content = server_ts.read_text()
+        content = server_ts.read_text(encoding="utf-8")
         assert "readdir" not in content, "Gateway may allow directory listing"
 
 
@@ -167,7 +167,7 @@ class TestProviderKeyMasking:
     def test_provider_key_masking_function(self):
         """H5.7: Provider keys should be masked in API responses."""
         providers_ts = GATEWAY_DIR / "providers.ts"
-        content = providers_ts.read_text()
+        content = providers_ts.read_text(encoding="utf-8")
         # Should have masking logic (slice, substring, replace with *)
         has_masking = any(kw in content for kw in [
             "slice", "substring", "mask", "****", "••••", "...",

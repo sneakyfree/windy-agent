@@ -80,7 +80,7 @@ def test_survives_simulated_restart(isolated_flag):
     guest_on(actor="grant")
     flag = isolated_flag / ".guest"
     assert flag.exists()
-    data = json.loads(flag.read_text())
+    data = json.loads(flag.read_text(encoding="utf-8"))
     assert data["actor"] == "grant"
     # Simulate fresh process
     assert is_guest_active() is True

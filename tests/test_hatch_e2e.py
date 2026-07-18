@@ -418,7 +418,7 @@ class TestRetryRecoveryFlow:
             await orchestrate_hatch("recovery-fly", db=db)
 
         assert recovery_dir.exists()
-        data = json.loads(recovery_dir.read_text())
+        data = json.loads(recovery_dir.read_text(encoding="utf-8"))
         assert "eternitas" in data["failed_steps"]
         assert data["agent_name"] == "recovery-fly"
 
@@ -432,7 +432,7 @@ class TestRetryRecoveryFlow:
 
         # Matrix failure is expected (no Synapse secret) but filtered out
         if recovery_dir.exists():
-            data = json.loads(recovery_dir.read_text())
+            data = json.loads(recovery_dir.read_text(encoding="utf-8"))
             assert "eternitas" not in data.get("failed_steps", [])
 
     async def test_retry_picks_up_failed_steps(self, recovery_dir):
@@ -475,7 +475,7 @@ class TestRetryRecoveryFlow:
 
         assert result is not None
         assert recovery_dir.exists()
-        data = json.loads(recovery_dir.read_text())
+        data = json.loads(recovery_dir.read_text(encoding="utf-8"))
         assert data["retry_count"] == 3
 
     async def test_retry_returns_none_when_no_recovery(self, recovery_dir):
@@ -504,7 +504,7 @@ class TestRetryRecoveryFlow:
         result.errors.append("Eternitas: still failing")
         _save_recovery(result)
 
-        data = json.loads(recovery_dir.read_text())
+        data = json.loads(recovery_dir.read_text(encoding="utf-8"))
         assert data["retry_count"] == 5
 
 
