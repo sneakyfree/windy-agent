@@ -1028,27 +1028,36 @@ def _cmd_commands(_args: argparse.Namespace) -> None:
 
 
 def _cmd_install_service(_args: argparse.Namespace) -> None:
-    """Install a system service so Windy Fly auto-starts on login.
+    """Install the cross-platform supervisor so Windy Fly auto-starts on
+    login AND keeps itself alive on every OS.
 
-    macOS: launchd plist in ~/Library/LaunchAgents/
-    Linux: systemd user unit in ~/.config/systemd/user/
+    Unified on the guardian model (2026-07-18): installs the agent (one
+    unit per channel) + the guardian (wedge/crash watchdog) via the
+    OS-native keep-alive backend — systemd (Linux), launchd (Mac),
+    Task Scheduler (Windows). No OS timers: periodic maintenance runs
+    in-process. The honey-badger recovery now travels off Linux.
     """
-    from windyfly.platform import IS_MAC, IS_LINUX, IS_WINDOWS
+    from windyfly.supervisor.backends import get_backend
+    from windyfly.supervisor.install import install_supervisor
 
-    if IS_WINDOWS:
-        console.print("[yellow]Service install not yet supported on Windows.[/yellow]")
-        console.print("[dim]Use Task Scheduler manually, or run 'windy start --daemon'.[/dim]")
-        return
-
-    import shutil
-
-    uv_path = shutil.which("uv") or "/usr/local/bin/uv"
-    brain_log = str(get_log_path(PROJECT_ROOT, "brain"))
-
-    if IS_MAC:
-        _install_launchd(uv_path, brain_log)
-    elif IS_LINUX:
-        _install_systemd(uv_path, brain_log)
+    config_path = str(PROJECT_ROOT / "windyfly.toml")
+    backend = get_backend()
+    console.print(f"[cyan]Installing supervisor via {backend.name}…[/cyan]")
+    results = install_supervisor(
+        project_root=PROJECT_ROOT,
+        config_path=config_path,
+        backend=backend,
+    )
+    for name, ok in results.items():
+        mark = "[green]✓[/green]" if ok else "[red]✗[/red]"
+        console.print(f"  {mark} {name}")
+    if all(results.values()):
+        console.print("[green]Supervisor installed — agent + guardian will "
+                      "auto-start and self-heal.[/green]")
+        console.print("  Run [bold]windy uninstall-service[/bold] to remove.")
+    else:
+        console.print("[yellow]Some units failed to install — see marks "
+                      "above.[/yellow]")
 
 
 def _install_launchd(uv_path: str, brain_log: str) -> None:
