@@ -40,6 +40,29 @@ if TYPE_CHECKING:
     from windyfly.memory.database import Database
 
 
+# Process-level latch. Episode writes ride the async write queue, so
+# a brand-new user firing several rapid messages saw an EMPTY episodes
+# table on each one and got the canned welcome repeatedly while their
+# actual questions went unanswered (live-caught during the 2026-07-17
+# stress drills: 4 welcomes in a row). The DB check below stays the
+# source of truth across restarts; this set only closes the async
+# write-lag window within one process.
+_welcomed_db_paths: set[tuple[str, int]] = set()
+
+
+def _latch_key(db: "Database") -> tuple[str, int]:
+    # Composite (path, object-id): rapid messages in production hit the
+    # SAME Database object so the latch holds; distinct Database objects
+    # (every test's fresh ":memory:", or a restart) get their own key,
+    # so nothing leaks across tests or processes.
+    return (getattr(db, "db_path", "?"), id(db))
+
+
+def mark_welcomed(db: "Database") -> None:
+    """Record (in-process) that this DB's bot has sent its welcome."""
+    _welcomed_db_paths.add(_latch_key(db))
+
+
 def is_first_contact(db: "Database") -> bool:
     """True iff the bot has zero prior memory of any kind.
 
@@ -52,6 +75,8 @@ def is_first_contact(db: "Database") -> bool:
     welcome-loop forever — better to fall through to the LLM and
     surface the real problem.
     """
+    if _latch_key(db) in _welcomed_db_paths:
+        return False
     try:
         ep_row = db.fetchone("SELECT COUNT(*) AS c FROM episodes")
         nd_row = db.fetchone("SELECT COUNT(*) AS c FROM nodes")
