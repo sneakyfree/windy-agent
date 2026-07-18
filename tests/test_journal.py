@@ -90,7 +90,7 @@ class TestWriteAndRead:
         n2 = journal.write_day(db, "2026-07-17", model_caller=_fake_model)
         assert n1 == 2 and n2 == 2
         rows = db.fetchall(
-            "SELECT COUNT(*) AS c FROM nodes WHERE type='journal_entry'"
+            "SELECT COUNT(*) AS c FROM nodes WHERE type='chronicle_journal'"
         )
         assert rows[0]["c"] == 2  # upsert, not duplicate
 
@@ -125,3 +125,24 @@ class TestJournalReadCapability:
         out = cap.handler(limit=10)
         assert out["ok"] is True
         assert out["count"] == 2
+
+
+class TestNodeTypeIsolation:
+    """Live-caught 2026-07-18: the Chronicle Journal must NOT collide
+    with the agent's pre-existing self-reflective 'journal_entry' diary
+    nodes. read_entries reads only 'chronicle_journal'."""
+
+    def test_read_ignores_reflective_journal_entry_nodes(self):
+        from windyfly.memory.nodes import upsert_node
+        db = _db_with_day()
+        journal.write_day(db, "2026-07-17", model_caller=_fake_model)
+        # A pre-existing reflective diary node (different organ):
+        upsert_node(
+            db, type="journal_entry",
+            name="journal:Tonight was quiet, just a moon emoji",
+            metadata={"session_id": "abc", "emotional_context": "neutral"},
+        )
+        entries = journal.read_entries(db)
+        # Only the 2 dated Chronicle-Journal chapters, no None-dated junk
+        assert len(entries) == 2
+        assert all(e["date"] == "2026-07-17" for e in entries)

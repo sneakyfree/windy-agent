@@ -19,10 +19,14 @@ Doctrine alignment:
 - **Passes the razor:** it RECORDS an index of what happened; it does
   not judge what is worthy of KEEPING (the raw keeps everything).
 
-Entries are stored as ``journal_entry`` nodes keyed by
+Entries are stored as ``chronicle_journal`` nodes keyed by
 ``journal:<date>:<chapter>`` so re-running a day is idempotent
-(upsert). The write path is scheduled (a daily timer), never inline in
-agent_respond — grandma's turn latency is never taxed by journaling.
+(upsert). NOTE the distinct node type: the agent already has a
+``journal_entry`` type for its self-reflective end-of-session diary —
+a different organ. The Chronicle Journal is the dated INDEX, kept
+separate so reads of one never pick up the other (live-caught
+2026-07-18). The write path is a scheduled daily timer, never inline
+in agent_respond — grandma's turn latency is never taxed by journaling.
 """
 
 from __future__ import annotations
@@ -210,7 +214,7 @@ def write_day(
         for entry in entries:
             upsert_node(
                 db,
-                type="journal_entry",
+                type="chronicle_journal",
                 name=f"journal:{day}:{entry['chapter']}",
                 metadata={
                     **entry,
@@ -239,7 +243,7 @@ def read_entries(
     until: str | None = None,
 ) -> list[dict[str, Any]]:
     """Read Journal entries (newest first), for the journal.read tool."""
-    where = "type = 'journal_entry'"
+    where = "type = 'chronicle_journal'"
     params: list[Any] = []
     if since:
         where += " AND json_extract(metadata, '$.date') >= ?"
