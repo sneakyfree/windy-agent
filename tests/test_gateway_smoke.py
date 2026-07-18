@@ -69,7 +69,7 @@ class TestSlidersGetRoute:
         bridge, db, _ = _make_bridge()
         result = _run(bridge._dispatch("sliders.get", {}))
         assert "sliders" in result
-        assert len(result["sliders"]) == 18
+        assert len(result["sliders"]) == 19
         for name in VALID_SLIDERS:
             assert name in result["sliders"]
         db.close()

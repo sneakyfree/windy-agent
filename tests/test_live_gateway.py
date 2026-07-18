@@ -81,7 +81,7 @@ class TestCoreRoutes:
         r = httpx.get(f"{GATEWAY_URL}/api/sliders", timeout=5)
         assert r.status_code == 200
         data = r.json()
-        assert len(data["sliders"]) == 18
+        assert len(data["sliders"]) == 19
         for name, val in data["sliders"].items():
             assert 0 <= val <= 10, f"Slider '{name}' = {val} out of range"
 
@@ -90,7 +90,7 @@ class TestCoreRoutes:
         r = httpx.get(f"{GATEWAY_URL}/api/sliders/info", timeout=5)
         assert r.status_code == 200
         data = r.json()
-        assert len(data["sliders"]) == 18
+        assert len(data["sliders"]) == 19
         for name, info in data["sliders"].items():
             assert "label" in info, f"Slider '{name}' missing label"
             assert "description" in info, f"Slider '{name}' missing description"

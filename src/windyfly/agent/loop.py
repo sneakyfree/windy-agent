@@ -735,8 +735,15 @@ def agent_respond(
     else:
         emotional_trend = "neutral"  # Slider at 0 → ignore emotions
 
-    # 1.65. Adaptive mode — override sliders based on emotion (gated by toggle)
-    if loop_sliders.get("adaptive_mode", 5) >= 5:
+    # 1.65. Adaptive mode — DEPRECATED 2026-07-18, off by default.
+    # The regex-driven auto-slider that out-psychologizes the frontier
+    # model (which reads mood natively, better) is being retired. It is
+    # now inert unless BOTH the deprecated slider is explicitly high AND
+    # the escape hatch WINDY_ADAPTIVE_MODE_ENABLED=1 is set — so no
+    # user's manual sliders are auto-overridden by default, and raw_mode
+    # skips personality tuning entirely. Machinery removed next cycle.
+    _adaptive_enabled = os.environ.get("WINDY_ADAPTIVE_MODE_ENABLED") == "1"
+    if _adaptive_enabled and loop_sliders.get("adaptive_mode", 0) >= 5:
         loop_sliders = apply_adaptive_overrides(loop_sliders, emotional_context, emotional_trend)
 
     # (RETIRED 2026-07-18) The hardcoded stressed/excited system

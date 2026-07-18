@@ -118,10 +118,16 @@ SLIDER_INFO: dict[str, dict[str, str]] = {
         "impact_high": "Warm, caring, empathetic. Like a close friend.",
     },
     "adaptive_mode": {
-        "label": "Adaptive Mode",
-        "description": "When ON, the agent reads your mood and temporarily adjusts its personality to match.",
+        "label": "Adaptive Mode (deprecated)",
+        "description": "DEPRECATED 2026-07-18 — off by default and inert. Modern models already read your mood natively and better than a keyword-matcher; this regex-driven auto-slider is being retired (set raw_mode=1 to fully trust the model's own read). Kept only so existing settings don't error; the machinery is removed next cycle.",
         "impact_low": "Sliders stay exactly where you set them. Full manual control.",
-        "impact_high": "Agent 'reads the room' — softens when you're stressed, matches energy when you're excited.",
+        "impact_high": "(inert) — the model reads the room natively now.",
+    },
+    "raw_mode": {
+        "label": "Raw Model",
+        "description": "When ON, run on the model's native intuition — your agent's soul and memories still load, but no slider-tuned tone directives are injected. For people who like Opus/Fable exactly as the lab tuned it and don't want the personality knobs 'mucking it up.'",
+        "impact_low": "Manual: your sliders shape the agent's tone.",
+        "impact_high": "Raw: native model + soul + memory, no tone injection.",
     },
     "shape_shift_bias": {
         "label": "Shape-Shift Bias",
@@ -319,6 +325,12 @@ _COST_PER_POINT: dict[str, float] = {
     "warmth": 0.10,
     "adaptive_mode": 0.05,
     "shape_shift_bias": 0.00,  # Strategy, not cost — shifts are free vs sub-agents
+    # raw_mode (2026-07-18): a 0/1 toggle, not a 0-10 dial. 1 = "raw
+    # model" — the agent runs on its native intuition + its soul +
+    # memory, with NO slider-tuned tone directives injected. The honest
+    # trust mode for a user who likes the frontier model's own read of
+    # the room. Zero cost (it removes injection, if anything cheaper).
+    "raw_mode": 0.00,
 }
 
 VALID_SLIDERS = set(_COST_PER_POINT.keys())
