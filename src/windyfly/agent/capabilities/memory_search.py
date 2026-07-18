@@ -216,6 +216,53 @@ def register_memory_search_capabilities(
         },
     ))
 
+    def journal_read(
+        *, limit: int = 14, since: str | None = None, until: str | None = None,
+    ) -> dict[str, Any]:
+        from windyfly.memory.journal import read_entries
+
+        entries = read_entries(
+            db, limit=max(1, min(int(limit), 60)), since=since, until=until,
+        )
+        return {
+            "ok": True,
+            "count": len(entries),
+            "entries": entries,
+            "hint": (
+                "Each entry is a dated INDEX (summary + bullets + entities). "
+                "To read a day in full, call memory.read_range with that "
+                "date's start/end."
+                if entries else
+                "No journal entries yet — the Journal is written daily over "
+                "the raw record; use memory.search to reach older raw turns."
+            ),
+        }
+
+    registry.register(Capability(
+        id="journal.read",
+        description=(
+            "Read your dated JOURNAL — the day-by-day index of your shared "
+            "history (each day: a short summary + key-point bullets + tagged "
+            "people/places/topics). THE fast way to find WHEN something "
+            "happened before diving into the raw record: scroll the journal "
+            "to the right day, then memory.read_range that day for the full "
+            "conversation. Great for 'what were we working on last week' or "
+            "'when did we first talk about X'."
+        ),
+        handler=journal_read,
+        tier=Tier.READ_EXTERNAL,
+        scope="memory",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer", "description": "Max entries (default 14, cap 60)."},
+                "since": {"type": "string", "description": "Lower-bound date YYYY-MM-DD (optional)."},
+                "until": {"type": "string", "description": "Upper-bound date YYYY-MM-DD (optional)."},
+            },
+            "required": [],
+        },
+    ))
+
     registry.register(Capability(
         id="memory.read_range",
         description=(
