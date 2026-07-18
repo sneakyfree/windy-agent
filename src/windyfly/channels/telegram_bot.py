@@ -333,6 +333,8 @@ class TelegramChannel(ChannelAdapter):
         # scheduled progress checks against active paced goals.
         self._pacing_task: asyncio.Task[None] | None = None
         self._pacing_stop_event: asyncio.Event | None = None
+        self._maintenance_task: asyncio.Task[None] | None = None
+        self._maintenance_stop_event: asyncio.Event | None = None
 
     async def start(self) -> None:
         token = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -399,6 +401,12 @@ class TelegramChannel(ChannelAdapter):
         # preconditions the chat loop has. Survives reconnects
         # because we kill + restart on stop().
         self._pacing_task = asyncio.create_task(self._start_goal_pacing())
+
+        # In-process maintenance (Tier 2 of the cross-platform supervisor):
+        # runs the periodic jobs (journal today) that used to be Linux-only
+        # systemd timers — now cross-platform. Shared last-run file dedups
+        # across the per-channel processes.
+        self._maintenance_task = asyncio.create_task(self._start_maintenance())
 
         # Register the top-100 telegram-allowed commands with
         # Telegram's setMyCommands API so the user's autocomplete
@@ -1838,6 +1846,24 @@ class TelegramChannel(ChannelAdapter):
             # revives us. Worst case we lose write-queue flush.
             os._exit(75)
 
+    async def _start_maintenance(self) -> None:
+        """Start the in-process maintenance loop (Tier 2). Best-effort —
+        a config hiccup disables maintenance, never the channel."""
+        try:
+            from windyfly.agent.maintenance import maintenance_loop
+            from windyfly.config import load_config
+            cfg = load_config(os.environ.get("WINDYFLY_CONFIG", "windyfly.toml"))
+        except Exception as e:
+            logger.warning("maintenance: setup failed (%s) — disabled", e)
+            return
+        self._maintenance_stop_event = asyncio.Event()
+        try:
+            await maintenance_loop(cfg, stop_event=self._maintenance_stop_event)
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.warning("maintenance loop exited with error: %s", e)
+
     async def _start_goal_pacing(self) -> None:
         """Start the /goal Phase 2 pacing scheduler. Best-effort —
         if config/db/agent_respond aren't wired, log + skip rather
@@ -1893,6 +1919,15 @@ class TelegramChannel(ChannelAdapter):
             except (asyncio.CancelledError, Exception):
                 pass
             self._pacing_task = None
+        if self._maintenance_stop_event is not None:
+            self._maintenance_stop_event.set()
+        if self._maintenance_task is not None:
+            self._maintenance_task.cancel()
+            try:
+                await self._maintenance_task
+            except (asyncio.CancelledError, Exception):
+                pass
+            self._maintenance_task = None
         if self._heartbeat_task is not None:
             self._heartbeat_task.cancel()
             try:
