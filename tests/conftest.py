@@ -66,6 +66,17 @@ def _isolate_production_flags(monkeypatch, tmp_path):
     # from any unmocked call_llm test (Sprint 5) — never inherit it.
     monkeypatch.delenv("ETERNITAS_PASSPORT_TOKEN", raising=False)
     monkeypatch.delenv("ETERNITAS_PASSPORT", raising=False)
+    # Neutralize load_dotenv() suite-wide (2026-07-18): load_config()
+    # calls bare load_dotenv(), which walks up from CWD and loads a
+    # resident repo-root .env. On a machine where windy-agent is a
+    # standing checkout WITH a populated .env (e.g. OC5), that bled real
+    # provider keys into the suite — flipping
+    # test_unconfigured_provider_is_skipped_silently AND firing a live
+    # Anthropic call mid-test (a "no money in tests" violation). Tests
+    # get their env from fixtures/monkeypatch, never a file on disk.
+    monkeypatch.setattr(
+        "windyfly.config.load_dotenv", lambda *a, **k: False, raising=False,
+    )
     yield
 
 
