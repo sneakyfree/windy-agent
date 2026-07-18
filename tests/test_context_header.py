@@ -256,3 +256,44 @@ class TestEffectiveCapHonored:
         maybe_prepend_header("setup", 0)
         tracker = ch.get_tracker()
         assert tracker.max_context_tokens == 200_000
+
+
+# === Engine transparency (2026-07-18) ===
+
+
+class TestEngineInHeader:
+    def test_panel_shows_engine_when_known(self):
+        import windyfly.agent.context_header as ch
+        ch._tracker = None
+        out = ch.maybe_prepend_header("hi", 0, engine="claude-opus-4-8")
+        # First call always shows the full panel (hour threshold unmet
+        # history) — engine must be inside the panel brackets.
+        assert "· claude-opus-4-8]" in out
+
+    def test_panel_without_engine_unchanged(self):
+        import windyfly.agent.context_header as ch
+        ch._tracker = None
+        out = ch.maybe_prepend_header("hi", 0)
+        assert out.startswith("[🪰 Windy Fly · ")
+        assert out.count("·") == 2  # ts + state only, no engine segment
+
+    def test_engine_sticky_across_calls(self):
+        # A call that doesn't pass engine (e.g. a command-ack path) must
+        # not erase the last known engine.
+        import windyfly.agent.context_header as ch
+        ch._tracker = None
+        ch.maybe_prepend_header("a", 0, engine="gpt-oss-120b")
+        assert ch.get_tracker().last_engine == "gpt-oss-120b"
+        ch.maybe_prepend_header("b", 10, engine=None)
+        assert ch.get_tracker().last_engine == "gpt-oss-120b"
+
+    def test_emoji_prefix_never_carries_engine(self):
+        import windyfly.agent.context_header as ch
+        ch._tracker = None
+        t = ch.get_tracker()
+        # Force the "no full panel" path: fresh header just shown.
+        t._last_header_time = __import__("time").time()
+        t._last_header_pct = 100.0
+        out = ch.maybe_prepend_header("hello", 0, engine="claude-opus-4-8")
+        assert out.startswith("🟢 ")
+        assert "opus" not in out
