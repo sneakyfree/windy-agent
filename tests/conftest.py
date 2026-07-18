@@ -24,6 +24,7 @@ modes ride exactly where the test author wrote them.
 
 from __future__ import annotations
 
+import sys
 from unittest.mock import patch
 
 import pytest
@@ -66,17 +67,31 @@ def _isolate_production_flags(monkeypatch, tmp_path):
     # from any unmocked call_llm test (Sprint 5) — never inherit it.
     monkeypatch.delenv("ETERNITAS_PASSPORT_TOKEN", raising=False)
     monkeypatch.delenv("ETERNITAS_PASSPORT", raising=False)
-    # Neutralize load_dotenv() suite-wide (2026-07-18): load_config()
-    # calls bare load_dotenv(), which walks up from CWD and loads a
+    # Neutralize load_dotenv() suite-wide (2026-07-18): several modules
+    # call bare load_dotenv(), which walks up from CWD and loads a
     # resident repo-root .env. On a machine where windy-agent is a
-    # standing checkout WITH a populated .env (e.g. OC5), that bled real
-    # provider keys into the suite — flipping
+    # standing checkout WITH a populated .env (e.g. OC5 Mac), that bled
+    # real provider keys into the suite — flipping
     # test_unconfigured_provider_is_skipped_silently AND firing a live
     # Anthropic call mid-test (a "no money in tests" violation). Tests
     # get their env from fixtures/monkeypatch, never a file on disk.
-    monkeypatch.setattr(
-        "windyfly.config.load_dotenv", lambda *a, **k: False, raising=False,
-    )
+    #
+    # v2 (2026-07-18, fleet-caught): the first fix patched only
+    # windyfly.config's imported alias — but 7 other call sites import
+    # load_dotenv (cli.py x3, cli_selftest, main, bridge/uds_server,
+    # hatching, setup_wizard). Neutralize it EVERYWHERE:
+    #  (1) at the source (dotenv.load_dotenv) — catches every LAZY
+    #      `from dotenv import load_dotenv` inside a function, which
+    #      re-resolves the name at call time; and
+    #  (2) on any already-imported windyfly module that captured a
+    #      MODULE-LEVEL alias at import time (e.g. main.py) — done
+    #      dynamically so a new call site can't silently reopen the hole.
+    _noop_dotenv = lambda *a, **k: False  # noqa: E731
+    import dotenv as _dotenv
+    monkeypatch.setattr(_dotenv, "load_dotenv", _noop_dotenv, raising=False)
+    for _name, _mod in list(sys.modules.items()):
+        if _name.startswith("windyfly.") and getattr(_mod, "load_dotenv", None):
+            monkeypatch.setattr(_mod, "load_dotenv", _noop_dotenv, raising=False)
     yield
 
 
