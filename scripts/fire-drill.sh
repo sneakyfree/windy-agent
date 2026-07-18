@@ -86,8 +86,25 @@ fi
 
 # ── Step 1: probe-heal ─────────────────────────────────────────────
 drill_probe_heal() {
-    systemctl --user stop windy-0@matrix || return 1
+    # Wait out any in-flight job first — `systemctl stop` while a
+    # start/restart job is enqueued for the unit returns non-zero and
+    # would fail the step spuriously (seen when the drill runs seconds
+    # after a manual channel restart; the 08:00 timer never hits this,
+    # but be robust). Poll until the unit has NO pending job, then stop
+    # and confirm it actually went down before asking the probe to heal
+    # it — otherwise we'd "pass" without ever testing the heal.
     local i
+    for i in $(seq 1 15); do
+        systemctl --user list-jobs windy-0@matrix.service 2>/dev/null \
+            | grep -q windy-0@matrix || break
+        sleep 1
+    done
+    for i in 1 2 3; do
+        systemctl --user stop windy-0@matrix 2>/dev/null
+        sleep 1
+        [[ "$(systemctl --user is-active windy-0@matrix)" != "active" ]] && break
+    done
+    [[ "$(systemctl --user is-active windy-0@matrix)" != "active" ]] || return 1
     for i in 1 2 3; do "$PROBE" >/dev/null 2>&1 || true; done
     sleep 4
     [[ "$(systemctl --user is-active windy-0@matrix)" == "active" ]]
