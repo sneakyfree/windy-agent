@@ -63,12 +63,44 @@ class UDSBridge:
             )
         self._server: asyncio.AbstractServer | None = None
 
+    @staticmethod
+    def _peer_uid_allowed(writer: asyncio.StreamWriter) -> bool:
+        """SO_PEERCRED doorman (2026-07-18): on the UDS path, reject any
+        connecting process whose uid differs from ours. Belt-and-
+        suspenders on top of the socket file's permissions — the fuzz
+        audit's headline finding was that file perms were the ENTIRE
+        boundary. Fail-open when creds can't be read (TCP mode on
+        Windows, unit-test fakes): the filesystem gate still applies
+        there and the check must never brick a legitimate client.
+        """
+        try:
+            import socket as _socket
+            import struct
+            sock = writer.get_extra_info("socket")
+            if sock is None or sock.family != _socket.AF_UNIX:
+                return True
+            creds = sock.getsockopt(
+                _socket.SOL_SOCKET, _socket.SO_PEERCRED,
+                struct.calcsize("3i"),
+            )
+            _pid, uid, _gid = struct.unpack("3i", creds)
+            return uid == os.getuid()
+        except Exception:
+            return True
+
     async def _handle_client(
         self,
         reader: asyncio.StreamReader,
         writer: asyncio.StreamWriter,
     ) -> None:
         """Handle a single client connection."""
+        if not self._peer_uid_allowed(writer):
+            logger.warning("bridge: rejected cross-uid connection")
+            try:
+                await self._send_error(writer, "denied", "peer uid mismatch")
+            finally:
+                writer.close()
+            return
         try:
             while True:
                 data = await reader.readline()
@@ -99,7 +131,22 @@ class UDSBridge:
                 params = request.get("params", {})
 
                 try:
-                    result = await self._dispatch(method, params)
+                    # Off-thread dispatch (2026-07-18): every handler
+                    # except agent.respond used to run its synchronous
+                    # SQLite directly ON the event loop — one slow or
+                    # write-locked query head-of-line-blocked every
+                    # bridge client (fuzz-audit YELLOW). Each request
+                    # now runs in a worker thread with its own loop;
+                    # the shared sqlite conn is check_same_thread=False
+                    # + internally serialized, same as agent.respond's
+                    # long-standing executor path.
+                    _loop = asyncio.get_event_loop()
+                    result = await _loop.run_in_executor(
+                        None,
+                        lambda m=method, p=params: asyncio.run(
+                            self._dispatch(m, p)
+                        ),
+                    )
                     response = {"id": request_id, "result": result, "error": None}
                 except Exception as e:
                     logger.error("UDS method %s failed: %s", method, e)
