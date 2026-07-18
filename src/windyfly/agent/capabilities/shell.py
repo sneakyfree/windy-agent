@@ -208,13 +208,18 @@ def register_shell_capabilities(
     registry.register(Capability(
         id="shell.exec",
         description=(
-            "Run a shell command. Default: Docker container, network=none, "
-            "read-only mounts of allowed_roots, 30s timeout, 64KB output "
-            "cap. Pass network=true to give the container internet (still "
-            "isolated). Pass sandbox='host_rw' to bypass Docker entirely "
-            "and run on the host (OWNER band only — the blast radius "
-            "equals your own shell). Output truncated to 64KB; binary or "
-            "pipe-into-shell commands are blocked pre-flight."
+            "Run a shell command. THE tool for any question about local "
+            "OS state — disk usage (df -h), free memory (free -h), "
+            "processes (ps aux), uptime/load, network interfaces, "
+            "installed versions: run the command and quote real output "
+            "rather than saying you can't check. Default: Docker "
+            "container, network=none, read-only mounts of allowed_roots, "
+            "30s timeout, 64KB output cap. Pass network=true to give the "
+            "container internet (still isolated). Pass sandbox='host_rw' "
+            "to bypass Docker entirely and run on the host (OWNER band "
+            "only — the blast radius equals your own shell). Output "
+            "truncated to 64KB; binary or pipe-into-shell commands are "
+            "blocked pre-flight."
         ),
         handler=shell_exec,
         input_schema={

@@ -102,83 +102,6 @@ _bump_session_tokens = _record_session_footprint
 _DEFAULT_TOOL_ROUNDS = 5
 
 
-_OS_STATE_TRIGGERS = (
-    # Disk/storage
-    "disk usage", "disk space", "free space", "how much space",
-    "how big is", "directory size", "folder size", "df ",
-    # Memory
-    "memory usage", "free memory", "how much memory", "ram",
-    "free -h", "memory pressure",
-    # Process / load / cpu
-    "process", "running", "pid", "kill", "ps ", "top",
-    "load average", "cpu load", "cpu usage", "uptime",
-    # Network
-    "ip address", "interface", "ifconfig", "ip addr", "netstat",
-    "what's my ip", "open port", "ports open",
-    # Files / system inspection (read-only)
-    "what's installed", "is installed", "which version", "version of",
-    "what version", "hostname", "kernel", "uname",
-)
-
-
-def _user_message_asks_os_state(text: str) -> bool:
-    """Heuristic for v15 finding #3: bot doesn't try shell.exec for
-    OS-state queries even when capability is registered. False
-    positives waste ~70 tokens of prompt; false negatives mean the
-    bot says 'I can't check that for you' when it could just shell.
-
-    Conservative — only trips on clear OS-inspection vocabulary.
-    """
-    if not text:
-        return False
-    lower = text.lower()
-    return any(t in lower for t in _OS_STATE_TRIGGERS)
-
-
-def _user_message_mentions_local(text: str) -> bool:
-    """Heuristic: does the message reference a local file/path/repo?
-
-    Triggers the FS-tool nudge in agent_respond. Intentionally
-    conservative — false positives just add ~50 tokens to the prompt;
-    false negatives mean the LLM web_searches when it should
-    fs.read_file.
-
-    Note: includes "github" / "git" / "repo" because for Grant (and
-    most users with local clones) "go to my github" means "look at the
-    local clone in ~/" — surfaced when the bot tried web search for
-    'kit-army-config' instead of fs.list_directory ~/kit-army-config.
-    """
-    if not text:
-        return False
-    lower = text.lower()
-    # Path-shaped strings (./x, /Users/, ~/, src/, etc.)
-    if any(seg in text for seg in ("/Users/", "~/", "./", "../")):
-        return True
-    if "/" in text and any(
-        ext in lower for ext in (".md", ".py", ".ts", ".js", ".toml",
-                                  ".json", ".yaml", ".yml", ".txt",
-                                  ".sh", ".rs", ".go")
-    ):
-        return True
-    # Possessive references to local artifacts + repo-name triggers.
-    # Repo names mirror the user's ~/ layout — every name in this list
-    # corresponds to a real top-level repo dir on Grant's machine.
-    triggers = (
-        "my repo", "my windy", "my project", "my folder", "my file",
-        "my directory", "my notes", "my code",
-        "github", "git repo", " repo ", " repo?", " repo.", " repo,",
-        "in src/", "in tests/", "in docs/", "in scripts/",
-        "windy-agent", "windy-pro", "windy-cloud", "windy-mail",
-        "windy-chat", "windy-code", "windy-clone", "windy-infra",
-        "windy-pro-cloud", "windy-pro-mobile", "windy-pro-updates",
-        "windy-pro-cloud-data",
-        "kit-army", "kit-army-config", "lockbox", "access_lockbox",
-        "eternitas", "nachocrunch",
-        "soul.md", "claude.md", "readme.md", "memory.md",
-    )
-    return any(t in lower for t in triggers)
-
-
 # Confabulation detector (below). Tuned from the Apr 21 smoke-battery
 # incident: GLM-4.7 answered "Done! Created `~/scratch/test-undo.md`"
 # with no tool_calls at all — the file never existed. Same for delete,
@@ -722,81 +645,13 @@ def agent_respond(
         band=band,
     )
 
-    # 1.0.5 — Capability-aware tool-selection nudge.
-    # When the user references a local path / file / repo / folder, the
-    # LLM (especially GLM-4) tends to default to web_search instead of
-    # fs.read_file even though the FS capability is in its tool list.
-    # Inject a tight instruction per-call so it picks correctly. Only
-    # fires when the registry actually has fs.* capabilities AND the
-    # message looks path-ish — otherwise we waste tokens.
-    # 1.0.6 — shell.exec discoverability nudge (v15 finding #3).
-    # The bot wasn't picking shell.exec for "what's my disk usage"
-    # / "how much memory free" / etc., because the BIAS TO ACTION
-    # block mentions shell.exec abstractly but doesn't connect
-    # OS-state vocabulary to specific commands. Inject when the
-    # capability is registered AND the question looks OS-shaped.
-    # These two nudges are OWNER-ONLY. They (a) point the model at
-    # shell.exec / fs.* — capabilities a non-owner's SANDBOX band was
-    # deliberately denied, so the nudge would advertise tools the model
-    # can't call — and (b) the fs nudge enumerates the owner's private
-    # repo names, ~/ layout, and ACCESS_LOCKBOX.md, which must never be
-    # spoken to a stranger. Gate on TRUSTED+ (owner / paired power user).
-    # band defaults to OWNER above, so existing owner callers are
-    # unaffected; only SANDBOX/USER (non-owner) sessions skip them.
-    if (
-        band >= Band.TRUSTED
-        and capability_registry.get("shell.exec")
-        and _user_message_asks_os_state(user_message)
-    ):
-        messages.insert(1, {
-            "role": "system",
-            "content": (
-                "The user is asking about local OS state — use "
-                "shell.exec to inspect the machine and quote the "
-                "actual output. Common commands:\n"
-                "  - Disk usage: `df -h` (filesystem) or `du -sh <path>` (dir)\n"
-                "  - Free memory: `free -h`\n"
-                "  - Running processes: `ps aux --sort=-%cpu | head -10`\n"
-                "  - Load average / uptime: `uptime`\n"
-                "  - Network interfaces: `ip -brief addr`\n"
-                "  - Installed version: `which X` / `X --version`\n"
-                "Pick the right command, run it via shell.exec, then "
-                "summarize the result. Don't tell the user you 'can't "
-                "check' — you can."
-            ),
-        })
+    # 1.0.5/1.0.6 (RETIRED 2026-07-18, steering→substrate migration):
+    # the shell-exec and fs-tool keyword nudges moved into the
+    # capabilities' own self-descriptions (agent/capabilities/shell.py,
+    # filesystem.py) — dumb tools describe themselves; no per-turn
+    # keyword matching, and no owner-private repo names in runtime
+    # prompt text (that knowledge belongs in the instance's soul repo).
 
-    if (
-        band >= Band.TRUSTED
-        and capability_registry.get("fs.read_file")
-        and _user_message_mentions_local(user_message)
-    ):
-        messages.insert(1, {
-            "role": "system",
-            "content": (
-                "The user is referring to something on the local "
-                "machine (a file, repo, folder, or path). You have "
-                "fs.read_file, fs.list_directory, fs.glob, and "
-                "fs.grep_files available. Use those FIRST before "
-                "falling back to web_search or asking the user to "
-                "paste content.\n\n"
-                "IMPORTANT: when the user says 'my github' or 'my X "
-                "github repo' or 'my <name> repo', they almost always "
-                "mean a LOCAL CLONE in their home directory, not the "
-                "online GitHub. Try fs.list_directory ~/<name> first. "
-                "Do not refuse with 'I can't access GitHub' — try the "
-                "local path.\n\n"
-                "Local repos that exist for this user (in ~/):\n"
-                "  windy-agent, windy-pro, windy-cloud, windy-mail,\n"
-                "  windy-chat, windy-code, windy-clone, windy-infra,\n"
-                "  windy-pro-cloud, windy-pro-mobile, windy-pro-updates,\n"
-                "  kit-army-config, eternitas, nachocrunch,\n"
-                "  windy-0-soul (this instance's identity + config),\n"
-                "  any other <name>-soul repo for other instances.\n"
-                "Common file names: SOUL.md, CLAUDE.md, README.md, "
-                "windyfly.toml, config.toml, ACCESS_LOCKBOX.md."
-            ),
-        })
 
     # 1.1. First interaction magic
     from windyfly.agent.first_interaction import (
@@ -884,19 +739,11 @@ def agent_respond(
     if loop_sliders.get("adaptive_mode", 5) >= 5:
         loop_sliders = apply_adaptive_overrides(loop_sliders, emotional_context, emotional_trend)
 
-    if emotional_trend == "sustained_stress":
-        messages.insert(1, {
-            "role": "system",
-            "content": (
-                "The user seems stressed. Be extra concise and supportive. "
-                "Don't suggest new things right now. Focus on what they're asking."
-            ),
-        })
-    elif emotional_trend == "excited":
-        messages.insert(1, {
-            "role": "system",
-            "content": "The user is excited! Match their enthusiasm and energy.",
-        })
+    # (RETIRED 2026-07-18) The hardcoded stressed/excited system
+    # injections are gone — the soul already instructs "Mirror the
+    # user's energy" on every turn, and tone is the model's job
+    # (Principle #5). emotional_context/trend still feed the episode
+    # metadata + adaptive_mode sliders below.
 
     # 1.72. Skill-capture nudge (Sprint 3, the Hermes pattern): if the
     # PREVIOUS turn executed heavy tool work, remind the model once
