@@ -575,6 +575,14 @@ class TelegramChannel(ChannelAdapter):
                     if self._last_message_at
                     else -1.0
                 )
+                # Cross-platform heartbeat file — the guardian reads this
+                # (no log-parsing). Written every tick regardless of
+                # polling state so a polling=DEAD signal is visible too.
+                try:
+                    from windyfly.supervisor.heartbeat import write_heartbeat
+                    write_heartbeat("telegram", polling=alive)
+                except Exception:
+                    pass
                 if alive:
                     logger.info(
                         "♥ Telegram heartbeat: polling=alive, last_message_age=%.0fs",

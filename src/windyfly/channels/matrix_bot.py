@@ -485,6 +485,12 @@ class WindyFlyMatrixBot(ChannelAdapter):
                     rooms_joined,
                     pending_count,
                 )
+                # Cross-platform heartbeat file for the guardian.
+                try:
+                    from windyfly.supervisor.heartbeat import write_heartbeat
+                    write_heartbeat("matrix", polling=bool(self._connected))
+                except Exception:
+                    pass
             except Exception as e:
                 logger.debug("Heartbeat error: %s", e)
 
