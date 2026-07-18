@@ -79,3 +79,30 @@ class TestDefaultJobs:
     def test_journal_job_registered(self):
         jobs = m.default_jobs({"memory": {"db_path": ":memory:"}})
         assert any(j.name == "journal.daily" for j in jobs)
+
+
+class TestBatteryJobFold:
+    def test_battery_registered_when_script_present(self, monkeypatch, tmp_path):
+        # Simulate a checkout with the script present.
+        (tmp_path / "scripts").mkdir()
+        (tmp_path / "scripts" / "continuity_battery.py").write_text("# stub")
+        monkeypatch.setattr(m, "get_project_root", lambda: tmp_path, raising=False)
+        import windyfly.platform as plat
+        monkeypatch.setattr(plat, "get_project_root", lambda: tmp_path)
+        jobs = m.default_jobs({"memory": {"db_path": ":memory:"}})
+        names = [j.name for j in jobs]
+        assert "continuity.battery.weekly" in names
+
+    def test_battery_absent_when_no_script(self, monkeypatch, tmp_path):
+        import windyfly.platform as plat
+        monkeypatch.setattr(plat, "get_project_root", lambda: tmp_path)  # no scripts/
+        jobs = m.default_jobs({"memory": {"db_path": ":memory:"}})
+        assert "continuity.battery.weekly" not in [j.name for j in jobs]
+
+    def test_battery_weekly_cadence_sunday(self):
+        due = m.weekly_due(weekday=6, after_hour=8)
+        from datetime import datetime, timezone
+        sunday9 = datetime(2026, 7, 19, 9, 0, tzinfo=timezone.utc)
+        monday9 = datetime(2026, 7, 20, 9, 0, tzinfo=timezone.utc)
+        assert due(None, sunday9) is True
+        assert due(None, monday9) is False

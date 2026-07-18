@@ -149,13 +149,59 @@ def default_jobs(config: dict[str, Any]) -> list[MaintenanceJob]:
         model_caller = _journal_model_caller(config)
         write_day(db, day, model_caller=model_caller)
 
-    return [
+    jobs = [
         MaintenanceJob(
             name="journal.daily",
             run=_write_yesterday_journal,
             due=daily_due(after_hour=0),
         ),
     ]
+
+    # Continuity battery — weekly (Sun), Principle #7 as a number. It's a
+    # pure-Python script (seed→probe on a scratch DB, local model), so we
+    # run the proven script via subprocess: cross-platform, no risky
+    # refactor. Fails gracefully (e.g. no local model) → not recorded →
+    # retried. This was a Linux-only systemd timer; now runs on every OS.
+    battery = _continuity_battery_runner()
+    if battery is not None:
+        jobs.append(MaintenanceJob(
+            name="continuity.battery.weekly",
+            run=battery,
+            due=weekly_due(weekday=6, after_hour=8),  # Sunday 08:00+
+        ))
+
+    # NOTE: the FIRE DRILL is deliberately NOT an in-process job. It
+    # stops the agent and verifies recovery — a test an in-process job
+    # can't run against its own process (stopping the channel kills the
+    # job). It belongs at the guardian/supervisor level; tracked as a
+    # follow-up (guardian-driven self-drill using the OS backend).
+    return jobs
+
+
+def _continuity_battery_runner():
+    """Return a callable that runs the continuity-battery script
+    (seed then probe) via subprocess, or None if it can't be located."""
+    import shutil
+    import subprocess
+    from windyfly.platform import get_project_root
+
+    try:
+        script = get_project_root() / "scripts" / "continuity_battery.py"
+    except Exception:
+        return None
+    if not script.exists():
+        return None
+    uv = shutil.which("uv")
+
+    def _run() -> None:
+        base = [uv, "run", "python"] if uv else ["python"]
+        for phase in ("seed", "probe"):
+            subprocess.run(
+                [*base, str(script), phase],
+                cwd=str(script.parent.parent), timeout=1200,
+                capture_output=True,
+            )
+    return _run
 
 
 def _journal_model_caller(config: dict[str, Any]):
