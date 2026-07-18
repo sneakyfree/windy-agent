@@ -778,6 +778,10 @@ def register_filesystem_capabilities(
         id="fs.read_file",
         description=(
             "Read the contents of a text file at the given path. "
+            "When the user mentions a local file, folder, repo, or "
+            "'my <name> repo', use the fs.* tools FIRST (they usually "
+            "mean a local clone in ~/) before web_search or asking "
+            "them to paste content. "
             "Returns up to max_bytes (default 100KB) of UTF-8 content. "
             "Binary files return a hint instead of contents. Path must "
             "be inside the agent's allowed roots."
@@ -806,7 +810,8 @@ def register_filesystem_capabilities(
         description=(
             "List entries in a directory, including type (file/dir/symlink), "
             "size, and modified time. Path must be inside the agent's "
-            "allowed roots."
+            "allowed roots. To discover the user's local repos, list ~ "
+            "— don't assume, look."
         ),
         handler=list_directory,
         input_schema={

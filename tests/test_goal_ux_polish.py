@@ -10,52 +10,14 @@ from __future__ import annotations
 
 import pytest
 
-from windyfly.agent.loop import (
-    _user_message_asks_os_state,
-    _user_message_mentions_local,
-)
-
-
 # ── shell.exec discoverability (v15 finding #3) ──────────────────
 
 
-class TestShellExecDiscoverability:
-
-    def test_disk_phrases_trigger(self):
-        for t in ("what's my disk usage?", "how much disk space",
-                  "free space on the drive?", "df -h please"):
-            assert _user_message_asks_os_state(t) is True, t
-
-    def test_memory_phrases_trigger(self):
-        for t in ("how much memory do I have free",
-                  "what's my ram usage", "memory pressure right now?"):
-            assert _user_message_asks_os_state(t) is True, t
-
-    def test_process_load_phrases_trigger(self):
-        for t in ("what processes are running",
-                  "what's the load average", "what's my cpu usage?",
-                  "how long has this been uptime"):
-            assert _user_message_asks_os_state(t) is True, t
-
-    def test_network_phrases_trigger(self):
-        for t in ("what's my ip address?", "list network interfaces"):
-            assert _user_message_asks_os_state(t) is True, t
-
-    def test_non_os_phrases_do_not_trigger(self):
-        # False-positive guard — these should NOT trip the nudge
-        for t in ("how are you today",
-                  "tell me about polar bears",
-                  "what's the capital of France"):
-            assert _user_message_asks_os_state(t) is False, t
-
-    def test_local_path_vs_os_state_independent(self):
-        """The two nudge heuristics should be orthogonal — referring
-        to a local file isn't the same as asking about OS state."""
-        assert _user_message_mentions_local("~/SOUL.md") is True
-        assert _user_message_asks_os_state("~/SOUL.md") is False
-
-
-# ── web_search gating UX (v15 finding #4) ────────────────────────
+# TestShellExecDiscoverability RETIRED 2026-07-18: the keyword-trigger
+# helpers it pinned were deleted in the steering->substrate migration
+# (shell.exec's own description now carries the OS-state guidance; the
+# origin failure "bot won't shell for disk usage" moves to the weekly
+# continuity battery as a live-model case).
 
 
 def test_web_search_unavailable_returns_grandma_friendly():
