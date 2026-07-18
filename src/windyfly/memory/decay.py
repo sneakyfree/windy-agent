@@ -1,8 +1,19 @@
-"""Cognitive decay — gradual forgetting of stale knowledge.
+"""Cognitive decay — retrieval emphasis, NOT forgetting.
 
-Runs periodically to decay old nodes, archive old episodes,
-and prune ancient data. Decay rate is controlled by the
-memory_retention slider (0=goldfish, 10=elephant).
+Runs periodically to lower the retrieval weight (decay_score) of stale
+nodes and downgrade their epistemic status. Rate is controlled by the
+memory_retention slider (0=goldfish, 10=elephant) — but per the
+Chronicle Doctrine (Law 1, 2026-07-18), decay may only DIM, never
+ERASE:
+
+  - Nodes are never hard-deleted; decay_score floors at 0.01 and very
+    stale nodes become 'speculative'. The words survive.
+  - Raw episode content is NEVER touched. The previous step-4 here
+    overwrote episode content with '[archived — original content
+    pruned]' after ~archive_days — a scheduled destruction of the
+    Chronicle that had (verified 2026-07-18) not yet fired on any live
+    row. It is gone; do not reintroduce it. The Chronicle is
+    append-only: no machine decides a memory is unworthy of keeping.
 """
 
 from __future__ import annotations
@@ -42,15 +53,19 @@ def run_decay(
     """Run the cognitive decay cycle.
 
     The memory_retention slider controls how aggressively old knowledge
-    is forgotten:
-    - 0 (goldfish): fast decay, start after 7 days
-    - 10 (elephant): near-zero decay, start after 365 days
+    is DE-EMPHASIZED in retrieval (never destroyed):
+    - 0 (goldfish): fast de-emphasis, start after 7 days
+    - 10 (elephant): near-zero de-emphasis, start after 365 days
 
     Steps:
       1. Nodes: decay_score *= multiplier for nodes older than threshold
       2. Low-decay nodes (< 0.2): mark epistemic_status = 'speculative'
-      3. Very low nodes (< 0.05): DELETE permanently
-      4. Episodes: archive old episodes (> threshold * 3 days)
+      3. Very low nodes (< 0.05): FLOOR decay_score at 0.01 (counted as
+         'pruned' for backward-compatible reporting — pruned from
+         retrieval emphasis, not from existence)
+      4. Episodes: NEVER touched (Chronicle Doctrine Law 1). The
+         'archived' count is always 0 and retained only for
+         report-shape compatibility.
 
     Args:
         db: Database instance.
@@ -98,25 +113,23 @@ def run_decay(
         )
         counts["speculated"] = cursor.rowcount
 
-        # 3. Prune very low nodes
+        # 3. Floor very low nodes at minimum retrieval weight. The old
+        # behavior here was DELETE — a machine deciding a fact was
+        # unworthy of keeping, forbidden under Chronicle Doctrine Law 1.
+        # The node stays (speculative, near-zero weight); the record
+        # survives for a smarter future model to re-evaluate.
         cursor = db.execute(
             """
-            DELETE FROM nodes WHERE decay_score < 0.05
+            UPDATE nodes SET decay_score = 0.01
+            WHERE decay_score < 0.05 AND decay_score != 0.01
             """,
         )
         counts["pruned"] = cursor.rowcount
 
-        # 4. Archive old episodes (replace content with summary placeholder)
-        cursor = db.execute(
-            f"""
-            UPDATE episodes SET
-                content = '[archived — original content pruned]',
-                summary = COALESCE(summary, content)
-            WHERE created_at < datetime('now', '-{archive_days} days')
-              AND content != '[archived — original content pruned]'
-            """,
-        )
-        counts["archived"] = cursor.rowcount
+        # 4. Episodes: deliberately untouched. The Chronicle is
+        # append-only raw; decay has no business here. (archive_days
+        # retained in the log line for continuity of dashboards.)
+        counts["archived"] = 0
 
         db.commit()
 
