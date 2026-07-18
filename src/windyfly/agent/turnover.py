@@ -128,3 +128,53 @@ def write_turnover_letter(
     except Exception as e:
         logger.warning("turnover letter write failed (non-fatal): %s", e)
         return False
+
+
+def write_shutdown_turnovers(
+    db: Any,
+    platform: str,
+    *,
+    recent_hours: int = 24,
+    max_sessions: int = 5,
+) -> int:
+    """Write turnover letters for this channel's recently-active sessions
+    at graceful shutdown (2026-07-18).
+
+    Before this, letters were written ONLY on /new — a deliberate stop
+    (like the 2026-07-17 01:15 one) left no handoff. Same contract as
+    /new: deterministic, no LLM call, best-effort, bounded — a shutdown
+    must never hang on this. Returns the number of letters written.
+    """
+    try:
+        rows = db.fetchall(
+            "SELECT DISTINCT session_id FROM episodes "
+            "WHERE session_id LIKE ? "
+            "AND created_at > datetime('now', ?) "
+            "ORDER BY session_id LIMIT ?",
+            (f"{platform}:%", f"-{int(recent_hours)} hours", max_sessions),
+        )
+    except Exception as e:
+        logger.warning("shutdown turnover scan failed (non-fatal): %s", e)
+        return 0
+
+    written = 0
+    for row in rows or []:
+        session_id = row["session_id"] if isinstance(row, dict) else row[0]
+        try:
+            from windyfly.agent.session_reset import parse_session_id
+            plat, channel_id, _ = parse_session_id(session_id)
+            if not plat:
+                continue
+            if write_turnover_letter(
+                db, None,
+                platform=plat, channel_id=channel_id, session_id=session_id,
+            ):
+                written += 1
+        except Exception as e:
+            logger.warning(
+                "shutdown turnover for %s failed (non-fatal): %s",
+                session_id, e,
+            )
+    if written:
+        logger.info("shutdown turnovers written: %d (%s)", written, platform)
+    return written
