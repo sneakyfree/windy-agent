@@ -121,3 +121,33 @@ class TestTickRestartDiscipline:
         _write_hb(tmp_path, "telegram", age_s=5)  # agent healthy again
         st = tick(cfg, st, lambda: True)
         assert st.consecutive_fails == 0
+
+
+class TestHeartbeatReadRetry:
+    """Windows-campaign finding 2026-07-18: a torn read (writer mid
+    os.replace) returned None for one tick. Retry-once seals it; a
+    truly-absent file still short-circuits to None without retrying."""
+
+    def test_absent_file_returns_none_fast(self, tmp_path, monkeypatch):
+        slept = []
+        monkeypatch.setattr("time.sleep", lambda s: slept.append(s))
+        assert hb.read_heartbeat("ghost", state_dir=tmp_path) is None
+        assert slept == []  # no retry for a missing file
+
+    def test_transient_read_error_retries_then_succeeds(self, tmp_path, monkeypatch):
+        hb.write_heartbeat("telegram", pid=7, state_dir=tmp_path)
+        import pathlib
+        calls = {"n": 0}
+        real_read = pathlib.Path.read_text
+
+        def flaky(self, *a, **k):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise PermissionError("sharing violation")  # torn read
+            return real_read(self, *a, **k)
+
+        monkeypatch.setattr(pathlib.Path, "read_text", flaky)
+        monkeypatch.setattr("time.sleep", lambda s: None)
+        got = hb.read_heartbeat("telegram", state_dir=tmp_path)
+        assert got is not None and got["pid"] == 7
+        assert calls["n"] == 2  # failed once, retried, succeeded

@@ -52,13 +52,24 @@ def write_heartbeat(
 def read_heartbeat(
     channel: str, state_dir: Path | None = None,
 ) -> dict | None:
-    try:
-        path = heartbeat_path(channel, state_dir)
-        if not path.exists():
-            return None
-        return json.loads(path.read_text())
-    except Exception:
+    # Retry-once (2026-07-18, Windows campaign): on Windows the writer's
+    # os.replace can briefly collide with a read (sharing violation),
+    # returning None for one tick. Harmless to the guardian (None →
+    # conservative skip, never a false restart) but a retry seals the
+    # torn-read window so a real signal isn't missed for a cycle. A
+    # missing file (agent not started) short-circuits without retrying.
+    path = heartbeat_path(channel, state_dir)
+    if not path.exists():
         return None
+    for attempt in range(2):
+        try:
+            return json.loads(path.read_text())
+        except Exception:
+            if attempt == 0:
+                time.sleep(0.05)
+                continue
+            return None
+    return None
 
 
 def heartbeat_age(
