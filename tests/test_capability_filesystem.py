@@ -126,6 +126,29 @@ def test_always_deny_dotenv_blocks_even_inside_allowlist(sandbox):
         _resolve_and_check(str(env_file), [sandbox["allowed"]])
 
 
+def test_always_deny_matches_windows_separators(sandbox):
+    """The deny check must hold when the resolved path uses backslash
+    separators (Windows str(Path.resolve())). Regression for the
+    2026-07-18 finding that .ssh/.aws/.env were readable on Windows
+    because the '/{needle}/' match never fired on backslash paths."""
+    import windyfly.agent.capabilities.filesystem as fsmod
+
+    # Simulate a Windows-style resolved path by patching Path.resolve
+    # to return a PurePath whose str() uses backslashes.
+    class _WinPath:
+        def __init__(self, s): self._s = s
+        def __str__(self): return self._s
+
+    real_resolve = fsmod.Path.resolve
+    win_str = r"C:\\Users\\grandma\\allowed\\.ssh\\id_rsa"
+    try:
+        fsmod.Path.resolve = lambda self, strict=False: _WinPath(win_str)
+        with pytest.raises(PermissionError, match="always-deny"):
+            _resolve_and_check(win_str, [sandbox["allowed"]])
+    finally:
+        fsmod.Path.resolve = real_resolve
+
+
 # ── read_file behavior ─────────────────────────────────────────────
 
 

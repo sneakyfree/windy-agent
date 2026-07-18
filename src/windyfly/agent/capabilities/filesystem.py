@@ -88,7 +88,13 @@ def _resolve_and_check(
     resolved = expanded.resolve(strict=False)
 
     # Hard-coded denies first — these win over any allow.
-    resolved_str = str(resolved)
+    # Normalize separators to '/' so the matches below hold on Windows
+    # too: str(Path.resolve()) yields backslash paths there, so the
+    # '/{needle}/' / tail checks silently never fired and .ssh/.aws/.env
+    # were readable (Windows stress, 2026-07-18). No-op on POSIX; if a
+    # POSIX filename ever contained a literal backslash the only effect
+    # is a stricter deny, which is the safe direction for this boundary.
+    resolved_str = str(resolved).replace("\\", "/")
     for needle in _ALWAYS_DENY:
         # Match either as a path component or a tail
         if (
