@@ -120,3 +120,46 @@ class TestRunGuardianWiring:
         assert rg.build_config().external_probe is not None
         monkeypatch.delenv("TELEGRAM_BOT_TOKEN")
         assert rg.build_config().external_probe is None
+
+
+class TestMacCampaignHardening:
+    """Fixes surfaced by the 2026-07-18 Mac-native recovery campaign."""
+
+    def test_launchd_restart_falls_back_gui_then_user(self, monkeypatch):
+        b = LaunchdBackend()
+        monkeypatch.delenv("WINDY_LAUNCHD_DOMAIN", raising=False)
+        tried = []
+
+        def fake_run(args, timeout=20.0):
+            tried.append(args[3])  # the domain/label token
+            # gui fails, user succeeds
+            return (0, "") if args[3].startswith("user/") else (1, "no session")
+        monkeypatch.setattr(b, "_run", fake_run)
+        assert b.restart("guardian") is True
+        assert tried[0].startswith("gui/") and tried[1].startswith("user/")
+
+    def test_launchd_domain_override(self, monkeypatch):
+        b = LaunchdBackend()
+        monkeypatch.setenv("WINDY_LAUNCHD_DOMAIN", "system")
+        assert b._domains()[0].startswith("system/")
+
+    def test_launchd_plist_escapes_xml(self):
+        b = LaunchdBackend()
+        u = ServiceUnit(name="g", description="A & B < C",
+                        exec_args=["uv", "run", "--flag=x&y"],
+                        working_dir="/path/A&B", env={"K": "v<1>"})
+        # write to a temp dir via a monkeypatched path would exec launchctl;
+        # instead build the plist text directly through the same escaper.
+        from windyfly.supervisor.backends import _xesc
+        assert _xesc("/path/A&B") == "/path/A&amp;B"
+        assert "&" not in _xesc("A & B").replace("&amp;", "")
+
+    def test_windows_xml_escapes(self):
+        b = WindowsTaskSchedulerBackend()
+        u = ServiceUnit(name="g", description="drill & test",
+                        exec_args=["python", "-c", "x < y & z"],
+                        working_dir="C:\\a&b")
+        xml = b._task_xml(u)
+        assert "&amp;" in xml
+        assert "x < y & z" not in xml  # raw ampersand/lt must not survive
+        assert "drill & test" not in xml
