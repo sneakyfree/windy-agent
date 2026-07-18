@@ -387,10 +387,15 @@ def queue_message(user_message: str, session_id: str = "") -> None:
         "session_id": session_id,
         "queued_at": __import__("datetime").datetime.now().isoformat(),
     })
-    # Atomic write: write to temp file then rename
+    # Atomic write: write to temp file then replace. os.replace (not
+    # Path.rename) so it overwrites an existing queue file on EVERY
+    # platform — Path.rename raises FileExistsError on Windows (WinError
+    # 183) the second time the queue is written, which crashed the
+    # offline fallback mid-outage (Windows stress, 2026-07-18). No-op
+    # change on POSIX, where rename already replaced.
     tmp = _QUEUE_PATH.with_suffix(".tmp")
     tmp.write_text(json.dumps(queue, indent=2))
-    tmp.rename(_QUEUE_PATH)
+    os.replace(tmp, _QUEUE_PATH)
     logger.info("Queued offline message (%d in queue)", len(queue))
 
 
