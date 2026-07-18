@@ -150,6 +150,16 @@ class CommandRegistry:
         ctx = context or {}
         platform = str(ctx.get("platform", "unknown"))
 
+        # Usage telemetry (name only, never args — privacy hard line).
+        # Fire-and-forget; feeds the data-driven command-surface prune.
+        try:
+            from windyfly.observability.admin_telemetry import (
+                emit_command_invoked,
+            )
+            emit_command_invoked(ctx.get("write_queue"), cmd.name, platform)
+        except Exception:  # noqa: BLE001 — telemetry never blocks a command
+            pass
+
         # Channel policy — remote channels cannot invoke developer,
         # cloud, or maintenance commands. Local platforms (terminal /
         # cli) bypass the category check entirely.

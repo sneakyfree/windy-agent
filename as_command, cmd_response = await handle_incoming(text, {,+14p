@@ -74,38 +74,6 @@ TELEGRAM_MENU_DENYLIST = frozenset({
     "kill", "shutdown", "stop", "restart", "go", "ps",
 })
 
-# ── Rescue-kit menu (2026-07-18, Principle #1 + #4) ────────────────
-#
-# The autocomplete popup used to advertise ~91 commands — a wall of
-# choices for grandma and pure feature-noise (the OpenClaw cautionary
-# tale). The doctrine-clean justification for a slash command is:
-# IT WORKS WHEN THE BRAIN IS BROKEN, HALLUCINATING, OR SPENDING MONEY.
-# That defines the menu: the deterministic rescue/budget/status tier.
-# Everything else stays REGISTERED and typed commands still work —
-# this only curates the popup. Set WINDY_TELEGRAM_FULL_MENU=1 to
-# restore the firehose (debugging / power users).
-TELEGRAM_MENU_RESCUE_KIT: tuple[str, ...] = (
-    "panic", "reset", "new", "resurrect", "normal", "lifeboat",
-    "auto_resurrect", "spend", "pause", "resume", "status", "help",
-    "model", "memory", "goal",
-)
-
-
-def apply_rescue_kit_filter(
-    candidates: list[tuple[int, str, str]],
-) -> list[tuple[int, str, str]]:
-    """Cut the popup candidates to the rescue kit (kit order wins),
-    unless WINDY_TELEGRAM_FULL_MENU=1 restores the full surface.
-    Typed commands are unaffected — this only curates the popup."""
-    if os.environ.get("WINDY_TELEGRAM_FULL_MENU") == "1":
-        return candidates
-    kit_order = {n: i for i, n in enumerate(TELEGRAM_MENU_RESCUE_KIT)}
-    return [
-        (kit_order[n], n, d)
-        for _p, n, d in candidates
-        if n in kit_order
-    ]
-
 
 # ── Nuclear reset / panic button ───────────────────────────────────
 #
@@ -508,10 +476,6 @@ class TelegramChannel(ChannelAdapter):
                 continue
             if name not in existing_names and VALID.match(name):
                 candidates.append((prio, name, desc))
-
-        # Rescue-kit cut: the popup shows ONLY the emergency tier
-        # unless the operator opts back into the firehose.
-        candidates = apply_rescue_kit_filter(candidates)
 
         # Sort by (priority, name) for deterministic ordering
         candidates.sort(key=lambda x: (x[0], x[1]))
@@ -1719,7 +1683,6 @@ class TelegramChannel(ChannelAdapter):
             "platform": "telegram",
             "channel_id": str(update.message.chat_id),
             "sender_id": sender_id,
-            "write_queue": self._write_queue,
         })
         if was_command:
             await self._send_long_reply(update.message, cmd_response)

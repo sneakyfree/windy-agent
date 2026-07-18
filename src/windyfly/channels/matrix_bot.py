@@ -301,6 +301,7 @@ class WindyFlyMatrixBot(ChannelAdapter):
             "platform": "matrix",
             "channel_id": room_id,
             "sender_id": sender,
+            "write_queue": self.write_queue,
         })
         if was_command:
             try:

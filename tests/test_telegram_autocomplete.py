@@ -173,3 +173,33 @@ def test_high_value_commands_in_set():
     for required in ("help", "status", "ping", "sliders", "preset",
                      "goal", "model", "whoami", "version", "resurrect"):
         assert required in names, f"missing required command: /{required}"
+
+
+# === Rescue-kit menu cut (2026-07-18) ===
+
+
+def test_rescue_kit_filter_cuts_to_kit(monkeypatch):
+    from windyfly.channels.telegram_bot import (
+        TELEGRAM_MENU_RESCUE_KIT, apply_rescue_kit_filter,
+    )
+    monkeypatch.delenv("WINDY_TELEGRAM_FULL_MENU", raising=False)
+    fake = [(1, "panic", "d"), (5, "weather", "d"), (8, "spend", "d"),
+            (9, "translate", "d"), (2, "status", "d")]
+    out = apply_rescue_kit_filter(fake)
+    names = {n for _p, n, _d in out}
+    assert names == {"panic", "spend", "status"}
+    assert names <= set(TELEGRAM_MENU_RESCUE_KIT)
+
+
+def test_rescue_kit_env_escape_hatch(monkeypatch):
+    from windyfly.channels.telegram_bot import apply_rescue_kit_filter
+    monkeypatch.setenv("WINDY_TELEGRAM_FULL_MENU", "1")
+    fake = [(1, "panic", "d"), (5, "weather", "d")]
+    assert apply_rescue_kit_filter(fake) == fake
+
+
+def test_rescue_kit_is_grandma_sized(monkeypatch):
+    """The whole point: the popup a new user sees must be a glanceable
+    emergency kit, not a wall. Hard cap the kit itself at 20."""
+    from windyfly.channels.telegram_bot import TELEGRAM_MENU_RESCUE_KIT
+    assert len(TELEGRAM_MENU_RESCUE_KIT) <= 20
