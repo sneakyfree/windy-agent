@@ -116,7 +116,7 @@ class TestConfigSet:
             '[agent]\nname = "Windy Fly"\ndefault_model = "gpt-4o-mini"\n'
         )
         _config_set("agent.default_model", "claude-3-5-sonnet-latest")
-        content = toml_file.read_text()
+        content = toml_file.read_text(encoding="utf-8")
         assert "claude-3-5-sonnet-latest" in content
 
     def test_preserves_other_values(self, tmp_path: Path, monkeypatch):
@@ -127,7 +127,7 @@ class TestConfigSet:
             '[agent]\nname = "Windy Fly"\ndefault_model = "gpt-4o-mini"\ntemperature = 0.7\n'
         )
         _config_set("agent.default_model", "gpt-4o")
-        content = toml_file.read_text()
+        content = toml_file.read_text(encoding="utf-8")
         assert 'name = "Windy Fly"' in content
         assert "temperature = 0.7" in content
 
@@ -137,7 +137,7 @@ class TestConfigSet:
         toml_file = tmp_path / "windyfly.toml"
         toml_file.write_text('[personality]\nhumor_level = 5\n')
         _config_set("personality.humor_level", "8")
-        content = toml_file.read_text()
+        content = toml_file.read_text(encoding="utf-8")
         assert "humor_level = 8" in content
 
     def test_handles_float_value(self, tmp_path: Path, monkeypatch):
@@ -146,7 +146,7 @@ class TestConfigSet:
         toml_file = tmp_path / "windyfly.toml"
         toml_file.write_text('[agent]\ntemperature = 0.7\n')
         _config_set("agent.temperature", "0.9")
-        content = toml_file.read_text()
+        content = toml_file.read_text(encoding="utf-8")
         assert "temperature = 0.9" in content
 
     def test_handles_bool_value(self, tmp_path: Path, monkeypatch):
@@ -155,7 +155,7 @@ class TestConfigSet:
         toml_file = tmp_path / "windyfly.toml"
         toml_file.write_text('[agent]\nverbose = false\n')
         _config_set("agent.verbose", "True")
-        content = toml_file.read_text()
+        content = toml_file.read_text(encoding="utf-8")
         assert "verbose = true" in content
 
     def test_handles_string_value(self, tmp_path: Path, monkeypatch):
@@ -164,7 +164,7 @@ class TestConfigSet:
         toml_file = tmp_path / "windyfly.toml"
         toml_file.write_text('[personality]\npreset = "buddy"\n')
         _config_set("personality.preset", "engineer")
-        content = toml_file.read_text()
+        content = toml_file.read_text(encoding="utf-8")
         assert 'preset = "engineer"' in content
 
     def test_rejects_invalid_format(self, tmp_path: Path, monkeypatch):

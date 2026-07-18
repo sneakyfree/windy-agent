@@ -60,7 +60,7 @@ def write_sandbox(tmp_path):
 def test_atomic_write_creates_target(write_sandbox):
     target = Path(write_sandbox["allowed"]) / "fresh.txt"
     n = _atomic_write_text(target, "hello atomic")
-    assert target.read_text() == "hello atomic"
+    assert target.read_text(encoding="utf-8") == "hello atomic"
     assert n == len("hello atomic".encode("utf-8"))
 
 
@@ -74,7 +74,7 @@ def test_atomic_write_cleans_up_temp(write_sandbox):
 def test_atomic_write_replaces_existing(write_sandbox):
     target = Path(write_sandbox["allowed"]) / "existing.txt"
     _atomic_write_text(target, "replaced")
-    assert target.read_text() == "replaced"
+    assert target.read_text(encoding="utf-8") == "replaced"
 
 
 # ── fs.write_file — base case + safety ─────────────────────────────
@@ -91,7 +91,7 @@ def test_write_file_creates_new(write_sandbox):
     assert out["atomic"] is True
     assert out["bytes_written"] == 5
     assert out["plan"]["action"] == "create"
-    assert Path(target).read_text() == "hello"
+    assert Path(target).read_text(encoding="utf-8") == "hello"
     # No undo record for a fresh-create (nothing to restore)
     assert out["undo_record_id"] is None
 
@@ -114,7 +114,7 @@ def test_write_file_overwrite_true_replaces_and_journals(write_sandbox):
         _allowed_roots=[write_sandbox["allowed"]],
         _journal_path=write_sandbox["journal"],
     )
-    assert Path(existing).read_text() == "replaced"
+    assert Path(existing).read_text(encoding="utf-8") == "replaced"
     assert out["plan"]["action"] == "overwrite"
     assert out["undo_record_id"] is not None  # journal record exists
 
@@ -239,7 +239,7 @@ def test_undo_restores_deleted_file(write_sandbox):
     """The marketing demo: delete a file, undo, file is back exactly
     as it was."""
     target = os.path.join(write_sandbox["allowed"], "existing.txt")
-    original_content = Path(target).read_text()
+    original_content = Path(target).read_text(encoding="utf-8")
 
     _delete_file_handler(
         path=target,
@@ -253,12 +253,12 @@ def test_undo_restores_deleted_file(write_sandbox):
     )
     assert out["executed"] is True
     assert out["original_action"] == "delete"
-    assert Path(target).read_text() == original_content
+    assert Path(target).read_text(encoding="utf-8") == original_content
 
 
 def test_undo_restores_overwritten_file(write_sandbox):
     target = os.path.join(write_sandbox["allowed"], "existing.txt")
-    original_content = Path(target).read_text()
+    original_content = Path(target).read_text(encoding="utf-8")
 
     _write_file_handler(
         path=target, content="overwritten",
@@ -266,13 +266,13 @@ def test_undo_restores_overwritten_file(write_sandbox):
         _allowed_roots=[write_sandbox["allowed"]],
         _journal_path=write_sandbox["journal"],
     )
-    assert Path(target).read_text() == "overwritten"
+    assert Path(target).read_text(encoding="utf-8") == "overwritten"
 
     out = _undo_last_action_handler(
         _journal_path=write_sandbox["journal"],
     )
     assert out["executed"] is True
-    assert Path(target).read_text() == original_content
+    assert Path(target).read_text(encoding="utf-8") == original_content
 
 
 def test_undo_reverses_move(write_sandbox):
@@ -356,7 +356,7 @@ async def test_write_file_invoke_through_registry(write_sandbox):
         Band.USER,
     )
     assert out["executed"] is True
-    assert Path(target).read_text() == "registry says hi"
+    assert Path(target).read_text(encoding="utf-8") == "registry says hi"
 
 
 @pytest.mark.asyncio
@@ -401,7 +401,7 @@ async def test_user_band_blocked_from_overwrite(write_sandbox):
     assert "escalated" in str(excinfo.value).lower()
     assert "trusted" in str(excinfo.value).lower()
     # File untouched
-    assert Path(target).read_text() == "original content\n"
+    assert Path(target).read_text(encoding="utf-8") == "original content\n"
 
 
 @pytest.mark.asyncio
@@ -422,7 +422,7 @@ async def test_trusted_band_can_overwrite(write_sandbox):
         Band.TRUSTED,
     )
     assert out["executed"] is True
-    assert Path(target).read_text() == "trusted overwrote"
+    assert Path(target).read_text(encoding="utf-8") == "trusted overwrote"
 
 
 @pytest.mark.asyncio
@@ -456,14 +456,14 @@ async def test_undo_invoke_through_registry(write_sandbox):
         }}},
     )
     target = os.path.join(write_sandbox["allowed"], "existing.txt")
-    original = Path(target).read_text()
+    original = Path(target).read_text(encoding="utf-8")
 
     await r.invoke("fs.delete_file", {"path": target}, Band.TRUSTED)
     assert not Path(target).exists()
 
     out = await r.invoke("fs.undo_last_action", {}, Band.USER)
     assert out["executed"] is True
-    assert Path(target).read_text() == original
+    assert Path(target).read_text(encoding="utf-8") == original
 
 
 # ── fs.edit_file — Claude Code-style string replacement ────────────
@@ -484,7 +484,7 @@ def test_edit_file_replaces_unique_match(write_sandbox):
     )
     assert out["executed"] is True
     assert out["occurrences_replaced"] == 1
-    assert Path(target).read_text() == "hello windy\n"
+    assert Path(target).read_text(encoding="utf-8") == "hello windy\n"
     assert out["undo_record_id"] is not None
 
 
@@ -497,7 +497,7 @@ def test_edit_file_refuses_ambiguous_match(write_sandbox):
             _journal_path=write_sandbox["journal"],
         )
     # File untouched after refusal
-    assert Path(target).read_text() == "x x x\n"
+    assert Path(target).read_text(encoding="utf-8") == "x x x\n"
 
 
 def test_edit_file_replace_all_with_ambiguous_match(write_sandbox):
@@ -509,7 +509,7 @@ def test_edit_file_replace_all_with_ambiguous_match(write_sandbox):
         _journal_path=write_sandbox["journal"],
     )
     assert out["occurrences_replaced"] == 3
-    assert Path(target).read_text() == "y y y\n"
+    assert Path(target).read_text(encoding="utf-8") == "y y y\n"
 
 
 def test_edit_file_refuses_when_old_string_not_found(write_sandbox):
@@ -572,7 +572,7 @@ def test_edit_file_dry_run_does_not_write(write_sandbox):
     assert out["executed"] is False
     assert out["preview_only"] is True
     assert out["plan"]["occurrences_replaced"] == 1
-    assert Path(target).read_text() == "hello world\n"
+    assert Path(target).read_text(encoding="utf-8") == "hello world\n"
 
 
 def test_edit_file_undo_restores_original(write_sandbox):
@@ -582,13 +582,13 @@ def test_edit_file_undo_restores_original(write_sandbox):
         _allowed_roots=[write_sandbox["allowed"]],
         _journal_path=write_sandbox["journal"],
     )
-    assert Path(target).read_text() == "line one\nline edited\n"
+    assert Path(target).read_text(encoding="utf-8") == "line one\nline edited\n"
 
     out = _undo_last_action_handler(
         record_id=None, _journal_path=write_sandbox["journal"],
     )
     assert out["executed"] is True
-    assert Path(target).read_text() == "line one\nline two\n"
+    assert Path(target).read_text(encoding="utf-8") == "line one\nline two\n"
 
 
 def test_edit_file_outside_allowlist_refused(write_sandbox):

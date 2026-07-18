@@ -58,7 +58,7 @@ class TestOfflineQueueAtomic:
         with patch("windyfly.agent.offline._QUEUE_PATH", queue_path):
             queue_message("msg1")
             queue_message("msg2")
-            content = json.loads(queue_path.read_text())
+            content = json.loads(queue_path.read_text(encoding="utf-8"))
             assert isinstance(content, list)
             assert len(content) == 2
 

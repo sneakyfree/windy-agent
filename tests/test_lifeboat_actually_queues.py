@@ -127,7 +127,7 @@ class TestLifeboatTimeoutQueuesMessage:
         # The actual fix: queue file now contains our message.
         assert isolated_queue.exists(), \
             "queue file should exist after lifeboat-timeout fallback"
-        queued = json.loads(isolated_queue.read_text())
+        queued = json.loads(isolated_queue.read_text(encoding="utf-8"))
         assert any(
             entry.get("message", "").startswith(
                 "What is the Heisenberg uncertainty principle?"
@@ -164,6 +164,6 @@ class TestLifeboatTimeoutQueuesMessage:
         assert "Photons" in reply
         # No queue file written (or written empty) since lifeboat answered.
         if isolated_queue.exists():
-            queued = json.loads(isolated_queue.read_text())
+            queued = json.loads(isolated_queue.read_text(encoding="utf-8"))
             assert queued == [], \
                 f"unexpected queue entries after healthy lifeboat: {queued}"

@@ -148,7 +148,7 @@ class TestPersistence:
     def test_persisted_data_is_valid_json(self, tmp_counter_path):
         reset_session("telegram", "1")
         reset_session("discord", "abc")
-        data = json.loads(tmp_counter_path.read_text())
+        data = json.loads(tmp_counter_path.read_text(encoding="utf-8"))
         assert isinstance(data, dict)
         # PR #197: schema bumped from plain int to dict-per-channel.
         # Both shapes still load (see test_legacy_int_format_loads

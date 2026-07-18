@@ -24,8 +24,8 @@ def project(tmp_path, monkeypatch):
 class TestKeylessConfig:
     def test_writes_mind_config_no_api_key(self, project):
         qs.write_keyless_config()
-        env = (project / ".env").read_text()
-        toml = (project / "windyfly.toml").read_text()
+        env = (project / ".env").read_text(encoding="utf-8")
+        toml = (project / "windyfly.toml").read_text(encoding="utf-8")
         assert f"DEFAULT_MODEL={qs.KEYLESS_MODEL}" in env
         assert "MIND_API_URL=https://api.windymind.ai" in env
         assert "WINDY_MIND_SEND_TOOLS=1" in env
@@ -38,7 +38,7 @@ class TestKeylessConfig:
         # Without this flag the agent would skip Mind for every tool
         # turn and never be able to DO anything — pin it.
         qs.write_keyless_config()
-        assert "WINDY_MIND_SEND_TOOLS=1" in (project / ".env").read_text()
+        assert "WINDY_MIND_SEND_TOOLS=1" in (project / ".env").read_text(encoding="utf-8")
 
     def test_is_keyless_configured_detects_it(self, project):
         assert qs.is_keyless_configured() is False

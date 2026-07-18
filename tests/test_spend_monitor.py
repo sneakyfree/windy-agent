@@ -70,7 +70,7 @@ def test_pause_atomic_write_no_torn_file(isolated_pause_flag):
     # No .tmp sibling left around
     assert not (isolated_pause_flag.parent / ".paused.tmp").exists()
     # File parses as JSON
-    data = json.loads(isolated_pause_flag.read_text())
+    data = json.loads(isolated_pause_flag.read_text(encoding="utf-8"))
     assert data["reason"] == "atomic"
 
 

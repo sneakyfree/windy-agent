@@ -175,7 +175,7 @@ def test_boot_registers_windycode_web() -> None:
     from windyfly.agent import boot
 
     assert hasattr(boot, "_step_register_windycode_web")
-    src = open(boot.__file__).read()
+    src = open(boot.__file__, encoding="utf-8").read()
     assert 'Step("tools.windycode_web",  _step_register_windycode_web)' in src
 
 

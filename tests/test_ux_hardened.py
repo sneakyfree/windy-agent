@@ -32,19 +32,19 @@ def _read_dashboard_content() -> str:
     parts = []
     index = public / "index.html"
     if index.exists():
-        parts.append(index.read_text())
+        parts.append(index.read_text(encoding="utf-8"))
     assets = public / "assets"
     if assets.exists():
         for f in sorted(assets.iterdir()):
             if f.suffix in (".css", ".js"):
-                parts.append(f.read_text())
+                parts.append(f.read_text(encoding="utf-8"))
     # Also check the dashboard source for dev mode
     dashboard_src = GATEWAY_DIR / "dashboard" / "src"
     if dashboard_src.exists():
         for f in dashboard_src.rglob("*.tsx"):
-            parts.append(f.read_text())
+            parts.append(f.read_text(encoding="utf-8"))
         for f in dashboard_src.rglob("*.css"):
-            parts.append(f.read_text())
+            parts.append(f.read_text(encoding="utf-8"))
     return "\n".join(parts)
 
 
@@ -57,26 +57,26 @@ class TestBrandingConsistency:
     def test_cli_has_fly_branding(self):
         """H6.1a: CLI channel has 🪰 and 'Windy Fly'."""
         cli_file = SRC_DIR / "windyfly" / "channels" / "cli.py"
-        content = cli_file.read_text()
+        content = cli_file.read_text(encoding="utf-8")
         assert "🪰" in content, "CLI missing 🪰 branding"
         assert "Windy Fly" in content, "CLI missing 'Windy Fly' name"
 
     def test_matrix_bot_has_fly_branding(self):
         """H6.1b: Matrix bot has 🪰."""
         bot_file = SRC_DIR / "windyfly" / "channels" / "matrix_bot.py"
-        content = bot_file.read_text()
+        content = bot_file.read_text(encoding="utf-8")
         assert "🪰" in content, "Matrix bot missing 🪰 branding"
 
     def test_offline_error_has_fly_branding(self):
         """H6.1c: Offline fallback message has 🪰."""
         offline_file = SRC_DIR / "windyfly" / "agent" / "offline.py"
-        content = offline_file.read_text()
+        content = offline_file.read_text(encoding="utf-8")
         assert "🪰" in content, "Offline fallback missing 🪰 branding"
 
     def test_dashboard_html_has_fly_branding(self):
         """H6.1d: Dashboard has 🪰 and 'Windy Fly'."""
         index = GATEWAY_DIR / "public" / "index.html"
-        content = index.read_text()
+        content = index.read_text(encoding="utf-8")
         assert "🪰" in content, "Dashboard missing 🪰 branding"
         assert "Windy Fly" in content, "Dashboard missing 'Windy Fly' name"
 
@@ -90,7 +90,7 @@ class TestBudgetMessageQuality:
     def test_budget_message_content(self):
         """H6.2: Budget exceeded message uses dollar signs and sounds human."""
         loop_file = SRC_DIR / "windyfly" / "agent" / "loop.py"
-        content = loop_file.read_text()
+        content = loop_file.read_text(encoding="utf-8")
         # Should reference dollar amounts and ask for consent
         assert "$" in content, "Budget handling doesn't show dollar amounts"
         # Should have a budget check that produces a friendly message
@@ -259,7 +259,7 @@ class TestErrorPageQuality:
     def test_gateway_has_404_handler(self):
         """H6.12: Gateway should have a custom 404 response."""
         server_ts = GATEWAY_DIR / "src" / "server.ts"
-        content = server_ts.read_text()
+        content = server_ts.read_text(encoding="utf-8")
         assert "404" in content, "Gateway has no 404 handling"
         assert "Not Found" in content or "not found" in content, (
             "Gateway 404 has no descriptive message"

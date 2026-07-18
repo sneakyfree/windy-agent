@@ -198,7 +198,7 @@ class TestAuditLog:
         )
         path = tmp_path / "audit" / "bot_key_usage.jsonl"
         assert path.exists()
-        lines = path.read_text().strip().splitlines()
+        lines = path.read_text(encoding="utf-8").strip().splitlines()
         assert len(lines) == 1
         rec = json.loads(lines[0])
         assert rec["key_id"] == "wbk_1"
@@ -216,7 +216,7 @@ class TestAuditLog:
         ) as ctx:
             ctx["response_status"] = 200
 
-        rec = json.loads((tmp_path / "audit" / "bot_key_usage.jsonl").read_text().strip())
+        rec = json.loads((tmp_path / "audit" / "bot_key_usage.jsonl").read_text(encoding="utf-8").strip())
         assert rec["response_status"] == 200
         assert rec["latency_ms"] >= 0
 
@@ -230,7 +230,7 @@ class TestAuditLog:
                 ctx["response_status"] = 500
                 raise RuntimeError("network borked")
 
-        rec = json.loads((tmp_path / "audit" / "bot_key_usage.jsonl").read_text().strip())
+        rec = json.loads((tmp_path / "audit" / "bot_key_usage.jsonl").read_text(encoding="utf-8").strip())
         assert rec["response_status"] == 500
 
 

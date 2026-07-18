@@ -247,5 +247,5 @@ def test_save_recovery_tracks_pending_certificate(tmp_path, monkeypatch) -> None
     result.errors.append("Birth cert: Eternitas certificate pending (fetch failed; will retry)")
     _save_recovery(result)
 
-    data = json.loads(recovery.read_text())
+    data = json.loads(recovery.read_text(encoding="utf-8"))
     assert "birth_certificate" in data["failed_steps"]

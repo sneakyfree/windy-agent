@@ -180,7 +180,7 @@ class TestHatchEptPersistence:
         import os
         try:
             assert os.environ["ETERNITAS_PASSPORT_TOKEN"] == "ept-jwt-abc123"
-            content = env_file.read_text()
+            content = env_file.read_text(encoding="utf-8")
             assert "ETERNITAS_PASSPORT_TOKEN=ept-jwt-abc123" in content
             assert "EXISTING=1" in content
         finally:

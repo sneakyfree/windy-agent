@@ -88,7 +88,7 @@ class TestPanicClearsResurrectFlag:
         a careless future refactor that drops the line."""
         from pathlib import Path
         import windyfly.channels.telegram_bot as _tb
-        src = Path(_tb.__file__).read_text()
+        src = Path(_tb.__file__).read_text(encoding="utf-8")
         # The panic handler is the only place we should be importing
         # normalize at runtime — verify that import + call exists.
         assert "from windyfly.agent.resurrect import normalize" in src

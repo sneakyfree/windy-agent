@@ -141,7 +141,7 @@ class TestMailProvisioningContract:
         await provision_mail("fly", "ET-00001", "owner-1")
 
         env_file = tmp_path / ".env"
-        env_content = env_file.read_text()
+        env_content = env_file.read_text(encoding="utf-8")
         assert "WINDYMAIL_EMAIL=fly@windymail.ai" in env_content
         assert "WINDYMAIL_JMAP_TOKEN=jt_x" in env_content
         assert "WINDYMAIL_SMTP_PASSWORD=smtp_x" in env_content

@@ -284,7 +284,7 @@ class TestProvisioningRecovery:
         await retry_failed_provisioning(db=db)
         # Matrix will still fail (no Synapse secret) → count incremented
         if recovery.exists():
-            data = json.loads(recovery.read_text())
+            data = json.loads(recovery.read_text(encoding="utf-8"))
             assert data["retry_count"] == 1
 
     async def test_recovery_file_deleted_when_all_pass(self, db, tmp_path, monkeypatch):

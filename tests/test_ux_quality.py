@@ -76,7 +76,7 @@ class TestMatrixBotBranding:
         """The Matrix bot's fallback error message should include 🪰."""
         # Read the source to verify error messages include branding
         bot_file = PROJECT_ROOT / "src" / "windyfly" / "channels" / "matrix_bot.py"
-        content = bot_file.read_text()
+        content = bot_file.read_text(encoding="utf-8")
         # The fallback error message should include the fly emoji
         assert "🪰" in content, "matrix_bot.py error messages missing 🪰 branding"
 
@@ -187,7 +187,7 @@ class TestSOULFile:
         """SOUL.md should not be empty."""
         soul_path = PROJECT_ROOT / "SOUL.md"
         if soul_path.exists():
-            content = soul_path.read_text()
+            content = soul_path.read_text(encoding="utf-8")
             assert len(content) > 100, f"SOUL.md is suspiciously short: {len(content)} chars"
 
 
@@ -198,14 +198,14 @@ class TestCLIQuality:
     def test_cli_welcome_message_has_branding(self):
         """CLI channel should show Windy Fly branding on start."""
         cli_file = PROJECT_ROOT / "src" / "windyfly" / "channels" / "cli.py"
-        content = cli_file.read_text()
+        content = cli_file.read_text(encoding="utf-8")
         assert "🪰" in content, "CLI channel missing 🪰 branding"
         assert "Windy Fly" in content, "CLI channel missing 'Windy Fly' name"
 
     def test_cli_goodbye_message_exists(self):
         """CLI should have a clean shutdown message."""
         cli_file = PROJECT_ROOT / "src" / "windyfly" / "channels" / "cli.py"
-        content = cli_file.read_text()
+        content = cli_file.read_text(encoding="utf-8")
         assert "Goodbye" in content or "goodbye" in content or "Shutting down" in content, (
             "CLI has no goodbye/shutdown message"
         )
@@ -218,6 +218,6 @@ class TestWelcomeMessages:
     def test_matrix_welcome_has_personality(self):
         """Matrix bot welcome should include personality and emoji."""
         bot_file = PROJECT_ROOT / "src" / "windyfly" / "channels" / "matrix_bot.py"
-        content = bot_file.read_text()
+        content = bot_file.read_text(encoding="utf-8")
         assert "🪰" in content
         assert "Windy Fly" in content

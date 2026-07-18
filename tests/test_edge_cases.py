@@ -41,7 +41,7 @@ class TestKeyEdgeCases:
 
         special_key = "sk-proj-abc$%^&*!@#123"
         write_quick_config("OPENAI_API_KEY", special_key, "gpt-4o-mini")
-        content = (tmp_path / ".env").read_text()
+        content = (tmp_path / ".env").read_text(encoding="utf-8")
         assert f"OPENAI_API_KEY={special_key}" in content
 
     def test_key_with_equals_sign(self, tmp_path: Path, monkeypatch):
@@ -51,7 +51,7 @@ class TestKeyEdgeCases:
 
         key_with_equals = "sk-proj-abc=def=ghi"
         write_quick_config("OPENAI_API_KEY", key_with_equals, "gpt-4o-mini")
-        content = (tmp_path / ".env").read_text()
+        content = (tmp_path / ".env").read_text(encoding="utf-8")
         # The first = is the assignment, rest is the value
         assert f"OPENAI_API_KEY={key_with_equals}" in content
 
@@ -68,7 +68,7 @@ class TestConfigSetEdgeCases:
         toml_file = tmp_path / "windyfly.toml"
         toml_file.write_text('[agent]\nname = "Windy Fly"\n')
         _config_set("agent.name", "My Custom Agent")
-        content = toml_file.read_text()
+        content = toml_file.read_text(encoding="utf-8")
         assert 'name = "My Custom Agent"' in content
 
     def test_value_with_quotes(self, tmp_path: Path, monkeypatch):
@@ -77,7 +77,7 @@ class TestConfigSetEdgeCases:
         toml_file = tmp_path / "windyfly.toml"
         toml_file.write_text('[agent]\nname = "Test"\n')
         _config_set("agent.name", "Agent 'the fly' Bot")
-        content = toml_file.read_text()
+        content = toml_file.read_text(encoding="utf-8")
         # The value should be written (may be quoted)
         assert "Agent" in content
 
@@ -96,7 +96,7 @@ class TestConfigOverwrite:
         # Write initial config
         (tmp_path / ".env").write_text("OLD_KEY=old_value\n")
         write_quick_config("OPENAI_API_KEY", "sk-new123", "gpt-4o-mini")
-        content = (tmp_path / ".env").read_text()
+        content = (tmp_path / ".env").read_text(encoding="utf-8")
         assert "OLD_KEY" not in content  # Old content should be replaced
         assert "OPENAI_API_KEY=sk-new123" in content
 
@@ -107,7 +107,7 @@ class TestConfigOverwrite:
 
         (tmp_path / "windyfly.toml").write_text('[old_section]\nkey = "old"\n')
         write_quick_config("OPENAI_API_KEY", "sk-new123", "gpt-4o")
-        content = (tmp_path / "windyfly.toml").read_text()
+        content = (tmp_path / "windyfly.toml").read_text(encoding="utf-8")
         assert "old_section" not in content
         assert 'default_model = "gpt-4o"' in content
 
@@ -254,7 +254,7 @@ class TestConfigParsingEdgeCases:
         """A .env file with no API keys should be parseable."""
         env_file = tmp_path / ".env"
         env_file.write_text("LOG_LEVEL=DEBUG\nWINDYFLY_DB_PATH=data/windyfly.db\n")
-        content = env_file.read_text()
+        content = env_file.read_text(encoding="utf-8")
         assert "LOG_LEVEL=DEBUG" in content
         # No key vars — this is valid
 
@@ -269,7 +269,7 @@ class TestConfigParsingEdgeCases:
             "=empty_key\n"
             "ANOTHER=value with spaces\n"
         )
-        content = env_file.read_text()
+        content = env_file.read_text(encoding="utf-8")
         lines = content.splitlines()
         assert len(lines) == 6
 

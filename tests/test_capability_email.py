@@ -285,7 +285,7 @@ def test_setup_gmail_oauth_writes_token_on_success(tmp_path, monkeypatch):
     out = email_mod.setup_gmail_oauth(creds_path=creds, token_path=token_path)
     assert out is True
     assert token_path.exists()
-    assert "refresh_token" in token_path.read_text()
+    assert "refresh_token" in token_path.read_text(encoding="utf-8")
     fake_module.InstalledAppFlow.from_client_secrets_file.assert_called_once_with(
         str(creds),
         scopes=["https://www.googleapis.com/auth/gmail.send"],
@@ -324,7 +324,7 @@ def test_cli_dispatch_includes_setup_gmail():
     actually wired)."""
     import windyfly.cli as cli_module
     src_path = __import__("inspect").getfile(cli_module)
-    src = open(src_path).read()
+    src = open(src_path, encoding="utf-8").read()
     assert '"setup-gmail": cmd_setup_gmail' in src, (
         "setup-gmail must be registered in the CLI dispatch table"
     )

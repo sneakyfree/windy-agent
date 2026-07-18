@@ -32,7 +32,7 @@ class TestEnvConsistency:
         monkeypatch.setattr("windyfly.quickstart.PROJECT_ROOT", tmp_path)
         monkeypatch.setattr("windyfly.setup_wizard.PROJECT_ROOT", tmp_path)
         write_quick_config("OPENAI_API_KEY", "sk-test123", "gpt-4o-mini", preset="buddy")
-        return (tmp_path / ".env").read_text()
+        return (tmp_path / ".env").read_text(encoding="utf-8")
 
     def _write_wizard_env(self, tmp_path: Path, monkeypatch) -> str:
         """Generate .env content via setup_wizard._step_finalize (windy init)."""
@@ -43,7 +43,7 @@ class TestEnvConsistency:
         from windyfly.setup_wizard import _step_finalize
         api_keys = {"OPENAI_API_KEY": "sk-test123"}
         _step_finalize(api_keys, "gpt-4o-mini", "buddy")
-        return (tmp_path / ".env").read_text()
+        return (tmp_path / ".env").read_text(encoding="utf-8")
 
     def test_same_provider_key_slots(self, tmp_path: Path, monkeypatch):
         """Both paths should write the same provider key env vars."""
@@ -231,7 +231,7 @@ class TestInputValidation:
         from windyfly.setup_wizard import _step_finalize
         # Empty model should not crash
         _step_finalize({}, "", "buddy")
-        toml = (tmp_path / "windyfly.toml").read_text()
+        toml = (tmp_path / "windyfly.toml").read_text(encoding="utf-8")
         assert "default_model" in toml
 
     def test_quickstart_with_empty_key(self, tmp_path: Path, monkeypatch):
@@ -240,5 +240,5 @@ class TestInputValidation:
         monkeypatch.setattr("windyfly.setup_wizard.PROJECT_ROOT", tmp_path)
         write_quick_config("OPENAI_API_KEY", "", "gpt-4o-mini")
         assert (tmp_path / ".env").exists()
-        content = (tmp_path / ".env").read_text()
+        content = (tmp_path / ".env").read_text(encoding="utf-8")
         assert "OPENAI_API_KEY=" in content

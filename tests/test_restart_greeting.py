@@ -68,7 +68,7 @@ def test_atomic_write_uses_tmp_then_rename(isolated_flag_dir):
 
 def test_payload_is_single_line_json(isolated_flag_dir):
     rg.set_pending_greeting(chat_id="42")
-    text = (isolated_flag_dir / ".pending_restart_greeting").read_text()
+    text = (isolated_flag_dir / ".pending_restart_greeting").read_text(encoding="utf-8")
     parsed = json.loads(text)
     assert parsed["chat_id"] == "42"
 

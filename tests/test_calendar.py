@@ -121,7 +121,7 @@ def test_setup_calendar_oauth_writes_token_on_success(tmp_path, monkeypatch):
     out = calendar_module.setup_calendar_oauth()
     assert out is True
     assert token.exists()
-    assert "refresh_token" in token.read_text()
+    assert "refresh_token" in token.read_text(encoding="utf-8")
     fake_module.InstalledAppFlow.from_client_secrets_file.assert_called_once_with(
         str(creds),
         scopes=["https://www.googleapis.com/auth/calendar"],

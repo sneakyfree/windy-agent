@@ -481,4 +481,4 @@ def test_integration_real_docker_mount_is_read_only(tmp_path):
         read_write=False,
     )
     # Command should fail because the mount is read-only
-    assert (workspace / "existing.txt").read_text() == "original"
+    assert (workspace / "existing.txt").read_text(encoding="utf-8") == "original"
