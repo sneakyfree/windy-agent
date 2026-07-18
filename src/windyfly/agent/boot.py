@@ -379,6 +379,17 @@ def _step_register_skill_learning(ctx: BootContext) -> None:
     )
 
 
+def _step_register_memory_search(ctx: BootContext) -> None:
+    """Chronicle retrieval — the model's key to its own past
+    (Chronicle Doctrine MUST-BUILD #2, 2026-07-18)."""
+    from windyfly.agent.capabilities.memory_search import (
+        register_memory_search_capabilities,
+    )
+    register_memory_search_capabilities(
+        ctx.capability_registry, ctx.db, ctx.config,
+    )
+
+
 def _step_sync_skill_files(ctx: BootContext) -> None:
     """Ingest ~/.windy/skills/*.md into the skill lifecycle (Sprint 3).
     Files are the human-facing mirror of learned skills — dropping a
@@ -500,6 +511,11 @@ def default_capability_registration_sequence() -> list[Step]:
         Step(
             "capabilities.skill_learning",
             _step_register_skill_learning,
+            requires=("capabilities.audit",),
+        ),
+        Step(
+            "capabilities.memory_search",
+            _step_register_memory_search,
             requires=("capabilities.audit",),
         ),
         Step(
