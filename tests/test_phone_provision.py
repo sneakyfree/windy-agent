@@ -12,6 +12,26 @@ from windyfly.phone_provision import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _no_ambient_twilio(monkeypatch):
+    """Make provisioning tests hermetic.
+
+    provision_phone() keys off ambient environment: TWILIO_PHONE_NUMBER
+    short-circuits to that number, and TWILIO_ACCOUNT_SID+TWILIO_AUTH_TOKEN
+    trigger a REAL number purchase. A developer machine with any of these
+    exported (Grant's Mac has TWILIO_PHONE_NUMBER set) made the mock-mode
+    tests fail with is_mock=False — and, worse, a machine with real creds
+    could have attempted a live purchase during a test run. Clear them so
+    these tests exercise the mock path deterministically on any machine.
+    """
+    for var in (
+        "TWILIO_PHONE_NUMBER",
+        "TWILIO_ACCOUNT_SID",
+        "TWILIO_AUTH_TOKEN",
+    ):
+        monkeypatch.delenv(var, raising=False)
+
+
 @pytest.fixture
 def db():
     d = Database(":memory:")
