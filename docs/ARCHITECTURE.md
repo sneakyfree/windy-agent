@@ -464,6 +464,12 @@ to master.
 
 ## Appendix: file map
 
+> 📍 **Looking for what to back up, migrate, or resurrect?** The authoritative
+> list of the files that constitute the agent's identity and memory — soul,
+> config, the memory database, credentials, and disposable scratch — lives in
+> [SOUL-MAP.md](SOUL-MAP.md). This appendix maps the *source tree*; SOUL-MAP
+> maps the *agent*.
+
 ```
 src/windyfly/
 ├── agent/
