@@ -79,8 +79,11 @@ class UDSBridge:
             sock = writer.get_extra_info("socket")
             if sock is None or sock.family != _socket.AF_UNIX:
                 return True
+            # getattr: SO_PEERCRED is Linux-only; on other platforms the
+            # AttributeError falls into the fail-open except below, same
+            # as the direct attribute access did.
             creds = sock.getsockopt(
-                _socket.SOL_SOCKET, _socket.SO_PEERCRED,
+                _socket.SOL_SOCKET, getattr(_socket, "SO_PEERCRED"),
                 struct.calcsize("3i"),
             )
             _pid, uid, _gid = struct.unpack("3i", creds)
@@ -141,11 +144,12 @@ class UDSBridge:
                     # + internally serialized, same as agent.respond's
                     # long-standing executor path.
                     _loop = asyncio.get_event_loop()
+
+                    def _dispatch_in_thread(m=method, p=params):
+                        return asyncio.run(self._dispatch(m, p))
+
                     result = await _loop.run_in_executor(
-                        None,
-                        lambda m=method, p=params: asyncio.run(
-                            self._dispatch(m, p)
-                        ),
+                        None, _dispatch_in_thread,
                     )
                     response = {"id": request_id, "result": result, "error": None}
                 except Exception as e:

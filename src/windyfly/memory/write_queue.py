@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 # used to mean every episode save failed silently while the agent kept
 # chatting — memory loss discovered weeks later. Any WriteQueue instance
 # feeds these; /status reads them to surface "memory writes failing".
-_write_stats = {"failures": 0, "last_failure_ts": 0.0, "last_error": ""}
+_write_stats: dict[str, Any] = {"failures": 0, "last_failure_ts": 0.0, "last_error": ""}
 _write_stats_lock = threading.Lock()
 
 

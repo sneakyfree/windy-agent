@@ -1907,7 +1907,7 @@ class TelegramChannel(ChannelAdapter):
         # deterministic writer as /new. Best-effort by contract.
         try:
             from windyfly.agent.turnover import write_shutdown_turnovers
-            write_shutdown_turnovers(self.db, "telegram")
+            write_shutdown_turnovers(self._db, "telegram")
         except Exception as e:
             logger.debug("shutdown turnover skipped: %s", e)
         if self._pacing_stop_event is not None:

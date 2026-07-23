@@ -1687,11 +1687,14 @@ def agent_respond(
             AUTO_EXPIRE_AFTER_CONSECUTIVE_UNRELATED,
             VERDICT_MET, VERDICT_UNRELATED,
             complete_goal, expire_goal, get_active_goal,
-            record_evaluation, record_turn,
+            record_evaluation,
         )
+        # Aliased: skills.nudge.record_turn was already imported into
+        # this scope at step 2.97 with a different signature.
+        from windyfly.memory.goals import record_turn as record_goal_turn
         active_goal = get_active_goal(db, session_id)
         if active_goal:
-            record_turn(
+            record_goal_turn(
                 db, active_goal["id"],
                 tokens_input=input_tokens, tokens_output=output_tokens,
             )

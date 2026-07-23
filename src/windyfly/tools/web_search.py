@@ -115,7 +115,7 @@ _MAX_REDIRECTS = 5
 
 def _host_ips(host: str) -> list[str]:
     """Resolve a hostname to its IP strings. Isolated so tests can patch it."""
-    return [info[4][0] for info in socket.getaddrinfo(host, None)]
+    return [str(info[4][0]) for info in socket.getaddrinfo(host, None)]
 
 
 def _ip_blocked(ip_str: str) -> bool:

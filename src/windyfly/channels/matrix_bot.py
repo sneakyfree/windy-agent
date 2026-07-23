@@ -164,7 +164,7 @@ class WindyFlyMatrixBot(ChannelAdapter):
         # The access token is the source of truth for WHO we are — not the
         # config `matrix.bot_user`, which drifts. Windy 0 shipped with a
         # MATRIX_BOT_TOKEN for @agent_<passport> but config still said
-        # @windyfly:chat.windyword.ai; the mismatch meant _on_invite
+        # @windyfly on the legacy Windy Word chat host; the mismatch meant _on_invite
         # (state_key == bot_user_id) ignored every invite addressed to the
         # real identity, so the agent silently never joined a grandma's room
         # and never replied on Windy Chat (2026-07-06). Resolve the true

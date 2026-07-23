@@ -194,6 +194,15 @@ def search_episodes(
         return []
 
 
+# Minimum cosine similarity for a semantic hit to count as a match at
+# all. Without a floor, top-N cosine returns the N *nearest* episodes
+# even for a nonsense query — memory.search's "no match is honest"
+# contract (test_capability_memory_search) requires 0 results instead.
+# Measured on the MiniLM-class model: genuine topical/paraphrase hits
+# score ≥ 0.39; unrelated text tops out around 0.28.
+_SEMANTIC_MIN_SIM = 0.30
+
+
 def search_episodes_hybrid(
     db: Database,
     query: str,
@@ -269,6 +278,8 @@ def search_episodes_hybrid(
                     scored = []
                     for ep in candidates:
                         sim = _emb.cosine(query_blob, ep.get("embedding"))
+                        if sim < _SEMANTIC_MIN_SIM:
+                            continue
                         scored.append((sim, ep))
                     scored.sort(key=lambda x: x[0], reverse=True)
                     semantic_hits = [ep for _, ep in scored[:max(limit * 3, 30)]]
