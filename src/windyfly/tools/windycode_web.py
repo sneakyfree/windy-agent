@@ -2,7 +2,7 @@
 
 The HTTPS sibling of ``windycode.py`` (which drives the desktop IDE over the
 local Agent Bus socket). These tools target **windy-code-web** — the cloud
-builder where grandma's projects live at windycode.ai — so the agent can build
+builder where grandma's projects live at windycode.org — so the agent can build
 for a user who never opens a desktop app: "make me a scrapbook" in chat →
 project + files appear in her browser workspace, live preview fills in, and
 publishing goes through an explicit confirm.
@@ -21,7 +21,7 @@ Design decisions:
     the LLM can relay in plain words.
 
 Environment:
-    WINDY_CODE_WEB_URL       — builder API base, e.g. https://windycode.ai
+    WINDY_CODE_WEB_URL       — builder API base, e.g. https://windycode.org
                                (unset ⇒ tools report unavailable)
     ETERNITAS_PASSPORT_TOKEN / WINDY_JWT — the EPT presented as the bearer
 """
