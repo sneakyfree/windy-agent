@@ -22,6 +22,7 @@ from rich.table import Table
 from rich.text import Text
 
 from windyfly.platform import get_project_root
+from windyfly.provider_defaults import PROVIDER_DEFAULTS as _PD
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -34,10 +35,9 @@ CONFIG_FILE = PROJECT_ROOT / "windyfly.toml"
 DATA_DIR = PROJECT_ROOT / "data"
 
 # ── Provider metadata ──────────────────────────────────────────────────
-# Derived from windyfly.provider_defaults — the single source of truth
-# (this table used to disagree with quickstart's and the gateway's).
-from windyfly.provider_defaults import PROVIDER_DEFAULTS as _PD
-
+# Derived from windyfly.provider_defaults (imported at top of file) —
+# the single source of truth (this table used to disagree with
+# quickstart's and the gateway's).
 PROVIDERS: list[dict[str, str]] = [
     {
         "key": p["env_var"],

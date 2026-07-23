@@ -84,9 +84,6 @@ def run_decay(
     retention = max(0, min(10, retention))
     decay_multiplier, age_threshold = _RETENTION_MAP.get(retention, (0.98, 60))
 
-    # Archive threshold = 3x the decay age threshold
-    archive_days = age_threshold * 3
-
     counts = {"decayed": 0, "speculated": 0, "pruned": 0, "archived": 0}
 
     def _do_decay():
@@ -127,8 +124,8 @@ def run_decay(
         counts["pruned"] = cursor.rowcount
 
         # 4. Episodes: deliberately untouched. The Chronicle is
-        # append-only raw; decay has no business here. (archive_days
-        # retained in the log line for continuity of dashboards.)
+        # append-only raw; decay has no business here. ('archived' stays
+        # 0 in reports for continuity of dashboards.)
         counts["archived"] = 0
 
         db.commit()

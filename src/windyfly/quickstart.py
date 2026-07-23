@@ -33,6 +33,7 @@ from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
 
 from windyfly.platform import IS_WINDOWS, can_run, get_project_root
+from windyfly.provider_defaults import PROVIDER_DEFAULTS, key_detection_order
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -45,9 +46,8 @@ PROJECT_ROOT = get_project_root()
 
 # Single source of truth: windyfly.provider_defaults (Sprint 2 —
 # this table used to be one of THREE divergent copies; see that
-# module's docstring). Dict shapes preserved for downstream callers.
-from windyfly.provider_defaults import PROVIDER_DEFAULTS, key_detection_order
-
+# module's docstring, imported at top of file). Dict shapes preserved
+# for downstream callers.
 KEY_PATTERNS: list[dict[str, str]] = [
     {
         "prefix": p["key_prefix"],
