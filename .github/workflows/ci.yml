@@ -39,6 +39,9 @@ jobs:
       - name: Build package
         run: uv build
       - name: Upload dist
+        # artifact storage billing-blocked 2026-07; build is the CI
+        # signal; resumes when billing settles
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           retention-days: 3
