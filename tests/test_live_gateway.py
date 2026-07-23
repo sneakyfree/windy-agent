@@ -25,16 +25,26 @@ except ImportError:
     httpx = None  # type: ignore
 
 
-GATEWAY_URL = os.environ.get("WINDYFLY_GATEWAY_URL", "http://localhost:3000")
+# Live suite is OPT-IN: on shared hosts (e.g. the Kit 0 CI runner) some
+# unrelated resident service may answer on the default port and "pass" the
+# reachability probe while serving the wrong app. Set WINDYFLY_GATEWAY_URL
+# explicitly to run these tests.
+GATEWAY_URL = os.environ.get("WINDYFLY_GATEWAY_URL", "")
 
 
 def _gateway_reachable() -> bool:
-    """Check if the gateway is reachable."""
-    if httpx is None:
+    """Check if the gateway is reachable (explicitly configured only)."""
+    if httpx is None or not GATEWAY_URL:
         return False
     try:
         r = httpx.get(f"{GATEWAY_URL}/api/health", timeout=3)
-        return r.status_code == 200
+        if r.status_code != 200:
+            return False
+        # Require the gateway's own health signature, not just any 200.
+        try:
+            return "windyfly" in r.text.lower() or "gateway" in r.text.lower()
+        except Exception:
+            return False
     except Exception:
         return False
 
