@@ -434,7 +434,7 @@ def _log_anthropic_auth_path_once(
 def _try_mind_broker(
     messages: list[dict[str, str]],
     model: str | None,
-    temperature: float,
+    temperature: float | None,
     max_tokens: int,
     tools: list[dict] | None,
 ) -> dict[str, Any] | None:
@@ -615,12 +615,14 @@ def mind_broker_status() -> dict[str, Any]:
     )
     configured = bool(ept) and not _max_oauth_active()
     entry = _provider_cooldowns.get("windy-mind")
-    cooling = bool(entry and time.time() < entry[0])
+    cooling = entry is not None and time.time() < entry[0]
     return {
         "configured": configured,
         "url": _os.environ.get("MIND_API_URL", "https://api.windymind.ai"),
         "in_cooldown": cooling,
-        "cooldown_remaining_s": max(0, int(entry[0] - time.time())) if cooling else 0,
+        "cooldown_remaining_s": (
+            max(0, int(entry[0] - time.time())) if entry is not None and cooling else 0
+        ),
     }
 
 
@@ -663,7 +665,7 @@ def call_llm(
     messages: list[dict[str, str]],
     *,
     model: str | None = None,
-    temperature: float = 0.7,
+    temperature: float | None = 0.7,
     max_tokens: int = 2000,
     tools: list[dict] | None = None,
     config: dict[str, Any] | None = None,
@@ -806,7 +808,7 @@ def call_llm(
 def _call_openai(
     messages: list[dict],
     model: str,
-    temperature: float,
+    temperature: float | None,
     max_tokens: int,
     tools: list[dict] | None,
     base_url: str = "https://api.openai.com/v1",
@@ -1080,7 +1082,7 @@ def _thinking_budget(model: str, reasoning_depth: int | None) -> int:
 def _call_anthropic(
     messages: list[dict],
     model: str,
-    temperature: float,
+    temperature: float | None,
     max_tokens: int,
     tools: list[dict] | None,
     api_key: str = "",

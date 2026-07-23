@@ -48,7 +48,7 @@ def capability_result_to_mcp(result: Any) -> dict[str, Any]:
     """
     text = result if isinstance(result, str) else json.dumps(result, indent=2, default=str)
     is_error = isinstance(result, dict) and result.get("ok") is False
-    block = {"content": [{"type": "text", "text": text}]}
+    block: dict[str, Any] = {"content": [{"type": "text", "text": text}]}
     if is_error:
         block["isError"] = True
     return block

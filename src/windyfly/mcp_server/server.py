@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from typing import TYPE_CHECKING
 
 from windyfly.agent.capabilities.descriptor import Band
 from windyfly.mcp_server.bridge import (
@@ -23,8 +24,11 @@ from windyfly.mcp_server.bridge import (
     registry_to_mcp_tools,
 )
 
+if TYPE_CHECKING:
+    from windyfly.agent.capabilities.registry import CapabilityRegistry
 
-def build_registry() -> "CapabilityRegistry":  # noqa: F821
+
+def build_registry() -> "CapabilityRegistry":
     """Build the FULL Capability Plane this MCP surface exposes.
 
     Runs boot's ``default_capability_registration_sequence`` against a real

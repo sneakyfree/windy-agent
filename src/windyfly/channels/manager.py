@@ -44,11 +44,13 @@ class ChannelManager:
 
     def __init__(
         self,
-        agent_respond: Callable[[str, str], Awaitable[str] | str],
+        agent_respond: Callable[..., Awaitable[str] | str],
     ) -> None:
         """
         Args:
-            agent_respond: callable(user_message, session_id) -> str
+            agent_respond: callable(user_message, session_id) -> str;
+                may optionally accept a ``band=`` keyword (detected via
+                inspect at call time).
         """
         self.agent_respond = agent_respond
         self.channels: dict[str, ChannelAdapter] = {}
