@@ -272,3 +272,148 @@ def test_blob_round_trip():
 def test_deserialize_none_returns_none():
     assert _emb.deserialize(None) is None
     assert _emb.deserialize(b"") is None
+
+
+# ── Concurrency: the segfault guard ────────────────────────────────
+#
+# Every test above mocks `is_available()` and `embed()`. That is why
+# the crash below survived 3,444 green tests: nothing in the suite ever
+# loaded a REAL model, so the concurrent native-initialization path was
+# never executed. These tests only run on a semantic-extras install,
+# which is exactly where the bug lived.
+
+
+needs_real_model = pytest.mark.skipif(
+    not _emb.is_available(),
+    reason="requires the [semantic] extra (real sentence-transformers)",
+)
+
+
+@needs_real_model
+def test_concurrent_embed_does_not_crash_the_process():
+    """Two threads embedding at once must not fault the interpreter.
+
+    This agent does exactly that on EVERY turn: the main thread embeds
+    the query (prompt.assemble_prompt → episodes.search_episodes_hybrid)
+    while the WriteQueue worker embeds the episode content
+    (episodes.save_episode).
+
+    Before the lock in `embeddings._load_model` / `embed`, both threads
+    constructed a SentenceTransformer concurrently and the process died
+    — SIGSEGV (exit 139) on some runs, an unkillable hang inside
+    transformers' `_preprocess_mask_arguments` on others. Apple Silicon
+    made it near-deterministic because sentence-transformers
+    auto-selects the Metal backend there (`AUTO DEVICE: mps:0`).
+
+    A native abort is NOT an exception: `embed()`'s `except Exception`
+    never sees it, so the module's graceful-degradation contract
+    silently does not apply and the supervisor restarts straight into
+    the same crash. If this test regresses it will not fail politely —
+    it will take the whole pytest process down, which is the honest
+    signal for a defect of this class.
+    """
+    import threading
+
+    errors: list[str] = []
+
+    def worker(tag: str) -> None:
+        try:
+            for i in range(20):
+                _emb.embed(f"{tag} a beagle named Biscuit, message {i}")
+        except BaseException as exc:                     # noqa: BLE001
+            errors.append(f"{tag}: {type(exc).__name__}: {exc}")
+
+    threads = [threading.Thread(target=worker, args=(f"t{n}",)) for n in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=180)
+
+    assert not [t for t in threads if t.is_alive()], "embed() deadlocked"
+    assert errors == []
+
+
+@needs_real_model
+def test_cold_concurrent_load_yields_one_shared_model():
+    """The FIRST embed from several threads must build exactly one model.
+
+    Resets the module cache so the load genuinely races, then asserts
+    every thread ended up on the same object. Two models meant two
+    concurrent native constructions — the crash.
+    """
+    import threading
+
+    with _emb._MODEL_LOCK:
+        _emb._MODEL = None
+        _emb._MODEL_NAME = None
+
+    seen: list[int] = []
+    lock = threading.Lock()
+
+    def worker() -> None:
+        _emb.embed("cold start racer")
+        with lock:
+            seen.append(id(_emb._MODEL))
+
+    threads = [threading.Thread(target=worker) for _ in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=180)
+
+    assert _emb._MODEL is not None
+    assert len(set(seen)) == 1, f"more than one model constructed: {set(seen)}"
+
+
+# ── Retrieval reach ────────────────────────────────────────────────
+
+
+def test_semantic_query_overrides_query_for_the_embedding():
+    """The cosine half must embed the RAW utterance, not keyword soup.
+
+    FTS5 wants keywords; an embedding model wants the sentence it was
+    trained on. Callers used to pass `_extract_keywords()` output to
+    both, so "where do i keep my money" was embedded as "where keep
+    money" — discarding the words that carry the meaning.
+    """
+    db = Database(":memory:")
+    save_episode(db, "user", "i bank at Adirondack Trust", session_id="s")
+
+    embedded: list[str] = []
+
+    def _spy(text):
+        embedded.append(text)
+        return None            # None → semantic half no-ops; FTS still runs
+
+    with patch.object(_emb, "is_available", return_value=True), \
+         patch.object(_emb, "embed", side_effect=_spy):
+        search_episodes_hybrid(
+            db, query="where keep money",
+            semantic_query="where do i keep my money",
+            session_id="s",
+        )
+
+    assert embedded == ["where do i keep my money"]
+    db.close()
+
+
+def test_semantic_pool_reaches_past_the_verbatim_window():
+    """The pool must search well past what the prompt already injects.
+
+    prompt.assemble_prompt injects the most recent 30 episodes verbatim
+    (5 + context_window*5). A 50-episode pool therefore searched barely
+    20 episodes beyond what the model could already see, which made the
+    semantic half almost decorative — anything genuinely old, the only
+    thing retrieval is FOR, sat outside the horizon by construction.
+
+    Marathon measurement across 45 probes at distances 5→240 turns:
+    pool=50 → 7 retrieval misses; pool=2000 → 1.
+    """
+    import inspect
+    default = inspect.signature(search_episodes_hybrid).parameters[
+        "semantic_pool"
+    ].default
+    assert default >= 500, (
+        f"semantic_pool default is {default}; anything near the "
+        "30-episode verbatim window makes semantic search pointless"
+    )

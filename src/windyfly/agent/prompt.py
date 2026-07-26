@@ -709,6 +709,14 @@ def assemble_prompt(
         earlier_relevant = search_episodes_hybrid(
             db,
             query=keywords,
+            # The cosine half gets the RAW utterance, not the keyword
+            # soup: an embedding model was trained on sentences, and
+            # `_extract_keywords` throws away exactly the function
+            # words and word order that carry meaning. Feeding it
+            # "where keep money" instead of "where do i keep my money"
+            # was defeating the vocabulary-mismatch recall that
+            # semantic search exists to provide.
+            semantic_query=user_message,
             limit=10,
             session_id=session_id,
             exclude_ids=recent_ids,

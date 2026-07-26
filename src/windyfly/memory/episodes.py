@@ -212,7 +212,8 @@ def search_episodes_hybrid(
     exclude_ids: set[str] | None = None,
     fts_weight: float = 1.0,
     semantic_weight: float = 1.0,
-    semantic_pool: int = 50,
+    semantic_pool: int = 2000,
+    semantic_query: str | None = None,
 ) -> list[dict]:
     """Combined keyword + semantic search via Reciprocal Rank Fusion.
 
@@ -237,9 +238,47 @@ def search_episodes_hybrid(
         semantic_weight: Weight for semantic ranks. Default 1.0
             (equal blend). Set to 0 to disable semantic.
         semantic_pool: How many embedded episodes to score by cosine.
-            Cosine over every episode is O(n × dim); we cap at the
-            top-N most-recent embedded episodes so this stays fast on
-            DBs with 50K+ episodes.
+            Cosine over every episode is O(n × dim), so we cap at the
+            top-N most-recent embedded episodes. The cap is a fixed
+            ``LIMIT``, so cost does NOT grow with the database — a
+            29K-episode DB costs the same as a 2K one.
+
+            **Was 50, which made the semantic half nearly pointless.**
+            Prompt assembly already injects the most recent 30 episodes
+            verbatim (``prompt.py`` — ``5 + context_window*5``), so a
+            50-episode pool searched barely 20 episodes beyond what the
+            model could already see. Anything older — which is the only
+            thing retrieval is FOR — was outside the horizon by
+            construction, no matter how good the embedding was.
+
+            Measured on the 500-turn marathon
+            (``scripts/marathon``), retrieval misses across 45 probes
+            at distances 5→240 turns:
+
+                pool=50    7 misses (15.6%)
+                pool=2000  1 miss   ( 2.2%)
+
+            Cost of the change: p50 10→24ms, p95 20→45ms per turn.
+            A turn is seconds of model latency, so this is under 2% of
+            wall-clock for a 7× reduction in the memory failures that
+            Principle #7 exists to prevent.
+        semantic_query: Text to embed for the cosine half. Defaults to
+            ``query``.
+
+            **The two retrievers want different input.** FTS5 wants
+            keywords — that is what a tokenized index matches on. An
+            embedding model wants the natural sentence, because that is
+            what it was trained on; strip it to keyword soup and you
+            throw away the word order and function words that carry the
+            meaning.
+
+            Callers were passing ``_extract_keywords()`` output to
+            BOTH. So "where do i keep my money" was embedded as "where
+            keep money", and the vector no longer landed anywhere near
+            an episode about banking at Adirondack Trust — which is
+            precisely the vocabulary-mismatch case semantic search
+            exists to catch. Pass the raw utterance here and let FTS
+            keep the keywords.
 
     Returns:
         List of episode dicts, RRF-ranked best first.
@@ -253,11 +292,12 @@ def search_episodes_hybrid(
     # Semantic path runs only when embeddings module + episodes with
     # stored vectors both exist.
     semantic_hits: list[dict] = []
-    if semantic_weight > 0 and query and query.strip():
+    _sem_text = semantic_query if semantic_query is not None else query
+    if semantic_weight > 0 and _sem_text and _sem_text.strip():
         try:
             from windyfly.memory import embeddings as _emb
             if _emb.is_available():
-                query_blob = _emb.embed(query)
+                query_blob = _emb.embed(_sem_text)
                 if query_blob is not None:
                     sql = (
                         "SELECT * FROM episodes "
