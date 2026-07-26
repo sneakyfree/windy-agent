@@ -165,6 +165,21 @@ class TestMessageFormatContract:
         db.close()
 
 
+# `WindyFlyMatrixBot.login()` first tries the one-soul path, which calls
+# `chat_session.fetch_agent_chat_session()` — a REAL HTTP POST to the
+# Windy Chat API. Unmocked, these two tests hit the network.
+#
+# Locally that fails fast and nobody noticed. On the OC5 Intel iMac it
+# BLOCKED: the whole suite sat at 0.0% CPU, state SN, stuck on
+# test_token_login_sets_credentials, and three separate full-suite runs
+# "died" at 26-28% when they were actually hung. Tests must never
+# depend on a network being reachable OR unreachable.
+#
+# The product itself is fine — that call carries
+# `httpx.AsyncClient(timeout=15.0)`. This is purely test hygiene.
+_NO_ONE_SOUL = "windyfly.chat_session.fetch_agent_chat_session"
+
+
 class TestBotIdentityContract:
     """Verify bot identity defaults."""
 
@@ -192,7 +207,8 @@ class TestBotIdentityContract:
 
     @pytest.mark.asyncio
     @patch.dict("os.environ", {"MATRIX_BOT_TOKEN": "tok123"})
-    async def test_token_login_sets_credentials(self):
+    @patch(_NO_ONE_SOUL, new_callable=AsyncMock, return_value=None)
+    async def test_token_login_sets_credentials(self, _sess):
         """Token login should set access_token and user_id on the client."""
         db = Database(":memory:")
         wq = WriteQueue()
@@ -207,7 +223,8 @@ class TestBotIdentityContract:
 
     @pytest.mark.asyncio
     @patch.dict("os.environ", {}, clear=True)
-    async def test_no_credentials_raises(self):
+    @patch(_NO_ONE_SOUL, new_callable=AsyncMock, return_value=None)
+    async def test_no_credentials_raises(self, _sess):
         """Missing both token and password raises RuntimeError."""
         import os
         os.environ.pop("MATRIX_BOT_TOKEN", None)
