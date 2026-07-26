@@ -87,11 +87,24 @@ class TestSliders:
         db.close()
 
     def test_defaults_when_empty(self):
+        """Dials default to the 5 midpoint; 0/1 toggles default to 0.
+
+        This test used to assert *every* slider defaults to 5, which
+        hid a real defect: `raw_mode` is a switch, and `bool(5)` is
+        True, so a fresh install ran in raw mode for no stated reason.
+        Raw-by-default is now the deliberate policy, declared in
+        SLIDER_DEFAULTS — the blanket assertion is replaced by one that
+        reads the policy from its single source.
+        """
+        from windyfly.control_panel import SLIDER_DEFAULTS
+
         db = Database(":memory:")
         sliders = get_sliders(db)
-        # All should default to 5 when no config
         for name in VALID_SLIDERS:
-            assert sliders[name] == 5
+            assert sliders[name] == SLIDER_DEFAULTS[name], (
+                f"{name} defaulted to {sliders[name]}, "
+                f"expected {SLIDER_DEFAULTS[name]}"
+            )
         db.close()
 
     def test_config_defaults(self):
@@ -203,3 +216,87 @@ class TestFrictionHandling:
         time.sleep(0.5)
         wq.stop()
         db.close()
+
+
+# ── Toggle sliders must not inherit the dial default ───────────────
+
+
+def test_every_slider_has_a_declared_default():
+    """No slider may fall through to an implicit value.
+
+    `raw_mode` shipped into `_COST_PER_POINT` (hence VALID_SLIDERS)
+    with nothing declaring its default, so a 0/1 switch inherited the
+    0-10 dials' 5-fill and `bool(5)` turned raw mode ON by accident.
+    The behavior happened to match the intent, which is exactly why
+    nobody caught it — meanwhile the control panel advertised and
+    BILLED for nine tone sliders that reached the model as nothing.
+
+    Any future slider added to the cost model must state its default
+    here rather than inherit one.
+    """
+    from windyfly.control_panel import (
+        SLIDER_DEFAULTS,
+        TOGGLE_SLIDERS,
+        VALID_SLIDERS,
+    )
+
+    missing = VALID_SLIDERS - set(SLIDER_DEFAULTS)
+    assert not missing, f"sliders with no declared default: {sorted(missing)}"
+
+    # Switches must be 0 or 1 — never a dial value, which `bool()` and
+    # `>= 5` gates both read as ON.
+    for name in TOGGLE_SLIDERS:
+        assert SLIDER_DEFAULTS[name] in (0, 1), (
+            f"toggle {name!r} has non-boolean default "
+            f"{SLIDER_DEFAULTS[name]}"
+        )
+
+
+def test_default_install_runs_in_raw_mode():
+    """Raw is the DEFAULT, deliberately (Grant's call, 2026-07-25).
+
+    A fresh agent runs on the frontier model's native intuition plus
+    its soul and memory, with no slider-tuned tone directives injected
+    — Principles #3 and #5: don't bolt a hand-tuned tone layer onto a
+    model that keeps getting better at reading people than our knobs
+    could.
+
+    Asserted end-to-end rather than on the constant, because the thing
+    that matters is what reaches the model.
+    """
+    from windyfly.control_panel import get_sliders
+    from windyfly.memory.database import Database
+    from windyfly.personality.engine import build_personality_block
+
+    db = Database(":memory:")
+    sliders = get_sliders(db)
+    assert bool(sliders["raw_mode"]) is True
+
+    soul = "# Soul\nWarm and witty helper."
+    block = build_personality_block(
+        soul, sliders, raw=bool(sliders["raw_mode"]),
+    )
+    assert "Behavioral Modifiers" not in block, (
+        "raw mode still injected tone directives"
+    )
+    assert "Warm and witty helper." in block, "raw mode dropped the soul"
+    db.close()
+
+
+def test_turning_raw_off_hands_tone_back_to_the_sliders():
+    """The opt-out has to actually work, or the toggle is decoration."""
+    from windyfly.control_panel import get_sliders, set_slider
+    from windyfly.memory.database import Database
+    from windyfly.personality.engine import build_personality_block
+
+    db = Database(":memory:")
+    set_slider(db, "raw_mode", 0)
+    sliders = get_sliders(db)
+    assert bool(sliders["raw_mode"]) is False
+
+    block = build_personality_block(
+        "# Soul\nWarm and witty helper.", sliders,
+        raw=bool(sliders["raw_mode"]),
+    )
+    assert "Behavioral Modifiers" in block
+    db.close()

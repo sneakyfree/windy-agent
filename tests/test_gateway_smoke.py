@@ -74,11 +74,23 @@ class TestSlidersGetRoute:
             assert name in result["sliders"]
         db.close()
 
-    def test_default_values_are_5(self):
+    def test_defaults_match_the_declared_slider_defaults(self):
+        """The panel must serve the same defaults the agent runs on.
+
+        Was a blanket "everything is 5". That hid the raw_mode defect
+        (a 0/1 switch inheriting the dials' 5-fill, which `bool()`
+        reads as ON) and would drift again the moment a default
+        changes. Read the policy from its single source instead.
+        """
+        from windyfly.control_panel import SLIDER_DEFAULTS
+
         bridge, db, _ = _make_bridge()
         result = _run(bridge._dispatch("sliders.get", {}))
         for name, value in result["sliders"].items():
-            assert value == 5, f"Slider '{name}' defaulted to {value}, expected 5"
+            assert value == SLIDER_DEFAULTS[name], (
+                f"Slider '{name}' defaulted to {value}, "
+                f"expected {SLIDER_DEFAULTS[name]}"
+            )
         db.close()
 
 

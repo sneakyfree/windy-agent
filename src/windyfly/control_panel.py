@@ -125,9 +125,9 @@ SLIDER_INFO: dict[str, dict[str, str]] = {
     },
     "raw_mode": {
         "label": "Raw Model",
-        "description": "When ON, run on the model's native intuition — your agent's soul and memories still load, but no slider-tuned tone directives are injected. For people who like Opus/Fable exactly as the lab tuned it and don't want the personality knobs 'mucking it up.'",
-        "impact_low": "Manual: your sliders shape the agent's tone.",
-        "impact_high": "Raw: native model + soul + memory, no tone injection.",
+        "description": "ON BY DEFAULT. Your agent runs on the model's own intuition — its soul and memories still load, but none of the tone sliders below are injected. Today's models read the room better than any knob we could set for you, and they keep getting better. Turn this OFF if you'd rather steer the tone yourself with the sliders.",
+        "impact_low": "Manual: the tone sliders below shape how your agent talks.",
+        "impact_high": "Raw (default): native model + soul + memory, no tone injection.",
     },
     "shape_shift_bias": {
         "label": "Shape-Shift Bias",
@@ -335,6 +335,44 @@ _COST_PER_POINT: dict[str, float] = {
 
 VALID_SLIDERS = set(_COST_PER_POINT.keys())
 
+# Entries that are 0/1 switches rather than 0-10 dials. Kept separate
+# because `bool(5)` is True and `adaptive_mode`'s gate is `>= 5`, so a
+# switch that inherits the dial default is silently ON.
+TOGGLE_SLIDERS = frozenset({"raw_mode", "adaptive_mode"})
+
+# ---------------------------------------------------------------------------
+# Per-slider defaults — the ONE place a fresh agent's personality is decided
+# ---------------------------------------------------------------------------
+# Dials sit at the 5 midpoint. The two switches are set deliberately:
+#
+#   raw_mode = 1  — RAW IS THE DEFAULT (Grant's call, 2026-07-25).
+#       A fresh agent runs on the frontier model's native intuition plus
+#       its soul and memories, with NO slider-tuned tone directives
+#       injected. Principles #3 and #5: don't overlay a hand-tuned tone
+#       layer on a model that is getting exponentially better at reading
+#       people than any knob we could write. Autonomy still applies even
+#       in raw mode — act-first vs ask-first is a safety contract, not a
+#       tone knob. Flip to 0 here (or per-agent via the control panel)
+#       to hand tone back to the sliders.
+#
+#   adaptive_mode = 0 — deprecated regex auto-slider, retired per #316.
+#       Also env-gated by WINDY_ADAPTIVE_MODE_ENABLED=1; machinery
+#       removed next cycle.
+#
+# Why this table exists at all: raw_mode was registered in
+# `_COST_PER_POINT` (hence VALID_SLIDERS) with nothing declaring its
+# default, so `get_sliders` fell through to the generic 5-fill and
+# `bool(5)` switched raw ON by ACCIDENT. The behavior happened to match
+# the intent, which is exactly why it went unnoticed — and meanwhile the
+# control panel advertised and BILLED for nine tone sliders that reached
+# the model as nothing. A default this load-bearing gets stated, not
+# inferred.
+SLIDER_DEFAULTS: dict[str, int] = {
+    **{name: 5 for name in VALID_SLIDERS},
+    "raw_mode": 1,
+    "adaptive_mode": 0,
+}
+
 
 def apply_preset(
     db: Database,
@@ -398,6 +436,20 @@ def get_sliders(
 
     Falls back to config file defaults for missing sliders.
 
+    Precedence: DB row → ``config_defaults`` → ``SLIDER_DEFAULTS``.
+
+    ``SLIDER_DEFAULTS`` is the single place a fresh agent's personality
+    is decided, and it states ``raw_mode = 1`` deliberately. Previously
+    nothing declared a default for it, so a 0/1 switch fell through to
+    the generic 5-fill for 0–10 dials and ``bool(5)`` switched raw mode
+    ON by accident — which happened to match the intent, and therefore
+    went unnoticed while the control panel advertised and billed for
+    nine tone sliders that reached the model as nothing.
+
+    Caught by ``scripts/marathon/sliders.py``, which sweeps every slider
+    and diffs the assembled prompt: 16 of 19 produced byte-identical
+    payloads across 0→10.
+
     Args:
         db: Database instance.
         user_id: User ID.
@@ -414,7 +466,9 @@ def get_sliders(
         if row:
             sliders[slider_name] = int(row["value"])
         else:
-            sliders[slider_name] = defaults.get(slider_name, 5)
+            sliders[slider_name] = defaults.get(
+                slider_name, SLIDER_DEFAULTS[slider_name],
+            )
 
     return sliders
 
