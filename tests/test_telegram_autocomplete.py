@@ -178,28 +178,52 @@ def test_high_value_commands_in_set():
 # === Rescue-kit menu cut (2026-07-18) ===
 
 
-def test_rescue_kit_filter_cuts_to_kit(monkeypatch):
+def test_menu_keeps_everything_and_pins_rescue_first(monkeypatch):
+    """Grant reversed #302 on 2026-07-26: every command stays browsable.
+
+    "The slash commands are the closest thing normies and grandmas get
+    to a terminal... just leave them all there." Principle #1 read as
+    EMPOWERING the non-technical user rather than only protecting her,
+    and #8's second rung — her control of her own agent.
+
+    The kit is now a PIN, not a filter: rescue sorts to the top where a
+    panicking user finds it, everything else follows.
+    """
     from windyfly.channels.telegram_bot import (
         TELEGRAM_MENU_RESCUE_KIT, apply_rescue_kit_filter,
     )
-    monkeypatch.delenv("WINDY_TELEGRAM_FULL_MENU", raising=False)
+    monkeypatch.delenv("WINDY_TELEGRAM_RESCUE_ONLY", raising=False)
     fake = [(1, "panic", "d"), (5, "weather", "d"), (8, "spend", "d"),
             (9, "translate", "d"), (2, "status", "d")]
     out = apply_rescue_kit_filter(fake)
-    names = {n for _p, n, _d in out}
-    assert names == {"panic", "spend", "status"}
-    assert names <= set(TELEGRAM_MENU_RESCUE_KIT)
+
+    # Nothing dropped.
+    assert {n for _p, n, _d in out} == {n for _p, n, _d in fake}
+
+    # Rescue commands sort ahead of every non-rescue one.
+    ordered = [n for _p, n, _d in sorted(out)]
+    kit = set(TELEGRAM_MENU_RESCUE_KIT)
+    first_non_kit = next(i for i, n in enumerate(ordered) if n not in kit)
+    assert all(n in kit for n in ordered[:first_non_kit])
+    assert not any(n in kit for n in ordered[first_non_kit:])
+
+    # And in KIT order, not alphabetically and not by the incoming
+    # priority: panic(0) < spend(7) < status(10) in TELEGRAM_MENU_RESCUE_KIT.
+    assert ordered[:3] == ["panic", "spend", "status"]
 
 
-def test_rescue_kit_env_escape_hatch(monkeypatch):
+def test_rescue_only_env_restores_the_short_kit(monkeypatch):
     from windyfly.channels.telegram_bot import apply_rescue_kit_filter
-    monkeypatch.setenv("WINDY_TELEGRAM_FULL_MENU", "1")
-    fake = [(1, "panic", "d"), (5, "weather", "d")]
-    assert apply_rescue_kit_filter(fake) == fake
+    monkeypatch.setenv("WINDY_TELEGRAM_RESCUE_ONLY", "1")
+    fake = [(1, "panic", "d"), (5, "weather", "d"), (2, "status", "d")]
+    out = apply_rescue_kit_filter(fake)
+    assert {n for _p, n, _d in out} == {"panic", "status"}
 
 
 def test_rescue_kit_is_grandma_sized(monkeypatch):
-    """The whole point: the popup a new user sees must be a glanceable
-    emergency kit, not a wall. Hard cap the kit itself at 20."""
+    """The PINNED set must stay glanceable even though the full menu is
+    browsable. If the rescue kit itself grew to 40, "the things that
+    save you when it's broken" would stop being findable at a glance —
+    which is the one job pinning has."""
     from windyfly.channels.telegram_bot import TELEGRAM_MENU_RESCUE_KIT
     assert len(TELEGRAM_MENU_RESCUE_KIT) <= 20
