@@ -164,6 +164,36 @@ def collect_hardware_specs() -> dict:
             if result.returncode == 0:
                 ram_gb = round(int(result.stdout.strip()) / (1024 ** 3), 1)
                 specs["ram"] = f"{ram_gb} GB"
+        if "ram" not in specs and platform.system() == "Windows":
+            # os.sysconf does not exist on Windows and there was no
+            # branch here at all, so every Windows birth certificate
+            # shipped with NO ram field — a permanent record of the
+            # machine an agent was born on, missing a third of the
+            # machine. Caught on the GrantW Windows 11 box:
+            # {'cpu': 'Intel64 ...', 'os': 'Windows 10.0.26200'}.
+            #
+            # ctypes rather than wmic: stdlib, no subprocess, and wmic
+            # is deprecated on current Windows.
+            import ctypes
+
+            class _MemStatusEx(ctypes.Structure):
+                _fields_ = [
+                    ("dwLength", ctypes.c_ulong),
+                    ("dwMemoryLoad", ctypes.c_ulong),
+                    ("ullTotalPhys", ctypes.c_ulonglong),
+                    ("ullAvailPhys", ctypes.c_ulonglong),
+                    ("ullTotalPageFile", ctypes.c_ulonglong),
+                    ("ullAvailPageFile", ctypes.c_ulonglong),
+                    ("ullTotalVirtual", ctypes.c_ulonglong),
+                    ("ullAvailVirtual", ctypes.c_ulonglong),
+                    ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+                ]
+
+            stat = _MemStatusEx()
+            stat.dwLength = ctypes.sizeof(_MemStatusEx)
+            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat)):
+                ram_gb = round(stat.ullTotalPhys / (1024 ** 3), 1)
+                specs["ram"] = f"{ram_gb} GB"
     except Exception as e:
         logger.debug("RAM detection failed: %s", e)
 

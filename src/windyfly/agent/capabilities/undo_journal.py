@@ -68,6 +68,28 @@ def _ensure_journal_dir(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
 
 
+def _normalize_link_target(raw: str) -> str:
+    r"""Strip Windows' extended-length ``\\?\`` prefix from a link target.
+
+    ``os.readlink`` on Windows returns the extended-length form —
+    ``\\?\C:\Users\...`` — while ``str(Path(...))`` everywhere else in
+    the codebase yields ``C:\Users\...``. The undo journal is a RECORD
+    used to put things back, so the two spellings must agree or a
+    restore compares a stored target against a live path and concludes
+    they are different files.
+
+    Caught on the GrantW Windows 11 box:
+        assert '\\\\?\\C:\\Users\\...\\real.txt' == 'C:\\Users\\...\\real.txt'
+
+    Only stripped when what follows is an ordinary drive path, so
+    genuinely long paths and UNC forms (``\\?\UNC\...``) are left
+    alone — those need the prefix to remain valid.
+    """
+    if len(raw) > 6 and raw.startswith("\\\\?\\") and raw[5] == ":":
+        return raw[4:]
+    return raw
+
+
 def capture_file_state(target: Path) -> dict[str, Any] | None:
     """Build the original_state envelope for a file that's about to be
     overwritten or deleted.
@@ -98,7 +120,8 @@ def capture_file_state(target: Path) -> dict[str, Any] | None:
     }
 
     if target.is_symlink():
-        return {**base, "kind": "symlink", "link_target": os.readlink(target)}
+        return {**base, "kind": "symlink",
+                "link_target": _normalize_link_target(os.readlink(target))}
     if target.is_dir():
         # We don't snapshot directory contents — that's a
         # delete_directory capability concern (Wave 4 #2). For now,
