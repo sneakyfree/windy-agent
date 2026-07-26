@@ -191,7 +191,12 @@ def collect_hardware_specs() -> dict:
 
             stat = _MemStatusEx()
             stat.dwLength = ctypes.sizeof(_MemStatusEx)
-            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat)):
+            # `ctypes.windll` exists only on Windows, and mypy type-checks
+            # this repo on Linux — so the attribute is genuinely absent
+            # there. The runtime guard is the `platform.system()` check
+            # above; this silences the checker without weakening it.
+            kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+            if kernel32.GlobalMemoryStatusEx(ctypes.byref(stat)):
                 ram_gb = round(stat.ullTotalPhys / (1024 ** 3), 1)
                 specs["ram"] = f"{ram_gb} GB"
     except Exception as e:
