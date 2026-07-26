@@ -5,10 +5,13 @@ Single source of truth — one .db file, WAL mode, zero ops.
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 import threading
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 _MIGRATIONS: dict[int, tuple[str, str]] = {
     1: (
@@ -475,12 +478,81 @@ _CALLABLE_MIGRATIONS = {
 class Database:
     """SQLite database wrapper with migrations and dict-like row access."""
 
+    @staticmethod
+    def _quarantine_if_corrupt(path: Path) -> str | None:
+        """If the memory file is unreadable, move it aside and start fresh.
+
+        **The agent must always be able to boot.** A corrupt SQLite file
+        used to raise ``DatabaseError: file is not a database`` straight
+        out of ``sqlite3.connect``/first query, which means the agent
+        does not start — and the supervisor restarts it into the same
+        failure, forever. That is the OpenClaw death spiral: grandma's
+        agent is bricked and only a human at a terminal can free it.
+
+        Found by ``scripts/marathon/faults.py``, which zeroes the SQLite
+        header and then asks whether a fresh agent can still come up.
+
+        Losing memory is bad. Being unable to START is worse — a running
+        agent can be handed a restored backup; a dead one cannot even
+        tell you what happened. So: rename the bad file (never delete —
+        it is the user's memory and may be partially recoverable with
+        ``.recover``), take its WAL/SHM siblings with it, and let the
+        caller create a clean database.
+
+        ``quarantined_from`` is set so channels can tell the user
+        plainly rather than letting them discover the amnesia
+        themselves.
+        """
+        if not path.exists() or path.stat().st_size == 0:
+            return None
+        try:
+            con = sqlite3.connect(str(path))
+            try:
+                # Cheap header/page check — enough to catch a smashed
+                # file without the cost of a full integrity_check on a
+                # large database at every boot.
+                con.execute("PRAGMA quick_check(1)").fetchone()
+                con.execute("SELECT COUNT(*) FROM sqlite_master").fetchone()
+                return None
+            finally:
+                con.close()
+        except sqlite3.DatabaseError as exc:
+            import time as _t
+            stamp = _t.strftime("%Y%m%d-%H%M%S")
+            dead = path.with_name(f"{path.name}.corrupt-{stamp}")
+            try:
+                path.rename(dead)
+                for suffix in ("-wal", "-shm"):
+                    sib = path.with_name(path.name + suffix)
+                    if sib.exists():
+                        sib.rename(dead.with_name(dead.name + suffix))
+            except OSError as move_err:
+                logger.error(
+                    "memory file at %s is unreadable (%s) and could NOT be "
+                    "moved aside (%s) — the agent cannot start",
+                    path, exc, move_err,
+                )
+                raise
+            logger.error(
+                "memory file at %s was unreadable (%s). Moved to %s and "
+                "starting with a fresh database so the agent can run. The "
+                "old file is NOT deleted.",
+                path, exc, dead,
+            )
+            return str(dead)
+
+    #: Set when __init__ had to quarantine an unreadable memory file.
+    #: Channels surface this to the user — memory loss must never be
+    #: silent (Principle #7).
+    quarantined_from: str | None = None
+
     def __init__(self, db_path: str) -> None:
         # Ensure data directory exists
         path = Path(db_path)
         path.parent.mkdir(parents=True, exist_ok=True)
 
         self.db_path = db_path
+        self.quarantined_from = self._quarantine_if_corrupt(path)
         self.conn = sqlite3.connect(
             db_path,
             detect_types=sqlite3.PARSE_DECLTYPES,
