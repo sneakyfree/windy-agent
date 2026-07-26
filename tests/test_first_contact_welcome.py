@@ -312,3 +312,82 @@ class TestWelcomeRaceLatch:
         b = Database(":memory:")  # fresh bot, fresh object
         assert is_first_contact(b) is True
         a.close(); b.close()
+
+
+# ── Latch identity: it must not outlive the object it describes ──
+
+
+def test_latch_does_not_retain_dead_databases():
+    """The welcome latch must forget a Database once it is collected.
+
+    The latch used to key on ``(db_path, id(db))``. ``id()`` is a memory
+    ADDRESS, which CPython reuses after collection — so a brand-new
+    Database could be allocated where a previously-welcomed one lived,
+    inherit its stale entry, and be judged "already welcomed". A
+    genuinely virgin database then skips the welcome, and grandma's
+    first ever message goes straight to the model instead of the
+    orientation tour. The old set also grew forever.
+
+    This asserts the INVARIANT rather than trying to provoke a
+    collision: entries for dead objects must not survive. My first
+    attempt at this test churned 60 databases hoping an address would
+    be reused, and it passed against the buggy code — address reuse is
+    not guaranteed, so that test guarded nothing. This one fails
+    deterministically on the id()-keyed implementation.
+    """
+    import gc
+
+    from windyfly.agent import welcome as W
+    from windyfly.memory.database import Database
+
+    # Settle first: in a full-suite run other tests' databases are in
+    # flight, and Database holds a connection + lock that can sit in a
+    # reference cycle, so one gc pass is not always enough.
+    for _ in range(3):
+        gc.collect()
+    before = len(W._welcomed_dbs)
+
+    dbs = [Database(":memory:") for _ in range(25)]
+    for db in dbs:
+        W.mark_welcomed(db)
+    assert len(W._welcomed_dbs) == before + 25, "latch did not record"
+
+    for db in dbs:
+        db.close()
+    # `del db` matters: Python's for-loop variable outlives the loop, so
+    # without this the LAST database is still referenced and the WeakSet
+    # legitimately keeps it. (My first version of this test failed for
+    # exactly that reason — 1 entry retained, and the product was fine.)
+    del db
+    dbs.clear()
+    for _ in range(3):
+        gc.collect()
+
+    # `<=` not `==`: in a full-suite run other tests' databases may
+    # also be collected during this window, which can only shrink the
+    # set further. The bug being guarded makes it GROW and stay grown.
+    assert len(W._welcomed_dbs) <= before, (
+        f"latch retained {len(W._welcomed_dbs) - before} entries for "
+        "collected databases — it is keyed on something that outlives "
+        "the object, so a future Database can inherit a stale 'already "
+        "welcomed' verdict"
+    )
+
+
+def test_fresh_database_is_always_first_contact():
+    """End-to-end consequence, asserted where it bites."""
+    import gc
+
+    from windyfly.agent.welcome import is_first_contact, mark_welcomed
+    from windyfly.memory.database import Database
+
+    for _ in range(40):
+        db = Database(":memory:")
+        assert is_first_contact(db) is True, (
+            "a virgin database was treated as already-welcomed"
+        )
+        mark_welcomed(db)
+        assert is_first_contact(db) is False, "latch did not hold"
+        db.close()
+        del db
+        gc.collect()

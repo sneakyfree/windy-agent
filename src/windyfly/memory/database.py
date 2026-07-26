@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -505,41 +506,57 @@ class Database:
         """
         if not path.exists() or path.stat().st_size == 0:
             return None
+
+        # ONLY the file header. Deliberately the narrowest possible
+        # test, because a false positive here QUARANTINES A HEALTHY
+        # DATABASE — the "fix" would eat the user's memory, which is
+        # far worse than the crash-loop it exists to prevent.
+        #
+        # The first version ran `PRAGMA quick_check` plus
+        # `SELECT COUNT(*) FROM sqlite_master` on a bare connection.
+        # Both can raise DatabaseError for reasons that are NOT
+        # corruption — instantiating the episodes_fts virtual table,
+        # lock contention, a concurrent migration. It duly declared a
+        # live database corrupt and moved it aside mid-race
+        # (`vtable constructor failed: episodes_fts`), caught by
+        # tests/contract/test_migration_race.py.
+        #
+        # Every SQLite file begins with this exact 16-byte magic. If it
+        # is absent the file is definitively not a database, which is
+        # the one case worth acting on. Anything subtler — a torn page
+        # deep in the file — is left to the real connection to surface,
+        # because a wrong guess there costs more than it saves.
         try:
-            con = sqlite3.connect(str(path))
-            try:
-                # Cheap header/page check — enough to catch a smashed
-                # file without the cost of a full integrity_check on a
-                # large database at every boot.
-                con.execute("PRAGMA quick_check(1)").fetchone()
-                con.execute("SELECT COUNT(*) FROM sqlite_master").fetchone()
-                return None
-            finally:
-                con.close()
-        except sqlite3.DatabaseError as exc:
-            import time as _t
-            stamp = _t.strftime("%Y%m%d-%H%M%S")
-            dead = path.with_name(f"{path.name}.corrupt-{stamp}")
-            try:
-                path.rename(dead)
-                for suffix in ("-wal", "-shm"):
-                    sib = path.with_name(path.name + suffix)
-                    if sib.exists():
-                        sib.rename(dead.with_name(dead.name + suffix))
-            except OSError as move_err:
-                logger.error(
-                    "memory file at %s is unreadable (%s) and could NOT be "
-                    "moved aside (%s) — the agent cannot start",
-                    path, exc, move_err,
-                )
-                raise
+            with path.open("rb") as fh:
+                header = fh.read(16)
+        except OSError:
+            return None            # unreadable for other reasons; not ours to judge
+        if header == b"SQLite format 3\x00":
+            return None
+
+        reason = f"bad SQLite header {header!r}"
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        dead = path.with_name(f"{path.name}.corrupt-{stamp}")
+        try:
+            path.rename(dead)
+            for suffix in ("-wal", "-shm"):
+                sib = path.with_name(path.name + suffix)
+                if sib.exists():
+                    sib.rename(dead.with_name(dead.name + suffix))
+        except OSError as move_err:
             logger.error(
-                "memory file at %s was unreadable (%s). Moved to %s and "
-                "starting with a fresh database so the agent can run. The "
-                "old file is NOT deleted.",
-                path, exc, dead,
+                "memory file at %s is not a database (%s) and could NOT be "
+                "moved aside (%s) — the agent cannot start",
+                path, reason, move_err,
             )
-            return str(dead)
+            raise
+        logger.error(
+            "memory file at %s is not a database (%s). Moved to %s and "
+            "starting fresh so the agent can run. The old file is NOT "
+            "deleted — it may be partly recoverable with `sqlite3 .recover`.",
+            path, reason, dead,
+        )
+        return str(dead)
 
     #: Set when __init__ had to quarantine an unreadable memory file.
     #: Channels surface this to the user — memory loss must never be
