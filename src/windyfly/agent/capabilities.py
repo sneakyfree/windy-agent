@@ -35,7 +35,7 @@ HELP_TEXT = """🪰 What I Can Do:
   • I learn your preferences and improve over time
 
 ⚙️ Management
-  • /personality — adjust my humor, warmth, autonomy
+  • /personality — adjust my humor, tone, autonomy
   • /budget — check spending vs daily limit
   • /ecosystem — see connected services
   • /version — check for updates"""

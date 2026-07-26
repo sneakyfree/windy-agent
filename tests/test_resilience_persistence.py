@@ -89,3 +89,48 @@ class TestWriteFailureTelemetry:
         wq.enqueue(0, lambda: None)
         wq.stop()
         assert get_write_stats()["failures"] == 0
+
+
+class TestShutdownDropIsLoud:
+    """stop() may fail to drain — but it must never do so silently.
+
+    The worker drains on shutdown (`while self._running or not
+    self._queue.empty()`) only if we actually wait for it. `stop()`
+    joined with a hardcoded 5s, which was tuned for bare SQLite
+    inserts. With the [semantic] extra installed every save_episode
+    also computes an embedding, and the FIRST one pays a multi-second
+    cold model load — so a modest backlog blew past 5s, the join gave
+    up, and those turns were gone.
+
+    Caught by test_stop_flushes_pending_items expecting 20 episodes and
+    finding 0, with "Loading weights" in the captured stderr. In
+    production that is grandma's last few turns vanishing on a graceful
+    shutdown, and the old code could not even report it: `join` returns
+    None whether it drained or gave up.
+    """
+
+    def test_timed_out_stop_records_dropped_writes(self):
+        import time
+
+        reset_write_stats()
+        wq = WriteQueue()
+        wq.start()
+        # One write slower than the join we are about to allow.
+        wq.enqueue(0, lambda: time.sleep(1.5))
+        wq.stop(timeout=0.2)
+
+        stats = get_write_stats()
+        assert stats["shutdown_dropped"] >= 1, (
+            "a timed-out stop() left no trace — silent memory loss"
+        )
+        assert "timed out" in stats["last_error"]
+        reset_write_stats()
+
+    def test_clean_stop_records_no_drop(self):
+        reset_write_stats()
+        wq = WriteQueue()
+        wq.start()
+        wq.enqueue(0, lambda: None)
+        wq.stop()
+        assert get_write_stats()["shutdown_dropped"] == 0
+        reset_write_stats()

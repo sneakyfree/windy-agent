@@ -5,9 +5,23 @@ that each backend builds the right OS commands + service definitions.
 """
 from __future__ import annotations
 
+import sys
+
+import pytest
+
 from windyfly.supervisor.backends import (
     LaunchdBackend, ServiceUnit, SupervisorBackend,
     SystemdBackend, WindowsTaskSchedulerBackend, get_backend,
+)
+
+# LaunchdBackend is macOS-only BY CONSTRUCTION: `get_backend()` returns it
+# only when IS_MAC, and `_domains()` calls `os.getuid()`, which does not
+# exist on Windows (AttributeError). Exercising it elsewhere tests nothing
+# real and turns a Windows run red for a backend that platform will never
+# select — noise that makes "is the suite green?" unanswerable on the OS
+# most of our users are on.
+mac_only = pytest.mark.skipif(
+    sys.platform != "darwin", reason="launchd is macOS-only (os.getuid)",
 )
 
 
@@ -39,6 +53,7 @@ class TestSystemd:
 
 
 class TestLaunchd:
+    @mac_only
     def test_label_and_restart(self):
         b = LaunchdBackend()
         cmd = b.restart_command("guardian")
@@ -125,6 +140,7 @@ class TestRunGuardianWiring:
 class TestMacCampaignHardening:
     """Fixes surfaced by the 2026-07-18 Mac-native recovery campaign."""
 
+    @mac_only
     def test_launchd_restart_falls_back_gui_then_user(self, monkeypatch):
         b = LaunchdBackend()
         monkeypatch.delenv("WINDY_LAUNCHD_DOMAIN", raising=False)
@@ -138,6 +154,7 @@ class TestMacCampaignHardening:
         assert b.restart("guardian") is True
         assert tried[0].startswith("gui/") and tried[1].startswith("user/")
 
+    @mac_only
     def test_launchd_domain_override(self, monkeypatch):
         b = LaunchdBackend()
         monkeypatch.setenv("WINDY_LAUNCHD_DOMAIN", "system")

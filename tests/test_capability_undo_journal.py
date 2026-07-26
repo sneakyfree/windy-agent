@@ -54,6 +54,30 @@ def test_capture_marks_too_big(tmp_path):
     assert state["size"] == MAX_ORIGINAL_STATE_BYTES + 1
 
 
+# Creating a symlink on Windows requires Developer Mode or an elevated
+# shell — neither of which a normal user has. That is a property of the
+# host, not of this code, so probe the capability rather than the OS
+# name: a Windows box WITH Developer Mode on will run these.
+def _symlinks_available() -> bool:
+    import tempfile
+    from pathlib import Path
+
+    with tempfile.TemporaryDirectory() as d:
+        src = Path(d) / "t"
+        src.write_text("x", encoding="utf-8")
+        try:
+            (Path(d) / "l").symlink_to(src)
+            return True
+        except (OSError, NotImplementedError):
+            return False
+
+
+needs_symlinks = pytest.mark.skipif(
+    not _symlinks_available(),
+    reason="host cannot create symlinks (Windows without Developer Mode)",
+)
+
+@needs_symlinks
 def test_capture_marks_symlink(tmp_path):
     target = tmp_path / "real.txt"
     target.write_text("real")
@@ -170,6 +194,7 @@ def test_restore_undoes_delete_of_file(tmp_path, journal):
     assert target.read_text(encoding="utf-8") == "the original"
 
 
+@needs_symlinks
 def test_restore_undoes_delete_of_symlink(tmp_path, journal):
     real = tmp_path / "real.txt"
     real.write_text("data")

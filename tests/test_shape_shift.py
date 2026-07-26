@@ -41,10 +41,10 @@ class TestShapeShift:
         apply_preset(db, "buddy")
         original = get_sliders(db)
 
-        with shape_shift(db, wq, {"humor": 0, "warmth": 0, "verbosity": 1}):
+        with shape_shift(db, wq, {"humor": 0, "personality": 0, "verbosity": 1}):
             current = get_sliders(db)
             assert current["humor"] == 0
-            assert current["warmth"] == 0
+            assert current["personality"] == 0
             assert current["verbosity"] == 1
 
         restored = get_sliders(db)

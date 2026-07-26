@@ -7,10 +7,62 @@ v2 (future) will use Docker containers.
 from __future__ import annotations
 
 import logging
+import os
 import subprocess
+import sys
+import tempfile
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+def _sandbox_cwd() -> str:
+    """A scratch working directory that exists on every platform.
+
+    Was the literal ``"/tmp"``, which does not exist on Windows.
+    """
+    return tempfile.gettempdir()
+
+
+def _restricted_env() -> dict[str, str]:
+    """Minimal environment for skill execution.
+
+    Keeps the v1 intent — hand the child as little ambient state as
+    possible — without assuming a POSIX filesystem. The previous
+    version hardcoded ``PATH=/usr/bin:/usr/local/bin`` and
+    ``HOME=/tmp``, both meaningless on Windows.
+
+    ``SystemRoot`` is not optional on Windows: omit it and the Windows
+    socket/DLL loader fails in ways that surface as unrelated errors.
+    """
+    tmp = _sandbox_cwd()
+    if os.name == "nt":
+        # System directories ONLY — the Windows analogue of
+        # /usr/bin:/usr/local/bin. Inheriting the real PATH would hand
+        # the sandbox every user-writable directory on it, which is a
+        # PATH-hijacking vector and the exact opposite of the point.
+        # (An earlier pass of this fix did inherit it; the existing
+        # test_python_sandbox_uses_restricted_path caught the
+        # weakening.) Nothing here needs a rich PATH — the interpreter
+        # is invoked by absolute path via sys.executable.
+        sysroot = os.environ.get("SystemRoot", r"C:\Windows")
+        return {
+            "PATH": os.pathsep.join([
+                os.path.join(sysroot, "system32"),
+                sysroot,
+                os.path.join(sysroot, "System32", "Wbem"),
+            ]),
+            "SystemRoot": sysroot,
+            "TEMP": tmp,
+            "TMP": tmp,
+            "USERPROFILE": tmp,
+            "PYTHONDONTWRITEBYTECODE": "1",
+        }
+    return {
+        "PATH": "/usr/bin:/usr/local/bin",
+        "HOME": tmp,
+        "PYTHONDONTWRITEBYTECODE": "1",
+    }
 
 
 def execute_in_sandbox(
@@ -60,22 +112,31 @@ def execute_in_sandbox(
 
 
 def _run_python(code: str, test_input: str | None, timeout: int) -> dict[str, Any]:
-    """Run Python code in a subprocess."""
-    restricted_env = {
-        "PATH": "/usr/bin:/usr/local/bin",
-        "HOME": "/tmp",
-        "PYTHONDONTWRITEBYTECODE": "1",
-    }
+    """Run Python code in a subprocess.
 
+    Uses ``sys.executable`` rather than the string ``"python3"``.
+
+    On Windows, bare ``python``/``python3`` resolves to the Microsoft
+    Store **App Execution Alias** — a stub that is not an interpreter.
+    It exits 9009 with "Python was not found; run without arguments to
+    install from the Microsoft Store", so EVERY skill execution failed
+    on Windows and the whole self-learned-skills system was dead on the
+    most common desktop OS. Measured on the GrantW Windows 11 box:
+    11 of 26 remaining suite failures traced to this single string.
+
+    ``sys.executable`` is also strictly more correct everywhere else —
+    it runs the SAME interpreter the agent is running, instead of
+    whatever ``python3`` happens to mean on that PATH.
+    """
     try:
         result = subprocess.run(
-            ["python3", "-c", code],
+            [sys.executable, "-c", code],
             input=test_input,
             capture_output=True,
             text=True,
             timeout=timeout,
-            env=restricted_env,
-            cwd="/tmp",
+            env=_restricted_env(),
+            cwd=_sandbox_cwd(),
         )
         return {
             "success": result.returncode == 0,
@@ -111,7 +172,7 @@ def _run_node(code: str, test_input: str | None, timeout: int) -> dict[str, Any]
             capture_output=True,
             text=True,
             timeout=timeout,
-            cwd="/tmp",
+            cwd=_sandbox_cwd(),
         )
         return {
             "success": result.returncode == 0,

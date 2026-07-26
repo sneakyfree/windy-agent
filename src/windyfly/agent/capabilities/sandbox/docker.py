@@ -45,6 +45,8 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from windyfly.agent.capabilities.filesystem import _ALWAYS_DENY
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_IMAGE = "alpine:3.19"
@@ -53,14 +55,16 @@ DEFAULT_OUTPUT_CAP_BYTES = 64 * 1024
 HARD_TIMEOUT_CEILING_S = 300  # 5-minute hard cap regardless of caller request
 DEFAULT_MEMORY = "512m"
 
-# Always-deny path tails — same list as filesystem.py's _ALWAYS_DENY.
-# Skipped during mount construction so the directories literally
-# don't exist inside the container.
-_ALWAYS_DENY_TAILS = (
-    ".ssh", ".gnupg", ".aws", ".kube", ".gcp",
-    ".docker/config.json", ".netrc", ".pgpass",
-    ".env", ".windy",
-)
+# Always-deny path tails. Skipped during mount construction so the
+# directories literally do not exist inside the container.
+#
+# Aliased from filesystem.py (imported at the top) rather than
+# re-declared. This WAS a second hand-maintained copy — "same list as
+# filesystem.py's _ALWAYS_DENY" — and a duplicated security list is a
+# drift factory: PR #311's Windows separator fix landed on
+# filesystem.py's matcher and never on this one, so .ssh stayed
+# mountable here. One list, one place.
+_ALWAYS_DENY_TAILS = _ALWAYS_DENY
 
 
 class DockerNotAvailable(RuntimeError):
@@ -143,9 +147,29 @@ class DockerDispatcher:
             src = Path(root).expanduser().resolve(strict=False)
             if not src.exists():
                 continue
-            # Skip the entire root if it's itself an always-deny tail
-            tail = "/" + str(src).rsplit("/", 1)[-1]
-            if any(tail.endswith("/" + d) for d in _ALWAYS_DENY_TAILS):
+            # Skip the entire root if it's itself an always-deny tail.
+            #
+            # Separators are normalized to '/' first. On Windows
+            # `str(Path.resolve())` is backslash-delimited, so the old
+            # `str(src).rsplit("/", 1)[-1]` returned the WHOLE path and
+            # the `endswith("/" + d)` test never matched — meaning
+            # ~/.ssh was bind-mounted into the sandbox at /mnt/.ssh.
+            #
+            # This is the same defect PR #311 fixed in filesystem.py
+            # ("capability deny-list must match on Windows separators
+            # too"). It survived here because this module kept its OWN
+            # copy of the list and its own matcher, so the fix landed on
+            # one of the two and the copy silently drifted. Caught on the
+            # GrantW Windows 11 box, where the test expecting [] got
+            # ['-v', 'C:\\Users\\...\\.ssh:/mnt/.ssh:ro'].
+            #
+            # Matches a trailing component OR any interior component, so
+            # multi-part entries like '.docker/config.json' work too.
+            src_str = str(src).replace("\\", "/").rstrip("/")
+            if any(
+                src_str.endswith(f"/{d}") or f"/{d}/" in src_str
+                for d in _ALWAYS_DENY_TAILS
+            ):
                 continue
             base = src.name or "root"
             # Resolve basename collisions deterministically

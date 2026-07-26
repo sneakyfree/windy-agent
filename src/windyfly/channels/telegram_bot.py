@@ -74,16 +74,29 @@ TELEGRAM_MENU_DENYLIST = frozenset({
     "kill", "shutdown", "stop", "restart", "go", "ps",
 })
 
-# ── Rescue-kit menu (2026-07-18, Principle #1 + #4) ────────────────
+# ── Menu policy: rescue pinned first, EVERYTHING browsable ─────────
 #
-# The autocomplete popup used to advertise ~91 commands — a wall of
-# choices for grandma and pure feature-noise (the OpenClaw cautionary
-# tale). The doctrine-clean justification for a slash command is:
-# IT WORKS WHEN THE BRAIN IS BROKEN, HALLUCINATING, OR SPENDING MONEY.
-# That defines the menu: the deterministic rescue/budget/status tier.
-# Everything else stays REGISTERED and typed commands still work —
-# this only curates the popup. Set WINDY_TELEGRAM_FULL_MENU=1 to
-# restore the firehose (debugging / power users).
+# History, because this reversed: #302 (2026-07-18) cut the popup from
+# ~91 entries to 15, reading "a wall of choices" as anti-grandma
+# feature-noise. Grant reversed that on 2026-07-26, and the reasoning
+# is better than the original:
+#
+#   "The slash commands are the closest thing normies and grandmas get
+#    to a terminal. Your agent is wobbly, you hit /resurrect, boom it's
+#    back — that is a dopamine hit. After a while you love having those
+#    direct commands. Just leave them all there."
+#
+# That is Principle #1 read correctly — EMPOWERING the non-technical
+# user, not merely protecting her — and Principle #8's second rung, the
+# human's control of her own agent. A curated 15 protects her from a
+# menu; it also hides the 90 things her agent can do.
+#
+# So the kit is no longer a FILTER, it is a PIN: rescue commands sort
+# to the top where a panicking user finds them, and everything else
+# follows, grouped by category. Telegram's popup filters as you type,
+# so a long list costs nothing until she starts typing.
+#
+# Set WINDY_TELEGRAM_RESCUE_ONLY=1 for the old 15-command kit.
 TELEGRAM_MENU_RESCUE_KIT: tuple[str, ...] = (
     "panic", "reset", "new", "resurrect", "normal", "lifeboat",
     "auto_resurrect", "spend", "pause", "resume", "status", "help",
@@ -94,16 +107,34 @@ TELEGRAM_MENU_RESCUE_KIT: tuple[str, ...] = (
 def apply_rescue_kit_filter(
     candidates: list[tuple[int, str, str]],
 ) -> list[tuple[int, str, str]]:
-    """Cut the popup candidates to the rescue kit (kit order wins),
-    unless WINDY_TELEGRAM_FULL_MENU=1 restores the full surface.
-    Typed commands are unaffected — this only curates the popup."""
-    if os.environ.get("WINDY_TELEGRAM_FULL_MENU") == "1":
-        return candidates
+    """Order the popup: rescue commands first, then everything else.
+
+    Returns ALL candidates by default — the caller still truncates to
+    Telegram's hard limit of 100 entries, and with 105 registered
+    commands roughly five of the lowest-priority ones fall off. That
+    truncation is why the ordering matters: whatever is least useful in
+    a panic should be what gets cut.
+
+    ``WINDY_TELEGRAM_RESCUE_ONLY=1`` restores the pre-2026-07-26
+    behavior (the 15-command emergency kit and nothing else).
+
+    Typed commands were never affected by any of this — every
+    registered command runs whether or not it appears in the popup.
+    """
     kit_order = {n: i for i, n in enumerate(TELEGRAM_MENU_RESCUE_KIT)}
+
+    if os.environ.get("WINDY_TELEGRAM_RESCUE_ONLY") == "1":
+        return [
+            (kit_order[n], n, d)
+            for _p, n, d in candidates
+            if n in kit_order
+        ]
+
+    # Rescue kit occupies the negative range so it always sorts above
+    # every category, in kit order rather than alphabetically.
     return [
-        (kit_order[n], n, d)
-        for _p, n, d in candidates
-        if n in kit_order
+        (kit_order[n] - len(kit_order) if n in kit_order else p, n, d)
+        for p, n, d in candidates
     ]
 
 
@@ -455,18 +486,29 @@ class TelegramChannel(ChannelAdapter):
 
         # Category sort key — lower = higher priority. Categories
         # we don't recognize land at the end.
+        # Every category is listed deliberately. Previously six of the
+        # fifteen fell through to 99, which was harmless while the popup
+        # was cut to 15 but decides who survives truncation now that the
+        # whole surface is browsable: with 105 commands and Telegram's
+        # 100-entry cap, the tail of this ordering is what gets dropped.
         priority = {
-            "01_process": 1,
+            "01_process": 1,       # rescue-adjacent — works when the brain is broken
             "13_help": 2,
             "02_diagnostics": 3,
             "09_identity": 4,
             "04_model": 5,
             "05_personality": 6,
-            "03_chat": 7,
-            "06_memory": 8,
+            "06_memory": 7,
+            "03_chat": 8,
             "08_budget": 9,
-            "14_email": 10,
-            "15_phone": 11,
+            "08a_tools": 10,
+            "07_skills": 11,
+            "14_email": 12,
+            "15_phone": 13,
+            "10_config": 14,
+            "10_cloud": 15,
+            "11_maintenance": 16,
+            "12_developer": 17,    # terminal-flavored; first to fall off at 100
         }
 
         import re

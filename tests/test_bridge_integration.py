@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import socket
 import time
 import threading
 from unittest.mock import patch
@@ -33,6 +34,17 @@ def _run(coro):
 # === Server Lifecycle ===
 
 
+# The UDS bridge is, by name, a Unix-domain-socket server. Windows has
+# no `socket.AF_UNIX` at all, so binding raises AttributeError rather
+# than testing anything. On Windows the agent reaches its channels by
+# other means; exercising the UDS lifecycle there only turns the run red
+# for a transport that platform never uses.
+needs_af_unix = pytest.mark.skipif(
+    not hasattr(socket, "AF_UNIX"),
+    reason="Unix-domain sockets are POSIX-only",
+)
+
+@needs_af_unix
 class TestBridgeLifecycle:
     def test_start_creates_socket_file(self):
         import tempfile
@@ -122,7 +134,8 @@ class TestDispatchRoundtrips:
         wq = WriteQueue()
         bridge = UDSBridge({}, db, wq)
         result = _run(bridge._dispatch("sliders.info", {}))
-        assert len(result["sliders"]) == 19
+        from windyfly.control_panel import VALID_SLIDERS
+        assert len(result["sliders"]) == len(VALID_SLIDERS)
         for name, info in result["sliders"].items():
             assert "label" in info
             assert "description" in info

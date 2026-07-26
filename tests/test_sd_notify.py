@@ -33,6 +33,18 @@ class TestNoSocket:
         assert sd_notify("READY=1") is False
 
 
+# sd_notify is the systemd notify protocol: it speaks AF_UNIX datagrams,
+# which Windows does not have at all. `socket.AF_UNIX` is simply absent
+# there, so these bind() calls raise AttributeError rather than testing
+# anything. The product is already correct on Windows — NOTIFY_SOCKET is
+# never set, so sd_notify() returns False — and TestNoSocket above pins
+# exactly that, on every platform.
+needs_af_unix = pytest.mark.skipif(
+    not hasattr(socket, "AF_UNIX"),
+    reason="AF_UNIX datagram sockets are POSIX-only",
+)
+
+@needs_af_unix
 class TestUnixSocketDelivery:
     def test_payload_arrives_at_unix_socket(self, short_tmp_path, monkeypatch):
         sock_path = short_tmp_path / "notify.sock"
@@ -88,6 +100,7 @@ class TestUnixSocketDelivery:
         assert received == [b"READY=1", b"WATCHDOG=1", b"STOPPING=1"]
 
 
+@needs_af_unix
 class TestFailureNonFatal:
     def test_unreachable_socket_returns_false(self, tmp_path, monkeypatch):
         # Path that doesn't exist — connect() should fail and we should
