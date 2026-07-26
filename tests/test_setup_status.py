@@ -490,12 +490,38 @@ def test_atomic_upsert_no_temp_file_left(tmp_path):
     assert not list(tmp_path.glob("*.windy.tmp"))
 
 
-def test_atomic_upsert_chmod_600(tmp_path):
+def test_atomic_upsert_restricts_to_owner(tmp_path):
+    """The credential file must be owner-only on every platform.
+
+    POSIX mode bits are the mechanism on Unix; on Windows they are not
+    (os.chmod there only toggles the read-only attribute), so this
+    asserted 0o600 and got 0o666 on the GrantW Windows 11 box —
+    ``assert 438 == 384``. Windows protection now comes from an
+    explicit ACL, so assert the mechanism that actually applies.
+    """
+    import os
+
     from windyfly.agent.capabilities.setup import _atomic_upsert_env_var
     env_file = tmp_path / "secret.env"
     _atomic_upsert_env_var(env_file, "TOKEN", "value")
-    mode = env_file.stat().st_mode & 0o777
-    assert mode == 0o600
+
+    if os.name != "nt":
+        assert env_file.stat().st_mode & 0o777 == 0o600
+        return
+
+    # Windows: inheritance dropped, and only the current user granted.
+    import subprocess
+    out = subprocess.run(
+        ["icacls", str(env_file)], capture_output=True, text=True, timeout=15,
+    ).stdout
+    user = os.environ.get("USERNAME", "")
+    assert user and user.lower() in out.lower(), (
+        f"current user missing from ACL:\n{out}"
+    )
+    for broad in ("Everyone", "BUILTIN\\Users", "Authenticated Users"):
+        assert broad.lower() not in out.lower(), (
+            f"credential file grants {broad}:\n{out}"
+        )
 
 
 def test_atomic_upsert_writes_through_symlink_does_not_replace_link(tmp_path):

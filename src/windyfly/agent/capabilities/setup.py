@@ -44,6 +44,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -254,8 +255,55 @@ def _atomic_upsert_env_var(
         new_text = existing + new_line
     tmp = target.with_suffix(target.suffix + ".windy.tmp")
     tmp.write_text(new_text, encoding="utf-8")
-    os.chmod(tmp, 0o600)
+    _restrict_to_owner(tmp)
     os.replace(tmp, target)
+
+
+def _restrict_to_owner(path: Path) -> None:
+    """Make ``path`` readable only by its owner, on any platform.
+
+    This file holds live credentials, so "we chmod 600 it" needs to be
+    TRUE, not just written down.
+
+    ``os.chmod(0o600)`` is a POSIX statement. On Windows it only
+    toggles the read-only attribute — the mode bits are not the access
+    control mechanism there, NTFS ACLs are — so the file came out
+    reporting ``0o666`` and inheriting whatever ACL its parent had.
+    Caught on the GrantW Windows 11 box: ``assert 438 == 384``
+    (``0o666`` vs ``0o600``).
+
+    In practice a file under ``%USERPROFILE%`` inherits an ACL that
+    already excludes other standard users — but it does NOT exclude
+    other Administrators, and "probably fine by inheritance" is not a
+    guarantee to hand a credential. So on Windows we drop inheritance
+    and grant exactly the current user.
+
+    Best-effort by design: a failure here must never block the write
+    (the alternative is the agent unable to save a token at all), but
+    it is logged rather than swallowed silently.
+    """
+    try:
+        os.chmod(path, 0o600)
+    except OSError as exc:  # pragma: no cover - platform dependent
+        logger.warning("chmod 600 failed on %s: %s", path, exc)
+
+    if os.name != "nt":
+        return
+
+    # /inheritance:r drops inherited ACEs; /grant:r replaces any
+    # existing grant for that principal rather than adding to it.
+    user = os.environ.get("USERNAME") or ""
+    if not user:
+        logger.warning("cannot restrict %s: USERNAME unset", path)
+        return
+    try:
+        subprocess.run(
+            ["icacls", str(path), "/inheritance:r",
+             "/grant:r", f"{user}:F"],
+            capture_output=True, text=True, timeout=15, check=False,
+        )
+    except Exception as exc:  # noqa: BLE001 - never block the write
+        logger.warning("icacls hardening failed on %s: %s", path, exc)
 
 
 def _start_handler(*, integration: str) -> dict[str, Any]:
