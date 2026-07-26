@@ -215,7 +215,7 @@ def _read_ssh_config_kits() -> list[dict[str, Any]]:
     if not cfg.exists():
         return []
     try:
-        return _parse_ssh_config(cfg.read_text())
+        return _parse_ssh_config(cfg.read_text(encoding="utf-8"))
     except Exception as e:
         logger.warning("Failed to parse SSH config %s: %s", cfg, e)
         return []
@@ -309,7 +309,7 @@ def register_fleet_capabilities(
 
         path = out_dir / f"{ts}-{slug}.sh"
         try:
-            path.write_text(script)
+            path.write_text(script, encoding="utf-8")
             path.chmod(0o755)
         except Exception as e:
             return {"ok": False, "reason": f"cannot write script: {e}"}

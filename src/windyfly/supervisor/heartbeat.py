@@ -43,7 +43,7 @@ def write_heartbeat(
             "polling": bool(polling),
         }
         tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(payload))
+        tmp.write_text(json.dumps(payload), encoding="utf-8")
         os.replace(tmp, path)
     except Exception:
         pass  # a heartbeat write must never break the heartbeat loop
@@ -63,7 +63,7 @@ def read_heartbeat(
         return None
     for attempt in range(2):
         try:
-            return json.loads(path.read_text())
+            return json.loads(path.read_text(encoding="utf-8"))
         except Exception:
             if attempt == 0:
                 time.sleep(0.05)

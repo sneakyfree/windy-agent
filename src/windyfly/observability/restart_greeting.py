@@ -60,7 +60,7 @@ def set_pending_greeting(
         path.parent.mkdir(parents=True, exist_ok=True)
         # Atomic write so a torn write can't leave a half-flag.
         tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(payload) + "\n")
+        tmp.write_text(json.dumps(payload) + "\n", encoding="utf-8")
         tmp.replace(path)
     except Exception as e:
         logger.warning("set_pending_greeting failed: %s", e)
@@ -78,7 +78,7 @@ def consume_pending_greeting() -> dict | None:
     if not path.exists():
         return None
     try:
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8"))
     except Exception as e:
         logger.warning("could not parse pending-greeting flag: %s", e)
         try:

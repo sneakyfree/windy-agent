@@ -323,7 +323,7 @@ def _persist_env_var(key: str, value: str) -> None:
         lines: list[str] = []
         written = False
         if env_file.exists():
-            for line in env_file.read_text().splitlines():
+            for line in env_file.read_text(encoding="utf-8").splitlines():
                 if line.startswith(f"{key}="):
                     lines.append(f"{key}={value}")
                     written = True
@@ -331,7 +331,7 @@ def _persist_env_var(key: str, value: str) -> None:
                     lines.append(line)
         if not written:
             lines.append(f"{key}={value}")
-        env_file.write_text("\n".join(lines) + "\n")
+        env_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
     except OSError as exc:
         logger.warning("Could not persist %s to .env: %s", key, exc)
 
@@ -838,7 +838,7 @@ def _save_recovery(result: HatchResult) -> None:
     retry_count = 0
     if _RECOVERY_PATH.exists():
         try:
-            existing = json.loads(_RECOVERY_PATH.read_text())
+            existing = json.loads(_RECOVERY_PATH.read_text(encoding="utf-8"))
             retry_count = existing.get("retry_count", 0)
         except (json.JSONDecodeError, OSError):
             pass
@@ -851,7 +851,7 @@ def _save_recovery(result: HatchResult) -> None:
         "agent_name": result.agent_name,
         "passport_id": result.passport_id,
         "errors": result.errors,
-    }, indent=2))
+    }, indent=2), encoding="utf-8")
     logger.info("Provisioning recovery saved: %s", failed_steps)
 
 
@@ -868,7 +868,7 @@ async def retry_failed_provisioning(db=None) -> HatchResult | None:
         return None
 
     try:
-        recovery = json.loads(_RECOVERY_PATH.read_text())
+        recovery = json.loads(_RECOVERY_PATH.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         _RECOVERY_PATH.unlink(missing_ok=True)
         return None
@@ -922,7 +922,7 @@ async def retry_failed_provisioning(db=None) -> HatchResult | None:
         recovery["failed_steps"] = failed_steps
         recovery["retry_count"] = recovery.get("retry_count", 0) + 1
         recovery["last_attempt"] = datetime.now(timezone.utc).isoformat()
-        _RECOVERY_PATH.write_text(json.dumps(recovery, indent=2))
+        _RECOVERY_PATH.write_text(json.dumps(recovery, indent=2), encoding="utf-8")
         logger.warning("Provisioning recovery incomplete: %s still failing", failed_steps)
 
     return result

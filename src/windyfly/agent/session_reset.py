@@ -85,7 +85,7 @@ def _load() -> dict[str, dict[str, Any]]:
         _state = {}
         return _state
     try:
-        raw = path.read_text()
+        raw = path.read_text(encoding="utf-8")
         parsed = json.loads(raw) if raw.strip() else {}
         if not isinstance(parsed, dict):
             logger.warning(
@@ -134,7 +134,7 @@ def _save(state: dict[str, dict[str, Any]]) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp.write_text(json.dumps(state, sort_keys=True, indent=2))
+        tmp.write_text(json.dumps(state, sort_keys=True, indent=2), encoding="utf-8")
         os.replace(tmp, path)
     except OSError as exc:
         if not _persist_warned:

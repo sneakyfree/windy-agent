@@ -124,7 +124,7 @@ def _journal(event: dict) -> None:
     try:
         path = _journal_path()
         path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a") as f:
+        with path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(event) + "\n")
     except Exception as e:
         logger.debug("auto-repair journal write failed: %s", e)
@@ -138,7 +138,7 @@ def _last_apply_age_hours() -> float | None:
         return None
     try:
         last_apply_ts: str | None = None
-        for line in path.read_text().splitlines():
+        for line in path.read_text(encoding="utf-8").splitlines():
             try:
                 evt = json.loads(line)
             except json.JSONDecodeError:

@@ -222,7 +222,7 @@ def _write_env(key: str, value: str) -> None:
     found = False
 
     if env_path.exists():
-        lines = env_path.read_text().splitlines(keepends=True)
+        lines = env_path.read_text(encoding="utf-8").splitlines(keepends=True)
 
     for i, line in enumerate(lines):
         if line.startswith(f"{key}="):
@@ -233,4 +233,4 @@ def _write_env(key: str, value: str) -> None:
     if not found:
         lines.append(f"{key}={value}\n")
 
-    env_path.write_text("".join(lines))
+    env_path.write_text("".join(lines), encoding="utf-8")

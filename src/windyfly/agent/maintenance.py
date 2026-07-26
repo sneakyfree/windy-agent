@@ -82,7 +82,7 @@ def _runs_path(state_dir: Path | None = None) -> Path:
 def _load_runs(state_dir: Path | None = None) -> dict[str, str]:
     try:
         p = _runs_path(state_dir)
-        return json.loads(p.read_text()) if p.exists() else {}
+        return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
     except Exception:
         return {}
 
@@ -94,7 +94,7 @@ def _save_run(name: str, when: datetime, state_dir: Path | None = None) -> None:
         runs = _load_runs(state_dir)
         runs[name] = when.isoformat()
         tmp = p.with_suffix(".tmp")
-        tmp.write_text(json.dumps(runs))
+        tmp.write_text(json.dumps(runs), encoding="utf-8")
         import os
         os.replace(tmp, p)
     except Exception as e:

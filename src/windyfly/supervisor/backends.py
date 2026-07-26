@@ -115,7 +115,7 @@ class SystemdBackend(SupervisorBackend):
             "Restart=always\nRestartSec=10\n\n"
             "[Install]\nWantedBy=default.target\n"
         )
-        (unit_dir / f"{unit.name}.service").write_text(content)
+        (unit_dir / f"{unit.name}.service").write_text(content, encoding="utf-8")
         self._run(["systemctl", "--user", "daemon-reload"])
         if unit.autostart:
             code, _ = self._run(
@@ -194,7 +194,7 @@ class LaunchdBackend(SupervisorBackend):
         )
         p = self._plist_path(unit.name)
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(plist)
+        p.write_text(plist, encoding="utf-8")
         code, _ = self._run(["launchctl", "load", "-w", str(p)])
         return code == 0
 

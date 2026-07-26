@@ -93,7 +93,7 @@ def _load_bindings() -> dict[str, set[str]]:
     """
     path = _bindings_path()
     try:
-        raw = json.loads(path.read_text())
+        raw = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
         return {}
     except (json.JSONDecodeError, OSError) as e:
@@ -121,14 +121,14 @@ def _persist_binding(platform: str, sender_id: str) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         current: dict[str, str] = {}
         try:
-            existing = json.loads(path.read_text())
+            existing = json.loads(path.read_text(encoding="utf-8"))
             if isinstance(existing, dict):
                 current = {k: v for k, v in existing.items() if isinstance(v, str)}
         except (FileNotFoundError, json.JSONDecodeError, OSError):
             current = {}
         current[platform] = sender_id
         tmp = path.with_suffix(path.suffix + ".tmp")
-        tmp.write_text(json.dumps(current, indent=2, sort_keys=True))
+        tmp.write_text(json.dumps(current, indent=2, sort_keys=True), encoding="utf-8")
         tmp.replace(path)
     except OSError as e:
         logger.warning(

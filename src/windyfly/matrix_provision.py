@@ -233,7 +233,7 @@ def auto_provision_and_save() -> bool:
     # Write to .env
     env_file = PROJECT_ROOT / ".env"
     if env_file.exists():
-        content = env_file.read_text()
+        content = env_file.read_text(encoding="utf-8")
 
         # Update or add MATRIX_BOT_TOKEN
         lines = content.splitlines()
@@ -256,7 +256,7 @@ def auto_provision_and_save() -> bool:
         if not password_written:
             new_lines.append(f"MATRIX_BOT_PASSWORD={result['password']}")
 
-        env_file.write_text("\n".join(new_lines) + "\n")
+        env_file.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
 
     console.print(f"  [green]✓[/green] Windy Chat — {result['user_id']} provisioned")
     return True

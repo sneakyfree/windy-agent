@@ -45,7 +45,7 @@ def _get_service():
         if creds.expired and creds.refresh_token:
             from google.auth.transport.requests import Request
             creds.refresh(Request())
-            _TOKEN_PATH.write_text(creds.to_json())
+            _TOKEN_PATH.write_text(creds.to_json(), encoding="utf-8")
         return build("calendar", "v3", credentials=creds)
     except Exception as e:
         logger.warning("Google Calendar auth failed: %s", e)
@@ -214,7 +214,7 @@ def setup_calendar_oauth() -> bool:
         )
         creds = flow.run_local_server(port=0)
         _TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
-        _TOKEN_PATH.write_text(creds.to_json())
+        _TOKEN_PATH.write_text(creds.to_json(), encoding="utf-8")
         logger.info("Google Calendar connected successfully!")
         return True
     except Exception as e:

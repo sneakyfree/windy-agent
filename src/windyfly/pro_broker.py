@@ -120,7 +120,7 @@ def read_pro_config(path: Path | None = None) -> dict | None:
     if not cfg_path.exists():
         return None
     try:
-        data = json.loads(cfg_path.read_text())
+        data = json.loads(cfg_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         logger.debug("Could not read Pro config at %s: %s", cfg_path, exc)
         return None

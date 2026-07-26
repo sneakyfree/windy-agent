@@ -258,7 +258,7 @@ def resurrection_state() -> dict[str, Any]:
     if not path.exists():
         return {"active": False}
     try:
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         # Torn flag — treat as active with unknown metadata. Better
         # to keep lifeboat ON with no metadata than to silently drop
@@ -369,7 +369,7 @@ def resurrect(
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(payload) + "\n")
+        tmp.write_text(json.dumps(payload) + "\n", encoding="utf-8")
         tmp.replace(path)
     except Exception as e:
         logger.error("Failed to write resurrection flag: %s", e)
@@ -418,7 +418,7 @@ def normalize() -> dict[str, Any]:
     prior_model = None
     if existed:
         try:
-            prior_model = json.loads(path.read_text()).get("model")
+            prior_model = json.loads(path.read_text(encoding="utf-8")).get("model")
         except Exception:
             pass
     try:
@@ -512,7 +512,7 @@ def set_auto_resurrect(enabled: bool, actor: str = "user") -> dict[str, Any]:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(payload) + "\n")
+        tmp.write_text(json.dumps(payload) + "\n", encoding="utf-8")
         tmp.replace(path)
     except Exception as e:
         return {"ok": False, "error": str(e)}
@@ -528,7 +528,7 @@ def _within_auto_cooldown() -> bool:
     if not path.exists():
         return False
     try:
-        last = float(path.read_text().strip())
+        last = float(path.read_text(encoding="utf-8").strip())
     except Exception:
         return False
     age = datetime.now(timezone.utc).timestamp() - last
@@ -541,7 +541,7 @@ def _mark_auto_attempt() -> None:
     path = _auto_attempt_marker_path()
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(str(datetime.now(timezone.utc).timestamp()))
+        path.write_text(str(datetime.now(timezone.utc).timestamp()), encoding="utf-8")
     except Exception as e:
         logger.debug("auto-resurrect mark failed: %s", e)
 
@@ -684,7 +684,7 @@ def _within_post_recovery_grace() -> bool:
     if not path.exists():
         return False
     try:
-        last = float(path.read_text().strip())
+        last = float(path.read_text(encoding="utf-8").strip())
     except Exception:
         return False
     age = datetime.now(timezone.utc).timestamp() - last
@@ -695,7 +695,7 @@ def _mark_post_recovery() -> None:
     path = _post_recovery_grace_path()
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(str(datetime.now(timezone.utc).timestamp()))
+        path.write_text(str(datetime.now(timezone.utc).timestamp()), encoding="utf-8")
     except Exception as e:
         logger.debug("post-recovery grace mark failed: %s", e)
 
@@ -801,7 +801,7 @@ def _within_recovery_probe_cooldown() -> bool:
     if not path.exists():
         return False
     try:
-        last = float(path.read_text().strip())
+        last = float(path.read_text(encoding="utf-8").strip())
     except Exception:
         return False
     age = datetime.now(timezone.utc).timestamp() - last
@@ -812,7 +812,7 @@ def _mark_recovery_probe() -> None:
     path = _recovery_probe_marker_path()
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(str(datetime.now(timezone.utc).timestamp()))
+        path.write_text(str(datetime.now(timezone.utc).timestamp()), encoding="utf-8")
     except Exception as e:
         logger.debug("recovery-probe mark failed: %s", e)
 
@@ -902,7 +902,7 @@ def lifeboat_status() -> dict[str, Any]:
     recov_last_ts: float | None = None
     if recov_path.exists():
         try:
-            recov_last_ts = float(recov_path.read_text().strip())
+            recov_last_ts = float(recov_path.read_text(encoding="utf-8").strip())
         except Exception:
             pass
 
@@ -910,7 +910,7 @@ def lifeboat_status() -> dict[str, Any]:
     grace_last_ts: float | None = None
     if grace_path.exists():
         try:
-            grace_last_ts = float(grace_path.read_text().strip())
+            grace_last_ts = float(grace_path.read_text(encoding="utf-8").strip())
         except Exception:
             pass
 
@@ -1000,7 +1000,7 @@ def auto_resurrect_status() -> dict[str, Any]:
     last_ts = None
     if last_path.exists():
         try:
-            last_ts = float(last_path.read_text().strip())
+            last_ts = float(last_path.read_text(encoding="utf-8").strip())
         except Exception:
             pass
     return {

@@ -225,7 +225,7 @@ def print_status(config: dict[str, Any] | None = None) -> None:
         pid_file = get_pid_path(project_root)
         if pid_file.exists():
             from windyfly.platform import process_alive
-            pids = pid_file.read_text().strip().split("\n")
+            pids = pid_file.read_text(encoding="utf-8").strip().split("\n")
             alive = [p for p in pids if process_alive(int(p.strip()))]
             if alive:
                 pid_creation = pid_file.stat().st_mtime

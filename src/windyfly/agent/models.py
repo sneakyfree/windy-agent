@@ -78,7 +78,7 @@ def _save_cooldowns() -> None:
         path = _cooldown_state_path()
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(_provider_cooldowns))
+        tmp.write_text(json.dumps(_provider_cooldowns), encoding="utf-8")
         tmp.replace(path)
     except OSError as e:
         logger.debug("Could not persist provider cooldowns: %s", e)
@@ -87,7 +87,7 @@ def _save_cooldowns() -> None:
 def _load_cooldowns() -> None:
     """Restore unexpired cooldowns at import; drop stale entries."""
     try:
-        raw = json.loads(_cooldown_state_path().read_text())
+        raw = json.loads(_cooldown_state_path().read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError, ValueError):
         return
     now = time.time()
@@ -646,7 +646,7 @@ def _reload_oauth_token() -> bool:
         if not creds.exists():
             return False
         fresh = (
-            (json.loads(creds.read_text()).get("claudeAiOauth") or {})
+            (json.loads(creds.read_text(encoding="utf-8")).get("claudeAiOauth") or {})
             .get("accessToken", "")
         )
         if fresh and fresh != os.environ.get("ANTHROPIC_API_KEY", ""):

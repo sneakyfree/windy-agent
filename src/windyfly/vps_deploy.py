@@ -75,7 +75,7 @@ def _save_vps_state(instance: VPSInstance) -> None:
         "monthly_cost_usd": instance.monthly_cost_usd,
         "created_at": instance.created_at,
         "agent_name": instance.agent_name,
-    }, indent=2))
+    }, indent=2), encoding="utf-8")
 
 
 def _load_vps_state() -> VPSInstance | None:
@@ -83,7 +83,7 @@ def _load_vps_state() -> VPSInstance | None:
     if not _VPS_STATE_FILE.exists():
         return None
     try:
-        data = json.loads(_VPS_STATE_FILE.read_text())
+        data = json.loads(_VPS_STATE_FILE.read_text(encoding="utf-8"))
         return VPSInstance(**data)
     except (json.JSONDecodeError, TypeError):
         return None
@@ -281,17 +281,17 @@ def _collect_config_files() -> dict[str, str]:
 
     toml_path = PROJECT_ROOT / "windyfly.toml"
     if toml_path.exists():
-        files["windyfly.toml"] = toml_path.read_text()
+        files["windyfly.toml"] = toml_path.read_text(encoding="utf-8")
 
     soul_path = PROJECT_ROOT / "SOUL.md"
     if soul_path.exists():
-        files["SOUL.md"] = soul_path.read_text()
+        files["SOUL.md"] = soul_path.read_text(encoding="utf-8")
 
     env_path = PROJECT_ROOT / ".env"
     if env_path.exists():
         # Filter out local-only vars, keep secrets
         filtered = []
-        for line in env_path.read_text().splitlines():
+        for line in env_path.read_text(encoding="utf-8").splitlines():
             stripped = line.strip()
             if not stripped or stripped.startswith("#"):
                 filtered.append(line)

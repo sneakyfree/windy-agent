@@ -131,7 +131,7 @@ def _load_overrides() -> dict[str, dict[str, Any]]:
     """Load provider overrides from disk (set via dashboard)."""
     if _OVERRIDES_PATH.exists():
         try:
-            return json.loads(_OVERRIDES_PATH.read_text())
+            return json.loads(_OVERRIDES_PATH.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             pass
     return {}
@@ -140,7 +140,7 @@ def _load_overrides() -> dict[str, dict[str, Any]]:
 def _save_overrides(overrides: dict[str, dict[str, Any]]) -> None:
     """Persist provider overrides to disk."""
     _OVERRIDES_PATH.parent.mkdir(parents=True, exist_ok=True)
-    _OVERRIDES_PATH.write_text(json.dumps(overrides, indent=2))
+    _OVERRIDES_PATH.write_text(json.dumps(overrides, indent=2), encoding="utf-8")
 
 
 def get_all_providers(config: dict[str, Any] | None = None) -> dict[str, dict[str, Any]]:

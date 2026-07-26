@@ -160,7 +160,7 @@ def _read_os_release() -> str:
     """Pretty OS name from /etc/os-release if available, else
     platform.platform()."""
     try:
-        for line in Path("/etc/os-release").read_text().splitlines():
+        for line in Path("/etc/os-release").read_text(encoding="utf-8").splitlines():
             if line.startswith("PRETTY_NAME="):
                 return line.split("=", 1)[1].strip().strip('"')
     except Exception:

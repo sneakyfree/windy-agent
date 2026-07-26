@@ -478,7 +478,7 @@ def _step_finalize(
         "WINDY_JWT=",
     ])
 
-    ENV_FILE.write_text("\n".join(env_lines) + "\n")
+    ENV_FILE.write_text("\n".join(env_lines) + "\n", encoding="utf-8")
     console.print("  [green]✓[/green] .env written")
 
     # Write windyfly.toml with personality from preset
@@ -518,7 +518,7 @@ bot_user = "@windyfly:chat.windychat.ai"
 [windy_api]
 base_url = "http://localhost:8098"
 """
-    CONFIG_FILE.write_text(toml_content)
+    CONFIG_FILE.write_text(toml_content, encoding="utf-8")
     console.print(f"  [green]✓[/green] windyfly.toml written [dim](preset: {preset})[/dim]")
 
     # Install Python deps

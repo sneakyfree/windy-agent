@@ -65,7 +65,7 @@ def _register_all():
         pid_file = Path("data/windyfly.pid")
         if pid_file.exists():
             try:
-                pid = int(pid_file.read_text().strip().split("\n")[0].split("=")[1])
+                pid = int(pid_file.read_text(encoding="utf-8").strip().split("\n")[0].split("=")[1])
                 os.kill(pid, 0)
                 return f"Windy Fly is already running (PID {pid}). Use /restart or /stop first."
             except (OSError, ValueError):
@@ -93,7 +93,7 @@ def _register_all():
         pid_file = Path("data/windyfly.pid")
         if pid_file.exists():
             try:
-                content = pid_file.read_text()
+                content = pid_file.read_text(encoding="utf-8")
                 for line in content.strip().split("\n"):
                     if "=" in line:
                         pid = int(line.split("=")[1])
@@ -180,7 +180,7 @@ def _register_all():
         pid_file = Path("data/windyfly.pid")
         if pid_file.exists():
             try:
-                for line in pid_file.read_text().strip().split("\n"):
+                for line in pid_file.read_text(encoding="utf-8").strip().split("\n"):
                     if line.startswith("started="):
                         start = datetime.fromisoformat(line.split("=", 1)[1])
                         delta = datetime.now(timezone.utc) - start
@@ -899,7 +899,7 @@ def _register_all():
             except ValueError:
                 pass
         if log_file.exists():
-            lines = log_file.read_text().strip().split("\n")
+            lines = log_file.read_text(encoding="utf-8").strip().split("\n")
             return "\n".join(lines[-n:])
         return "No log file found at data/windyfly.log"
     _r("logs", "Tail agent logs (last N lines)", "02_diagnostics", cmd_logs, usage="logs [N]")
@@ -948,7 +948,7 @@ def _register_all():
     async def cmd_errors(ctx):
         log_file = Path(os.environ.get("WINDYFLY_LOG_FILE", "data/windyfly.log"))
         if log_file.exists():
-            lines = log_file.read_text().strip().split("\n")
+            lines = log_file.read_text(encoding="utf-8").strip().split("\n")
             errors = [line for line in lines if "ERROR" in line or "CRITICAL" in line]
             if errors:
                 return "Recent errors:\n" + "\n".join(errors[-10:])
@@ -965,7 +965,7 @@ def _register_all():
             lines.append(f"Data directory: {len(files)} files, {total_size:.1f} MB")
         pid_file = Path("data/windyfly.pid")
         if pid_file.exists():
-            lines.append(f"PID file exists: {pid_file.read_text().strip()[:50]}")
+            lines.append(f"PID file exists: {pid_file.read_text(encoding="utf-8").strip()[:50]}")
         recovery = Path("data/provision_recovery.json")
         if recovery.exists():
             lines.append("⚠ Provisioning recovery file exists — run /hatch to retry")
@@ -1442,8 +1442,8 @@ def _register_all():
             return "Run 'windy soul edit' from terminal to open SOUL.md in your editor."
         soul_path = Path("SOUL.md")
         if soul_path.exists():
-            content = soul_path.read_text()[:500]
-            return f"Current personality:\n{content}{'...' if len(soul_path.read_text()) > 500 else ''}"
+            content = soul_path.read_text(encoding="utf-8")[:500]
+            return f"Current personality:\n{content}{'...' if len(soul_path.read_text(encoding="utf-8")) > 500 else ''}"
         return "No SOUL.md found. Create one to define your agent's personality."
     _r("soul", "Show current personality / SOUL.md", "05_personality", cmd_soul,
        aliases=["personality", "persona"])
@@ -2132,7 +2132,7 @@ def _register_budget_through_help():
         if args and args[0] == "set" and len(args) > 2:
             key, value = args[1], " ".join(args[2:])
             env_path = Path(".env")
-            lines = env_path.read_text().split("\n") if env_path.exists() else []
+            lines = env_path.read_text(encoding="utf-8").split("\n") if env_path.exists() else []
             found = False
             for i, line in enumerate(lines):
                 if line.startswith(f"{key}="):
@@ -2141,7 +2141,7 @@ def _register_budget_through_help():
                     break
             if not found:
                 lines.append(f"{key}={value}")
-            env_path.write_text("\n".join(lines))
+            env_path.write_text("\n".join(lines), encoding="utf-8")
             os.environ[key] = value
             return f"Config set: {key}={value}"
         if args and args[0] == "path":
@@ -2163,7 +2163,7 @@ def _register_budget_through_help():
         lines = ["Configuration (secrets redacted):\n"]
         env_path = Path(".env")
         if env_path.exists():
-            for line in env_path.read_text().strip().split("\n"):
+            for line in env_path.read_text(encoding="utf-8").strip().split("\n"):
                 if "=" in line and not line.startswith("#"):
                     key, val = line.split("=", 1)
                     if any(s in key.upper() for s in ["KEY", "SECRET", "TOKEN", "PASSWORD"]):

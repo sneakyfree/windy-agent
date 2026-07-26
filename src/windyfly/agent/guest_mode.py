@@ -65,7 +65,7 @@ def guest_status() -> dict[str, Any]:
     if not path.exists():
         return {"active": False, "enabled_at": None, "actor": None, "label": None}
     try:
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         # Torn flag — treat as active (the file is there) but with
         # no metadata. Better than silently dropping out of demo
@@ -91,7 +91,7 @@ def guest_on(actor: str = "user", label: str | None = None) -> dict[str, Any]:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(payload) + "\n")
+        tmp.write_text(json.dumps(payload) + "\n", encoding="utf-8")
         tmp.replace(path)
         logger.warning(
             "GUEST MODE ON: actor=%s label=%s — replies now grandma-mode",

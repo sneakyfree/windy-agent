@@ -102,5 +102,5 @@ def _write_env(key: str, value: str) -> None:
     if not found:
         lines.append(f"{key}={value}\n")
 
-    with open(env_path, "w") as f:
+    with open(env_path, "w", encoding="utf-8") as f:
         f.writelines(lines)

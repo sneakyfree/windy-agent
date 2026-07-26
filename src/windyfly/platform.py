@@ -221,13 +221,13 @@ def find_systemd_unit_for_pattern(pattern: str) -> SystemdUnitInfo | None:
         if not entry.name.isdigit():
             continue
         try:
-            cmdline = (entry / "cmdline").read_text().replace("\0", " ")
+            cmdline = (entry / "cmdline").read_text(encoding="utf-8").replace("\0", " ")
         except (FileNotFoundError, PermissionError, ProcessLookupError):
             continue
         if pattern not in cmdline:
             continue
         try:
-            cgroup = (entry / "cgroup").read_text()
+            cgroup = (entry / "cgroup").read_text(encoding="utf-8")
         except (FileNotFoundError, PermissionError):
             continue
         parsed = _parse_systemd_unit_from_cgroup(cgroup)
@@ -371,7 +371,7 @@ def read_pid_file(project_root: Path) -> PIDInfo | None:
         return None
     info = PIDInfo()
     try:
-        for line in pid_path.read_text().strip().splitlines():
+        for line in pid_path.read_text(encoding="utf-8").strip().splitlines():
             if "=" not in line:
                 # Legacy format: plain PID per line
                 try:
@@ -413,7 +413,7 @@ def write_pid_file(
     if gateway_pid is not None:
         lines.append(f"gateway={gateway_pid}")
     lines.append(f"started={datetime.now(timezone.utc).isoformat()}")
-    pid_path.write_text("\n".join(lines) + "\n")
+    pid_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def remove_pid_file(project_root: Path) -> None:
