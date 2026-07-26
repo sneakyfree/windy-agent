@@ -40,11 +40,6 @@ def db():
     d.close()
 
 
-@pytest.fixture
-def wq():
-    return WriteQueue()
-
-
 def _make_config(**overrides) -> dict:
     config = {
         "agent": {"default_model": "gpt-4o-mini", "max_context_tokens": 8000},

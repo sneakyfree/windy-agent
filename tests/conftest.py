@@ -29,6 +29,64 @@ from unittest.mock import patch
 
 import pytest
 
+from windyfly.memory.write_queue import WriteQueue
+
+
+@pytest.fixture
+def wq():
+    """A started-on-demand WriteQueue that is ALWAYS stopped.
+
+    Was duplicated verbatim (``return WriteQueue()``, no teardown) in
+    four test modules. Without the teardown a test that calls
+    ``wq.start()`` leaks a daemon worker thread that outlives the test
+    and keeps polling its queue forever.
+
+    That leak is what turned ``TestWriteFailureTelemetry::
+    test_failed_write_increments_stats`` into a flake: write-failure
+    telemetry is deliberately PROCESS-WIDE (``_write_stats`` — so
+    ``/status`` can surface "memory writes failing" no matter which
+    queue hit the error), so a leaked worker processing its failing
+    item late lands an extra increment inside a later test's window.
+    Red master on CI 2026-07-23 (``assert 2 == 1``, Python 3.14 —
+    3.12 happened to schedule it the other way).
+
+    ``stop()`` drains before exiting (``while self._running or not
+    self._queue.empty()``), so teardown guarantees every enqueued item
+    is accounted for before the next test starts. The product itself
+    was never double-counting — verified 200/200 trials with exact
+    counts.
+    """
+    q = WriteQueue()
+    yield q
+    q.stop()
+
+
+@pytest.fixture
+def short_tmp_path():
+    """A temp dir short enough to hold an AF_UNIX socket path.
+
+    ``sockaddr_un.sun_path`` is 104 bytes on macOS/BSD (108 on Linux)
+    — a hard kernel limit, not a tunable. pytest's ``tmp_path`` on a
+    Mac expands to something like
+    ``/private/var/folders/2h/xz_hfzq90t71_.../pytest-of-<user>/
+    pytest-N/test_payload_arrives_at_unix_s0/`` which blows the limit
+    before a filename is even appended, so ``bind()`` raises
+    ``OSError: AF_UNIX path too long``.
+
+    That is a property of the RUNNER's temp layout, not of the code
+    under test — the same tests pass on CI's Linux box and failed only
+    on Macs, which made "is the suite green?" ambiguous for anyone
+    auditing on a laptop. Rooting the dir at ``/tmp`` keeps the whole
+    path near 25 chars on every platform.
+    """
+    import shutil
+    import tempfile
+    from pathlib import Path
+
+    d = Path(tempfile.mkdtemp(dir="/tmp"))
+    yield d
+    shutil.rmtree(d, ignore_errors=True)
+
 
 @pytest.fixture(autouse=True)
 def _isolate_production_flags(monkeypatch, tmp_path):
