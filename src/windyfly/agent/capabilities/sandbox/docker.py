@@ -45,6 +45,8 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from windyfly.agent.capabilities.filesystem import _ALWAYS_DENY
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_IMAGE = "alpine:3.19"
@@ -56,12 +58,13 @@ DEFAULT_MEMORY = "512m"
 # Always-deny path tails. Skipped during mount construction so the
 # directories literally do not exist inside the container.
 #
-# Imported from filesystem.py rather than re-declared. This WAS a second
-# hand-maintained copy "same list as filesystem.py's _ALWAYS_DENY", and
-# a duplicated security list is a drift factory: PR #311's Windows
-# separator fix landed on filesystem.py's matcher and never on this
-# one, so .ssh stayed mountable here for a month. One list, one place.
-from windyfly.agent.capabilities.filesystem import _ALWAYS_DENY as _ALWAYS_DENY_TAILS
+# Aliased from filesystem.py (imported at the top) rather than
+# re-declared. This WAS a second hand-maintained copy — "same list as
+# filesystem.py's _ALWAYS_DENY" — and a duplicated security list is a
+# drift factory: PR #311's Windows separator fix landed on
+# filesystem.py's matcher and never on this one, so .ssh stayed
+# mountable here. One list, one place.
+_ALWAYS_DENY_TAILS = _ALWAYS_DENY
 
 
 class DockerNotAvailable(RuntimeError):
