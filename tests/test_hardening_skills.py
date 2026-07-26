@@ -10,7 +10,6 @@ import pytest
 
 from windyfly.memory.database import Database
 from windyfly.memory.skills import get_skill, save_skill
-from windyfly.memory.write_queue import WriteQueue
 from windyfly.skills.evaluator import BANNED_PATTERNS, evaluate_skill, _check_safety
 from windyfly.skills.manager import create_skill, promote_skill, rollback_skill
 from windyfly.skills.sandbox import execute_in_sandbox
@@ -21,11 +20,6 @@ def db():
     d = Database(":memory:")
     yield d
     d.close()
-
-
-@pytest.fixture
-def wq():
-    return WriteQueue()
 
 
 # --- Safety gate: banned patterns ---

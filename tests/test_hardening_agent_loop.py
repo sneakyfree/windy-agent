@@ -13,7 +13,6 @@ import pytest
 
 from windyfly.agent.loop import agent_respond
 from windyfly.memory.database import Database
-from windyfly.memory.write_queue import WriteQueue
 
 
 def _make_config(**overrides) -> dict:
@@ -50,11 +49,6 @@ def db():
     d = Database(":memory:")
     yield d
     d.close()
-
-
-@pytest.fixture
-def wq():
-    return WriteQueue()
 
 
 class TestNoApiKey:

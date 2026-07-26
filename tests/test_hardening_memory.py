@@ -26,11 +26,6 @@ def db():
     d.close()
 
 
-@pytest.fixture
-def wq():
-    return WriteQueue()
-
-
 # --- Node boundary conditions ---
 
 

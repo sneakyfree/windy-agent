@@ -34,8 +34,8 @@ class TestNoSocket:
 
 
 class TestUnixSocketDelivery:
-    def test_payload_arrives_at_unix_socket(self, tmp_path, monkeypatch):
-        sock_path = tmp_path / "notify.sock"
+    def test_payload_arrives_at_unix_socket(self, short_tmp_path, monkeypatch):
+        sock_path = short_tmp_path / "notify.sock"
         srv = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
         srv.bind(str(sock_path))
         srv.settimeout(2.0)
@@ -59,8 +59,8 @@ class TestUnixSocketDelivery:
 
         assert received == [b"WATCHDOG=1"]
 
-    def test_helpers_send_correct_payloads(self, tmp_path, monkeypatch):
-        sock_path = tmp_path / "notify.sock"
+    def test_helpers_send_correct_payloads(self, short_tmp_path, monkeypatch):
+        sock_path = short_tmp_path / "notify.sock"
         srv = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
         srv.bind(str(sock_path))
         srv.settimeout(2.0)
