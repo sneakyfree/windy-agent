@@ -142,11 +142,23 @@ def process_terminate(pid: int) -> bool:
     """
     if IS_WINDOWS:
         try:
-            subprocess.run(
+            proc = subprocess.run(
                 ["taskkill", "/PID", str(pid), "/F"],
                 capture_output=True,
             )
-            return True
+            # taskkill's exit code is the ONLY signal that the kill
+            # landed: it exits non-zero with "ERROR: The process ...
+            # not found" for a PID that isn't there. The previous
+            # version ignored returncode and returned True
+            # unconditionally, so on Windows this reported success for
+            # a process it had never touched.
+            #
+            # That lie propagates: the supervisor/resurrect paths treat
+            # a True here as "the slot is now free" and move on, which
+            # is how you end up with a zombie the agent is convinced it
+            # already reaped. Caught on the GrantW Windows 11 box —
+            # test_invalid_pid_returns_false got `assert True is False`.
+            return proc.returncode == 0
         except (FileNotFoundError, subprocess.SubprocessError):
             return False
     else:
