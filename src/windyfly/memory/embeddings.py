@@ -32,6 +32,7 @@ from __future__ import annotations
 import logging
 import math
 import os
+import threading
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -40,6 +41,10 @@ logger = logging.getLogger(__name__)
 _MODEL: Any = None  # cached sentence-transformer model
 _MODEL_NAME: str | None = None
 _AVAILABLE: bool | None = None  # tri-state cache: None=unknown, True/False after probe
+# Serializes ALL access to the shared model — construction AND every
+# forward pass. Re-entrant so embed() can hold it across a load+encode
+# without deadlocking on _load_model()'s own acquire. See embed().
+_MODEL_LOCK = threading.RLock()
 
 
 def is_available() -> bool:
@@ -66,22 +71,50 @@ def _model_name() -> str:
 
 def _load_model() -> Any:
     """Lazy-load the model. Returns None if sentence-transformers
-    isn't available."""
+    isn't available.
+
+    **The load MUST be serialized.** This agent embeds from two threads
+    at once as a matter of routine: the main thread embeds the *query*
+    (``prompt.assemble_prompt`` → ``episodes.search_episodes_hybrid``)
+    while the WriteQueue worker embeds the *episode content*
+    (``episodes.save_episode``). Both land here on the same turn.
+
+    Unlocked, both threads saw ``_MODEL is None``, both constructed a
+    ``SentenceTransformer``, and the concurrent native initialization
+    segfaulted the process — SIGSEGV, exit 139, on turn TWO of a
+    conversation. Reproduced 2026-07-25 with sentence-transformers
+    5.6.1 / torch 2.13.0; the giveaway in the crash dump is "Loading
+    weights" printed twice before the fault.
+
+    That failure is not survivable by the module's own contract:
+    ``embed()`` wraps its work in ``try/except Exception``, but a
+    native abort is not an exception — nothing catches it, the
+    graceful-degradation promise silently doesn't apply, and the
+    supervisor restarts the agent straight back into the same crash on
+    the next turn. A crash loop is the exact "wobbly newborn giraffe"
+    failure this product exists to avoid, so the lock is load-bearing,
+    not a nicety.
+    """
     global _MODEL, _MODEL_NAME
     if not is_available():
         return None
     if _MODEL is not None:
         return _MODEL
-    name = _model_name()
-    try:
-        from sentence_transformers import SentenceTransformer
-        logger.info("Loading embedding model %s (first call; takes a moment)", name)
-        _MODEL = SentenceTransformer(name)
-        _MODEL_NAME = name
-        return _MODEL
-    except Exception as e:
-        logger.warning("Failed to load embedding model %s: %s", name, e)
-        return None
+    with _MODEL_LOCK:
+        # Re-check under the lock: the thread that lost the race must
+        # take the winner's model, never build a second one.
+        if _MODEL is not None:
+            return _MODEL
+        name = _model_name()
+        try:
+            from sentence_transformers import SentenceTransformer
+            logger.info("Loading embedding model %s (first call; takes a moment)", name)
+            _MODEL = SentenceTransformer(name)
+            _MODEL_NAME = name
+            return _MODEL
+        except Exception as e:
+            logger.warning("Failed to load embedding model %s: %s", name, e)
+            return None
 
 
 def model_name() -> str | None:
@@ -106,17 +139,36 @@ def embed(text: str) -> bytes | None:
     """
     if not text or not text.strip():
         return None
-    model = _load_model()
-    if model is None:
-        return None
-    try:
-        import numpy as np
-        vec = model.encode(text, normalize_embeddings=True)
-        # Force float32 for stable BLOB shape
-        return np.asarray(vec, dtype=np.float32).tobytes()
-    except Exception as e:
-        logger.warning("embed() failed: %s", e)
-        return None
+    # The forward pass is serialized along with the load. This agent
+    # embeds from two threads on the SAME turn — the main thread embeds
+    # the query (assemble_prompt → search_episodes_hybrid) while the
+    # WriteQueue worker embeds the episode content (save_episode) — and
+    # the shared model is not safe under concurrent encode().
+    #
+    # On Apple Silicon sentence-transformers auto-selects the Metal
+    # backend (verified: `AUTO DEVICE: mps:0`, torch 2.13.0), where
+    # concurrent forward passes fault nondeterministically: SIGSEGV
+    # (exit 139) on some runs, an unkillable hang inside
+    # transformers' _preprocess_mask_arguments on others. Neither is
+    # catchable — `except Exception` does not see a native abort — so
+    # the module's graceful-degradation contract silently does not
+    # apply and the supervisor just restarts into the same crash.
+    #
+    # Serializing costs nothing that matters: MiniLM is single-digit
+    # milliseconds per call and turns are seconds apart. Determinism
+    # beats a micro-optimization no one asked for.
+    with _MODEL_LOCK:
+        model = _load_model()
+        if model is None:
+            return None
+        try:
+            import numpy as np
+            vec = model.encode(text, normalize_embeddings=True)
+            # Force float32 for stable BLOB shape
+            return np.asarray(vec, dtype=np.float32).tobytes()
+        except Exception as e:
+            logger.warning("embed() failed: %s", e)
+            return None
 
 
 def deserialize(blob: bytes | None) -> list[float] | None:
