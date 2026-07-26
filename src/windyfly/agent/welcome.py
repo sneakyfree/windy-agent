@@ -34,6 +34,7 @@ table is no longer empty).
 
 from __future__ import annotations
 
+import weakref
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -47,20 +48,41 @@ if TYPE_CHECKING:
 # stress drills: 4 welcomes in a row). The DB check below stays the
 # source of truth across restarts; this set only closes the async
 # write-lag window within one process.
-_welcomed_db_paths: set[tuple[str, int]] = set()
-
-
-def _latch_key(db: "Database") -> tuple[str, int]:
-    # Composite (path, object-id): rapid messages in production hit the
-    # SAME Database object so the latch holds; distinct Database objects
-    # (every test's fresh ":memory:", or a restart) get their own key,
-    # so nothing leaks across tests or processes.
-    return (getattr(db, "db_path", "?"), id(db))
+# Keyed on the Database OBJECTS themselves, via a WeakSet.
+#
+# Was `set[tuple[str, int]]` keyed on ``(db_path, id(db))``, with a
+# comment asserting that distinct Database objects "get their own key,
+# so nothing leaks across tests or processes." That is not true of
+# ``id()``: it is a memory ADDRESS, and CPython reuses addresses once
+# an object is collected. A brand-new ``Database(":memory:")`` can be
+# allocated exactly where a previously-welcomed one lived, inherit its
+# stale entry, and be judged "already welcomed" — so a genuinely virgin
+# database skips the welcome and grandma's first ever message goes
+# straight to the model instead of the orientation tour.
+#
+# It also leaked: tuples for long-dead objects were never removed.
+#
+# The WeakSet fixes both — the entry disappears when the object does,
+# so there is no address to reuse and nothing to accumulate.
+_welcomed_dbs: "weakref.WeakSet[Database]" = weakref.WeakSet()
 
 
 def mark_welcomed(db: "Database") -> None:
     """Record (in-process) that this DB's bot has sent its welcome."""
-    _welcomed_db_paths.add(_latch_key(db))
+    try:
+        _welcomed_dbs.add(db)
+    except TypeError:
+        # Not weak-referenceable (e.g. a test double). The DB-content
+        # check is the real source of truth; this latch only closes the
+        # async write-lag window, so skipping it is safe.
+        pass
+
+
+def _already_welcomed(db: "Database") -> bool:
+    try:
+        return db in _welcomed_dbs
+    except TypeError:
+        return False
 
 
 def is_first_contact(db: "Database") -> bool:
@@ -75,7 +97,7 @@ def is_first_contact(db: "Database") -> bool:
     welcome-loop forever — better to fall through to the LLM and
     surface the real problem.
     """
-    if _latch_key(db) in _welcomed_db_paths:
+    if _already_welcomed(db):
         return False
     try:
         ep_row = db.fetchone("SELECT COUNT(*) AS c FROM episodes")

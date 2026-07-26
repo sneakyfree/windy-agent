@@ -112,8 +112,17 @@ def main() -> int:
     captured: dict[str, list[dict]] = {"messages": []}
     _real_assemble = agent_loop.assemble_prompt
 
+    # --- Latency profile ---------------------------------------------
+    # Wall-clock per turn is not actionable on its own: "9 seconds" could
+    # be 8.5s of the model thinking (nothing to fix, stay out of its way)
+    # or 5s of model and 4s of ours (a real problem). Split it, so the
+    # decision is made on evidence instead of instinct.
+    prof = {"assemble_ms": 0.0, "llm_ms": 0.0, "llm_calls": 0}
+
     def _tapped(*a, **kw):
+        t = time.time()
         msgs = _real_assemble(*a, **kw)
+        prof["assemble_ms"] += (time.time() - t) * 1000
         try:
             captured["messages"] = [
                 {"role": m.get("role"), "content": str(m.get("content"))}
@@ -124,6 +133,23 @@ def main() -> int:
         return msgs
 
     agent_loop.assemble_prompt = _tapped
+
+    # Wrap the model call itself. A turn can make SEVERAL (tool re-loop),
+    # so sum them and count them — a turn that looks slow may simply be
+    # three model round-trips, which is a different problem than one slow
+    # round-trip.
+    _real_call_llm = agent_loop.call_llm
+
+    def _timed_call_llm(*a, **kw):
+        t = time.time()
+        try:
+            return _real_call_llm(*a, **kw)
+        finally:
+            prof["llm_ms"] += (time.time() - t) * 1000
+            prof["llm_calls"] += 1
+
+    if not args.stub:
+        agent_loop.call_llm = _timed_call_llm
 
     if args.stub:
         # Deterministic stand-in for the model. Returns the shape
@@ -191,6 +217,9 @@ def main() -> int:
             break
 
         captured["messages"] = []
+        prof["assemble_ms"] = 0.0
+        prof["llm_ms"] = 0.0
+        prof["llm_calls"] = 0
         t0 = time.time()
         reply, err = "", None
         try:
@@ -211,6 +240,13 @@ def main() -> int:
             "reply_chars": len(reply), "reply": reply[:1200],
             "payload_msgs": len(captured["messages"]),
             "payload_chars": len(payload_blob),
+            # Latency split. `ours_ms` is everything that is NOT the
+            # model: prompt assembly, memory search, episode writes,
+            # tool execution, telemetry.
+            "assemble_ms": round(prof["assemble_ms"], 1),
+            "llm_ms": round(prof["llm_ms"], 1),
+            "llm_calls": prof["llm_calls"],
+            "ours_ms": round(latency_ms - prof["llm_ms"], 1),
         }
 
         if turn.kind == "probe":

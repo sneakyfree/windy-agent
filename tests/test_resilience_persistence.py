@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import time
+from pathlib import Path
 
 from windyfly.agent import models
 from windyfly.memory.write_queue import (
@@ -134,3 +135,86 @@ class TestShutdownDropIsLoud:
         wq.stop()
         assert get_write_stats()["shutdown_dropped"] == 0
         reset_write_stats()
+
+
+class TestCorruptDatabaseQuarantine:
+    """A corrupt memory file must never stop the agent from starting.
+
+    Before this, a smashed SQLite file raised
+    ``DatabaseError: file is not a database`` out of Database(), the
+    agent failed to boot, and the supervisor restarted it into the same
+    failure forever — the OpenClaw death spiral, where grandma's agent
+    is bricked and only a human at a terminal can free it.
+
+    Losing memory is bad; being unable to START is worse. A running
+    agent can be handed a restored backup. A dead one cannot even tell
+    you what happened.
+
+    Found by scripts/marathon/faults.py.
+    """
+
+    def _smash(self, path):
+        with open(path, "r+b") as fh:
+            fh.seek(0)
+            fh.write(b"\x00" * 512)
+
+    def test_corrupt_db_is_quarantined_and_agent_still_boots(self, tmp_path):
+        from windyfly.memory.database import Database
+
+        dbf = tmp_path / "windyfly.db"
+        db = Database(str(dbf))
+        db.execute(
+            "INSERT INTO soul (id, key, value) VALUES (?, ?, ?)",
+            ("x", "k", "v"),
+        )
+        db.commit()
+        db.close()
+
+        self._smash(dbf)
+
+        db2 = Database(str(dbf))          # must NOT raise
+        assert db2.quarantined_from is not None
+        assert "corrupt-" in db2.quarantined_from
+        # Fresh, usable database.
+        db2.execute(
+            "INSERT INTO soul (id, key, value) VALUES (?, ?, ?)",
+            ("y", "k2", "v2"),
+        )
+        db2.commit()
+        assert db2.fetchone("SELECT COUNT(*) AS n FROM soul")["n"] == 1
+        db2.close()
+
+    def test_the_damaged_file_is_kept_not_deleted(self, tmp_path):
+        """It is the user's memory. It may be partially recoverable with
+        `sqlite3 .recover`, so quarantine must never mean delete."""
+        from windyfly.memory.database import Database
+
+        dbf = tmp_path / "windyfly.db"
+        Database(str(dbf)).close()
+        self._smash(dbf)
+
+        db2 = Database(str(dbf))
+        quarantined = Path(db2.quarantined_from)
+        db2.close()
+
+        assert quarantined.exists(), "damaged memory file was destroyed"
+        assert quarantined.stat().st_size > 0
+
+    def test_healthy_db_is_never_touched(self, tmp_path):
+        """The guard must be invisible in the normal case."""
+        from windyfly.memory.database import Database
+
+        dbf = tmp_path / "windyfly.db"
+        db = Database(str(dbf))
+        db.execute(
+            "INSERT INTO soul (id, key, value) VALUES (?, ?, ?)",
+            ("keep", "k", "v"),
+        )
+        db.commit()
+        db.close()
+
+        db2 = Database(str(dbf))
+        assert db2.quarantined_from is None
+        assert db2.fetchone("SELECT COUNT(*) AS n FROM soul")["n"] == 1
+        db2.close()
+        assert not list(tmp_path.glob("*.corrupt-*"))
