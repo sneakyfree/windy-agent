@@ -1108,7 +1108,7 @@ def _install_launchd(uv_path: str, brain_log: str) -> None:
 </plist>
 """
 
-    plist_path.write_text(plist_content)
+    plist_path.write_text(plist_content, encoding="utf-8")
     console.print(f"  [green]✓[/green] Wrote {plist_path}")
 
     subprocess.run(["launchctl", "load", str(plist_path)], capture_output=True)
@@ -1153,7 +1153,7 @@ TimeoutStopSec=15
 WantedBy=default.target
 """
 
-    unit_path.write_text(unit_content)
+    unit_path.write_text(unit_content, encoding="utf-8")
     console.print(f"  [green]✓[/green] Wrote {unit_path}")
 
     subprocess.run(

@@ -182,7 +182,7 @@ def write_quick_config(
         "WINDY_JWT=",
     ])
 
-    (PROJECT_ROOT / ".env").write_text("\n".join(env_lines) + "\n")
+    (PROJECT_ROOT / ".env").write_text("\n".join(env_lines) + "\n", encoding="utf-8")
 
     # Build windyfly.toml
     agent_name = os.environ.get("WINDYFLY_AGENT_NAME", "Windy Fly")
@@ -221,7 +221,7 @@ bot_user = "@windyfly:chat.windychat.ai"
 [windy_api]
 base_url = "http://localhost:8098"
 """
-    (PROJECT_ROOT / "windyfly.toml").write_text(toml_content)
+    (PROJECT_ROOT / "windyfly.toml").write_text(toml_content, encoding="utf-8")
 
 
 #: The model sentinel for keyless agents. Windy Mind resolves it to a
@@ -270,7 +270,7 @@ def write_keyless_config(preset: str = "buddy") -> None:
         "MATRIX_BOT_TOKEN=",
         "MATRIX_BOT_PASSWORD=",
     ]
-    (PROJECT_ROOT / ".env").write_text("\n".join(env_lines) + "\n")
+    (PROJECT_ROOT / ".env").write_text("\n".join(env_lines) + "\n", encoding="utf-8")
 
     agent_name = os.environ.get("WINDYFLY_AGENT_NAME", "Windy Fly")
     toml_content = f"""[agent]
@@ -308,7 +308,7 @@ bot_user = "@windyfly:chat.windychat.ai"
 [windy_api]
 base_url = "http://localhost:8098"
 """
-    (PROJECT_ROOT / "windyfly.toml").write_text(toml_content)
+    (PROJECT_ROOT / "windyfly.toml").write_text(toml_content, encoding="utf-8")
 
 
 def is_keyless_configured() -> bool:
@@ -316,7 +316,7 @@ def is_keyless_configured() -> bool:
     env_file = PROJECT_ROOT / ".env"
     if not env_file.exists():
         return False
-    for line in env_file.read_text().splitlines():
+    for line in env_file.read_text(encoding="utf-8").splitlines():
         if line.strip() == f"DEFAULT_MODEL={KEYLESS_MODEL}":
             return True
     return False
@@ -378,7 +378,7 @@ def _report_keyless_brain_status() -> None:
     ept = ""
     env_file = PROJECT_ROOT / ".env"
     if env_file.exists():
-        for line in env_file.read_text().splitlines():
+        for line in env_file.read_text(encoding="utf-8").splitlines():
             if line.startswith("ETERNITAS_PASSPORT_TOKEN="):
                 ept = line.split("=", 1)[1].strip()
                 break
@@ -456,7 +456,7 @@ def cmd_go(args: Any) -> None:
         # Already configured — just start
         console.print("  [green]✓[/green] Configuration found")
         # Check if it has a real API key
-        env_content = env_file.read_text()
+        env_content = env_file.read_text(encoding="utf-8")
         has_key = any(
             line.split("=", 1)[1].strip()
             for line in env_content.splitlines()

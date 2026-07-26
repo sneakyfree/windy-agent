@@ -384,7 +384,7 @@ async def list_backups(config: dict | None = None) -> dict:
 def _save_backup_state(state: dict) -> None:
     """Save last backup info to disk."""
     _BACKUP_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    _BACKUP_STATE_FILE.write_text(json.dumps(state, indent=2))
+    _BACKUP_STATE_FILE.write_text(json.dumps(state, indent=2), encoding="utf-8")
 
 
 def get_backup_state() -> dict:
@@ -392,7 +392,7 @@ def get_backup_state() -> dict:
     if not _BACKUP_STATE_FILE.exists():
         return {"last_backup": None}
     try:
-        return json.loads(_BACKUP_STATE_FILE.read_text())
+        return json.loads(_BACKUP_STATE_FILE.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return {"last_backup": None}
 

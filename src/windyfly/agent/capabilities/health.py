@@ -50,7 +50,7 @@ def _load_snapshots(limit: int = 10) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for p in files:
         try:
-            out.append(json.loads(p.read_text()))
+            out.append(json.loads(p.read_text(encoding="utf-8")))
         except Exception as e:
             logger.debug("skip unparseable health file %s: %s", p, e)
     return out

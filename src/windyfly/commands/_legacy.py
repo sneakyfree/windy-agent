@@ -186,7 +186,7 @@ def cmd_doctor(_args: argparse.Namespace) -> None:
 
     # Check .env has at least one API key
     if env_file.exists():
-        env_content = env_file.read_text()
+        env_content = env_file.read_text(encoding="utf-8")
         key_vars = ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GROK_API_KEY",
                      "GEMINI_API_KEY", "DEEPSEEK_API_KEY", "MISTRAL_API_KEY"]
         has_key = False
@@ -209,7 +209,7 @@ def cmd_doctor(_args: argparse.Namespace) -> None:
     brain_alive = False
     gateway_alive = False
     if pid_file.exists():
-        pids = pid_file.read_text().strip().split("\n")
+        pids = pid_file.read_text(encoding="utf-8").strip().split("\n")
         if len(pids) >= 1:
             try:
                 brain_alive = process_alive(int(pids[0].strip()))
@@ -425,7 +425,7 @@ def cmd_doctor(_args: argparse.Namespace) -> None:
         console.print("[bold]Provisioning Recovery[/bold]")
         try:
             import json
-            recovery = json.loads(recovery_file.read_text())
+            recovery = json.loads(recovery_file.read_text(encoding="utf-8"))
             failed = recovery.get("failed_steps", [])
             retries = recovery.get("retry_count", 0)
             _doc_row("Failed steps", ", ".join(failed), False,
@@ -493,7 +493,7 @@ def cmd_update(_args: argparse.Namespace) -> None:
 
         pid_file = get_pid_path(PROJECT_ROOT)
         if pid_file.exists():
-            pids = pid_file.read_text().strip().split("\n")
+            pids = pid_file.read_text(encoding="utf-8").strip().split("\n")
             alive = any(process_alive(int(p.strip())) for p in pids if p.strip().isdigit())
             if alive:
                 console.print("  [yellow]⚠ Agent is running — restart to use new version:[/yellow]")
@@ -580,7 +580,7 @@ def cmd_logs(args: argparse.Namespace) -> None:
         for name, path in existing:
             console.print(f"[bold cyan]── {name} ──[/bold cyan] [dim]{path}[/dim]")
             try:
-                content = path.read_text()
+                content = path.read_text(encoding="utf-8")
                 log_lines = content.strip().splitlines()
                 tail = log_lines[-lines:] if len(log_lines) > lines else log_lines
                 for line in tail:
@@ -675,7 +675,7 @@ def _config_show() -> None:
         console.print("[bold]API Keys[/bold]")
         key_vars = ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GROK_API_KEY",
                      "GEMINI_API_KEY", "DEEPSEEK_API_KEY", "MISTRAL_API_KEY"]
-        env_content = env_file.read_text()
+        env_content = env_file.read_text(encoding="utf-8")
         for kv in key_vars:
             for line in env_content.splitlines():
                 if line.startswith(f"{kv}="):
@@ -705,7 +705,7 @@ def _config_set(key: str, value: str) -> None:
     section, config_key = parts
 
     # Read, modify, write
-    content = toml_file.read_text()
+    content = toml_file.read_text(encoding="utf-8")
     lines = content.splitlines()
     in_section = False
     found = False
@@ -738,7 +738,7 @@ def _config_set(key: str, value: str) -> None:
         new_lines.append(line)
 
     if found:
-        toml_file.write_text("\n".join(new_lines) + "\n")
+        toml_file.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
         console.print(f"  [green]✓[/green] Set [bold]{section}.{config_key}[/bold] = {value}")
     else:
         console.print(f"  [red]✗[/red] Key [bold]{key}[/bold] not found in windyfly.toml")
@@ -926,7 +926,7 @@ def cmd_debug(_args: argparse.Namespace) -> None:
     lines.append("--- .env (REDACTED) ---")
     env_file = PROJECT_ROOT / ".env"
     if env_file.exists():
-        for line in env_file.read_text().splitlines():
+        for line in env_file.read_text(encoding="utf-8").splitlines():
             stripped = line.strip()
             if not stripped or stripped.startswith("#"):
                 lines.append(f"  {stripped}")
@@ -945,7 +945,7 @@ def cmd_debug(_args: argparse.Namespace) -> None:
     brain_log = get_log_path(PROJECT_ROOT, "brain")
     if brain_log.exists():
         try:
-            log_content = brain_log.read_text().strip().splitlines()
+            log_content = brain_log.read_text(encoding="utf-8").strip().splitlines()
             tail = log_content[-20:] if len(log_content) > 20 else log_content
             for log_line in tail:
                 lines.append(f"  {log_line}")
@@ -1226,7 +1226,7 @@ def _model_set(model_name: str) -> None:
 
     env_file = PROJECT_ROOT / ".env"
     if env_file.exists():
-        content = env_file.read_text()
+        content = env_file.read_text(encoding="utf-8")
         lines = content.splitlines()
         found = False
         new_lines = []
@@ -1238,9 +1238,9 @@ def _model_set(model_name: str) -> None:
                 new_lines.append(line)
         if not found:
             new_lines.append(f"DEFAULT_MODEL={model_name}")
-        env_file.write_text("\n".join(new_lines) + "\n")
+        env_file.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
     else:
-        env_file.write_text(f"DEFAULT_MODEL={model_name}\n")
+        env_file.write_text(f"DEFAULT_MODEL={model_name}\n", encoding="utf-8")
 
     os.environ["DEFAULT_MODEL"] = model_name
     console.print(f"  [green]✓[/green] Default model set to [bold]{model_name}[/bold]")
@@ -1369,7 +1369,7 @@ def _soul_show() -> None:
         console.print("[dim]No SOUL.md found. Run [bold]windy soul edit[/bold] to create one.[/dim]")
         return
 
-    content = soul_file.read_text()
+    content = soul_file.read_text(encoding="utf-8")
     lines = content.strip().splitlines()
     preview = lines[:10]
 
@@ -1388,7 +1388,7 @@ def _soul_edit() -> None:
     """Open SOUL.md in editor."""
     soul_file = PROJECT_ROOT / "SOUL.md"
     if not soul_file.exists():
-        soul_file.write_text("# Soul\n\nDescribe your agent's personality here.\n")
+        soul_file.write_text("# Soul\n\nDescribe your agent's personality here.\n", encoding="utf-8")
 
     editor = os.environ.get("EDITOR", "vim")
     console.print(f"  [dim]Opening SOUL.md in {editor}...[/dim]")
@@ -1440,7 +1440,7 @@ def _soul_preset(preset_name: str) -> None:
 ---
 *Generated by `windy soul preset {preset_name}`. Edit freely.*
 """
-    soul_file.write_text(content)
+    soul_file.write_text(content, encoding="utf-8")
     console.print(f"  [green]✓[/green] Switched to [bold]{preset_name}[/bold] preset")
     console.print(f"  [dim]{desc}[/dim]")
 
@@ -1631,7 +1631,7 @@ def _budget_set(amount: str) -> None:
         console.print("[yellow]No windyfly.toml found. Run [bold]windy init[/bold] first.[/yellow]")
         return
 
-    content = toml_file.read_text()
+    content = toml_file.read_text(encoding="utf-8")
     lines = content.splitlines()
     in_budget = False
     found = False
@@ -1665,7 +1665,7 @@ def _budget_set(amount: str) -> None:
             new_lines.append("[budget]")
             new_lines.append(f"daily_budget = {budget_val}")
 
-    toml_file.write_text("\n".join(new_lines) + "\n")
+    toml_file.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
     console.print(f"  [green]✓[/green] Daily budget set to [bold]${budget_val:.2f}[/bold]")
 
 
@@ -1876,7 +1876,7 @@ def _memory_export() -> None:
     export_file = PROJECT_ROOT / "data" / f"memory_export_{timestamp}.json"
     export_file.parent.mkdir(parents=True, exist_ok=True)
 
-    with open(export_file, "w") as f:
+    with open(export_file, "w", encoding="utf-8") as f:
         json.dump(export_data, f, indent=2, default=str)
 
     console.print(f"  [green]✓[/green] Exported to [bold]{export_file}[/bold]")

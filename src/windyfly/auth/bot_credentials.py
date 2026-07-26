@@ -89,7 +89,7 @@ def _load_cached() -> BotCredential | None:
     if not _CACHE_FILE.exists():
         return None
     try:
-        return BotCredential.from_dict(json.loads(_CACHE_FILE.read_text()))
+        return BotCredential.from_dict(json.loads(_CACHE_FILE.read_text(encoding="utf-8")))
     except (json.JSONDecodeError, KeyError, ValueError, OSError) as exc:
         logger.debug("Bot key cache unreadable, will re-mint: %s", exc)
         return None
@@ -97,7 +97,7 @@ def _load_cached() -> BotCredential | None:
 
 def _save_cached(cred: BotCredential) -> None:
     _CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    _CACHE_FILE.write_text(json.dumps(cred.to_dict(), indent=2))
+    _CACHE_FILE.write_text(json.dumps(cred.to_dict(), indent=2), encoding="utf-8")
     try:
         _CACHE_FILE.chmod(0o600)
     except OSError:

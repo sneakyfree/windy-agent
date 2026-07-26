@@ -119,7 +119,7 @@ def daily_search_count() -> int:
     if not path.exists():
         return 0
     try:
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return 0
     if not isinstance(data, dict):
@@ -143,7 +143,7 @@ def bump_daily_search_count(n: int = 1) -> int:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(path.suffix + ".tmp")
-        tmp.write_text(payload)
+        tmp.write_text(payload, encoding="utf-8")
         tmp.replace(path)
     except Exception as e:
         logger.warning("daily_search_count persist failed: %s", e)

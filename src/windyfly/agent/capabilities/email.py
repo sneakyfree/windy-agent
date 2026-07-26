@@ -90,7 +90,7 @@ def _get_service():
         if creds.expired and creds.refresh_token:
             from google.auth.transport.requests import Request
             creds.refresh(Request())
-            _TOKEN_PATH.write_text(creds.to_json())
+            _TOKEN_PATH.write_text(creds.to_json(), encoding="utf-8")
         return build("gmail", "v1", credentials=creds)
     except Exception as e:
         logger.warning("Gmail auth failed: %s", e)
@@ -288,7 +288,7 @@ def setup_gmail_oauth(
 
     try:
         token.parent.mkdir(parents=True, exist_ok=True)
-        token.write_text(creds_obj.to_json())
+        token.write_text(creds_obj.to_json(), encoding="utf-8")
     except OSError as e:
         logger.error("Failed to write Gmail token to %s: %s", token, e)
         return False

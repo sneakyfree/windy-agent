@@ -105,7 +105,7 @@ class OAuthManager:
                 "access_token": self._access_token,
                 "refresh_token": self._refresh_token,
                 "expires_at": self._expires_at,
-            }))
+            }), encoding="utf-8")
             _TOKEN_CACHE_PATH.chmod(0o600)
         except OSError:
             logger.warning("Could not persist refreshed OAuth tokens to %s", _TOKEN_CACHE_PATH)
@@ -138,7 +138,7 @@ def get_oauth_manager(config: dict[str, Any] | None = None) -> OAuthManager | No
     # Try loading from cache if env vars are missing
     if not access_token and _TOKEN_CACHE_PATH.exists():
         try:
-            cached = json.loads(_TOKEN_CACHE_PATH.read_text())
+            cached = json.loads(_TOKEN_CACHE_PATH.read_text(encoding="utf-8"))
             access_token = cached.get("access_token", "")
             refresh_token = refresh_token or cached.get("refresh_token", "")
             expires_at = expires_at or cached.get("expires_at", 0)

@@ -117,7 +117,7 @@ def check_for_update(force: bool = False) -> dict | None:
     """
     if not force and CACHE_FILE.exists():
         try:
-            cache = json.loads(CACHE_FILE.read_text())
+            cache = json.loads(CACHE_FILE.read_text(encoding="utf-8"))
             if time.time() - cache.get("checked_at", 0) < CHECK_INTERVAL:
                 if cache.get("update_available"):
                     return cache
@@ -138,7 +138,7 @@ def check_for_update(force: bool = False) -> dict | None:
 
     try:
         CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
-        CACHE_FILE.write_text(json.dumps(result))
+        CACHE_FILE.write_text(json.dumps(result), encoding="utf-8")
     except OSError:
         pass
 

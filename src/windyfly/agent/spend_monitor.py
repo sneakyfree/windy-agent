@@ -90,7 +90,7 @@ def yolo_status() -> dict[str, Any]:
     if not path.exists():
         return {"active": False, "expires_at": None, "hours_remaining": 0}
     try:
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         # Torn flag — treat as inactive but DON'T delete (might be
         # mid-write); next heartbeat will see it cleaned by next
@@ -159,7 +159,7 @@ def yolo_enable(hours: int, actor: str = "user") -> dict[str, Any]:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(payload) + "\n")
+        tmp.write_text(json.dumps(payload) + "\n", encoding="utf-8")
         tmp.replace(path)
     except Exception as e:
         return {"ok": False, "error": str(e)}
@@ -200,9 +200,9 @@ def pause_reason() -> dict[str, Any]:
     if not path.exists():
         return {}
     try:
-        return json.loads(path.read_text())
+        return json.loads(path.read_text(encoding="utf-8"))
     except Exception:
-        return {"raw": path.read_text()[:500]}
+        return {"raw": path.read_text(encoding="utf-8")[:500]}
 
 
 def pause(reason: str = "manual", actor: str = "user") -> dict[str, Any]:
@@ -217,7 +217,7 @@ def pause(reason: str = "manual", actor: str = "user") -> dict[str, Any]:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(payload) + "\n")
+        tmp.write_text(json.dumps(payload) + "\n", encoding="utf-8")
         tmp.replace(path)
         logger.warning(
             "PAUSED: actor=%s reason=%s — LLM calls blocked until /resume",

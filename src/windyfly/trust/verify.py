@@ -110,7 +110,7 @@ def _load_jwks_cache() -> dict | None:
     if not _JWKS_CACHE_FILE.exists():
         return None
     try:
-        data = json.loads(_JWKS_CACHE_FILE.read_text())
+        data = json.loads(_JWKS_CACHE_FILE.read_text(encoding="utf-8"))
         if time.time() - data.get("cached_at", 0) > _JWKS_TTL_SECONDS:
             return None
         return data.get("jwks")
@@ -121,7 +121,8 @@ def _load_jwks_cache() -> dict | None:
 def _save_jwks_cache(jwks: dict) -> None:
     _JWKS_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
     _JWKS_CACHE_FILE.write_text(
-        json.dumps({"jwks": jwks, "cached_at": time.time()}, indent=2)
+        json.dumps({"jwks": jwks, "cached_at": time.time()}, indent=2),
+        encoding="utf-8",
     )
 
 

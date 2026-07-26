@@ -155,7 +155,8 @@ def write_status(cfg: GuardianConfig, state: GuardianState) -> None:
         (base / "guardian.status").write_text(
             f"ts={time.time():.0f}\n"
             f"consecutive_fails={state.consecutive_fails}\n"
-            f"detail={state.last_result}\n"
+            f"detail={state.last_result}\n",
+            encoding="utf-8",
         )
     except Exception:
         pass

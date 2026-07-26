@@ -244,7 +244,7 @@ def _atomic_upsert_env_var(
         target = env_file.resolve()
     target.parent.mkdir(parents=True, exist_ok=True)
     new_line = f"{var_name}={value}\n"
-    existing = target.read_text() if target.exists() else ""
+    existing = target.read_text(encoding="utf-8") if target.exists() else ""
     pattern = re.compile(rf"^{re.escape(var_name)}=.*\n?", re.MULTILINE)
     if pattern.search(existing):
         new_text = pattern.sub(new_line, existing, count=1)
@@ -253,7 +253,7 @@ def _atomic_upsert_env_var(
             existing += "\n"
         new_text = existing + new_line
     tmp = target.with_suffix(target.suffix + ".windy.tmp")
-    tmp.write_text(new_text)
+    tmp.write_text(new_text, encoding="utf-8")
     os.chmod(tmp, 0o600)
     os.replace(tmp, target)
 

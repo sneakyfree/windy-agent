@@ -336,10 +336,10 @@ def _record_ollama_outcome(success: bool) -> None:
         current = 0
         if _OLLAMA_FAILURE_COUNTER_PATH.exists():
             try:
-                current = int(_OLLAMA_FAILURE_COUNTER_PATH.read_text().strip())
+                current = int(_OLLAMA_FAILURE_COUNTER_PATH.read_text(encoding="utf-8").strip())
             except ValueError:
                 current = 0
-        _OLLAMA_FAILURE_COUNTER_PATH.write_text(str(current + 1))
+        _OLLAMA_FAILURE_COUNTER_PATH.write_text(str(current + 1), encoding="utf-8")
     except Exception as e:
         logger.debug("ollama outcome record failed: %s", e)
 
@@ -350,7 +350,7 @@ def consecutive_ollama_failures() -> int:
     if not _OLLAMA_FAILURE_COUNTER_PATH.exists():
         return 0
     try:
-        return int(_OLLAMA_FAILURE_COUNTER_PATH.read_text().strip())
+        return int(_OLLAMA_FAILURE_COUNTER_PATH.read_text(encoding="utf-8").strip())
     except (ValueError, OSError):
         return 0
 
@@ -394,7 +394,7 @@ def queue_message(user_message: str, session_id: str = "") -> None:
     # offline fallback mid-outage (Windows stress, 2026-07-18). No-op
     # change on POSIX, where rename already replaced.
     tmp = _QUEUE_PATH.with_suffix(".tmp")
-    tmp.write_text(json.dumps(queue, indent=2))
+    tmp.write_text(json.dumps(queue, indent=2), encoding="utf-8")
     os.replace(tmp, _QUEUE_PATH)
     logger.info("Queued offline message (%d in queue)", len(queue))
 
@@ -456,7 +456,7 @@ def _load_queue() -> list[dict[str, str]]:
     """Load the queue from disk."""
     if _QUEUE_PATH.exists():
         try:
-            return json.loads(_QUEUE_PATH.read_text())
+            return json.loads(_QUEUE_PATH.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             pass
     return []
