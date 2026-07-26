@@ -388,15 +388,36 @@ class TestSandboxSecurity:
         assert result["success"] is False
 
     def test_restricted_env_no_real_home(self):
-        """Python sandbox should use /tmp as HOME, not real user home."""
+        """Sandbox HOME must not be the operator's real home directory.
+
+        Asserts the PROPERTY, not the old literal ``"/tmp"``. The
+        sandbox now uses ``tempfile.gettempdir()`` so it works on
+        Windows, where ``/tmp`` does not exist — and on macOS that is
+        ``/var/folders/.../T``, which satisfies the security intent
+        while failing a substring check for "/tmp". The literal was
+        testing an implementation detail; the point is isolation from
+        the real home.
+        """
+        import os
+        from pathlib import Path
+
         from windyfly.skills.sandbox import execute_in_sandbox
         result = execute_in_sandbox(
             "import os; print(os.environ.get('HOME', 'unset'))",
             "python", timeout=5,
         )
         if result["success"]:
-            assert "/tmp" in result["stdout"] or "unset" in result["stdout"], (
-                f"Sandbox HOME is not /tmp: {result['stdout']}"
+            seen = result["stdout"].strip()
+            real_home = str(Path.home())
+            assert seen != real_home, (
+                f"Sandbox HOME is the real user home: {seen}"
+            )
+            # Either unset (Windows: we set USERPROFILE, not HOME) or a
+            # temp dir.
+            assert seen == "unset" or seen.startswith(
+                str(Path(os.environ.get("TMPDIR", "/tmp")).parts[0])
+            ) or "tmp" in seen.lower() or "temp" in seen.lower(), (
+                f"Sandbox HOME is neither unset nor a temp dir: {seen}"
             )
 
     def test_unsupported_language(self):

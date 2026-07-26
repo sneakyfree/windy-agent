@@ -159,16 +159,36 @@ class TestSandboxIsolation:
             # Should NOT include user-specific paths
             assert "/Users/" not in path, f"Sandbox PATH leaks user dir: {path}"
 
-    def test_python_sandbox_cwd_is_tmp(self):
-        """Python sandbox should run in /tmp, not the project directory."""
+    def test_python_sandbox_cwd_is_a_temp_dir(self):
+        """Sandbox must run in a temp dir, NOT the project directory.
+
+        Asserts the property rather than the old ``"tmp" in cwd``
+        substring. The sandbox now uses ``tempfile.gettempdir()`` so it
+        works on Windows, where ``/tmp`` does not exist — and on macOS
+        that resolves to ``/var/folders/.../T``, which contains no
+        "tmp" at all despite being exactly the right directory.
+        """
+        import os
+        import tempfile
+        from pathlib import Path
+
         from windyfly.skills.sandbox import execute_in_sandbox
         result = execute_in_sandbox(
             "import os; print(os.getcwd())",
             "python", timeout=5,
         )
         if result["success"]:
-            cwd = result["stdout"].strip()
-            assert "tmp" in cwd.lower(), f"Sandbox CWD is not /tmp: {cwd}"
+            cwd = Path(result["stdout"].strip()).resolve()
+            project = Path(__file__).resolve().parents[1]
+            assert project not in cwd.parents and cwd != project, (
+                f"Sandbox CWD is inside the project tree: {cwd}"
+            )
+            assert cwd != Path.home(), f"Sandbox CWD is the user home: {cwd}"
+            expected = Path(tempfile.gettempdir()).resolve()
+            assert cwd == expected or expected in cwd.parents, (
+                f"Sandbox CWD {cwd} is not under the temp dir {expected}"
+            )
+            assert os.path.isdir(cwd)
 
 
 # === Timeout Enforcement ===

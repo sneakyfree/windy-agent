@@ -18,8 +18,20 @@ logger = logging.getLogger(__name__)
 # used to mean every episode save failed silently while the agent kept
 # chatting — memory loss discovered weeks later. Any WriteQueue instance
 # feeds these; /status reads them to surface "memory writes failing".
-_write_stats: dict[str, Any] = {"failures": 0, "last_failure_ts": 0.0, "last_error": ""}
+_write_stats: dict[str, Any] = {
+    "failures": 0, "last_failure_ts": 0.0, "last_error": "",
+    # Writes abandoned because stop() gave up waiting for the drain.
+    # Kept separate from `failures`: nothing raised — the work simply
+    # never ran. Silent memory loss is the one failure mode Principle
+    # #7 cannot tolerate, so it gets its own counter.
+    "shutdown_dropped": 0,
+}
 _write_stats_lock = threading.Lock()
+
+# How long stop() waits for the worker to drain. Generous on purpose:
+# with the [semantic] extra installed every save_episode embeds, and
+# the first one pays a multi-second cold model load.
+_STOP_JOIN_TIMEOUT = 30.0
 
 
 def _note_write_failure(error: Exception) -> None:
@@ -28,6 +40,17 @@ def _note_write_failure(error: Exception) -> None:
         _write_stats["failures"] += 1
         _write_stats["last_failure_ts"] = time.time()
         _write_stats["last_error"] = f"{type(error).__name__}: {error}"[:200]
+
+
+def _note_shutdown_drop(count: int) -> None:
+    """Record writes abandoned by a timed-out stop()."""
+    import time
+    with _write_stats_lock:
+        _write_stats["shutdown_dropped"] += max(count, 1)
+        _write_stats["last_failure_ts"] = time.time()
+        _write_stats["last_error"] = (
+            f"stop() timed out with ~{count} write(s) queued"
+        )
 
 
 def get_write_stats() -> dict:
@@ -40,7 +63,8 @@ def reset_write_stats() -> None:
     """Test hook — zero the process-wide counters."""
     with _write_stats_lock:
         _write_stats.update(
-            {"failures": 0, "last_failure_ts": 0.0, "last_error": ""}
+            {"failures": 0, "last_failure_ts": 0.0, "last_error": "",
+             "shutdown_dropped": 0}
         )
 
 
@@ -151,9 +175,41 @@ class WriteQueue:
         self._thread = threading.Thread(target=self._worker, daemon=True)
         self._thread.start()
 
-    def stop(self) -> None:
-        """Signal the worker to stop and wait for it to finish."""
+    def stop(self, timeout: float = _STOP_JOIN_TIMEOUT) -> None:
+        """Signal the worker to stop and wait for it to drain.
+
+        The worker loop is ``while self._running or not
+        self._queue.empty()``, so it finishes what is queued before
+        exiting — PROVIDED we actually wait for it.
+
+        **A timed-out join here is silent memory loss.** The old
+        hardcoded 5s was tuned for bare SQLite inserts. Enabling the
+        ``[semantic]`` extra puts an embedding compute inside every
+        ``save_episode``, and the first one pays a multi-second cold
+        model load; 20 queued episodes then blow straight past 5s, the
+        join gives up, and the turns are gone. Caught exactly that way:
+        ``test_stop_flushes_pending_items`` expected 20 episodes and
+        found 0, with "Loading weights" in the captured stderr.
+
+        In production that is grandma's last few turns of conversation
+        disappearing on a graceful shutdown — a Principle-#7 failure
+        that the old code could not even report, because ``join``
+        returns None whether it drained or gave up.
+
+        So: a longer default, and if it still times out we say so
+        loudly and record it in the process-wide write telemetry that
+        ``/status`` already surfaces. Losing memory may sometimes be
+        unavoidable; losing it *quietly* is not acceptable.
+        """
         self._running = False
         if self._thread is not None:
-            self._thread.join(timeout=5.0)
+            self._thread.join(timeout=timeout)
+            if self._thread.is_alive():
+                pending = self._queue.qsize()
+                logger.error(
+                    "WriteQueue.stop() timed out after %.1fs with ~%d write(s) "
+                    "still queued — memory for those turns is LOST",
+                    timeout, pending,
+                )
+                _note_shutdown_drop(pending)
             self._thread = None
