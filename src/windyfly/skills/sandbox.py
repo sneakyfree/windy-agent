@@ -37,9 +37,22 @@ def _restricted_env() -> dict[str, str]:
     """
     tmp = _sandbox_cwd()
     if os.name == "nt":
+        # System directories ONLY — the Windows analogue of
+        # /usr/bin:/usr/local/bin. Inheriting the real PATH would hand
+        # the sandbox every user-writable directory on it, which is a
+        # PATH-hijacking vector and the exact opposite of the point.
+        # (An earlier pass of this fix did inherit it; the existing
+        # test_python_sandbox_uses_restricted_path caught the
+        # weakening.) Nothing here needs a rich PATH — the interpreter
+        # is invoked by absolute path via sys.executable.
+        sysroot = os.environ.get("SystemRoot", r"C:\Windows")
         return {
-            "PATH": os.environ.get("PATH", ""),
-            "SystemRoot": os.environ.get("SystemRoot", r"C:\Windows"),
+            "PATH": os.pathsep.join([
+                os.path.join(sysroot, "system32"),
+                sysroot,
+                os.path.join(sysroot, "System32", "Wbem"),
+            ]),
+            "SystemRoot": sysroot,
             "TEMP": tmp,
             "TMP": tmp,
             "USERPROFILE": tmp,

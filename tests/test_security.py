@@ -147,17 +147,40 @@ class TestSQLInjectionPrevention:
 
 class TestSandboxIsolation:
     def test_python_sandbox_uses_restricted_path(self):
-        """The sandbox should restrict PATH to system binaries only."""
+        """The sandbox PATH must be system binaries only, never inherited.
+
+        A sandbox that inherits the real PATH gets every user-writable
+        directory on it — a PATH-hijacking vector, and the opposite of
+        the point. Asserted per platform because "system binaries"
+        spells differently: /usr/bin on POSIX, %SystemRoot%\\system32
+        on Windows.
+        """
+        import os
+
         from windyfly.skills.sandbox import execute_in_sandbox
         result = execute_in_sandbox(
             "import os; print(os.environ.get('PATH', ''))",
             "python", timeout=5,
         )
-        if result["success"]:
-            path = result["stdout"].strip()
+        if not result["success"]:
+            return
+        path = result["stdout"].strip()
+
+        if os.name == "nt":
+            assert "system32" in path.lower(), (
+                f"Sandbox PATH missing system32: {path}"
+            )
+            # The inherited PATH is long and full of user dirs; a
+            # restricted one is short and under SystemRoot.
+            sysroot = os.environ.get("SystemRoot", r"C:\Windows").lower()
+            for entry in filter(None, path.split(os.pathsep)):
+                assert entry.lower().startswith(sysroot), (
+                    f"Sandbox PATH leaks non-system dir {entry!r}: {path}"
+                )
+        else:
             assert "/usr/bin" in path, f"Sandbox PATH missing /usr/bin: {path}"
-            # Should NOT include user-specific paths
             assert "/Users/" not in path, f"Sandbox PATH leaks user dir: {path}"
+            assert "/home/" not in path, f"Sandbox PATH leaks user dir: {path}"
 
     def test_python_sandbox_cwd_is_a_temp_dir(self):
         """Sandbox must run in a temp dir, NOT the project directory.
