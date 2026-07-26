@@ -208,7 +208,6 @@ verbosity = 5
 reasoning_depth = 6
 autonomy = 3
 epistemic_strictness = 5
-warmth = {preset_data.get('warmth', 5)}
 
 [costs]
 daily_budget_usd = 5.0
@@ -295,7 +294,6 @@ verbosity = 5
 reasoning_depth = 6
 autonomy = 3
 epistemic_strictness = 5
-warmth = {preset_data.get('warmth', 5)}
 
 [costs]
 daily_budget_usd = 5.0

@@ -227,16 +227,13 @@ def apply_adaptive_overrides(
         # Multi-message stress: go full supportive mode
         adapted["humor"] = 0
         adapted["proactivity"] = min(adapted.get("proactivity", 5), 2)
-        adapted["warmth"] = 10
         adapted["verbosity"] = min(adapted.get("verbosity", 5), 3)
     elif emotional_context == "stressed":
         # Single-message stress: soften but don't overreact
         adapted["humor"] = min(adapted.get("humor", 5), 1)
-        adapted["warmth"] = max(adapted.get("warmth", 5), 9)
         adapted["verbosity"] = min(adapted.get("verbosity", 5), 4)
     elif emotional_context == "excited" or emotional_trend == "excited":
         # Match their energy
         adapted["humor"] = min(adapted.get("humor", 5) + 2, 10)
-        adapted["warmth"] = max(adapted.get("warmth", 5), 8)
 
     return adapted

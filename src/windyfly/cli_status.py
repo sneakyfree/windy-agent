@@ -107,7 +107,7 @@ def print_status(config: dict[str, Any] | None = None) -> None:
     daily_spend = 0.0
     daily_budget = _safe_get(config, "costs", "daily_budget_usd", default=5.0)
     preset = _safe_get(config, "personality", "preset", default="unknown")
-    warmth = _safe_get(config, "personality", "warmth", default="?")
+    personality = _safe_get(config, "personality", "personality", default="?")
     humor = _safe_get(config, "personality", "humor_level", default="?")
 
     try:
@@ -146,10 +146,10 @@ def print_status(config: dict[str, Any] | None = None) -> None:
 
             # Personality from DB (overrides config)
             from windyfly.memory.soul import get_soul
-            warmth_row = get_soul(db, "slider_warmth")
+            personality_row = get_soul(db, "slider_personality")
             humor_row = get_soul(db, "slider_humor")
-            if warmth_row:
-                warmth = warmth_row["value"]
+            if personality_row:
+                personality = personality_row["value"]
             if humor_row:
                 humor = humor_row["value"]
         else:
@@ -265,7 +265,7 @@ def print_status(config: dict[str, Any] | None = None) -> None:
     tree.add(f"[bold]Agent:[/bold] {agent_name} v{version}")
     tree.add(f"[bold]Model:[/bold] {model} (${daily_spend:.2f}/${daily_budget:.2f} today)")
     tree.add(f"[bold]Memory:[/bold] {node_count} nodes, {episode_count} episodes, {active_intents} active intents")
-    tree.add(f"[bold]Personality:[/bold] {preset} (warmth={warmth}, humor={humor})")
+    tree.add(f"[bold]Personality:[/bold] {preset} (personality={personality}, humor={humor})")
     tree.add(f"[bold]Skills:[/bold] {promoted_skills} promoted, {total_skills} total")
     tree.add(f"[bold]Matrix:[/bold] {matrix_status} ({room_count} rooms)")
     tree.add(f"[bold]Mail:[/bold] {email_status}")

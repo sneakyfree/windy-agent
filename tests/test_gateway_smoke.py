@@ -65,11 +65,11 @@ class TestHealthRoute:
 
 
 class TestSlidersGetRoute:
-    def test_returns_all_15_sliders(self):
+    def test_returns_every_registered_slider(self):
         bridge, db, _ = _make_bridge()
         result = _run(bridge._dispatch("sliders.get", {}))
         assert "sliders" in result
-        assert len(result["sliders"]) == 19
+        assert len(result["sliders"]) == len(VALID_SLIDERS)
         for name in VALID_SLIDERS:
             assert name in result["sliders"]
         db.close()

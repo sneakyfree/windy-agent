@@ -189,31 +189,29 @@ class TestEmotionalDetection:
 class TestAdaptiveOverrides:
     def test_sustained_stress_caps_sliders(self):
         """Sustained stress should cap sliders to supportive values."""
-        sliders = {"humor": 10, "proactivity": 10, "warmth": 0, "verbosity": 10}
+        sliders = {"humor": 10, "proactivity": 10, "verbosity": 10}
         adapted = apply_adaptive_overrides(sliders, "stressed", "sustained_stress")
 
         assert adapted["humor"] == 0
         assert adapted["proactivity"] <= 2
-        assert adapted["warmth"] == 10
         assert adapted["verbosity"] <= 3
 
     def test_excited_boosts_within_bounds(self):
         """Excited context should boost humor/warmth but stay <= 10."""
-        sliders = {"humor": 9, "warmth": 9}
+        sliders = {"humor": 9}
         adapted = apply_adaptive_overrides(sliders, "excited", "excited")
 
         assert adapted["humor"] <= 10  # 9+2=11 → capped to 10
-        assert adapted["warmth"] <= 10
 
     def test_neutral_no_change(self):
         """Neutral context + neutral trend should return original sliders."""
-        sliders = {"humor": 5, "warmth": 5}
+        sliders = {"humor": 5}
         adapted = apply_adaptive_overrides(sliders, "neutral", "neutral")
         assert adapted == sliders
 
     def test_does_not_mutate_original(self):
         """Adaptive overrides should return a new dict, not mutate the input."""
-        original = {"humor": 5, "warmth": 5, "proactivity": 5, "verbosity": 5}
+        original = {"humor": 5, "proactivity": 5, "verbosity": 5}
         original_copy = dict(original)
         apply_adaptive_overrides(original, "stressed", "sustained_stress")
         assert original == original_copy
@@ -221,17 +219,15 @@ class TestAdaptiveOverrides:
     def test_all_sliders_at_extremes_stressed(self):
         """Sliders already at extreme values + stress should not exceed bounds."""
         sliders = {
-            "humor": 0, "proactivity": 0, "warmth": 10, "verbosity": 0,
+            "humor": 0, "proactivity": 0, "verbosity": 0,
         }
         adapted = apply_adaptive_overrides(sliders, "stressed", "sustained_stress")
         assert 0 <= adapted["humor"] <= 10
         assert 0 <= adapted["proactivity"] <= 10
-        assert 0 <= adapted["warmth"] <= 10
         assert 0 <= adapted["verbosity"] <= 10
 
     def test_all_sliders_at_extremes_excited(self):
         """Sliders at max + excited should not exceed 10."""
-        sliders = {"humor": 10, "warmth": 10}
+        sliders = {"humor": 10}
         adapted = apply_adaptive_overrides(sliders, "excited", "excited")
         assert adapted["humor"] <= 10
-        assert adapted["warmth"] <= 10

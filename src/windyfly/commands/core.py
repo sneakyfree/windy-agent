@@ -1517,10 +1517,10 @@ def _register_all():
 
     async def cmd_presets(ctx):
         presets = {
-            "buddy": "Friendly companion (warmth 9, humor 7, proactivity 7)",
+            "buddy": "Friendly companion (personality 8, humor 7, proactivity 7)",
             "engineer": "Technical precision (reasoning 8, humor 2, personality 3)",
             "coder": "Programming expert (reasoning 9, personality 1)",
-            "friend": "Best friend (warmth 10, humor 8, personality 10)",
+            "friend": "Best friend (humor 8, personality 10, proactivity 8)",
             "writer": "Wordsmith (creativity 8, verbosity 9)",
             "researcher": "Scholar (reasoning 10, memory 9, personality 2)",
             "powerhouse": "Go-getter (proactivity 10, autonomy 8)",

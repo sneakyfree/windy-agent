@@ -7,60 +7,55 @@ class TestAdaptiveOverrides:
     """Test apply_adaptive_overrides."""
 
     def test_neutral_no_change(self) -> None:
-        sliders = {"humor": 7, "warmth": 5, "verbosity": 5}
+        sliders = {"humor": 7, "verbosity": 5}
         result = apply_adaptive_overrides(sliders, "neutral", "neutral")
         assert result is sliders  # Same reference, no copy needed
 
     def test_stressed_lowers_humor(self) -> None:
-        sliders = {"humor": 8, "warmth": 3, "verbosity": 7}
+        sliders = {"humor": 8, "verbosity": 7}
         result = apply_adaptive_overrides(sliders, "stressed", "neutral")
         assert result["humor"] <= 1
-        assert result["warmth"] >= 9
 
     def test_stressed_does_not_mutate_original(self) -> None:
-        sliders = {"humor": 8, "warmth": 3, "verbosity": 7}
+        sliders = {"humor": 8, "verbosity": 7}
         original_humor = sliders["humor"]
         apply_adaptive_overrides(sliders, "stressed", "neutral")
         assert sliders["humor"] == original_humor  # Original unchanged
 
     def test_sustained_stress_full_supportive(self) -> None:
-        sliders = {"humor": 7, "warmth": 4, "verbosity": 8, "proactivity": 8}
+        sliders = {"humor": 7, "verbosity": 8, "proactivity": 8}
         result = apply_adaptive_overrides(sliders, "stressed", "sustained_stress")
         assert result["humor"] == 0
-        assert result["warmth"] == 10
         assert result["verbosity"] <= 3
         assert result["proactivity"] <= 2
 
     def test_excited_raises_warmth(self) -> None:
-        sliders = {"humor": 5, "warmth": 4}
+        sliders = {"humor": 5}
         result = apply_adaptive_overrides(sliders, "excited", "neutral")
-        assert result["warmth"] >= 8
         assert result["humor"] >= 7  # 5 + 2
 
     def test_excited_humor_capped_at_10(self) -> None:
-        sliders = {"humor": 9, "warmth": 5}
+        sliders = {"humor": 9}
         result = apply_adaptive_overrides(sliders, "excited", "neutral")
         assert result["humor"] == 10  # min(9+2, 10) = 10
 
     def test_excited_trend_overrides(self) -> None:
-        sliders = {"humor": 3, "warmth": 3}
+        sliders = {"humor": 3}
         result = apply_adaptive_overrides(sliders, "neutral", "excited")
-        assert result["warmth"] >= 8
         assert result["humor"] >= 5  # 3 + 2
 
     def test_sustained_stress_takes_priority(self) -> None:
         """Sustained stress is more severe than single-message stress."""
-        sliders = {"humor": 5, "warmth": 5, "verbosity": 8, "proactivity": 7}
+        sliders = {"humor": 5, "verbosity": 8, "proactivity": 7}
         result = apply_adaptive_overrides(sliders, "stressed", "sustained_stress")
         assert result["humor"] == 0  # Full lockdown
         assert result["verbosity"] <= 3
 
     def test_adaptive_mode_disabled(self) -> None:
         """When adaptive_mode < 5, no overrides are applied."""
-        sliders = {"humor": 8, "warmth": 3, "verbosity": 7, "adaptive_mode": 0}
+        sliders = {"humor": 8, "verbosity": 7, "adaptive_mode": 0}
         # Simulate stressed — should NOT override because toggle is off
         from windyfly.personality.engine import apply_adaptive_overrides
         # The loop.py gate means apply_adaptive_overrides is never called
         # So we just verify the sliders are unchanged
         assert sliders["humor"] == 8
-        assert sliders["warmth"] == 3

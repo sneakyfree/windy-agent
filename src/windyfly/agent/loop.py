@@ -1626,8 +1626,21 @@ def agent_respond(
         pass  # telemetry must never break a reply
 
     # 7.5. Relationship moments — extract emotional snapshots
-    warmth = loop_sliders.get("warmth", 5)
-    if emotional_context != "neutral" and warmth >= 3:
+    #
+    # Gated on emotional_sensitivity, not the retired `warmth` slider.
+    # `warmth` was deleted 2026-07-26: it had no consumer anywhere in
+    # the prompt path (verified by scripts/marathon/sliders.py — every
+    # value 0-10 produced a byte-identical payload), it duplicated what
+    # `personality` already does, and it was BILLED at $0.10/point for
+    # doing nothing.
+    #
+    # This gate is the one place it was read, and it was the wrong
+    # slider for the job anyway: capturing emotional snapshots is
+    # exactly what `emotional_sensitivity` advertises — "how attuned
+    # the agent is to your emotional state." Same default (5), same
+    # behavior, on a knob whose label finally matches its effect.
+    emo_sensitivity_gate = loop_sliders.get("emotional_sensitivity", 5)
+    if emotional_context != "neutral" and emo_sensitivity_gate >= 3:
         _extract_relationship_moment(
             db, write_queue, config, user_message, response_text,
             emotional_context, session_id,

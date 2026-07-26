@@ -106,7 +106,10 @@ class TestSliderMetadata:
         """get_slider_info() should return all metadata fields for all sliders."""
         db = Database(":memory:")
         info = get_slider_info(db)
-        assert len(info) == 19, f"Expected 19 sliders, got {len(info)}"
+        from windyfly.control_panel import VALID_SLIDERS
+        assert len(info) == len(VALID_SLIDERS), (
+            f"Expected {len(VALID_SLIDERS)} sliders, got {len(info)}"
+        )
 
         for name, data in info.items():
             assert "label" in data, f"Slider '{name}' missing 'label'"

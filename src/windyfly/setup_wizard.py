@@ -84,42 +84,42 @@ PRESETS: dict[str, dict[str, Any]] = {
     "buddy": {
         "emoji": "🤝",
         "tagline": "Your warm, witty best friend who remembers everything",
-        "personality": 8, "humor": 7, "warmth": 9, "formality": 3,
+        "personality": 8, "humor": 7, "formality": 3,
     },
     "engineer": {
         "emoji": "🔧",
         "tagline": "Precise, technical, no-nonsense. Gets the job done.",
-        "personality": 4, "humor": 2, "warmth": 4, "formality": 7,
+        "personality": 4, "humor": 2, "formality": 7,
     },
     "powerhouse": {
         "emoji": "⚡",
         "tagline": "Maximum everything. Deep reasoning, long context, full power.",
-        "personality": 7, "humor": 5, "warmth": 6, "formality": 5,
+        "personality": 7, "humor": 5, "formality": 5,
     },
     "coder": {
         "emoji": "💻",
         "tagline": "Optimized for code. Terse answers, deep tool use.",
-        "personality": 3, "humor": 2, "warmth": 3, "formality": 5,
+        "personality": 3, "humor": 2, "formality": 5,
     },
     "friend": {
         "emoji": "💛",
         "tagline": "Emotionally attuned, supportive, great listener.",
-        "personality": 9, "humor": 5, "warmth": 10, "formality": 2,
+        "personality": 9, "humor": 5, "formality": 2,
     },
     "writer": {
         "emoji": "✍️",
         "tagline": "Creative, eloquent, imaginative. Born to write.",
-        "personality": 8, "humor": 6, "warmth": 7, "formality": 6,
+        "personality": 8, "humor": 6, "formality": 6,
     },
     "researcher": {
         "emoji": "🔬",
         "tagline": "Cites sources, reasons deeply, never guesses.",
-        "personality": 4, "humor": 1, "warmth": 3, "formality": 8,
+        "personality": 4, "humor": 1, "formality": 8,
     },
     "silent": {
         "emoji": "🤫",
         "tagline": "Minimal output. Maximum efficiency. Cheapest mode.",
-        "personality": 1, "humor": 0, "warmth": 2, "formality": 5,
+        "personality": 1, "humor": 0, "formality": 5,
     },
 }
 
@@ -505,7 +505,6 @@ verbosity = 5
 reasoning_depth = 6
 autonomy = 3
 epistemic_strictness = 5
-warmth = {preset_data.get('warmth', 5)}
 
 [costs]
 daily_budget_usd = 5.0
