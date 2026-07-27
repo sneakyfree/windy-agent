@@ -284,14 +284,17 @@ def main() -> int:
         except Exception:
             time.sleep(0.05)
 
-        fj.write(json.dumps(rec) + "\n"); fj.flush()
+        fj.write(json.dumps(rec) + "\n")
+        fj.flush()
         fp.write(json.dumps({"turn": turn.index,
-                             "messages": captured["messages"]}) + "\n"); fp.flush()
+                             "messages": captured["messages"]}) + "\n")
+        fp.flush()
 
         if args.sleep:
             time.sleep(args.sleep)
 
-    fj.close(); fp.close()
+    fj.close()
+    fp.close()
     wq.stop()
     print(f"[marathon] done — {findings_path}")
     return 0

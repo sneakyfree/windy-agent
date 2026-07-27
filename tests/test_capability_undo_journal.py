@@ -210,7 +210,18 @@ def test_restore_undoes_delete_of_symlink(tmp_path, journal):
     }
     restore_from_record(record)
     assert link.is_symlink()
-    assert os.readlink(link) == str(real)
+    # Compare where the link POINTS, not how the OS spells it.
+    #
+    # `os.readlink` on Windows returns the extended-length form
+    # (\\?\C:\...) when reading a symlink back, regardless of what was
+    # written — so a raw string compare against a plain path fails there
+    # even though the restore is perfectly correct. (capture_file_state
+    # normalizes the prefix away when RECORDING, which is what the
+    # journal needs; this is the read side, and the OS decides.)
+    #
+    # Resolving both sides asserts the property that actually matters:
+    # the restored symlink points at the original file.
+    assert Path(os.readlink(link)).resolve() == real.resolve()
 
 
 def test_restore_undoes_overwrite(tmp_path, journal):

@@ -48,7 +48,7 @@ def main() -> int:
               f"p95={lat[int(len(lat)*0.95)]}ms  max={lat[-1]}ms")
 
     # --- Prompt growth: is the payload actually bounded? ---------------
-    print(f"\n--- PAYLOAD SIZE (is the prompt bounded by construction?) ---")
+    print("\n--- PAYLOAD SIZE (is the prompt bounded by construction?) ---")
     buckets: dict[int, list[int]] = defaultdict(list)
     for r in rows:
         if r.get("payload_chars"):
@@ -60,7 +60,7 @@ def main() -> int:
               f"max={max(vals):>7}")
 
     # --- The curve ------------------------------------------------------
-    print(f"\n--- RECALL vs DISTANCE (turns since the fact was told) ---")
+    print("\n--- RECALL vs DISTANCE (turns since the fact was told) ---")
     by_dist: dict[int, list[dict]] = defaultdict(list)
     for p in probes:
         by_dist[p["distance"]].append(p)
@@ -77,7 +77,7 @@ def main() -> int:
         print(f"  {d:>5} {n:>4} {pct:>7.0f}% {rm:>10} {gm:>9}   {bar}")
 
     # --- Per fact -------------------------------------------------------
-    print(f"\n--- PER FACT ---")
+    print("\n--- PER FACT ---")
     by_fact: dict[str, list[dict]] = defaultdict(list)
     for p in probes:
         by_fact[p["fact_key"]].append(p)
