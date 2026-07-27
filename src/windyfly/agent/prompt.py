@@ -17,6 +17,16 @@ from windyfly.memory.nodes import get_nodes_by_type, search_nodes
 from windyfly.personality.engine import build_personality_block, get_mode_override, load_soul
 
 
+# Characters of prior-conversation history injected per point of the
+# ``memory_depth`` slider on a waking turn. 10 -> ~15k chars (~4k
+# tokens), spent ONCE per session rather than every turn. Sized against
+# the measured steady-state prompt (~8k chars) so even the deepest
+# setting stays comfortably inside every model's window: the honey-
+# badger claim is that the prompt is bounded by construction, and this
+# block must not be the thing that breaks it.
+_WAKE_CHARS_PER_POINT = 1500
+
+
 def _is_first_contact(db: Database) -> bool:
     """True if the bot has zero prior memory of any kind.
 
@@ -732,6 +742,93 @@ def assemble_prompt(
             "role": "system",
             "content": "\n".join(relevant_lines),
         })
+
+    # 3.6. READ ON WAKING — the /new gap.
+    #
+    # Episodes above are scoped to session_id, and /new rolls the
+    # session_id. So the turn after a reset the agent has zero
+    # conversation history: measured 100% -> 0% fact recall across the
+    # boundary, with the turnover letter present and carrying none of
+    # the facts (it digests only the last ~5 user lines). Nothing in the
+    # prompt told the agent to go look, even though memory.read_range
+    # exists and its docstring calls itself "THE tool for catching up
+    # after a reset." A human waking up re-reads their notes; the agent
+    # was waking up and confidently starting from nothing.
+    #
+    # ``memory_depth`` drives how far back it reads. That slider was
+    # advertised and BILLED at $0.80/point while having no consumer
+    # anywhere in src/ — the sliders probe lists it as the only truly
+    # dead knob. Grant's call: repurpose it for exactly this.
+    #
+    # Deliberately bounded by CHARACTERS, not episode count (#8:
+    # stability outranks capability). "10 = everything ever said" is the
+    # intent, but pasting an unbounded history into a prompt is the
+    # context cliff we spent this campaign proving we don't have. So the
+    # deep slice is capped and the agent is TOLD it can walk further
+    # back with memory.read_range — dumb substrate, smart model (#5/#7),
+    # rather than a bigger dump.
+    #
+    # Fires only on the FIRST turn of a session (``recent`` empty) —
+    # waking, not every turn. Owner-only: a stranger's fresh chat must
+    # never inherit the owner's prior conversations.
+    if owner_ctx and not recent:
+        memory_depth = int(sliders.get("memory_depth", 5) or 0)
+        if memory_depth > 0:
+            try:
+                from windyfly.memory.episodes import (
+                    get_prior_session_episodes,
+                )
+                prior = get_prior_session_episodes(
+                    db,
+                    session_id,
+                    char_budget=memory_depth * _WAKE_CHARS_PER_POINT,
+                )
+            except Exception:  # pragma: no cover — defensive only
+                # Waking context is enrichment. If the read fails the
+                # agent still boots with its turnover letter; it must
+                # never fail to answer because catch-up failed.
+                prior = []
+            if prior:
+                wake_lines = [
+                    "## Catching up — what we said before this reset",
+                    "",
+                    "You have just woken into a fresh conversation. The "
+                    "exchanges below are from EARLIER conversations with "
+                    "this same person, oldest first. They are context, "
+                    "not the current conversation — do not reply to "
+                    "them.",
+                    "",
+                    "Use them so the person never has to repeat "
+                    "themselves. Do NOT announce that you reloaded "
+                    "anything, and do not narrate your own reset — just "
+                    "carry on knowing what you know.",
+                    "",
+                ]
+                # Oldest-first reads like a transcript.
+                for ep in reversed(prior):
+                    role = ep.get("role", "unknown")
+                    speaker = "Them" if role == "user" else "You"
+                    text = (ep.get("content") or "").strip().replace("\n", " ")
+                    wake_lines.append(f"- {speaker}: {text[:400]}")
+                if memory_depth < 10:
+                    wake_lines.append(
+                        "\nThis is the most recent slice of your history "
+                        "together, not all of it. If they mention "
+                        "something older, call memory.read_range or "
+                        "memory.search to go further back before saying "
+                        "you don't remember."
+                    )
+                else:
+                    wake_lines.append(
+                        "\nIf they reference something older than the "
+                        "above, call memory.read_range or memory.search "
+                        "to go further back before saying you don't "
+                        "remember."
+                    )
+                messages.append({
+                    "role": "system",
+                    "content": "\n".join(wake_lines),
+                })
 
     # Episodes come back most-recent-first; reverse for chronological order
     for episode in reversed(recent):

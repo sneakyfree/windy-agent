@@ -97,3 +97,71 @@ class TestMemoryReadRange:
         assert out["count"] == 2
         assert out.get("truncated") is True
         assert "max_turns" in out["hint"]
+
+
+class TestTranscriptOrdering:
+    """A conversation must come back in the order it was said.
+
+    ``episodes.created_at`` is ``CURRENT_TIMESTAMP`` — one-second
+    resolution — so a question and its answer routinely carry the SAME
+    timestamp. Ordering by ``created_at`` alone leaves those ties to
+    the query planner. That is not theoretical: adding an index on
+    ``episodes(session_id, created_at DESC)`` flipped the planner to an
+    index scan and handed same-second ties back REVERSED, which
+    surfaced as ``test_collaborators`` seeing 'assistant' where 'user'
+    was expected.
+
+    ``read_range`` is what the agent uses to re-read its own history
+    after a reset, so reversed ties mean catching up on a conversation
+    with every answer above its question. The explicit ``rowid``
+    tiebreaker pins it regardless of planner or index.
+    """
+
+    def _db_same_second(self):
+        import uuid
+        db = Database(":memory:")
+        convo = [
+            ("user", "Q1 what time is the potluck?"),
+            ("assistant", "A1 second Sunday"),
+            ("user", "Q2 who is driving?"),
+            ("assistant", "A2 Marla is driving"),
+        ]
+        for role, content in convo:
+            db.execute(
+                "INSERT INTO episodes (id, session_id, role, content, "
+                "created_at) VALUES (?,?,?,?,?)",
+                (str(uuid.uuid4()), "telegram:1:v1", role, content,
+                 "2026-07-27 10:00:00"),
+            )
+        db.commit()
+        return db, convo
+
+    def test_read_range_preserves_order_within_one_second(self):
+        db, convo = self._db_same_second()
+        reg = CapabilityRegistry()
+        register_memory_search_capabilities(reg, db, {})
+        out = _call(reg, "memory.read_range", start="2026-01-01")
+        got = [(t["role"], t["content"]) for t in out["turns"]]
+        assert got == convo, got
+
+    def test_order_survives_a_descending_index_on_created_at(self):
+        """Pins the tiebreaker against the index that would actually
+        reach this query.
+
+        ``read_range`` filters on ``created_at`` alone (never
+        session_id), so an index on ``(session_id, created_at)`` never
+        applies to it — an earlier version of this test used that index,
+        proved nothing, and passed against the unfixed code. An index on
+        ``created_at DESC`` IS used here, and without the ``rowid``
+        tiebreaker it walks the index backwards and returns same-second
+        ties reversed. Verified by reverting the fix: this fails, the
+        one above does not.
+        """
+        db, convo = self._db_same_second()
+        db.execute("CREATE INDEX idx_ep_created ON episodes(created_at DESC)")
+        db.commit()
+        reg = CapabilityRegistry()
+        register_memory_search_capabilities(reg, db, {})
+        out = _call(reg, "memory.read_range", start="2026-01-01")
+        got = [(t["role"], t["content"]) for t in out["turns"]]
+        assert got == convo, got

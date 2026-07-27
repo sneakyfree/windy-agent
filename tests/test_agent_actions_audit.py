@@ -47,8 +47,21 @@ def db_and_wq():
             db.close()
 
 
-def _drain(wq: WriteQueue, timeout: float = 2.0) -> None:
-    """Wait until the write queue is empty so assertions see the writes."""
+def _drain(wq: WriteQueue, timeout: float = 30.0) -> None:
+    """Wait until the write queue is empty so assertions see the writes.
+
+    The budget is generous for one specific reason: with the
+    ``[semantic]`` extra installed, every ``save_episode`` embeds, and
+    the FIRST embed in the process pays a cold model load — measured at
+    ~4.9s on an M4, against a warm embed of ~0.03s. A 2s budget could
+    not cover that, so whichever test file happened to pay the cold
+    load failed while the others passed. That made suite greenness
+    depend on test execution ORDER, which is how this sat unnoticed.
+
+    This is the same failure mode ``write_queue._STOP_JOIN_TIMEOUT``
+    documents (5s -> 30s for exactly this reason); these helpers were
+    missed in that pass. Keep them in agreement.
+    """
     start = time.time()
     while not wq._queue.empty():
         if time.time() - start > timeout:

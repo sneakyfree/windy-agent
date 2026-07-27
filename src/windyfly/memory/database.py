@@ -312,6 +312,28 @@ _MIGRATIONS: dict[int, tuple[str, str]] = {
         "bounded autonomous loop. Idempotent ADD COLUMNs.",
         "__callable__",
     ),
+    # NOTE — deliberately NOT adding an index on episodes(session_id,
+    # created_at), though every turn filters on exactly that and it is
+    # currently a full scan of a 29k-row table.
+    #
+    # It was written, and it broke transcript ordering. ``created_at``
+    # is CURRENT_TIMESTAMP at 1-second resolution, so a normal exchange
+    # ties; without an index SQLite scans in rowid order and the ties
+    # come back in insertion order by luck. Add the index and the
+    # planner switches to an index scan, where a DESC index hands ties
+    # back REVERSED — a conversation replayed to the model with the
+    # answers above the questions. Caught by test_collaborators, which
+    # started failing on 'assistant' where 'user' was expected.
+    #
+    # The measured case for the index is weak anyway: agent overhead is
+    # ~10ms of a ~9,000ms turn (0.1%) — the nine seconds is the model.
+    # Principle #8 corollary is "measure before you optimize"; the
+    # measurement says there is nothing here worth the blast radius of
+    # changing query plans product-wide.
+    #
+    # If this is ever revisited: index ASC, and land the explicit
+    # ``rowid`` tiebreakers FIRST so ordering stops depending on the
+    # planner at all.
     8: (
         "/goal slash command — session-scoped persistent objectives "
         "with two-model evaluator pattern (windy-agent feature parity "

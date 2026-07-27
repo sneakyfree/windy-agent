@@ -83,17 +83,21 @@ def register_memory_search_capabilities(
             # its meaning (a lone "yes, $5 sounds right" is useless
             # without the question above it).
             try:
+                # rowid tiebreaker: same-second ties would otherwise let
+                # the planner decide which side of the hit a turn falls
+                # on, and this window exists precisely to preserve
+                # question->answer adjacency.
                 before = db.fetchall(
                     "SELECT role, content FROM episodes "
                     "WHERE session_id = ? AND created_at <= ? AND id != ? "
-                    "ORDER BY created_at DESC LIMIT 2",
+                    "ORDER BY created_at DESC, rowid DESC LIMIT 2",
                     (hit.get("session_id"), hit.get("created_at"),
                      hit.get("id")),
                 )
                 after = db.fetchall(
                     "SELECT role, content FROM episodes "
                     "WHERE session_id = ? AND created_at >= ? AND id != ? "
-                    "ORDER BY created_at ASC LIMIT 2",
+                    "ORDER BY created_at ASC, rowid ASC LIMIT 2",
                     (hit.get("session_id"), hit.get("created_at"),
                      hit.get("id")),
                 )
@@ -155,9 +159,16 @@ def register_memory_search_capabilities(
                 "error": "pass hours_back (e.g. 3) OR start/end timestamps",
             }
 
+        # ``rowid`` tiebreaker is load-bearing, not decoration.
+        # ``created_at`` is CURRENT_TIMESTAMP — 1-second resolution — so
+        # a question and its answer routinely carry the SAME timestamp.
+        # Ordering by created_at alone leaves those ties to the query
+        # planner, and this is the tool the agent uses to re-read its
+        # own history after a reset: getting it backwards means reading
+        # a conversation with the answers above the questions.
         rows = db.fetchall(
             "SELECT role, content, session_id, created_at FROM episodes "  # noqa: S608
-            f"WHERE {where} ORDER BY created_at ASC LIMIT ?",
+            f"WHERE {where} ORDER BY created_at ASC, rowid ASC LIMIT ?",
             (*params, max_turns + 1),
         ) or []
 

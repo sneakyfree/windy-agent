@@ -65,13 +65,26 @@ def main() -> int:
                      session_id="s")
         save_episode(db, "assistant", f"noted, turn {i}", session_id="s")
 
+    # Separate history under a REAL rolling session id, so the probe can
+    # also assemble a WAKING turn (see ``payload_for(waking=True)``).
+    # Long turns so a character-budgeted block actually varies with the
+    # slider instead of just swallowing the whole history at every
+    # setting.
+    _filler = " and then we talked about the weather at length" * 4
+    for i in range(200):
+        save_episode(db, "user",
+                     f"turn {i}: my dog is Biscuit the beagle.{_filler}",
+                     session_id="telegram:1:v0")
+        save_episode(db, "assistant", f"noted, turn {i}.{_filler}",
+                     session_id="telegram:1:v0")
+
     cfg = load_config()
     cfg.setdefault("memory", {})["db_path"] = str(tmp / "s.db")
 
     from windyfly.control_panel import TOGGLE_SLIDERS
     from windyfly.memory.soul import upsert_soul
 
-    def payload_for(slider: str, value: int) -> str:
+    def payload_for(slider: str, value: int, *, waking: bool = False) -> str:
         """Assemble the real prompt with exactly ONE slider moved.
 
         Every other slider is reset to its baseline first. Without that
@@ -81,13 +94,33 @@ def main() -> int:
         verbosity, ...) was measured with raw mode ON — which suppresses
         the whole Behavioral Modifiers block — and looked dead when it
         was not. Reset first, then move one knob.
+
+        ``waking=True`` assembles the FIRST turn after a ``/new`` — a
+        fresh session id whose channel has prior history. Some sliders
+        act only there (``memory_depth`` decides how far back the agent
+        re-reads on waking), and measuring them on an ordinary turn
+        reports them dead when they are not. That mislabel is the whole
+        reason this probe exists, so it must not commit it itself.
         """
         for other in SLIDER_INFO:
             base = 0 if other in TOGGLE_SLIDERS else 5
             upsert_soul(db, f"slider_{other}", str(base))
         upsert_soul(db, f"slider_{slider}", str(value))
-        msgs = assemble_prompt(cfg, db, "what was my dog's name again hon", "s")
+        session = "telegram:1:v1" if waking else "s"
+        msgs = assemble_prompt(
+            cfg, db, "what was my dog's name again hon", session,
+        )
         return "\n".join(f"{m.get('role')}::{m.get('content')}" for m in msgs)
+
+    def distinct_payloads(slider: str, *, waking: bool = False) -> int:
+        hashes = set()
+        for v in VALUES:
+            try:
+                p = payload_for(slider, v, waking=waking)
+                hashes.add(hashlib.sha1(p.encode()).hexdigest()[:10])
+            except Exception as e:                       # noqa: BLE001
+                hashes.add(f"ERR:{type(e).__name__}")
+        return len(hashes)
 
     names = sorted(set(list(SLIDER_INFO.keys())))
     print(f"\n{'='*78}")
@@ -131,13 +164,33 @@ def main() -> int:
         "adaptive_mode": "deprecated; also env-gated by "
                          "WINDY_ADAPTIVE_MODE_ENABLED=1 (correctly inert)",
     }
-    truly_dead = [(n, c) for n, c in dead if n not in ACTS_ELSEWHERE]
+    # A slider can also be inert on an ordinary turn and fully alive on
+    # the FIRST turn after /new. Don't assert that from a lookup table —
+    # re-measure those candidates against a waking prompt and let the
+    # bytes decide.
+    waking_only = [
+        (n, c) for n, c in dead
+        if n not in ACTS_ELSEWHERE and distinct_payloads(n, waking=True) > 1
+    ]
+    waking_names = {n for n, _ in waking_only}
+
+    truly_dead = [
+        (n, c) for n, c in dead
+        if n not in ACTS_ELSEWHERE and n not in waking_names
+    ]
     elsewhere = [(n, c) for n, c in dead if n in ACTS_ELSEWHERE]
 
     print(f"\nNO PROMPT EFFECT, but acts elsewhere ({len(elsewhere)}) — "
           f"not dead, just invisible to this probe:")
     for n, c in elsewhere:
         print(f"   {n:<24} ${c:.2f}/pt   -> {ACTS_ELSEWHERE[n]}")
+
+    print(f"\nWAKING-TURN ONLY ({len(waking_only)}) — byte-identical on an "
+          f"ordinary turn, but MEASURABLY live on the first turn after "
+          f"/new:")
+    for n, c in waking_only:
+        n_wake = distinct_payloads(n, waking=True)
+        print(f"   {n:<24} ${c:.2f}/pt   -> {n_wake} distinct waking payloads")
 
     print(f"\nTRULY DEAD ({len(truly_dead)}) — no consumer anywhere in src/:")
     for n, c in truly_dead:
