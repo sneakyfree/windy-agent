@@ -43,11 +43,75 @@ import signal
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
+# Windows consoles default to cp1252, and this harness prints the
+# agent's own replies — which contain the 🪰 emoji and em-dashes. Without
+# this the script dies with:
+#   UnicodeEncodeError: 'charmap' codec can't encode character '\U0001fab0'
+# i.e. exactly the class of bug the src/ encoding sweep fixed, in the
+# tooling that was supposed to be checking for it. errors="replace" so a
+# stray glyph degrades to a placeholder instead of killing the run.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
+
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
+
+IS_WINDOWS = os.name == "nt"
+
+
+def _spawn_kwargs() -> dict:
+    """Popen kwargs that put the child in its OWN process group.
+
+    Needed so the kill takes the whole tree rather than just the shell
+    that launched it. ``start_new_session`` is POSIX-only; Windows wants
+    a creation flag instead.
+    """
+    if IS_WINDOWS:
+        return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+    return {"start_new_session": True}
+
+
+def _hard_kill(proc: subprocess.Popen) -> bool:
+    """Kill the process tree as ungracefully as the platform allows.
+
+    The point of this harness is death WITHOUT cleanup: the write-queue
+    thread lives in the agent's process, and we want it gone mid-flush,
+    not handed a chance to drain. Anything catchable (SIGTERM,
+    CTRL_BREAK) would let the agent tidy up and would test the easy path.
+
+    **This whole harness was POSIX-only until now**, which meant the test
+    that proves the agent survives being killed could not run on the
+    platform ~80% of users are on: ``os.killpg``, ``os.getpgid``,
+    ``signal.SIGKILL`` and ``start_new_session`` do not exist on Windows.
+    A survival claim verified only on the platforms nobody uses is not a
+    survival claim.
+
+    POSIX  → SIGKILL to the process group; uncatchable.
+    Windows→ ``taskkill /F /T`` on the pid; /T takes children too, and
+             /F is TerminateProcess, the closest thing to SIGKILL.
+             Falls back to Popen.kill() if taskkill is unavailable.
+    """
+    try:
+        if IS_WINDOWS:
+            r = subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                capture_output=True, timeout=30,
+            )
+            if r.returncode != 0:
+                proc.kill()      # TerminateProcess on this pid alone
+            return True
+        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        return True
+    except (ProcessLookupError, PermissionError, OSError):
+        return False
 
 
 def _integrity(db_path: Path) -> str:
@@ -112,7 +176,7 @@ def main() -> int:
     args = ap.parse_args()
 
     base = Path(args.out) if args.out else (
-        Path(os.environ.get("TMPDIR", "/tmp")) / "windy-chaos"
+        Path(tempfile.gettempdir()) / "windy-chaos"
     )
     run_dir = base / f"chaos_{time.strftime('%Y%m%d_%H%M%S')}"
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -137,7 +201,7 @@ def main() -> int:
         proc = subprocess.Popen(
             cmd, cwd=str(REPO),
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            start_new_session=True,        # kill the whole group, not just the shell
+            **_spawn_kwargs(),             # own process group, both platforms
         )
 
         delay = random.uniform(args.min_kill_delay, args.max_kill_delay)
@@ -145,14 +209,7 @@ def main() -> int:
 
         killed = False
         if proc.poll() is None:
-            # SIGKILL the process GROUP: the write-queue thread lives in
-            # the same process, and we want it dead mid-flush, not given
-            # a chance to drain. That is the whole point.
-            try:
-                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-                killed = True
-            except ProcessLookupError:
-                pass
+            killed = _hard_kill(proc)
         proc.wait(timeout=30)
         time.sleep(0.3)  # let the OS reap
 

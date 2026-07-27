@@ -29,6 +29,20 @@ import sys
 import tempfile
 from pathlib import Path
 
+# Windows consoles default to cp1252, and this harness prints the
+# agent's own replies — which contain the 🪰 emoji and em-dashes. Without
+# this the script dies with:
+#   UnicodeEncodeError: 'charmap' codec can't encode character '\U0001fab0'
+# i.e. exactly the class of bug the src/ encoding sweep fixed, in the
+# tooling that was supposed to be checking for it. errors="replace" so a
+# stray glyph degrades to a placeholder instead of killing the run.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
+
 REPO = Path(__file__).resolve().parents[2]
 
 
@@ -141,7 +155,8 @@ def scenario_corrupt_db() -> tuple[str, bool, str]:
         from windyfly.memory.database import Database
         db2 = Database(str(dbf))
         from windyfly.memory.write_queue import WriteQueue
-        wq2 = WriteQueue(); wq2.start()
+        wq2 = WriteQueue()
+        wq2.start()
         r = L.agent_respond(cfg, db2, wq2, "hello after corruption", "s-corrupt")
         wq2.stop()
         survived = isinstance(r, str) and len(r) > 0
@@ -198,7 +213,8 @@ def scenario_concurrent_writers() -> tuple[str, bool, str]:
     def writer(tag: str) -> None:
         try:
             db = Database(str(d / "f.db"))
-            wq = WriteQueue(); wq.start()
+            wq = WriteQueue()
+            wq.start()
             for i in range(N):
                 wq.enqueue(0, save_episode, db, "user", f"{tag}-{i}",
                            session_id=f"sess-{tag}")

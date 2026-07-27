@@ -3,13 +3,10 @@
 from __future__ import annotations
 
 import base64
-import os
-from pathlib import Path
 
 import pytest
 
 from windyfly.agent.capabilities.undo_journal import (
-    DEFAULT_RETENTION_DAYS,
     MAX_ORIGINAL_STATE_BYTES,
     append_record,
     capture_file_state,
@@ -210,7 +207,27 @@ def test_restore_undoes_delete_of_symlink(tmp_path, journal):
     }
     restore_from_record(record)
     assert link.is_symlink()
-    assert os.readlink(link) == str(real)
+    # Compare where the link POINTS, not how the OS spells it.
+    #
+    # `os.readlink` on Windows returns the extended-length form
+    # (\\?\C:\...) when reading a symlink back, regardless of what was
+    # written — so a raw string compare against a plain path fails there
+    # even though the restore is perfectly correct. (capture_file_state
+    # normalizes the prefix away when RECORDING, which is what the
+    # journal needs; this is the read side, and the OS decides.)
+    #
+    # `samefile` asks the filesystem whether two paths are the same file
+    # (device + inode / file-id), so no path SPELLING can affect it.
+    #
+    # Two earlier attempts here both failed on Windows for the same
+    # underlying reason:
+    #   - comparing os.readlink(link) to str(real) — readlink returns
+    #     the extended-length \\?\C:\... form when reading back
+    #   - comparing Path(...).resolve() on both sides — resolve()
+    #     PRESERVES that prefix on Windows, so it normalizes nothing
+    # The restore was correct every time; the assertion kept testing a
+    # string the OS owns instead of the property we care about.
+    assert link.samefile(real), "restored symlink does not point at the original file"
 
 
 def test_restore_undoes_overwrite(tmp_path, journal):

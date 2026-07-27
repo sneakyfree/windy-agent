@@ -40,6 +40,20 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+# Windows consoles default to cp1252, and this harness prints the
+# agent's own replies — which contain the 🪰 emoji and em-dashes. Without
+# this the script dies with:
+#   UnicodeEncodeError: 'charmap' codec can't encode character '\U0001fab0'
+# i.e. exactly the class of bug the src/ encoding sweep fixed, in the
+# tooling that was supposed to be checking for it. errors="replace" so a
+# stray glyph degrades to a placeholder instead of killing the run.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
+
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -284,14 +298,17 @@ def main() -> int:
         except Exception:
             time.sleep(0.05)
 
-        fj.write(json.dumps(rec) + "\n"); fj.flush()
+        fj.write(json.dumps(rec) + "\n")
+        fj.flush()
         fp.write(json.dumps({"turn": turn.index,
-                             "messages": captured["messages"]}) + "\n"); fp.flush()
+                             "messages": captured["messages"]}) + "\n")
+        fp.flush()
 
         if args.sleep:
             time.sleep(args.sleep)
 
-    fj.close(); fp.close()
+    fj.close()
+    fp.close()
     wq.stop()
     print(f"[marathon] done — {findings_path}")
     return 0

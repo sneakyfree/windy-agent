@@ -21,10 +21,26 @@ every miss looks the same and you tune the wrong half.
 
 from __future__ import annotations
 
+import sys
+
 import argparse
 import json
 from collections import defaultdict
 from pathlib import Path
+
+# Windows consoles default to cp1252, and this harness prints the
+# agent's own replies — which contain the 🪰 emoji and em-dashes. Without
+# this the script dies with:
+#   UnicodeEncodeError: 'charmap' codec can't encode character '\U0001fab0'
+# i.e. exactly the class of bug the src/ encoding sweep fixed, in the
+# tooling that was supposed to be checking for it. errors="replace" so a
+# stray glyph degrades to a placeholder instead of killing the run.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
 
 
 def main() -> int:
@@ -48,7 +64,7 @@ def main() -> int:
               f"p95={lat[int(len(lat)*0.95)]}ms  max={lat[-1]}ms")
 
     # --- Prompt growth: is the payload actually bounded? ---------------
-    print(f"\n--- PAYLOAD SIZE (is the prompt bounded by construction?) ---")
+    print("\n--- PAYLOAD SIZE (is the prompt bounded by construction?) ---")
     buckets: dict[int, list[int]] = defaultdict(list)
     for r in rows:
         if r.get("payload_chars"):
@@ -60,7 +76,7 @@ def main() -> int:
               f"max={max(vals):>7}")
 
     # --- The curve ------------------------------------------------------
-    print(f"\n--- RECALL vs DISTANCE (turns since the fact was told) ---")
+    print("\n--- RECALL vs DISTANCE (turns since the fact was told) ---")
     by_dist: dict[int, list[dict]] = defaultdict(list)
     for p in probes:
         by_dist[p["distance"]].append(p)
@@ -77,7 +93,7 @@ def main() -> int:
         print(f"  {d:>5} {n:>4} {pct:>7.0f}% {rm:>10} {gm:>9}   {bar}")
 
     # --- Per fact -------------------------------------------------------
-    print(f"\n--- PER FACT ---")
+    print("\n--- PER FACT ---")
     by_fact: dict[str, list[dict]] = defaultdict(list)
     for p in probes:
         by_fact[p["fact_key"]].append(p)
