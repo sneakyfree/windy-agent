@@ -43,8 +43,23 @@ import signal
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
+
+# Windows consoles default to cp1252, and this harness prints the
+# agent's own replies — which contain the 🪰 emoji and em-dashes. Without
+# this the script dies with:
+#   UnicodeEncodeError: 'charmap' codec can't encode character '\U0001fab0'
+# i.e. exactly the class of bug the src/ encoding sweep fixed, in the
+# tooling that was supposed to be checking for it. errors="replace" so a
+# stray glyph degrades to a placeholder instead of killing the run.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
@@ -161,7 +176,7 @@ def main() -> int:
     args = ap.parse_args()
 
     base = Path(args.out) if args.out else (
-        Path(os.environ.get("TMPDIR", "/tmp")) / "windy-chaos"
+        Path(tempfile.gettempdir()) / "windy-chaos"
     )
     run_dir = base / f"chaos_{time.strftime('%Y%m%d_%H%M%S')}"
     run_dir.mkdir(parents=True, exist_ok=True)

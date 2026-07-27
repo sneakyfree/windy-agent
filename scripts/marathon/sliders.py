@@ -25,11 +25,28 @@ import sys
 import tempfile
 from pathlib import Path
 
+# Windows consoles default to cp1252, and this harness prints the
+# agent's own replies — which contain the 🪰 emoji and em-dashes. Without
+# this the script dies with:
+#   UnicodeEncodeError: 'charmap' codec can't encode character '\U0001fab0'
+# i.e. exactly the class of bug the src/ encoding sweep fixed, in the
+# tooling that was supposed to be checking for it. errors="replace" so a
+# stray glyph degrades to a placeholder instead of killing the run.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
+
 VALUES = [0, 2, 3, 5, 7, 8, 10]
 
 
 def main() -> int:
-    tmp = Path(tempfile.mkdtemp(dir="/tmp"))
+    # No dir= — hardcoding "/tmp" makes this harness unrunnable on
+    # Windows, the platform it most needs to check. gettempdir() is
+    # correct everywhere.
+    tmp = Path(tempfile.mkdtemp())
     os.environ["HOME"] = str(tmp)
     os.environ["WINDY_STATE_DIR"] = str(tmp / "state")
     os.environ["WINDYFLY_DB_PATH"] = str(tmp / "s.db")
