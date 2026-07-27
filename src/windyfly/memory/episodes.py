@@ -121,6 +121,86 @@ def get_recent_episodes(
     )
 
 
+def _escape_like(value: str) -> str:
+    r"""Escape LIKE wildcards so a channel id can't act as a pattern.
+
+    A channel id is normally numeric, but nothing guarantees it: a
+    Matrix room or a future adapter could hand us ``%`` or ``_``, and
+    an unescaped ``%`` would widen the prefix match to OTHER channels
+    — i.e. leak one conversation's history into another's prompt.
+    Paired with ``ESCAPE '\'`` at the call site.
+    """
+    return (
+        value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    )
+
+
+def get_prior_session_episodes(
+    db: Database,
+    session_id: str,
+    *,
+    char_budget: int,
+    hard_limit: int = 800,
+) -> list[dict]:
+    """Episodes from EARLIER sessions of the same channel, newest-first.
+
+    This is what the agent reads when it wakes up after ``/new``.
+
+    ``session_id`` is ``"{platform}:{channel_id}:v{N}"``; earlier
+    sessions of the same conversation share the
+    ``"{platform}:{channel_id}:"`` prefix. We deliberately scope to the
+    same channel — a Telegram DM's history must not surface in a
+    different chat — and exclude the current session, whose episodes
+    the caller already loads through ``get_recent_episodes``.
+
+    Accumulates newest-first until ``char_budget`` is spent, so the
+    block is bounded by CONSTRUCTION rather than by episode count.
+    That matters: episode length varies wildly, and a count-based cap
+    is really an unbounded character cap wearing a hat. ``hard_limit``
+    bounds the row scan itself so a pathological history of thousands
+    of one-word turns can't spin here; it is set generously (800) so
+    that ``char_budget`` is what actually binds at every slider
+    setting, including the deepest.
+
+    Returns [] for legacy/unparseable session ids rather than falling
+    back to an unscoped query — reading the wrong conversation is far
+    worse than reading nothing.
+    """
+    if char_budget <= 0:
+        return []
+
+    from windyfly.agent.session_reset import parse_session_id
+
+    platform, channel_id, _version = parse_session_id(session_id)
+    if not platform or not channel_id:
+        return []
+
+    prefix = f"{platform}:{channel_id}:"
+    rows = db.fetchall(
+        r"""
+        SELECT * FROM episodes
+        WHERE session_id LIKE ? ESCAPE '\'
+          AND session_id != ?
+          AND role IN ('user', 'assistant')
+        ORDER BY created_at DESC, rowid DESC
+        LIMIT ?
+        """,
+        (_escape_like(prefix) + "%", session_id, hard_limit),
+    )
+
+    out: list[dict] = []
+    spent = 0
+    for row in rows:
+        cost = len(row.get("content") or "")
+        # Always take at least one, so a single long episode still
+        # yields something rather than an empty block.
+        if out and spent + cost > char_budget:
+            break
+        out.append(row)
+        spent += cost
+    return out
+
+
 def search_episodes(
     db: Database,
     query: str,
