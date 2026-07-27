@@ -53,9 +53,13 @@ SLIDER_INFO: dict[str, dict[str, str]] = {
     },
     "memory_depth": {
         "label": "Memory Depth",
-        "description": "How many knowledge facts about you are injected into every conversation.",
-        "impact_low": "Remembers almost nothing about you. Light and fast.",
-        "impact_high": "Full life-graph recall — your name, preferences, history. Costs ~5-10% of your token budget.",
+        "description": (
+            "How far back I read our old conversations when I wake up "
+            "after a /new. Costs nothing during the chat — it's read "
+            "once, on the first message."
+        ),
+        "impact_low": "Start each fresh chat with a clean slate. I'll still look things up if you ask.",
+        "impact_high": "Re-read a long stretch of our history the moment I wake up, so you never repeat yourself.",
     },
     "context_window": {
         "label": "Context Window",
