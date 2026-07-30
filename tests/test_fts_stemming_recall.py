@@ -150,6 +150,69 @@ def test_migration_is_idempotent(db_path):
         db.close()
 
 
+def test_migration_survives_a_concurrent_creator(db_path):
+    """The losing side of the migration race must not crash.
+
+    ``_run_migrations`` opens BEGIN EXCLUSIVE, but several migration
+    bodies call ``executescript``, which implicitly COMMITs and hands
+    the write lock back mid-loop — so a second opener really can run
+    this body while the first is still inside it. The first version of
+    migration 11 used a bare ``CREATE VIRTUAL TABLE`` and the loser
+    died with "table episodes_fts already exists".
+
+    Timing alone is a bad way to test this: it passed on macOS through
+    640 concurrent opens and failed on the Linux CI runner first try.
+    So the interleaving is injected rather than raced for — another
+    connection creates the table in the window between this body's DROP
+    and its CREATE, which is exactly the losing schedule.
+    """
+    from windyfly.memory import database as db_mod
+
+    db = Database(db_path)
+    try:
+        save_episode(db, "user", "my dog is a beagle named Biscuit", session_id="s1")
+    finally:
+        db.close()
+    _downgrade_fts_to_unicode61(db_path)
+
+    victim = sqlite3.connect(db_path)
+    rival = sqlite3.connect(db_path)
+
+    class RacingConnection:
+        """Delegates to the real connection, but lets a rival opener
+        win the gap between our DROP and our CREATE."""
+
+        def __init__(self, conn):
+            self._conn = conn
+
+        def execute(self, sql, *a, **kw):
+            result = self._conn.execute(sql, *a, **kw)
+            if sql.strip().upper().startswith("DROP TABLE"):
+                rival.execute(
+                    "CREATE VIRTUAL TABLE IF NOT EXISTS episodes_fts USING fts5("
+                    "content, summary, content='episodes', content_rowid='rowid',"
+                    ' tokenize="porter unicode61")'
+                )
+                rival.commit()
+            return result
+
+        def __getattr__(self, name):
+            return getattr(self._conn, name)
+
+    try:
+        db_mod._migration_11_fts_porter_stemming(RacingConnection(victim))
+        victim.commit()
+    finally:
+        victim.close()
+        rival.close()
+
+    db = Database(db_path)
+    try:
+        assert search_episodes(db, "dogs", session_id="s1")
+    finally:
+        db.close()
+
+
 def test_migration_stays_inside_the_callers_transaction(db_path):
     """The migration must not commit the transaction it runs in.
 
