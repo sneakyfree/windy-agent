@@ -642,7 +642,21 @@ def _reload_oauth_token() -> bool:
         import json
         from pathlib import Path
 
-        creds = Path.home() / ".claude" / ".credentials.json"
+        # Overridable so the TEST SUITE can point this somewhere harmless.
+        # It was hard-coded to Path.home(), and this function *writes the
+        # token it finds into os.environ* — process-global, surviving every
+        # subsequent test. On any machine that has real Claude Code
+        # credentials on disk (the whole fleet: the 10-min cron drops them
+        # at ~/.claude/.credentials.json) a single auth-failure path in the
+        # suite loaded Grant's LIVE token into the run, after which every
+        # later test saw a working, configured, BILLABLE Anthropic
+        # provider. That is how the two lifeboat "paid is unreachable"
+        # tests failed on OC5 and passed on the Mac mini — which keeps its
+        # credentials in the macOS Keychain and so has no such file.
+        creds = Path(os.environ.get(
+            "WINDY_CLAUDE_CREDENTIALS_PATH",
+            str(Path.home() / ".claude" / ".credentials.json"),
+        ))
         if not creds.exists():
             return False
         fresh = (
