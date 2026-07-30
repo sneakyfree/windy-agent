@@ -169,9 +169,19 @@ async def test_cmd_stop_falls_back_when_systemctl_fails(fresh_commands, tmp_path
 
 @pytest.mark.asyncio
 async def test_cmd_stop_uses_pidfile_when_not_systemd_managed(fresh_commands, tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "data").mkdir()
-    (tmp_path / "data" / "windyfly.pid").write_text("brain=99999\n")
+    # Point the module's resolved pid path at the fixture rather than
+    # chdir-ing and writing a cwd-relative "data/windyfly.pid". That older
+    # form passed only because the path WAS cwd-relative — i.e. the test
+    # encoded the bug where /stop could not find the pid file when run from
+    # a different directory than the one the agent was started in. The
+    # resolution itself is covered by
+    # tests/test_lifecycle_paths_are_cwd_independent.py; what this test
+    # cares about is that cmd_stop consults the pid file at all.
+    from windyfly.commands import core as core_mod
+    pid_file = tmp_path / "data" / "windyfly.pid"
+    pid_file.parent.mkdir(parents=True, exist_ok=True)
+    pid_file.write_text("brain=99999\n")
+    monkeypatch.setattr(core_mod, "_PID_FILE", pid_file)
 
     with patch(
         "windyfly.platform.find_systemd_unit_for_pattern",
