@@ -48,8 +48,34 @@ _MODEL_LOCK = threading.RLock()
 
 
 def is_available() -> bool:
-    """True iff sentence-transformers is importable. Caches the result
-    so we don't pay the import cost more than once per process."""
+    """True iff sentence-transformers actually imports. Caches the
+    result so we don't pay the import cost more than once per process.
+
+    **Catches Exception, not ImportError — this is deliberate.** A
+    broken semantic install does not politely raise ImportError. Proven
+    on the OC5 Intel iMac, 2026-07-30:
+
+        NameError: name 'torch' is not defined
+          transformers/integrations/tensor_parallel.py:465
+
+    PyTorch shipped its last x86_64 macOS wheel at 2.2.2, so pip
+    resolves modern transformers/sentence-transformers against an
+    ancient torch and the packages disagree at import time. (The same
+    install also warns "Failed to initialize NumPy: _ARRAY_API not
+    found" — torch 2.2.2 built against NumPy 1.x, NumPy 2.x installed.)
+
+    With ``except ImportError`` that NameError escaped this probe. The
+    module's entire graceful-degradation contract — "no embeddings,
+    fall back to FTS5" — silently did not apply, and the memory
+    subsystem raised on a machine whose only sin was being an Intel
+    Mac. The supervisor then restarts into the same crash: the
+    OpenClaw death spiral, from an OPTIONAL extra.
+
+    Anything that goes wrong importing an optional dependency means the
+    same thing operationally: we don't have it. Degrade, don't raise.
+    (A native abort still isn't catchable here — see the note on
+    ``_load_model`` — but a Python-level failure now is.)
+    """
     global _AVAILABLE
     if _AVAILABLE is not None:
         return _AVAILABLE
@@ -61,6 +87,21 @@ def is_available() -> bool:
         logger.debug(
             "sentence-transformers not installed; semantic memory "
             "disabled. Install with: pip install windyfly[semantic]"
+        )
+    except Exception as exc:
+        # Installed but broken — a far worse state than absent, because
+        # the user believes they have semantic memory. Say so loudly
+        # ONCE, then behave exactly as if it were not installed.
+        _AVAILABLE = False
+        logger.warning(
+            "sentence-transformers is installed but failed to import "
+            "(%s: %s) — semantic memory DISABLED, falling back to "
+            "keyword-only retrieval. The agent is fully functional; "
+            "recall is lower. Common cause: a platform with no current "
+            "PyTorch wheel (e.g. Intel macOS, last supported at torch "
+            "2.2.2) leaving torch and transformers at incompatible "
+            "versions.",
+            type(exc).__name__, exc,
         )
     return _AVAILABLE
 

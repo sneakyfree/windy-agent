@@ -417,3 +417,68 @@ def test_semantic_pool_reaches_past_the_verbatim_window():
         f"semantic_pool default is {default}; anything near the "
         "30-episode verbatim window makes semantic search pointless"
     )
+
+
+class TestBrokenInstallDegradesGracefully:
+    """An OPTIONAL extra must never be able to crash the agent.
+
+    Proven on the OC5 Intel iMac, 2026-07-30: installing
+    sentence-transformers there yields an install that raises
+
+        NameError: name 'torch' is not defined
+
+    on import, because PyTorch's last x86_64 macOS wheel was 2.2.2 and
+    pip resolves modern transformers against it. ``is_available()``
+    guarded only ``except ImportError``, so that NameError escaped, the
+    memory subsystem raised, and the supervisor would restart straight
+    back into it — the OpenClaw death spiral, from an OPTIONAL
+    dependency, on a machine whose only sin was being an Intel Mac.
+
+    "Installed but broken" is worse than "absent": the user believes
+    they have semantic memory. Degrade, warn once, carry on.
+    """
+
+    @staticmethod
+    def _fail_import_with(monkeypatch, exc):
+        """Make ``import sentence_transformers`` raise ``exc``.
+
+        Uses a meta-path finder rather than patching ``builtins.__import__``
+        — patching that recurses once pytest's own machinery imports
+        through the replacement during teardown.
+        """
+        import sys
+
+        class ExplodingFinder:
+            def find_spec(self, name, path=None, target=None):
+                if name == "sentence_transformers":
+                    raise exc
+                return None
+
+        monkeypatch.delitem(sys.modules, "sentence_transformers", raising=False)
+        monkeypatch.setattr(sys, "meta_path", [ExplodingFinder(), *sys.meta_path])
+        from windyfly.memory import embeddings
+        monkeypatch.setattr(embeddings, "_AVAILABLE", None)
+        return embeddings
+
+    def test_non_importerror_does_not_escape(self, monkeypatch):
+        """The exact OC5 failure."""
+        e = self._fail_import_with(
+            monkeypatch, NameError("name 'torch' is not defined"),
+        )
+        assert e.is_available() is False
+
+    def test_arbitrary_exception_types_are_survived(self, monkeypatch):
+        """A broken native dep can surface almost anything; every
+        Python-level failure means the same thing operationally."""
+        for exc in (NameError("x"), RuntimeError("x"), OSError("x"),
+                    AttributeError("x"), ValueError("x")):
+            e = self._fail_import_with(monkeypatch, exc)
+            assert e.is_available() is False, type(exc).__name__
+
+    def test_embed_returns_none_rather_than_raising(self, monkeypatch):
+        """Caller contract: embed() yields None and the agent carries on
+        with FTS5-only retrieval."""
+        e = self._fail_import_with(
+            monkeypatch, NameError("name 'torch' is not defined"),
+        )
+        assert e.embed("anything at all") is None
