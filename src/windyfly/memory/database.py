@@ -107,6 +107,11 @@ _MIGRATIONS: dict[int, tuple[str, str]] = {
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
 
+        -- Deliberately left on the default unicode61 tokenizer: this is
+        -- migration 1 and rewriting a shipped migration would give new
+        -- and existing databases different histories. Migration 11 drops
+        -- and rebuilds this table with "porter unicode61". Change it
+        -- THERE, not here.
         CREATE VIRTUAL TABLE IF NOT EXISTS episodes_fts
             USING fts5(content, summary, content='episodes', content_rowid='rowid');
 
@@ -312,6 +317,11 @@ _MIGRATIONS: dict[int, tuple[str, str]] = {
         "bounded autonomous loop. Idempotent ADD COLUMNs.",
         "__callable__",
     ),
+    11: (
+        "Rebuild episodes_fts with the porter stemmer so 'allergies' "
+        "matches 'allergic'. Measured +4 probes on the marathon corpus.",
+        "__callable__",
+    ),
     # NOTE — deliberately NOT adding an index on episodes(session_id,
     # created_at), though every turn filters on exactly that and it is
     # currently a full scan of a 29k-row table.
@@ -491,10 +501,64 @@ def _migration_10_goal_autorun(conn) -> None:
     """)
 
 
+def _migration_11_fts_porter_stemming(conn) -> None:
+    """Rebuild ``episodes_fts`` with the porter stemmer.
+
+    **Why.** Migration 1 created the FTS table with no ``tokenize=``
+    clause, so it got the default ``unicode61`` — which matches whole
+    words literally. Grandma does not reuse her own vocabulary: she
+    says "im allergic to penicillin" on Tuesday and asks "what did the
+    doctor say about my allergies" on Friday. ``allergies`` and
+    ``allergic`` are different strings, so the episode never came back
+    and the fact never reached the model.
+
+    Porter folds both to ``allergi``. Measured on the marathon corpus
+    (``scripts/marathon``, FTS5-only, same machine and harness): it
+    fixes 4 probes and breaks 0 — the miss set strictly shrinks. The
+    residual misses are true synonym gaps ("where do i keep my money"
+    → "i bank at Adirondack Trust") that stemming cannot reach and
+    only semantic retrieval earns.
+
+    **Why a rebuild is safe.** ``episodes_fts`` is an external-content
+    table (``content='episodes'``): it stores only the index, never the
+    sole copy of the text. Dropping it cannot lose data — the rows live
+    in ``episodes``, and ``'rebuild'`` regenerates the index from them.
+    The three triggers are defined on ``episodes`` and resolve
+    ``episodes_fts`` at fire time, so they survive the swap untouched.
+
+    **Why it doesn't stall the first launch.** Benchmarked at 30,000
+    episodes (larger than the biggest real DB, ~29k): **0.10s**. This
+    is a one-time cost on the first open after upgrade.
+
+    **Why ``execute`` and not ``executescript``.** ``_run_migrations``
+    wraps this in ``BEGIN EXCLUSIVE`` and rolls back on any exception,
+    but ``executescript`` issues an implicit COMMIT before it runs —
+    which would end that transaction and make the rollback a no-op.
+    Verified directly: with ``executescript``, a failure after the DROP
+    leaves the database with NO ``episodes_fts`` at all, and since
+    ``search_episodes`` swallows its exceptions the agent would then
+    retrieve nothing, silently, forever. Statement-at-a-time keeps the
+    drop and the recreate inside one atomic unit (SQLite DDL is
+    transactional), so a failure restores the old index intact.
+    """
+    conn.execute("DROP TABLE IF EXISTS episodes_fts")
+    conn.execute(
+        "CREATE VIRTUAL TABLE episodes_fts USING fts5("
+        "content, summary, content='episodes', content_rowid='rowid',"
+        ' tokenize="porter unicode61")'
+    )
+    conn.execute("INSERT INTO episodes_fts(episodes_fts) VALUES('rebuild')")
+    conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, description)"
+        " VALUES (11, 'episodes_fts rebuilt with porter stemming')"
+    )
+
+
 _CALLABLE_MIGRATIONS = {
     7: _migration_7_tracing,
     9: _migration_9_goal_pacing,
     10: _migration_10_goal_autorun,
+    11: _migration_11_fts_porter_stemming,
 }
 
 

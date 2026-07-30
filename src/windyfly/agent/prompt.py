@@ -868,4 +868,14 @@ def _extract_keywords(message: str, min_length: int = 3) -> str:
     }
     words = message.lower().split()
     keywords = [w.strip(".,!?;:'\"") for w in words if len(w) >= min_length and w.lower() not in stopwords]
-    return " ".join(keywords[:5])  # Limit to 5 keywords
+    # Six, not five, to agree with the cap in ``search_episodes`` —
+    # which already sliced ``[:6]``, so five was the silent winner and
+    # the sixth slot was dead code.
+    #
+    # The sixth token is worth real recall because English puts the
+    # answer-bearing noun LAST: "whats the date i always get sad about
+    # in june" spends its first five content words on filler and lands
+    # "june" in slot six. Measured on the marathon corpus: 5 -> 6 gains
+    # a probe; 6 -> 8, 10, 12 and uncapped all gain exactly nothing, so
+    # this stops at six rather than widening the OR and diluting bm25.
+    return " ".join(keywords[:6])
