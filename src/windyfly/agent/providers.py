@@ -120,18 +120,72 @@ BUILTIN_PROVIDERS: dict[str, dict[str, Any]] = {
     },
 }
 
-# Runtime overrides file — written by the dashboard / API
-_OVERRIDES_PATH = Path(os.environ.get(
-    "WINDYFLY_PROVIDERS_PATH",
-    "data/providers.json",
-))
+# Runtime overrides file — written by the dashboard / API.
+#
+# This used to be a module-level constant defaulting to the RELATIVE path
+# ``data/providers.json``, which meant three things at once:
+#
+#   1. **The agent's provider config depended on its working directory.**
+#      Launch it from anywhere but the repo root and the dashboard's saved
+#      providers silently vanished — or, worse, a different file loaded.
+#   2. **Resolved once at import**, so setting ``WINDYFLY_PROVIDERS_PATH``
+#      afterwards did nothing. Per-test isolation could not work.
+#   3. Consequently **the test suite read real operator state.** On the OC5
+#      iMac, `data/providers.json` held a live dashboard-saved OpenAI key,
+#      so `test_unconfigured_provider_is_skipped_silently` saw openai as
+#      configured and failed — along with two lifeboat tests — on that box
+#      and nowhere else. Three deterministic failures that looked like an
+#      Intel-specific bug and were really this line.
+#
+# Now resolved lazily, anchored to ``windy_state_dir()`` (the same base
+# ``models.py`` uses for provider cooldowns), so it is absolute, honours
+# ``WINDY_STATE_DIR``, and per-test isolation applies for free.
+_LEGACY_OVERRIDES_PATH = Path("data/providers.json")
+
+
+def _overrides_path() -> tuple[Path, bool]:
+    """Resolve the overrides file. Lazy on purpose — see the note above.
+
+    Returns ``(path, is_explicit)``. ``is_explicit`` matters: when a caller
+    has pinned the location via ``WINDYFLY_PROVIDERS_PATH`` — which the test
+    suite does — the cwd-relative legacy file must NOT be consulted at all.
+    A first attempt at this fix migrated the legacy file *into* the isolated
+    temp dir, faithfully re-importing the very contamination it was meant to
+    remove, and OC5's three failures survived unchanged.
+    """
+    explicit = os.environ.get("WINDYFLY_PROVIDERS_PATH")
+    if explicit:
+        return Path(explicit), True
+    from windyfly.platform import windy_state_dir
+    return windy_state_dir() / "providers.json", False
 
 
 def _load_overrides() -> dict[str, dict[str, Any]]:
     """Load provider overrides from disk (set via dashboard)."""
-    if _OVERRIDES_PATH.exists():
+    path, is_explicit = _overrides_path()
+    if not is_explicit and not path.exists() and _LEGACY_OVERRIDES_PATH.exists():
+        # Self-heal, once: an existing install has its providers in the old
+        # cwd-relative location. Losing a user's configured providers to a
+        # path change is exactly the trade Principle #8 forbids, so migrate
+        # rather than ignore. Best-effort — a read must never fail because
+        # the copy failed.
         try:
-            return json.loads(_OVERRIDES_PATH.read_text(encoding="utf-8"))
+            data = _LEGACY_OVERRIDES_PATH.read_text(encoding="utf-8")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(data, encoding="utf-8")
+            logger.info(
+                "migrated provider overrides %s -> %s",
+                _LEGACY_OVERRIDES_PATH, path,
+            )
+        except OSError as exc:
+            logger.warning(
+                "could not migrate provider overrides from %s (%s) — "
+                "reading them in place", _LEGACY_OVERRIDES_PATH, exc,
+            )
+            path = _LEGACY_OVERRIDES_PATH
+    if path.exists():
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             pass
     return {}
@@ -139,8 +193,9 @@ def _load_overrides() -> dict[str, dict[str, Any]]:
 
 def _save_overrides(overrides: dict[str, dict[str, Any]]) -> None:
     """Persist provider overrides to disk."""
-    _OVERRIDES_PATH.parent.mkdir(parents=True, exist_ok=True)
-    _OVERRIDES_PATH.write_text(json.dumps(overrides, indent=2), encoding="utf-8")
+    path, _ = _overrides_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(overrides, indent=2), encoding="utf-8")
 
 
 def get_all_providers(config: dict[str, Any] | None = None) -> dict[str, dict[str, Any]]:

@@ -118,6 +118,24 @@ def _isolate_production_flags(monkeypatch, tmp_path):
     # default AND holds provider-cooldowns.json + update-history.jsonl —
     # keep all of it out of the real ~/.windy on dev/prod machines.
     monkeypatch.setenv("WINDY_STATE_DIR", str(tmp_path / ".windy-state"))
+    # Provider overrides (2026-07-30): the dashboard writes a providers
+    # file holding REAL api_keys. Its default used to be the cwd-relative
+    # "data/providers.json", resolved at import, so on a standing checkout
+    # that had one — OC5 again — the suite loaded a live OpenAI key and
+    # three tests failed there and nowhere else. Same failure class as the
+    # .env bleed handled just below. Pin it explicitly: when set, the
+    # legacy cwd-relative file is not consulted at all.
+    monkeypatch.setenv("WINDYFLY_PROVIDERS_PATH",
+                       str(tmp_path / ".windy-state" / "providers.json"))
+    # Claude Code credentials (2026-07-30): models._reload_oauth_token()
+    # reads this file and writes the token it finds into os.environ —
+    # process-global, so it survives every later test. On any fleet box the
+    # credential-sync cron drops a REAL token at ~/.claude/.credentials.json,
+    # so one auth-failure path pulled a live billable key into the suite and
+    # two lifeboat "paid is unreachable" tests failed there and nowhere else.
+    # Point it at a path that does not exist.
+    monkeypatch.setenv("WINDY_CLAUDE_CREDENTIALS_PATH",
+                       str(tmp_path / ".no-claude-credentials.json"))
     # Correction distillation makes a real LLM call in production;
     # tests always use the deterministic template path.
     monkeypatch.setenv("WINDY_LLM_CORRECTIONS", "0")
