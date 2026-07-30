@@ -10,10 +10,28 @@ from pathlib import Path
 from datetime import datetime, timezone
 
 from windyfly.commands.registry import Command, registry
-from windyfly.platform import get_project_root
+from windyfly.platform import get_data_dir, get_pid_path, get_project_root
 
 logger = logging.getLogger(__name__)
 PROJECT_ROOT = get_project_root()
+
+# Lifecycle files, resolved ABSOLUTELY against the project root.
+#
+# These were eight separate `_PID_FILE` literals — relative
+# to the CURRENT WORKING DIRECTORY. Start the agent from one directory and
+# run /stop from another and the stop path simply does not find the pid
+# file: it silently falls through to the pkill/systemctl fallbacks, and if
+# those miss too, the user is told nothing is running while it is. For a
+# non-systemd install (macOS, or a plain `windy start`) that is "I can't
+# turn it off and I can't restart it" — the failure grandma cannot work
+# around.
+#
+# `platform.get_pid_path()` already existed and did this correctly. It had
+# ZERO callers. `PROJECT_ROOT` was already computed right here on the line
+# above and simply not used for these. Nothing new is introduced; the
+# existing, correct machinery is just wired up.
+_PID_FILE = get_pid_path(PROJECT_ROOT)
+_LOCK_FILE = get_data_dir(PROJECT_ROOT) / "windyfly.lock"
 
 _db = None
 _config = None
@@ -62,7 +80,7 @@ def _register_all():
     _r("go", "One-command quickstart — hatch a new agent", "01_process", cmd_go)
 
     async def cmd_start(ctx):
-        pid_file = Path("data/windyfly.pid")
+        pid_file = _PID_FILE
         if pid_file.exists():
             try:
                 pid = int(pid_file.read_text(encoding="utf-8").strip().split("\n")[0].split("=")[1])
@@ -90,7 +108,7 @@ def _register_all():
                 info.unit, msg,
             )
 
-        pid_file = Path("data/windyfly.pid")
+        pid_file = _PID_FILE
         if pid_file.exists():
             try:
                 content = pid_file.read_text(encoding="utf-8")
@@ -136,8 +154,8 @@ def _register_all():
             )
 
         os.system("pkill -9 -f 'windyfly' 2>/dev/null")
-        Path("data/windyfly.pid").unlink(missing_ok=True)
-        Path("data/windyfly.lock").unlink(missing_ok=True)
+        _PID_FILE.unlink(missing_ok=True)
+        _LOCK_FILE.unlink(missing_ok=True)
         return "All Windy Fly processes force-killed. Lock files removed."
     _r("kill", "Force-kill everything (emergency)", "01_process", cmd_kill, dangerous=True)
 
@@ -177,7 +195,7 @@ def _register_all():
         if _init_time:
             up = int(time.time() - _init_time)
             return f"Uptime: {up // 3600}h {(up % 3600) // 60}m"
-        pid_file = Path("data/windyfly.pid")
+        pid_file = _PID_FILE
         if pid_file.exists():
             try:
                 for line in pid_file.read_text(encoding="utf-8").strip().split("\n"):
@@ -258,7 +276,7 @@ def _register_all():
         lines.append(f"  {'✓' if os.environ.get('WINDYMAIL_EMAIL') else '✗'} Windy Mail")
         lines.append(f"  {'✓' if os.environ.get('TWILIO_PHONE_NUMBER') else '✗'} Phone number")
         lines.append("\nProcess:")
-        pid_file = Path("data/windyfly.pid")
+        pid_file = _PID_FILE
         if pid_file.exists():
             lines.append("  ✓ Windy Fly is running (PID file exists)")
         else:
@@ -963,7 +981,7 @@ def _register_all():
             files = list(data_dir.rglob("*"))
             total_size = sum(f.stat().st_size for f in files if f.is_file()) / 1024 / 1024
             lines.append(f"Data directory: {len(files)} files, {total_size:.1f} MB")
-        pid_file = Path("data/windyfly.pid")
+        pid_file = _PID_FILE
         if pid_file.exists():
             lines.append(f"PID file exists: {pid_file.read_text(encoding="utf-8").strip()[:50]}")
         recovery = Path("data/provision_recovery.json")
@@ -2250,7 +2268,7 @@ def _register_budget_through_help():
 
     async def cmd_clean(ctx):
         cleaned = []
-        for f in [Path("data/windyfly.pid"), Path("data/windyfly.lock")]:
+        for f in [_PID_FILE, _LOCK_FILE]:
             if f.exists():
                 f.unlink()
                 cleaned.append(str(f))
