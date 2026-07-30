@@ -26,13 +26,20 @@ from pathlib import Path
 import httpx
 
 from windyfly import __version__
-from windyfly.platform import windy_state_dir
+from windyfly.platform import get_project_root, windy_state_dir
 
 logger = logging.getLogger(__name__)
 
 PYPI_URL = "https://pypi.org/pypi/windyfly/json"
 CHECK_INTERVAL = 86400  # 24 hours
-CACHE_FILE = Path("data/.update_check")
+# Anchored to the project root, not the cwd. As ``Path("data/...")`` this
+# resolved against whatever directory the user happened to be in, so the
+# 24-hour throttle silently reset every time they ran from somewhere new
+# — and the check re-fired on every start. Same class as the pid/lock
+# regression fixed in #339. ``get_data_dir`` is not used here because it
+# mkdirs eagerly, and this is module scope; the write path below creates
+# the directory when it actually needs it.
+CACHE_FILE = get_project_root() / "data" / ".update_check"
 
 
 def _history_path() -> Path:

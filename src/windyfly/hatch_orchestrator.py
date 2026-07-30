@@ -20,8 +20,9 @@ import logging
 import os
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Callable, Optional
+
+from windyfly.platform import get_project_root
 
 logger = logging.getLogger(__name__)
 
@@ -799,7 +800,12 @@ def run_hatch(
 # Provisioning recovery
 # ---------------------------------------------------------------------------
 
-_RECOVERY_PATH = Path("data/provision_recovery.json")
+# Anchored to the project root, not the cwd. As ``Path("data/...")`` a
+# hatch that failed halfway wrote its recovery breadcrumb relative to
+# whatever directory the user ran from — so the retry, run from anywhere
+# else, saw no recovery file and started over from scratch instead of
+# resuming. Same class as the pid/lock regression fixed in #339.
+_RECOVERY_PATH = get_project_root() / "data" / "provision_recovery.json"
 
 
 def _save_recovery(result: HatchResult) -> None:

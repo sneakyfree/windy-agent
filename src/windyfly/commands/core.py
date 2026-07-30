@@ -976,7 +976,10 @@ def _register_all():
 
     async def cmd_audit(ctx):
         lines = ["🔍 Audit Report\n"]
-        data_dir = Path("data")
+        # Anchored to the project root: an audit that reports on whatever
+        # directory the user happened to run it from is worse than no
+        # audit, because "Data directory: 0 files" reads as reassurance.
+        data_dir = PROJECT_ROOT / "data"
         if data_dir.exists():
             files = list(data_dir.rglob("*"))
             total_size = sum(f.stat().st_size for f in files if f.is_file()) / 1024 / 1024
@@ -984,7 +987,9 @@ def _register_all():
         pid_file = _PID_FILE
         if pid_file.exists():
             lines.append(f"PID file exists: {pid_file.read_text(encoding="utf-8").strip()[:50]}")
-        recovery = Path("data/provision_recovery.json")
+        # Imported rather than re-spelled so the audit cannot drift from
+        # the path the orchestrator actually writes.
+        from windyfly.hatch_orchestrator import _RECOVERY_PATH as recovery
         if recovery.exists():
             lines.append("⚠ Provisioning recovery file exists — run /hatch to retry")
         return "\n".join(lines)
@@ -1458,7 +1463,11 @@ def _register_all():
         args = ctx.get("_args", [])
         if args and args[0] == "edit":
             return "Run 'windy soul edit' from terminal to open SOUL.md in your editor."
-        soul_path = Path("SOUL.md")
+        # Anchored to the project root: read from the cwd, /soul told the
+        # user "No SOUL.md found. Create one" whenever they ran from
+        # anywhere else — inviting them to overwrite the one document in
+        # the system that cannot be regenerated.
+        soul_path = PROJECT_ROOT / "SOUL.md"
         if soul_path.exists():
             content = soul_path.read_text(encoding="utf-8")[:500]
             return f"Current personality:\n{content}{'...' if len(soul_path.read_text(encoding="utf-8")) > 500 else ''}"
@@ -2149,7 +2158,12 @@ def _register_budget_through_help():
         args = ctx.get("_args", [])
         if args and args[0] == "set" and len(args) > 2:
             key, value = args[1], " ".join(args[2:])
-            env_path = Path(".env")
+            # Anchored to the project root. Run from anywhere else, this
+            # wrote a brand-new .env into that directory, set the value in
+            # the live process so it appeared to work, and lost it on
+            # restart — while scattering API keys into whatever folder the
+            # user happened to be standing in.
+            env_path = PROJECT_ROOT / ".env"
             lines = env_path.read_text(encoding="utf-8").split("\n") if env_path.exists() else []
             found = False
             for i, line in enumerate(lines):
@@ -2163,23 +2177,29 @@ def _register_budget_through_help():
             os.environ[key] = value
             return f"Config set: {key}={value}"
         if args and args[0] == "path":
+            # Resolved and printed absolute. "/config path" exists to
+            # answer "where does my stuff live?", and a relative answer
+            # that also ✗'d every line because of the cwd was the exact
+            # opposite of an answer.
+            db_override = os.environ.get("WINDYFLY_DB_PATH")
             paths = [
-                ("Config", "windyfly.toml"),
-                ("Environment", ".env"),
-                ("Personality", "SOUL.md"),
-                ("Database", os.environ.get("WINDYFLY_DB_PATH", "data/windyfly.db")),
-                ("Audio", "data/sounds/its-alive.wav"),
-                ("Logs", "data/windyfly.log"),
+                ("Config", PROJECT_ROOT / "windyfly.toml"),
+                ("Environment", PROJECT_ROOT / ".env"),
+                ("Personality", PROJECT_ROOT / "SOUL.md"),
+                ("Database", Path(db_override) if db_override
+                 else PROJECT_ROOT / "data" / "windyfly.db"),
+                ("Audio", PROJECT_ROOT / "data" / "sounds" / "its-alive.wav"),
+                ("Logs", PROJECT_ROOT / "data" / "windyfly.log"),
             ]
             lines = ["File locations:\n"]
             for label, p in paths:
-                exists = "✓" if Path(p).exists() else "✗"
+                exists = "✓" if p.exists() else "✗"
                 lines.append(f"  {exists} {label:14s} {p}")
             return "\n".join(lines)
         if args and args[0] == "reset":
             return "Run 'windy config reset' from terminal to re-run the setup wizard."
         lines = ["Configuration (secrets redacted):\n"]
-        env_path = Path(".env")
+        env_path = PROJECT_ROOT / ".env"
         if env_path.exists():
             for line in env_path.read_text(encoding="utf-8").strip().split("\n"):
                 if "=" in line and not line.startswith("#"):
@@ -2228,19 +2248,29 @@ def _register_budget_through_help():
         from datetime import datetime
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         filename = f"windyfly-backup-{timestamp}.tar.gz"
-        files_to_backup = []
-        for f in ["data/windyfly.db", ".env", "windyfly.toml", "SOUL.md"]:
-            if Path(f).exists():
-                files_to_backup.append(f)
-        for f in Path("data/sounds").glob("*"):
-            files_to_backup.append(str(f))
-        for f in Path("data").glob("birth_certificate_*.pdf"):
-            files_to_backup.append(str(f))
+        # Every source is resolved against the project root, not the cwd.
+        # Run from anywhere but the install directory, this used to match
+        # nothing and cheerfully report "Backup saved: ... (0 files)" —
+        # an empty archive the user only discovers when they try to
+        # restore from it. A backup that lies is worse than no backup.
+        #
+        # ``arcname`` keeps the entries relative so the tarball still
+        # unpacks over an install the way it always did.
+        files_to_backup: list[tuple[Path, str]] = []
+        for rel in ["data/windyfly.db", ".env", "windyfly.toml", "SOUL.md"]:
+            src = PROJECT_ROOT / rel
+            if src.exists():
+                files_to_backup.append((src, rel))
+        for f in sorted((PROJECT_ROOT / "data" / "sounds").glob("*")):
+            files_to_backup.append((f, str(f.relative_to(PROJECT_ROOT))))
+        for f in sorted((PROJECT_ROOT / "data").glob("birth_certificate_*.pdf")):
+            files_to_backup.append((f, str(f.relative_to(PROJECT_ROOT))))
         try:
             with tarfile.open(filename, "w:gz") as tar:
-                for f in files_to_backup:
-                    tar.add(f)
-            return f"Backup saved: {filename} ({len(files_to_backup)} files)"
+                for src, arcname in files_to_backup:
+                    tar.add(src, arcname=arcname)
+            saved_to = Path(filename).resolve()
+            return f"Backup saved: {saved_to} ({len(files_to_backup)} files)"
         except Exception as e:
             return f"Backup failed: {e}"
     _r("export", "Backup everything (db, config, soul, audio) to tar.gz", "11_maintenance", cmd_export,
