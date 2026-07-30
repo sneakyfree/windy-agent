@@ -44,8 +44,12 @@ def test_tier_defaults_pure_compute_is_open():
 
 
 def test_tier_defaults_full_machine_is_locked_down():
+    # OWNER since 2026-07-30. FULL_MACHINE is arbitrary code on the
+    # human's own machine, which is ownership rather than work, so it
+    # is not something a credential can earn. See
+    # tests/test_owner_band_boundary.py for the reasoning.
     d = defaults_for_tier(Tier.FULL_MACHINE)
-    assert d["band_required"] == Band.TRUSTED
+    assert d["band_required"] == Band.OWNER
     assert d["sandbox_tier"] == SandboxTier.DOCKER
     assert d["audit_required"] is True
 
@@ -134,11 +138,13 @@ def test_list_for_band_filters_correctly():
     r = CapabilityRegistry()
     r.register(_cap("dice", tier=Tier.PURE_COMPUTE))      # SANDBOX+
     r.register(_cap("read_url", tier=Tier.READ_EXTERNAL))  # USER+
-    r.register(_cap("shell", tier=Tier.FULL_MACHINE))     # TRUSTED+
+    r.register(_cap("shell", tier=Tier.FULL_MACHINE))     # OWNER only
 
     assert {c.id for c in r.list_for_band(Band.SANDBOX)} == {"dice"}
     assert {c.id for c in r.list_for_band(Band.USER)} == {"dice", "read_url"}
-    assert {c.id for c in r.list_for_band(Band.TRUSTED)} == {"dice", "read_url", "shell"}
+    # TRUSTED stops short of FULL_MACHINE — that is the whole point of
+    # the band existing rather than collapsing into OWNER.
+    assert {c.id for c in r.list_for_band(Band.TRUSTED)} == {"dice", "read_url"}
     assert {c.id for c in r.list_for_band(Band.OWNER)} == {"dice", "read_url", "shell"}
 
 
@@ -160,10 +166,16 @@ def test_tool_schemas_filtered_by_band():
     r.register(_cap("shell", tier=Tier.FULL_MACHINE))
     sandbox_schemas = r.tool_schemas_for_band(Band.SANDBOX)
     trusted_schemas = r.tool_schemas_for_band(Band.TRUSTED)
+    owner_schemas = r.tool_schemas_for_band(Band.OWNER)
     sandbox_names = {s["function"]["name"] for s in sandbox_schemas}
     trusted_names = {s["function"]["name"] for s in trusted_schemas}
+    owner_names = {s["function"]["name"] for s in owner_schemas}
     assert sandbox_names == {"dice"}
-    assert trusted_names == {"dice", "shell"}
+    # A TRUSTED session is never even TOLD that shell exists — the
+    # capability is filtered out of the schema list, not just refused
+    # at invoke time.
+    assert trusted_names == {"dice"}
+    assert owner_names == {"dice", "shell"}
 
 
 # ── Invoke + gating ────────────────────────────────────────────────
@@ -204,10 +216,10 @@ async def test_invoke_missing_capability_raises_keyerror():
 @pytest.mark.asyncio
 async def test_invoke_below_band_raises_capability_denied():
     r = CapabilityRegistry()
-    r.register(_cap("shell", tier=Tier.FULL_MACHINE))  # TRUSTED+
+    r.register(_cap("shell", tier=Tier.FULL_MACHINE))  # OWNER only
     with pytest.raises(CapabilityDenied) as excinfo:
         await r.invoke("shell", {}, Band.USER)
-    assert "TRUSTED" in str(excinfo.value)
+    assert "OWNER" in str(excinfo.value)
     assert "USER" in str(excinfo.value)
 
 

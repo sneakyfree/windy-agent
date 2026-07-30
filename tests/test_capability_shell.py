@@ -414,7 +414,9 @@ async def test_shell_exec_registered_at_full_machine_tier():
     cap = r.get("shell.exec")
     assert cap is not None
     assert cap.tier == Tier.FULL_MACHINE
-    assert cap.band_required == Band.TRUSTED
+    # OWNER since 2026-07-30 — arbitrary code on the human's machine
+    # cannot be earned by a credential. See test_owner_band_boundary.py.
+    assert cap.band_required == Band.OWNER
 
 
 @pytest.mark.asyncio
