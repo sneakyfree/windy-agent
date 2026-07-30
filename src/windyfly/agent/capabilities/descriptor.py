@@ -135,7 +135,24 @@ def defaults_for_tier(tier: Tier) -> dict[str, Any]:
             "undo_supported": False,
         },
         Tier.FULL_MACHINE: {
-            "band_required": Band.TRUSTED,
+            # OWNER, not TRUSTED. FULL_MACHINE means arbitrary code on
+            # the human's own computer — there is no meaningful ceiling
+            # on what it can do, so it cannot be earned by a credential.
+            # Before this, nothing in the entire registry required
+            # OWNER: TRUSTED bought 100% of the surface, shell.exec
+            # included. That was invisible because no code path yet
+            # ISSUES a TRUSTED band — resolve_band() returns only
+            # OWNER, SANDBOX, or USER — so the gap only opens the day
+            # passport-issued TRUSTED sessions ship. Fixed before that,
+            # not after.
+            #
+            # This does not gate the human: local and unattributed
+            # callers already resolve to OWNER (loop.py's `band is None
+            # -> Band.OWNER`, identity.py's operator branch), so the
+            # owner's own shell access is unchanged. It gates a
+            # *stranger's* credentialed bot, which is #6's question,
+            # not #8's second clause.
+            "band_required": Band.OWNER,
             "sandbox_tier": SandboxTier.DOCKER,
             "reversibility": Reversibility.WRITE_DESTRUCTIVE,
             "audit_required": True,

@@ -567,4 +567,6 @@ def test_setup_module_registers_three_capabilities():
     # save_credential must require a higher band than status/start
     from windyfly.agent.capabilities.descriptor import Band, Tier
     assert registry.get("setup.save_credential").tier == Tier.WRITE_DESTRUCTIVE
-    assert registry.get("setup.save_credential").band_required == Band.TRUSTED
+    # OWNER since 2026-07-30 — saving a credential changes WHOSE
+    # accounts the agent acts on, which is ownership, not work.
+    assert registry.get("setup.save_credential").band_required == Band.OWNER

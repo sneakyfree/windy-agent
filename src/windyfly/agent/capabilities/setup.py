@@ -31,12 +31,13 @@ Gmail / Calendar still return ``{ok: false, kind:
 Security
 --------
 
-``setup.save_credential`` is ``Tier.WRITE_DESTRUCTIVE`` (TRUSTED+
-band, audited). Even though the env-file write is reversible, the
-blast radius (redirecting the bot's identity to someone else's
-account) deserves a band gate above ``USER``. Combined with the
-upfront API validation, the threat model is "operator does the right
-thing" which is acceptable for a single-user bot.
+``setup.save_credential`` is ``Tier.WRITE_DESTRUCTIVE``, audited, and
+pinned to ``band_required = OWNER`` explicitly. Even though the
+env-file write is reversible, the blast radius — redirecting the bot's
+identity to someone else's account — makes this an escalation path
+rather than a task, so it is not something a credential can earn. It
+sat at TRUSTED until 2026-07-30, which was invisible only because no
+code path yet issues a TRUSTED band.
 """
 
 from __future__ import annotations
@@ -48,7 +49,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from windyfly.agent.capabilities.descriptor import Capability, Tier
+from windyfly.agent.capabilities.descriptor import Band, Capability, Tier
 from windyfly.agent.capabilities.registry import CapabilityRegistry
 from windyfly.agent.setup_status import get_setup_status
 
@@ -528,6 +529,15 @@ def register_setup_capabilities(
         ),
         handler=setup_save_credential,
         tier=Tier.WRITE_DESTRUCTIVE,
+        # OWNER, overriding the tier's TRUSTED default. Writing a
+        # credential is not "doing the human's work" — it changes WHOSE
+        # accounts the agent acts on. A caller who can save a
+        # credential can point the bot's identity at their own account
+        # and inherit every integration built on it, which is an
+        # escalation path rather than a task. The blast-radius argument
+        # in this module's docstring already said as much; it just
+        # stopped one band short.
+        band_required=Band.OWNER,
         scope="credential_storage",
         audit_required=True,
         input_schema={
