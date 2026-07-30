@@ -540,10 +540,30 @@ def _migration_11_fts_porter_stemming(conn) -> None:
     retrieve nothing, silently, forever. Statement-at-a-time keeps the
     drop and the recreate inside one atomic unit (SQLite DDL is
     transactional), so a failure restores the old index intact.
+
+    **Why it re-checks instead of dropping unconditionally.** Two
+    concurrent ``Database()`` opens can both reach this body — see the
+    note in ``_run_migrations`` about ``executescript`` ending the
+    caller's EXCLUSIVE transaction early. A bare ``CREATE VIRTUAL
+    TABLE`` then fails the loser with "table episodes_fts already
+    exists", which is precisely the migration-4 race (P1-O4) in a new
+    costume. Migration 4 survives it by being idempotent; so is this.
     """
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'episodes_fts'"
+    ).fetchone()
+    if row and row[0] and "porter" in row[0].lower():
+        # Another opener already rebuilt it. Re-dropping would be
+        # correct but pointless work under contention.
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_version (version, description)"
+            " VALUES (11, 'episodes_fts rebuilt with porter stemming')"
+        )
+        return
+
     conn.execute("DROP TABLE IF EXISTS episodes_fts")
     conn.execute(
-        "CREATE VIRTUAL TABLE episodes_fts USING fts5("
+        "CREATE VIRTUAL TABLE IF NOT EXISTS episodes_fts USING fts5("
         "content, summary, content='episodes', content_rowid='rowid',"
         ' tokenize="porter unicode61")'
     )
@@ -716,6 +736,25 @@ class Database:
         only one writer runs the migration block at a time, and we
         re-check the version inside the transaction so the second
         thread becomes a no-op rather than replaying the SQL.
+
+        ⚠️ **That serialization is weaker than it looks.** Several
+        migration bodies use ``conn.executescript``, and executescript
+        issues an implicit COMMIT before it runs — ending the EXCLUSIVE
+        transaction opened here, mid-loop, and releasing the write lock
+        while later migrations are still pending. A second opener can
+        then acquire the lock, read a version that is already partly
+        advanced, and run the remaining migrations CONCURRENTLY with
+        the first.
+
+        The consequence for anyone adding a migration: **every
+        migration body must be independently idempotent.** Do not rely
+        on this transaction to make it a no-op for the loser of the
+        race. That is why migration 4 pairs DROP with
+        ``CREATE TABLE IF NOT EXISTS``, and why migration 11 re-checks
+        ``sqlite_master`` before rebuilding. A bare ``CREATE TABLE``
+        anywhere in this loop is a latent "table already exists" crash
+        on a busy multi-threaded open — it only ever reproduces under
+        real contention, so it will pass on your laptop and fail in CI.
         """
         if self._get_current_version() >= max(_MIGRATIONS.keys(), default=0):
             return  # Common path — already migrated.
