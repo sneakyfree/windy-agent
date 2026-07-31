@@ -286,9 +286,9 @@ async def _step_eternitas(
         from windyfly.eternitas.provision import get_eternitas_client
         from windyfly.eternitas.models import RegistrationRequest
 
-        # ADR-064 — registration mints the canonical signed certificate at
+        # ADR-064 — the hatch mints the canonical signed certificate at
         # Eternitas, so gather the ceremony detail (hardware, timezone) the
-        # certificate should carry BEFORE registering.
+        # certificate should carry BEFORE hatching.
         if not result.hardware_specs:
             try:
                 from windyfly.birth_certificate import collect_hardware_specs
@@ -302,7 +302,15 @@ async def _step_eternitas(
             hatch_tz = "UTC"
 
         client = get_eternitas_client(db=db, config=config)
-        passport = await client.register(
+        # THE CONSUMER DOOR. `/bots/auto-hatch`, the same door windy-pro
+        # brings the browser and mobile lanes through — one issuer, one
+        # door. The old path, `/bots/register`, needs an operator API key
+        # belonging to an already-VERIFIED operator; that key is blank on a
+        # fresh machine (and on Windy 0), so the terminal door used to 401
+        # and hand back no passport at all. `/bots/register` still exists
+        # for programmatic/enterprise callers who have such a key — it just
+        # has no business in a consumer ceremony.
+        passport = await client.auto_hatch(
             RegistrationRequest(
                 name=agent_name,
                 description=f"Windy Fly agent for {owner_name or owner_id or 'user'}",

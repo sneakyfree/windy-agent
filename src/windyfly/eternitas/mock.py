@@ -110,6 +110,16 @@ class MockEternitasClient:
             },
         )
 
+    async def auto_hatch(self, request: RegistrationRequest) -> EternitasPassport:
+        """Consumer-door parity with ``EternitasClient.auto_hatch``.
+
+        The mock has no operators and no gates, so the two doors are the
+        same act locally — but the method must exist, because the hatch
+        orchestrator now calls ``auto_hatch`` and must not care which
+        client it holds.
+        """
+        return await self.register(request)
+
     async def verify(self, passport_id: str) -> EternitasPassport | None:
         """Verify a passport exists and is active."""
         row = self.db.fetchone(
