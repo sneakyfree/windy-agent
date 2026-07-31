@@ -379,15 +379,21 @@ class TestBirthCertificateE2E:
             assert path.endswith(".pdf")
             assert "ET-L-SAVE01" in path
 
-    def test_certificate_number_format(self):
+    def test_no_local_certificate_number_can_be_minted(self):
+        """A second numbering scheme must not exist to be generated.
+
+        Eternitas is the one certificate authority; its certificate_no is
+        the only number. The retired ``WF-`` formula produced one on every
+        hatch that the orchestrator then always overwrote.
+        """
         from windyfly.birth_certificate import generate_birth_certificate
 
         cert = generate_birth_certificate(
             agent_name="FmtFly",
             passport_id="ET-L-FMT001",
         )
-        assert cert.certificate_number.startswith("WF-")
-        assert len(cert.certificate_number) == 11  # WF- + 8 hex chars
+        assert cert.certificate_number == ""
+        assert not cert.certificate_number.startswith("WF-")
 
     def test_hardware_specs_collected(self):
         from windyfly.birth_certificate import collect_hardware_specs
