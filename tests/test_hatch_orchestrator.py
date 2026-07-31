@@ -103,6 +103,69 @@ class TestOrchestration:
         assert any("Matrix" in e for e in result.errors)
 
 
+class TestPreAllocatedPassport:
+    """The browser and mobile doors start at windy-pro, which mints the
+    passport and hands it down. windy-agent must honour that handoff and
+    never mint a second one — one agent, one passport.
+
+    Regression: before this guard existed, `_step_eternitas` called
+    `client.register()` unconditionally, so a hatch handed passport A came
+    out running on a freshly minted passport B and A was orphaned in Pro's
+    database against the human's identity. Proven live 2026-07-31 against a
+    real Eternitas: one hatch, two passports, two certificates.
+    """
+
+    async def test_preallocated_passport_is_honoured_not_reminted(self, db, monkeypatch):
+        from windyfly.eternitas.mock import MockEternitasClient
+        from windyfly.eternitas.models import RegistrationRequest
+
+        # The lane that STARTED the ceremony (windy-pro) mints passport A.
+        upstream = MockEternitasClient(db)
+        passport_a = await upstream.register(RegistrationRequest(name="Minted By Pro"))
+        monkeypatch.setenv("ETERNITAS_PASSPORT", passport_a.passport_id)
+
+        # Watch for any registration attempt during the hatch.
+        registrations: list[str] = []
+        original_register = MockEternitasClient.register
+
+        async def spy_register(self, request):
+            registrations.append(request.name)
+            return await original_register(self, request)
+
+        monkeypatch.setattr(MockEternitasClient, "register", spy_register)
+
+        # A deliberately DIFFERENT agent name: the mock's register() is
+        # idempotent per name, so reusing the name would mask a re-mint.
+        result = await orchestrate_hatch("Handed Off Fly", db=db)
+
+        assert registrations == [], (
+            f"minted a second passport for an agent that already had one: {registrations}"
+        )
+        assert result.passport_id == passport_a.passport_id
+
+    async def test_preallocated_passport_adopts_its_existing_certificate(
+        self, db, monkeypatch
+    ):
+        """Fetch the certificate that already exists — do not mint another."""
+        from windyfly.eternitas.mock import MockEternitasClient
+        from windyfly.eternitas.models import RegistrationRequest
+
+        upstream = MockEternitasClient(db)
+        passport_a = await upstream.register(RegistrationRequest(name="Cert Handoff"))
+        monkeypatch.setenv("ETERNITAS_PASSPORT", passport_a.passport_id)
+
+        result = await orchestrate_hatch("Cert Handoff Fly", db=db)
+
+        assert result.certificate_number == passport_a.certificate["certificate_no"]
+
+    async def test_terminal_door_still_mints_when_no_passport_handed_in(self, db):
+        """The terminal door starts at windy-agent, so it keeps minting."""
+        result = await orchestrate_hatch("Terminal Door Fly", db=db)
+
+        assert result.passport_id.startswith("ET-L")
+        assert result.passport_status == "active"
+
+
 class TestHatchResult:
     def test_defaults(self):
         r = HatchResult()

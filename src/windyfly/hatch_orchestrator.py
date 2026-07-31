@@ -108,6 +108,7 @@ async def orchestrate_hatch(
     config: dict | None = None,
     db=None,
     on_event: EventCallback = None,
+    preallocated_passport: str = "",
 ) -> HatchResult:
     """Run the full hatch provisioning flow.
 
@@ -119,6 +120,13 @@ async def orchestrate_hatch(
     renderers) can stream ceremony progress live. Exceptions raised by
     the callback are swallowed — a misbehaving consumer must never
     block a hatch.
+
+    ``preallocated_passport`` is the passport a door that started the
+    ceremony elsewhere already minted (browser and mobile both start at
+    windy-pro). When set, this hatch adopts it and does NOT register —
+    one agent, one passport. Callers that know the handoff should pass it
+    explicitly; ``ETERNITAS_PASSPORT`` in the environment is honoured as
+    the documented fallback.
     """
     result = HatchResult(
         agent_name=agent_name,
@@ -139,7 +147,9 @@ async def orchestrate_hatch(
     # shape-stable. Consumers MUST gate their UI on `ok`, not on the
     # event name alone. See Wave 11 Bug #10/11.
     _emit(on_event, "eternitas.registering", {"agent_name": agent_name})
-    await _step_eternitas(result, agent_name, owner_id, owner_name, db, config)
+    await _step_eternitas(
+        result, agent_name, owner_id, owner_name, db, config, preallocated_passport
+    )
     _emit(on_event, "eternitas.registered", {
         "ok": bool(result.passport_id),
         "passport_id": result.passport_id,
@@ -255,8 +265,23 @@ async def _step_eternitas(
     owner_name: str,
     db,
     config: dict | None = None,
+    preallocated_passport: str = "",
 ) -> None:
-    """Register with Eternitas and get a passport."""
+    """Register with Eternitas and get a passport — unless one was handed to us.
+
+    THREE DOORS, ONE HALLWAY, ONE ISSUER (2026-07-31 contract). Whoever
+    STARTS the ceremony mints, exactly once, and passes the passport down;
+    a downstream step never mints. The browser and mobile doors start at
+    windy-pro, so they arrive here with a passport already allocated and we
+    adopt it. The terminal door starts here, so it still mints.
+    """
+    preallocated = (
+        preallocated_passport or os.environ.get("ETERNITAS_PASSPORT", "")
+    ).strip()
+    if preallocated:
+        await _adopt_preallocated_passport(result, preallocated, db, config)
+        return
+
     try:
         from windyfly.eternitas.provision import get_eternitas_client
         from windyfly.eternitas.models import RegistrationRequest
@@ -312,6 +337,72 @@ async def _step_eternitas(
     except Exception as exc:
         result.errors.append(f"Eternitas: {exc}")
         logger.warning("Hatch: Eternitas registration failed: %s", exc)
+
+
+async def _adopt_preallocated_passport(
+    result: HatchResult,
+    passport_number: str,
+    db,
+    config: dict | None = None,
+) -> None:
+    """Use a passport another door already minted. Never mint a second one.
+
+    Deliberately LOUD at INFO: which lane minted an agent's passport is the
+    first question anyone asks when identity looks wrong, and before this
+    guard existed the answer was invisible. If you are reading a hatch log
+    and do not see this line, this hatch minted its own passport.
+    """
+    logger.info(
+        "Hatch: using pre-allocated passport %s — skipping registration "
+        "(minted upstream by the lane that started the ceremony)",
+        passport_number,
+    )
+    result.passport_id = passport_number
+    result.passport_status = "active"
+
+    try:
+        from windyfly.eternitas.provision import get_eternitas_client
+
+        client = get_eternitas_client(db=db, config=config)
+
+        # Confirm Eternitas actually issued this. A lane must never run on
+        # an identity the issuer has never heard of — but a passport that
+        # fails to verify is NOT a licence to mint a replacement, because
+        # that is precisely the double-mint this guard exists to stop. We
+        # record the problem loudly and stay on the handed-in number, which
+        # is the one recorded against the human upstream.
+        existing = await client.verify(passport_number)
+        if existing is None:
+            result.errors.append(
+                f"Eternitas: pre-allocated passport {passport_number} did not "
+                "verify — using it anyway rather than minting a second one"
+            )
+            logger.warning(
+                "Hatch: pre-allocated passport %s did not verify", passport_number
+            )
+        else:
+            result.passport_status = existing.status
+            if getattr(existing, "ept_token", ""):
+                os.environ["ETERNITAS_PASSPORT_TOKEN"] = existing.ept_token
+                _persist_env_var("ETERNITAS_PASSPORT_TOKEN", existing.ept_token)
+
+        # Its certificate was minted with it — fetch, never re-mint.
+        certificate = await client.get_certificate(passport_number)
+        if certificate:
+            result.eternitas_certificate = certificate
+            result.certificate_number = certificate.get("certificate_no", "")
+        else:
+            logger.info(
+                "Hatch: no certificate yet for pre-allocated passport %s; "
+                "the birth-certificate step will retry the fetch",
+                passport_number,
+            )
+    except Exception as exc:
+        # Adoption is best-effort enrichment. The passport itself is
+        # already set, so the ceremony proceeds on the correct identity
+        # even when Eternitas is unreachable (#8 — stability first).
+        result.errors.append(f"Eternitas: pre-allocated passport lookup failed: {exc}")
+        logger.warning("Hatch: pre-allocated passport lookup failed: %s", exc)
 
 
 def _persist_env_var(key: str, value: str) -> None:

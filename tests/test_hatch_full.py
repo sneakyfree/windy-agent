@@ -101,9 +101,18 @@ class TestFullHatchIntegration:
         r2 = await orchestrate_hatch("idem-fly", db=db)
         assert r1.passport_id == r2.passport_id
 
-    async def test_hatch_different_agents_get_different_passports(self, db):
-        """Different agents get different passports."""
+    async def test_hatch_different_agents_get_different_passports(self, db, monkeypatch):
+        """Different agents get different passports.
+
+        A successful hatch exports ETERNITAS_PASSPORT — that is how the
+        agent it just hatched knows who it is. In production these two
+        hatches are two separate processes, so the second one starts with
+        a clean environment; here we clear it explicitly. Leaving it set
+        would be a handoff, and a hatch handed a passport adopts it rather
+        than minting a second (three doors, one hallway, one issuer).
+        """
         r1 = await orchestrate_hatch("fly-alpha", db=db)
+        monkeypatch.delenv("ETERNITAS_PASSPORT", raising=False)
         r2 = await orchestrate_hatch("fly-beta", db=db)
         assert r1.passport_id != r2.passport_id
 

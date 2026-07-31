@@ -93,6 +93,35 @@ class EternitasClient:
             logger.error("Eternitas verify connection error: %s", e)
             return None
 
+    async def get_certificate(self, passport_id: str) -> dict:
+        """Fetch the certificate of record already minted for a passport.
+
+        GET /api/v1/certificates/{passport}
+        No auth required (public endpoint).
+
+        Used by the pre-allocated-passport lane: when another door started
+        the ceremony and minted the passport, its certificate already
+        exists, so we FETCH it rather than mint a second one. Returns {}
+        when the certificate is absent (404) or Eternitas is unreachable —
+        never raises, because a missing certificate must not take the
+        ceremony down.
+        """
+        if not passport_id:
+            return {}
+        try:
+            async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+                resp = await client.get(
+                    f"{self.api_url}/api/v1/certificates/{passport_id}",
+                )
+                if resp.status_code == 404:
+                    return {}
+                resp.raise_for_status()
+                data = resp.json()
+                return data if isinstance(data, dict) else {}
+        except (httpx.HTTPError, ValueError) as e:
+            logger.warning("Eternitas certificate fetch failed for %s: %s", passport_id, e)
+            return {}
+
     async def lookup(self, agent_name: str) -> BotIdentity | None:
         """Look up a bot's public identity by name."""
         try:

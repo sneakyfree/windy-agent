@@ -170,6 +170,10 @@ def run(
                 owner_id=windy_identity_id,
                 owner_name=owner_name,
                 on_event=_emit_json,
+                # windy-pro started this ceremony and already minted the
+                # passport. Hand it down explicitly so the orchestrator
+                # adopts it instead of minting a second one.
+                preallocated_passport=passport_number,
             )
         except Exception as exc:
             logger.exception("Hatch failed with exception")
