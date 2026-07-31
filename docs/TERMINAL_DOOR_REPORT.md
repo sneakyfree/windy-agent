@@ -1,8 +1,15 @@
 # The terminal door — where it goes and where it diverges
 
 **Written 2026-07-31 for TASK 5 of the hatch-consolidation pack**
-(`eternitas/docs/hatch-consolidation/01-windy-agent.md`). Report only —
-nothing in the terminal lane was changed in this pass.
+(`eternitas/docs/hatch-consolidation/01-windy-agent.md`).
+
+> **UPDATE 2026-07-31 — Divergences 1 and 2 are CLOSED.** Grant approved
+> moving the terminal door to the consumer endpoint the same day this was
+> written: *"windy go should use the same public door as the browser… Moving
+> it to /bots/auto-hatch fixes it and is what 'one door' meant."* Shipped in
+> PR #349. The two sections below are kept as the record of what was wrong
+> and how it was proven; each is marked with what replaced it. Divergences 3
+> and 4 are unchanged.
 
 Everything below marked **VERIFIED** was established by running it. Everything
 marked **READ** was established by reading the code. That distinction has
@@ -40,7 +47,7 @@ It reaches the same **issuer** too: Eternitas, via `EternitasClient`.
 
 ---
 
-## Divergence 1 — a different endpoint on the same issuer 🔴
+## Divergence 1 — a different endpoint on the same issuer ✅ CLOSED (PR #349)
 
 This is the one that matters, and it is the "two different Eternitas endpoints
 in use" the 2026-07-30 census found.
@@ -58,7 +65,11 @@ already-verified operators and leaves the consumer ceremony entirely."
 
 The terminal door is a consumer ceremony using the enterprise endpoint.
 
-## Divergence 2 — the terminal door cannot currently mint at all 🔴
+**CLOSED.** All three doors now enter through `POST /api/v1/bots/auto-hatch`.
+`/bots/register` is untouched and remains the programmatic/enterprise path for
+callers who already hold an operator key.
+
+## Divergence 2 — the terminal door cannot currently mint at all ✅ CLOSED (PR #349)
 
 **VERIFIED by running**, against a real Eternitas with no operator key set:
 
@@ -81,6 +92,36 @@ And the key is blank everywhere it is declared:
 So on a fresh laptop, and on the production agent host, `windy go` **cannot
 obtain a passport today**. It completes with `passport_id: ''` and a red
 Eternitas step.
+
+**CLOSED — re-verified by running the identical scenario after the change**
+(fresh home, no `ETERNITAS_OPERATOR_KEY`, no `ETERNITAS_PASSPORT`, no JWT,
+against a real Eternitas):
+
+```
+POST /api/v1/bots/auto-hatch "HTTP/1.1 201 Created"
+Hatch: Eternitas passport ET26-V3KY-J8R5 issued
+Hatch: Eternitas birth certificate saved to data/birth_certificate_ET26-V3KY-J8R5.pdf
+
+passport_id : 'ET26-V3KY-J8R5'
+certificate : 'ET-C261DD33'
+eternitas errors: NONE
+```
+
+No operator key needed, and the certificate is Eternitas's signed one, fetched
+not fabricated.
+
+**Gate check, done before shipping (VERIFIED, read-only on Kit 0).** Production
+Eternitas has *neither* `TURNSTILE_SECRET_KEY` *nor* `AUTO_HATCH_REQUIRE_PRO_JWT`
+set — its boot log carries the `HUMAN DOOR IS OPEN` warning — so the anonymous
+consumer door is reachable today and the terminal lane works without a JWT. The
+client sends `ETERNITAS_OPERATOR_JWT` as a Bearer when one is present, because
+authenticated callers skip both gates; that is the migration path for the day
+Eternitas closes the door, and it needs no further change here.
+
+⚠️ **Separately, for the Eternitas owner:** that same finding means anyone can
+currently mint unlimited passports against production for free. That is an
+Eternitas-side decision (Turnstile secret or the pro-JWT flag), not a
+windy-agent one, but it is worth closing before the August bootcamps.
 
 Windy 0 is unaffected in practice because it already holds an
 `ETERNITAS_PASSPORT` from an earlier hatch — and after the pre-allocated-passport
@@ -126,13 +167,8 @@ are all presentation and need no action:
 
 ## Recommendations (not done in this pass)
 
-1. **Point the terminal door at `/bots/auto-hatch`.** It is the consumer door,
-   it needs no operator key, and it is where the human-verification gate lives.
-   This closes Divergence 1 and 2 together and is the single change that makes
-   "one issuer, one door" literally true. Needs a decision on how Turnstile is
-   satisfied from a terminal — likely the same anonymous path, since
-   `auto_hatch_require_pro_jwt` and `turnstile_secret_key` are both server-side
-   flags.
+1. ~~**Point the terminal door at `/bots/auto-hatch`.**~~ **DONE — PR #349.**
+   Approved by Grant 2026-07-31 and shipped the same day.
 2. **Pass `config` into `orchestrate_hatch` from both doors**, so
    `windyfly.toml` stops being decorative. Note this flips precedence
    (config would win over env), so it wants its own PR and a check of what

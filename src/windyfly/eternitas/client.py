@@ -74,6 +74,75 @@ class EternitasClient:
             logger.error("Eternitas registration failed: %s", e)
             raise
 
+    async def auto_hatch(self, request: RegistrationRequest) -> EternitasPassport:
+        """Hatch a passport through the CONSUMER door.
+
+        POST /api/v1/bots/auto-hatch
+        Auth: none required — this is the anonymous human door, and the
+        route's own docstring calls it "the normie path for `windy go`
+        hatches". It creates the self-registered operator for us.
+
+        This is the door the browser and mobile lanes already come through
+        (via windy-pro), so the terminal door using it is what "one issuer,
+        one door" means. The alternative, /bots/register, demands an
+        operator API key belonging to an already-VERIFIED operator —
+        `ETERNITAS_OPERATOR_KEY` is blank on a fresh machine, so the
+        terminal door simply 401d and produced no passport.
+
+        An operator JWT is sent when one is available: authenticated callers
+        skip both the Turnstile challenge and any `auto_hatch_require_pro_jwt`
+        gate, neither of which a terminal can satisfy on its own.
+        """
+        headers: dict[str, str] = {"Content-Type": "application/json"}
+        operator_jwt = os.environ.get("ETERNITAS_OPERATOR_JWT", "")
+        if operator_jwt:
+            headers["Authorization"] = f"Bearer {operator_jwt}"
+
+        payload = request.to_auto_hatch_payload()
+        # Only relevant if the deployment has turned Turnstile on. A terminal
+        # has no browser to solve a challenge in, so this is normally empty
+        # and the gate is expected to be satisfied by the JWT above instead.
+        turnstile_token = os.environ.get("ETERNITAS_TURNSTILE_TOKEN", "")
+        if turnstile_token:
+            payload["turnstile_token"] = turnstile_token
+
+        try:
+            async with httpx.AsyncClient(timeout=_REGISTER_TIMEOUT) as client:
+                resp = await client.post(
+                    f"{self.api_url}/api/v1/bots/auto-hatch",
+                    json=payload,
+                    headers=headers,
+                )
+                resp.raise_for_status()
+                return EternitasPassport.from_api_response(resp.json())
+        except httpx.ConnectError as e:
+            logger.error("Eternitas auto-hatch connection error: %s", e)
+            raise
+        except httpx.HTTPStatusError as e:
+            # Translate the gate responses into something a person can act
+            # on. These surface in the hatch's error list and, for the
+            # terminal door, on a human's screen.
+            status = e.response.status_code
+            if status == 401:
+                raise RuntimeError(
+                    "Eternitas requires an account for this hatch. Sign in at "
+                    "account.windyword.ai and set ETERNITAS_OPERATOR_JWT, then "
+                    "run this again."
+                ) from e
+            if status == 403:
+                raise RuntimeError(
+                    "Eternitas could not confirm a human is running this hatch. "
+                    "Hatch from the web app at account.windyword.ai, or set "
+                    "ETERNITAS_OPERATOR_JWT to sign in from the terminal."
+                ) from e
+            if status == 429:
+                raise RuntimeError(
+                    "Eternitas rate limit: at most 5 hatches per hour. Wait an "
+                    "hour and try again."
+                ) from e
+            logger.error("Eternitas auto-hatch failed: %s", e)
+            raise
+
     async def verify(self, passport_id: str) -> EternitasPassport | None:
         """Verify a passport is valid and active.
 

@@ -28,6 +28,29 @@ class RegistrationRequest(BaseModel):
     hatch_timezone: str = Field(default="", exclude=True)
     hardware_specs: dict = Field(default_factory=dict, exclude=True)
 
+    def to_auto_hatch_payload(self) -> dict[str, Any]:
+        """Return the payload shape ``POST /api/v1/bots/auto-hatch`` expects.
+
+        The consumer door. Its request is flatter than ``/bots/register``'s —
+        the ceremony detail is top-level rather than nested under a
+        ``certificate`` seed — but Eternitas mints the same signed
+        certificate of record from it (owner_name, hatch_timezone,
+        machine_uuid, model_id, hardware_specs), so nothing is lost by
+        coming in this way.
+
+        Note ``intended_platforms`` has no home here: the endpoint does not
+        accept it and registers the bot with an empty list.
+        """
+        return {
+            "agent_name": self.name,
+            "creator_name": self.owner_name,
+            "creator_email": self.contact_email,
+            "model_id": self.model_id,
+            "machine_id": self.hatch_machine_id,
+            "hardware_specs": self.hardware_specs or {},
+            "hatch_timezone": self.hatch_timezone or "UTC",
+        }
+
     def to_api_payload(self) -> dict[str, Any]:
         """Return the payload shape the Eternitas API expects."""
         return {

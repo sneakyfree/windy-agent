@@ -167,7 +167,9 @@ class TestHatchEptPersistence:
         passport.ept_token = "ept-jwt-abc123"
 
         client = MagicMock()
-        client.register = MagicMock(return_value=_async_return(passport))
+        # The hatch mints through the CONSUMER door (/bots/auto-hatch); these
+        # tests are about EPT capture, not about which door it came through.
+        client.auto_hatch = MagicMock(return_value=_async_return(passport))
 
         with patch(
             "windyfly.eternitas.provision.get_eternitas_client",
@@ -201,7 +203,9 @@ class TestHatchEptPersistence:
         passport.status = "active"
         passport.ept_token = ""
         client = MagicMock()
-        client.register = MagicMock(return_value=_async_return(passport))
+        # The hatch mints through the CONSUMER door (/bots/auto-hatch); these
+        # tests are about EPT capture, not about which door it came through.
+        client.auto_hatch = MagicMock(return_value=_async_return(passport))
         with patch(
             "windyfly.eternitas.provision.get_eternitas_client",
             return_value=client,
