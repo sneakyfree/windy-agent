@@ -302,3 +302,21 @@ def _default_skip_state_emoji_prefix(request):
         side_effect=lambda text, tokens, max_tokens=200_000, **kw: text,
     ):
         yield
+
+
+@pytest.fixture(autouse=True)
+def _allow_fake_identity_in_tests(monkeypatch):
+    """Let the suite reach the local Eternitas mock.
+
+    `get_eternitas_client` refuses to fall back to `MockEternitasClient`
+    on an unconfigured run, because doing so silently minted passport
+    numbers Eternitas had never issued while the ceremony reported
+    success. Tests are a legitimate consumer of the mock, so they opt in
+    the same way an offline developer does — explicitly.
+
+    Tests that exercise the refusal itself just `monkeypatch.delenv` it;
+    fixtures run before the test body, so the delete wins.
+    """
+    from windyfly.eternitas.provision import FAKE_IDENTITY_OPTIN_ENV
+
+    monkeypatch.setenv(FAKE_IDENTITY_OPTIN_ENV, "1")
