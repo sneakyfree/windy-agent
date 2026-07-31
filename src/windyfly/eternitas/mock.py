@@ -120,6 +120,26 @@ class MockEternitasClient:
             return None
         return self._row_to_passport(row)
 
+    async def get_certificate(self, passport_id: str) -> dict:
+        """Return the certificate block already minted for a passport.
+
+        Mirrors ``EternitasClient.get_certificate``. The number is derived
+        exactly as ``register()`` derives it, so a passport minted here and
+        then adopted by a later hatch reports the same certificate number.
+        """
+        row = self.db.fetchone(
+            "SELECT * FROM eternitas_registry WHERE passport_id = ?",
+            (passport_id,),
+        )
+        if not row:
+            return {}
+        return {
+            "id": row["id"],
+            "certificate_no": f"ET-{row['id'][:8].upper()}",
+            "passport": row["passport_id"],
+            "signed_at": str(row.get("created_at", "")),
+        }
+
     async def lookup(self, agent_name: str) -> BotIdentity | None:
         """Look up a bot by name."""
         row = self.db.fetchone(
