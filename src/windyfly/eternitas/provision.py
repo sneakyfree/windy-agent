@@ -25,6 +25,16 @@ console = Console()
 PROJECT_ROOT = get_project_root()
 
 
+# Opt-in for the local mock. Named so that seeing it in a process list, a
+# systemd unit or a CI config tells you exactly what you are looking at:
+# this run does not produce a real Eternitas identity.
+FAKE_IDENTITY_OPTIN_ENV = "WINDYFLY_ALLOW_FAKE_IDENTITY"
+
+
+class FakeIdentityRefused(RuntimeError):
+    """Raised rather than silently minting a passport nobody issued."""
+
+
 @dataclass
 class EternitasProvisionResult:
     """Result of Eternitas provisioning during hatch."""
@@ -34,12 +44,28 @@ class EternitasProvisionResult:
     error: str = ""
 
 
+def _fake_identity_allowed() -> bool:
+    value = os.environ.get(FAKE_IDENTITY_OPTIN_ENV, "").strip().lower()
+    return value not in ("", "0", "false", "no", "off")
+
+
 def get_eternitas_client(db=None, config: dict | None = None):
     """Return the appropriate Eternitas client based on configuration.
 
     Checks ecosystem.eternitas_url from config, then the ETERNITAS_URL env var
-    (with ETERNITAS_API_URL as a deprecated fallback).
-    Uses real HTTP client when a URL is set, mock client otherwise.
+    (with ETERNITAS_API_URL as a deprecated fallback). Uses the real HTTP
+    client when a URL is set.
+
+    Falling back to the mock takes an EXPLICIT request — either a ``mock://``
+    URL or ``WINDYFLY_ALLOW_FAKE_IDENTITY``. It used to happen silently on
+    any unconfigured run, which meant the ceremony went green and handed
+    back a passport number Eternitas had never issued. A credential nobody
+    issued is the exact thing this platform exists to prevent, and looking
+    like success is worse than failing (00-THE-CONTRACT.md: "No lane may
+    fabricate identity. A lane that cannot reach Eternitas fails loudly.").
+
+    Raises:
+        FakeIdentityRefused: no issuer configured and no explicit opt-in.
     """
     from windyfly.eternitas.url import resolve_eternitas_url
 
@@ -52,6 +78,25 @@ def get_eternitas_client(db=None, config: dict | None = None):
     if api_url and not api_url.startswith("mock"):
         from windyfly.eternitas.client import EternitasClient
         return EternitasClient(api_url=api_url)
+
+    if not api_url:
+        if not _fake_identity_allowed():
+            raise FakeIdentityRefused(
+                "No Eternitas issuer is configured, so this run would mint a "
+                "LOCAL passport number that Eternitas has never issued and then "
+                "report success. Refusing.\n"
+                "  • To hatch a real identity: set ETERNITAS_URL="
+                "https://api.eternitas.ai (or ecosystem.eternitas_url in "
+                "windyfly.toml).\n"
+                f"  • For offline development with a FAKE identity: set "
+                f"{FAKE_IDENTITY_OPTIN_ENV}=1, or ETERNITAS_URL=mock://local."
+            )
+        logger.warning(
+            "%s is set — using the LOCAL MOCK registry. Passports minted in "
+            "this run are NOT real Eternitas identities and no ecosystem "
+            "service will honour them.",
+            FAKE_IDENTITY_OPTIN_ENV,
+        )
 
     # Mock mode — need a database
     if db is None:
