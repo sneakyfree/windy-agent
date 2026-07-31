@@ -299,7 +299,6 @@ def generate_birth_certificate(
     )
 
     waveform = generate_waveform_signature(first_words or agent_name)
-    cert_number = f"WF-{fingerprint[:8].upper()}"
 
     return BirthCertificate(
         agent_name=agent_name,
@@ -317,7 +316,14 @@ def generate_birth_certificate(
         first_words=first_words or "(awaiting first interaction)",
         neural_fingerprint=fingerprint,
         waveform_signature=waveform,
-        certificate_number=cert_number,
+        # DELIBERATELY EMPTY. Eternitas is the one certificate authority
+        # (ADR-064 / "Brick #1", 2026-07-17) and its certificate_no is the
+        # only certificate number that exists. This function used to mint a
+        # local ``WF-`` number here which the hatch then always overwrote —
+        # a second numbering scheme inside an identity system, generated on
+        # every hatch and never once surviving it. The caller fills this in
+        # from Eternitas; until then it is empty, which is the truth.
+        certificate_number="",
     )
 
 

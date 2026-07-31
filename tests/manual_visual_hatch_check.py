@@ -65,7 +65,8 @@ try:
         phone_number="+1-555-0199",
         hardware_specs=specs,
     )
-    report("Certificate number format", cert.certificate_number.startswith("WF-"), cert.certificate_number)
+    # No locally-minted number — Eternitas's certificate_no is the only one.
+    report("No local certificate number minted", cert.certificate_number == "", repr(cert.certificate_number))
     report("Neural fingerprint length", len(cert.neural_fingerprint) == 64, f"{len(cert.neural_fingerprint)} chars")
     report("Hardware specs on cert", bool(cert.hardware_specs.get("cpu")))
 except Exception as e:

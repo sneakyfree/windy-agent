@@ -86,7 +86,9 @@ class TestGenerateBirthCertificate:
         assert cert.passport_id == "ET-L00001"
         assert cert.neural_fingerprint != ""
         assert cert.waveform_signature != ""
-        assert cert.certificate_number.startswith("WF-")
+        # No locally-minted number: Eternitas is the one authority and the
+        # hatch fills this in from its certificate_no.
+        assert cert.certificate_number == ""
         assert cert.first_words == "I am alive!"
         assert cert.owner_name == "Grant"
 
