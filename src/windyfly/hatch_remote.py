@@ -36,7 +36,8 @@ logger = logging.getLogger("windyfly.hatch_remote")
 
 # Event names the gateway relays as SSE `event:` frames. Kept in order
 # here as documentation — the orchestrator itself decides when each
-# fires. Keep this list in sync with docs/HATCH_SSE_EVENTS.md.
+# fires, so hatch_orchestrator.py is the source of truth, not this list.
+# (This used to point at docs/HATCH_SSE_EVENTS.md, which does not exist.)
 EVENT_ORDER: list[str] = [
     "eternitas.registering",
     "eternitas.registered",

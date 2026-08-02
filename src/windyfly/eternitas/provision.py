@@ -1,7 +1,19 @@
 """Provision an Eternitas passport during agent hatch.
 
-Attempts the real Eternitas API first, falls back to MockEternitasClient
-for local development. Writes ETERNITAS_PASSPORT to .env on success.
+Eternitas is the ONE issuer. This module selects the client that talks to
+it and writes ``ETERNITAS_PASSPORT`` to .env on success.
+
+**It does NOT fall back to the mock.** An unconfigured run raises
+``FakeIdentityRefused``. Falling back silently is exactly the defect that
+was removed: it minted local ``ET-LXXXX`` numbers Eternitas had never
+issued and reported the hatch as a success, which is worse than failing
+because it looks like it worked. Reaching the mock now takes an explicit
+``WINDYFLY_ALLOW_FAKE_IDENTITY=1`` (or a ``mock://`` URL), and using it
+logs a warning on every run.
+
+If you are here to "restore the fallback for local development": don't —
+set the opt-in instead. See ``00-THE-CONTRACT.md`` in the eternitas repo,
+"No lane may fabricate identity."
 """
 
 from __future__ import annotations

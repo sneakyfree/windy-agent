@@ -1,12 +1,32 @@
 """Hatch orchestrator — the conductor of the 'Born Into' experience.
 
-Orchestrates all provisioning steps during agent hatch:
-1. Register with Eternitas (identity)
+**THIS IS THE HALLWAY.** Every windy-agent doorway converges here — the
+terminal (``windy go`` → ``quickstart`` → ``run_hatch``) and the remote
+handoff (``hatch_remote.py``, invoked by ``gateway/``). If you are looking
+for "where a hatch happens" in this repo, it is this file and nowhere else.
+
+Steps:
+1. Identity — ADOPT a pre-allocated passport, or mint one at Eternitas
 2. Provision Matrix bot (chat)
 3. Provision Windy Mail inbox (email)
 4. Provision phone number (SMS)
-5. Generate birth certificate (digital)
+5. FETCH the birth certificate of record from Eternitas
 6. Send hatch SMS (first contact)
+
+Two things about step 1 that are easy to get wrong:
+
+* **Whoever STARTS the ceremony mints, exactly once, and passes the
+  passport down; a downstream step never mints.** The browser and mobile
+  doorways start at windy-pro, so they arrive with a passport already
+  allocated and ``_adopt_preallocated_passport`` uses it. The terminal
+  doorway starts here, so it mints. Minting unconditionally gave one agent
+  two passports and orphaned the first — proven live 2026-07-31.
+* Minting goes through the **consumer** door, ``/bots/auto-hatch``, the
+  same one windy-pro uses. ``/bots/register`` needs an operator key that is
+  blank on a fresh machine and is reserved for enterprise callers.
+
+Step 5 fetches; it does not generate. Eternitas is the one certificate
+authority — see ``birth_certificate.py``.
 
 Each step is non-blocking — failures are captured but never prevent
 the hatch from completing.

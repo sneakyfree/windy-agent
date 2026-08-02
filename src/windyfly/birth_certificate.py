@@ -1,7 +1,26 @@
-"""Digital birth certificate generation for Windy Fly agents.
+"""Birth-certificate DISPLAY DATA and preview rendering for Windy Fly agents.
 
-Generates a PDF and terminal-rendered birth certificate at hatch time,
-including a neural fingerprint, first words, and waveform signature.
+**This module does not issue birth certificates. Eternitas does.**
+(ADR-064 / "Brick #1", 2026-07-17: Eternitas is the one certificate
+authority; every lane here is a thin fetch client.)
+
+What this module actually contributes to a hatch:
+
+* the decorative **neural fingerprint** and **waveform signature** — local,
+  cosmetic, shown on the certificate and in the terminal panel;
+* ``fetch_eternitas_certificate_json`` / ``_pdf`` — thin fetch clients for
+  the signed certificate of record;
+* ``render_birth_certificate_pdf`` / ``save_birth_certificate`` — a
+  clearly-labelled **local PREVIEW**. Reached only when no Eternitas issuer
+  is configured at all, so that offline development gets something to look
+  at instead of an empty recovery loop. It is a preview, not a second
+  issuer. It is live code; do not delete it.
+
+The certificate NUMBER always comes from Eternitas (``certificate_no``).
+``generate_birth_certificate`` deliberately leaves ``certificate_number``
+empty for the caller to fill in — the locally-minted ``WF-`` number is
+retired, and nothing here can generate one. A second numbering scheme
+inside an identity system is a contradiction; don't reintroduce it.
 """
 
 from __future__ import annotations
