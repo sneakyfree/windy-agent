@@ -1,8 +1,16 @@
-"""Mock Eternitas client — full lifecycle backed by SQLite.
+"""Mock Eternitas client — full lifecycle backed by SQLite. TESTS AND
+OFFLINE DEVELOPMENT ONLY.
 
-Used when ETERNITAS_URL is unset or set to ``mock://local``.
-Generates local passport IDs (ET-LXXXX) and stores everything in the
-same windyfly.db database.
+Reached ONLY on an explicit request: ``WINDYFLY_ALLOW_FAKE_IDENTITY=1``,
+or ``ETERNITAS_URL=mock://local``. An unconfigured run does NOT land here
+— ``get_eternitas_client`` raises ``FakeIdentityRefused`` instead.
+
+That matters: the ``ET-LXXXX`` passports this file generates are numbers
+Eternitas has never issued and no ecosystem service will honour. Handing
+one back while reporting a successful hatch is the failure this guard
+exists to prevent, so the silence was removed on purpose. Do not restore
+the "unset URL means mock" behaviour an older version of this docstring
+described.
 """
 
 from __future__ import annotations

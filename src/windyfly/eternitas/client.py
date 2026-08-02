@@ -1,4 +1,18 @@
-"""Eternitas API client — talks to the real Eternitas registry service."""
+"""Eternitas API client — talks to the real Eternitas registry service.
+
+Eternitas is a third-party identity platform, not part of the Windy
+ecosystem: it issues, it does not orchestrate. This client is how we ask.
+
+**Two minting doors, and picking the wrong one breaks a fresh install:**
+
+* ``auto_hatch()`` → ``POST /bots/auto-hatch`` — the CONSUMER door. Anonymous,
+  creates the self-registered operator for us. This is what every hatch uses,
+  in this repo and in windy-pro.
+* ``register()`` → ``POST /bots/register`` — the ENTERPRISE door. Requires
+  ``ETERNITAS_OPERATOR_KEY`` for an already-VERIFIED operator. That key is
+  blank on a fresh machine, so a consumer hatch through this door 401s and
+  produces no passport. Kept for programmatic callers who hold such a key.
+"""
 
 from __future__ import annotations
 

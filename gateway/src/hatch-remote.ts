@@ -2,6 +2,19 @@
  * POST /hatch/remote — Server-Sent Events relay for the Grandma-Ribbon
  * remote hatch ceremony.
  *
+ * THIS IS TRANSPORT, NOT ORCHESTRATION. Do not "consolidate" it into the
+ * Python hallway — it is the doorway's plumbing, and there is nothing here
+ * to merge. It accepts the handoff, spawns a subprocess, and forwards lines.
+ * The hallway is `src/windyfly/hatch_orchestrator.py`; every decision about
+ * what a hatch does lives there.
+ *
+ * STATUS: this gateway is BUILT BUT NEVER DEPLOYED. Of 150 passports in the
+ * Eternitas registry, zero were minted through it — the browser lane reaches
+ * windy-pro's own hallway instead, and `WINDY_AGENT_URL` is unset in
+ * production, so nothing has ever called this handler outside tests and
+ * hand-run QA. See `docs/GATEWAY_ASSESSMENT.md` before assuming it runs
+ * somewhere.
+ *
  * Accepts a managed-credential handoff from windy-pro, spawns the Python
  * hatch orchestrator (`python -m windyfly.hatch_remote`), and streams
  * every JSON-line it emits on stdout as an SSE frame so the Pro Electron
