@@ -1,14 +1,14 @@
 {
-  "version": 8,
-  "updated": "2026-05-13",
+  "version": 9,
+  "updated": "2026-08-04",
   "canonical": {
-    "windy_word": { "apex": "windyword.ai", "account": "account.windyword.ai" },
+    "windy_word": { "apex": "windyword.ai", "account": "account.windyword.ai", "app": "app.windyword.ai" },
     "windy_chat": { "apex": "windychat.ai", "chat": "chat.windychat.ai" },
     "windy_cloud": { "apex": "windycloud.com", "cloud": "cloud.windycloud.com" },
     "windy_code":  { "apex": "windycode.org", "updates": "updates.windycode.org", "notify": "notify.windycode.org" },
     "windy_mail":  { "apex": "windymail.ai", "mail": "mail.windymail.ai", "api": "api.windymail.ai" },
     "windy_fly":   { "apex": "windyfly.ai" },
-    "windy_clone": { "apex": "windyclone.ai" },
+    "windy_clone": { "apex": "windyclone.ai", "app": "app.windyclone.ai" },
     "windy_text":  { "apex": "windytext.com", "api": "api.windytext.com" },
     "windy_call":  { "apex": "windycall.com", "api": "api.windycall.com" },
     "windy_mobile": { "apex": "windymobile.com" },
@@ -46,7 +46,6 @@
     "code.windyword.ai",
     "clone.windyword.ai",
     "eternitas.windyword.ai",
-    "app.windyword.ai",
     "staging.windyword.ai",
     "pro.windyword.ai",
     "api.windyword.com",
@@ -62,6 +61,7 @@
     "push.windypro.thewindstorm.uk"
   ],
   "rationale": {
+    "app.windyword.ai (un-banned in v9)": "banned since before the host existed; as of 2026-07 it is the live product web app, so inward links from marketing sites are canonical",
     "windychat.com": "squatted by third party (Eric Frost) — never use",
     "windypro.com": "not owned; windy-pro is a legacy repo name not a brand",
     "api.windyword.ai": "zombie Phase-1 host with stale RS256 keypair — use account.windyword.ai",
