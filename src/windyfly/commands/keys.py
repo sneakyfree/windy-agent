@@ -4,7 +4,7 @@ Subcommands::
 
     windy keys show              # inspect cached wk_ key + expiry
     windy keys rotate            # mint a fresh wk_ key, revoke the old one
-    windy keys rotate --hard     # also cascade-revoke to connected services
+    windy keys rotate --hard     # also notify connected services
 
 The auto-rotation path (triggered by the brain's daily tick) lives in
 ``windyfly.auth.bot_credentials.get_bot_key``; this module is the manual
@@ -15,6 +15,13 @@ atomically replaces the cached key; if the old-key revoke step fails,
 the old key stays minted server-side but is no longer cached locally
 and will expire on its own timeline. Safely abortable — any Ctrl-C
 between mint and revoke leaves the new key valid.
+
+What ``--hard`` does NOT do: there is no cascade receiver anywhere in
+the ecosystem (measured 2026-08-10 — no ``bot_key.revoked`` handler in
+windy-pro or windy-mail). The webhooks are posted for observability and
+are expected to fail; a revoked key stops working when a platform next
+revalidates it against windy-pro, not when this command runs. Do not
+read "cascade acked" as "the key is dead everywhere".
 """
 
 from __future__ import annotations
@@ -70,7 +77,7 @@ def _cmd_keys_show(_args: argparse.Namespace) -> None:
     table = Table(title="Bot key", title_style="bold", border_style="cyan")
     table.add_column("Field", style="bold")
     table.add_column("Value")
-    table.add_row("key_id",            cred.key_id or "-")
+    table.add_row("key_id",            cred.key_id or "- (NOT REVOCABLE)")
     table.add_row("windy_identity_id", cred.windy_identity_id or "-")
     table.add_row("passport_number",   cred.passport_number or "-")
     table.add_row("scopes",            ", ".join(cred.scopes) or "-")
@@ -79,6 +86,16 @@ def _cmd_keys_show(_args: argparse.Namespace) -> None:
 
     console.print()
     console.print(table)
+    if not cred.key_id:
+        # Without the account-server's key id there is no way to revoke
+        # this credential — the operator needs to know that now, not
+        # during an incident.
+        console.print(
+            "  [yellow]⚠ No key_id cached — this key CANNOT be revoked from here.[/yellow]"
+        )
+        console.print(
+            "  [dim]Rotate to replace it; the old one stays live until it expires.[/dim]"
+        )
     console.print()
 
 
@@ -90,10 +107,13 @@ def _cmd_keys_rotate(args: argparse.Namespace) -> None:
 
     Steps:
         1. Resolve owner JWT + passport (from env / cache).
-        2. Mint a new key via Pro's /api/v1/identity/bot-keys/mint.
+        2. Mint a new key via Pro's POST /api/v1/identity/api-keys.
            Mint is atomic — the cache now points at the new key.
-        3. Revoke the previous key_id. If hard=True, also tell every
-           cascade webhook (Mail, Cloud, Chat) to drop cached auth.
+        3. Revoke the previous key_id via DELETE
+           /api/v1/identity/api-keys/<key id>. Only a server-CONFIRMED
+           revocation prints green. If hard=True, also post to the
+           cascade webhooks (see the module docstring — nothing receives
+           them today).
         4. Verify by re-reading the cache + hitting get_bot_key().
 
     Abortable: Ctrl-C between 2 and 3 leaves the new key valid and
@@ -102,6 +122,7 @@ def _cmd_keys_rotate(args: argparse.Namespace) -> None:
     hard = bool(getattr(args, "hard", False))
 
     from windyfly.auth.bot_credentials import (
+        BotIdentityUnavailable,
         _load_cached,
         clear_cached_bot_key,
     )
@@ -130,6 +151,7 @@ def _cmd_keys_rotate(args: argparse.Namespace) -> None:
         console.print()
         sys.exit(2)
 
+    had_previous_key = cached is not None
     previous_key_id = cached.key_id if cached else ""
     previous_scopes = list(cached.scopes) if cached else None
 
@@ -142,6 +164,16 @@ def _cmd_keys_rotate(args: argparse.Namespace) -> None:
         console.print("  [yellow]↩ Aborted before new key was minted — no change.[/yellow]")
         console.print()
         sys.exit(130)
+    except BotIdentityUnavailable as exc:
+        # A missing prerequisite, not a failed call — same class as "no
+        # JWT" above, so same exit code and the same kind of hint.
+        console.print(f"  [yellow]· Mint {exc}[/yellow]")
+        console.print(
+            "  [dim]Terminal-lane agents have no Windy Word bot identity. Set "
+            "BOT_IDENTITY_ID, or hatch through the browser, which supplies it.[/dim]"
+        )
+        console.print()
+        sys.exit(2)
     except Exception as exc:
         console.print(f"  [red]✗ Mint failed:[/red] {exc}")
         console.print("  [dim]No change to cached key.[/dim]")
@@ -181,9 +213,21 @@ def _cmd_keys_rotate(args: argparse.Namespace) -> None:
             if summary.get("revoked"):
                 console.print(f"  [green]✓[/green] Old key revoked (id={previous_key_id})")
             else:
+                # An unconfirmed revoke is a LIVE credential, not a
+                # cosmetic warning. Print the server's own account of
+                # what happened and say what it means.
+                logger.warning(
+                    "Revoke of %s not confirmed (%s): %s",
+                    previous_key_id, summary.get("status"), summary.get("detail"),
+                )
                 console.print(
-                    f"  [yellow]⚠ Old key revoke returned non-OK[/yellow]"
-                    f" [dim](key_id={previous_key_id}; new key is still active)[/dim]"
+                    f"  [red]✗ Old key NOT revoked[/red] "
+                    f"[dim](id={previous_key_id}, status={summary.get('status') or 'unknown'})[/dim]"
+                )
+                console.print(f"    [dim]{summary.get('detail') or 'no detail from server'}[/dim]")
+                console.print(
+                    "    [yellow]The old key is still live until it expires — "
+                    "revoke it from Windy Word by hand.[/yellow]"
                 )
             if hard:
                 failed = [u for u, status in summary.get("cascade", {}).items() if not _status_ok(status)]
@@ -193,10 +237,27 @@ def _cmd_keys_rotate(args: argparse.Namespace) -> None:
                         + ", ".join(failed)
                     )
                 else:
-                    console.print("  [green]✓[/green] Cascade webhooks acked")
+                    console.print(
+                        "  [green]✓[/green] Cascade webhooks acked "
+                        "[dim](an ack is a delivery receipt, not proof any platform "
+                        "dropped the key)[/dim]"
+                    )
     elif previous_key_id:
         # Same key_id — idempotent rotation returned the existing key.
         console.print("  [dim]· Server returned the same key_id — nothing to revoke.[/dim]")
+    elif had_previous_key:
+        # A cached credential with no key_id: minted before the account
+        # -server contract was fixed, or hand-written. It is a real,
+        # live wk_ key that we have no handle to revoke. Never let that
+        # read as "nothing to do".
+        logger.warning("Previous cached key has no key_id — cannot revoke it")
+        console.print(
+            "  [red]✗ Previous key cannot be revoked — no key_id in the cache.[/red]"
+        )
+        console.print(
+            "    [dim]It was cached before the account-server contract was fixed. "
+            "It stays live until it expires; revoke it from Windy Word by hand.[/dim]"
+        )
     else:
         console.print("  [dim]· No previous key to revoke.[/dim]")
 
@@ -240,7 +301,20 @@ async def _revoke(
 
 
 def _cascade_webhooks() -> list[str]:
-    """Webhook URLs that tell connected services to drop cached auth."""
+    """Webhook URLs that would tell connected services to drop cached auth.
+
+    Aspirational, and honestly so: no service in the ecosystem receives
+    `bot_key.revoked` today (grepped 2026-08-10 — windy-pro and
+    windy-mail have no such route), so every one of these is expected to
+    404. They are posted for observability, and the caller is told an
+    ack means "delivered", not "key dropped".
+
+    Matrix is deliberately NOT in this list. It used to be, pointed at
+    `/_matrix/client/versions` — an unauthenticated version probe that
+    answers 200 to anyone. Synapse has no flush-bot-cache hook, so that
+    entry could only ever manufacture a green "cascade acked" line for
+    work nobody did.
+    """
     webhooks: list[str] = []
     mail = os.environ.get("WINDYMAIL_API_URL", "").rstrip("/")
     if mail:
@@ -248,13 +322,6 @@ def _cascade_webhooks() -> list[str]:
     cloud = os.environ.get("WINDY_CLOUD_URL", "").rstrip("/")
     if cloud:
         webhooks.append(f"{cloud}/api/v1/internal/bot-key-revoked")
-    matrix = os.environ.get("MATRIX_HOMESERVER", "").rstrip("/")
-    if matrix:
-        # Synapse doesn't expose a first-class "flush-bot-cache" hook; the
-        # agent's next login will carry the new token organically. We
-        # still record the URL for observability so the cascade table
-        # shows every service we tried.
-        webhooks.append(f"{matrix}/_matrix/client/versions")
     return webhooks
 
 

@@ -3,7 +3,12 @@
 The auto-rotation path is already covered in test_hatch_orchestrator and
 elsewhere. This file pins the *manual* CLI surface: that rotate is
 idempotent, abortable, and that revoke failures don't mask a successful
-mint."""
+mint.
+
+It also pins the honesty rules added 2026-08-10, when revoke_bot_key was
+found to be POSTing a route that never existed and calling the 404 a
+success: an unconfirmed revoke must read as a LIVE key, and a cached
+credential with no key_id must not read as "nothing to revoke"."""
 
 from __future__ import annotations
 
@@ -223,3 +228,107 @@ def test_show_reports_no_key(tmp_cache, capsys) -> None:
     keys_cmd.cmd_keys(Namespace(action="show"))
     out = capsys.readouterr().out
     assert "No cached" in out
+
+
+# ─── revocation honesty (2026-08-10) ─────────────────────────────────
+#
+# `windy keys rotate` was reporting revocations that never happened: the
+# old key stayed valid for its full 365 days while the operator was told
+# it was dead. These pin the failure modes.
+
+
+def test_unconfirmed_revoke_is_reported_as_a_live_key(monkeypatch, tmp_cache, capsys) -> None:
+    """revoked=False is the server saying it did nothing. The operator
+    must be told the old key is still usable."""
+    old = _fresh_cred(key_id="key_old", bot_key="wk_old", days=10)
+    tmp_cache.write_text(__import__("json").dumps(old.to_dict()))
+    new = _fresh_cred(key_id="key_new", bot_key="wk_new")
+
+    async def _fake_mint(**_kw):
+        tmp_cache.write_text(__import__("json").dumps(new.to_dict()))
+        return new
+
+    async def _fake_revoke(**_kw):
+        return {
+            "revoked": False,
+            "status": "not_found",
+            "detail": "account-server returned revoked=false — NOTHING WAS REVOKED.",
+            "cascade": {},
+        }
+
+    monkeypatch.setattr(keys_cmd, "_mint", _fake_mint)
+    monkeypatch.setattr(keys_cmd, "_revoke", _fake_revoke)
+
+    keys_cmd.cmd_keys(Namespace(action="rotate", hard=False))
+
+    out = capsys.readouterr().out
+    assert "NOT revoked" in out
+    assert "still live" in out
+    assert "not_found" in out
+
+
+def test_cached_key_without_key_id_is_not_nothing_to_revoke(monkeypatch, tmp_cache, capsys) -> None:
+    """A credential cached before the contract fix has no key_id. It is
+    a live key we cannot revoke — never print 'no previous key'."""
+    orphan = _fresh_cred(key_id="", bot_key="wk_orphan")
+    tmp_cache.write_text(__import__("json").dumps(orphan.to_dict()))
+    new = _fresh_cred(key_id="key_new", bot_key="wk_new")
+
+    async def _fake_mint(**_kw):
+        tmp_cache.write_text(__import__("json").dumps(new.to_dict()))
+        return new
+
+    revoke_called: list[int] = []
+
+    async def _fake_revoke(**_kw):
+        revoke_called.append(1)
+        return {"revoked": True, "cascade": {}}
+
+    monkeypatch.setattr(keys_cmd, "_mint", _fake_mint)
+    monkeypatch.setattr(keys_cmd, "_revoke", _fake_revoke)
+
+    keys_cmd.cmd_keys(Namespace(action="rotate", hard=False))
+
+    out = capsys.readouterr().out
+    assert not revoke_called, "nothing to revoke WITH — must not call revoke"
+    assert "cannot be revoked" in out
+    assert "No previous key to revoke" not in out
+
+
+def test_show_flags_an_unrevocable_key(tmp_cache, capsys) -> None:
+    cred = _fresh_cred(key_id="", bot_key="wk_orphan")
+    tmp_cache.write_text(__import__("json").dumps(cred.to_dict()))
+
+    keys_cmd.cmd_keys(Namespace(action="show"))
+
+    out = capsys.readouterr().out
+    assert "CANNOT be revoked" in out
+
+
+def test_cascade_does_not_include_the_matrix_version_probe(monkeypatch) -> None:
+    """`/_matrix/client/versions` answers 200 to anyone and revokes
+    nothing — including it manufactured a green 'cascade acked'."""
+    monkeypatch.setenv("WINDYMAIL_API_URL", "https://mail.test")
+    monkeypatch.setenv("WINDY_CLOUD_URL", "https://cloud.test")
+    monkeypatch.setenv("MATRIX_HOMESERVER", "https://matrix.test")
+
+    hooks = keys_cmd._cascade_webhooks()
+
+    assert not any("matrix" in u for u in hooks)
+    assert not any("versions" in u for u in hooks)
+    assert len(hooks) == 2
+
+
+def test_mint_without_bot_identity_exits_2_as_a_prerequisite(monkeypatch, tmp_cache) -> None:
+    """A terminal-lane agent has no bot identity id. That's a missing
+    prerequisite (exit 2), not a failed call (exit 3)."""
+    from windyfly.auth.bot_credentials import BotIdentityUnavailable
+
+    async def _fake_mint(**_kw):
+        raise BotIdentityUnavailable("skipped: no bot identity id (terminal-lane agents...)")
+
+    monkeypatch.setattr(keys_cmd, "_mint", _fake_mint)
+
+    with pytest.raises(SystemExit) as excinfo:
+        keys_cmd.cmd_keys(Namespace(action="rotate", hard=False))
+    assert excinfo.value.code == 2

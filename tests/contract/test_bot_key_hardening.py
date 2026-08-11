@@ -2,11 +2,14 @@
 
 Covers:
 - Mint accepts a requested scopes list; server-granted scopes become
-  authoritative (downscope behaviour).
+  authoritative (downscope behaviour). The route is windy-pro's real
+  POST /api/v1/identity/api-keys.
 - BotCredential.has_scope matches exact, wildcard, and family wildcards.
-- Revoke hits /api/v1/identity/bot-keys/revoke and fans out cascade
-  webhooks to platforms.
-- Local cache is cleared when the revoked key_id matches it.
+- Revoke hits the real DELETE /api/v1/identity/api-keys/<key id>,
+  treats ONLY a server-confirmed {"revoked": true} as success, and fans
+  out cascade webhooks to platforms.
+- Local cache is cleared when the revoked key_id matches it — and KEPT
+  when the revocation was not confirmed.
 - Audit log is written every time a wk_ key is used.
 - rotate_on_trust_change re-mints using the cached passport.
 """
@@ -31,6 +34,9 @@ from windyfly.auth.bot_credentials import (
 )
 
 PRO_BASE = "https://pro.windy.test"
+MINT_URL = f"{PRO_BASE}/api/v1/identity/api-keys"
+REVOKE_URL = f"{PRO_BASE}/api/v1/identity/api-keys"   # + /<key id>
+BOT_ID = "bot_identity_9f2c"
 
 
 @pytest.fixture(autouse=True)
@@ -39,6 +45,7 @@ def _env(tmp_path, monkeypatch):
     monkeypatch.setattr(audit, "AUDIT_LOG_PATH", tmp_path / "audit" / "bot_key_usage.jsonl")
     monkeypatch.setenv("WINDY_PRO_URL", PRO_BASE)
     monkeypatch.setenv("WINDYFLY_AUDIT_LOG", str(tmp_path / "audit" / "bot_key_usage.jsonl"))
+    monkeypatch.setenv("BOT_IDENTITY_ID", BOT_ID)
     clear_cached_bot_key()
     yield
     clear_cached_bot_key()
@@ -47,11 +54,12 @@ def _env(tmp_path, monkeypatch):
 class TestScopedMint:
     @respx.mock
     async def test_mint_sends_requested_scopes(self):
-        route = respx.post(f"{PRO_BASE}/api/v1/identity/bot-keys/mint").mock(
-            return_value=httpx.Response(200, json={
-                "bot_key": "wk_scoped",
-                "expires_at": "2027-04-16T00:00:00Z",
-                "key_id": "wbk_1",
+        route = respx.post(MINT_URL).mock(
+            return_value=httpx.Response(201, json={
+                "apiKey": "wk_scoped",
+                "keyPrefix": "wk_scoped_x",
+                "expiresAt": "2027-04-16T00:00:00Z",
+                "id": "wbk_1",
                 "scopes": ["mail:send", "cloud:upload"],
             })
         )
@@ -69,10 +77,10 @@ class TestScopedMint:
 
     @respx.mock
     async def test_server_downscope_is_authoritative(self):
-        respx.post(f"{PRO_BASE}/api/v1/identity/bot-keys/mint").mock(
-            return_value=httpx.Response(200, json={
-                "bot_key": "wk_down",
-                "expires_at": "2027-04-16T00:00:00Z",
+        respx.post(MINT_URL).mock(
+            return_value=httpx.Response(201, json={
+                "apiKey": "wk_down",
+                "expiresAt": "2027-04-16T00:00:00Z",
                 "scopes": ["chat:read"],
             })
         )
@@ -111,24 +119,128 @@ class TestScopeMatching:
 
 
 class TestRevoke:
+    """Revocation is the highest-stakes call in this module: a wk_ key is
+    good for 365 days, so a revoke that quietly does nothing leaves a
+    live credential nobody is watching. Every test here exists to stop a
+    false success."""
+
     @respx.mock
-    async def test_revoke_posts_key_id_and_reason(self, monkeypatch):
+    async def test_revoke_deletes_by_key_id(self, monkeypatch):
         monkeypatch.setenv("WINDY_JWT", "owner_jwt")
-        route = respx.post(f"{PRO_BASE}/api/v1/identity/bot-keys/revoke").mock(
+        route = respx.delete(f"{REVOKE_URL}/wbk_42").mock(
             return_value=httpx.Response(200, json={"revoked": True})
         )
 
         summary = await revoke_bot_key(key_id="wbk_42", reason="compromised")
 
-        body = json.loads(route.calls.last.request.content)
-        assert body == {"key_id": "wbk_42", "reason": "compromised"}
+        assert route.called
+        # The key id travels in the PATH; a DELETE carries no body.
+        assert route.calls.last.request.url.path.endswith("/api/v1/identity/api-keys/wbk_42")
+        assert route.calls.last.request.headers["Authorization"] == "Bearer owner_jwt"
+        assert not route.calls.last.request.content
         assert summary["revoked"] is True
+        assert summary["status"] == "revoked"
+        assert "compromised" in summary["detail"]
+
+    @respx.mock
+    async def test_key_id_is_url_escaped(self, monkeypatch):
+        monkeypatch.setenv("WINDY_JWT", "j")
+        route = respx.delete(url__regex=rf"{PRO_BASE}/api/v1/identity/api-keys/.*").mock(
+            return_value=httpx.Response(200, json={"revoked": True})
+        )
+
+        await revoke_bot_key(key_id="wbk/../42", reason="x")
+
+        assert "wbk%2F..%2F42" in str(route.calls.last.request.url)
+
+    @respx.mock
+    async def test_revoked_false_is_not_success(self, monkeypatch):
+        """The server answers 200 {"revoked": false} for an unknown key
+        id. That is the key NOT being revoked."""
+        monkeypatch.setenv("WINDY_JWT", "j")
+        respx.delete(f"{REVOKE_URL}/wbk_ghost").mock(
+            return_value=httpx.Response(200, json={"revoked": False})
+        )
+
+        summary = await revoke_bot_key(key_id="wbk_ghost", reason="x")
+
+        assert summary["revoked"] is False
+        assert summary["status"] == "not_found"
+        assert "NOTHING WAS REVOKED" in summary["detail"]
+
+    @respx.mock
+    async def test_revoked_false_logs_a_warning(self, monkeypatch, caplog):
+        import logging
+
+        monkeypatch.setenv("WINDY_JWT", "j")
+        respx.delete(f"{REVOKE_URL}/wbk_ghost").mock(
+            return_value=httpx.Response(200, json={"revoked": False})
+        )
+
+        with caplog.at_level(logging.DEBUG, logger="windyfly.auth.bot_credentials"):
+            await revoke_bot_key(key_id="wbk_ghost", reason="x")
+
+        assert any(
+            r.levelno >= logging.WARNING and "NOT revoked" in r.getMessage()
+            for r in caplog.records
+        )
+
+    @respx.mock
+    async def test_http_404_is_reported_as_route_missing(self, monkeypatch):
+        """A 404 from the route itself — the exact shape of the bug this
+        replaced, where every revoke 404'd and reported success."""
+        monkeypatch.setenv("WINDY_JWT", "j")
+        respx.delete(f"{REVOKE_URL}/wbk_42").mock(return_value=httpx.Response(404, text="Not Found"))
+
+        summary = await revoke_bot_key(key_id="wbk_42", reason="x")
+
+        assert summary["revoked"] is False
+        assert summary["status"] == "http_404"
+        assert "NOTHING WAS REVOKED" in summary["detail"]
+
+    @respx.mock
+    async def test_500_is_not_success(self, monkeypatch):
+        monkeypatch.setenv("WINDY_JWT", "j")
+        respx.delete(f"{REVOKE_URL}/wbk_42").mock(return_value=httpx.Response(500, text="boom"))
+
+        summary = await revoke_bot_key(key_id="wbk_42", reason="x")
+
+        assert summary["revoked"] is False
+        assert summary["status"] == "http_500"
+
+    @respx.mock
+    async def test_unreadable_2xx_body_is_unconfirmed_not_success(self, monkeypatch):
+        """A 200 that isn't the documented JSON proves nothing. The old
+        code called any 2xx a revocation."""
+        monkeypatch.setenv("WINDY_JWT", "j")
+        respx.delete(f"{REVOKE_URL}/wbk_42").mock(
+            return_value=httpx.Response(200, text="<html>proxy says hi</html>")
+        )
+
+        summary = await revoke_bot_key(key_id="wbk_42", reason="x")
+
+        assert summary["revoked"] is False
+        assert summary["status"] == "unconfirmed"
+
+    @respx.mock
+    async def test_missing_key_id_sends_no_request(self, monkeypatch):
+        """A credential cached without a key id cannot be revoked. Say
+        so — do not fire a request at /api-keys/ and call it done."""
+        monkeypatch.setenv("WINDY_JWT", "j")
+        route = respx.delete(url__regex=rf"{PRO_BASE}/api/v1/identity/api-keys.*").mock(
+            return_value=httpx.Response(200, json={"revoked": True})
+        )
+
+        with pytest.raises(RuntimeError, match="key_id required"):
+            await revoke_bot_key(key_id="", reason="x")
+
+        assert not route.called
 
     @respx.mock
     async def test_revoke_cascades_to_platform_webhooks(self, monkeypatch):
         monkeypatch.setenv("WINDY_JWT", "j")
-        respx.post(f"{PRO_BASE}/api/v1/identity/bot-keys/revoke").mock(
-            return_value=httpx.Response(200)
+        respx.delete(f"{REVOKE_URL}/wbk_42").mock(
+            return_value=httpx.Response(200, json={"revoked": True})
         )
         hook_a = respx.post("https://cloud.windy.test/webhooks/auth").mock(
             return_value=httpx.Response(200)
@@ -162,13 +274,32 @@ class TestRevoke:
             expires_at=datetime.now(timezone.utc) + timedelta(days=100),
             key_id="wbk_42",
         ))
-        respx.post(f"{PRO_BASE}/api/v1/identity/bot-keys/revoke").mock(
-            return_value=httpx.Response(200)
+        respx.delete(f"{REVOKE_URL}/wbk_42").mock(
+            return_value=httpx.Response(200, json={"revoked": True})
         )
 
-        await revoke_bot_key(key_id="wbk_42", reason="x")
+        summary = await revoke_bot_key(key_id="wbk_42", reason="x")
 
+        assert summary["cache_cleared"] is True
         assert bot_credentials._load_cached() is None
+
+    @respx.mock
+    async def test_unconfirmed_revoke_keeps_the_cache(self, monkeypatch):
+        """Dropping the cache on a failed revoke would discard the only
+        handle on a key that is still live — we could never retry."""
+        monkeypatch.setenv("WINDY_JWT", "j")
+        bot_credentials._save_cached(BotCredential(
+            bot_key="wk_current",
+            expires_at=datetime.now(timezone.utc) + timedelta(days=100),
+            key_id="wbk_42",
+        ))
+        respx.delete(f"{REVOKE_URL}/wbk_42").mock(return_value=httpx.Response(404))
+
+        summary = await revoke_bot_key(key_id="wbk_42", reason="x")
+
+        assert summary["cache_cleared"] is False
+        still = bot_credentials._load_cached()
+        assert still is not None and still.key_id == "wbk_42"
 
     @respx.mock
     async def test_revoke_keeps_unrelated_cache(self, monkeypatch):
@@ -178,8 +309,8 @@ class TestRevoke:
             expires_at=datetime.now(timezone.utc) + timedelta(days=100),
             key_id="wbk_other",
         ))
-        respx.post(f"{PRO_BASE}/api/v1/identity/bot-keys/revoke").mock(
-            return_value=httpx.Response(200)
+        respx.delete(f"{REVOKE_URL}/wbk_42").mock(
+            return_value=httpx.Response(200, json={"revoked": True})
         )
 
         await revoke_bot_key(key_id="wbk_42", reason="x")
@@ -244,11 +375,11 @@ class TestTrustRotation:
             passport_number="ET-7",
             scopes=["mail:send"],
         ))
-        respx.post(f"{PRO_BASE}/api/v1/identity/bot-keys/mint").mock(
-            return_value=httpx.Response(200, json={
-                "bot_key": "wk_new",
-                "expires_at": "2027-04-16T00:00:00Z",
-                "key_id": "wbk_new",
+        respx.post(MINT_URL).mock(
+            return_value=httpx.Response(201, json={
+                "apiKey": "wk_new",
+                "expiresAt": "2027-04-16T00:00:00Z",
+                "id": "wbk_new",
                 "scopes": ["mail:send", "cloud:upload"],
             })
         )
