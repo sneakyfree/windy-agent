@@ -212,6 +212,158 @@ def test_apply_broker_token_without_preference_populates_all(monkeypatch) -> Non
     assert _os.environ["ANTHROPIC_API_KEY"] == "wk_broker_xyz"
 
 
+@pytest.fixture
+def scratch_env(monkeypatch):
+    """Swap ``os.environ`` for a copy so a test that WRITES env vars
+    (the whole point of the ones below) cannot leak into the session.
+
+    ``monkeypatch.delenv`` only records keys that already existed, so a
+    key created by the code under test would otherwise survive teardown.
+    """
+    import os as _os
+
+    env = dict(_os.environ)
+    monkeypatch.setattr(_os, "environ", env)
+    return env
+
+
+def test_apply_broker_token_pins_to_the_provider_argument(scratch_env) -> None:
+    """The /hatch/remote `provider` field must pin the token to ONE env var.
+
+    windy-pro tells us which provider the broker minted the token for.
+    Copying that token into the other seven providers' env vars is not
+    "permissive", it is wrong — the string is dead everywhere else and
+    only makes the wrong client try it.
+    """
+    from windyfly.hatch_remote import PROVIDER_TO_ENV, _apply_broker_token
+
+    for key in set(PROVIDER_TO_ENV.values()) | {"WINDY_BROKER_PROVIDER"}:
+        scratch_env.pop(key, None)
+
+    env_var = _apply_broker_token("bk_live_xyz", "openai")
+
+    assert env_var == "OPENAI_API_KEY"
+    assert scratch_env["OPENAI_API_KEY"] == "bk_live_xyz"
+    for key in set(PROVIDER_TO_ENV.values()) - {"OPENAI_API_KEY"}:
+        assert scratch_env.get(key, "") == "", f"{key} must not receive an openai token"
+
+
+def test_apply_broker_token_argument_beats_env_override(scratch_env) -> None:
+    from windyfly.hatch_remote import PROVIDER_TO_ENV, _apply_broker_token
+
+    for key in set(PROVIDER_TO_ENV.values()):
+        scratch_env.pop(key, None)
+    scratch_env["WINDY_BROKER_PROVIDER"] = "openai"
+
+    assert _apply_broker_token("bk_live_xyz", "anthropic") == "ANTHROPIC_API_KEY"
+    assert scratch_env.get("OPENAI_API_KEY", "") == ""
+
+
+def test_apply_broker_token_unknown_provider_falls_back_to_all(scratch_env) -> None:
+    """An unrecognised provider is the documented fallback, not a crash."""
+    from windyfly.hatch_remote import PROVIDER_TO_ENV, _apply_broker_token
+
+    for key in set(PROVIDER_TO_ENV.values()) | {"WINDY_BROKER_PROVIDER"}:
+        scratch_env.pop(key, None)
+
+    assert _apply_broker_token("bk_live_xyz", "not-a-provider") == "*"
+    assert scratch_env["ANTHROPIC_API_KEY"] == "bk_live_xyz"
+
+
+def test_main_accepts_the_gateway_argv_contract(monkeypatch) -> None:
+    """`main()` must parse every flag the Bun gateway spawns it with.
+
+    The gateway builds this argv in gateway/src/hatch-remote.ts; if the
+    two drift, the handoff dies at process start with SystemExit(2).
+    """
+    from windyfly import hatch_remote
+
+    captured: dict[str, object] = {}
+
+    def fake_run(**kwargs: object) -> int:
+        captured.update(kwargs)
+        return 0
+
+    monkeypatch.setattr(hatch_remote, "run", fake_run)
+
+    rc = hatch_remote.main([
+        "--agent-name", "Nora's Agent",
+        "--windy-identity-id", "wi_123",
+        "--passport-number", "ET26-ABC-DEF",
+        "--broker-token", "bk_live_abcdefghijkl",
+        "--owner-email", "nora@example.com",
+        "--owner-phone", "",
+        "--owner-name", "Nora",
+        "--bot-identity-id", "wi_bot_456",
+        "--provider", "anthropic",
+        "--model", "claude-3-5-sonnet-latest",
+    ])
+
+    assert rc == 0
+    assert captured["bot_identity_id"] == "wi_bot_456"
+    assert captured["provider"] == "anthropic"
+    assert captured["model"] == "claude-3-5-sonnet-latest"
+    # A phone-less owner is a legitimate hatch, not an error.
+    assert captured["owner_phone"] == ""
+
+
+def test_run_seeds_bot_identity_id_into_the_environment(monkeypatch, scratch_env) -> None:
+    """BOT_IDENTITY_ID is the ONLY carrier of the bot's Pro identity.
+
+    The orchestrator takes no `bot_identity_id` argument, so the remote
+    door hands it down through the environment exactly like the passport
+    (ETERNITAS_PASSPORT) — bot credential minting reads it from there.
+    """
+    from windyfly import hatch_remote
+
+    for key in ("BOT_IDENTITY_ID", "WINDY_BROKER_MODEL", "DEFAULT_MODEL", "ANTHROPIC_API_KEY"):
+        scratch_env.pop(key, None)
+
+    seen: list[tuple[str, dict]] = []
+    monkeypatch.setattr(
+        hatch_remote, "_emit_json",
+        lambda name, data: seen.append((name, data)),
+    )
+    # Stop before the ceremony/orchestrator — this test is about the
+    # environment seeding that happens first.
+    monkeypatch.setattr(
+        hatch_remote, "_apply_broker_token",
+        lambda token, provider="": f"seeded:{provider}",
+    )
+
+    import windyfly.hatching as hatching
+
+    def stop(*args, **kwargs):
+        raise RuntimeError("stop after seeding")
+
+    monkeypatch.setattr(hatching, "play_hatching", stop)
+
+    with pytest.raises(RuntimeError):
+        hatch_remote.run(
+            agent_name="Nora's Agent",
+            windy_identity_id="wi_123",
+            passport_number="ET26-ABC-DEF",
+            broker_token="bk_live_abcdefghijkl",
+            owner_email="nora@example.com",
+            owner_phone="",
+            owner_name="Nora",
+            bot_identity_id="wi_bot_456",
+            provider="anthropic",
+            model="claude-3-5-sonnet-latest",
+            animate=False,
+        )
+
+    assert scratch_env["BOT_IDENTITY_ID"] == "wi_bot_456"
+    assert scratch_env["WINDY_BROKER_MODEL"] == "claude-3-5-sonnet-latest"
+    assert scratch_env["DEFAULT_MODEL"] == "claude-3-5-sonnet-latest"
+
+    starting = [d for n, d in seen if n == "hatch.starting"]
+    assert starting, "hatch.starting must be emitted"
+    assert starting[0]["bot_identity_id"] == "wi_bot_456"
+    assert starting[0]["broker_provider"] == "anthropic"
+    assert starting[0]["broker_model"] == "claude-3-5-sonnet-latest"
+
+
 def test_fetch_eternitas_assets_uses_certificates_qr_endpoint(monkeypatch) -> None:
     """Contract pin for Eternitas: the QR endpoint is
     /api/v1/certificates/{passport}/qr, PNG by default.
