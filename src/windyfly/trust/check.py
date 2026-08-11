@@ -186,6 +186,25 @@ def _cache_read(passport: str, db=None) -> TrustSnapshot | None:
     )
 
 
+def _cache_read_last_known_status(passport: str, db=None) -> str | None:
+    """Return the last status we ever observed, ignoring the TTL.
+
+    `_cache_read` deliberately treats an expired row as absent, which is
+    right for "what is the trust level now". It is wrong for "were we
+    ever told this passport was revoked" — a revocation must not be
+    forgotten just because the row went stale and Eternitas is now
+    unreachable. Returns None only when we have genuinely never seen a
+    verdict for this passport.
+    """
+    db = db or _db()
+    _ensure_table(db)
+    row = db.conn.execute(
+        "SELECT status FROM trust_cache WHERE passport = ?",
+        (passport,),
+    ).fetchone()
+    return row["status"] if row else None
+
+
 def _cache_write(snap: TrustSnapshot, db=None) -> None:
     db = db or _db()
     _ensure_table(db)
@@ -325,6 +344,16 @@ async def check_trust(action: str, passport: str | None = None, db=None) -> Trus
     safety/audit layer; a downed trust service shouldn't silently
     freeze the agent.
 
+    **Exception: a revocation we have already seen is never forgotten.**
+    Fail-open applies to genuine ignorance, not to amnesia. Without this,
+    revocation could be defeated by simply going offline: the snapshot
+    ages out after `cache_ttl_seconds` (5 min), the refetch fails, and a
+    revoked agent gets every action back. Losing contact with Eternitas
+    is not evidence of reinstatement, so a last-known suspended/revoked
+    status denies regardless of strict mode. Reinstatement requires a
+    successful fetch saying so, which is the one thing an offline agent
+    cannot fake.
+
     Operators can flip to fail-closed with WINDYFLY_TRUST_STRICT=1.
     """
     pp = passport or os.environ.get("ETERNITAS_PASSPORT", "")
@@ -338,6 +367,23 @@ async def check_trust(action: str, passport: str | None = None, db=None) -> Trus
 
     snap: TrustSnapshot | None = await get_trust(passport=pp, db=db)
     if snap is None:
+        last_known = _cache_read_last_known_status(pp, db=db)
+        if last_known in ("suspended", "revoked"):
+            logger.warning(
+                "Trust service unreachable; denying '%s' because the last "
+                "verdict we received for %s was '%s'. Going offline does not "
+                "restore a revoked passport.",
+                action, pp, last_known,
+            )
+            return TrustDecision(
+                allowed=False,
+                snapshot=TrustSnapshot(passport=pp, status=last_known, band="unknown"),
+                reason=(
+                    f"trust service unavailable and last known status was "
+                    f"'{last_known}' — revocation is not forgotten on outage"
+                ),
+            )
+
         snap = TrustSnapshot(passport=pp, status="unknown", band="unknown")
         if _strict_mode():
             return TrustDecision(
