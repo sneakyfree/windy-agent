@@ -94,6 +94,70 @@ class TestLinkPassportContract:
         assert summary["cloud"] == "linked"
 
     @respx.mock
+    async def test_pro_404_is_reported_as_route_absent(self, caplog):
+        """windy-pro has NO /api/v1/identity/link-passport route (verified
+        2026-08-10 against account-server), so the Pro leg 404s on every
+        hatch. That must read as its own state — never as 'linked', never
+        as a transport error — and must be logged loudly."""
+        import logging
+
+        respx.post(f"{PRO_BASE}/api/v1/identity/link-passport").mock(
+            return_value=httpx.Response(404, text="Not Found")
+        )
+        respx.post(f"{CLOUD_BASE}/api/v1/identity/link-passport").mock(
+            return_value=httpx.Response(200, json={"status": "linked"})
+        )
+
+        with caplog.at_level(logging.WARNING, logger="windyfly.eternitas.provision"):
+            summary = await link_passport_with_identity(
+                passport_number="ET-1",
+                windy_identity_id="wi_1",
+            )
+
+        assert summary == {"pro": "route_absent", "cloud": "linked"}
+        assert any(
+            "no /api/v1/identity/link-passport route" in r.getMessage()
+            for r in caplog.records
+            if r.levelno >= logging.WARNING
+        )
+
+    @respx.mock
+    async def test_cloud_404_stays_a_generic_http_error(self):
+        """Cloud DOES serve the route, so a 404 there is a real surprise —
+        it must not be excused as the known Pro-side contract gap."""
+        respx.post(f"{PRO_BASE}/api/v1/identity/link-passport").mock(
+            return_value=httpx.Response(200, json={})
+        )
+        respx.post(f"{CLOUD_BASE}/api/v1/identity/link-passport").mock(
+            return_value=httpx.Response(404, text="Not Found")
+        )
+
+        summary = await link_passport_with_identity(
+            passport_number="ET-1",
+            windy_identity_id="wi_1",
+        )
+
+        assert summary == {"pro": "linked", "cloud": "http_404"}
+
+    @respx.mock
+    async def test_pro_transport_error_is_not_route_absent(self):
+        """A dead network is a different fact from a missing route."""
+        respx.post(f"{PRO_BASE}/api/v1/identity/link-passport").mock(
+            side_effect=httpx.ConnectError("no route to host")
+        )
+        respx.post(f"{CLOUD_BASE}/api/v1/identity/link-passport").mock(
+            return_value=httpx.Response(200, json={})
+        )
+
+        summary = await link_passport_with_identity(
+            passport_number="ET-1",
+            windy_identity_id="wi_1",
+        )
+
+        assert summary["pro"] == "error: ConnectError"
+        assert summary["cloud"] == "linked"
+
+    @respx.mock
     async def test_skips_service_when_its_url_unset(self, monkeypatch):
         monkeypatch.delenv("WINDY_CLOUD_URL", raising=False)
         pro = respx.post(f"{PRO_BASE}/api/v1/identity/link-passport").mock(
