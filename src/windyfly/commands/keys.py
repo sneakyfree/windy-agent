@@ -16,12 +16,15 @@ the old key stays minted server-side but is no longer cached locally
 and will expire on its own timeline. Safely abortable — any Ctrl-C
 between mint and revoke leaves the new key valid.
 
-What ``--hard`` does NOT do: there is no cascade receiver anywhere in
-the ecosystem (measured 2026-08-10 — no ``bot_key.revoked`` handler in
-windy-pro or windy-mail). The webhooks are posted for observability and
-are expected to fail; a revoked key stops working when a platform next
-revalidates it against windy-pro, not when this command runs. Do not
-read "cascade acked" as "the key is dead everywhere".
+What ``--hard`` does NOT do: propagate anything. There is no
+``bot_key.revoked`` receiver anywhere in the ecosystem — windy-pro and
+windy-mail were grepped 2026-08-10, and Windy Cloud's maintainer
+confirmed on 2026-08-11 that the ``/api/v1/internal/bot-key-revoked``
+path this command used to post to has never existed there either. Those
+two invented URLs are now gone (see ``_cascade_webhooks``), so ``--hard``
+no longer manufactures a cascade table out of guaranteed 404s; it states
+the true position instead. A revoked key stops working when a platform
+next revalidates it against windy-pro, not when this command runs.
 """
 
 from __future__ import annotations
@@ -111,9 +114,8 @@ def _cmd_keys_rotate(args: argparse.Namespace) -> None:
            Mint is atomic — the cache now points at the new key.
         3. Revoke the previous key_id via DELETE
            /api/v1/identity/api-keys/<key id>. Only a server-CONFIRMED
-           revocation prints green. If hard=True, also post to the
-           cascade webhooks (see the module docstring — nothing receives
-           them today).
+           revocation prints green. If hard=True, report that no
+           revocation cascade exists (see the module docstring).
         4. Verify by re-reading the cache + hitting get_bot_key().
 
     Abortable: Ctrl-C between 2 and 3 leaves the new key valid and
@@ -236,11 +238,21 @@ def _cmd_keys_rotate(args: argparse.Namespace) -> None:
                         "  [yellow]⚠ Cascade webhook(s) did not ack:[/yellow] "
                         + ", ".join(failed)
                     )
-                else:
+                elif summary.get("cascade"):
                     console.print(
                         "  [green]✓[/green] Cascade webhooks acked "
                         "[dim](an ack is a delivery receipt, not proof any platform "
                         "dropped the key)[/dim]"
+                    )
+                else:
+                    # No receivers exist. Say so plainly — the previous
+                    # behaviour posted to two invented routes and showed
+                    # their statuses, which read as propagation.
+                    console.print(
+                        "  [yellow]· No revocation cascade exists.[/yellow] "
+                        "[dim]Nothing in the ecosystem receives bot_key.revoked, so "
+                        "any platform holding the old key honours it until it "
+                        "revalidates against windy-pro.[/dim]"
                     )
     elif previous_key_id:
         # Same key_id — idempotent rotation returned the existing key.
@@ -301,28 +313,35 @@ async def _revoke(
 
 
 def _cascade_webhooks() -> list[str]:
-    """Webhook URLs that would tell connected services to drop cached auth.
+    """Deliberately empty: there is no bot-key revocation receiver to call.
 
-    Aspirational, and honestly so: no service in the ecosystem receives
-    `bot_key.revoked` today (grepped 2026-08-10 — windy-pro and
-    windy-mail have no such route), so every one of these is expected to
-    404. They are posted for observability, and the caller is told an
-    ack means "delivered", not "key dropped".
+    This used to manufacture two URLs —
+    ``{WINDYMAIL_API_URL}/api/v1/internal/bot-key-revoked`` and the same
+    path on ``WINDY_CLOUD_URL``. **Neither route has ever existed.**
+    windy-mail was grepped 2026-08-10; Windy Cloud's own maintainer
+    confirmed it during the 2026-08-11 reconciliation. So both were
+    invented endpoints that could only ever 404, and their statuses
+    filled a "cascade" table that looked like propagation machinery.
 
-    Matrix is deliberately NOT in this list. It used to be, pointed at
-    `/_matrix/client/versions` — an unauthenticated version probe that
-    answers 200 to anyone. Synapse has no flush-bot-cache hook, so that
-    entry could only ever manufacture a green "cascade acked" line for
-    work nobody did.
+    They are removed rather than hidden behind a flag on purpose. This
+    module has already shipped three invented windy-pro routes
+    (bot-keys/mint, bot-keys/revoke, identity/link-passport), each
+    failing silently for its entire life; a fourth guessed contract kept
+    "ready for when the receiver lands" is the same mistake with a
+    feature flag on it. When a real receiver exists, add it here against
+    a published contract — ``revoke_bot_key`` still accepts
+    caller-supplied ``cascade_webhook_urls``, so the mechanism is intact.
+
+    Matrix was removed earlier for a related reason: it pointed at
+    ``/_matrix/client/versions``, an unauthenticated version probe that
+    answers 200 to anyone, so it manufactured a green ack for work
+    nobody did.
+
+    The honest consequence is stated to the operator by ``--hard``:
+    revoking a bot key propagates nowhere, and every platform holding one
+    honours it until it revalidates against windy-pro.
     """
-    webhooks: list[str] = []
-    mail = os.environ.get("WINDYMAIL_API_URL", "").rstrip("/")
-    if mail:
-        webhooks.append(f"{mail}/api/v1/internal/bot-key-revoked")
-    cloud = os.environ.get("WINDY_CLOUD_URL", "").rstrip("/")
-    if cloud:
-        webhooks.append(f"{cloud}/api/v1/internal/bot-key-revoked")
-    return webhooks
+    return []
 
 
 def _status_ok(status: int | str) -> bool:
