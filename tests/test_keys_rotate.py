@@ -186,8 +186,14 @@ def test_rotate_requires_passport(monkeypatch, tmp_cache) -> None:
     assert excinfo.value.code == 2
 
 
-def test_rotate_hard_cascades_to_mail_and_cloud(monkeypatch, tmp_cache) -> None:
-    """--hard must pass the mail/cloud webhook URLs through to revoke_bot_key."""
+def test_rotate_hard_posts_to_no_invented_receivers(monkeypatch, tmp_cache, capsys) -> None:
+    """--hard must NOT invent receivers, and must say propagation is absent.
+
+    It used to POST to {WINDYMAIL_API_URL,WINDY_CLOUD_URL}/api/v1/internal/
+    bot-key-revoked. Neither route has ever existed (windy-mail grepped
+    2026-08-10; Windy Cloud's maintainer confirmed 2026-08-11), so those
+    were guaranteed 404s whose statuses rendered as a cascade table.
+    """
     monkeypatch.setenv("WINDYMAIL_API_URL", "https://mail.test")
     monkeypatch.setenv("WINDY_CLOUD_URL", "https://cloud.test")
     old = _fresh_cred(key_id="key_old")
@@ -208,9 +214,10 @@ def test_rotate_hard_cascades_to_mail_and_cloud(monkeypatch, tmp_cache) -> None:
 
     keys_cmd.cmd_keys(Namespace(action="rotate", hard=True))
 
-    cascade = captured.get("cascade") or []
-    assert any("mail.test" in u for u in cascade)
-    assert any("cloud.test" in u for u in cascade)
+    assert not (captured.get("cascade") or []), "no invented receivers may be posted to"
+    out = capsys.readouterr().out
+    assert "No revocation cascade exists" in out
+    assert "revalidates" in out
 
 
 def test_show_reports_cached_key(monkeypatch, tmp_cache, capsys) -> None:
@@ -305,18 +312,23 @@ def test_show_flags_an_unrevocable_key(tmp_cache, capsys) -> None:
     assert "CANNOT be revoked" in out
 
 
-def test_cascade_does_not_include_the_matrix_version_probe(monkeypatch) -> None:
-    """`/_matrix/client/versions` answers 200 to anyone and revokes
-    nothing — including it manufactured a green 'cascade acked'."""
+def test_cascade_list_is_empty_because_no_receiver_exists(monkeypatch) -> None:
+    """No bot_key.revoked receiver exists anywhere, so the list is empty.
+
+    Guards three separate ways this file has manufactured a fake ack:
+    the Matrix `/_matrix/client/versions` probe (answers 200 to anyone,
+    revokes nothing), and the windy-mail / Windy Cloud
+    `/api/v1/internal/bot-key-revoked` paths, neither of which has ever
+    existed. Setting every env var must still yield zero targets — a
+    receiver may only be added here against a published contract.
+    """
     monkeypatch.setenv("WINDYMAIL_API_URL", "https://mail.test")
     monkeypatch.setenv("WINDY_CLOUD_URL", "https://cloud.test")
     monkeypatch.setenv("MATRIX_HOMESERVER", "https://matrix.test")
 
     hooks = keys_cmd._cascade_webhooks()
 
-    assert not any("matrix" in u for u in hooks)
-    assert not any("versions" in u for u in hooks)
-    assert len(hooks) == 2
+    assert hooks == []
 
 
 def test_mint_without_bot_identity_exits_2_as_a_prerequisite(monkeypatch, tmp_cache) -> None:

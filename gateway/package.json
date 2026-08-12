@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "bun run --watch src/server.ts",
-    "start": "bun run src/server.ts"
+    "start": "bun run src/server.ts",
+    "test": "bun test"
   },
   "devDependencies": {
     "@types/bun": "latest"

@@ -29,6 +29,22 @@ jobs:
       - name: Test
         run: uv run pytest tests/ -v --tb=short
 
+  # The gateway is a Bun app and had no test entry point until 2026-08-12,
+  # so its 137 tests across 9 files had never been executed by any runner.
+  # They pass (135 pass / 2 skip / 0 fail, verified locally on bun 1.3.14).
+  gateway-test:
+    runs-on: [self-hosted, linux, x64]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install bun
+        uses: oven-sh/setup-bun@v2
+      - name: Install gateway deps
+        working-directory: gateway
+        run: bun install
+      - name: Test gateway
+        working-directory: gateway
+        run: bun test
+
   build:
     runs-on: [self-hosted, linux, x64]
     needs: test
