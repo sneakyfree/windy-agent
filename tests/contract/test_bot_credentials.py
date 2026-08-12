@@ -1,7 +1,15 @@
 """Contract tests for the wk_ bot-key minting flow.
 
+The route under test is windy-pro's REAL one,
+`POST /api/v1/identity/api-keys` (account-server
+`src/routes/identity.ts`). This file previously pinned
+`/api/v1/identity/bot-keys/mint`, which has never existed on any
+account-server — the tests passed against a mock of a 404.
+
 Covers:
-- POST /api/v1/identity/bot-keys/mint shape (path, headers, body)
+- POST /api/v1/identity/api-keys shape (path, headers, body)
+- 201 response parsing (apiKey / id / expiresAt / scopes)
+- Explicit skip when no bot identity id is available
 - Cache round-trip
 - 30-day rotation window
 - Graceful fallback when no cache/JWT
@@ -20,6 +28,7 @@ import respx
 from windyfly.auth import bot_credentials
 from windyfly.auth.bot_credentials import (
     BotCredential,
+    BotIdentityUnavailable,
     clear_cached_bot_key,
     ecosystem_auth_header,
     get_bot_key,
@@ -27,6 +36,18 @@ from windyfly.auth.bot_credentials import (
 )
 
 PRO_BASE = "https://pro.windy.test"
+MINT_URL = f"{PRO_BASE}/api/v1/identity/api-keys"
+BOT_ID = "bot_identity_9f2c"
+
+# A verbatim 201 body from account-server's POST /api/v1/identity/api-keys.
+MINT_201 = {
+    "apiKey": "wk_live_abc123",
+    "keyPrefix": "wk_live_abc",
+    "id": "b2f0c0de-0000-4000-8000-000000000001",
+    "scopes": ["mail:send", "cloud:upload"],
+    "expiresAt": "2027-04-16T00:00:00Z",
+    "warning": "Store this API key securely. It will not be shown again.",
+}
 
 
 @pytest.fixture(autouse=True)
@@ -35,6 +56,8 @@ def _redirect_cache(tmp_path, monkeypatch):
     fake_cache = tmp_path / "bot_key.json"
     monkeypatch.setattr(bot_credentials, "_CACHE_FILE", fake_cache)
     monkeypatch.setenv("WINDY_PRO_URL", PRO_BASE)
+    monkeypatch.delenv("BOT_IDENTITY_ID", raising=False)
+    monkeypatch.delenv("WINDY_BOT_IDENTITY_ID", raising=False)
     clear_cached_bot_key()
     yield
     clear_cached_bot_key()
@@ -43,55 +66,182 @@ def _redirect_cache(tmp_path, monkeypatch):
 class TestMintContract:
     @respx.mock
     async def test_posts_correct_path_body_and_auth(self):
-        route = respx.post(f"{PRO_BASE}/api/v1/identity/bot-keys/mint").mock(
-            return_value=httpx.Response(200, json={
-                "bot_key": "wk_live_abc123",
-                "expires_at": "2027-04-16T00:00:00Z",
-                "windy_identity_id": "wi_user_1",
-            })
-        )
+        route = respx.post(MINT_URL).mock(return_value=httpx.Response(201, json=MINT_201))
 
         cred = await mint_bot_key(
             owner_jwt="owner_jwt_xyz",
             passport_number="ET-00042",
+            scopes=["mail:send", "cloud:upload"],
+            bot_identity_id=BOT_ID,
         )
 
         assert route.called
         req = route.calls.last.request
         assert req.headers["Authorization"] == "Bearer owner_jwt_xyz"
         body = json.loads(req.content)
-        assert body["passport_number"] == "ET-00042"
-        assert isinstance(body.get("scopes"), list)
-        assert cred.bot_key == "wk_live_abc123"
-        assert cred.windy_identity_id == "wi_user_1"
+        # The server keys the whole call on identityId; passport_number
+        # is NOT a field it understands.
+        assert body["identityId"] == BOT_ID
+        assert body["scopes"] == ["mail:send", "cloud:upload"]
+        assert "passport_number" not in body
+        # expiresInDays is mandatory in practice — without it the server
+        # returns no expiresAt and rotation has nothing to work from.
+        assert body["expiresInDays"] > 0
+        assert "ET-00042" in body["label"]
         assert cred.passport_number == "ET-00042"
 
     @respx.mock
-    async def test_mint_caches_credential(self):
-        respx.post(f"{PRO_BASE}/api/v1/identity/bot-keys/mint").mock(
-            return_value=httpx.Response(200, json={
-                "bot_key": "wk_cached",
-                "expires_at": "2027-04-16T00:00:00Z",
-            })
+    async def test_parses_201_response_fields(self):
+        respx.post(MINT_URL).mock(return_value=httpx.Response(201, json=MINT_201))
+
+        cred = await mint_bot_key(
+            owner_jwt="j", passport_number="ET-1", bot_identity_id=BOT_ID,
         )
 
-        await mint_bot_key(owner_jwt="j", passport_number="ET-1")
+        assert cred.bot_key == "wk_live_abc123"
+        assert cred.key_id == "b2f0c0de-0000-4000-8000-000000000001"
+        assert cred.scopes == ["mail:send", "cloud:upload"]
+        assert cred.expires_at == datetime(2027, 4, 16, tzinfo=timezone.utc)
+        # windy_identity_id now holds the BOT's identity, not the owner's.
+        assert cred.windy_identity_id == BOT_ID
+
+    @respx.mock
+    async def test_missing_expires_at_falls_back_to_requested_window(self):
+        """Older servers omit expiresAt when expiresInDays wasn't stored.
+        Rotation still needs a datetime — assume what we asked for."""
+        respx.post(MINT_URL).mock(return_value=httpx.Response(201, json={
+            "apiKey": "wk_no_expiry", "keyPrefix": "wk_no_expir", "id": "k1",
+        }))
+
+        cred = await mint_bot_key(
+            owner_jwt="j", passport_number="ET-1",
+            bot_identity_id=BOT_ID, expires_in_days=90,
+        )
+
+        assert cred.expires_at > datetime.now(timezone.utc) + timedelta(days=89)
+
+    @respx.mock
+    async def test_mint_caches_credential(self):
+        respx.post(MINT_URL).mock(return_value=httpx.Response(201, json={
+            **MINT_201, "apiKey": "wk_cached",
+        }))
+
+        await mint_bot_key(owner_jwt="j", passport_number="ET-1", bot_identity_id=BOT_ID)
 
         cached = bot_credentials._load_cached()
         assert cached is not None
         assert cached.bot_key == "wk_cached"
+        assert cached.windy_identity_id == BOT_ID
 
     async def test_mint_requires_url_jwt_and_passport(self, monkeypatch):
         monkeypatch.delenv("WINDY_PRO_URL", raising=False)
         monkeypatch.delenv("WINDY_API_URL", raising=False)
         with pytest.raises(RuntimeError):
-            await mint_bot_key(owner_jwt="j", passport_number="ET-1")
+            await mint_bot_key(owner_jwt="j", passport_number="ET-1", bot_identity_id=BOT_ID)
 
         monkeypatch.setenv("WINDY_PRO_URL", PRO_BASE)
         with pytest.raises(RuntimeError):
-            await mint_bot_key(owner_jwt="", passport_number="ET-1")
+            await mint_bot_key(owner_jwt="", passport_number="ET-1", bot_identity_id=BOT_ID)
         with pytest.raises(RuntimeError):
-            await mint_bot_key(owner_jwt="j", passport_number="")
+            await mint_bot_key(owner_jwt="j", passport_number="", bot_identity_id=BOT_ID)
+
+    @respx.mock
+    async def test_4xx_surfaces_as_http_error(self):
+        """The server 400s when identityId isn't a bot. That must reach
+        the caller, not be swallowed into a half-success."""
+        respx.post(MINT_URL).mock(return_value=httpx.Response(400, json={
+            "error": "API keys can only be created for bot identities",
+        }))
+
+        with pytest.raises(httpx.HTTPStatusError) as excinfo:
+            await mint_bot_key(
+                owner_jwt="j", passport_number="ET-1", bot_identity_id="owner_identity_1",
+            )
+
+        assert excinfo.value.response.status_code == 400
+        assert bot_credentials._load_cached() is None, "a 4xx must not cache anything"
+
+    @respx.mock
+    async def test_403_when_caller_is_not_the_operator(self):
+        respx.post(MINT_URL).mock(return_value=httpx.Response(403, json={
+            "error": "Only the bot operator or an admin can create API keys",
+        }))
+
+        with pytest.raises(httpx.HTTPStatusError) as excinfo:
+            await mint_bot_key(
+                owner_jwt="someone_elses_jwt", passport_number="ET-1", bot_identity_id=BOT_ID,
+            )
+
+        assert excinfo.value.response.status_code == 403
+
+
+class TestBotIdentityResolution:
+    """Where the bot identity id comes from — and what happens when it
+    doesn't come from anywhere (the terminal-lane reality)."""
+
+    @respx.mock
+    async def test_falls_back_to_env_var(self, monkeypatch):
+        monkeypatch.setenv("BOT_IDENTITY_ID", "bot_from_env")
+        route = respx.post(MINT_URL).mock(return_value=httpx.Response(201, json=MINT_201))
+
+        await mint_bot_key(owner_jwt="j", passport_number="ET-1")
+
+        assert json.loads(route.calls.last.request.content)["identityId"] == "bot_from_env"
+
+    @respx.mock
+    async def test_falls_back_to_cached_identity_for_rotation(self, monkeypatch):
+        """A re-mint doesn't need to be told the identity again — the
+        previous mint cached it."""
+        bot_credentials._save_cached(BotCredential(
+            bot_key="wk_old",
+            expires_at=datetime.now(timezone.utc) + timedelta(days=5),
+            windy_identity_id="bot_from_cache",
+            passport_number="ET-1",
+        ))
+        route = respx.post(MINT_URL).mock(return_value=httpx.Response(201, json=MINT_201))
+
+        await mint_bot_key(owner_jwt="j", passport_number="ET-1")
+
+        assert json.loads(route.calls.last.request.content)["identityId"] == "bot_from_cache"
+
+    @respx.mock
+    async def test_explicit_argument_wins_over_env(self, monkeypatch):
+        monkeypatch.setenv("BOT_IDENTITY_ID", "bot_from_env")
+        route = respx.post(MINT_URL).mock(return_value=httpx.Response(201, json=MINT_201))
+
+        await mint_bot_key(owner_jwt="j", passport_number="ET-1", bot_identity_id="bot_explicit")
+
+        assert json.loads(route.calls.last.request.content)["identityId"] == "bot_explicit"
+
+    @respx.mock
+    async def test_skips_explicitly_when_no_bot_identity(self, monkeypatch):
+        """Terminal-lane hatch: an Eternitas passport but no windy-pro
+        bot row. Refuse loudly; never guess, never pretend."""
+        monkeypatch.setenv("WINDY_IDENTITY_ID", "owner_identity_1")  # the OWNER's — must not be used
+        route = respx.post(MINT_URL).mock(return_value=httpx.Response(201, json=MINT_201))
+
+        with pytest.raises(BotIdentityUnavailable) as excinfo:
+            await mint_bot_key(owner_jwt="j", passport_number="ET-1")
+
+        assert not route.called, "no request may be sent without a bot identity"
+        assert "skipped: no bot identity id" in str(excinfo.value)
+        assert "BOT_IDENTITY_ID" in str(excinfo.value)
+
+    async def test_skip_is_not_reported_as_a_mint_failure(self, monkeypatch, caplog):
+        """get_bot_key() logs the skip at INFO with the honest reason —
+        not a WARNING (it isn't a failure) and not nothing at all."""
+        import logging
+
+        monkeypatch.setenv("WINDY_JWT", "owner_jwt")
+        monkeypatch.setenv("ETERNITAS_PASSPORT", "ET26-T11V-NPD1")
+        clear_cached_bot_key()
+
+        with caplog.at_level(logging.DEBUG, logger="windyfly.auth.bot_credentials"):
+            cred = await get_bot_key()
+
+        assert cred is None
+        assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+        assert any("no bot identity id" in r.getMessage() for r in caplog.records)
 
 
 class TestRotation:
@@ -113,11 +263,8 @@ class TestRotation:
     async def test_rotates_within_30_day_window(self, monkeypatch):
         monkeypatch.setenv("WINDY_JWT", "owner_jwt")
         self._write_cached(datetime.now(timezone.utc) + timedelta(days=15))
-        route = respx.post(f"{PRO_BASE}/api/v1/identity/bot-keys/mint").mock(
-            return_value=httpx.Response(200, json={
-                "bot_key": "wk_rotated",
-                "expires_at": "2027-04-16T00:00:00Z",
-            })
+        route = respx.post(MINT_URL).mock(
+            return_value=httpx.Response(201, json={**MINT_201, "apiKey": "wk_rotated"})
         )
 
         cred = await get_bot_key()
@@ -147,9 +294,7 @@ class TestRotation:
     async def test_mint_failure_during_rotation_keeps_stale(self, monkeypatch):
         monkeypatch.setenv("WINDY_JWT", "owner_jwt")
         self._write_cached(datetime.now(timezone.utc) + timedelta(days=15))
-        respx.post(f"{PRO_BASE}/api/v1/identity/bot-keys/mint").mock(
-            return_value=httpx.Response(500, text="boom")
-        )
+        respx.post(MINT_URL).mock(return_value=httpx.Response(500, text="boom"))
 
         cred = await get_bot_key()
 
@@ -205,14 +350,13 @@ class TestMintLogHygiene:
 
     @respx.mock
     async def test_real_mint_http_failure_is_warning(self, monkeypatch, caplog):
-        # URL + owner JWT present, no cache → a genuine mint attempt that
-        # 500s IS worth a WARNING.
+        # URL + owner JWT + bot identity present, no cache → a genuine
+        # mint attempt that 500s IS worth a WARNING.
         monkeypatch.setenv("WINDY_JWT", "owner_jwt")
         monkeypatch.setenv("ETERNITAS_PASSPORT", "ET26-T11V-NPD1")
+        monkeypatch.setenv("BOT_IDENTITY_ID", BOT_ID)
         clear_cached_bot_key()
-        respx.post(f"{PRO_BASE}/api/v1/identity/bot-keys/mint").mock(
-            return_value=httpx.Response(500, text="boom")
-        )
+        respx.post(MINT_URL).mock(return_value=httpx.Response(500, text="boom"))
         with caplog.at_level(self.logging.DEBUG, logger="windyfly.auth.bot_credentials"):
             cred = await get_bot_key()
         assert cred is None

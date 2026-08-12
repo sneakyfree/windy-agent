@@ -90,9 +90,18 @@ _state: _ClaimState | None = None
 
 
 def _mind_base_url() -> str:
-    """Resolve the Mind base URL. Defaults to the canonical production
-    host; an env-var override exists for tests + dev environments."""
-    return os.environ.get("MIND_BASE_URL", "https://api.windymind.ai").rstrip("/")
+    """Resolve the Mind base URL through the shared resolver.
+
+    This module used to read MIND_BASE_URL directly while the model layer
+    read MIND_API_URL. Both defaulted to production, so a dev/staging
+    override moved the brain but left the claim pointed at PROD Mind —
+    silent prod traffic, and the single-runtime invariant guarding the
+    wrong host. Imported lazily so the boot path keeps this module free
+    of the model layer at import time (same idiom as _windyfly_version).
+    """
+    from windyfly.agent.models import resolve_mind_url
+
+    return resolve_mind_url()
 
 
 def _read_creds() -> tuple[str, str] | None:

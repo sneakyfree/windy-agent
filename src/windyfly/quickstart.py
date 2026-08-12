@@ -240,6 +240,7 @@ def write_keyless_config(preset: str = "buddy") -> None:
     2026-07-04 (PR #45) — without WINDY_MIND_SEND_TOOLS=1 the agent
     would skip Mind for any tool-bearing turn and could never act.
     """
+    from windyfly.agent.models import MIND_DEFAULT_URL, MIND_URL_ENV
     from windyfly.setup_wizard import PRESETS
 
     preset_data = PRESETS.get(preset, PRESETS["buddy"])
@@ -251,7 +252,9 @@ def write_keyless_config(preset: str = "buddy") -> None:
         "",
         "# No API key needed — this agent thinks through Windy Mind's",
         "# free-compute lane, authenticated with its Eternitas passport.",
-        "MIND_API_URL=https://api.windymind.ai",
+        # Canonical name + default come from the resolver every read site
+        # uses, so the generated .env can't drift from what's read back.
+        f"{MIND_URL_ENV}={MIND_DEFAULT_URL}",
         "WINDY_MIND_SEND_TOOLS=1",
         "",
         "# ETERNITAS_PASSPORT_TOKEN is written here by the hatch ceremony.",

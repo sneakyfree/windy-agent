@@ -12,9 +12,15 @@ doesn't have to stitch together a complex argv. Required inputs
 mirror the ``/hatch/remote`` request body:
 
 * ``windy_identity_id`` — Windy Pro account id (identity link-back)
+* ``bot_identity_id`` — the BOT's Windy Pro identity id, minted by Pro
+  before the handoff. The gateway is the only carrier of this value;
+  without it the bot cannot mint its ``wk_`` key against Pro.
 * ``passport_number`` — pre-allocated passport id, if any
 * ``broker_token`` — short-lived LLM credential from Pro's broker
   endpoint (stored as the active provider's API key for this hatch)
+* ``provider`` / ``model`` — what the broker issued the token FOR. With
+  ``provider`` the token is written to exactly one provider env var;
+  without it we fall back to writing all of them.
 * ``owner_email`` / ``owner_phone`` / ``owner_name``
 
 Output is JSON Lines. Do not print anything else to stdout. Logs go to
@@ -62,48 +68,63 @@ def _emit_json(event: str, data: dict[str, Any]) -> None:
     sys.stdout.flush()
 
 
-def _apply_broker_token(broker_token: str) -> str:
+PROVIDER_TO_ENV = {
+    "openai": "OPENAI_API_KEY",
+    "anthropic": "ANTHROPIC_API_KEY",
+    "grok": "GROK_API_KEY",
+    "xai": "GROK_API_KEY",
+    "gemini": "GEMINI_API_KEY",
+    "google": "GEMINI_API_KEY",
+    "deepseek": "DEEPSEEK_API_KEY",
+    "mistral": "MISTRAL_API_KEY",
+}
+
+
+def _apply_broker_token(broker_token: str, provider: str = "") -> str:
     """Store the broker_token as the active provider's API key in the
     process environment so downstream LLM calls pick it up.
 
     Skips the "paste API key" prompt entirely (that's the whole point
     of the managed-credential flow).
 
-    Returns the env var name that was populated, or "" if no token.
+    ``provider`` is what Pro's broker issued the token FOR — it comes
+    down the /hatch/remote body. When we know it, exactly ONE env var is
+    written: a token minted for one provider is a dead string in the
+    other seven, and copying it there only makes the wrong client try
+    it. ``WINDY_BROKER_PROVIDER`` remains an env-level override for
+    manual runs.
+
+    Writing all eight is the FALLBACK for callers that told us nothing,
+    kept only so the terminal door keeps working.
+
+    Returns the env var name that was populated, or "*" for the
+    write-all fallback, or "" if no token.
     """
     if not broker_token:
         return ""
 
-    # The broker token's provider is encoded in the token itself when
-    # Pro mints it, but we don't parse it here — we just populate every
-    # provider env var we care about. The agent's config file selects
-    # which one is active via DEFAULT_MODEL. This is intentionally
-    # permissive: Pro's broker is the single source of truth for which
-    # provider the user is on; we just cache the key everywhere a
-    # provider-specific client might look for it.
-    #
-    # If a caller wants a single env var populated, they can set
-    # WINDY_BROKER_PROVIDER (one of openai/anthropic/grok/gemini/...)
-    # and only that one will be written.
-    preferred = os.environ.get("WINDY_BROKER_PROVIDER", "").strip().lower()
-    provider_to_env = {
-        "openai": "OPENAI_API_KEY",
-        "anthropic": "ANTHROPIC_API_KEY",
-        "grok": "GROK_API_KEY",
-        "xai": "GROK_API_KEY",
-        "gemini": "GEMINI_API_KEY",
-        "google": "GEMINI_API_KEY",
-        "deepseek": "DEEPSEEK_API_KEY",
-        "mistral": "MISTRAL_API_KEY",
-    }
-    if preferred in provider_to_env:
-        env_var = provider_to_env[preferred]
+    preferred = (provider or os.environ.get("WINDY_BROKER_PROVIDER", "")).strip().lower()
+    if preferred in PROVIDER_TO_ENV:
+        env_var = PROVIDER_TO_ENV[preferred]
         os.environ[env_var] = broker_token
+        logger.info(
+            "Broker token pinned to %s (provider=%s)", env_var, preferred,
+        )
         return env_var
 
-    # No preferred provider — set all of them. The active_model config
+    if preferred:
+        logger.warning(
+            "Unknown broker provider %r — falling back to writing every provider env var",
+            preferred,
+        )
+    else:
+        logger.info(
+            "No broker provider supplied — falling back to writing every provider env var",
+        )
+
+    # No known provider — set all of them. The active_model config
     # picks the one that actually gets used.
-    for env_var in provider_to_env.values():
+    for env_var in PROVIDER_TO_ENV.values():
         os.environ.setdefault(env_var, broker_token)
     return "*"
 
@@ -117,6 +138,9 @@ def run(
     owner_email: str,
     owner_phone: str,
     owner_name: str,
+    bot_identity_id: str = "",
+    provider: str = "",
+    model: str = "",
     render_mode: str = "json",
     animate: bool = True,
 ) -> int:
@@ -135,13 +159,29 @@ def run(
         os.environ["WINDY_IDENTITY_ID"] = windy_identity_id
     if passport_number:
         os.environ["ETERNITAS_PASSPORT"] = passport_number
+    # The bot's Pro identity id. Same seeding pattern as the passport:
+    # the orchestrator's sub-steps (bot credential minting in
+    # auth/bot_credentials.py) read it from the environment, so the
+    # remote door has to put it there or the bot has no identity to
+    # mint a `wk_` key against.
+    if bot_identity_id:
+        os.environ["BOT_IDENTITY_ID"] = bot_identity_id
+    if model:
+        # What the broker issued the token for. DEFAULT_MODEL is the
+        # agent loop's selector — seed it only if nothing already chose
+        # a model, so an operator's explicit choice still wins.
+        os.environ["WINDY_BROKER_MODEL"] = model
+        os.environ.setdefault("DEFAULT_MODEL", model)
 
-    env_var_set = _apply_broker_token(broker_token)
+    env_var_set = _apply_broker_token(broker_token, provider)
     _emit_json("hatch.starting", {
         "agent_name": agent_name,
         "windy_identity_id": windy_identity_id,
+        "bot_identity_id": bot_identity_id,
         "passport_number": passport_number,
         "broker_credential_env": env_var_set,
+        "broker_provider": provider,
+        "broker_model": model,
         "render_mode": render_mode,
     })
 
@@ -193,8 +233,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="windyfly.hatch_remote")
     parser.add_argument("--agent-name", default=os.environ.get("WINDYFLY_AGENT_NAME", "Windy Fly"))
     parser.add_argument("--windy-identity-id", default=os.environ.get("WINDY_IDENTITY_ID", ""))
+    parser.add_argument("--bot-identity-id", default=os.environ.get("BOT_IDENTITY_ID", ""))
     parser.add_argument("--passport-number", default=os.environ.get("ETERNITAS_PASSPORT", ""))
     parser.add_argument("--broker-token", default=os.environ.get("WINDY_BROKER_TOKEN", ""))
+    parser.add_argument("--provider", default=os.environ.get("WINDY_BROKER_PROVIDER", ""))
+    parser.add_argument("--model", default=os.environ.get("WINDY_BROKER_MODEL", ""))
     parser.add_argument("--owner-email", default=os.environ.get("OWNER_EMAIL", ""))
     parser.add_argument("--owner-phone", default=os.environ.get("OWNER_PHONE", ""))
     parser.add_argument("--owner-name", default=os.environ.get("WINDY_OWNER_NAME", ""))
@@ -226,6 +269,9 @@ def main(argv: list[str] | None = None) -> int:
         owner_email=args.owner_email,
         owner_phone=args.owner_phone,
         owner_name=args.owner_name,
+        bot_identity_id=args.bot_identity_id,
+        provider=args.provider,
+        model=args.model,
         render_mode=args.render_mode,
         animate=not args.no_animate,
     )

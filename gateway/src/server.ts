@@ -39,10 +39,24 @@ import { bridge } from "./bridge";
 import { handleClose, handleMessage, handleWebSocket } from "./websocket";
 import * as providers from "./providers";
 import * as machines from "./machines";
-import { handleHatchRemote } from "./hatch-remote";
+import { handleHatchRemote, honoursPreallocatedPassport } from "./hatch-remote";
 
 const PORT = Number(process.env.GATEWAY_PORT) || 3000;
 const PUBLIC_DIR = resolve(import.meta.dir, "../public");
+
+/**
+ * Commit this gateway was deployed from, if the deploy stamped one into
+ * the environment. Returns `null` when nothing was stamped — the build
+ * registry cannot reconstruct it afterwards, so an honest null beats a
+ * guess. (`version` above is the hand-maintained release string.)
+ */
+function gatewayCommit(): string | null {
+  const commit = process.env.GATEWAY_COMMIT
+    || process.env.GIT_COMMIT
+    || process.env.SOURCE_COMMIT
+    || "";
+  return commit.trim() || null;
+}
 
 // ── Sentry error reporting (optional) ───────────────────────────
 const SENTRY_DSN = process.env.SENTRY_DSN || "";
@@ -632,7 +646,16 @@ async function handleRequest(req: Request, server: import("bun").Server<any>): P
           status: "ok",
           service: "windy-fly-agent",
           version: "0.5.1",
+          // Build provenance, when the deploy passes one in. `null` when
+          // unknown — a made-up commit is worse than an absent one.
+          commit: gatewayCommit(),
           brain_connected: bridge.isConnected(),
+          // R3 guard flag: is the handoff contract honoured on this
+          // build? Derived from the Python hallway's actual adoption
+          // branch (see honoursPreallocatedPassport), NOT a constant.
+          // windy-pro's WINDY_AGENT_URL must stay unset until whoever
+          // arms it has read `true` here from the running gateway.
+          honours_preallocated_passport: honoursPreallocatedPassport(),
           uptime_seconds: Math.floor(process.uptime()),
           timestamp: new Date().toISOString(),
         },

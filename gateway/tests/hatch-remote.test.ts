@@ -8,8 +8,10 @@
 
 import { describe, expect, test } from "bun:test";
 import {
+  checkServiceToken,
   formatSseFrame,
   handleHatchRemote,
+  honoursPreallocatedPassport,
   startHatchRemoteSse,
   validateHatchRemoteBody,
 } from "../src/hatch-remote";
@@ -22,6 +24,24 @@ const goodBody = {
   owner_phone: "+14155550188",
   owner_name: "Nora",
   agent_name: "Nora's Agent",
+};
+
+/**
+ * Exactly what windy-pro's `startRemoteAgent` puts on the wire today
+ * (account-server/src/services/hatch-steps.ts:431-444). Keep this in
+ * sync with the producer — it is the whole point of these tests.
+ */
+const proProducerBody = {
+  windy_identity_id: "wi_123",
+  bot_identity_id: "wi_bot_456",
+  agent_name: "Nora's Agent",
+  passport_number: "ET26-ABC-DEF",
+  broker_token: "bk_live_abcdefghijkl",
+  provider: "anthropic",
+  model: "claude-3-5-sonnet-latest",
+  owner_email: "nora@example.com",
+  owner_phone: null,
+  owner_name: "Nora",
 };
 
 describe("validateHatchRemoteBody", () => {
@@ -44,10 +64,66 @@ describe("validateHatchRemoteBody", () => {
   });
 
   test("rejects missing required field", () => {
-    const { owner_phone, ...rest } = goodBody;
+    const { owner_name, ...rest } = goodBody;
     const r = validateHatchRemoteBody(rest);
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toContain("owner_phone");
+    if (!r.ok) expect(r.error).toContain("owner_name");
+  });
+
+  // The whole producer payload, verbatim, must validate. This is the
+  // regression that mattered: the first browser hatch by an owner with
+  // no phone number 400'd on `owner_phone`.
+  test("accepts windy-pro's exact producer payload (owner_phone: null)", () => {
+    const r = validateHatchRemoteBody(proProducerBody);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.value.owner_phone).toBeNull();
+      expect(r.value.bot_identity_id).toBe("wi_bot_456");
+      expect(r.value.provider).toBe("anthropic");
+      expect(r.value.model).toBe("claude-3-5-sonnet-latest");
+    }
+  });
+
+  test("owner_phone may be absent entirely", () => {
+    const { owner_phone, ...rest } = goodBody;
+    const r = validateHatchRemoteBody(rest);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value.owner_phone).toBeNull();
+  });
+
+  test("owner_phone still rejects wrong types", () => {
+    for (const bad of [42, {}, [], true]) {
+      const r = validateHatchRemoteBody({ ...goodBody, owner_phone: bad });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.error).toContain("owner_phone");
+    }
+  });
+
+  test("a real phone number still passes through unchanged", () => {
+    const r = validateHatchRemoteBody(goodBody);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value.owner_phone).toBe("+14155550188");
+  });
+
+  test("bot_identity_id / provider / model are optional but type-checked", () => {
+    for (const key of ["bot_identity_id", "provider", "model"]) {
+      const r = validateHatchRemoteBody({ ...goodBody, [key]: 7 });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.error).toContain(key);
+    }
+    const absent = validateHatchRemoteBody(goodBody);
+    expect(absent.ok).toBe(true);
+    if (absent.ok) {
+      expect(absent.value.bot_identity_id).toBeUndefined();
+      expect(absent.value.provider).toBeUndefined();
+      expect(absent.value.model).toBeUndefined();
+    }
+  });
+
+  test("rejects oversize bot_identity_id (>128)", () => {
+    const r = validateHatchRemoteBody({ ...goodBody, bot_identity_id: "b".repeat(500) });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain("bot_identity_id");
   });
 
   test("rejects trivial broker_token", () => {
@@ -302,5 +378,145 @@ describe("SSE relay — event ordering + passthrough", () => {
     expect(resp.headers.get("Cache-Control")).toContain("no-cache");
     // Drain so the stream closes.
     await collectSseText(resp);
+  });
+});
+
+/**
+ * Spawn stub that records the argv it was handed, so we can assert the
+ * gateway actually forwards each field to the Python subprocess rather
+ * than validating it and dropping it.
+ */
+function recordingSpawn(): { cmds: string[][]; impl: typeof import("bun").spawn } {
+  const cmds: string[][] = [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const impl = ((opts: any) => {
+    cmds.push(opts.cmd as string[]);
+    return {
+      stdout: new ReadableStream<Uint8Array>({ start(c) { c.close(); } }),
+      stderr: new ReadableStream<Uint8Array>({ start(c) { c.close(); } }),
+      exited: Promise.resolve(0),
+    };
+  }) as unknown as typeof import("bun").spawn;
+  return { cmds, impl };
+}
+
+function argValue(cmd: string[], flag: string): string | undefined {
+  const i = cmd.indexOf(flag);
+  return i === -1 ? undefined : cmd[i + 1];
+}
+
+describe("subprocess argv — every accepted field is forwarded", () => {
+  test("bot_identity_id, provider and model reach the Python subprocess", async () => {
+    const v = validateHatchRemoteBody(proProducerBody);
+    expect(v.ok).toBe(true);
+    if (!v.ok) return;
+
+    const { cmds, impl } = recordingSpawn();
+    const resp = startHatchRemoteSse(v.value, { spawnImpl: impl });
+    await collectSseText(resp);
+
+    expect(cmds.length).toBe(1);
+    const cmd = cmds[0];
+    expect(argValue(cmd, "--bot-identity-id")).toBe("wi_bot_456");
+    expect(argValue(cmd, "--provider")).toBe("anthropic");
+    expect(argValue(cmd, "--model")).toBe("claude-3-5-sonnet-latest");
+    expect(argValue(cmd, "--passport-number")).toBe("ET26-ABC-DEF");
+  });
+
+  test("a null owner_phone spawns with an empty --owner-phone, not 'null'", async () => {
+    const v = validateHatchRemoteBody(proProducerBody);
+    if (!v.ok) throw new Error(v.error);
+    const { cmds, impl } = recordingSpawn();
+    await collectSseText(startHatchRemoteSse(v.value, { spawnImpl: impl }));
+    expect(argValue(cmds[0], "--owner-phone")).toBe("");
+  });
+
+  test("absent optional fields are omitted from argv entirely", async () => {
+    const v = validateHatchRemoteBody(goodBody);
+    if (!v.ok) throw new Error(v.error);
+    const { cmds, impl } = recordingSpawn();
+    await collectSseText(startHatchRemoteSse(v.value, { spawnImpl: impl }));
+    // The Python side keeps its own env-var defaults for these.
+    expect(cmds[0]).not.toContain("--bot-identity-id");
+    expect(cmds[0]).not.toContain("--provider");
+    expect(cmds[0]).not.toContain("--model");
+  });
+});
+
+describe("X-Service-Token", () => {
+  const req = (token?: string) => new Request("http://localhost/hatch/remote", {
+    method: "POST",
+    body: JSON.stringify(proProducerBody),
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { "X-Service-Token": token } : {}),
+    },
+  });
+
+  test("no secret configured → header is not verified, only reported", () => {
+    expect(checkServiceToken(req("anything"), "")).toEqual({
+      ok: true, state: "unverifiable_present",
+    });
+    expect(checkServiceToken(req(), "")).toEqual({
+      ok: true, state: "unverifiable_absent",
+    });
+  });
+
+  test("secret configured → matching header verifies", () => {
+    expect(checkServiceToken(req("s3cret"), "s3cret")).toEqual({
+      ok: true, state: "verified",
+    });
+  });
+
+  test("secret configured → missing / wrong header is rejected", () => {
+    expect(checkServiceToken(req(), "s3cret")).toEqual({
+      ok: false, reason: "service_token_missing",
+    });
+    expect(checkServiceToken(req("wrong"), "s3cret")).toEqual({
+      ok: false, reason: "service_token_invalid",
+    });
+    // Same length, different bytes — the constant-time path.
+    expect(checkServiceToken(req("s3cres"), "s3cret")).toEqual({
+      ok: false, reason: "service_token_invalid",
+    });
+  });
+
+  test("401 before broker-verify when the configured token doesn't match", async () => {
+    let verifyCalled = false;
+    const verifyImpl = (async () => {
+      verifyCalled = true;
+      return { ok: true as const, token: {} as never };
+    });
+    const resp = await handleHatchRemote(req("wrong"), {
+      serviceToken: "s3cret",
+      verifyImpl: verifyImpl as never,
+    });
+    expect(resp.status).toBe(401);
+    expect(verifyCalled).toBe(false);
+    const body = await resp.json() as { reason: string };
+    expect(body.reason).toBe("service_token_invalid");
+  });
+
+  test("does NOT replace broker verification — a good header still 401s a bad token", async () => {
+    const verifyImpl = (async () => ({
+      ok: false as const, status: 401, reason: "token_not_found",
+    }));
+    const resp = await handleHatchRemote(req("s3cret"), {
+      serviceToken: "s3cret",
+      verifyImpl,
+    });
+    expect(resp.status).toBe(401);
+    const body = await resp.json() as { reason: string };
+    expect(body.reason).toBe("token_not_found");
+  });
+});
+
+describe("R3 guard flag — honoursPreallocatedPassport", () => {
+  test("true for this checkout (hatch_remote.py forwards, orchestrator adopts)", () => {
+    expect(honoursPreallocatedPassport()).toBe(true);
+  });
+
+  test("false when the Python hallway can't be read — never assumed", () => {
+    expect(honoursPreallocatedPassport("/nonexistent/windy-agent")).toBe(false);
   });
 });

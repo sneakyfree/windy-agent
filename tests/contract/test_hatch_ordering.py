@@ -48,7 +48,7 @@ def _clean_env(monkeypatch, tmp_path):
     for k in (
         "WINDY_PRO_URL", "WINDY_API_URL", "WINDY_CLOUD_URL", "WINDY_JWT",
         "WINDY_IDENTITY_ID", "ETERNITAS_URL", "ETERNITAS_API_URL",
-        "ETERNITAS_PASSPORT", "OWNER_EMAIL",
+        "ETERNITAS_PASSPORT", "OWNER_EMAIL", "BOT_IDENTITY_ID",
     ):
         monkeypatch.delenv(k, raising=False)
 
@@ -145,15 +145,19 @@ class TestP1E4MintBotKey:
 
     @respx.mock
     async def test_mint_step_happy_path(self, monkeypatch, tmp_path):
+        """Browser/remote lane: windy-pro handed us the bot identity id,
+        so the mint runs against the real /api/v1/identity/api-keys."""
         from windyfly.auth import bot_credentials
         monkeypatch.setattr(bot_credentials, "_CACHE_FILE", tmp_path / "key.json")
         monkeypatch.setenv("WINDY_PRO_URL", PRO)
         monkeypatch.setenv("WINDY_JWT", "owner_jwt")
-        respx.post(f"{PRO}/api/v1/identity/bot-keys/mint").mock(
-            return_value=httpx.Response(200, json={
-                "bot_key": "wk_minted_in_hatch",
-                "expires_at": "2027-04-16T00:00:00Z",
-                "key_id": "wbk_h_1",
+        monkeypatch.setenv("BOT_IDENTITY_ID", "bot_identity_9f2c")
+        route = respx.post(f"{PRO}/api/v1/identity/api-keys").mock(
+            return_value=httpx.Response(201, json={
+                "apiKey": "wk_minted_in_hatch",
+                "keyPrefix": "wk_minted_i",
+                "expiresAt": "2027-04-16T00:00:00Z",
+                "id": "wbk_h_1",
                 "scopes": ["cloud:upload", "mail:send"],
             })
         )
@@ -161,11 +165,61 @@ class TestP1E4MintBotKey:
 
         await _step_mint_bot_key(result)
 
+        import json as _json
+        assert _json.loads(route.calls.last.request.content)["identityId"] == "bot_identity_9f2c"
         cached = bot_credentials._load_cached()
         assert cached is not None
         assert cached.bot_key == "wk_minted_in_hatch"
         assert "cloud:upload" in cached.scopes
         assert result.errors == []
+
+    @respx.mock
+    async def test_mint_step_records_visible_skip_without_bot_identity(
+        self, monkeypatch, tmp_path,
+    ):
+        """Terminal lane: JWT + passport but no windy-pro bot identity.
+        The step must say so out loud — no request, no cached key, and a
+        skip entry the hatch summary will surface."""
+        from windyfly.auth import bot_credentials
+        monkeypatch.setattr(bot_credentials, "_CACHE_FILE", tmp_path / "key.json")
+        monkeypatch.setenv("WINDY_PRO_URL", PRO)
+        monkeypatch.setenv("WINDY_JWT", "owner_jwt")
+        monkeypatch.setenv("WINDY_IDENTITY_ID", "owner_identity_1")  # the OWNER's
+        route = respx.post(f"{PRO}/api/v1/identity/api-keys").mock(
+            return_value=httpx.Response(201, json={"apiKey": "wk_never"})
+        )
+        result = HatchResult(passport_id="ET26-X")
+
+        await _step_mint_bot_key(result)
+
+        assert not route.called
+        assert bot_credentials._load_cached() is None
+        assert len(result.errors) == 1
+        assert "skipped: no bot identity id" in result.errors[0]
+
+    @respx.mock
+    async def test_mint_step_surfaces_a_real_failure_as_an_error(
+        self, monkeypatch, tmp_path,
+    ):
+        """A 400 (identityId isn't a bot) is a failure, not a skip, and
+        must read as one."""
+        from windyfly.auth import bot_credentials
+        monkeypatch.setattr(bot_credentials, "_CACHE_FILE", tmp_path / "key.json")
+        monkeypatch.setenv("WINDY_PRO_URL", PRO)
+        monkeypatch.setenv("WINDY_JWT", "owner_jwt")
+        monkeypatch.setenv("BOT_IDENTITY_ID", "not_a_bot")
+        respx.post(f"{PRO}/api/v1/identity/api-keys").mock(
+            return_value=httpx.Response(400, json={
+                "error": "API keys can only be created for bot identities",
+            })
+        )
+        result = HatchResult(passport_id="ET26-X")
+
+        await _step_mint_bot_key(result)
+
+        assert len(result.errors) == 1
+        assert result.errors[0].startswith("Bot-key mint:")
+        assert "skipped" not in result.errors[0]
 
     @respx.mock
     async def test_cloud_quota_uses_wk_key_when_minted(self, monkeypatch, tmp_path):

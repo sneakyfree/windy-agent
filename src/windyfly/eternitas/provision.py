@@ -203,6 +203,20 @@ async def link_passport_with_identity(
     Skips gracefully in offline/standalone mode (no JWT, no identity id,
     or no service URL). Never raises — returns a summary dict.
 
+    **Measured contract state (2026-08-10).** Only the CLOUD leg is
+    real: WindyCloud serves this route (``api/app/routes/identity.py``).
+    Windy Pro has NO such route — its account-server identity router
+    exposes ``/owns-passport/:passport``, ``/resolve/:windyIdentityId``,
+    ``/api-keys`` and ``/tier/by-windy-id``, and a search for
+    "link-passport" across ``account-server/src/`` finds nothing. So the
+    Pro leg has been 404ing for its entire life. It stays wired (whether
+    Pro grows the route or this leg is dropped is a cross-repo call, not
+    this function's), but a 404 from Pro is now reported as
+    ``"route_absent"`` — distinct from ``"linked"`` and from a transport
+    ``"error: ..."`` — and logged at WARNING, so nobody reads the hatch
+    summary as a success. A 404 from CLOUD keeps the generic
+    ``http_404``: there the route exists, so a 404 is a real surprise.
+
     **Coupling note (P1-E3).** The same owner JWT is sent as the
     Bearer to both Pro and Cloud. This only works as long as the two
     services validate against a **shared JWKS** — typically
@@ -250,6 +264,15 @@ async def link_passport_with_identity(
                 if resp.status_code in (200, 201, 204):
                     summary[label] = "linked"
                     logger.info("Passport %s linked with identity on %s", passport_number, label)
+                elif label == "pro" and resp.status_code == 404:
+                    summary[label] = "route_absent"
+                    logger.warning(
+                        "Link-passport on pro returned 404: windy-pro has no "
+                        "/api/v1/identity/link-passport route (verified "
+                        "2026-08-10 against account-server) — known cross-repo "
+                        "contract gap, NOT a transient failure. The passport ↔ "
+                        "identity link is recorded on Cloud only."
+                    )
                 else:
                     summary[label] = f"http_{resp.status_code}"
                     logger.warning(

@@ -431,6 +431,56 @@ def _log_anthropic_auth_path_once(
         )
 
 
+# ─── Windy Mind host: one name, one resolver ──────────────────────────
+# MIND_API_URL is canonical — it is what `windy go` writes into .env and
+# what the model layer has always read. MIND_BASE_URL is the older name
+# the runtime-claim path (ADR-051 single-runtime invariant) read on its
+# own. Both defaulted to production, so an override set for dev/staging
+# used to move the model layer while the claim kept talking to PROD Mind.
+# Every read site now goes through resolve_mind_url() so they cannot
+# disagree again.
+MIND_URL_ENV = "MIND_API_URL"
+MIND_URL_ENV_LEGACY = "MIND_BASE_URL"
+MIND_DEFAULT_URL = "https://api.windymind.ai"
+
+_mind_legacy_url_logged = False
+
+
+def resolve_mind_url(default: str = MIND_DEFAULT_URL) -> str:
+    """Return the Windy Mind base URL, canonical env name preferred.
+
+    Resolution order: ``MIND_API_URL``, then the legacy ``MIND_BASE_URL``
+    (kept so existing deployments and soul repos keep working), then
+    `default`. Falling back to the legacy name logs once so an operator
+    reading the logs knows which env var supplied the value. The return
+    value is right-stripped of trailing slashes.
+    """
+    global _mind_legacy_url_logged
+
+    canon = os.environ.get(MIND_URL_ENV, "")
+    if canon:
+        return canon.rstrip("/")
+
+    legacy = os.environ.get(MIND_URL_ENV_LEGACY, "")
+    if legacy:
+        if not _mind_legacy_url_logged:
+            logger.info(
+                "%s is set but %s is not — using the legacy name. %s is "
+                "canonical (it is what `windy go` writes); please rename.",
+                MIND_URL_ENV_LEGACY, MIND_URL_ENV, MIND_URL_ENV,
+            )
+            _mind_legacy_url_logged = True
+        return legacy.rstrip("/")
+
+    return default.rstrip("/")
+
+
+def _reset_mind_url_log_for_tests() -> None:
+    """Test-only helper to re-arm the one-shot legacy-name log line."""
+    global _mind_legacy_url_logged
+    _mind_legacy_url_logged = False
+
+
 def _try_mind_broker(
     messages: list[dict[str, str]],
     model: str | None,
@@ -445,7 +495,8 @@ def _try_mind_broker(
     model choice.
 
     OPT-IN via two env vars:
-      MIND_API_URL — defaults to https://api.windymind.ai
+      MIND_API_URL — defaults to https://api.windymind.ai (legacy name
+        MIND_BASE_URL still honored; see resolve_mind_url)
       ETERNITAS_PASSPORT_TOKEN (or ETERNITAS_PASSPORT) — the agent's EPT
 
     Returns the broker's response on success OR None on any failure —
@@ -481,7 +532,7 @@ def _try_mind_broker(
     if _is_provider_in_cooldown("windy-mind"):
         return None
 
-    mind_url = os.environ.get("MIND_API_URL", "https://api.windymind.ai").rstrip("/")
+    mind_url = resolve_mind_url()
 
     body: dict[str, Any] = {
         "messages": messages,
@@ -618,7 +669,7 @@ def mind_broker_status() -> dict[str, Any]:
     cooling = entry is not None and time.time() < entry[0]
     return {
         "configured": configured,
-        "url": _os.environ.get("MIND_API_URL", "https://api.windymind.ai"),
+        "url": resolve_mind_url(),
         "in_cooldown": cooling,
         "cooldown_remaining_s": (
             max(0, int(entry[0] - time.time())) if entry is not None and cooling else 0

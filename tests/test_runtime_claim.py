@@ -30,6 +30,9 @@ def _reset_runtime_state():
 def good_creds(monkeypatch):
     monkeypatch.setenv("ETERNITAS_PASSPORT", "ET26-TEST-AAAA")
     monkeypatch.setenv("WINDY_JWT", "fake.jwt.value")
+    # MIND_API_URL is canonical and would win; clear it so this fixture
+    # keeps exercising the legacy-name fallback deliberately.
+    monkeypatch.delenv("MIND_API_URL", raising=False)
     monkeypatch.setenv("MIND_BASE_URL", "https://api.windymind.test")
 
 
@@ -71,6 +74,7 @@ def test_passport_recovered_from_ept_sub(monkeypatch):
     monkeypatch.delenv("ETERNITAS_PASSPORT", raising=False)
     monkeypatch.delenv("WINDY_JWT", raising=False)
     monkeypatch.setenv("ETERNITAS_PASSPORT_TOKEN", _make_ept("ET26-KEYLESS-1"))
+    monkeypatch.delenv("MIND_API_URL", raising=False)
     monkeypatch.setenv("MIND_BASE_URL", "https://api.windymind.test")
 
     captured = {}

@@ -517,9 +517,19 @@ async def _step_mint_bot_key(result: HatchResult) -> None:
     """Mint the wk_ bot key so downstream ecosystem calls in this
     hatch authenticate as the bot, not the owner.
 
-    Prerequisites: WINDY_JWT + a minted passport. No JWT means this
-    is an offline/standalone hatch — skip silently; get_bot_key()
-    later will keep using the owner-JWT fallback where needed.
+    Prerequisites: WINDY_JWT (the OPERATOR's), a minted passport, and
+    the BOT's windy-pro identity id. No JWT means this is an
+    offline/standalone hatch — skip; get_bot_key() later keeps using
+    the owner-JWT fallback where needed.
+
+    The bot identity id only exists for a hatch that started at
+    windy-pro (browser/remote), which sends it in the /hatch/remote
+    payload; a terminal-lane (`windy go`) hatch never creates a
+    windy-pro bot row, so there is nothing to mint against. That case
+    is recorded as an explicit SKIP — visible in result.errors so the
+    hatch summary says so, worded as a skip rather than a failure,
+    because a wk_ key silently never existing is exactly the kind of
+    optimistic no-op this ceremony must not ship.
     """
     if not result.passport_id:
         return
@@ -527,14 +537,24 @@ async def _step_mint_bot_key(result: HatchResult) -> None:
     if not jwt:
         logger.info("Hatch: wk_ mint skipped (no WINDY_JWT — offline hatch)")
         return
+    # getattr: the remote lane is growing a HatchResult.bot_identity_id;
+    # until it lands, the env var carries it.
+    bot_identity_id = getattr(result, "bot_identity_id", "") or os.environ.get("BOT_IDENTITY_ID", "")
     try:
-        from windyfly.auth.bot_credentials import mint_bot_key
+        from windyfly.auth.bot_credentials import BotIdentityUnavailable, mint_bot_key
 
-        cred = await mint_bot_key(owner_jwt=jwt, passport_number=result.passport_id)
-        logger.info(
-            "Hatch: minted wk_ bot key %s (scopes=%s)",
-            cred.key_id or "-", ",".join(cred.scopes) or "-",
+        cred = await mint_bot_key(
+            owner_jwt=jwt,
+            passport_number=result.passport_id,
+            bot_identity_id=bot_identity_id,
         )
+        logger.info(
+            "Hatch: minted wk_ bot key %s (identity=%s, scopes=%s)",
+            cred.key_id or "-", cred.windy_identity_id or "-", ",".join(cred.scopes) or "-",
+        )
+    except BotIdentityUnavailable as exc:
+        result.errors.append(f"Bot-key mint {exc}")
+        logger.info("Hatch: wk_ bot key mint %s", exc)
     except Exception as exc:
         # Don't block hatch on a failed mint — downstream calls will
         # fall back to owner JWT where the service accepts it, and
