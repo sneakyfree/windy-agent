@@ -46,8 +46,18 @@ uv run windy go            # Interactive setup + hatch
 
 ### From PyPI (headless — no dashboard)
 
+> **⚠️ The published wheel is stale — install from source instead, for now.**
+> PyPI `windyfly` is **0.6.1, uploaded 2026-07-06**. It predates two identity
+> fixes that landed on master on 2026-07-31: the adopt-don't-mint guard (#345)
+> and the move of the terminal door onto the consumer endpoint (#349). The
+> published `hatch_orchestrator.py` has no `preallocated` branch at all and
+> still hatches via `/bots/register`, so `pip install windyfly` today gives you
+> a client that can mint a **second** passport for an agent that already has
+> one, and that 401s on a fresh machine with no operator key.
+> Use the source install above until a release ≥ 0.7.0 is published.
+
 ```bash
-pip install windyfly
+pip install windyfly        # ⚠️ see the warning above — currently stale
 windy go                   # Setup wizard
 windy start                # Start the agent (brain + channels only)
 ```

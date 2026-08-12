@@ -371,3 +371,89 @@ class TestWebhookInvalidation:
         assert result.direction == "improved"
         assert result.old_clearance == "verified"
         assert result.new_clearance == "cleared"
+
+
+class TestRevocationSurvivesOutage:
+    """A revocation we have already seen must not be forgotten.
+
+    The snapshot ages out after cache_ttl_seconds. If the refetch then
+    fails, the default fail-open path would hand a revoked agent every
+    action back — revocation defeated by pulling the network cable.
+    """
+
+    async def _seed_then_expire(self, db, status: str):
+        """Cache a real verdict, then age the row past its TTL."""
+        with respx.mock(base_url=ETERNITAS_BASE) as mock:
+            mock.get(f"/api/v1/trust/{PASSPORT}").mock(
+                return_value=httpx.Response(200, json=_live_response_body(status=status)),
+            )
+            await check_trust("send_email", db=db)
+
+        stale = datetime.now(timezone.utc) - timedelta(seconds=3600)
+        db.conn.execute(
+            "UPDATE trust_cache SET cached_at = ? WHERE passport = ?",
+            (stale.isoformat(), PASSPORT),
+        )
+        db.conn.commit()
+
+    @pytest.mark.parametrize("status", ["revoked", "suspended"])
+    async def test_known_revocation_denies_when_service_unreachable(self, db, status):
+        await self._seed_then_expire(db, status)
+
+        with respx.mock(base_url=ETERNITAS_BASE) as mock:
+            mock.get(f"/api/v1/trust/{PASSPORT}").mock(
+                side_effect=httpx.ConnectError("eternitas unreachable"),
+            )
+            decision = await check_trust("send_email", db=db)
+
+        assert decision.allowed is False
+        assert decision.snapshot.status == status
+        assert "not forgotten" in decision.reason
+
+    async def test_known_revocation_denies_without_strict_mode(self, db, monkeypatch):
+        """Strict mode is opt-in; this denial must not depend on it."""
+        monkeypatch.delenv("WINDYFLY_TRUST_STRICT", raising=False)
+        await self._seed_then_expire(db, "revoked")
+
+        with respx.mock(base_url=ETERNITAS_BASE) as mock:
+            mock.get(f"/api/v1/trust/{PASSPORT}").mock(
+                return_value=httpx.Response(503),
+            )
+            decision = await check_trust("run_command", db=db)
+
+        assert decision.allowed is False
+
+    async def test_previously_active_still_fails_open_on_outage(self, db):
+        """The stability rationale is preserved: a downed trust service
+        must not freeze an agent that was never in trouble."""
+        await self._seed_then_expire(db, "active")
+
+        with respx.mock(base_url=ETERNITAS_BASE) as mock:
+            mock.get(f"/api/v1/trust/{PASSPORT}").mock(
+                side_effect=httpx.ConnectError("eternitas unreachable"),
+            )
+            decision = await check_trust("send_email", db=db)
+
+        assert decision.allowed is True
+        assert "fail-open" in decision.reason
+
+    async def test_never_seen_passport_still_fails_open(self, db):
+        with respx.mock(base_url=ETERNITAS_BASE) as mock:
+            mock.get(f"/api/v1/trust/{PASSPORT}").mock(
+                side_effect=httpx.ConnectError("eternitas unreachable"),
+            )
+            decision = await check_trust("send_email", db=db)
+
+        assert decision.allowed is True
+
+    async def test_reinstatement_requires_a_successful_fetch(self, db):
+        """A live 'active' response clears the sticky denial."""
+        await self._seed_then_expire(db, "revoked")
+
+        with respx.mock(base_url=ETERNITAS_BASE) as mock:
+            mock.get(f"/api/v1/trust/{PASSPORT}").mock(
+                return_value=httpx.Response(200, json=_live_response_body(status="active")),
+            )
+            decision = await check_trust("send_email", db=db)
+
+        assert decision.allowed is True
