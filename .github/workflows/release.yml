@@ -11,6 +11,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v4
+        # Pinned: setup-uv v4+ resolves "latest" through the releases API at GITHUB_API_URL,
+        # which on our self-hosted forge is the forge itself -- it 404s and the job dies
+        # before uv is ever installed. An explicit version skips that lookup entirely.
+        with:
+          version: "0.12.5"
       - run: uv python install 3.12
       - run: uv sync --all-extras
       - run: uv run ruff check src/
@@ -27,6 +32,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v4
+        # Pinned: setup-uv v4+ resolves "latest" through the releases API at GITHUB_API_URL,
+        # which on our self-hosted forge is the forge itself -- it 404s and the job dies
+        # before uv is ever installed. An explicit version skips that lookup entirely.
+        with:
+          version: "0.12.5"
       - run: uv build
       # Trusted Publisher (OIDC) — no long-lived token. The old
       # UV_PUBLISH_TOKEN path referenced a PYPI_TOKEN secret that was
