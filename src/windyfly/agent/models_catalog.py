@@ -56,13 +56,32 @@ class ModelInfo:
 # reads naturally to a non-technical user.
 _MODELS: list[ModelInfo] = [
     ModelInfo(
+        # Windy 0's brain as of 2026-08-18 (Grant's directive).
+        #
+        # 2026-08-19 (Kit 0): extended tier ENABLED at Grant's request.
+        # The old "429 Usage credits are required for long context
+        # requests" ceiling belonged to the SHARED fleet Max credential
+        # that Anthropic revoked on 18 Aug. On Windy 0's own long-lived
+        # token a real 210,646-token request returns HTTP 200, verified
+        # live before this change. native_cap stays 200_000 because the
+        # context-1m beta header is still REQUIRED above that line —
+        # extended_cap is what authorises /memory 1M.
+        id="claude-opus-5",
+        family="opus",
+        native_cap=200_000,
+        extended_cap=1_000_000,
+        extended_beta_header="context-1m-2025-08-07",
+        aliases=("opus", "smartest", "claude-opus", "opus-5"),
+        description="Most capable",
+    ),
+    ModelInfo(
         # Bumped 4-7 → 4-8 (the current default, e.g. Windy 0). Without a
         # 4-8 entry /context and /memory fell back to an 8000-token default
         # for the very model the agent runs (2026-07-06).
         id="claude-opus-4-8",
         family="opus",
         native_cap=1_000_000,
-        aliases=("opus", "smartest", "claude-opus", "claude-opus-4-7"),
+        aliases=("claude-opus-4-7", "opus-4-8"),
         description="Most capable, slower",
     ),
     ModelInfo(
