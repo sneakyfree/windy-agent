@@ -257,8 +257,8 @@ def _fingerprint_token(token: str) -> str:
 #
 # Anthropic's pre-2026 default was 200K. Opus 4.7 shipped with 1M as
 # the default; Sonnet 4.6 + Haiku 4.5 require the ``context-1m-
-# 2025-08-07`` beta header to access 1M (the bot does NOT currently
-# enable this beta, so they stay at 200K in practice). Stay
+# 2025-08-07`` beta header to access 1M (auto-attached since PR #197
+# whenever a /memory pin exceeds the model's native cap). Stay
 # accurate per model — overstating the cap makes pct_remaining lie
 # in the user's favor (e.g., "94% free" when actually 28% free).
 #
@@ -266,6 +266,14 @@ def _fingerprint_token(token: str) -> str:
 # config gains a new model, add it here too.
 _MODEL_CONTEXT_CAPS: dict[str, int] = {
     # Anthropic
+    # Opus 5 NATIVE cap only. 1M is reachable via the context-1m
+    # beta (see models_catalog extended_cap) and is live on this
+    # channel; the pin in session-counters.json overrides this value
+    # everywhere it matters (/status, loop.py). Left at 200_000 so an
+    # UNPINNED channel does not overstate free space. The old 429
+    # "Usage credits are required" ceiling was the revoked SHARED
+    # credential, not the model. (Kit 0, 2026-08-19)
+    "claude-opus-5":              200_000,
     "claude-opus-4-7":            1_000_000,
     "claude-opus-4-7[1m]":        1_000_000,
     "claude-sonnet-4-6":          200_000,
@@ -1125,7 +1133,7 @@ def _openai_messages_to_anthropic(
 # Opus models that support (and default to) extended thinking. Both
 # deprecate plain ``temperature`` in favor of a thinking budget; see
 # _call_anthropic for the per-version temperature handling.
-_EXTENDED_THINKING_PREFIXES = ("claude-opus-4-7", "claude-opus-4-8")
+_EXTENDED_THINKING_PREFIXES = ("claude-opus-4-7", "claude-opus-4-8", "claude-opus-5")
 
 
 def _thinking_budget(model: str, reasoning_depth: int | None) -> int:
