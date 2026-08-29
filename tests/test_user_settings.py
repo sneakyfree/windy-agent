@@ -52,18 +52,18 @@ class TestModelsCatalog:
             "claude-sonnet-4-6"
 
     def test_resolve_short_alias(self):
-        assert models_catalog.resolve("opus").id == "claude-opus-4-8"
+        assert models_catalog.resolve("opus").id == "claude-opus-5"
         assert models_catalog.resolve("sonnet").id == "claude-sonnet-4-6"
         assert models_catalog.resolve("haiku").id == "claude-haiku-4-5"
 
     def test_resolve_friendly_alias(self):
         """Grandma-friendly names — pick by intent, not technical id."""
-        assert models_catalog.resolve("smartest").id == "claude-opus-4-8"
+        assert models_catalog.resolve("smartest").id == "claude-opus-5"
         assert models_catalog.resolve("balanced").id == "claude-sonnet-4-6"
         assert models_catalog.resolve("fastest").id == "claude-haiku-4-5"
 
     def test_resolve_case_insensitive(self):
-        assert models_catalog.resolve("OPUS").id == "claude-opus-4-8"
+        assert models_catalog.resolve("OPUS").id == "claude-opus-5"
         assert models_catalog.resolve(" Sonnet ").id == "claude-sonnet-4-6"
 
     def test_resolve_dated_variant(self):
@@ -213,10 +213,10 @@ class TestCmdModel:
             "platform": "telegram", "channel_id": "1",
             "_raw": "opus",
         })
-        assert "claude-opus-4-8" in reply
+        assert "claude-opus-5" in reply
         assert "next message" in reply.lower()
         # Persisted
-        assert get_model("telegram", "1") == "claude-opus-4-8"
+        assert get_model("telegram", "1") == "claude-opus-5"
 
     @pytest.mark.asyncio
     async def test_cmd_model_switch_by_canonical_id(self, tmp_state_path):
@@ -493,8 +493,8 @@ class TestModelAliasShortcuts:
         reply = await cmd.handler({
             "platform": "telegram", "channel_id": "1",
         })
-        assert "claude-opus-4-8" in reply
-        assert get_model("telegram", "1") == "claude-opus-4-8"
+        assert "claude-opus-5" in reply
+        assert get_model("telegram", "1") == "claude-opus-5"
 
     @pytest.mark.asyncio
     async def test_sonnet_shortcut(self, tmp_state_path):
