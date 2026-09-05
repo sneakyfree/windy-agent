@@ -1900,11 +1900,40 @@ class TelegramChannel(ChannelAdapter):
             return
         self._maintenance_stop_event = asyncio.Event()
         try:
-            await maintenance_loop(cfg, stop_event=self._maintenance_stop_event)
+            from windyfly.agent.maintenance import default_jobs
+            jobs = default_jobs(cfg)
+            jobs.append(self._make_inbox_watch_job(cfg))
+        except Exception as e:
+            logger.warning("maintenance: job setup failed (%s) — defaults only", e)
+            jobs = None
+        try:
+            await maintenance_loop(cfg, jobs=jobs, stop_event=self._maintenance_stop_event)
         except asyncio.CancelledError:
             pass
         except Exception as e:
             logger.warning("maintenance loop exited with error: %s", e)
+
+    def _make_inbox_watch_job(self, cfg: dict[str, Any]):
+        """Inbox watch (agent/inbox_watch.py): poll the agent's Windy Mail
+        inbox on the maintenance tick and tell the owner about new mail.
+        The job runs in a worker thread, so delivery hops back onto the
+        event loop with run_coroutine_threadsafe."""
+        from windyfly.agent.inbox_watch import make_inbox_watch_job
+        from windyfly.channels.identity import owner_ids
+
+        loop = asyncio.get_running_loop()
+        owners = sorted(owner_ids(cfg).get("telegram", set()))
+        agent_name = str((cfg.get("agent") or {}).get("name") or "")
+
+        def notify(text: str) -> None:
+            if self._app is None or not owners:
+                return
+            for chat_id in owners:
+                asyncio.run_coroutine_threadsafe(
+                    self._app.bot.send_message(chat_id=chat_id, text=text), loop,
+                ).result(timeout=30)
+
+        return make_inbox_watch_job(notify, agent_name=agent_name)
 
     async def _start_goal_pacing(self) -> None:
         """Start the /goal Phase 2 pacing scheduler. Best-effort —

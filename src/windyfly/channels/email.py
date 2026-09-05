@@ -45,6 +45,16 @@ class WindyMailAdapter:
         self.jmap_token = os.environ.get("WINDYMAIL_JMAP_TOKEN", "")
         self.api_url = os.environ.get("WINDYMAIL_API_URL", "https://api.windymail.ai")
         self.db = db
+        # Read budget. Production Mail sat behind a CPU-throttled host on
+        # 2026-09-05 and /inbox took >30 s; a 30 s wait inside an LLM tool
+        # call or a maintenance tick is too long, and the caller got an
+        # empty list with no reason. Tunable; the last failure is kept so
+        # tools can say "mail is slow" instead of "no mail".
+        try:
+            self.timeout_s = float(os.environ.get("WINDYMAIL_TIMEOUT_S", "15"))
+        except ValueError:
+            self.timeout_s = 15.0
+        self.last_error: str = ""
 
         if not self.email or not self.jmap_token:
             raise RuntimeError(
@@ -144,14 +154,20 @@ class WindyMailAdapter:
                 f"{self.api_url}/api/v1/inbox",
                 params=params,
                 headers={"Authorization": f"Bearer {self.jmap_token}"},
-                timeout=30.0,
+                timeout=self.timeout_s,
             )
             if resp.status_code == 200:
+                self.last_error = ""
                 return resp.json().get("messages", [])
-            else:
-                logger.warning("Windy Mail inbox fetch failed: %s", resp.status_code)
-                return []
+            self.last_error = f"inbox HTTP {resp.status_code}"
+            logger.warning("Windy Mail inbox fetch failed: %s", resp.status_code)
+            return []
+        except _httpx.TimeoutException:
+            self.last_error = f"inbox timed out after {self.timeout_s:g}s"
+            logger.warning("Windy Mail inbox error: %s", self.last_error)
+            return []
         except Exception as e:
+            self.last_error = f"inbox error: {e}"
             logger.error("Windy Mail inbox error: %s", e)
             return []
 

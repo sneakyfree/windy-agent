@@ -228,11 +228,17 @@ def list_inbox(unread_only: bool = False, limit: int = 20) -> dict[str, Any]:
 
     messages = adapter.check_inbox(unread_only=unread_only)
     trimmed = messages[: max(0, limit)]
-    return {
+    result: dict[str, Any] = {
         "messages": trimmed,
         "count": len(trimmed),
         "unread_only": unread_only,
     }
+    last_error = getattr(adapter, "last_error", "")
+    if not messages and last_error:
+        # An empty list because Mail did not answer is not "no mail".
+        result["status"] = "error"
+        result["error"] = f"Could not reach the mailbox ({last_error})."
+    return result
 
 
 def register_mail_tools(registry: ToolRegistry) -> None:

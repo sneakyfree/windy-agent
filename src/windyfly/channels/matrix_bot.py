@@ -65,6 +65,9 @@ _SYNC_FAILS_BEFORE_RECONNECT = 8
 # in the heartbeat file. It does NOT flip `polling` — the loop is alive and
 # backing off correctly; a restart would not help a dead homeserver.
 _SYNC_STALE_S = 600.0
+# An outage older than this is reported as sync_ok=false even though the
+# per-run failure counter resets on every reconnect cycle.
+_SYNC_OUTAGE_S = 120.0
 
 
 class WindyFlyMatrixBot(ChannelAdapter):
@@ -133,6 +136,10 @@ class WindyFlyMatrixBot(ChannelAdapter):
         # Consecutive failed /sync responses inside the current sync_forever.
         self._sync_failures = 0
         self._last_sync_error: str = ""
+        # When the current outage began (first failed sync with no success
+        # since). Survives the per-sync_forever reset of _sync_failures so
+        # the heartbeat stays honest across reconnect cycles.
+        self._sync_failed_since: float | None = None
 
     async def login(self) -> None:
         """Log into the Matrix homeserver.
@@ -500,13 +507,22 @@ class WindyFlyMatrixBot(ChannelAdapter):
         now = time.time() if now is None else now
         if self._sync_failures >= _SYNC_FAILS_BEFORE_RECONNECT:
             return False
+        if self._sync_failed_since is not None:
+            # An outage that has lasted longer than one backoff run is real,
+            # whichever sync_forever incarnation we are in.
+            if (now - self._sync_failed_since) >= _SYNC_OUTAGE_S:
+                return False
         if self._last_sync_success <= 0:
             # Never synced yet: healthy only while the failure run is short.
             return self._sync_failures < 3
         return (now - self._last_sync_success) < _SYNC_STALE_S
 
     def _sync_fail_age_s(self, now: float | None = None) -> float | None:
+        """Seconds since the current outage began, or since the last good
+        sync when there is no outage; None before the first sync."""
         now = time.time() if now is None else now
+        if self._sync_failed_since is not None:
+            return round(now - self._sync_failed_since, 1)
         if self._last_sync_success > 0:
             return round(now - self._last_sync_success, 1)
         return None
@@ -565,6 +581,7 @@ class WindyFlyMatrixBot(ChannelAdapter):
                 self._sync_failures,
             )
         self._sync_failures = 0
+        self._sync_failed_since = None
         self._last_sync_error = ""
         self._last_sync_success = time.time()
         self._connected = True
@@ -575,6 +592,8 @@ class WindyFlyMatrixBot(ChannelAdapter):
         retry loop cannot hammer the homeserver; after a run of failures,
         raise so start()'s reconnect loop takes over."""
         self._sync_failures += 1
+        if self._sync_failed_since is None:
+            self._sync_failed_since = time.time()
         status = getattr(response, "status_code", None)
         message = str(getattr(response, "message", response))[:200]
         self._last_sync_error = f"status={status} {message}"
