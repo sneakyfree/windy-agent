@@ -109,6 +109,24 @@ class TestSyncErrorBackoff:
         bot._sync_failures = 3
         assert bot._sync_healthy() is False
 
+    @pytest.mark.asyncio
+    async def test_outage_stays_unhealthy_across_reconnect_cycles(self):
+        """Measured on Windy 0 2026-09-05 16:25Z after the first deploy: the
+        escape resets the per-run counter, so a heartbeat written right
+        after a reconnect said sync_ok=true in the middle of a 2-day
+        outage. The outage start must survive the reset."""
+        bot = _bot()
+        with patch("windyfly.channels.matrix_bot.asyncio.sleep", AsyncMock()):
+            await bot._on_sync_error(_sync_error())
+        assert bot._sync_failed_since is not None
+        bot._sync_failures = 0                       # what the reconnect loop does
+        bot._sync_failed_since -= 300                # outage began 5 min ago
+        assert bot._sync_healthy() is False
+        assert bot._sync_fail_age_s() >= 300
+        await bot._on_sync_response(MagicMock())     # a real success clears it
+        assert bot._sync_failed_since is None
+        assert bot._sync_healthy() is True
+
 
 class TestHonestHeartbeat:
     def test_heartbeat_carries_sync_fields(self, tmp_path):
