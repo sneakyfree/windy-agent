@@ -62,6 +62,7 @@ def check_health(cfg: GuardianConfig, *, now: float | None = None) -> HealthResu
         state_dir = Path(cfg.state_dir_override)
 
     fails: list[str] = []
+    notes: list[str] = []
     any_channel_signal = False
 
     for ch in cfg.channels:
@@ -79,6 +80,13 @@ def check_health(cfg: GuardianConfig, *, now: float | None = None) -> HealthResu
             continue
         if hb.get("polling") is False:
             fails.append(f"{ch}:polling_dead")
+            continue
+        # Honest-but-not-fatal: the loop is alive and backing off, yet the
+        # homeserver has not answered a sync in a while. A restart would not
+        # help, so this is surfaced in the status line, not acted on.
+        if hb.get("sync_ok") is False:
+            age = hb.get("sync_fail_age_s")
+            notes.append(f"{ch}:sync_failing({age}s)")
 
     # External probe (e.g. Telegram getMe) — catches token/network death
     if cfg.external_probe is not None:
@@ -90,11 +98,13 @@ def check_health(cfg: GuardianConfig, *, now: float | None = None) -> HealthResu
             fails.append(f"external:probe_error:{type(e).__name__}")
 
     if fails:
-        return HealthResult(False, "; ".join(fails))
+        return HealthResult(False, "; ".join(fails + notes))
     if not any_channel_signal and cfg.external_probe is None:
         # Nothing to go on at all — treat as healthy (conservative;
         # don't restart an agent we can't observe).
         return HealthResult(True, "no signals yet (conservative pass)")
+    if notes:
+        return HealthResult(True, "all checks pass; " + "; ".join(notes))
     return HealthResult(True, "all checks pass")
 
 

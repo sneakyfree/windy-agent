@@ -42,10 +42,29 @@ class MatrixCredentialsError(RuntimeError):
     """
 
 
+class MatrixSyncDead(RuntimeError):
+    """Raised from the SyncError callback after a run of consecutive
+    failed /sync calls, to escape nio's sync_forever and hand control back
+    to the reconnect loop in start(). The message carries the last HTTP
+    status so _is_token_expired_error can route a 401 to re-login."""
+
+
 # Backoff constants
 _INITIAL_BACKOFF_S = 1
 _MAX_BACKOFF_S = 60
 _HEARTBEAT_INTERVAL_S = 300  # 5 minutes
+# nio's sync_forever retries a failed /sync with NO sleep. Measured on
+# Windy 0 2026-09-03 → 09-05: one failed sync every ~135 ms (811k log
+# lines in a day) against a homeserver returning 502, while the heartbeat
+# still said polling=true. The SyncError callback below sleeps with
+# exponential backoff and, after this many consecutive failures, raises
+# out of sync_forever so the outer reconnect loop (re-login on 401,
+# full_state resync) gets a turn.
+_SYNC_FAILS_BEFORE_RECONNECT = 8
+# A sync that has not succeeded for this long is reported as sync_ok=false
+# in the heartbeat file. It does NOT flip `polling` — the loop is alive and
+# backing off correctly; a restart would not help a dead homeserver.
+_SYNC_STALE_S = 600.0
 
 
 class WindyFlyMatrixBot(ChannelAdapter):
@@ -111,6 +130,9 @@ class WindyFlyMatrixBot(ChannelAdapter):
 
         # Backoff state
         self._backoff = _INITIAL_BACKOFF_S
+        # Consecutive failed /sync responses inside the current sync_forever.
+        self._sync_failures = 0
+        self._last_sync_error: str = ""
 
     async def login(self) -> None:
         """Log into the Matrix homeserver.
@@ -473,28 +495,122 @@ class WindyFlyMatrixBot(ChannelAdapter):
             ]
         )
 
+    def _sync_healthy(self, now: float | None = None) -> bool:
+        """True iff /sync has succeeded recently and is not in a failure run."""
+        now = time.time() if now is None else now
+        if self._sync_failures >= _SYNC_FAILS_BEFORE_RECONNECT:
+            return False
+        if self._last_sync_success <= 0:
+            # Never synced yet: healthy only while the failure run is short.
+            return self._sync_failures < 3
+        return (now - self._last_sync_success) < _SYNC_STALE_S
+
+    def _sync_fail_age_s(self, now: float | None = None) -> float | None:
+        now = time.time() if now is None else now
+        if self._last_sync_success > 0:
+            return round(now - self._last_sync_success, 1)
+        return None
+
+    def _write_heartbeat_once(self) -> None:
+        """One heartbeat tick: log + heartbeat file. Split out so it is testable."""
+        rooms_joined = len(self.client.rooms) if hasattr(self.client, "rooms") else 0
+        pending_count = len(self._pending_responses)
+        sync_ok = self._sync_healthy()
+        logger.info(
+            "♥ Matrix heartbeat: connected=%s, sync_ok=%s, sync_failures=%d, "
+            "last_sync_ok_age=%ss, rooms_joined=%d, pending_queue=%d",
+            self._connected,
+            sync_ok,
+            self._sync_failures,
+            self._sync_fail_age_s(),
+            rooms_joined,
+            pending_count,
+        )
+        # Cross-platform heartbeat file for the guardian. `polling` means
+        # "the loop is alive and behaving"; `sync_ok` is the honest bit —
+        # false while the homeserver is unreachable.
+        try:
+            from windyfly.supervisor.heartbeat import write_heartbeat
+            write_heartbeat(
+                "matrix",
+                polling=bool(self._connected),
+                extra={
+                    "sync_ok": sync_ok,
+                    "sync_failures": self._sync_failures,
+                    "sync_fail_age_s": self._sync_fail_age_s(),
+                    "rooms_joined": rooms_joined,
+                    "last_error": self._last_sync_error[:120],
+                },
+            )
+        except Exception:
+            pass
+
     async def _heartbeat_loop(self) -> None:
         """Log a heartbeat every 5 minutes showing connection status."""
         while not self._shutting_down:
             try:
-                rooms_joined = len(self.client.rooms) if hasattr(self.client, "rooms") else 0
-                pending_count = len(self._pending_responses)
-                logger.info(
-                    "♥ Matrix heartbeat: connected=%s, rooms_joined=%d, pending_queue=%d",
-                    self._connected,
-                    rooms_joined,
-                    pending_count,
-                )
-                # Cross-platform heartbeat file for the guardian.
-                try:
-                    from windyfly.supervisor.heartbeat import write_heartbeat
-                    write_heartbeat("matrix", polling=bool(self._connected))
-                except Exception:
-                    pass
+                self._write_heartbeat_once()
             except Exception as e:
                 logger.debug("Heartbeat error: %s", e)
 
             await asyncio.sleep(_HEARTBEAT_INTERVAL_S)
+
+    # ── sync health callbacks (run INSIDE nio's sync_forever loop) ──────
+
+    async def _on_sync_response(self, response: Any) -> None:
+        """A /sync succeeded: clear the failure run and both backoffs."""
+        if self._sync_failures:
+            logger.info(
+                "Matrix sync recovered after %d failed attempt(s)",
+                self._sync_failures,
+            )
+        self._sync_failures = 0
+        self._last_sync_error = ""
+        self._last_sync_success = time.time()
+        self._connected = True
+        self._backoff = _INITIAL_BACKOFF_S
+
+    async def _on_sync_error(self, response: Any) -> None:
+        """A /sync failed. Sleep with exponential backoff so nio's internal
+        retry loop cannot hammer the homeserver; after a run of failures,
+        raise so start()'s reconnect loop takes over."""
+        self._sync_failures += 1
+        status = getattr(response, "status_code", None)
+        message = str(getattr(response, "message", response))[:200]
+        self._last_sync_error = f"status={status} {message}"
+        delay = min(
+            _INITIAL_BACKOFF_S * (2 ** (self._sync_failures - 1)), _MAX_BACKOFF_S,
+        )
+        # Log the first few and then every 20th — not every one.
+        if self._sync_failures <= 3 or self._sync_failures % 20 == 0:
+            logger.warning(
+                "Matrix sync failed (#%d, %s) — backing off %ds",
+                self._sync_failures, self._last_sync_error, delay,
+            )
+        if self._sync_failures >= _SYNC_FAILS_BEFORE_RECONNECT:
+            raise MatrixSyncDead(
+                f"{self._sync_failures} consecutive sync failures "
+                f"({self._last_sync_error})"
+            )
+        await asyncio.sleep(delay)
+
+    async def _join_hatch_dm_room(self) -> None:
+        """Join the owner DM room the hatch created, if the passport session
+        told us about it and we are not in it yet. Best effort: the invite
+        callback still covers the normal path; this covers an agent whose
+        invite was delivered before it ever logged in (rooms_joined=0 for
+        months on Windy 0)."""
+        room_id = self._hatch_dm_room_id
+        if not room_id:
+            return
+        rooms = getattr(self.client, "rooms", {}) or {}
+        if room_id in rooms:
+            return
+        try:
+            await self.client.join(room_id)
+            logger.info("Joined hatch DM room %s", room_id)
+        except Exception as exc:
+            logger.warning("Could not join hatch DM room %s: %s", room_id, exc)
 
     def _setup_signal_handlers(self, loop: asyncio.AbstractEventLoop) -> None:
         """Register SIGTERM and SIGINT handlers for graceful shutdown."""
@@ -584,6 +700,13 @@ class WindyFlyMatrixBot(ChannelAdapter):
         self.client.add_event_callback(self._on_message, nio.RoomMessageText)
         self.client.add_event_callback(self._on_invite, nio.InviteMemberEvent)
         self.client.add_event_callback(self._on_encrypted_event, nio.MegolmEvent)
+        # Sync outcome callbacks — these are what make a dead homeserver a
+        # backoff instead of a hot loop (see _on_sync_error).
+        self.client.add_response_callback(self._on_sync_response, nio.SyncResponse)
+        self.client.add_response_callback(self._on_sync_error, nio.SyncError)
+
+        # Make sure we are actually in the owner's DM room from the hatch.
+        await self._join_hatch_dm_room()
 
         # Set presence to online (with retry — R1.11)
         for attempt in range(3):
@@ -640,13 +763,14 @@ class WindyFlyMatrixBot(ChannelAdapter):
                     # sync_forever only returns on error
                     self._backoff = _INITIAL_BACKOFF_S
                     self._connected = True
-                    self._last_sync_success = time.time()
                 except asyncio.CancelledError:
                     # Shutdown requested — leave the reconnect loop cleanly.
                     logger.info("Sync cancelled — shutting down Matrix bot")
                     break
                 except Exception as e:
                     self._connected = False
+                    # A new sync_forever starts a fresh failure run.
+                    self._sync_failures = 0
 
                     # Check if this is a token expiry error
                     if self._is_token_expired_error(e):
