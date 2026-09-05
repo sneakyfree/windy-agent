@@ -31,17 +31,23 @@ def write_heartbeat(
     pid: int | None = None,
     polling: bool = True,
     state_dir: Path | None = None,
+    extra: dict | None = None,
 ) -> None:
-    """Best-effort atomic heartbeat write. Never raises into the caller."""
+    """Best-effort atomic heartbeat write. Never raises into the caller.
+
+    ``extra`` adds channel-specific health fields (e.g. the Matrix channel's
+    ``sync_ok`` / ``sync_fail_age_s``). The four core keys always win.
+    """
     try:
         path = heartbeat_path(channel, state_dir)
         path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {
+        payload = dict(extra or {})
+        payload.update({
             "ts": time.time(),
             "pid": pid if pid is not None else os.getpid(),
             "channel": channel,
             "polling": bool(polling),
-        }
+        })
         tmp = path.with_suffix(".tmp")
         tmp.write_text(json.dumps(payload), encoding="utf-8")
         os.replace(tmp, path)
