@@ -24,6 +24,8 @@ modes ride exactly where the test author wrote them.
 
 from __future__ import annotations
 
+import os
+import subprocess
 import sys
 from unittest.mock import patch
 
@@ -173,7 +175,7 @@ def _isolate_production_flags(monkeypatch, tmp_path):
 
 @pytest.fixture(autouse=True)
 def _no_real_process_kills(request):
-    """Block the pkill fall-through for every test by default.
+    """Block every "stop the agent" path for every test by default.
 
     ``cli.cmd_stop`` falls back to ``kill_by_name(["windyfly.main", ...])``
     when no PID file matches — and on a machine running a live agent that
@@ -182,14 +184,118 @@ def _no_real_process_kills(request):
     exercise process-kill behavior opt in via the ``real_process_kill``
     marker; direct tests of ``windyfly.platform`` functions are unaffected
     (we patch cli's imported reference, not the platform module).
+
+    Four paths can reach the live agent, so all four are covered:
+    ``kill_by_name``, ``rescue.schedule_restart``, ``systemctl_stop``
+    (the systemd-aware branch of ``commands.core.cmd_stop``/``cmd_kill``)
+    and ``os.system`` (their ``pkill`` fall-throughs). For years only the
+    first two were guarded; see ``_no_real_systemctl`` below for the
+    backstop that covers callers we have not enumerated.
     """
     if "real_process_kill" in request.keywords:
         yield
         return
+
+    def _guarded_systemctl_stop(info, timeout=30):
+        """Stand in for the real ``systemctl [--user] stop UNIT``.
+
+        Returns success so ``cmd_stop`` / ``cmd_kill`` short-circuit on
+        their systemd branch instead of falling through to the pid-file
+        and ``pkill`` paths below it.
+
+        ``WINDY_TRACE_PROD_STOP=1`` prints the test that reached here,
+        which is how you find a new unguarded caller.
+        """
+        unit = getattr(info, "unit", info)
+        if os.environ.get("WINDY_TRACE_PROD_STOP"):
+            sys.stderr.write(
+                f"\n[prod-stop-guard] {request.node.nodeid} reached "
+                f"systemctl stop {unit!r}\n"
+            )
+        return True, f"stopped {unit} (neutralized by tests/conftest.py)"
+
     # rescue.schedule_restart SIGTERMs the running process (the /reset
     # panic path) — under pytest that's the test runner itself.
+    #
+    # systemctl_stop + os.system are the systemd-era twins of the
+    # kill_by_name hazard. ``commands.core.cmd_stop`` / ``cmd_kill``
+    # resolve the live unit with find_systemd_unit_for_pattern(
+    # "windyfly.main") and hand it to systemctl_stop — on a machine
+    # running a live agent that resolves to the PRODUCTION unit, and
+    # a clean ``systemctl stop`` also suppresses Restart=, so the agent
+    # stays down. os.system carries the `pkill -f windyfly`
+    # fall-throughs that run when the systemd branch is not taken.
+    #
+    # Neither is known to be the caller that stopped
+    # windy-0@matrix.service during a full-suite run on 2026-09-12 —
+    # that one was never identified, which is exactly why
+    # _no_real_systemctl below guards the chokepoint as well. These two
+    # are closed because they are reachable, not because they are
+    # convicted.
+    #
+    # Both are patched where they are LOOKED UP, not where they are
+    # defined: core.py imports systemctl_stop inside the function body,
+    # so patching the platform attribute intercepts the production call
+    # while tests that import it at module scope (e.g.
+    # tests/test_systemd_aware_stop.py) still exercise the real code.
     with patch("windyfly.cli.kill_by_name", return_value=None), \
-         patch("windyfly.channels.rescue.schedule_restart"):
+         patch("windyfly.channels.rescue.schedule_restart"), \
+         patch(
+             "windyfly.platform.systemctl_stop",
+             side_effect=_guarded_systemctl_stop,
+         ), \
+         patch("os.system", return_value=0):
+        yield
+
+
+# Verbs that take a unit DOWN (or move it), as opposed to inspecting it.
+# `is-active`, `show`, `cat`, `list-jobs`, `daemon-reload` stay real so
+# tests that probe the host still see the truth.
+_DESTRUCTIVE_SYSTEMCTL_VERBS = frozenset(
+    {"stop", "kill", "restart", "try-restart", "disable", "mask"}
+)
+
+
+@pytest.fixture(autouse=True)
+def _no_real_systemctl(request):
+    """Last line of defence: no test may take a real unit down.
+
+    The per-call-site guards above cover the paths we know about. This
+    one sits at the chokepoint every one of them funnels through, so a
+    *new* caller — a script, a supervisor backend, a heal path someone
+    adds next month — is safe the day it lands instead of the day after
+    it stops the live agent.
+
+    Only destructive verbs are intercepted, and only for ``systemctl``:
+    everything else (including read-only systemctl queries) runs for
+    real, because tests legitimately inspect the host.
+
+    Set ``WINDY_TRACE_PROD_STOP=1`` to print the offending test and
+    argv; use the ``real_process_kill`` marker to opt out.
+    """
+    if "real_process_kill" in request.keywords:
+        yield
+        return
+
+    real_run = subprocess.run
+
+    def guarded_run(cmd, *args, **kwargs):
+        argv = cmd if isinstance(cmd, (list, tuple)) else [cmd]
+        parts = [str(p) for p in argv]
+        if (
+            parts
+            and os.path.basename(parts[0]) == "systemctl"
+            and _DESTRUCTIVE_SYSTEMCTL_VERBS.intersection(parts)
+        ):
+            if os.environ.get("WINDY_TRACE_PROD_STOP"):
+                sys.stderr.write(
+                    f"\n[prod-stop-guard] {request.node.nodeid} ran "
+                    f"{' '.join(parts)}\n"
+                )
+            return subprocess.CompletedProcess(parts, 0, "", "")
+        return real_run(cmd, *args, **kwargs)
+
+    with patch("subprocess.run", side_effect=guarded_run):
         yield
 
 
