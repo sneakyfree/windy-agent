@@ -41,17 +41,14 @@ requires git, a toolchain, and reading error messages.
 
 ## Tier 3 — `pip install windyfly` (headless CLI, EYES OPEN)
 
-> **⚠️ 2026-08-11: the published wheel is stale, and the gap is now an
-> identity defect rather than a packaging one.** PyPI `windyfly` is
-> **0.6.1, uploaded 2026-07-06** — verified against the PyPI JSON API.
-> It predates the adopt-don't-mint guard (#345) and the terminal door's
-> move onto the consumer endpoint (#349), both merged 2026-07-31. The
-> published `hatch_orchestrator.py` contains no `preallocated` branch at
-> all and still hatches via `/bots/register`, so Tier 3 today can mint a
-> **second passport** for an agent that already holds one, and 401s on a
-> fresh machine with no operator key. Until a release ≥ 0.7.0 ships,
-> Tier 3 is a **source-checkout-only** tier in practice. Publishing that
-> release is the fix; nothing in the repo can substitute for it.
+> **Resolved 2026-09-12 by the 0.7.0 release.** From 2026-08-11 this
+> tier carried an identity defect, not just a packaging lag: the
+> published 0.6.1 wheel (uploaded 2026-07-06) predated the
+> adopt-don't-mint guard (#345) and the terminal door's move onto the
+> consumer endpoint (#349), so Tier 3 could mint a **second passport**
+> for an agent that already held one, and 401'd on a fresh machine with
+> no operator key. 0.7.0 ships both fixes. Pin `windyfly>=0.7.0`; treat
+> anything older as a source-checkout-only tier.
 
 The wheel packages `src/windyfly` only. You get: the brain, every
 channel adapter, the CLI, memory, skills, recovery. You do NOT get:

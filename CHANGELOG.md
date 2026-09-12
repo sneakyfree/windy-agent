@@ -1,5 +1,148 @@
 # Changelog
 
+## 0.7.0
+
+Ten weeks of work that never reached the wheel. 0.6.1 shipped
+2026-07-06; master ran 108 commits past it (PRs #259–#358) while
+`windy update` told every installed copy it was already current.
+
+By 2026-08-11 that had stopped being a packaging problem: #353 had to
+warn, in the README and in `docs/DISTRIBUTION.md`, that `pip install
+windyfly` shipped a client which could mint a **second passport** for
+an agent that already held one, and 401'd on a fresh machine with no
+operator key — because the published wheel predated the
+adopt-don't-mint guard (#345) and the terminal door's move onto the
+consumer endpoint (#349). Both warnings said the fix was "a release
+≥ 0.7.0". This is that release; the warnings are removed with it.
+
+Also here: two new subsystems (MCP, the cross-platform supervisor), the
+Chronicle memory plane, and a security pass that closed real holes.
+
+### MCP — both directions (ADR-060)
+- Native MCP control server over the Capability Plane (#282), later
+  widened to expose the FULL plane (#286)
+- `mcp.*` client — the Fly consumes external MCP servers, Fly-as-doctor
+  (Route C) (#285)
+
+### Supervisor — the timer zoo is gone (Tiers 1–3)
+- Cross-platform guardian sidecar + heartbeat file (#318); OS keep-alive
+  backends + guardian entry point (#319)
+- In-process maintenance scheduler replaces the per-job systemd timers
+  (#320); continuity battery folded into it (#323)
+- `install-service` now installs the supervisor (#322)
+- Retry-once on a torn heartbeat read (#321); launchd `gui/user` domain
+  fallback + XML escaping (#325)
+
+### Memory — the Chronicle plane
+- `memory.search` + `memory.read_range`: the model gets the key to its
+  own past (#313)
+- The dated Journal index over the Chronicle (#314), with its own node
+  type so it stops colliding with the reflective diary (#315)
+- Decay may dim, never erase — Doctrine Law 1 (#312)
+- The agent reads its own history when it wakes up (#336)
+- Semantic recall was dead, then fatal, then near-pointless — fixed
+  (#330); `soul_history` bloat capped with retention + VACUUM (#271);
+  migration 11 no longer crashes a concurrent open (#343); recall stops
+  dropping the one word that identified the memory (#341)
+
+### Security
+- Agents owner-bind by default; owner PII and tooling band-gated from
+  strangers (#265)
+- Taint model closes injected-content → exfil/RCE (#280)
+- Inbound SMS + email resolve a real sender band instead of OWNER (#279)
+- SSRF guard on `fetch_url`'s direct-httpx fallback (#278)
+- Capability deny-list matches Windows separators too — `\` used to walk
+  straight past it (#311)
+- Nothing in the registry required OWNER, so TRUSTED bought `shell.exec`
+  (#344)
+- Bridge: SO_PEERCRED doorman + off-thread dispatch (#305); a non-object
+  JSON frame gets a structured error, not a silent disconnect (#297)
+
+### Recovery, and proving it works
+- Weekly fire drill — the agent rehearses its own death (#303), robust
+  to a pending systemd job (#308)
+- Weekly continuity score — Principle #7 as a number (#307)
+- Chaos harness: kill it, break its world (#334), runnable on Windows
+  (#335)
+- Auth survival: self-heal a mid-run OAuth rotation (#262), unfreeze
+  rotated tokens (#276), OAuth-aware paid-health probe so recovery is
+  possible on Max-plan boxes (#291), and an auth-dead agent keeps a
+  local brain instead of "try again later" (#296)
+- Probe-heal watches the real per-channel units — the heal path had been
+  dead 15h (#294)
+- Turnover letters on graceful shutdown, not just `/new` (#301)
+- Engine transparency: the serving model shows in the gas-tank panel
+  (#298); rescue-kit menu cuts 91 commands to the 15 that matter when
+  the brain is broken (#302); welcome-spam race latched (#300)
+
+### Channels
+- Signal, IRC and Teams are launchable; Teams silent-drop send fixed
+  (#273)
+- Matrix: real identity resolved from the access token — Windy 0 had
+  been dark on Windy Chat (#260); `/sync` backoff, honest heartbeat, and
+  it joins the hatch DM room (#357)
+- Mail inbox watch — the agent notices mail sent to it (#358)
+- `/remember` actually persists on Matrix (#259)
+
+### Hands
+- `windycode` via the Agent Bus (#275) and `windycode_web` in the browser
+  builder (#287, #288, base64 on the wire #289)
+- `windy_domains` + `windy_sites` on the Cloud cells (#283), following
+  redirects through nginx trailing-slash routing (#284)
+- `fetch_url` renders JS pages via windy-search Browserbase (#266)
+- The agent turns the dials on the user's Windy Word app (#263) and
+  carries its per-install control token (#281)
+- The voice path gets the tool registry — grandma can DO things by voice
+  (#292)
+
+### Identity / hatch
+- Eternitas issues the signed certificate of record; the local mint is
+  retired (ADR-064) (#293), footer overprint fixed (#290)
+- The terminal door hatches through the consumer door (#349); the browser
+  door no longer mints a second passport and orphans the first (#345)
+- An unconfigured run no longer invents a passport and calls it success
+  (#346)
+- Revocation survives an Eternitas outage (#353); two invented revocation
+  receivers dropped (#354)
+
+### Portability
+- Every file read and write in `src/` names its encoding (#332); tests
+  too (#324) — the cp1252 landmine
+- The skill sandbox was dead on Windows; `stop()` dropped memory
+  silently (#333)
+- `os.replace` for the offline queue (#310)
+- start/stop found the pid file relative to CWD (#339); commands
+  silently operated on the wrong folder when run from elsewhere (#342)
+- An optional extra could crash the agent on Intel Macs (#340)
+
+### Models
+- `claude-opus-5` in the catalog — the patch Windy 0 had run uncommitted
+  since 2026-08-18 (#356); `claude-opus-4-8` (#261)
+- Mind retries model-less on 422, so catalog drift stops knocking agents
+  off their primary brain (#295)
+
+### Personality
+- Raw-model mode, and adaptive-mode deprecated (#316); raw mode is the
+  default on purpose, not by accident (#331)
+- Steering → substrate: hardcoded emotion injections and fs/shell
+  keyword nudges retired in favor of self-descriptions (#304)
+
+### Telemetry
+- `llm.call` events to Windy Admin — the last un-ledgered burn point
+  (ADR-WA-001) (#274), with real `duration_ms` (#277)
+
+### Housekeeping
+- CI moved to the self-hosted Kit 0 runner (#328), with uv pinned so
+  `setup-uv` skips the forge releases API (#355)
+- Test suite stopped reading the machine's real credentials (#338) and
+  leaking a resident `.env` (#309, #317); WriteQueue leak that reddened
+  master fixed (#329)
+- The suite can no longer take a live agent's systemd unit down: the
+  guard now covers `systemctl_stop`, the `os.system` `pkill`
+  fall-throughs, and `subprocess.run` itself, so an unenumerated caller
+  is caught too (#359)
+- Post-AWS-exit dead weight deleted (#306)
+
 ## 0.6.1
 
 The keyless release (PRs #247–#256): 0.6.0 shipped hours before the

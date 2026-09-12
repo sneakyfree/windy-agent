@@ -2,6 +2,9 @@
 name = "windyfly"
 dynamic = ["version"]
 description = "Windy Fly — AI agent brain of the Windy ecosystem"
+# Without this the PyPI project page renders empty (twine: "long_description
+# missing") — 0.6.0 and 0.6.1 both shipped with a blank page.
+readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "openai>=1.0",
