@@ -241,9 +241,12 @@ def test_chain_fail_with_auto_on_and_ollama_available_prepends_notification(
                return_value="It's nice today!"):
         response = agent_respond(config, db, wq, "What's the weather?", "test-1")
 
-    # Notification present (rate-limit explanation + how to opt out)
+    # Notification present: names the REAL cause + how to opt out. The
+    # injected error is a 401 — the old banner called that "a rate limit"
+    # whatever happened (see _auto_resurrect_banner, 2026-09-13).
     assert "auto-switched" in response.lower()
-    assert "rate limit" in response.lower()
+    assert "rejected its credential" in response.lower()
+    assert "rate limit" not in response.lower()
     assert "/normal" in response
     assert "/auto-resurrect off" in response
     # And the actual Ollama response
