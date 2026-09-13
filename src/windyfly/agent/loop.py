@@ -1182,6 +1182,10 @@ def agent_respond(
 
     response_text = result["content"]
     input_tokens = result["input_tokens"]
+    # Largest single prompt this turn. input_tokens keeps SUMMING for the
+    # cost ledger (every round is billed); the gas tank wants the peak —
+    # see _record_session_footprint and test_gauge_footprint_within_turn.
+    peak_input_tokens = input_tokens
     output_tokens = result["output_tokens"]
     tool_calls = result.get("tool_calls")
 
@@ -1287,6 +1291,7 @@ def agent_respond(
             )
             response_text = result["content"]
             input_tokens += result["input_tokens"]
+            peak_input_tokens = max(peak_input_tokens, result["input_tokens"])
             output_tokens += result["output_tokens"]
             tool_calls = result.get("tool_calls")
 
@@ -1341,6 +1346,7 @@ def agent_respond(
         )
         response_text = retry["content"]
         input_tokens += retry["input_tokens"]
+        peak_input_tokens = max(peak_input_tokens, retry["input_tokens"])
         output_tokens += retry["output_tokens"]
         retry_tool_calls = retry.get("tool_calls")
 
@@ -1378,6 +1384,7 @@ def agent_respond(
             )
             response_text = followup["content"]
             input_tokens += followup["input_tokens"]
+            peak_input_tokens = max(peak_input_tokens, followup["input_tokens"])
             output_tokens += followup["output_tokens"]
             tool_calls = followup.get("tool_calls")
         elif _looks_confabulated(user_message, response_text):
@@ -1436,6 +1443,7 @@ def agent_respond(
             )
             retry_text = retry["content"]
             input_tokens += retry["input_tokens"]
+            peak_input_tokens = max(peak_input_tokens, retry["input_tokens"])
             output_tokens += retry["output_tokens"]
 
             if _looks_self_env_confabulated(retry_text):
@@ -1659,12 +1667,14 @@ def agent_respond(
     # this used a hardcoded 200K default in ContextTracker, so a
     # session at 30K tokens on a 1M-pinned channel showed 🔴 0%.
     # The gas tank shows the CURRENT context fill, not a lifetime sum.
-    # input_tokens already includes all prior history for this turn, so
-    # the footprint is input+output; _record_session_footprint keeps the
-    # per-session max. (See the function's docstring for why summing was
-    # a grandma-killer.)
+    # Every LLM round's input_tokens already includes the whole prompt,
+    # so the fill at this turn's fullest is the PEAK round's input plus
+    # what was generated — NOT the sum over rounds, which counted the
+    # prompt once per tool call and read 🔴 0% on a 200k window after a
+    # single three-tool turn (2026-09-13). _record_session_footprint
+    # then keeps the per-session max across turns for the same reason.
     session_total = _record_session_footprint(
-        session_id, input_tokens + output_tokens,
+        session_id, peak_input_tokens + output_tokens,
     )
     response_text = maybe_prepend_header(
         response_text, session_total, max_tokens=_max_ctx,
