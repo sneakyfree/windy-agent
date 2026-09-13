@@ -37,6 +37,7 @@ from __future__ import annotations
 import io
 import logging
 import os
+import wave
 from pathlib import Path
 from typing import Any
 
@@ -84,7 +85,8 @@ def _voice_cache_dir() -> Path:
 
 def _load_voice() -> Any:
     """Lazy-load the configured Piper voice. Returns None on any
-    failure (deps absent, model file missing, malformed config)."""
+    failure (deps absent, model file missing/truncated, malformed
+    config)."""
     global _VOICE
     if not is_available():
         return None
@@ -97,12 +99,10 @@ def _load_voice() -> Any:
     onnx = cache_dir / f"{name}.onnx"
     cfg = cache_dir / f"{name}.onnx.json"
 
-    # If model isn't cached, attempt download. piper provides a
-    # download utility but the API path varies by version; use
-    # whichever entry-point this install offers.
+    # piper provides a download utility but the API path varies by
+    # version; use whichever entry-point this install offers.
     if not (onnx.exists() and cfg.exists()):
-        downloaded = _attempt_download(name, cache_dir)
-        if not downloaded:
+        if not _attempt_download(name, cache_dir):
             logger.warning(
                 "Piper voice %s not cached at %s and download failed. "
                 "Pre-download with: python -m piper.download_voices %s",
@@ -110,13 +110,60 @@ def _load_voice() -> Any:
             )
             return None
 
+    # "Present" is not "usable". Windy 0 cached a TRUNCATED
+    # en_US-amy-medium.onnx (32,768,000 bytes of an expected ~63 MB — a
+    # download cut at a round block boundary) on 2026-05-14. The old
+    # check was `onnx.exists()`, so the bad file was never replaced:
+    # every load died with "INVALID_PROTOBUF: Protobuf parsing failed"
+    # and voice replies were silently dead for four months.
+    #
+    # A load attempt is the only honest integrity test — a size floor
+    # would not have caught this one (32 MB looks plausible), and real
+    # voices range from ~20 MB (x_low) to ~63 MB (medium), so there is
+    # no threshold that is both safe and maintainable. So: try to load,
+    # and if that fails, treat the cached file as corrupt, delete it,
+    # and re-download ONCE. A partial file is worse than no file —
+    # no file self-heals, a partial one never does.
+    _VOICE = _load_or_repair(name, onnx, cfg, cache_dir)
+    return _VOICE
+
+
+def _try_load(onnx: Path, cfg: Path) -> Any:
+    """Load the model, or return None if it cannot be parsed."""
+    from piper.voice import PiperVoice
+    return PiperVoice.load(str(onnx), str(cfg))
+
+
+def _load_or_repair(name: str, onnx: Path, cfg: Path, cache_dir: Path) -> Any:
+    """Load the voice; on a corrupt cache, re-download once and retry."""
     try:
-        from piper.voice import PiperVoice
         logger.info("Loading Piper voice %s from %s", name, onnx)
-        _VOICE = PiperVoice.load(str(onnx), str(cfg))
-        return _VOICE
+        return _try_load(onnx, cfg)
     except Exception as e:
-        logger.warning("Failed to load Piper voice %s: %s", name, e)
+        logger.warning(
+            "Piper voice %s failed to load (%s) — treating the cached "
+            "model as corrupt and re-downloading once", name, e,
+        )
+
+    try:
+        onnx.unlink(missing_ok=True)
+    except OSError as e:
+        logger.warning("Could not remove corrupt Piper model %s: %s", onnx, e)
+        return None
+
+    if not _attempt_download(name, cache_dir):
+        logger.warning(
+            "Piper voice %s was corrupt and re-download failed. "
+            "Fix with: python -m piper.download_voices %s", name, name,
+        )
+        return None
+
+    try:
+        return _try_load(onnx, cfg)
+    except Exception as e:
+        logger.warning(
+            "Piper voice %s still unloadable after re-download: %s", name, e,
+        )
         return None
 
 
@@ -191,16 +238,26 @@ def synthesize(text: str) -> bytes | None:
 
     try:
         buf = io.BytesIO()
-        # Piper's synthesize() writes WAV bytes to a file-like
-        # object. Different version APIs:
-        #   - voice.synthesize(text, wav_io) — older
-        #   - voice.synthesize_wav(text, wav_io) — newer
-        # Try newer first, fall back gracefully.
+        # Version-dependent API:
+        #   - synthesize_wav(text, wave.Wave_write) — current piper.
+        #     It calls .setframerate()/.setsampwidth() on the object,
+        #     so a bare BytesIO raises AttributeError. Passing one was
+        #     the bug: this except swallowed it into "no voice reply",
+        #     so voice output failed SILENTLY on every turn.
+        #   - synthesize(text, wav_io) — older piper wrote straight to
+        #     a binary buffer. (In current piper `synthesize` is a
+        #     generator of AudioChunks and takes no file argument, so
+        #     it is only correct on those older installs.)
         if hasattr(voice, "synthesize_wav"):
-            voice.synthesize_wav(truncated, buf)
+            with wave.open(buf, "wb") as wav_file:
+                voice.synthesize_wav(truncated, wav_file)
         else:
             voice.synthesize(truncated, buf)
-        return buf.getvalue()
+        data = buf.getvalue()
+        if not data:
+            logger.warning("Piper produced no audio for %d chars", len(truncated))
+            return None
+        return data
     except Exception as e:
         logger.warning("Piper synthesize failed: %s", e)
         return None

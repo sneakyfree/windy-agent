@@ -64,6 +64,30 @@ class TestModelAllowlist:
         assert is_model_supported("") is False
         assert is_model_supported(None) is False
 
+    def test_current_and_future_claude_lines_supported(self):
+        """The regression this class exists for.
+
+        Windy 0 ran claude-opus-5 as its daily driver from 2026-08-18
+        with native search silently OFF, because the old allowlist
+        stopped at the 4.x prefixes. A model newer than this file must
+        never lose the capability by default — guessing wrong costs one
+        retried round-trip, guessing the other way costs the capability
+        forever and says nothing.
+        """
+        from windyfly.tools.native_web_search import is_model_supported
+        assert is_model_supported("claude-opus-5") is True
+        assert is_model_supported("claude-sonnet-5") is True
+        assert is_model_supported("claude-opus-4-8") is True
+        # Deliberately not-yet-real model lines: the point is that a
+        # name this code has never seen still gets the capability.
+        assert is_model_supported("claude-opus-9-3") is True
+        assert is_model_supported("claude-something-unreleased") is True
+
+    def test_legacy_lines_still_excluded(self):
+        from windyfly.tools.native_web_search import is_model_supported
+        assert is_model_supported("claude-2.1") is False
+        assert is_model_supported("claude-instant-1.2") is False
+
 
 # ─── 2. Kill switch ──────────────────────────────────────────────
 
