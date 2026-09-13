@@ -1267,7 +1267,12 @@ def _call_anthropic(
             auth_token=oauth_token,
             default_headers={
                 "anthropic-beta": beta_header,
-                "X-Api-Key": anthropic.Omit(),
+                # The SDK types default_headers as Mapping[str, str] but its
+                # runtime explicitly honours Omit here (_client.py: "for one of
+                # the X-Api-Key or Authorization headers to be explicitly
+                # omitted"). Proven at the wire against the real SDK in
+                # tests/test_anthropic_oauth_env_race.py.
+                "X-Api-Key": anthropic.Omit(),  # type: ignore[dict-item]
             },
         )
         # Anthropic's OAuth gate is strict: the first system content
