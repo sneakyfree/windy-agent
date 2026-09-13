@@ -78,20 +78,35 @@ def test_synthesize_returns_none_when_model_load_fails():
 
 
 def test_synthesize_returns_wav_bytes_on_success():
-    """Happy path: model loaded → returns the WAV bytes from
-    voice.synthesize_wav."""
-    fake_voice = type("FakeVoice", (), {})()
-    fake_voice.synthesize_wav = lambda self_, text, buf: buf.write(b"FAKEWAV")  # noqa: ARG005
-    # Use a class so the bound method has self
+    """Happy path: model loaded → returns real WAV bytes.
+
+    This test used to hand ``synthesize_wav`` a plain buffer and assert
+    the raw bytes came back (``buf.write(b"FAKEWAV-DATA")``). That
+    encoded the WRONG contract: piper writes through the ``wave``
+    module and calls ``.setframerate()`` on what it is given, so the
+    real call raised "'_io.BytesIO' object has no attribute
+    'setframerate'" and voice replies were dead on Windy 0 for months
+    while this test stayed green. The fake now behaves like piper
+    actually does.
+    """
+    import io
+    import wave
+
     class FV:
-        def synthesize_wav(self, text, buf):
-            buf.write(b"FAKEWAV-DATA")
-    fake = FV()
+        def synthesize_wav(self, text, wav_file, **kwargs):
+            wav_file.setnchannels(1)
+            wav_file.setsampwidth(2)
+            wav_file.setframerate(22050)
+            wav_file.writeframes(b"\x00\x01" * 100)
 
     with patch.object(_piper, "_AVAILABLE", True), \
-         patch.object(_piper, "_load_voice", return_value=fake):
+         patch.object(_piper, "_load_voice", return_value=FV()):
         out = _piper.synthesize("hello")
-    assert out == b"FAKEWAV-DATA"
+
+    assert out, "should return WAV bytes"
+    parsed = wave.open(io.BytesIO(out))
+    assert parsed.getframerate() == 22050
+    assert parsed.getnframes() == 100
 
 
 def test_synthesize_swallows_synth_exceptions():

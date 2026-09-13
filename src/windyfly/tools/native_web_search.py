@@ -61,29 +61,50 @@ NATIVE_TOOL_NAME = "web_search"
 # burning $5+ in a single conversation.
 DEFAULT_DAILY_SEARCH_CAP = 50
 
-# Allowlist of model prefixes that support the basic web_search
-# tool. Per Anthropic docs as of 2026-05, the support matrix is
-# not explicitly enumerated for the basic tool, but the dynamic-
-# filtering variant covers Opus 4.6/4.7 + Sonnet 4.6 + Mythos
-# preview. We optimistically add Haiku 4.x — if Anthropic returns
-# an unsupported-tool 400, the agent loop has a defensive retry
-# that drops the tool and tries again without it. So worst case
-# is a small extra latency on the first failed call.
-SUPPORTED_MODEL_PREFIXES: tuple[str, ...] = (
-    "claude-opus-4-",
-    "claude-sonnet-4-",
-    "claude-haiku-4-",
-    "claude-mythos",  # preview line
+# Which Claude models support the basic web_search tool.
+#
+# This used to be an ALLOWLIST of prefixes (claude-opus-4-,
+# claude-sonnet-4-, claude-haiku-4-, claude-mythos). That inverted
+# the risk: every new model shipped with native search silently OFF
+# until a human remembered to edit this tuple. It cost exactly that
+# — Windy 0 ran ``claude-opus-5`` as its daily driver from 2026-08-18
+# and never once used Tier 0 search, because the list still stopped
+# at the 4.x line. Nothing logged, nothing failed; the agent just
+# quietly fell through to the Tier 1/2 HTTP path and looked stupid
+# at answering "what's the weather".
+#
+# So the rule is inverted: assume a Claude model CAN search unless
+# it is a known-legacy line that cannot. This is safe because the
+# unsupported case was always already handled — Anthropic returns an
+# unsupported-tool 400 and the agent loop retries without the tool,
+# costing one round-trip. Guessing "yes" wrongly costs latency once;
+# guessing "no" wrongly costs the capability entirely, forever, and
+# silently. Capability loss is the worse failure, so it is the one
+# that now requires a human to opt into.
+UNSUPPORTED_MODEL_PREFIXES: tuple[str, ...] = (
+    "claude-instant",
+    "claude-1",
+    "claude-2",
+    "claude-3",  # 3.x predates the server-side web_search tool
 )
 
 
 def is_model_supported(model: str | None) -> bool:
-    """True iff ``model`` is on the allowlist of Claude versions
-    that (likely) support the basic web_search tool."""
+    """True iff ``model`` is a Claude model that (likely) supports
+    the basic server-side web_search tool.
+
+    Forward-compatible by construction: an unrecognized ``claude-*``
+    model is assumed to support it, so a model released after this
+    code was written does not silently lose the capability. Non-Claude
+    models (gpt-*, grok-*, llama*, …) are not eligible — this is the
+    Anthropic server-side tool specifically.
+    """
     if not model:
         return False
     lowered = model.lower()
-    return any(lowered.startswith(p) for p in SUPPORTED_MODEL_PREFIXES)
+    if not lowered.startswith("claude"):
+        return False
+    return not lowered.startswith(UNSUPPORTED_MODEL_PREFIXES)
 
 
 def is_killswitched() -> bool:
