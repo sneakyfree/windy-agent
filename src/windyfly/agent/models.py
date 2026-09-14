@@ -1247,23 +1247,34 @@ def _call_anthropic(
     beta_header = ",".join(betas)
 
     if oauth_token:
-        # Anthropic SDK auto-reads ANTHROPIC_API_KEY from env at client
+        # The SDK auto-reads ANTHROPIC_API_KEY from env at client
         # construction and emits an X-Api-Key header EVEN when an explicit
-        # auth_token= is also passed. Server then rejects with
-        # "401 invalid x-api-key" because OAuth tokens aren't accepted on
-        # that header. Pop the env var across construction so only the
-        # Bearer header lands in auth_headers; restore immediately after
-        # so other call sites that still rely on ANTHROPIC_API_KEY (e.g.,
-        # provider routing, /status) keep working.
-        _saved_env_key = os.environ.pop("ANTHROPIC_API_KEY", None)
-        try:
-            client = anthropic.Anthropic(
-                auth_token=oauth_token,
-                default_headers={"anthropic-beta": beta_header},
-            )
-        finally:
-            if _saved_env_key is not None:
-                os.environ["ANTHROPIC_API_KEY"] = _saved_env_key
+        # auth_token= is passed; Anthropic 401s an OAuth token on that
+        # header. This used to be handled by POPPING the env var around
+        # construction and restoring it after. That was a race: providers.py
+        # reads the same env var on every request, so a sibling request
+        # resolving its chain inside the window saw "" -> "no-key" -> chain
+        # exhausted -> auto-resurrect. Hit 1-in-10 under concurrent bridge
+        # turns on 2026-09-13, and reachable any time a maintenance job
+        # (inbox watch, journal) calls the LLM alongside a real turn.
+        #
+        # The SDK has a supported way to say "do not send X-Api-Key":
+        # the Omit sentinel in default_headers (its own auth validation
+        # accepts an explicitly omitted header). No env mutation, no
+        # window, nothing to lock. Proven at the wire in
+        # tests/test_anthropic_oauth_env_race.py.
+        client = anthropic.Anthropic(
+            auth_token=oauth_token,
+            default_headers={
+                "anthropic-beta": beta_header,
+                # The SDK types default_headers as Mapping[str, str] but its
+                # runtime explicitly honours Omit here (_client.py: "for one of
+                # the X-Api-Key or Authorization headers to be explicitly
+                # omitted"). Proven at the wire against the real SDK in
+                # tests/test_anthropic_oauth_env_race.py.
+                "X-Api-Key": anthropic.Omit(),  # type: ignore[dict-item]
+            },
+        )
         # Anthropic's OAuth gate is strict: the first system content
         # block must be EXACTLY the Claude Code identifier — not even a
         # trailing newline of extra text passes. Concatenating Windy's

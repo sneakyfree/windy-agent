@@ -85,6 +85,38 @@ def _record_session_footprint(session_id: str, footprint: int) -> int:
     return new_fill
 
 
+def _auto_resurrect_banner(chosen_model: str, error_str: str) -> str:
+    """The notice shown when the agent auto-switches to the local model.
+
+    It used to say "hit a rate limit" no matter what had happened. On
+    2026-09-13 the real cause was a credential race (``no-key``) and the
+    banner told Grant something false. A notice that misnames the cause
+    sends the human to fix the wrong thing, so name what actually happened.
+    """
+    e = (error_str or "").lower()
+    if "no-key" in e:
+        why = "couldn't find its credential for a moment"
+    elif "429" in e or "rate limit" in e or "rate_limit" in e:
+        why = "hit a rate limit"
+    elif "cooldown" in e:
+        why = "is cooling down after repeated errors"
+    elif "timeout" in e or "timed out" in e:
+        why = "timed out"
+    elif "401" in e or "authentication" in e:
+        why = "rejected its credential"
+    else:
+        why = "didn't answer"
+    return (
+        f"🚨 *Your usual model {why}. "
+        f"I auto-switched to a free local model "
+        f"(`{chosen_model}`) so we can keep talking.*\n\n"
+        f"_Type /normal when your usual model works "
+        f"again, or /auto-resurrect off to disable "
+        f"this auto-switch._\n\n"
+        f"---\n\n"
+    )
+
+
 # Back-compat alias — some call sites/tests import the old name. Its
 # contract is now "record footprint (max)", NOT "add to a sum".
 _bump_session_tokens = _record_session_footprint
@@ -1071,15 +1103,7 @@ def agent_respond(
                 ar_reason = ar_result.get("reason")
                 if ar_result.get("ok"):
                     chosen_model = ar_result.get("model", "(local)")
-                    notification = (
-                        f"🚨 *Your usual model hit a rate limit. "
-                        f"I auto-switched to a free local model "
-                        f"(`{chosen_model}`) so we can keep talking.*\n\n"
-                        f"_Type /normal when your usual model works "
-                        f"again, or /auto-resurrect off to disable "
-                        f"this auto-switch._\n\n"
-                        f"---\n\n"
-                    )
+                    notification = _auto_resurrect_banner(chosen_model, msg)
                     log_event(db, write_queue, "auto_resurrect.fired", {
                         "model": chosen_model,
                         "previous_model": model,
