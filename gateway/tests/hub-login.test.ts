@@ -99,10 +99,10 @@ describe("GET /api/auth/hub/start — loopback + PKCE", () => {
     expect(res.status).toBe(400);
     expect(await res.text()).toContain("127.0.0.1");
 
-    process.env.HUB_OAUTH_PUBLIC_ORIGIN = "https://agent.windyword.ai";
-    const hosted = await startFlow("agent.windyword.ai");
+    process.env.HUB_OAUTH_PUBLIC_ORIGIN = "https://windy0-agent.thewindstorm.uk";
+    const hosted = await startFlow("windy0-agent.thewindstorm.uk");
     expect(hosted.authorize!.searchParams.get("redirect_uri"))
-      .toBe("https://agent.windyword.ai/api/auth/hub/callback");
+      .toBe("https://windy0-agent.thewindstorm.uk/api/auth/hub/callback");
   });
 });
 

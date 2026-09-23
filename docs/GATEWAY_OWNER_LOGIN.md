@@ -20,7 +20,7 @@ literals** (`http://127.0.0.1:{port}/api/auth/hub/callback` or
 the redirect from the loopback literal and the port it bound, never from the
 Host header, and bounces `localhost` to `127.0.0.1` first so the session
 cookie lands on the callback's origin. A hosted origin (for example
-`https://agent.windyword.ai` behind a tunnel) is **off** until the hub
+`https://windy0-agent.thewindstorm.uk` behind a tunnel) is **off** until the hub
 registers it; turn it on with `HUB_OAUTH_PUBLIC_ORIGIN`.
 
 ## Who counts as the owner

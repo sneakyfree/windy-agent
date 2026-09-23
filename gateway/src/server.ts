@@ -454,7 +454,7 @@ export function _setHubFetch(f: FetchLike | null): void {
  * `localhost` is REFUSED. So the redirect is built from the loopback
  * literal and the port we actually bound, never from the Host header.
  *
- * A hosted origin (e.g. https://agent.windyword.ai behind a tunnel) is
+ * A hosted origin (e.g. https://windy0-agent.thewindstorm.uk behind a tunnel) is
  * opt-in via HUB_OAUTH_PUBLIC_ORIGIN, and only once the hub registers it.
  *
  * Returns the origin, or a Response to send instead (a bounce from
