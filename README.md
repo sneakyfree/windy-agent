@@ -246,6 +246,26 @@ Tests skip automatically when the API isn't reachable.
 
 ---
 
+## Telemetry and privacy
+
+Windy Fly sends anonymous health data to Windy so we can see when agents are
+failing in the field: error **codes**, **counts** and **durations**. It never
+sends your messages, prompts, files, names or email addresses. You're told
+this once, when your agent is born or the first time you run `windy login`
+or `windy go`, and nothing is sent before that.
+
+- **See or change it:** `windy telemetry status|on|off`, or
+  `WINDY_TELEMETRY=0` (in your shell or the agent's `.env`).
+- **What's sent:** `service.boot` (version, install type), `service.health`
+  every 15 minutes (turn/tool/error counts, p95 turn time, lifeboat turns),
+  `agent.run_failed` (one per turn where you got no real answer, with a code
+  such as `rate_limited`), `agent.model_demoted` (when your agent falls back
+  to a weaker or local model), and `llm.call` (tokens and list-price cost).
+- **Whose it is:** rows are signed with your agent's own passport token and
+  filed under its passport number. An agent without a passport sends nothing.
+
+Details: [docs/PRIVACY.md](docs/PRIVACY.md).
+
 ## Development
 
 ```bash

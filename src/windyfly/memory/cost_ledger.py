@@ -107,12 +107,20 @@ def install_cost_sink(db: Database, write_queue: WriteQueue) -> None:
     def sink(record: dict[str, Any]) -> None:
         write_queue.enqueue(Priority.MEDIUM, log_llm_call, db, dict(record))
         try:
+            from windyfly.observability import agent_health
             from windyfly.observability.admin_telemetry import emit_llm_record
+            agent_health.note_llm_record(record)
             emit_llm_record(write_queue, record)
         except Exception:
             pass  # telemetry never breaks accounting
 
     models.set_cost_sink(sink, owner)
+    try:
+        # Once per process: service.boot + the 15-min service.health timer.
+        from windyfly.observability import agent_health
+        agent_health.start(write_queue)
+    except Exception:
+        pass  # telemetry never blocks a boot
 
 
 def get_daily_spend(db: Database) -> float:

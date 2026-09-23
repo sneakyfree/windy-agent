@@ -48,11 +48,18 @@ trap finish_guard EXIT
 
 emit() { # emit <step> <pass|fail|skip> <duration_ms>
     [[ -z "${WINDY_ADMIN_INGEST_URL:-}" || -z "${WINDY_ADMIN_INGEST_TOKEN:-}" ]] && return 0
-    curl -s -m 3 -X POST "${WINDY_ADMIN_INGEST_URL%/}/v1/events" \
+    # Our own drill, not a user: synthetic (Telemetry UPDATE 3). The ingest
+    # answers 202 even when it quarantines a row, so read the body.
+    local body
+    body=$(curl -s -m 3 -X POST "${WINDY_ADMIN_INGEST_URL%/}/v1/events" \
         -H "Authorization: Bearer $WINDY_ADMIN_INGEST_TOKEN" \
         -H 'Content-Type: application/json' \
-        -d "{\"events\":[{\"ts\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"platform\":\"windy-agent\",\"service\":\"fly\",\"event_type\":\"fire_drill.$2\",\"actor_type\":\"agent\",\"actor_id\":\"${ETERNITAS_PASSPORT:-unknown}\",\"duration_ms\":$3,\"metadata\":{\"step\":\"$1\"}}]}" \
-        >/dev/null 2>&1 || true
+        -H 'X-Windy-Synthetic: 1' \
+        -d "{\"events\":[{\"ts\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"platform\":\"windy-agent\",\"service\":\"fly\",\"event_type\":\"fire_drill.$2\",\"actor_type\":\"agent\",\"actor_id\":\"${ETERNITAS_PASSPORT:-unknown}\",\"duration_ms\":$3,\"metadata\":{\"step\":\"$1\",\"synthetic\":true}}]}" \
+        2>/dev/null) || true
+    if [[ "$body" =~ \"quarantined\":[[:space:]]*[1-9] ]]; then
+        echo "WARNING: fire-drill telemetry row quarantined: $body" >&2
+    fi
 }
 
 step() { # step <name> <fn>

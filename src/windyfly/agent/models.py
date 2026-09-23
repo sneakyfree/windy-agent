@@ -928,6 +928,29 @@ def _reload_oauth_token() -> bool:
     return False
 
 
+def _note_route(
+    primary: str | None,
+    answered_by: str,
+    miss: tuple[str | None, str, int | None] | None,
+    provider_key: str | None,
+) -> None:
+    """Feed agent.model_demoted: ``primary`` is set only when a model other
+    than the chain's first one answered. Never raises."""
+    try:
+        from windyfly.observability import agent_health
+
+        if primary is None:
+            agent_health.note_recovered()
+            return
+        code, detail, status = miss or (None, "", None)
+        agent_health.note_demotion(
+            primary, answered_by, agent_health.demotion_reason(code, detail),
+            provider=provider_key, http_status=status,
+        )
+    except Exception as e:  # noqa: BLE001 — telemetry never breaks a reply
+        logger.debug("demotion note failed: %s", e)
+
+
 def call_llm(
     messages: list[dict[str, str]],
     *,
@@ -997,6 +1020,8 @@ def call_llm(
             mind_model = mind_resp.get("mind_model") or model or ""
             fields = _cost_fields(mind_resp, mind_model, "metered")
             _record("ok", mind_model, "windy-mind", _t0, fields)
+            if model is None:
+                _note_route(None, mind_model, None, None)
             return mind_resp
 
     chain = _build_chain(model, config)
@@ -1005,6 +1030,9 @@ def call_llm(
     attempted: list[str] = []
     skipped: list[str] = []
     _oauth_reloaded = False  # one-shot mid-run token reload per call
+    # Why the chain's FIRST model didn't answer, if it didn't: a later
+    # model answering is a silent demotion (agent.model_demoted).
+    primary_miss: tuple[str | None, str, int | None] | None = None
 
     for chain_model in chain:
         provider = get_provider_for_model(chain_model, config)
@@ -1016,12 +1044,16 @@ def call_llm(
         # Skip if no key (Ollama-style local providers don't need one)
         if not api_key and "localhost" not in base_url:
             skipped.append(f"{provider_key}({chain_model}):no-key")
+            if primary_miss is None and chain_model == chain[0]:
+                primary_miss = (None, "no-key", None)
             continue
 
         # Skip if in cooldown — unless this is the only chain entry, in
         # which case attempt anyway as a degraded last resort
         if _is_provider_in_cooldown(provider_key) and len(chain) > 1:
             skipped.append(f"{provider_key}({chain_model}):cooldown")
+            if primary_miss is None and chain_model == chain[0]:
+                primary_miss = (None, "cooldown", None)
             continue
 
         attempted.append(f"{provider_key}({chain_model})")
@@ -1048,9 +1080,15 @@ def call_llm(
             _record_provider_success(provider_key)
             fields = _cost_fields(result, chain_model, _billing_for(provider_type, base_url, api_key))
             _record("ok", chain_model, provider_key, _t0, fields)
+            if model is None:  # an explicit model is a choice, not a demotion
+                _note_route(chain[0] if chain_model != chain[0] else None, chain_model,
+                            primary_miss, provider_key)
             return result
         except Exception as e:
             last_error = e
+            if primary_miss is None and chain_model == chain[0]:
+                _code, _status = _error_code(e)
+                primary_miss = (_code, str(e), _status)
             _record("failed", chain_model, provider_key, _t0,
                     {"billing": _billing_for(provider_type, base_url, api_key)}, e)
             logger.warning(
@@ -1092,6 +1130,9 @@ def call_llm(
                     logger.info(
                         "Recovered after OAuth token reload (%s)", provider_key,
                     )
+                    if model is None:
+                        _note_route(chain[0] if chain_model != chain[0] else None,
+                                    chain_model, primary_miss, provider_key)
                     return result
                 except Exception as e2:
                     last_error = e2

@@ -104,7 +104,7 @@ def emit(score_pct, detail):
         return
     import httpx
     try:
-        httpx.post(
+        resp = httpx.post(
             f"{url.rstrip('/')}/v1/events",
             json={"events": [{
                 "ts": __import__("datetime").datetime.now(
@@ -112,10 +112,14 @@ def emit(score_pct, detail):
                 "platform": "windy-agent", "service": "fly",
                 "event_type": "continuity.score", "actor_type": "agent",
                 "actor_id": os.environ.get("ETERNITAS_PASSPORT", "unknown"),
-                "metadata": {"score_pct": score_pct, **detail},
+                # Our own drill, not a user: synthetic (Telemetry UPDATE 3).
+                "metadata": {"score_pct": score_pct, **detail, "synthetic": True},
             }]},
             headers={"Authorization": f"Bearer {tok}"}, timeout=3.0,
         )
+        body = resp.json() if resp.status_code == 202 else {}
+        if int(body.get("quarantined") or 0):
+            print(f"[battery] WARNING: telemetry row quarantined: {body.get('rejections')}")
     except Exception:
         pass
 

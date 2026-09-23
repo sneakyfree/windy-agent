@@ -153,6 +153,18 @@ def test_complete_stays_in_the_cloud(tmp_path):
     assert not list(tmp_path.rglob(".env"))
 
 
+def test_alive_shows_the_telemetry_disclosure_once():
+    from windyfly.observability import disclosure
+
+    assert not disclosure.disclosed()
+    hub = FakeHub(polls=[(200, {"status": "complete", "result": BORN})])
+    rc, out, _, _ = _go(hub)
+    assert rc == 0 and "It's alive!" in out
+    flat = " ".join(out.split())
+    assert "never your messages" in flat and "WINDY_TELEMETRY=0" in flat
+    assert disclosure.disclosed()
+
+
 def test_partial_is_born_and_says_the_hub_finishes():
     hub = FakeHub(polls=[(200, {"status": "partial", "result": BORN})])
     rc, out, _, _ = _go(hub)

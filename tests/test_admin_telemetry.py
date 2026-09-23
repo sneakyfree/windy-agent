@@ -103,16 +103,16 @@ def test_no_passport_no_event(monkeypatch):
     ) is None
 
 
-def test_emit_enqueues_low_priority(monkeypatch):
+def test_emit_buffers_for_the_next_batch(monkeypatch):
     _configure(monkeypatch)
-    calls = []
+    admin_telemetry._reset_for_tests()
 
-    class StubQueue:
-        def enqueue(self, priority, fn, *args):
-            calls.append((priority, fn, args))
+    class ExplodingQueue:
+        def enqueue(self, *a):
+            raise AssertionError("telemetry never rides the write queue now")
 
     emit_llm_call(
-        StubQueue(),
+        ExplodingQueue(),
         model="claude-opus-4-8",
         input_tokens=10,
         output_tokens=5,
@@ -120,13 +120,9 @@ def test_emit_enqueues_low_priority(monkeypatch):
         session_id="s1",
         had_tool_calls=False,
     )
-    assert len(calls) == 1
-    priority, fn, args = calls[0]
-    from windyfly.memory.write_queue import Priority
-
-    assert priority is Priority.LOW
-    assert fn is admin_telemetry._post_event
-    assert args[0]["event_type"] == "llm.call"
+    (row,) = admin_telemetry.pending()
+    assert row["event_type"] == "llm.call"
+    admin_telemetry._reset_for_tests()
 
 
 def test_emit_noop_and_never_raises_when_unconfigured():
@@ -170,15 +166,12 @@ def test_emit_llm_record_skips_failed_calls(monkeypatch):
     from windyfly.observability.admin_telemetry import emit_llm_record
 
     _configure(monkeypatch)
-    calls = []
-
-    class StubQueue:
-        def enqueue(self, priority, fn, *args):
-            calls.append(args)
-
-    emit_llm_record(StubQueue(), {"status": "failed", "model": "claude-opus-5"})
-    assert calls == []
-    emit_llm_record(StubQueue(), {"status": "ok", "model": "claude-opus-5",
-                                  "provider": "windy-mind", "cost_usd": 0.01,
-                                  "billing": "metered"})
-    assert calls and calls[0][0]["provider"] == "windymind"
+    admin_telemetry._reset_for_tests()
+    emit_llm_record(None, {"status": "failed", "model": "claude-opus-5"})
+    assert admin_telemetry.pending() == []
+    emit_llm_record(None, {"status": "ok", "model": "claude-opus-5",
+                           "provider": "windy-mind", "cost_usd": 0.01,
+                           "billing": "metered"})
+    (row,) = admin_telemetry.pending()
+    assert row["provider"] == "windymind"
+    admin_telemetry._reset_for_tests()

@@ -37,6 +37,46 @@
     a Max plan; the marginal cost is $0), `metered` or `local`.
   - Admin `llm.call` telemetry is now per call as well (successful calls).
 
+- **Field health telemetry, disclosed and switchable off.** New
+  `service.boot`, a 15-minute `service.health` (turn, tool, 429 and lifeboat
+  counts, p95 turn time, and how many of our own rows the ingest quarantined
+  or we dropped), `agent.run_failed` (one per turn where the human got no
+  real answer, with a declared code), and `agent.model_demoted` (once per
+  switch to a weaker or local model: the silent `llama3.2:3b` demotion is now
+  a row).
+  - Rows are validated against the enums declared at Windy Admin before they
+    leave; an invalid row is dropped and counted, never sent to be
+    quarantined. A 202 that quarantines anyway is logged as a warning.
+  - **Customer installs send via the agent's own passport token.** Sources,
+    in order: the fleet's `WINDY_ADMIN_INGEST_TOKEN`, then
+    `WINDY_TELEMETRY_CLIENT_TOKEN` (empty by default; no token is built into
+    the package), then the agent's EPT (default on; windy-admin #294 verifies
+    it and pins rows to that passport). `WINDY_TELEMETRY_EPT_AUTH=0` turns the
+    EPT path off. An agent with no passport sends and counts nothing.
+  - Rows are **batched**: flushed at most every ~10 s, 100 per request (the
+    ingest's cap), plus a best-effort flush at exit, well under the 30
+    requests/min per passport limit.
+  - A **429** waits out `Retry-After` (default 60 s) and keeps a bounded
+    buffer (oldest dropped and counted); it never trips the breaker. A 413
+    splits the batch and logs a warning.
+  - A **401** for an expired EPT or an unpublished key renews the EPT once
+    and retries. A 401 that persists, a revoked passport, an issuer mismatch
+    or a 403 trips the breaker: one warning, no more sends this run, and a
+    24h marker in `~/.windy` (0600) across restarts.
+  - **Disclosed before anything is sent.** One line says what's sent at the
+    end of a successful hatch and at the first `windy login` / `windy go`,
+    and writes a marker in `~/.windy`. The passport and client-token paths
+    stay closed until that marker exists (or `WINDY_TELEMETRY=1` is set, or
+    someone runs `windy telemetry status|on`); before that nothing is built
+    or counted. The fleet's own emitter token is exempt.
+  - New `windy telemetry status|on|off`: the credential in use, whether the
+    line was shown, and whether sending is paused; on/off saves the
+    preference. `WINDY_TELEMETRY=0` still turns everything off. See
+    docs/PRIVACY.md.
+  - `WINDY_SYNTHETIC=1` (our probes only) marks rows `synthetic` and adds
+    `X-Windy-Synthetic: 1` to requests to Windy hosts only (never third parties). The fire drill and the
+    continuity battery mark their rows synthetic and warn on a quarantine.
+
 ## 0.7.2.1
 
 Found by the 0.7.2 clean-machine proof from PyPI:

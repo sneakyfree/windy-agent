@@ -465,7 +465,44 @@ _SELF_ENV_TRUTH_FALLBACK = (
 )
 
 
-def _dispatch_tool_call(
+def _lifeboat_telemetry(
+    model: str, code: str, reason: str, channel: str | None, write_queue: Any,
+    *, lifeboat: bool = True,
+) -> None:
+    """A turn answered by the local backup brain (or not at all): one
+    agent.run_failed for the turn, and agent.model_demoted on the transition."""
+    try:
+        from windyfly.agent.offline import _pick_offline_model
+        from windyfly.observability import agent_health
+
+        agent_health.mark_turn_failed(code, stage="llm", lifeboat=lifeboat,
+                                      channel=channel, model=model)
+        if lifeboat:
+            agent_health.note_demotion(model, _pick_offline_model(), reason,
+                                       write_queue=write_queue)
+    except Exception as e:  # noqa: BLE001 — telemetry never breaks a reply
+        logger.debug("lifeboat telemetry failed: %s", e)
+
+
+def _dispatch_tool_call(*args: Any, **kwargs: Any) -> str:
+    """``_dispatch_tool_call_inner`` + the health row's tool counts."""
+    result = _dispatch_tool_call_inner(*args, **kwargs)
+    ok = True
+    try:
+        parsed = json.loads(result) if isinstance(result, str) and result[:1] == "{" else None
+        ok = not (isinstance(parsed, dict) and "error" in parsed)
+    except (ValueError, TypeError):
+        pass
+    try:
+        from windyfly.observability import agent_health
+
+        agent_health.note_tool_call(ok)
+    except Exception:  # noqa: BLE001
+        pass
+    return result
+
+
+def _dispatch_tool_call_inner(
     fn_name: str,
     fn_args: Any,
     tool_registry: Any,
@@ -512,6 +549,30 @@ def _dispatch_tool_call(
 
 
 def agent_respond(
+    config: dict[str, Any],
+    db: Database,
+    write_queue: WriteQueue,
+    user_message: str,
+    session_id: str,
+    tool_registry: ToolRegistry | None = None,
+    band: Any = None,
+) -> str:
+    """Process a user message and return the agent's response.
+
+    One turn for field telemetry (``agent_health.turn``): counted on the
+    health row, and a turn where the human got no real answer emits one
+    ``agent.run_failed``. The pipeline itself is ``_agent_respond_turn``.
+    """
+    from windyfly.observability import agent_health
+
+    with agent_health.turn(write_queue):
+        return _agent_respond_turn(
+            config, db, write_queue, user_message, session_id,
+            tool_registry=tool_registry, band=band,
+        )
+
+
+def _agent_respond_turn(
     config: dict[str, Any],
     db: Database,
     write_queue: WriteQueue,
@@ -924,6 +985,7 @@ def agent_respond(
                 write_queue.enqueue(Priority.HIGH, save_episode, db, "user", user_message, session_id=session_id)
                 write_queue.enqueue(Priority.HIGH, save_episode, db, "assistant", offline_response, session_id=session_id)
                 log_event(db, write_queue, "resurrect.dispatch", {"message": user_message[:100]})
+                _lifeboat_telemetry(model, "lifeboat", "provider_unreachable", _plat, write_queue)
                 return offline_response
 
     # 1.8. Offline detection — fall back to local model if API unreachable
@@ -938,6 +1000,7 @@ def agent_respond(
         write_queue.enqueue(Priority.HIGH, save_episode, db, "user", user_message, session_id=session_id)
         write_queue.enqueue(Priority.HIGH, save_episode, db, "assistant", offline_response, session_id=session_id)
         log_event(db, write_queue, "offline.fallback", {"message": user_message[:100]})
+        _lifeboat_telemetry(model, "network", "provider_unreachable", _plat, write_queue)
         return offline_response
 
     estimated_input_tokens = len(user_message.split()) * 3  # rough estimate
@@ -948,6 +1011,8 @@ def agent_respond(
 
     if not budget["allowed"]:
         alert = budget.get("alert", "")
+        from windyfly.observability import agent_health as _ah
+        _ah.mark_turn_failed("quota_exceeded", stage="llm", channel=_plat, model=model)
         return alert or (
             f"I've hit my daily budget "
             f"(${budget['daily_spend']:.2f} of ${budget['daily_budget']:.2f}). "
@@ -1188,6 +1253,10 @@ def agent_respond(
                 log_event(db, write_queue, "auth.permanent_failure", {
                     "error": msg[:200],
                 })
+                _lifeboat_telemetry(
+                    model, "auth", "credential_rejected", _plat, write_queue,
+                    lifeboat=full_response.startswith("🛟"),
+                )
                 return full_response
 
             from windyfly.agent.offline import queue_message
@@ -1202,6 +1271,14 @@ def agent_respond(
                 "error": msg[:200],
                 "auto_resurrected": bool(notification),
             })
+            from windyfly.observability import agent_health as _ah
+            _code = _ah.failure_code(msg)
+            _ah.mark_turn_failed(_code, stage="llm", lifeboat=True, channel=_plat, model=model)
+            if notification:
+                _ah.note_demotion(
+                    model, str(ar_result.get("model") or "local"),
+                    _ah.demotion_reason(_code, msg), write_queue=write_queue,
+                )
             return full_response
         # Non-chain RuntimeError (something we didn't anticipate) —
         # let it bubble so we see it in logs and don't silently
@@ -1210,6 +1287,8 @@ def agent_respond(
 
     response_text = result["content"]
     input_tokens = result["input_tokens"]
+    from windyfly.observability import agent_health as _ah_ok
+    _ah_ok.note_recovered()  # the turn's own model answered
     # Largest single prompt this turn. input_tokens keeps SUMMING for the
     # cost ledger (every round is billed); the gas tank wants the peak —
     # see _record_session_footprint and test_gauge_footprint_within_turn.
