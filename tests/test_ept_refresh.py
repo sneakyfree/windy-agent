@@ -234,3 +234,17 @@ def test_background_refresh_skipped_under_pytest_and_opt_out(monkeypatch):
     monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
     monkeypatch.setenv("WINDY_DISABLE_EPT_REFRESH", "1")
     assert er.refresh_in_background() is None
+
+
+def test_kept_without_echoing_the_token_is_unchanged_not_failed(monkeypatch):
+    """Eternitas answers `reissued: false` + a reason when it keeps the
+    current EPT; it need not send the token back. That's success."""
+    token = make_ept(exp_in=10 * DAY)
+    monkeypatch.setenv(er.ENV_KEY, token)
+    calls: list = []
+    out = er.refresh_ept(
+        force=True,
+        transport=transport(calls, new_token="", reissued=False, reason="not_due"),
+    )
+    assert out["status"] == "unchanged"
+    assert out["reason"] == "not_due"

@@ -20,7 +20,9 @@ from windyfly.agent import models
 
 
 @pytest.fixture(autouse=True)
-def _clean_mind_env(monkeypatch):
+def _clean_mind_env(monkeypatch, tmp_path):
+    # A granted claim writes data/runtime_claim.json under the project root.
+    monkeypatch.setenv("WINDYFLY_HOME", str(tmp_path))
     monkeypatch.delenv("MIND_API_URL", raising=False)
     monkeypatch.delenv("MIND_BASE_URL", raising=False)
     models._reset_mind_url_log_for_tests()

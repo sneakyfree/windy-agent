@@ -79,13 +79,12 @@ def get_eternitas_client(db=None, config: dict | None = None):
     Raises:
         FakeIdentityRefused: no issuer configured and no explicit opt-in.
     """
-    from windyfly.eternitas.url import resolve_eternitas_url
+    from windyfly.eternitas.url import issuer_url
 
-    api_url = ""
-    if config:
-        api_url = config.get("ecosystem", {}).get("eternitas_url", "")
-    if not api_url:
-        api_url = resolve_eternitas_url()
+    # Explicit config/env first, then the production issuer by default. It is ""
+    # only when Eternitas is switched off (ETERNITAS_URL=off) or the explicit mock
+    # opt-in is set with nothing else configured.
+    api_url = issuer_url(config)
 
     if api_url and not api_url.startswith("mock"):
         from windyfly.eternitas.client import EternitasClient
@@ -94,12 +93,11 @@ def get_eternitas_client(db=None, config: dict | None = None):
     if not api_url:
         if not _fake_identity_allowed():
             raise FakeIdentityRefused(
-                "No Eternitas issuer is configured, so this run would mint a "
-                "LOCAL passport number that Eternitas has never issued and then "
-                "report success. Refusing.\n"
-                "  • To hatch a real identity: set ETERNITAS_URL="
-                "https://api.eternitas.ai (or ecosystem.eternitas_url in "
-                "windyfly.toml).\n"
+                "Eternitas is switched off (ETERNITAS_URL=off), so this run would "
+                "mint a LOCAL passport number that Eternitas has never issued and "
+                "then report success. Refusing.\n"
+                "  • To hatch a real identity: unset ETERNITAS_URL (the default is "
+                "https://api.eternitas.ai) or set it to your issuer.\n"
                 f"  • For offline development with a FAKE identity: set "
                 f"{FAKE_IDENTITY_OPTIN_ENV}=1, or ETERNITAS_URL=mock://local."
             )

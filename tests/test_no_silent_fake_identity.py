@@ -39,9 +39,25 @@ def no_eternitas_url(monkeypatch):
 
 
 class TestSilentMockIsImpossible:
-    def test_unconfigured_run_refuses_instead_of_faking(self, db, monkeypatch):
-        """No URL and no opt-in: refuse loudly rather than mint a fake."""
+    def test_unconfigured_run_uses_the_production_issuer(self, db, monkeypatch):
+        """No URL and no opt-in: hatch against the REAL issuer, never a fake.
+
+        It used to refuse here, which made `windy go` on a clean machine end
+        with no passport at all (clean-machine journey test, 2026-09-23).
+        Defaulting to the production issuer fabricates nothing.
+        """
         monkeypatch.delenv(FAKE_IDENTITY_OPTIN_ENV, raising=False)
+
+        from windyfly.eternitas.client import EternitasClient
+
+        client = get_eternitas_client(db=db)
+        assert isinstance(client, EternitasClient)
+        assert client.api_url == "https://api.eternitas.ai"
+
+    def test_switched_off_run_refuses_instead_of_faking(self, db, monkeypatch):
+        """ETERNITAS_URL=off and no opt-in: refuse loudly rather than mint a fake."""
+        monkeypatch.delenv(FAKE_IDENTITY_OPTIN_ENV, raising=False)
+        monkeypatch.setenv("ETERNITAS_URL", "off")
 
         with pytest.raises(FakeIdentityRefused) as excinfo:
             get_eternitas_client(db=db)
@@ -96,6 +112,9 @@ class TestHatchFailsLoudlyRatherThanFaking:
         """The ceremony must go red, not green-with-an-invented-passport."""
         monkeypatch.delenv(FAKE_IDENTITY_OPTIN_ENV, raising=False)
         monkeypatch.delenv("ETERNITAS_PASSPORT", raising=False)
+        # Switched off explicitly: the default would be the real issuer, and a
+        # test must never reach it over the network.
+        monkeypatch.setenv("ETERNITAS_URL", "off")
 
         from windyfly.hatch_orchestrator import orchestrate_hatch
 

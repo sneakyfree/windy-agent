@@ -36,6 +36,47 @@ credential), so hatching from the terminal needs the owner's Windy sign-in.
   401/429/503 plainly, and stops calling until the 1st after the monthly
   budget runs out (instead of retrying a 429 all month).
 
+**First run, fixed end to end** (from a clean-machine test of `pip install
+windyfly` → `windy login` → `windy go` → chat → `windy ept refresh`):
+
+- **A fresh `windy go` now gets a real passport.** With no `ETERNITAS_URL`
+  set, the hatch used to have no issuer and gave up. It now defaults to
+  https://api.eternitas.ai and writes `ETERNITAS_URL` into the generated
+  `.env`. Set `ETERNITAS_URL` to use a different issuer, or `ETERNITAS_URL=off`
+  to switch Eternitas off.
+- **One agent, one passport.** The hatch now saves the passport number
+  (`ETERNITAS_PASSPORT`) next to its token. Re-running `windy go` keeps both
+  instead of blanking them, and won't hatch an agent that already has a
+  passport; `windy go --force` (or `windy deregister`) starts over.
+  Previously a re-run minted a second passport.
+- **No more ✓ for things that didn't happen.** "✓ uv installed" only prints
+  when uv really is installed (the installer pipe now uses `pipefail`).
+  A pip-installed Windy Fly doesn't need uv or bun at all and starts with the
+  current Python. The local mock mail server only runs with the explicit
+  dev/test opt-in, and a placeholder inbox or phone is shown as
+  "not set up yet" rather than "✓". A real passport is no longer labelled
+  "(local)".
+- **You can chat right after hatching.**
+  - `windy go` ends with the exact command: `windy stop && windy chat`.
+  - The "already running" refusal says the same thing.
+  - `windy stop` now waits for the agent to exit and releases its runtime
+    slot, so the next `windy chat` isn't refused as "already hosting this
+    agent".
+  - `/quit`, `/exit` and Ctrl-D leave the chat.
+  - INFO logs go to `data/cli.log` instead of scrolling through the
+    conversation.
+- **`windy ept refresh` reports every outcome honestly.** It reads the same
+  env file the refresh writes (`WINDY_ENV_FILE`, else the project `.env`).
+  A token Eternitas keeps (`reissued: false`, or any status this version
+  doesn't know yet) is reported as "kept — still valid". Only an HTTP error or
+  refusal, or an unreachable issuer, prints "Refresh failed", and it says
+  which. (It used to print "Refresh failed (None)".)
+- `windy --version` works (same output as `windy version`). Help text and the
+  guided Anthropic signup now use a current model instead of the retired
+  `claude-3-5-sonnet-latest`, and the Anthropic key check no longer rejects
+  good keys by probing a retired model. Chat's "never provisioned" hint names
+  `windy go` (there is no `windy hatch`).
+
 ## 0.7.1
 
 **Action required: set your Telegram owner explicitly.** Through 0.7.0,

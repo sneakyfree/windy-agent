@@ -695,13 +695,13 @@ def fetch_eternitas_assets(
     the mandala is generated locally from the fingerprint hash in
     ``render_neural_art_svg``, so no remote fetch is attempted for it.
     """
-    from windyfly.eternitas.url import resolve_eternitas_url
+    from windyfly.eternitas.url import issuer_url
 
     out: dict[str, str] = {}
     if not passport_id:
         return out
 
-    base = base_url or resolve_eternitas_url()
+    base = base_url or issuer_url()
     if not base:
         return out
 
@@ -749,9 +749,9 @@ def _eternitas_get(
     must succeed even when Eternitas is offline, so every failure path is
     swallowed and reported as None.
     """
-    from windyfly.eternitas.url import resolve_eternitas_url
+    from windyfly.eternitas.url import issuer_url
 
-    base = base_url or resolve_eternitas_url()
+    base = base_url or issuer_url()
     if not base:
         return None
 

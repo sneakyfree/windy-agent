@@ -26,6 +26,10 @@ theme = Theme({
 })
 console = Console(theme=theme)
 
+# Checked BEFORE the /command router, which answered "/quit" with
+# "Unknown command" and kept the user in the chat.
+_QUIT_WORDS = frozenset({"quit", "exit", "/quit", "/exit", "/q", ":q", "bye"})
+
 
 def run_cli(config: dict[str, Any]) -> None:
     """Run the interactive CLI chat interface.
@@ -53,7 +57,7 @@ def run_cli(config: dict[str, Any]) -> None:
     session_id = str(uuid.uuid4())
 
     console.print()
-    console.print("🪰 [fly]Windy Fly[/fly] is ready. Type [info]'quit'[/info] to exit.")
+    console.print("🪰 [fly]Windy Fly[/fly] is ready. Type [info]/quit[/info] or press Ctrl-D to leave.")
     console.print("[info]Session:[/info]", session_id[:8])
     console.print()
 
@@ -67,7 +71,7 @@ def run_cli(config: dict[str, Any]) -> None:
             user_input = user_input.strip()
             if not user_input:
                 continue
-            if user_input.lower() in ("quit", "exit"):
+            if user_input.lower() in _QUIT_WORDS:
                 break
 
             # Command detection — /commands work in terminal chat too.

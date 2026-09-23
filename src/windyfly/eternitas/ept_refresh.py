@@ -278,6 +278,13 @@ def _refresh(force: bool, transport, now) -> dict[str, Any]:
         new_token = str(data.get("ept_token") or "")
     except Exception:
         data, new_token = {}, ""
+    if not new_token and data.get("reissued") is False:
+        # Eternitas kept the current EPT and said why (reissue_reason); it
+        # need not echo the token back. That's success, not a failure.
+        logger.info("EPT refresh for %s: kept (%s)", _passport_prefix(passport),
+                    data.get("reissue_reason") or data.get("reason"))
+        return {"status": "unchanged", "reissued": False,
+                "reason": data.get("reissue_reason") or data.get("reason")}
     if not new_token or _claims(new_token) is None:
         logger.warning("EPT refresh for %s: response carried no usable token",
                        _passport_prefix(passport))
