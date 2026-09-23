@@ -423,6 +423,9 @@ def go(
         console.print(f"  {rec['agent_name'] or 'Your agent'} ({rec['passport_number']}) lives in the cloud.")
         if outcome.status == "partial":
             console.print("  [dim]Some services are still being set up; the hub finishes them.[/dim]")
+        from windyfly.observability import disclosure
+
+        disclosure.after_hatch(lambda line: console.print(f"  [dim]{line}[/dim]"))
         return 0
 
     next_attempt()

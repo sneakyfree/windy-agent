@@ -705,6 +705,9 @@ def _cmd_debug(_args: argparse.Namespace) -> None:
 def _cmd_login(args: argparse.Namespace) -> None:
     """windy login — browser sign-in with the owner's Windy account."""
     from windyfly import hub_login
+    from windyfly.observability import disclosure
+
+    disclosure.maybe_show(lambda line: console.print(f"[dim]{line}[/dim]"))
 
     try:
         who = hub_login.login(open_browser=not getattr(args, "no_browser", False))
@@ -715,6 +718,43 @@ def _cmd_login(args: argparse.Namespace) -> None:
         f"[green]✓ Signed in[/green] as Windy identity {who['windy_identity_id'][:8]}… "
         f"(stored in {hub_login.session_path()})"
     )
+
+
+def _cmd_telemetry(args: argparse.Namespace) -> None:
+    """windy telemetry [status|on|off]."""
+    import datetime as _dt
+
+    from windyfly.observability import admin_telemetry, disclosure
+
+    action = getattr(args, "action", "status") or "status"
+    if action == "off":
+        disclosure.set_preference("off")
+        console.print("Telemetry is [bold]off[/bold]. Nothing will be sent.")
+        return
+    if action == "on":
+        disclosure.set_preference("on")
+    # status and on both tell the user what is sent (that is the consent)
+    if not disclosure.opted_out():
+        disclosure.show_now(lambda line: console.print(f"[dim]{line}[/dim]"))
+    pref = disclosure.preference() or "default"
+    kind = admin_telemetry.target_kind() if not disclosure.opted_out() else "none"
+    labels = {
+        "fleet": "Windy fleet operator token",
+        "client": "Windy Fly client token",
+        "passport": "this agent's own passport token",
+        "none": "nothing (not sending)",
+    }
+    console.print(f"  Setting:     {pref}"
+                  + ("  (WINDY_TELEMETRY env)" if os.environ.get("WINDY_TELEMETRY") else ""))
+    console.print(f"  Sending via: {labels[kind]}")
+    console.print(f"  Disclosed:   {'yes' if disclosure.disclosed() else 'no'}")
+    until = admin_telemetry.breaker_until()
+    if until:
+        when = _dt.datetime.fromtimestamp(until).strftime("%Y-%m-%d %H:%M")
+        console.print(f"  Paused:      the ingest refused this install's credentials; "
+                      f"resumes after {when}")
+    else:
+        console.print("  Paused:      no")
 
 
 def _cmd_logout(_args: argparse.Namespace) -> None:
@@ -1147,6 +1187,7 @@ _COMMAND_CATEGORIES = [
         ("passport", "Show Eternitas passport"),
         ("login", "Sign in with your Windy account (needed to hatch)"),
         ("logout", "Forget the stored Windy sign-in"),
+        ("telemetry", "Show or change the anonymous health data setting"),
         ("whoami", "Show which Windy account is signed in"),
         ("ept refresh", "Renew the Eternitas passport token"),
         ("deregister", "Permanently revoke this agent's Eternitas passport"),
@@ -1434,6 +1475,9 @@ def _cmd_uninstall_service(_args: argparse.Namespace) -> None:
 
 def main() -> None:
     """CLI entry point — registered as ``windy`` command via pyproject.toml."""
+    from windyfly.observability import synthetic
+
+    synthetic.install()  # X-Windy-Synthetic on every request, probes only
     parser = argparse.ArgumentParser(
         prog="windy",
         description="Windy Fly — Your AI. Your Rules. Your Ecosystem.",
@@ -1600,6 +1644,12 @@ def main() -> None:
     )
     sub.add_parser("logout", help="Forget the stored Windy sign-in")
     sub.add_parser("whoami", help="Show which Windy account is signed in")
+
+    # windy telemetry — what's sent, and the switch
+    telemetry_parser = sub.add_parser(
+        "telemetry", help="Show or change the anonymous health data setting")
+    telemetry_parser.add_argument(
+        "action", nargs="?", default="status", choices=["status", "on", "off"])
 
     # windy ept refresh — renew the Eternitas passport token
     ept_parser = sub.add_parser("ept", help="Eternitas passport token (EPT) tools")
@@ -1834,6 +1884,7 @@ def main() -> None:
         "passport": _cmd_passport,
         "login": _cmd_login,
         "logout": _cmd_logout,
+        "telemetry": _cmd_telemetry,
         "whoami": _cmd_whoami,
         "ept": _cmd_ept,
         "deregister": _cmd_deregister,

@@ -531,6 +531,9 @@ def _report_keyless_brain_status() -> None:
 
 def cmd_go(args: Any) -> None:
     """The zero-friction quickstart. One command, one paste, done."""
+    from windyfly.observability import disclosure
+
+    disclosure.maybe_show(lambda line: console.print(f"[dim]{line}[/dim]"))
     if getattr(args, "force", False):
         os.environ["_WINDYFLY_FORCE_HATCH"] = "1"
 
@@ -1142,6 +1145,12 @@ def _try_hatch_provisioning(non_interactive: bool = False) -> None:
             padding=(1, 1),
         ))
         console.print()
+        if result.passport_id:
+            # The agent now has a passport and would start sending: tell
+            # the human first (records consent; see observability/disclosure).
+            from windyfly.observability import disclosure
+
+            disclosure.after_hatch(lambda line: console.print(f"  [dim]{line}[/dim]"))
 
     except Exception as exc:
         # If the orchestrator itself fails, fall back to old individual calls

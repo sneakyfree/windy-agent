@@ -255,6 +255,6 @@ class TestSandboxToolExclusion:
         the channel e2e suites."""
         import inspect
         from windyfly.agent import loop
-        src = inspect.getsource(loop.agent_respond)
+        src = inspect.getsource(loop._agent_respond_turn)  # the pipeline behind agent_respond
         assert "band <= Band.SANDBOX" in src
         assert "legacy_tools = []" in src
