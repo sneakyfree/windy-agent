@@ -1,5 +1,5 @@
 # Windy Fly compose stack — for local dev + single-host deploys.
-# Production fleet deploys go through the GHCR image directly.
+# No published image exists yet (see docs/DISTRIBUTION.md): this file BUILDS locally.
 #
 # Quick start:
 #   1. Have ~/.windy/windy-0.env populated (real bot env)
