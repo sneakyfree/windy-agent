@@ -276,8 +276,9 @@ def show_ecosystem_status(hatch_result=None, config: dict | None = None) -> None
     eternitas_errors = [e for e in errors if e.startswith("Eternitas:")]
     dead = os.environ.get("_WINDYFLY_PASSPORT_DEAD", "")
     if passport_id and dead:
-        table.add_row("Eternitas", f"[red]{dead.title()}[/red]",
-                      f"{passport_id} — `windy go --force` for a new identity")
+        hint = ("reversible — check your Windy account" if dead == "suspended"
+                else "`windy go --force` for a new identity")
+        table.add_row("Eternitas", f"[red]{dead.title()}[/red]", f"{passport_id} — {hint}")
     elif passport_id:
         # "(local)" only for a mock/offline issuer. A passport from the real
         # issuer (the default since 0.7.2, often not set in config) is real.

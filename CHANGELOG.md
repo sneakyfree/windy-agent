@@ -13,6 +13,8 @@ Found by the 0.7.2 clean-machine proof from PyPI:
   registry (one 4-second call, fails open), and says plainly that the passport
   is revoked or suspended and that `windy go --force` hatches a new identity,
   instead of "✓ already has a passport" and "✓ Free Windy Mind brain connected".
+  A **suspended** passport is a reversible lock: `windy go` says the agent keeps
+  its identity until the suspension is lifted and never suggests `--force`.
 - `.env` is written owner-only (0600): it holds the passport token.
 - `windy login` flushes the sign-in link, so it shows up when output is piped
   (containers, CI).

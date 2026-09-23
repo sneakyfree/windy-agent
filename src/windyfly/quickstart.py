@@ -494,8 +494,9 @@ def _report_keyless_brain_status() -> None:
             f"this agent's passport is {dead}."
         )
         console.print(
-            "     [dim]I'll run on a local model. [bold]windy go --force[/bold] "
-            "hatches a new identity.[/dim]"
+            "     [dim]I'll run on a local model"
+            + (" until the suspension is lifted.[/dim]" if dead == "suspended"
+               else ". [bold]windy go --force[/bold] hatches a new identity.[/dim]")
         )
         return
     ept = ""
@@ -884,6 +885,16 @@ def _try_hatch_provisioning(non_interactive: bool = False) -> None:
         if dead:
             os.environ["_WINDYFLY_PASSPORT_DEAD"] = dead
             os.environ["_WINDYFLY_HATCHING_PLAYED"] = "1"
+            if dead == "suspended":
+                # Reversible (Grant, 09-23): never suggest --force, which would
+                # abandon an identity that may be restored.
+                console.print(
+                    f"  [yellow]⚠[/yellow] 🪪  Passport {already} is suspended at Eternitas "
+                    "(reversible). Your agent keeps its identity; it can't use Windy "
+                    "services until the suspension is lifted."
+                )
+                console.print("     [dim]For the reason, check your Windy account.[/dim]")
+                return
             console.print(
                 f"  [red]✗[/red] 🪪  This agent's passport ({already}) is {dead} at Eternitas."
             )

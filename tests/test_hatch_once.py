@@ -210,3 +210,29 @@ def test_status_table_never_asks_a_customer_for_a_server_secret(home, monkeypatc
     monkeypatch.setattr(hatching, "console", Console(file=buf, width=160, color_system=None))
     hatching.show_ecosystem_status(None, None)
     assert "SYNAPSE_REGISTRATION_SECRET" not in buf.getvalue()
+
+
+def test_suspended_passport_is_reversible_so_no_force(home, monkeypatch, capsys):
+    """Grant 09-23: suspended = a reversible lock. --force would mint a new
+    identity and abandon the one that may be restored, so never suggest it."""
+    import io
+
+    from rich.console import Console
+
+    from windyfly import hatching
+
+    (home / ".env").write_text("ETERNITAS_PASSPORT=ET26-HOLD-0001\n")
+    monkeypatch.setattr(quickstart, "passport_status", lambda _p, **_k: "suspended")
+    monkeypatch.setattr("windyfly.hatch_orchestrator.run_hatch",
+                        lambda **_k: (_ for _ in ()).throw(AssertionError("no hatch")))
+    quickstart._try_hatch_provisioning(non_interactive=True)
+    quickstart._report_keyless_brain_status()
+    buf = io.StringIO()
+    monkeypatch.setattr(hatching, "console", Console(file=buf, width=200, color_system=None))
+    monkeypatch.setenv("ETERNITAS_PASSPORT", "ET26-HOLD-0001")
+    hatching.show_ecosystem_status(None, None)
+    out = capsys.readouterr().out + buf.getvalue()
+    assert "ET26-HOLD-0001 is suspended at Eternitas (reversible)" in out
+    assert "keeps its identity" in out and "check your Windy account" in out
+    assert "isn't connected" in out
+    assert "--force" not in out
