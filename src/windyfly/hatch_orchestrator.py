@@ -38,6 +38,7 @@ import asyncio
 import json
 import logging
 import os
+import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
@@ -322,6 +323,10 @@ async def _step_eternitas(
             hatch_tz = "UTC"
 
         client = get_eternitas_client(db=db, config=config)
+        # Eternitas is closing the anonymous door, so a terminal hatch needs
+        # the owner's Windy sign-in. Ask for it here, where a person is
+        # present, instead of letting the call 401.
+        _ensure_hatch_sign_in()
         # THE CONSUMER DOOR. `/bots/auto-hatch`, the same door windy-pro
         # brings the browser and mobile lanes through — one issuer, one
         # door. The old path, `/bots/register`, needs an operator API key
@@ -456,13 +461,55 @@ def _persist_env_var(key: str, value: str) -> None:
         logger.warning("Could not persist %s to .env: %s", key, exc)
 
 
+def _hatch_is_interactive() -> bool:
+    """A person is at a terminal (not the gateway/hatch_remote subprocess, not CI)."""
+    if os.environ.get("WINDY_HATCH_NONINTERACTIVE", "").strip().lower() in ("1", "true", "yes"):
+        return False
+    try:
+        return sys.stdin.isatty() and sys.stdout.isatty()
+    except (AttributeError, ValueError):
+        return False
+
+
+def _ensure_hatch_sign_in() -> None:
+    """Before the consumer-door hatch: make sure a credential exists.
+
+    With a credential already available (operator JWT, WINDY_HUB_JWT, or a
+    stored ``windy login`` session) this does nothing. Otherwise, in an
+    interactive terminal, it runs the browser sign-in. Non-interactive
+    callers fall through: auto_hatch then fails with a message that says
+    to run ``windy login``.
+    """
+    from windyfly.eternitas.client import auto_hatch_credential
+
+    token, _source = auto_hatch_credential()
+    if token or not _hatch_is_interactive():
+        return
+    from rich.console import Console
+
+    from windyfly import hub_login
+
+    console = Console()
+    console.print("\n[bold]Sign in with your Windy account to hatch your agent.[/bold]")
+    try:
+        who = hub_login.login(open_browser=True, echo=console.print)
+        console.print(f"[green]Signed in[/green] (Windy identity {who['windy_identity_id'][:8]}…).\n")
+    except hub_login.LoginError as exc:
+        console.print(f"[yellow]Sign-in didn't finish:[/yellow] {exc}")
+
+
 def _resolve_windy_identity_id(owner_id: str) -> str:
     """Find the owner's Windy identity id with a sensible cascade.
 
-    Order: explicit env var → passed-in owner_id → JWT sub claim.
-    The JWT fallback closes P1-E2 — previously a caller who set
-    WINDY_JWT but forgot WINDY_IDENTITY_ID would silently skip
-    link-back even when online.
+    Order: explicit env var → passed-in owner_id → identity claim of
+    WINDY_JWT → the stored ``windy login`` session. The JWT fallback
+    closes P1-E2: previously a caller who set WINDY_JWT but forgot
+    WINDY_IDENTITY_ID would silently skip link-back even when online.
+
+    The identity claim is ``windy_identity_id``, never ``sub`` on a hub
+    token (see auth.jwt_claims.identity_from_jwt): on hub access tokens
+    ``sub`` is the hub's user id, a different value, so linking on it
+    would attach the passport to the wrong key.
     """
     env_id = os.environ.get("WINDY_IDENTITY_ID", "")
     if env_id:
@@ -474,8 +521,17 @@ def _resolve_windy_identity_id(owner_id: str) -> str:
         from windyfly.auth.jwt_claims import identity_from_jwt
         derived = identity_from_jwt(jwt)
         if derived:
-            logger.info("Derived windy_identity_id %r from WINDY_JWT sub claim", derived)
+            logger.info("Derived windy_identity_id from WINDY_JWT identity claim")
             return derived
+    try:
+        from windyfly.hub_login import current_identity
+
+        signed_in = current_identity()
+    except Exception:
+        signed_in = ""
+    if signed_in:
+        logger.info("Using windy_identity_id from the windy login session")
+        return signed_in
     return ""
 
 
