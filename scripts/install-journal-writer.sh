@@ -17,7 +17,9 @@ After=network-online.target
 Type=oneshot
 WorkingDirectory=${AGENT_DIR}
 EnvironmentFile=%h/.windy/windy-0.env
-Environment=_AGENT_SRC=${AGENT_DIR}/src
+# Quoted: AGENT_DIR can contain an apostrophe ("Grant's Folder"), which an
+# unquoted Environment= line makes systemd reject as invalid syntax.
+Environment="_AGENT_SRC=${AGENT_DIR}/src"
 Environment=WINDYFLY_DB_PATH=%h/.local/share/windyfly/agent/data/windy-0.db
 Environment=WINDYFLY_CONFIG=%h/.local/share/windyfly/soul/config.toml
 ExecStart=$(command -v uv || echo "$HOME/.local/bin/uv") run python "$INSTALLED"

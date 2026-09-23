@@ -74,19 +74,10 @@ if [[ -z "$BRIEF" ]]; then
     exit 4
 fi
 
-# ── Step 3: send via Telegram (--data-urlencode preserves markdown) ──
-HTTP_CODE=$(curl -sS -o /tmp/windy-weekly-tg.out -w "%{http_code}" \
-    --max-time 15 \
-    -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-    --data-urlencode "chat_id=${OWNER_ID}" \
-    --data-urlencode "parse_mode=Markdown" \
-    --data-urlencode "text=${BRIEF}" 2>/dev/null || echo "000")
-
-if [[ "$HTTP_CODE" != "200" ]]; then
-    logger -t windy-weekly-brief \
-        "delivery failed: http=$HTTP_CODE body=$(head -c 200 /tmp/windy-weekly-tg.out 2>/dev/null)"
-    exit 1
-fi
-
-logger -t windy-weekly-brief "delivered weekly brief to chat $OWNER_ID"
+# ── Deliver: Telegram, then email as a second channel (fallback) ──
+DELIVER="$(dirname "$(readlink -f "$0")")/windy-deliver.sh"
+[[ -f "$DELIVER" ]] || DELIVER="${HOME}/.local/bin/windy-deliver.sh"
+# shellcheck disable=SC1090
+source "$DELIVER"
+windy_deliver windy-weekly-brief "${BRIEF}" fallback || exit 1
 exit 0
