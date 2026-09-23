@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.7.1
+
+**Action required: set your Telegram owner explicitly.** Through 0.7.0,
+an install with no `AGENT_OWNER_TELEGRAM_ID` silently defaulted its
+Telegram allowlist to one maintainer's personal account. That account
+was treated as the owner of your agent, and your own messages were
+dropped. The default is gone. Set `AGENT_OWNER_TELEGRAM_ID=<your
+numeric Telegram id>` (or `WINDY_OWNER_IDS="telegram:<id>"`) in your
+env. If you leave it unset, the first person to message the bot is
+bound as its owner (trust-on-first-use, as on every other channel), so
+message it yourself first.
+
+Also since 0.7.0:
+- Telegram: a rejected bot token is no longer written to the log and
+  event ledger in full (#364)
+- Liveness probe: no longer restarts the agent every 15 min when
+  Telegram rejects the token, since a restart can't fix that (#364)
+- Auth: fixed a race that could drop a turn to the local lifeboat model
+  under concurrency (#363)
+- Context gauge: no longer drains N× on an N-tool turn (#362)
+- Native web search re-enabled on claude-opus-5; voice replies work
+  again (#361)
+- Gateway: tests no longer bind :3000 on import (#365)
+
 ## 0.7.0
 
 Ten weeks of work that never reached the wheel. 0.6.1 shipped

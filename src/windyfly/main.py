@@ -479,9 +479,14 @@ def main() -> None:
             )
         )
 
-        # allowFrom defaults to Grant's Telegram ID per ACCESS_LOCKBOX §5
-        # (fleet convention; never set to '*' on personal bots).
-        owner_id = os.environ.get("AGENT_OWNER_TELEGRAM_ID", "8545546994")
+        # No built-in owner. This used to default to one real person's
+        # Telegram ID (a fleet convention), which made EVERY fresh install —
+        # PyPI and Docker included — treat that account as its owner and
+        # drop messages from the install's actual owner. Unset now means
+        # "no Telegram allowlist": the sender resolves through
+        # channels.identity like every other channel. Set
+        # AGENT_OWNER_TELEGRAM_ID (or WINDY_OWNER_IDS) to pin the owner.
+        owner_id = os.environ.get("AGENT_OWNER_TELEGRAM_ID", "").strip()
         dm_policy = config.get("telegram", {}).get("dm_policy", "pairing")
 
         async def _respond(
@@ -506,7 +511,7 @@ def main() -> None:
 
         manager = ChannelManager(_respond)
         manager.register(TelegramChannel(
-            allowed_user_ids=[owner_id],
+            allowed_user_ids=[owner_id] if owner_id else [],
             dm_policy=dm_policy,
             db=db,
             write_queue=write_queue,
