@@ -49,7 +49,7 @@ if [[ "${SKIP_HARNESS:-0}" != "1" ]]; then
         exit 3
     }
     export WINDYFLY_CONFIG="${WINDYFLY_CONFIG:-/home/grantwhitmer/.windy-stress/config.toml}"
-    "$VENV_PY" /home/grantwhitmer/.windy-stress/stress_v10_organ_harmony.py \
+    "$VENV_PY" "$AGENT_DIR/stress/stress_v10_organ_harmony.py" \
         > /tmp/windy-weekly-v10.log 2>&1 || {
         logger -t windy-weekly-brief \
             "v10 run failed; will deliver brief from existing scorecards"

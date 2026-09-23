@@ -37,7 +37,7 @@ if [[ "${SKIP_HARNESS:-0}" != "1" ]]; then
         exit 3
     }
     export WINDYFLY_CONFIG="${WINDYFLY_CONFIG:-/home/grantwhitmer/.windy-stress/config.toml}"
-    "$VENV_PY" /home/grantwhitmer/.windy-stress/stress_v10_organ_harmony.py \
+    "$VENV_PY" "$AGENT_DIR/stress/stress_v10_organ_harmony.py" \
         > /tmp/windy-redalarm-v10.log 2>&1 || {
         logger -t windy-redalarm \
             "v10 run failed; will compare existing scorecards anyway"

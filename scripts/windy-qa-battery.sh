@@ -67,7 +67,7 @@ if [[ "${SKIP_HARNESS:-0}" == "1" ]]; then
 else
     # ── Run v13 (always) ──
     V13_LOG="/tmp/windy-qa-v13.log"
-    "$VENV_PY" /home/grantwhitmer/.windy-stress/stress_v13_qa_battery.py \
+    "$VENV_PY" "$AGENT_DIR/stress/stress_v13_qa_battery.py" \
         > "$V13_LOG" 2>&1
     V13_EXIT=$?
     logger -t windy-qa-battery "v13 finished exit=$V13_EXIT"
@@ -75,7 +75,7 @@ else
     # ── Run v14 (unless skipped) ──
     V14_LOG="/tmp/windy-qa-v14.log"
     if [[ "${SKIP_V14:-0}" != "1" ]]; then
-        "$VENV_PY" /home/grantwhitmer/.windy-stress/stress_v14_extended.py \
+        "$VENV_PY" "$AGENT_DIR/stress/stress_v14_extended.py" \
             > "$V14_LOG" 2>&1
         V14_EXIT=$?
         logger -t windy-qa-battery "v14 finished exit=$V14_EXIT"

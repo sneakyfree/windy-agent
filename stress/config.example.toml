@@ -1,0 +1,39 @@
+# Example stress-harness config. Copy to $WINDY_STRESS_HOME/config.toml
+# (default ~/.windy-stress/config.toml). The real instance config stays OUT of
+# the repo; this example has no paths or secrets. The harness sets memory.db_path
+# itself, and the CI smoke test uses this file as-is.
+
+[agent]
+name = "Windy Stress Bench"
+default_model = "claude-sonnet-4-6"
+active_provider = "anthropic"
+max_context_tokens = 8000
+max_response_tokens = 1024
+temperature = 0.5
+# Two-provider chain so a 429 doesn't hard-fail the whole battery.
+failover_chain = ["anthropic", "anthropic"]
+
+[memory]
+max_episodes_per_context = 8
+max_nodes_per_context = 5
+
+[personality]
+preset = "buddy"
+humor_level = 5
+formality = 3
+proactivity = 3
+verbosity = 4
+reasoning_depth = 5
+autonomy = 2
+epistemic_strictness = 6
+warmth = 6
+auto_checkin = false
+
+[costs]
+daily_budget_usd = 10.0
+monthly_budget_usd = 100.0
+warn_at_percent = 80
+
+[updates]
+auto_check = false
+auto_install = false
