@@ -343,6 +343,13 @@ def test_cold_concurrent_load_yields_one_shared_model():
     """
     import threading
 
+    # Fetch the weights first, outside the race. On CI the first load is a
+    # Hugging Face download; when that fails, _load_model() returns None and
+    # the assert below failed on the network rather than the lock. With
+    # the files cached, the race below builds from local disk.
+    if _emb._load_model() is None:
+        pytest.skip("embedding model could not be downloaded/loaded")
+
     with _emb._MODEL_LOCK:
         _emb._MODEL = None
         _emb._MODEL_NAME = None
