@@ -10,7 +10,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import time as _time
 from typing import Any
 
 # capability_registry is re-exported as a module attribute on this
@@ -23,12 +22,11 @@ from windyfly.agent.capabilities import capability_registry  # noqa: F401
 from windyfly.agent.context_header import maybe_prepend_header
 from windyfly.agent.emotion_detector import detect_emotional_context, get_emotional_trend
 from windyfly.agent.intent_detector import detect_intent
-from windyfly.agent.models import call_llm, estimate_cost
+from windyfly.agent.models import call_llm, estimate_cost, llm_purpose, sum_costs
 from windyfly.agent.offline import get_offline_response, is_online
 from windyfly.agent.prompt import assemble_prompt
 from windyfly.agent.tracing import set_request_id, request_id_short
 from windyfly.control_panel import get_sliders
-from windyfly.memory.cost_ledger import log_cost
 from windyfly.memory.cost_tracker import check_budget
 from windyfly.memory.database import Database
 from windyfly.memory.episodes import get_recent_episodes, save_episode
@@ -572,6 +570,13 @@ def agent_respond(
     # value isn't kept; the side-effect of populating the contextvar is
     # the entire point.
     set_request_id()
+    # Every LLM call this process makes (turn rounds, helpers, the voice
+    # bridge) is recorded per call into this ledger; see call_llm.
+    try:
+        from windyfly.memory.cost_ledger import install_cost_sink
+        install_cost_sink(db, write_queue)
+    except Exception:
+        pass  # accounting must never block a reply
     # Wave 14b session-id propagation: stamp the contextvar that the
     # capability audit hooks read so every ``agent_actions`` row this
     # request causes carries the originating session_id. Pre-fix, every
@@ -580,9 +585,6 @@ def agent_respond(
     set_current_session_id(session_id)
     logger.info("[req:%s] agent_respond start session=%s band=%s",
                 request_id_short(), session_id, band)
-    # Turn wall-clock for the admin-telemetry envelope (duration_ms was
-    # always null on llm.call events — the loop never timed itself).
-    _turn_started = _time.monotonic()
 
     # 0. Empty-message guard. Anthropic returns 400 on empty user
     # content (``messages.0: user messages must have non-empty
@@ -939,7 +941,9 @@ def agent_respond(
         return offline_response
 
     estimated_input_tokens = len(user_message.split()) * 3  # rough estimate
-    proposed_cost = estimate_cost(model, estimated_input_tokens, max_tokens // 2)
+    # An unpriceable model can't be counted against the budget up front;
+    # its calls are still recorded (cost unknown) after they happen.
+    proposed_cost = estimate_cost(model, estimated_input_tokens, max_tokens // 2) or 0.0
     budget = check_budget(db, config, proposed_cost)
 
     if not budget["allowed"]:
@@ -1211,6 +1215,9 @@ def agent_respond(
     # see _record_session_footprint and test_gauge_footprint_within_turn.
     peak_input_tokens = input_tokens
     output_tokens = result["output_tokens"]
+    # Per-call list-price costs this turn (None = couldn't be priced),
+    # stamped onto each result by call_llm.
+    _turn_costs: list[float | None] = [result.get("cost_usd")]
     tool_calls = result.get("tool_calls")
 
     # 2.55. Native web_search bookkeeping (PR #164).
@@ -1317,6 +1324,7 @@ def agent_respond(
             input_tokens += result["input_tokens"]
             peak_input_tokens = max(peak_input_tokens, result["input_tokens"])
             output_tokens += result["output_tokens"]
+            _turn_costs.append(result.get("cost_usd"))
             tool_calls = result.get("tool_calls")
 
             if not tool_calls:
@@ -1372,6 +1380,7 @@ def agent_respond(
         input_tokens += retry["input_tokens"]
         peak_input_tokens = max(peak_input_tokens, retry["input_tokens"])
         output_tokens += retry["output_tokens"]
+        _turn_costs.append(retry.get("cost_usd"))
         retry_tool_calls = retry.get("tool_calls")
 
         if retry_tool_calls:
@@ -1410,6 +1419,7 @@ def agent_respond(
             input_tokens += followup["input_tokens"]
             peak_input_tokens = max(peak_input_tokens, followup["input_tokens"])
             output_tokens += followup["output_tokens"]
+            _turn_costs.append(followup.get("cost_usd"))
             tool_calls = followup.get("tool_calls")
         elif _looks_confabulated(user_message, response_text):
             # Retry still lied. Replace the response so we don't ship
@@ -1469,6 +1479,7 @@ def agent_respond(
             input_tokens += retry["input_tokens"]
             peak_input_tokens = max(peak_input_tokens, retry["input_tokens"])
             output_tokens += retry["output_tokens"]
+            _turn_costs.append(retry.get("cost_usd"))
 
             if _looks_self_env_confabulated(retry_text):
                 # Retry still confabulated. Replace with truth fallback
@@ -1584,7 +1595,7 @@ def agent_respond(
         pass
 
     # 3. Save episodes via write queue (HIGH priority)
-    cost_usd = estimate_cost(model, input_tokens, output_tokens)
+    cost_usd = sum_costs(_turn_costs)
 
     write_queue.enqueue(
         Priority.HIGH,
@@ -1602,12 +1613,10 @@ def agent_respond(
         cost_usd=cost_usd,
     )
 
-    # 4. Log cost via write queue (MEDIUM priority)
-    write_queue.enqueue(
-        Priority.MEDIUM,
-        log_cost,
-        db, model, input_tokens, output_tokens, cost_usd,
-    )
+    # 4. Cost: already in the ledger, one row per LLM call (call_llm's
+    #    cost sink, installed at the top of this function). The old
+    #    single per-turn row here missed tool rounds' separate calls,
+    #    helper calls and every failed call.
 
     # 5. Extract facts and upsert nodes (MEDIUM priority)
     _extract_and_store_facts(db, write_queue, user_message)
@@ -1639,23 +1648,8 @@ def agent_respond(
         "emotional_context": emotional_context,
     })
 
-    # 7.1 Ecosystem cost ledger (ADR-WA-001): same turn totals, shipped
-    # to Windy Admin so fly spend on the house Anthropic token finally
-    # shows up next to roster/search burn. No-op unless configured.
-    try:
-        from windyfly.observability.admin_telemetry import emit_llm_call
-        emit_llm_call(
-            write_queue,
-            model=model,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            cost_usd=cost_usd,
-            session_id=session_id,
-            had_tool_calls=bool(tool_calls),
-            duration_ms=int((_time.monotonic() - _turn_started) * 1000),
-        )
-    except Exception:
-        pass  # telemetry must never break a reply
+    # 7.1 Ecosystem cost ledger (ADR-WA-001): now one llm.call per LLM
+    # call, emitted by the same per-call cost sink as the local ledger.
 
     # 7.5. Relationship moments — extract emotional snapshots
     #
@@ -1904,18 +1898,19 @@ def _extract_relationship_moment(
             f"Agent: {response_text[:300]}"
         )
 
-        result = call_llm(
-            [
-                {"role": "system", "content": "You write brief emotional summaries."},
-                {"role": "user", "content": moment_prompt},
-            ],
-            model=(os.environ.get("DEFAULT_MODEL")
-                   or config.get("agent", {}).get("default_model")
-                   or "gpt-4o-mini"),
-            temperature=0.3,
-            max_tokens=50,
-            config=config,
-        )
+        with llm_purpose("relationship_moment"):
+            result = call_llm(
+                [
+                    {"role": "system", "content": "You write brief emotional summaries."},
+                    {"role": "user", "content": moment_prompt},
+                ],
+                model=(os.environ.get("DEFAULT_MODEL")
+                       or config.get("agent", {}).get("default_model")
+                       or "gpt-4o-mini"),
+                temperature=0.3,
+                max_tokens=50,
+                config=config,
+            )
 
         moment = result["content"].strip().strip('"')
         if moment and len(moment) > 10:
@@ -1979,18 +1974,19 @@ def _maybe_write_journal_entry(
             f"User's mood: {emotional_context}"
         )
 
-        result = call_llm(
-            [
-                {"role": "system", "content": "You write brief, genuine diary entries."},
-                {"role": "user", "content": journal_prompt},
-            ],
-            model=(os.environ.get("DEFAULT_MODEL")
-                   or config.get("agent", {}).get("default_model")
-                   or "gpt-4o-mini"),
-            temperature=0.6,
-            max_tokens=80,
-            config=config,
-        )
+        with llm_purpose("journal"):
+            result = call_llm(
+                [
+                    {"role": "system", "content": "You write brief, genuine diary entries."},
+                    {"role": "user", "content": journal_prompt},
+                ],
+                model=(os.environ.get("DEFAULT_MODEL")
+                       or config.get("agent", {}).get("default_model")
+                       or "gpt-4o-mini"),
+                temperature=0.6,
+                max_tokens=80,
+                config=config,
+            )
 
         entry = result["content"].strip()
         if entry and len(entry) > 15:

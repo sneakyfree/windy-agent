@@ -16,6 +16,27 @@
   **Opt-out for one release:** `WINDY_HATCH_VIA_HUB=0` runs the old terminal
   hatch, with a notice that it goes away in the next release.
 
+- **Cost accounting is honest now.** Claude models were missing from the
+  price table, and an unknown model fell back to gpt-4o-mini's price, so
+  claude-opus-5 was billed at $0.15/M input: Windy 0's ledger read $0.14
+  for about $4.70 of list-price work.
+  - **Real prices:** Anthropic's current rate card for Opus 5 / 5.5 / 4.8,
+    Fable 5 / 5.1, Sonnet 5 and Haiku 4.5, including cache writes (5 min
+    and 1 h) and cache reads, which Anthropic reports separately from
+    `input_tokens`. The longest matching model id wins.
+  - **Never a guess:** an unknown model, or an unpublished price for a
+    token class the call used, records the cost as unknown (NULL; no
+    `cost_microcents` on the telemetry row) rather than a made-up number.
+  - **Every call, once:** the ledger gets one row per LLM call, recorded
+    inside `call_llm` for every path (turn rounds, retries, the voice
+    bridge, intent/journal/goal/sub-agent helpers). Failed calls get a row
+    too, with an error code (`rate_limited`, `auth`, `provider_http`,
+    `timeout`, `network`, `no_provider`, `internal`). It used to be one
+    row per turn from the loop only, with no failures and no `request_id`.
+  - **Billing:** each row says `max_subscription` (list-price equivalent on
+    a Max plan; the marginal cost is $0), `metered` or `local`.
+  - Admin `llm.call` telemetry is now per call as well (successful calls).
+
 ## 0.7.2.1
 
 Found by the 0.7.2 clean-machine proof from PyPI:

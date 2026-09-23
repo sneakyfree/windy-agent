@@ -3,8 +3,10 @@
 The fly's LLM turns are the last un-ledgered burn point in the
 ecosystem's cost ledger — Windy 0-class flies talk to Anthropic
 directly on the house subscription token, invisible to the dashboard
-until now. One `llm.call` envelope per completed turn (summed tokens
-across retries/follow-ups, the same totals the local cost log gets).
+until now. One `llm.call` envelope per successful LLM call (every path:
+turn rounds, retries, the voice bridge, helper calls), the same records
+the local cost ledger gets. It used to be one per turn from the loop
+only, which missed helper calls entirely.
 
 Delivery rides the existing WriteQueue at LOW priority so a turn never
 waits on telemetry; the POST itself has a 3s timeout and swallows
@@ -86,10 +88,14 @@ def build_llm_call_event(
     model: str,
     input_tokens: int,
     output_tokens: int,
-    cost_usd: float,
+    cost_usd: float | None,
     session_id: str | None,
     had_tool_calls: bool,
     duration_ms: int | None = None,
+    provider: str | None = None,
+    billing: str | None = None,
+    cache_write_tokens: int = 0,
+    cache_read_tokens: int = 0,
 ) -> dict | None:
     """The envelope, or None when unconfigured / passport unknown."""
     if not _configured():
@@ -97,8 +103,18 @@ def build_llm_call_event(
     passport = _own_passport()
     if not passport:
         return None
-    provider = "anthropic" if model.startswith("claude") else None
-    return {
+    if provider is None:
+        provider = "anthropic" if model.startswith("claude") else None
+    metadata: dict = {"had_tool_calls": bool(had_tool_calls)}
+    if billing:
+        # "max_subscription" = list-price equivalent on a flat plan (the
+        # marginal cost is $0); "metered" = really billed; "local" = free.
+        metadata["billing"] = billing
+    if cache_write_tokens:
+        metadata["cache_write_tokens"] = int(cache_write_tokens)
+    if cache_read_tokens:
+        metadata["cache_read_tokens"] = int(cache_read_tokens)
+    event = {
         "ts": datetime.now(UTC).isoformat(),
         "platform": "windy-agent",
         "service": "fly",
@@ -109,11 +125,16 @@ def build_llm_call_event(
         "provider": provider,
         "tokens_in": int(input_tokens),
         "tokens_out": int(output_tokens),
-        "cost_microcents": max(0, int(round(cost_usd * 1_000_000))),
+        "cost_microcents": (
+            None if cost_usd is None else max(0, int(round(cost_usd * 1_000_000)))
+        ),
         "duration_ms": duration_ms,
         "session_id": session_id,
-        "metadata": {"had_tool_calls": bool(had_tool_calls)},
+        "metadata": metadata,
     }
+    if event["cost_microcents"] is None:
+        del event["cost_microcents"]  # unknown is absent, never 0
+    return event
 
 
 def emit_llm_call(write_queue: WriteQueue, **kwargs) -> None:
@@ -160,3 +181,28 @@ def emit_command_invoked(
         write_queue.enqueue(Priority.LOW, _post_event, event)
     except Exception as e:  # noqa: BLE001
         logger.debug("command.invoked enqueue failed: %s", e)
+
+
+_PROVIDER_NAMES = {"windy-mind": "windymind"}
+
+
+def emit_llm_record(write_queue: WriteQueue, record: dict) -> None:
+    """One ``llm.call`` for one successful per-call record from
+    ``models.call_llm`` (failed calls stay in the local ledger)."""
+    if record.get("status") != "ok":
+        return
+    provider = record.get("provider")
+    emit_llm_call(
+        write_queue,
+        model=record.get("model") or "unknown",
+        input_tokens=int(record.get("input_tokens") or 0),
+        output_tokens=int(record.get("output_tokens") or 0),
+        cost_usd=record.get("cost_usd"),
+        session_id=record.get("session_id"),
+        had_tool_calls=bool(record.get("had_tool_calls")),
+        duration_ms=record.get("duration_ms"),
+        provider=_PROVIDER_NAMES.get(provider, provider) if provider else None,
+        billing=record.get("billing"),
+        cache_write_tokens=int(record.get("cache_write_tokens") or 0),
+        cache_read_tokens=int(record.get("cache_read_tokens") or 0),
+    )

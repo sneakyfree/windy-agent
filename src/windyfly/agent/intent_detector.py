@@ -91,7 +91,7 @@ def _detect_intent_llm(
         Intent dict or None.
     """
     try:
-        from windyfly.agent.models import call_llm
+        from windyfly.agent.models import call_llm, llm_purpose
 
         messages = [
             {
@@ -104,13 +104,14 @@ def _detect_intent_llm(
             },
         ]
 
-        result = call_llm(
-            messages,
-            model=(config or {}).get("agent", {}).get("default_model", "gpt-4o-mini"),
-            temperature=0.1,  # Low temp for classification
-            max_tokens=100,   # Short response
-            config=config,
-        )
+        with llm_purpose("intent"):
+            result = call_llm(
+                messages,
+                model=(config or {}).get("agent", {}).get("default_model", "gpt-4o-mini"),
+                temperature=0.1,  # Low temp for classification
+                max_tokens=100,   # Short response
+                config=config,
+            )
 
         content = result["content"].strip()
         # Strip markdown code fences

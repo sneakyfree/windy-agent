@@ -687,9 +687,11 @@ def _register_all():
                     )
                     age_s = age_row["age"] if age_row else -1
                     total_tokens = (last["input_tokens"] or 0) + (last["output_tokens"] or 0)
+                    cost_s = ("cost unknown" if last["cost_usd"] is None
+                              else f"${last['cost_usd']:.4f}")
                     lines.append(
                         f"Last LLM: {last['model']} {age_s}s ago "
-                        f"(${last['cost_usd']:.4f}, {total_tokens} tokens)"
+                        f"({cost_s}, {total_tokens} tokens)"
                     )
                 else:
                     lines.append("Last LLM: no calls yet this session")

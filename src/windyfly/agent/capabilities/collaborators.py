@@ -36,7 +36,7 @@ from windyfly.agent.capabilities.descriptor import (
     Tier,
 )
 from windyfly.agent.capabilities.registry import CapabilityRegistry
-from windyfly.agent.models import call_llm
+from windyfly.agent.models import call_llm, llm_purpose
 from windyfly.memory.collaborators import (
     DEFAULT_MEMORY_POLICY,
     archive_collaborator,
@@ -242,12 +242,13 @@ def _run_collaborator_turn(
     try:
         max_tokens = collaborator.get("max_context_tokens", 8000) // 4
         model = collaborator.get("model")
-        result = call_llm(
-            messages,
-            model=model,
-            max_tokens=max_tokens,
-            config=config,
-        )
+        with llm_purpose("collaborator"):
+            result = call_llm(
+                messages,
+                model=model,
+                max_tokens=max_tokens,
+                config=config,
+            )
     finally:
         _inside_collaborator.reset(token)
 

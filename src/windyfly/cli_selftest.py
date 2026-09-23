@@ -347,10 +347,11 @@ def run_self_test(*, exit_on_failure: bool = True) -> bool:
         cost_row = db.fetchone(
             "SELECT * FROM cost_ledger ORDER BY created_at DESC LIMIT 1"
         )
-        if cost_row and cost_row.get("cost_usd", 0) >= 0:
+        if cost_row and (cost_row.get("cost_usd") is None or cost_row["cost_usd"] >= 0):
             cost = cost_row["cost_usd"]
             model = cost_row.get("model", "unknown")
-            details.append(("Cost logged", True, f"${cost:.6f} ({model})"))
+            shown = "cost unknown" if cost is None else f"${cost:.6f}"
+            details.append(("Cost logged", True, f"{shown} ({model})"))
             passed += 1
         else:
             details.append(("Cost logged", False, "No cost entry found"))

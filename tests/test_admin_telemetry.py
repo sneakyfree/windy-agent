@@ -143,3 +143,42 @@ def test_emit_noop_and_never_raises_when_unconfigured():
         session_id=None,
         had_tool_calls=False,
     )
+
+
+def test_unknown_cost_is_absent_not_zero(monkeypatch):
+    _configure(monkeypatch)
+    event = build_llm_call_event(
+        model="mystery-model", input_tokens=10, output_tokens=5,
+        cost_usd=None, session_id="s", had_tool_calls=False,
+    )
+    assert "cost_microcents" not in event
+
+
+def test_billing_and_cache_tokens_in_metadata(monkeypatch):
+    _configure(monkeypatch)
+    event = build_llm_call_event(
+        model="claude-opus-5", input_tokens=10, output_tokens=5,
+        cost_usd=0.5, session_id="s", had_tool_calls=False,
+        billing="max_subscription", cache_read_tokens=100,
+    )
+    assert event["metadata"]["billing"] == "max_subscription"
+    assert event["metadata"]["cache_read_tokens"] == 100
+    assert event["cost_microcents"] == 500_000  # micro-USD
+
+
+def test_emit_llm_record_skips_failed_calls(monkeypatch):
+    from windyfly.observability.admin_telemetry import emit_llm_record
+
+    _configure(monkeypatch)
+    calls = []
+
+    class StubQueue:
+        def enqueue(self, priority, fn, *args):
+            calls.append(args)
+
+    emit_llm_record(StubQueue(), {"status": "failed", "model": "claude-opus-5"})
+    assert calls == []
+    emit_llm_record(StubQueue(), {"status": "ok", "model": "claude-opus-5",
+                                  "provider": "windy-mind", "cost_usd": 0.01,
+                                  "billing": "metered"})
+    assert calls and calls[0][0]["provider"] == "windymind"

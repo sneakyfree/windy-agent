@@ -217,14 +217,15 @@ def _continuity_battery_runner():
 
 def _journal_model_caller(config: dict[str, Any]):
     try:
-        from windyfly.agent.models import call_llm
+        from windyfly.agent.models import call_llm, llm_purpose
     except Exception:
         return None
 
     def _call(messages, *, max_tokens=700):
         model = (config.get("agent", {}) or {}).get("journal_model", "claude-haiku-4-5")
-        res = call_llm(messages, model=model, max_tokens=max_tokens,
-                       temperature=0.3, config=config)
+        with llm_purpose("maintenance"):
+            res = call_llm(messages, model=model, max_tokens=max_tokens,
+                           temperature=0.3, config=config)
         return res.get("content", "") if isinstance(res, dict) else ""
     return _call
 

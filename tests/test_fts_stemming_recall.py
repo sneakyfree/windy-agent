@@ -92,7 +92,7 @@ def _downgrade_fts_to_unicode61(path: str) -> None:
         CREATE VIRTUAL TABLE episodes_fts USING fts5(
             content, summary, content='episodes', content_rowid='rowid');
         INSERT INTO episodes_fts(episodes_fts) VALUES('rebuild');
-        DELETE FROM schema_version WHERE version = 11;
+        DELETE FROM schema_version WHERE version >= 11;  -- a pre-11 file has nothing newer
         """
     )
     conn.commit()
