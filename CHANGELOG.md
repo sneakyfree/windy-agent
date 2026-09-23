@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased (0.7.2)
+
+**Terminal hatching now signs in with your Windy account.** Eternitas is
+closing the anonymous hatch door (`/bots/auto-hatch` will require a
+credential), so hatching from the terminal needs the owner's Windy sign-in.
+
+- New `windy login` (browser sign-in via loopback + PKCE; works over SSH
+  with the printed link and a port forward), `windy logout`, and
+  `windy whoami`. The sign-in is stored in `~/.windy/hub_session.json`
+  (mode 0600) and refreshed automatically.
+- An interactive `windy go` / hatch asks you to sign in when it needs to.
+  Non-interactive hatches fail with a clear "run `windy login`" message
+  instead of a bare 401.
+- auto-hatch credential order: `ETERNITAS_OPERATOR_JWT` →
+  `WINDY_HUB_JWT` → the `windy login` session.
+- Identity link-back uses the `windy_identity_id` claim and never falls
+  back to `sub` on a hub login token (there `sub` is a different id).
+- Agents that are already hatched are unaffected: nothing re-hatches or
+  asks you to sign in at startup.
+
 ## 0.7.1
 
 **Action required: set your Telegram owner explicitly.** Through 0.7.0,

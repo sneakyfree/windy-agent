@@ -38,6 +38,39 @@ _TIMEOUT = 10.0
 _REGISTER_TIMEOUT = 60.0
 
 
+
+class HatchAuthRequired(RuntimeError):
+    """Eternitas refused the hatch for lack of (or a rejected) sign-in."""
+
+
+def auto_hatch_credential() -> tuple[str, str]:
+    """Pick the Bearer for ``/bots/auto-hatch`` → (token, source label).
+
+    Precedence:
+      1. ``ETERNITAS_OPERATOR_JWT``: an explicit operator credential wins.
+      2. ``WINDY_HUB_JWT``: a hub login token handed in by a caller
+         (shape-checked: RS256, type human, carries a Windy identity).
+      3. The stored ``windy login`` session (refreshed if near expiry).
+      4. Nothing. That's the anonymous door, which Eternitas is closing.
+    The token itself is never logged, only the source label.
+    """
+    operator_jwt = os.environ.get("ETERNITAS_OPERATOR_JWT", "").strip()
+    if operator_jwt:
+        return operator_jwt, "operator JWT"
+    from windyfly import hub_login
+
+    hub_jwt = os.environ.get("WINDY_HUB_JWT", "").strip()
+    if hub_jwt and hub_login.looks_like_hub_human_token(hub_jwt):
+        return hub_jwt, "WINDY_HUB_JWT"
+    try:
+        session_token = hub_login.get_access_token()
+    except Exception as exc:  # never let a sign-in problem crash the hatch
+        logger.debug("hub session lookup failed: %s", exc)
+        session_token = None
+    if session_token:
+        return session_token, "windy login session"
+    return "", "none"
+
 class EternitasClient:
     """HTTP client for the Eternitas bot registry API.
 
@@ -103,14 +136,17 @@ class EternitasClient:
         `ETERNITAS_OPERATOR_KEY` is blank on a fresh machine, so the
         terminal door simply 401d and produced no passport.
 
-        An operator JWT is sent when one is available: authenticated callers
-        skip both the Turnstile challenge and any `auto_hatch_require_pro_jwt`
-        gate, neither of which a terminal can satisfy on its own.
+        A credential is sent when one is available (see
+        ``auto_hatch_credential``). Eternitas is closing the anonymous door
+        (``AUTO_HATCH_REQUIRE_PRO_JWT``), after which an unauthenticated
+        call gets 401. The terminal's credential is the owner's hub sign-in
+        (``windy login``).
         """
         headers: dict[str, str] = {"Content-Type": "application/json"}
-        operator_jwt = os.environ.get("ETERNITAS_OPERATOR_JWT", "")
-        if operator_jwt:
-            headers["Authorization"] = f"Bearer {operator_jwt}"
+        bearer, source = auto_hatch_credential()
+        if bearer:
+            headers["Authorization"] = f"Bearer {bearer}"
+        logger.info("Eternitas auto-hatch credential: %s", source)
 
         payload = request.to_auto_hatch_payload()
         # Only relevant if the deployment has turned Turnstile on. A terminal
@@ -138,16 +174,24 @@ class EternitasClient:
             # terminal door, on a human's screen.
             status = e.response.status_code
             if status == 401:
-                raise RuntimeError(
-                    "Eternitas requires an account for this hatch. Sign in at "
-                    "account.windyword.ai and set ETERNITAS_OPERATOR_JWT, then "
-                    "run this again."
+                if not bearer:
+                    raise HatchAuthRequired(
+                        "Eternitas now requires you to sign in with your Windy "
+                        "account (account.windyword.ai) to hatch an agent. Run "
+                        "`windy login`, then run "
+                        "this again (an interactive `windy go` asks you to sign "
+                        "in automatically)."
+                    ) from e
+                raise HatchAuthRequired(
+                    f"Eternitas didn't accept your Windy sign-in ({source}). It "
+                    "may have expired or not be a personal account. Run "
+                    "`windy login` again, then retry."
                 ) from e
             if status == 403:
                 raise RuntimeError(
                     "Eternitas could not confirm a human is running this hatch. "
-                    "Hatch from the web app at account.windyword.ai, or set "
-                    "ETERNITAS_OPERATOR_JWT to sign in from the terminal."
+                    "Hatch from the web app at account.windyword.ai, or run "
+                    "`windy login` to sign in from the terminal."
                 ) from e
             if status == 429:
                 raise RuntimeError(

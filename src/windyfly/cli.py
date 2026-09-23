@@ -21,6 +21,9 @@ Commands::
     windy ecosystem        — Show ecosystem connections
     windy channels         — Show messaging channels
     windy passport         — Show Eternitas passport
+    windy login            — Sign in with your Windy account (needed to hatch)
+    windy logout           — Forget the stored Windy sign-in
+    windy whoami           — Show which Windy account is signed in
     windy mail             — Show mail status
     windy phone            — Show phone status
     windy cert             — Show birth certificate
@@ -655,6 +658,44 @@ def _cmd_debug(_args: argparse.Namespace) -> None:
     cmd_debug(_args)
 
 
+def _cmd_login(args: argparse.Namespace) -> None:
+    """windy login — browser sign-in with the owner's Windy account."""
+    from windyfly import hub_login
+
+    try:
+        who = hub_login.login(open_browser=not getattr(args, "no_browser", False))
+    except hub_login.LoginError as exc:
+        console.print(f"[red]{exc}[/red]")
+        sys.exit(1)
+    console.print(
+        f"[green]✓ Signed in[/green] as Windy identity {who['windy_identity_id'][:8]}… "
+        f"(stored in {hub_login.session_path()})"
+    )
+
+
+def _cmd_logout(_args: argparse.Namespace) -> None:
+    """windy logout — forget the stored Windy sign-in."""
+    from windyfly import hub_login
+
+    if hub_login.logout():
+        console.print("Signed out.")
+    else:
+        console.print("You weren't signed in.")
+
+
+def _cmd_whoami(_args: argparse.Namespace) -> None:
+    """windy whoami — which Windy account is signed in (identity prefix only)."""
+    from windyfly import hub_login
+
+    identity = hub_login.current_identity()
+    if not identity:
+        console.print("Not signed in. Run [bold]windy login[/bold].")
+        return
+    live = hub_login.get_access_token() is not None
+    state = "[green]active[/green]" if live else "[yellow]expired: run windy login[/yellow]"
+    console.print(f"Windy identity {identity[:8]}… ({state})")
+
+
 def _cmd_passport(_args: argparse.Namespace) -> None:
     """Show Eternitas passport."""
     from windyfly.commands import cmd_passport
@@ -923,6 +964,9 @@ _COMMAND_CATEGORIES = [
         ("ecosystem", "Show ecosystem connections"),
         ("channels", "Show messaging channels"),
         ("passport", "Show Eternitas passport"),
+        ("login", "Sign in with your Windy account (needed to hatch)"),
+        ("logout", "Forget the stored Windy sign-in"),
+        ("whoami", "Show which Windy account is signed in"),
         ("mail", "Show mail status"),
         ("phone", "Show phone status"),
         ("cert", "Show birth certificate"),
@@ -1352,6 +1396,15 @@ def main() -> None:
     # windy passport
     sub.add_parser("passport", help="Show Eternitas passport")
 
+    # windy login / logout / whoami — the owner's hub sign-in (hatch credential)
+    login_parser = sub.add_parser("login", help="Sign in with your Windy account (needed to hatch)")
+    login_parser.add_argument(
+        "--no-browser", action="store_true",
+        help="Don't open a browser; just print the sign-in link (SSH / headless)",
+    )
+    sub.add_parser("logout", help="Forget the stored Windy sign-in")
+    sub.add_parser("whoami", help="Show which Windy account is signed in")
+
     # windy mail
     sub.add_parser("mail", help="Show mail status")
 
@@ -1561,6 +1614,9 @@ def main() -> None:
         "ecosystem": _cmd_ecosystem,
         "channels": _cmd_channels,
         "passport": _cmd_passport,
+        "login": _cmd_login,
+        "logout": _cmd_logout,
+        "whoami": _cmd_whoami,
         "keys": _cmd_keys,
         "mail": _cmd_mail,
         "phone": _cmd_phone,

@@ -63,8 +63,15 @@ def identity_from_jwt(token: str) -> str:
     claims = read_jwt_claims(token)
     if not claims:
         return ""
-    for key in ("windy_identity_id", "sub"):
+    for key in ("windy_identity_id", "windyIdentityId"):
         val = claims.get(key)
         if isinstance(val, str) and val:
             return val
-    return ""
+    # A hub login token (type "human") ALWAYS carries windy_identity_id.
+    # Its `sub` is the hub's internal user id, a different value, so
+    # falling back to it would silently link to the wrong identity. Only
+    # legacy/EPT-style tokens with no identity claim use `sub`.
+    if claims.get("type") == "human":
+        return ""
+    val = claims.get("sub")
+    return val if isinstance(val, str) and val else ""
