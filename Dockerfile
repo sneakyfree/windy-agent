@@ -16,17 +16,17 @@ FROM python:3.12-slim AS py-builder
 WORKDIR /app
 
 # uv from upstream image — fastest pip alternative, deterministic.
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.12.5 /uv /usr/local/bin/uv
 
 # Install just the dep manifests first so this layer caches when
 # only source changes. uv.lock makes the install reproducible.
-COPY pyproject.toml uv.lock* ./
-RUN uv sync --no-dev --no-editable --no-install-project
+COPY pyproject.toml uv.lock ./
+RUN uv sync --locked --no-dev --no-editable --no-install-project
 
 # Then copy the project source and finalize the install.
 COPY src/ src/
 COPY README.md ./
-RUN uv sync --no-dev --no-editable
+RUN uv sync --locked --no-dev --no-editable
 
 # ── Stage 2: Bun builder (gateway) ────────────────────────────────
 FROM oven/bun:1-slim AS bun-builder
