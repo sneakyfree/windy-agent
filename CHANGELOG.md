@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (0.7.2)
+## 0.7.2
 
 **Terminal hatching now signs in with your Windy account.** Eternitas is
 closing the anonymous hatch door (`/bots/auto-hatch` will require a
