@@ -31,6 +31,8 @@ def add_parser(sub: Any) -> None:
     r = s.add_parser("reset", help="Owner recovery: fresh sign-in, new key, revoke the old ones")
     r.add_argument("--yes", "-y", action="store_true", help="Don't ask for confirmation")
     r.add_argument("--no-browser", action="store_true", help="Print the sign-in link instead of opening it")
+    r.add_argument("--reason", choices=("recovery", "handover"), default="recovery",
+                   help="recovery (lost/compromised key, default) or handover (moving the agent)")
     v = s.add_parser("revoke", help="Revoke one key by kid")
     v.add_argument("--kid", required=True, help="The key's kid (see `windy agent-key status`)")
     v.add_argument("--reason", default="revoked by owner", help="Reason recorded at Eternitas")
@@ -49,7 +51,10 @@ _MESSAGES = {
     "no_passport": "[yellow]This agent has no passport yet (not hatched?).[/yellow]",
     "needs_login": ("[yellow]No usable credential.[/yellow] Run [bold]windy login[/bold] then "
                     "[bold]windy ept refresh[/bold], or use [bold]windy agent-key reset[/bold] as the owner."),
-    "rate_limited": "[red]Refused: an owner reset is allowed once per 24h per passport.[/red] Try again tomorrow.",
+    "rate_limited": ("[red]Refused: Eternitas allows 2 owner resets per passport per 24h.[/red] "
+                     "Try again tomorrow."),
+    "stale_auth": ("[red]Eternitas wants a sign-in from the last 10 minutes and didn't get one.[/red] "
+                   "Run the reset again and sign in with your password when the browser asks."),
 }
 
 
@@ -59,8 +64,13 @@ def _report(result: dict[str, Any]) -> int:
         console.print(_MESSAGES[st])
         return 1
     if st == "failed":
-        extra = f"HTTP {result['http']} {result.get('detail', '')}" if "http" in result else result.get("error", "")
-        console.print(f"[red]Failed:[/red] {extra}".rstrip())
+        if "http" in result:
+            extra = f"HTTP {result['http']} {result.get('code') or ''} {result.get('detail', '')}"
+        else:
+            extra = result.get("error", "")
+        console.print(f"[red]Failed:[/red] {' '.join(extra.split())}".rstrip())
+        if result.get("hint"):
+            console.print(result["hint"])
         return 1
     return 0
 
@@ -94,13 +104,21 @@ def cmd_agent_key(args: argparse.Namespace, *, ask: Callable[[str], str] = input
     if action == "reset":
         if not args.yes and not _confirm(
             "Reset REVOKES this agent's current signing key(s) and registers a new one. "
-            "You'll sign in again in the browser; Eternitas emails you and allows this once per 24h. Continue?",
+            "You'll sign in again in the browser; Eternitas emails you and allows 2 per 24h. Continue?",
             ask,
         ):
             console.print("Cancelled.")
             return 1
         no_browser = bool(getattr(args, "no_browser", False))
-        res = ak.reset(owner_token=lambda: ak.fresh_owner_token(open_browser=not no_browser, echo=console.print))
+        def sign_in() -> str:
+            return ak.fresh_owner_token(open_browser=not no_browser, echo=console.print)
+
+        res = ak.reset(owner_token=sign_in, reason=getattr(args, "reason", "recovery"))
+        if res.get("status") == "stale_auth":
+            # Eternitas saw no fresh credential entry (e.g. the hub kept an old
+            # auth_time); one more prompt=login round is the documented remedy.
+            console.print("[yellow]That sign-in wasn't fresh enough; opening the browser once more.[/yellow]")
+            res = ak.reset(owner_token=sign_in, reason=getattr(args, "reason", "recovery"))
         if res.get("status") == "reset":
             console.print(f"[green]✓ New signing key[/green] {res['kid']} (revoked {len(res['revoked'])} old)")
             if res.get("revoke_failed"):

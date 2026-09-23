@@ -67,6 +67,7 @@ under `windy agent-key`:
 windy agent-key status           # local keys, which is active, what Eternitas lists
 windy agent-key rotate           # register a new key, retire the old one (overlap ≤ 2)
 windy agent-key reset            # OWNER recovery (see below)             [y/N]
+                                 #   --reason handover when moving the agent
 windy agent-key revoke --kid K   # revoke one key; everything it signed turns invalid  [y/N]
 ```
 
@@ -82,15 +83,32 @@ suspect it has leaked.
    `email_verified: true` and an `auth_time` less than 10 minutes old, and a
    stored or refreshed session never meets that. The new token is used once
    and is not saved over your `windy login` session.
-2. It registers a brand-new key with that token and a PoP. Eternitas flags the
-   key `registered_via: owner_recovery`, tells every platform, and emails you.
+2. It registers a brand-new key with that token, a PoP and
+   `reason: "recovery"` (or `"handover"` with `--reason handover`). Eternitas
+   flags the key `registered_via: owner_recovery` / `owner_handover`, tells
+   every platform, and emails you.
 3. It revokes every other key Eternitas lists as active, including one lost
    with an old device, plus any key still in the local file.
 
 The new key is registered **before** the old ones are revoked, so a refused
-reset leaves you with the key you had. Eternitas allows one reset per passport
-per 24 hours. A second one gets "an owner reset is allowed once per 24h per
-passport".
+reset leaves you with the key you had. The one exception: Eternitas holds at
+most 2 active keys per passport, so when both slots are taken the old keys are
+revoked first and the registration is retried once.
+
+Eternitas allows 2 owner-path registrations per passport per 24 hours (429
+`owner_registration_limit`). If Eternitas answers `stale_auth_time` (the
+sign-in wasn't fresh enough), the command opens the browser once more.
+
+## EPT refresh by key
+
+Once the agent has a registered key, `windy ept refresh` and the daily EPT
+job first try `POST /bots/{p}/ept/refresh` with an `Eternitas-Agent-Proof`
+header and no bearer. The header is a JWS by the active key (header `kid`)
+over `{passport, nonce, iat, htm: "POST", htu: "/api/v1/bots/{p}/ept/refresh"}`,
+with the nonce from `/keys/challenge`. This works even after the EPT itself
+has lapsed. If it fails, refresh falls back to the agent's own EPT, then to
+the owner's `windy login` session, as before. This path is interim, until
+mode B.
 
 ## Signing an artifact
 
@@ -108,16 +126,23 @@ The module also has helpers for platform proof-of-possession (`platform_pop`,
 mode A, `typ eternitas-pop+jwt`, `exp ≤ iat+60`) and for RFC 9449 DPoP proofs
 (`dpop_proof`). Mode B token exchange is not wired up yet (Eternitas step 4).
 
-## Wire details windy-agent assumes
+## Wire contract (Eternitas 8dde981)
 
-The spec leaves these open; windy-agent assumes the following and will follow
-Eternitas if it differs:
-
-- Challenge: `POST /bots/{p}/keys/challenge` → `{"nonce": …}`.
-- Register body: `{"jwk": <public JWK + kid/alg/use>, "proof": <compact JWS>}`.
-  The proof header is `{alg, typ: JWT, kid, passport}` and its payload is
-  `{passport, nonce, iat}`.
-- Retire and revoke: `POST …/keys/{kid}/retire` and `POST …/keys/{kid}/revoke
-  {"reason"}`. A 404 or 409 on either counts as already done.
-- "Not deployed" means a 404 whose detail is exactly `Not Found` (FastAPI's
-  catch-all). Any other 404, such as an unknown passport, is a real failure.
+- Challenge: `POST /bots/{p}/keys/challenge`, **no auth** →
+  `{passport, nonce, expires_in: 300}`. The nonce is single use.
+- Register: `POST /bots/{p}/keys`, Bearer = the agent's EPT (or, for the owner
+  path, a fresh hub token). The body is `{jwk: {kty, crv, x, y}, custody:
+  "agent", proof, reason?}`, and the reply is 201 `{kid, status, registered_via,
+  …}`. windy-agent checks that the returned `kid` equals its own RFC 7638
+  thumbprint and treats anything else as a failure.
+- Proof: a compact ES256 JWS by the NEW key. Header `{alg, typ: JWT, kid,
+  passport}`, payload `{passport, nonce, iat}`. Eternitas allows an `iat` skew
+  of ±300 s.
+- Retire / revoke: `POST …/keys/{kid}/retire`, and `POST …/keys/{kid}/revoke
+  {reason}`. 409 `key_not_active` / `already_revoked` and 404 `key_not_found`
+  count as already done.
+- Errors are `detail: {code, message}`. The code is shown by the CLI and
+  returned in each result's `code`.
+- "Not deployed" means a 404 whose detail is exactly the string `Not Found`
+  (FastAPI's catch-all). A structured 404, such as `passport_not_found`, is a
+  real failure.

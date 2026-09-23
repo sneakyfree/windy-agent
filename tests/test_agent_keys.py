@@ -29,16 +29,29 @@ def _jwt(claims: dict) -> str:
 EPT = _jwt({"sub": PASSPORT, "exp": int(time.time()) + 86400})
 
 
+def _err(status: int, code: str, message: str = "") -> httpx.Response:
+    return httpx.Response(status, json={"detail": {"code": code, "message": message or code}})
+
+
 class FakeEternitas:
-    """Just enough of the agent-keys v1 routes to exercise the client."""
+    """The agent-keys v1 routes as shipped in Eternitas 8dde981 (spec C step 1):
+    unauthenticated challenge, ``custody`` + optional ``reason`` on register,
+    ``detail: {code, message}`` errors, ≤2 active keys, 2 owner registrations
+    per 24h, and ``Eternitas-Agent-Proof`` on /ept/refresh."""
+
+    OWNER_TOKENS = {"FRESH-HUB-TOKEN", "FRESH"}
 
     def __init__(self, *, deployed: bool = True) -> None:
         self.deployed = deployed
         self.nonces: set[str] = set()
         self.keys: dict[str, dict] = {}
         self.calls: list[tuple[str, str, str]] = []  # (method, path, bearer)
+        self.bodies: list[dict] = []
         self.register_status: int | None = None
         self.registered_via: dict[str, str] = {}
+        self.owner_registrations = 0
+        self.stale_auth = False
+        self.refreshes: list[dict] = []
 
     def transport(self) -> httpx.MockTransport:
         return httpx.MockTransport(self.handle)
@@ -49,42 +62,104 @@ class FakeEternitas:
         self.calls.append((req.method, path, bearer))
         if not self.deployed:
             return httpx.Response(404, json={"detail": "Not Found"})
+        if path == f"/api/v1/bots/{PASSPORT}/ept/refresh":
+            return self._ept_refresh(req, bearer)
         m = re.fullmatch(r"/api/v1/bots/([^/]+)/keys(?:/(challenge|[^/]+)(?:/(retire|revoke))?)?", path)
         if not m:
             return httpx.Response(404, json={"detail": "Not Found"})
         passport, sub, verb = m.groups()
         if passport != PASSPORT:
-            return httpx.Response(404, json={"detail": "passport not found"})
+            return _err(404, "passport_not_found", "Passport not found")
         if req.method == "GET" and sub is None:
             return httpx.Response(200, json={"keys": [
-                {**k["jwk"], "status": k["status"]} for k in self.keys.values()]})
+                {**k["jwk"], "kid": kid, "status": k["status"], "custody": "agent"}
+                for kid, k in self.keys.items()]})
         if sub == "challenge":
+            assert not bearer, "the challenge takes no auth"
             n = uuid.uuid4().hex
             self.nonces.add(n)
-            return httpx.Response(201, json={"nonce": n, "expires_in": 300})
-        if sub is None:  # register
-            if self.register_status:
-                return httpx.Response(self.register_status, json={"detail": "limited"})
-            body = json.loads(req.content)
-            jwk, proof = body["jwk"], body["proof"]
-            kid = ak.thumbprint(jwk)
-            assert jwk["kid"] == kid and jwk["alg"] == "ES256" and jwk["use"] == "sig"
-            v = ak.verify_jws(proof, jwk)
-            assert v is not None, "PoP must verify against the new key"
-            claims = json.loads(v["payload"])
-            assert v["header"]["kid"] == kid and v["header"]["passport"] == PASSPORT
-            assert claims["passport"] == PASSPORT
-            assert claims["nonce"] in self.nonces, "nonce must be single use"
-            self.nonces.discard(claims["nonce"])
-            assert abs(claims["iat"] - time.time()) < 60
-            self.keys[kid] = {"jwk": jwk, "status": "active"}
-            self.registered_via[kid] = "own_ept" if bearer == EPT else "owner_recovery"
-            return httpx.Response(201, json={"kid": kid, "status": "active"})
+            return httpx.Response(200, json={"passport": PASSPORT, "nonce": n, "expires_in": 300})
+        body = json.loads(req.content or b"{}")
+        self.bodies.append(body)
+        owner = bearer in self.OWNER_TOKENS
+        if sub is None:
+            return self._register(body, bearer, owner)
         kid = sub
         if kid not in self.keys:
-            return httpx.Response(404, json={"detail": "key not found"})
-        self.keys[kid]["status"] = "retired" if verb == "retire" else "revoked"
-        return httpx.Response(200, json={"kid": kid, "status": self.keys[kid]["status"]})
+            return _err(404, "key_not_found", "Key not found for this passport")
+        k = self.keys[kid]
+        if verb == "retire":
+            if k["status"] != "active":
+                return _err(409, "key_not_active", f"Key is {k['status']}")
+            k["status"] = "retired"
+        else:
+            assert body.get("reason"), "revoke needs a reason"
+            if k["status"] == "revoked":
+                return _err(409, "already_revoked", "Key is already revoked")
+            k["status"] = "revoked"
+        return httpx.Response(200, json={"kid": kid, "status": k["status"]})
+
+    def _register(self, body: dict, bearer: str, owner: bool) -> httpx.Response:
+        if bearer not in (EPT, *self.OWNER_TOKENS):
+            return _err(401, "invalid_token", "Invalid token")
+        if owner and self.stale_auth:
+            return _err(401, "stale_auth_time", "sign in again (prompt=login)")
+        if self.register_status:
+            return _err(self.register_status, "owner_registration_limit", "limited")
+        assert body["custody"] == "agent"
+        assert set(body) <= {"jwk", "custody", "proof", "reason"}
+        if owner:
+            assert body.get("reason") in ("recovery", "handover")
+        else:
+            assert "reason" not in body
+        jwk, proof = body["jwk"], body["proof"]
+        assert set(jwk) <= {"kty", "crv", "x", "y", "alg", "use", "kid"} and "d" not in jwk
+        kid = ak.thumbprint(jwk)
+        v = ak.verify_jws(proof, jwk)
+        assert v is not None, "PoP must verify against the new key"
+        claims = json.loads(v["payload"])
+        assert claims["passport"] == PASSPORT
+        assert abs(claims["iat"] - time.time()) < 300
+        if claims["nonce"] not in self.nonces:
+            return _err(400, "nonce_invalid", "nonce unknown, expired or already used")
+        if owner and self.owner_registrations >= 2:
+            return _err(429, "owner_registration_limit", "At most 2 per passport per 24h")
+        if sum(k["status"] == "active" for k in self.keys.values()) >= 2:
+            return _err(409, "too_many_active_keys", "retire or revoke one first")
+        self.nonces.discard(claims["nonce"])
+        via = ("owner_handover" if body.get("reason") == "handover" else "owner_recovery") if owner else "ept"
+        self.owner_registrations += owner
+        self.keys[kid] = {"jwk": {k: jwk[k] for k in ("kty", "crv", "x", "y")}, "status": "active"}
+        self.registered_via[kid] = via
+        return httpx.Response(201, json={"kid": kid, "status": "active", "passport": PASSPORT,
+                                         "registered_via": via})
+
+    def _ept_refresh(self, req: httpx.Request, bearer: str) -> httpx.Response:
+        proof = req.headers.get("eternitas-agent-proof")
+        if proof:
+            h = json.loads(base64.urlsafe_b64decode(proof.split(".")[0] + "=="))
+            k = self.keys.get(h.get("kid", ""))
+            if k is None or k["status"] != "active":
+                return _err(401, "invalid_agent_proof", "kid is not an active key")
+            v = ak.verify_jws(proof, k["jwk"])
+            if v is None:
+                return _err(401, "invalid_agent_proof", "bad signature")
+            c = json.loads(v["payload"])
+            assert c["passport"] == PASSPORT and c["htm"] == "POST"
+            assert c["htu"] == f"/api/v1/bots/{PASSPORT}/ept/refresh"
+            assert abs(c["iat"] - time.time()) < 300
+            if c["nonce"] not in self.nonces:
+                return _err(401, "invalid_agent_proof", "nonce")
+            self.nonces.discard(c["nonce"])
+            via = "agent_key"
+        elif bearer:
+            via = "bearer"
+        else:
+            return httpx.Response(401, json={"detail": "Bearer EPT or Windy login required"})
+        self.refreshes.append({"via": via, "bearer": bearer})
+        new = _jwt({"sub": PASSPORT, "exp": int(time.time()) + 365 * 86400, "cvr": 2})
+        return httpx.Response(200, json={"ept_token": new, "reissued": True,
+                                         "reissue_reason": "test", "expires_at": "2027-09-23T00:00:00Z"})
 
 
 @pytest.fixture
@@ -196,7 +271,13 @@ def test_register_happy_path_then_idempotent(env):
     r = ak.ensure_registered(transport=fake.transport())
     assert r["status"] == "registered" and r["via"] == "own_ept"
     assert fake.keys[r["kid"]]["status"] == "active"
-    assert all(b == EPT for _, _, b in fake.calls)
+    assert all(b == EPT for _, p, b in fake.calls if not p.endswith("/challenge"))
+    assert all(b == "" for _, p, b in fake.calls if p.endswith("/challenge"))
+    (body,) = fake.bodies
+    assert body["custody"] == "agent" and "reason" not in body
+    assert set(body["jwk"]) == {"kty", "crv", "x", "y"}
+    assert fake.registered_via[r["kid"]] == "ept"
+    assert r["registered_via"] == "ept"
     n = len(fake.calls)
     assert ak.ensure_registered(transport=fake.transport())["status"] == "already_registered"
     assert len(fake.calls) == n
@@ -304,7 +385,10 @@ def test_reset_uses_fresh_prompt_login_token_never_stored_session(env, monkeypat
     r = ak.reset(transport=fake.transport(), owner_token=lambda: ak.fresh_owner_token(open_browser=False))
     assert r["status"] == "reset"
     assert seen["reauth"] is True and seen["store"] is False
-    assert {b for m, _p, b in fake.calls if m == "POST"} == {"FRESH-HUB-TOKEN"}
+    assert {b for m, p, b in fake.calls if m == "POST" and not p.endswith("/challenge")} == {"FRESH-HUB-TOKEN"}
+    # Both slots were taken (old + lost), so the first owner register got
+    # 409 too_many_active_keys, reset revoked both, and registered again.
+    assert [b.get("reason") for b in fake.bodies if "proof" in b] == [None, "recovery", "recovery"]
     assert fake.registered_via[r["kid"]] == "owner_recovery"
     assert sorted(r["revoked"]) == sorted([old, lost["kid"]])
     assert fake.keys[old]["status"] == fake.keys[lost["kid"]]["status"] == "revoked"
@@ -328,12 +412,12 @@ def test_reset_rate_limited_keeps_old_key(env):
     assert json.loads(env.read_text())["eternitas"]["kid"] == old
 
 
-def test_reset_cli_says_once_per_24h(env, monkeypatch, capsys):
+def test_reset_cli_says_twice_per_24h(env, monkeypatch, capsys):
     from windyfly.commands import agent_key
     monkeypatch.setattr(ak, "reset", lambda **_k: {"status": "rate_limited"})
     args = argparse.Namespace(action="reset", yes=False, no_browser=True)
     assert agent_key.cmd_agent_key(args, ask=lambda _q: "y") == 1
-    assert "once per 24h" in capsys.readouterr().out
+    assert "2 owner resets per passport per 24h" in capsys.readouterr().out
     assert agent_key.cmd_agent_key(args, ask=lambda _q: "") == 1  # default N
 
 
@@ -408,3 +492,135 @@ def test_cloud_backup_ships_only_the_database():
     src = inspect.getsource(cloud_backup)
     assert "credentials" not in src.replace("bot_credentials", "")
     assert "windyfly.db" in src
+
+
+# ── live-contract specifics (Eternitas 8dde981) ─────────────────────
+
+def test_error_codes_are_surfaced(env, monkeypatch):
+    monkeypatch.setenv("ETERNITAS_PASSPORT", "ET26-NOPE-NOPE")
+    monkeypatch.setenv("ETERNITAS_PASSPORT_TOKEN", _jwt({"sub": "ET26-NOPE-NOPE", "exp": time.time() + 99}))
+    r = ak.ensure_registered(transport=FakeEternitas().transport())
+    assert r["status"] == "failed" and r["http"] == 404 and r["code"] == "passport_not_found"
+
+
+def test_server_kid_must_match_our_thumbprint(env):
+    fake = FakeEternitas()
+    orig = fake.handle
+
+    def lying(req):
+        resp = orig(req)
+        if resp.status_code == 201:
+            return httpx.Response(201, json={"kid": "not-our-kid", "registered_via": "ept"})
+        return resp
+    r = ak.ensure_registered(transport=httpx.MockTransport(lying))
+    assert r["status"] == "failed" and r["code"] == "kid_mismatch"
+    assert not json.loads(env.read_text())["eternitas"]["keys"][0]["registered_at"]
+
+
+def test_two_active_keys_elsewhere_gives_a_reset_hint(env):
+    fake = FakeEternitas()
+    for _ in range(2):
+        j = ak.published_jwk(ak.generate_private_key())
+        fake.keys[j["kid"]] = {"jwk": j, "status": "active"}
+    r = ak.ensure_registered(transport=fake.transport())
+    assert r["code"] == "too_many_active_keys" and "reset" in r["hint"]
+
+
+def test_reset_handover_reason(env):
+    fake = FakeEternitas()
+    r = ak.reset(transport=fake.transport(), owner_token=lambda: "FRESH", reason="handover")
+    assert r["status"] == "reset" and fake.registered_via[r["kid"]] == "owner_handover"
+    assert fake.bodies[0]["reason"] == "handover"
+
+
+def test_reset_with_both_slots_taken_revokes_then_registers(env):
+    fake = FakeEternitas()
+    stale = []
+    for _ in range(2):
+        j = ak.published_jwk(ak.generate_private_key())
+        fake.keys[j["kid"]] = {"jwk": j, "status": "active"}
+        stale.append(j["kid"])
+    r = ak.reset(transport=fake.transport(), owner_token=lambda: "FRESH")
+    assert r["status"] == "reset"
+    assert sorted(r["revoked"]) == sorted(stale)
+    assert [k for k, v in fake.keys.items() if v["status"] == "active"] == [r["kid"]]
+
+
+def test_reset_stale_auth_time_and_owner_limit(env):
+    fake = FakeEternitas()
+    fake.stale_auth = True
+    assert ak.reset(transport=fake.transport(), owner_token=lambda: "FRESH")["status"] == "stale_auth"
+    fake.stale_auth = False
+    assert ak.reset(transport=fake.transport(), owner_token=lambda: "FRESH")["status"] == "reset"
+    assert ak.reset(transport=fake.transport(), owner_token=lambda: "FRESH")["status"] == "reset"
+    r = ak.reset(transport=fake.transport(), owner_token=lambda: "FRESH")
+    assert r["status"] == "rate_limited" and r["code"] == "owner_registration_limit"
+
+
+def test_cli_reopens_browser_once_on_stale_auth(env, monkeypatch):
+    from windyfly.commands import agent_key
+    results = iter([{"status": "stale_auth"}, {"status": "reset", "kid": "k", "revoked": []}])
+    calls = []
+    monkeypatch.setattr(ak, "reset", lambda **kw: calls.append(kw) or next(results))
+    args = argparse.Namespace(action="reset", yes=True, no_browser=True, reason="recovery")
+    assert agent_key.cmd_agent_key(args) == 0
+    assert len(calls) == 2 and calls[0]["reason"] == "recovery"
+
+
+def test_revoke_already_revoked_is_success(env):
+    fake = FakeEternitas()
+    kid = ak.ensure_registered(transport=fake.transport())["kid"]
+    fake.keys[kid]["status"] = "revoked"
+    assert ak.revoke(kid, transport=fake.transport())["status"] == "revoked"
+
+
+# ── EPT refresh by agent-key proof ──────────────────────────────────
+
+def _expiring_ept() -> str:
+    return _jwt({"sub": PASSPORT, "exp": int(time.time()) + 3600, "cvr": 1})
+
+
+def test_ept_refresh_uses_agent_key_proof_first(env, monkeypatch):
+    from windyfly.eternitas import ept_refresh
+    fake = FakeEternitas()
+    ak.ensure_registered(transport=fake.transport())
+    monkeypatch.setenv("ETERNITAS_PASSPORT_TOKEN", _expiring_ept())
+    monkeypatch.setattr(ept_refresh, "resolve_env_file", lambda: None)
+    fake.calls.clear()
+    r = ept_refresh.refresh_ept(transport=fake.transport())
+    assert r["status"] == "refreshed" and r["via"] == "agent_key"
+    assert fake.refreshes == [{"via": "agent_key", "bearer": ""}]
+    (post,) = [c for c in fake.calls if c[1].endswith("/ept/refresh")]
+    assert post[2] == "", "no bearer rides along with the key proof"
+
+
+def test_ept_refresh_by_key_works_with_a_lapsed_ept(env, monkeypatch):
+    from windyfly.eternitas import ept_refresh
+    fake = FakeEternitas()
+    ak.ensure_registered(transport=fake.transport())
+    monkeypatch.setenv("ETERNITAS_PASSPORT_TOKEN", _jwt({"sub": PASSPORT, "exp": 1}))
+    monkeypatch.setattr(ept_refresh, "resolve_env_file", lambda: None)
+    assert ept_refresh.refresh_ept(transport=fake.transport())["via"] == "agent_key"
+
+
+def test_ept_refresh_falls_back_to_own_ept_when_key_proof_fails(env, monkeypatch, caplog):
+    from windyfly.eternitas import ept_refresh
+    fake = FakeEternitas()
+    kid = ak.ensure_registered(transport=fake.transport())["kid"]
+    fake.keys[kid]["status"] = "retired"  # Eternitas: invalid_agent_proof
+    monkeypatch.setenv("ETERNITAS_PASSPORT_TOKEN", _expiring_ept())
+    monkeypatch.setattr(ept_refresh, "resolve_env_file", lambda: None)
+    with caplog.at_level(logging.WARNING):
+        r = ept_refresh.refresh_ept(transport=fake.transport())
+    assert r["status"] == "refreshed" and r["via"] == "own_ept"
+    assert "invalid_agent_proof" in caplog.text
+
+
+def test_ept_refresh_without_a_key_is_unchanged(env, monkeypatch):
+    from windyfly.eternitas import ept_refresh
+    fake = FakeEternitas()
+    monkeypatch.setenv("ETERNITAS_PASSPORT_TOKEN", _expiring_ept())
+    monkeypatch.setattr(ept_refresh, "resolve_env_file", lambda: None)
+    r = ept_refresh.refresh_ept(transport=fake.transport())
+    assert r["via"] == "own_ept"
+    assert not [c for c in fake.calls if c[1].endswith("/challenge")]

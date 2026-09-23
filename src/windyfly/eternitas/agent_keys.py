@@ -369,25 +369,87 @@ def _is_route_missing(resp: httpx.Response) -> bool:
         return True
 
 
-def _post(client: httpx.Client, path: str, bearer: str, body: dict[str, Any] | None = None) -> httpx.Response:
-    resp = client.post(f"{_base_url()}{path}", json=body or {},
-                       headers={"Authorization": f"Bearer {bearer}"})
+def _post(client: httpx.Client, path: str, bearer: str | None,
+          body: dict[str, Any] | None = None) -> httpx.Response:
+    headers = {"Authorization": f"Bearer {bearer}"} if bearer else {}
+    resp = client.post(f"{_base_url()}{path}", json=body or {}, headers=headers)
     if _is_route_missing(resp):
         raise _Unsupported(path)
     return resp
 
 
-def _register(client: httpx.Client, passport: str, key: ec.EllipticCurvePrivateKey, bearer: str) -> httpx.Response:
-    ch = _post(client, f"/api/v1/bots/{passport}/keys/challenge", bearer)
+def error_code(resp: httpx.Response) -> tuple[str, str]:
+    """Eternitas errors are ``detail: {code, message}``; older routes send a
+    plain string. Returns (code, message); code is "" for the plain form."""
+    try:
+        detail = resp.json().get("detail", "")
+    except Exception:
+        return "", ""
+    if isinstance(detail, dict):
+        return str(detail.get("code") or ""), str(detail.get("message") or "")[:200]
+    return "", str(detail)[:200]
+
+
+class _ChallengeFailed(Exception):
+    def __init__(self, resp: httpx.Response) -> None:
+        super().__init__(resp.status_code)
+        self.resp = resp
+
+
+def challenge(client: httpx.Client, passport: str) -> str:
+    """A single-use nonce (5-min TTL). No auth: the nonce proves nothing alone."""
+    ch = _post(client, f"/api/v1/bots/{passport}/keys/challenge", None)
     if ch.status_code not in (200, 201):
-        return ch
+        raise _ChallengeFailed(ch)
     nonce = str(ch.json().get("nonce") or "")
     if not nonce:
         raise ValueError("challenge returned no nonce")
-    return _post(client, f"/api/v1/bots/{passport}/keys", bearer, {
-        "jwk": published_jwk(key),
+    return nonce
+
+
+def _register(client: httpx.Client, passport: str, key: ec.EllipticCurvePrivateKey, bearer: str,
+              *, reason: str | None = None) -> httpx.Response:
+    try:
+        nonce = challenge(client, passport)
+    except _ChallengeFailed as exc:
+        return exc.resp
+    body: dict[str, Any] = {
+        "jwk": public_jwk(key),  # {kty, crv, x, y}; Eternitas derives the kid
+        "custody": "agent",
         "proof": registration_proof(key, passport, nonce),
-    })
+    }
+    if reason:
+        body["reason"] = reason  # owner path only: "recovery" | "handover"
+    resp = _post(client, f"/api/v1/bots/{passport}/keys", bearer, body)
+    if resp.status_code in (200, 201):
+        got = str(resp.json().get("kid") or "")
+        if got != thumbprint(public_jwk(key)):
+            # Never trust a kid we can't reproduce; treat as a failed register.
+            logger.warning("agent keys: Eternitas returned kid %s…, expected our thumbprint", got[:8])
+            return httpx.Response(502, json={"detail": {"code": "kid_mismatch",
+                                                        "message": "server kid != RFC 7638 thumbprint"}})
+    return resp
+
+
+def agent_proof(client: httpx.Client, passport: str, htm: str, path: str,
+                *, cred_path: Path | None = None) -> str | None:
+    """``Eternitas-Agent-Proof`` for a request by this agent's ACTIVE registered
+    key: a JWS (header kid) over {passport, nonce, iat, htm, htu}, the nonce
+    fresh from /keys/challenge. None when there is no registered key."""
+    entry = active_entry(load_credentials(cred_path or credentials_path()))
+    if entry is None or not entry.get("registered_at"):
+        return None
+    key = load_private_key(entry["private_key"])
+    nonce = challenge(client, passport)
+    header = {"alg": ALG, "typ": "JWT", "kid": entry["kid"]}
+    claims = {"passport": passport, "nonce": nonce, "iat": int(time.time()),
+              "htm": htm.upper(), "htu": path}
+    return _compact(key, header, json.dumps(claims, separators=(",", ":")).encode("utf-8"))
+
+
+def has_registered_key(path: Path | None = None) -> bool:
+    entry = active_entry(load_credentials(path or credentials_path()))
+    return bool(entry and entry.get("registered_at"))
 
 
 def _note_unsupported() -> dict[str, Any]:
@@ -401,13 +463,12 @@ def _note_unsupported() -> dict[str, Any]:
 
 
 def _http_fail(what: str, resp: httpx.Response) -> dict[str, Any]:
-    detail = ""
-    try:
-        detail = str(resp.json().get("detail", ""))[:120]
-    except Exception:
-        pass
-    logger.warning("agent keys: %s refused (HTTP %s %s)", what, resp.status_code, detail)
-    return {"status": "failed", "http": resp.status_code, "detail": detail}
+    code, message = error_code(resp)
+    logger.warning("agent keys: %s refused (HTTP %s %s %s)", what, resp.status_code, code, message)
+    out: dict[str, Any] = {"status": "failed", "http": resp.status_code, "code": code, "detail": message}
+    if code == "too_many_active_keys":
+        out["hint"] = "Eternitas already holds 2 active keys for this passport; run `windy agent-key reset`"
+    return out
 
 
 # ── public operations ────────────────────────────────────────────────
@@ -421,7 +482,7 @@ def ensure_registered(*, transport: httpx.BaseTransport | None = None,
 
     Generates a key if there is none (persisted BEFORE it's registered, so a
     failed registration never loses it), then registers it with the agent's
-    own EPT, falling back to the owner's hub sign-in. Also finishes a pending
+    own EPT (never the owner's session: that's ``reset``). Also finishes a pending
     rotation (retires a ``retiring`` key). Never raises.
 
     ``status``: registered | already_registered | unsupported | no_passport |
@@ -469,16 +530,18 @@ def _ensure(transport, path: Path) -> dict[str, Any]:
                        "run `windy login` then `windy ept refresh`, or `windy agent-key reset`")
         return {"status": "needs_login", "kid": entry["kid"]}
 
+    registered_via = None
     with httpx.Client(timeout=_HTTP_TIMEOUT, transport=transport) as client:
         if not entry.get("registered_at"):
             resp = _register(client, passport, load_private_key(entry["private_key"]), bearer)
             if resp.status_code not in (200, 201):
                 return _http_fail("key registration", resp)
+            registered_via = resp.json().get("registered_via")
             entry["registered_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
             save_credentials(data, path)
             logger.info("agent keys: registered %s… for %s (via %s)", entry["kid"][:8], passport[:9], via)
         _retire_pending(client, passport, bearer, data, path)
-    return {"status": "registered", "kid": entry["kid"], "via": via}
+    return {"status": "registered", "kid": entry["kid"], "via": via, "registered_via": registered_via}
 
 
 def _retire_pending(client: httpx.Client, passport: str, bearer: str,
@@ -535,20 +598,24 @@ def rotate(*, transport: httpx.BaseTransport | None = None, path: Path | None = 
 
 
 def reset(*, transport: httpx.BaseTransport | None = None, path: Path | None = None,
-          reason: str = "reset by owner", owner_token: Any = None) -> dict[str, Any]:
+          reason: str = "recovery", owner_token: Any = None) -> dict[str, Any]:
     """Owner recovery for a lost or compromised key.
 
     1. A FRESH owner sign-in (``prompt=login``; ``owner_token`` is the
        callable that produces it, default ``fresh_owner_token``) — never the
        stored session.
     2. Register a brand-new key with that hub token + PoP. Eternitas flags it
-       ``registered_via: owner_recovery``, notifies platforms, emails the owner
-       and allows this once per 24h per passport (429 → ``rate_limited``).
+       ``registered_via: owner_recovery`` (``reason="handover"`` →
+       ``owner_handover``), notifies platforms, emails the owner and allows 2
+       owner-path registrations per passport per 24h (429 → ``rate_limited``).
+       A sign-in older than 10 minutes is 401 ``stale_auth_time``.
     3. Revoke every other kid Eternitas lists as active (the public JWKS, so a
        key lost with an old device is caught too) plus any in the local file.
 
     Registering before revoking means a refused reset never leaves the agent
-    with no key at all."""
+    with no key at all. The one exception: Eternitas holds at most 2 active
+    keys, so if both slots are taken (409 ``too_many_active_keys``) the old
+    keys are revoked first and the registration is retried once."""
     path = path or credentials_path()
     try:
         with _LOCK:
@@ -568,32 +635,48 @@ def reset(*, transport: httpx.BaseTransport | None = None, path: Path | None = N
             local_kids = {str(e["kid"]) for e in sec["keys"] if e.get("kid")}
             key = generate_private_key()
             new = _new_entry(key)
+            revoke_reason = f"owner {reason} (windy agent-key reset)"
+            revoked: list[str] = []
+            failed: list[str] = []
             with httpx.Client(timeout=_HTTP_TIMEOUT, transport=transport) as client:
-                resp = _register(client, passport, key, hub)
+
+                def old_kids() -> set[str]:
+                    old = set(local_kids)
+                    try:
+                        listed = client.get(f"{_base_url()}/api/v1/bots/{passport}/keys")
+                        if listed.status_code == 200:
+                            old |= {str(k.get("kid")) for k in listed.json().get("keys", [])
+                                    if k.get("status") in ("active", None) and k.get("kid")}
+                    except Exception:
+                        pass
+                    old.discard(new["kid"])
+                    return old - set(revoked)
+
+                def revoke_all(kids: set[str]) -> None:
+                    for kid in sorted(kids):
+                        r = _post(client, f"/api/v1/bots/{passport}/keys/{kid}/revoke", hub,
+                                  {"reason": revoke_reason})
+                        # 404 key_not_found / 409 already_revoked: already gone
+                        (revoked if r.status_code in (200, 204, 404, 409) else failed).append(kid)
+
+                resp = _register(client, passport, key, hub, reason=reason)
+                if resp.status_code == 409 and error_code(resp)[0] == "too_many_active_keys":
+                    revoke_all(old_kids())
+                    resp = _register(client, passport, key, hub, reason=reason)
+                code = error_code(resp)[0]
                 if resp.status_code == 429:
-                    logger.warning("agent keys: reset refused, once per 24h per passport")
-                    return {"status": "rate_limited"}
+                    logger.warning("agent keys: reset refused (%s): 2 owner resets per passport per 24h",
+                                   code or "429")
+                    return {"status": "rate_limited", "code": code, "revoked": revoked}
+                if code == "stale_auth_time":
+                    return {"status": "stale_auth", "code": code, "revoked": revoked}
                 if resp.status_code not in (200, 201):
-                    return _http_fail("owner key registration", resp)
+                    return {**_http_fail("owner key registration", resp), "revoked": revoked}
                 new["registered_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
                 sec["keys"] = [new]
                 _set_active(sec, new)
                 save_credentials(data, path)
-
-                old = set(local_kids)
-                try:
-                    listed = client.get(f"{_base_url()}/api/v1/bots/{passport}/keys")
-                    if listed.status_code == 200:
-                        old |= {str(k.get("kid")) for k in listed.json().get("keys", [])
-                                if k.get("status") in ("active", None) and k.get("kid")}
-                except Exception:
-                    pass
-                old.discard(new["kid"])
-                revoked: list[str] = []
-                failed: list[str] = []
-                for kid in sorted(old):
-                    r = _post(client, f"/api/v1/bots/{passport}/keys/{kid}/revoke", hub, {"reason": reason})
-                    (revoked if r.status_code in (200, 204, 404, 409) else failed).append(kid)
+                revoke_all(old_kids())
             if failed:
                 logger.warning("agent keys: reset could not revoke %d old key(s); run "
                                "`windy agent-key revoke --kid …`", len(failed))
@@ -622,7 +705,8 @@ def revoke(kid: str, *, reason: str = "revoked by owner",
                 return {"status": "needs_login"}
             with httpx.Client(timeout=_HTTP_TIMEOUT, transport=transport) as client:
                 resp = _post(client, f"/api/v1/bots/{passport}/keys/{kid}/revoke", bearer, {"reason": reason})
-            if resp.status_code not in (200, 204):
+            already = resp.status_code == 409 and error_code(resp)[0] == "already_revoked"
+            if resp.status_code not in (200, 204) and not already:
                 return _http_fail("key revoke", resp)
             data = load_credentials(path)
             sec = _section(data)

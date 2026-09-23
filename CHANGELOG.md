@@ -118,8 +118,15 @@ holds it. See `docs/AGENT_KEYS.md`.
   Eternitas ships the routes it logs one INFO line and does nothing else.
 - New `windy agent-key status|rotate|reset|revoke`. `reset` is the owner's
   recovery for a lost key: it runs a fresh browser sign-in (`prompt=login`),
-  registers a new key, and revokes the old ones. Eternitas allows one per
-  passport per 24h. (`windy keys` stays the wk_ bot credential.)
+  registers a new key (`reason: recovery`, or `--reason handover` when moving
+  the agent), and revokes the old ones. Eternitas allows 2 per passport per
+  24h. (`windy keys` stays the wk_ bot credential.)
+- **EPT refresh by key.** Once the agent has a registered key, the EPT refresh
+  first proves itself with an `Eternitas-Agent-Proof` header signed by that
+  key. It needs no bearer, so it works even after the EPT has lapsed. The
+  agent's own EPT and the owner's `windy login` session remain the fallbacks.
+- Eternitas error codes (`detail.code`, e.g. `too_many_active_keys`,
+  `stale_auth_time`, `owner_registration_limit`) are shown as they are.
 - `sign_artifact()` returns a detached JWS carrying `kid` and `passport`,
   for Windy Drops signed publish.
 - `hub_login.login()` gains `reauth=` (sends `prompt=login` and `max_age=0`)
