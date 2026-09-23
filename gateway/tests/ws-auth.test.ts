@@ -23,9 +23,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { isDashboardAuthValid } from "../src/server";
-
-const PASSWORD = process.env.DASHBOARD_PASSWORD || "";
+import { createDashboardSession, isDashboardAuthValid } from "../src/server";
 
 function mockServer(peer: string | null): any {
   return {
@@ -34,10 +32,10 @@ function mockServer(peer: string | null): any {
 }
 
 describe("isDashboardAuthValid — pure decision", () => {
-  // These tests run against whatever DASHBOARD_PASSWORD the test
-  // runner has. In CI that's empty — in which case the "correct
-  // cookie" branches are skipped. That's fine: the important
-  // negative-space assertions (unauth → false) hold either way.
+  // WS upgrades accept the dev loopback bypass or a live session cookie
+  // (minted by the owner's hub sign-in). A Bearer header is never enough
+  // here: browsers can't set it on a WebSocket, and the pure check
+  // doesn't do a JWT round trip.
 
   test("no cookie, no bearer, public peer → false in production-like mode", () => {
     // Note: the env-switch lives inside isDashboardAuthValid and reads
@@ -80,21 +78,12 @@ describe("isDashboardAuthValid — pure decision", () => {
     expect(isDashboardAuthValid(req, mockServer("203.0.113.7"))).toBe(false);
   });
 
-  test.skipIf(!PASSWORD)("correct bearer → true (when DASHBOARD_PASSWORD is set in the test env)", () => {
+  test("live owner session cookie → true", () => {
+    const token = createDashboardSession(60_000, "owner-identity");
     const req = new Request("http://windyfly.ai/ws/chat", {
       headers: {
         "X-Forwarded-For": "203.0.113.7",
-        Authorization: `Bearer ${PASSWORD}`,
-      },
-    });
-    expect(isDashboardAuthValid(req, mockServer("127.0.0.1"))).toBe(true);
-  });
-
-  test.skipIf(!PASSWORD)("correct cookie → true (when DASHBOARD_PASSWORD is set in the test env)", () => {
-    const req = new Request("http://windyfly.ai/ws/chat", {
-      headers: {
-        "X-Forwarded-For": "203.0.113.7",
-        Cookie: `windy_auth=${PASSWORD}`,
+        Cookie: `windy_auth=${token}`,
       },
     });
     expect(isDashboardAuthValid(req, mockServer("127.0.0.1"))).toBe(true);

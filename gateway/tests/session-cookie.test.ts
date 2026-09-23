@@ -13,7 +13,7 @@
  *   4. Expired tokens fail validation AND are evicted.
  *   5. revokeDashboardSession invalidates a single session.
  *   6. TTL respected (custom short TTL in tests).
- *   7. server.ts no longer writes the password into the cookie.
+ *   7. server.ts mints the cookie from the session store (hub sign-in).
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
@@ -105,8 +105,9 @@ describe("server.ts — regression guards", () => {
     const text = await src.text();
     // The old bug: `windy_auth=${DASHBOARD_PASSWORD}; Path=/; ...`
     expect(text).not.toMatch(/windy_auth=\$\{DASHBOARD_PASSWORD\}/);
-    // The fix: cookie value comes from createDashboardSession().
-    expect(text).toContain("const sessionToken = createDashboardSession()");
+    // The fix: cookie value comes from createDashboardSession(), now
+    // minted by the hub sign-in callback for the owner's identity.
+    expect(text).toContain("const sessionToken = createDashboardSession(");
     expect(text).toMatch(/windy_auth=\$\{sessionToken\}/);
   });
 
@@ -116,7 +117,7 @@ describe("server.ts — regression guards", () => {
     // safeStringEqual against DASHBOARD_PASSWORD.
     const cookieCheckRegion = text.substring(
       text.indexOf("cookieVal = parseCookie"),
-      text.indexOf("function checkDashboardAuth"),
+      text.indexOf("export async function ownerIdentityFor"),
     );
     expect(cookieCheckRegion).toContain("isValidDashboardSession(cookieVal)");
     expect(cookieCheckRegion).not.toMatch(

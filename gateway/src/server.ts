@@ -40,6 +40,7 @@ import { handleClose, handleMessage, handleWebSocket } from "./websocket";
 import * as providers from "./providers";
 import * as machines from "./machines";
 import { handleHatchRemote, honoursPreallocatedPassport } from "./hatch-remote";
+import { identityOf, isOwner, verifyHubJwt } from "./hub-auth";
 
 const PORT = Number(process.env.GATEWAY_PORT) || 3000;
 const PUBLIC_DIR = resolve(import.meta.dir, "../public");
@@ -215,70 +216,66 @@ export function shouldBypassAuthForLocalhost(
   return isLocalhostRequest(req, server);
 }
 
-// Dashboard authentication for VPS-deployed agents.
+// Dashboard authentication — the owner's own Windy login (SSO #13).
 //
-// Startup policy (P1-S5):
-//   - In production (WINDYFLY_ENV=production), DASHBOARD_PASSWORD is
-//     REQUIRED. Empty password is a hard startup failure.
-//   - In dev, an empty password means "dashboard is LAN-open" — we log
-//     a loud warning so a developer noticing it in their logs will
-//     flinch. Never silent.
+// The shared DASHBOARD_PASSWORD is gone. The dashboard now admits exactly
+// one person: the agent's owner, proven by a hub (account.windyword.ai)
+// RS256 JWT whose identity equals WINDY_IDENTITY_ID (recorded at hatch).
+// Two ways in:
+//   - `Authorization: Bearer <hub JWT>` (API clients, the desktop app)
+//   - Browser: loopback+PKCE sign-in (hub token contract v1.1) at
+//     /api/auth/hub/start → hub → /api/auth/hub/callback, which mints the
+//     Wave-14 opaque session cookie.
 //
-// Comparison policy (P1-S6):
-//   - Every credential comparison uses crypto.timingSafeEqual. String
-//     === is not constant-time in V8/JSC; over a few thousand samples,
-//     password length + prefix can leak through timing.
+// Startup policy:
+//   - Production (WINDYFLY_ENV=production) REFUSES to start without
+//     WINDY_IDENTITY_ID — there would be nobody the dashboard could admit.
+//   - Dev without an owner keeps the open-dev/localhost behaviour, with a
+//     loud warning.
 //
-// Rate-limit policy (P1-O5):
-//   - Failed auth attempts consume the "auth" bucket (5 / min / IP).
-//     After 5 failures, the attacker gets 429s without us even
-//     comparing the password.
+// Rate-limit policy (P1-O5): failed auth attempts consume the "auth"
+// bucket (5 / min / IP).
 
-const DASHBOARD_PASSWORD = process.env.DASHBOARD_PASSWORD || "";
 const WINDYFLY_ENV = process.env.WINDYFLY_ENV || "dev";
+// Read on use (not cached at import) so the value the process was started
+// with is always the one enforced, and tests can set it.
+const ownerIdentity = (): string => process.env.WINDY_IDENTITY_ID || "";
 
-// Validate the dashboard-auth config at import time so operators hit
-// the error when the process starts, not when the first visitor arrives.
+// Validate the dashboard-auth config at import time so operators hit the
+// error when the process starts, not when the first visitor arrives.
 export function validateDashboardAuthConfig(
-  password: string,
+  ownerIdentity: string,
   env: string,
 ): { ok: boolean; message: string } {
-  if (env === "production" && !password) {
+  if (env === "production" && !ownerIdentity) {
     return {
       ok: false,
       message:
-        "DASHBOARD_PASSWORD is required when WINDYFLY_ENV=production. " +
-        "Set it to a strong secret or disable production mode.",
+        "WINDY_IDENTITY_ID is required when WINDYFLY_ENV=production — the " +
+        "dashboard admits only the agent's owner (their Windy login), so it " +
+        "must know who the owner is. Set it to the owner's windy_identity_id.",
     };
   }
-  if (!password) {
+  if (!ownerIdentity) {
     return {
       ok: true,
       message:
-        "WARN: DASHBOARD_PASSWORD is empty; dashboard is open on any " +
-        "network the gateway listens on. Acceptable only on a trusted " +
-        "local dev machine.",
-    };
-  }
-  if (password.length < 16) {
-    return {
-      ok: true,
-      message:
-        `WARN: DASHBOARD_PASSWORD is ${password.length} chars; under 16 ` +
-        "is easy to brute-force. Consider 24+ random characters.",
+        "WARN: WINDY_IDENTITY_ID is unset; no owner can sign in, and the " +
+        "dashboard is reachable only from a direct loopback connection " +
+        "(dev mode). Acceptable only on a trusted local dev machine.",
     };
   }
   return { ok: true, message: "" };
 }
 
-// Fail the whole process in production with an empty password; log
-// a warning otherwise. This runs at import — no request ever reaches
-// an insecure state.
-{
-  const check = validateDashboardAuthConfig(DASHBOARD_PASSWORD, WINDYFLY_ENV);
+// Fail the whole process in production without an owner; log a warning
+// otherwise. Runs at import (it throws before Bun.serve is ever called),
+// but only when this module is the entry point, so tests can import the
+// helpers under any env.
+if (import.meta.main) {
+  const check = validateDashboardAuthConfig(ownerIdentity(), WINDYFLY_ENV);
   if (!check.ok) {
     console.error("[gateway] startup failed: " + check.message);
-    // Throwing here prevents Bun.serve from being called at all.
     throw new Error(check.message);
   }
   if (check.message) {
@@ -302,23 +299,19 @@ export function safeStringEqual(a: string, b: string): boolean {
 }
 
 // ── Wave 14 P1: opaque dashboard session tokens ────────────────────
-// Pre-fix, the windy_auth cookie value was the raw DASHBOARD_PASSWORD
-// verbatim. XSS, a malicious extension, or social engineering that
-// exfiltrates the cookie yielded the master secret, and the only
-// revocation path was rotating DASHBOARD_PASSWORD across every live
-// session simultaneously. Now the cookie is a random opaque token
-// keyed server-side; rotating the password invalidates nothing on
-// its own (sessions live independently) and individual sessions can
-// be invalidated without touching the master secret.
+// The cookie is a random opaque token keyed server-side, never a
+// credential. Each session records the owner identity that signed in,
+// so owner-only actions (pairing codes) know who is asking.
 //
-// Memory-only store — gateway restart logs everyone out, which is
-// the correct posture for a stateless t3.small.
+// Memory-only store — gateway restart logs everyone out, which is the
+// correct posture for a single-box agent.
 
 const DASHBOARD_SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 const DASHBOARD_SESSION_MAX_ENTRIES = 10_000;
 
 interface DashboardSession {
   expiresAt: number;
+  identity: string;
 }
 
 const dashboardSessions = new Map<string, DashboardSession>();
@@ -330,19 +323,18 @@ function pruneExpiredDashboardSessions(now: number = Date.now()): void {
 }
 
 /**
- * Mint a fresh random session token and record it server-side.
- * Return the token (base64url, 256-bit random) for the caller to
- * set as a cookie. Opportunistic pruning keeps the map bounded.
+ * Mint a fresh random session token for `identity` and record it
+ * server-side. Returns the token (base64url, 256-bit random) for the
+ * caller to set as a cookie. Opportunistic pruning keeps the map bounded.
  */
 export function createDashboardSession(
   ttlMs: number = DASHBOARD_SESSION_TTL_MS,
+  identity: string = "",
 ): string {
   const { randomBytes } = require("crypto");
   const token = randomBytes(32).toString("base64url");
-  dashboardSessions.set(token, { expiresAt: Date.now() + ttlMs });
+  dashboardSessions.set(token, { expiresAt: Date.now() + ttlMs, identity });
 
-  // Every 64 mints, drop anything expired. Cheap LRU-ish cap in
-  // case a misbehaving client hammers /api/auth/login.
   if (dashboardSessions.size % 64 === 0) {
     pruneExpiredDashboardSessions();
   }
@@ -354,27 +346,34 @@ export function createDashboardSession(
   return token;
 }
 
+function getDashboardSession(
+  token: string,
+  now: number = Date.now(),
+): DashboardSession | null {
+  const entry = dashboardSessions.get(token);
+  if (!entry) return null;
+  if (entry.expiresAt <= now) {
+    dashboardSessions.delete(token);
+    return null;
+  }
+  return entry;
+}
+
 /**
  * Return true iff the token was minted by this process and has not
- * expired. Also removes the entry on expiry so repeated checks on
- * a dead token are free.
+ * expired. Also removes the entry on expiry so repeated checks on a dead
+ * token are free.
  */
 export function isValidDashboardSession(
   token: string,
   now: number = Date.now(),
 ): boolean {
-  const entry = dashboardSessions.get(token);
-  if (!entry) return false;
-  if (entry.expiresAt <= now) {
-    dashboardSessions.delete(token);
-    return false;
-  }
-  return true;
+  return getDashboardSession(token, now) !== null;
 }
 
 /**
- * Invalidate a specific session. Used by /api/auth/logout and by
- * tests; not called from the normal auth path.
+ * Invalidate a specific session. Used by /api/auth/logout and by tests;
+ * not called from the normal auth path.
  */
 export function revokeDashboardSession(token: string): boolean {
   return dashboardSessions.delete(token);
@@ -402,174 +401,338 @@ function clientIp(req: Request): string {
   return (req.headers.get("X-Real-IP") || "unknown").trim();
 }
 
-function loginPageHtml(message: string = ""): string {
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[c] as string));
+}
+
+export function loginPageHtml(message: string = ""): string {
   const banner = message
-    ? `<div style="color:#ef4444;margin-bottom:8px;font-size:0.9rem">${message}</div>`
+    ? `<div style="color:#ef4444;margin-bottom:12px;font-size:0.9rem">${escapeHtml(message)}</div>`
     : "";
   return `<!DOCTYPE html><html><head><title>Windy Fly</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <style>body{background:#0a0e17;color:#e2e8f0;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;font-family:system-ui}
-form{text-align:center}input{padding:12px 16px;border-radius:8px;border:1px solid #1e293b;background:#111827;color:#e2e8f0;margin:8px 0;width:250px}
-button{padding:12px 24px;border-radius:8px;border:none;background:#00d4ff;color:#000;font-weight:600;cursor:pointer;margin-top:8px}</style></head>
-<body><form method="POST" action="/api/auth/login"><div style="font-size:2rem;margin-bottom:16px">🪰</div><div>Windy Fly Dashboard</div>
-${banner}<input type="password" name="password" placeholder="Dashboard password" autocomplete="current-password" autofocus required/>
-<br/><button type="submit">Log In</button></form></body></html>`;
+main{text-align:center;padding:0 16px}a.btn{display:inline-block;padding:12px 24px;border-radius:8px;background:#00d4ff;color:#000;font-weight:600;text-decoration:none;margin-top:12px}</style></head>
+<body><main><div style="font-size:2rem;margin-bottom:16px">🪰</div><div style="margin-bottom:8px">Windy Fly Dashboard</div>
+${banner}<a class="btn" href="/api/auth/hub/start">Sign in with Windy</a></main></body></html>`;
+}
+
+// ── Hub sign-in: loopback + PKCE (token contract v1.1) ─────────────
+
+const HUB_AUTHORIZE_URL = process.env.HUB_OAUTH_AUTHORIZE_URL
+  || "https://account.windyword.ai/api/v1/oauth/authorize";
+const HUB_TOKEN_URL = process.env.HUB_OAUTH_TOKEN_URL
+  || "https://account.windyword.ai/api/v1/oauth/token";
+const HUB_CLIENT_ID = process.env.HUB_OAUTH_CLIENT_ID || "windy-fly-dashboard";
+const PKCE_STATE_TTL_MS = 10 * 60 * 1000;
+const PKCE_MAX_PENDING = 1_000;
+
+interface PendingSignIn {
+  verifier: string;
+  redirectUri: string;
+  expiresAt: number;
+}
+
+const pendingSignIns = new Map<string, PendingSignIn>();
+
+type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
+let hubFetch: FetchLike = (url, init) => fetch(url, init);
+
+/** Test hook: replace the fetch used for the hub token exchange. */
+export function _setHubFetch(f: FetchLike | null): void {
+  hubFetch = f || ((url, init) => fetch(url, init));
 }
 
 /**
- * Return true if the request presents a valid dashboard-auth factor.
+ * Where the hub should send the browser back to.
  *
- * Pure check: no rate-limit bucket consumption, no login-page render,
- * no exempt-path handling. Use this for auth gates OTHER than the
- * HTTP auth gate (e.g. WebSocket upgrade) where you want a simple
- * bool verdict and a bare 401 on failure.
+ * Hub rules for the `windy-fly-dashboard` client (8c, 2026-09-23): loopback
+ * redirects must be IP literals — `http://127.0.0.1:{port}` or
+ * `http://[::1]:{port}` (registered portless, so any port matches);
+ * `localhost` is REFUSED. So the redirect is built from the loopback
+ * literal and the port we actually bound, never from the Host header.
  *
- * Accepts, in priority order:
- *   1. `shouldBypassAuthForLocalhost` (dev-only convenience)
- *   2. `Authorization: Bearer <DASHBOARD_PASSWORD>`
- *   3. `Cookie: windy_auth=<DASHBOARD_PASSWORD>`
+ * A hosted origin (e.g. https://agent.windyword.ai behind a tunnel) is
+ * opt-in via HUB_OAUTH_PUBLIC_ORIGIN, and only once the hub registers it.
  *
- * Production without a valid factor → false. Dev without a
- * DASHBOARD_PASSWORD → false (distinct from HTTP's 403 "open-dev
- * mode" response, which is a UX affordance, not a trust signal).
+ * Returns the origin, or a Response to send instead (a bounce from
+ * `localhost` to 127.0.0.1 so the session cookie lands on the same origin
+ * as the callback, or a refusal for a non-loopback host).
+ */
+function signInOrigin(req: Request): { origin: string } | { response: Response } {
+  const configured = (process.env.HUB_OAUTH_PUBLIC_ORIGIN || "").replace(/\/$/, "");
+  if (configured) return { origin: configured };
+
+  const url = new URL(req.url);
+  const host = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  if (host === "127.0.0.1") return { origin: `http://127.0.0.1:${PORT}` };
+  if (host === "::1") return { origin: `http://[::1]:${PORT}` };
+  if (host === "localhost") {
+    return {
+      response: new Response(null, {
+        status: 302,
+        headers: { Location: `http://127.0.0.1:${PORT}${url.pathname}${url.search}` },
+      }),
+    };
+  }
+  return {
+    response: new Response(loginPageHtml(
+      "Windy sign-in for this dashboard only works on this computer " +
+      `(open http://127.0.0.1:${PORT}). Hosted sign-in isn't enabled for this agent yet.`,
+    ), { status: 400, headers: { "Content-Type": "text/html; charset=utf-8" } }),
+  };
+}
+
+function pkcePair(): { verifier: string; challenge: string } {
+  const { randomBytes, createHash } = require("crypto");
+  const verifier = randomBytes(32).toString("base64url");
+  const challenge = createHash("sha256").update(verifier).digest("base64url");
+  return { verifier, challenge };
+}
+
+export function handleHubStart(req: Request): Response {
+  const ip = clientIp(req);
+  if (isRateLimited(ip, "auth")) {
+    return new Response("Too many sign-in attempts — try again in a minute.",
+      { status: 429, headers: { "Retry-After": "60" } });
+  }
+  const now = Date.now();
+  for (const [k, v] of pendingSignIns) if (v.expiresAt <= now) pendingSignIns.delete(k);
+  if (pendingSignIns.size >= PKCE_MAX_PENDING) {
+    const oldest = pendingSignIns.keys().next().value;
+    if (oldest !== undefined) pendingSignIns.delete(oldest);
+  }
+
+  const where = signInOrigin(req);
+  if ("response" in where) return where.response;
+
+  const { randomBytes } = require("crypto");
+  const state = randomBytes(24).toString("base64url");
+  const { verifier, challenge } = pkcePair();
+  const redirectUri = `${where.origin}/api/auth/hub/callback`;
+  pendingSignIns.set(state, { verifier, redirectUri, expiresAt: now + PKCE_STATE_TTL_MS });
+
+  const authorize = new URL(HUB_AUTHORIZE_URL);
+  authorize.searchParams.set("response_type", "code");
+  authorize.searchParams.set("client_id", HUB_CLIENT_ID);
+  authorize.searchParams.set("redirect_uri", redirectUri);
+  authorize.searchParams.set("code_challenge", challenge);
+  authorize.searchParams.set("code_challenge_method", "S256");
+  authorize.searchParams.set("state", state);
+  return new Response(null, { status: 302, headers: { Location: authorize.toString() } });
+}
+
+function htmlPage(status: number, message: string): Response {
+  return new Response(loginPageHtml(message), {
+    status, headers: { "Content-Type": "text/html; charset=utf-8" },
+  });
+}
+
+export async function handleHubCallback(req: Request): Promise<Response> {
+  const url = new URL(req.url);
+  const state = url.searchParams.get("state") || "";
+  const code = url.searchParams.get("code") || "";
+  const hubError = url.searchParams.get("error");
+
+  const pending = state ? pendingSignIns.get(state) : undefined;
+  if (state) pendingSignIns.delete(state); // single use, success or not
+  if (!pending || pending.expiresAt <= Date.now()) {
+    isRateLimited(clientIp(req), "auth");
+    return htmlPage(400, "That sign-in link expired or was already used. Please try again.");
+  }
+  if (hubError || !code) {
+    return htmlPage(401, `Sign-in was not completed (${hubError || "no code"}).`);
+  }
+
+  let accessToken = "";
+  try {
+    const resp = await hubFetch(HUB_TOKEN_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        code,
+        redirect_uri: pending.redirectUri,
+        client_id: HUB_CLIENT_ID,
+        code_verifier: pending.verifier,
+      }).toString(),
+      signal: AbortSignal.timeout(15_000),
+    });
+    const body = (await resp.json().catch(() => ({}))) as { access_token?: string };
+    if (!resp.ok || !body.access_token) {
+      return htmlPage(502, "Windy sign-in could not be completed (token exchange failed).");
+    }
+    accessToken = body.access_token;
+  } catch {
+    return htmlPage(502, "Windy sign-in is unreachable right now. Please try again.");
+  }
+
+  const verified = await verifyHubJwt(accessToken);
+  if (!verified.ok) {
+    isRateLimited(clientIp(req), "auth");
+    return htmlPage(401, `Windy sign-in token was rejected (${verified.reason}).`);
+  }
+  if (!isOwner(verified.claims)) {
+    isRateLimited(clientIp(req), "auth");
+    if (verified.claims.email_verified === false) {
+      return htmlPage(403,
+        "Please verify your email address with Windy first, then sign in again.");
+    }
+    return htmlPage(403,
+      "You're signed in to Windy, but this agent belongs to someone else. " +
+      "Only the agent's owner can open its dashboard.");
+  }
+
+  const sessionToken = createDashboardSession(DASHBOARD_SESSION_TTL_MS, identityOf(verified.claims));
+  // Secure only on an https origin: the loopback flow is plain
+  // http://127.0.0.1, and the cookie must land on that same origin.
+  const secure = pending.redirectUri.startsWith("https://") ? " Secure;" : "";
+  return new Response(null, {
+    status: 302,
+    headers: {
+      Location: "/",
+      "Set-Cookie":
+        `windy_auth=${sessionToken}; Path=/; HttpOnly; ` +
+        `SameSite=Lax;${secure} Max-Age=86400`,
+    },
+  });
+}
+
+/**
+ * Pure, synchronous check used where there's no time for a JWT round
+ * trip (WebSocket upgrades — browsers can't set Authorization on a WS
+ * anyway). Accepts the dev loopback bypass or a live session cookie.
  */
 export function isDashboardAuthValid(
   req: Request,
   server: import("bun").Server<any>,
 ): boolean {
   if (shouldBypassAuthForLocalhost(req, server, WINDYFLY_ENV)) return true;
-  if (!DASHBOARD_PASSWORD) return false;
-
-  const authHeader = req.headers.get("Authorization") || "";
-  if (
-    authHeader.startsWith("Bearer ")
-    && safeStringEqual(authHeader.slice("Bearer ".length), DASHBOARD_PASSWORD)
-  ) {
-    return true;
-  }
-
-  // Wave 14 P1: cookies carry an opaque session token, not the raw
-  // DASHBOARD_PASSWORD. We look up the token in the server-side
-  // session store — a stolen cookie is revocable (per-session) and
-  // no longer leaks the master secret.
   const cookieVal = parseCookie(req.headers.get("Cookie") || "", "windy_auth");
-  if (cookieVal && isValidDashboardSession(cookieVal)) {
-    return true;
-  }
-
-  return false;
+  return !!(cookieVal && isValidDashboardSession(cookieVal));
 }
 
-function checkDashboardAuth(req: Request, server: import("bun").Server<any>): Response | null {
-  // Health + webhooks + login are exempt from dashboard auth.
-  // Webhook receiver is its own auth (HMAC + JWS in Python).
-  // /hatch/remote is exempt because the broker_token in the request
-  // body is itself a short-lived authorization factor minted by
-  // windy-pro — dashboard auth would be redundant and break the
-  // Electron app's "Grandma Ribbon" ceremony for remote agents.
-  const url = new URL(req.url);
-  if (url.pathname === "/api/health") return null;
-  if (url.pathname === "/api/auth/login") return null;
-  if (url.pathname === "/api/webhooks/trust") return null;
-  if (url.pathname === "/hatch/remote") return null;
+/**
+ * Resolve the owner identity behind a request, or null when it isn't the
+ * owner. Order: session cookie → `Authorization: Bearer <hub JWT>` →
+ * dev loopback bypass (which speaks for the configured owner).
+ */
+export async function ownerIdentityFor(
+  req: Request,
+  server: import("bun").Server<any>,
+): Promise<string | null> {
+  const cookieVal = parseCookie(req.headers.get("Cookie") || "", "windy_auth");
+  if (cookieVal) {
+    const s = getDashboardSession(cookieVal);
+    if (s) return s.identity || ownerIdentity() || "local-dev";
+  }
+  const authHeader = req.headers.get("Authorization") || "";
+  if (authHeader.startsWith("Bearer ")) {
+    const verified = await verifyHubJwt(authHeader.slice("Bearer ".length).trim());
+    if (verified.ok && isOwner(verified.claims)) return identityOf(verified.claims);
+    return null;
+  }
+  if (shouldBypassAuthForLocalhost(req, server, WINDYFLY_ENV)) {
+    return ownerIdentity() || "local-dev";
+  }
+  return null;
+}
 
-  // Wave 14 P0: the loopback bypass is disabled in production because
-  // nginx→Bun makes every public request arrive from 127.0.0.1. Dev
-  // still allows direct-loopback bypass for developer convenience —
-  // see shouldBypassAuthForLocalhost for policy.
+const AUTH_EXEMPT_PATHS = new Set([
+  "/api/health",
+  "/api/auth/hub/start",
+  "/api/auth/hub/callback",
+  "/api/webhooks/trust", // its own auth: HMAC (+ JWS) verified in Python
+  "/hatch/remote",       // broker_token in the body is the auth factor
+]);
+
+async function checkDashboardAuth(
+  req: Request,
+  server: import("bun").Server<any>,
+): Promise<Response | null> {
+  const url = new URL(req.url);
+  if (AUTH_EXEMPT_PATHS.has(url.pathname)) return null;
+
+  // Wave 14 P0: the loopback bypass is disabled in production because a
+  // reverse proxy makes every public request arrive from 127.0.0.1.
   if (shouldBypassAuthForLocalhost(req, server, WINDYFLY_ENV)) return null;
 
-  if (!DASHBOARD_PASSWORD) {
-    // validateDashboardAuthConfig has already failed-closed in prod;
-    // we only get here in dev mode with an intentionally empty
-    // password. Don't silently allow — force the visitor to
-    // acknowledge that the dashboard is open by exposing the warning
-    // on every request.
+  // Rate-limit auth probes before doing any verification work.
+  const ip = clientIp(req);
+  if (isRateLimited(ip, "auth")) {
+    return new Response("Too many auth attempts — try again in a minute.",
+      { status: 429, headers: { "Retry-After": "60" } });
+  }
+
+  if (await ownerIdentityFor(req, server)) return null;
+
+  if (!ownerIdentity()) {
+    // Dev with no owner recorded: nobody can sign in from off-box.
     return new Response(
-      "Dashboard is in open-dev mode (DASHBOARD_PASSWORD unset). " +
-      "Set WINDYFLY_ENV=production + DASHBOARD_PASSWORD to enable auth.",
+      "This agent has no owner recorded (WINDY_IDENTITY_ID unset), so its " +
+      "dashboard is only reachable from a direct loopback connection.",
       { status: 403, headers: { "Content-Type": "text/plain" } },
     );
   }
 
-  // Rate-limit auth probes. We do this *before* comparing the password
-  // so a brute-forcer can't even time the compare.
-  const ip = clientIp(req);
-  if (isRateLimited(ip, "auth")) {
-    return new Response("Too many auth attempts — try again in a minute.",
-      { status: 429, headers: { "Retry-After": "60" } });
-  }
-
-  if (isDashboardAuthValid(req, server)) return null;
-
   return new Response(loginPageHtml(), {
-    status: 401, headers: { "Content-Type": "text/html" },
+    status: 401, headers: { "Content-Type": "text/html; charset=utf-8" },
   });
 }
 
-async function handleLogin(req: Request): Promise<Response> {
-  if (req.method !== "POST") {
-    return new Response(loginPageHtml(), {
-      status: 405, headers: { "Content-Type": "text/html", "Allow": "POST" },
-    });
-  }
-  if (!DASHBOARD_PASSWORD) {
-    return new Response("Login disabled (no DASHBOARD_PASSWORD configured)", {
-      status: 503,
-    });
-  }
-  const ip = clientIp(req);
-  if (isRateLimited(ip, "auth")) {
-    return new Response("Too many auth attempts — try again in a minute.",
-      { status: 429, headers: { "Retry-After": "60" } });
-  }
-
-  const contentType = req.headers.get("Content-Type") || "";
-  let password = "";
-  if (contentType.includes("application/x-www-form-urlencoded")) {
-    const body = await req.text();
-    password = new URLSearchParams(body).get("password") || "";
-  } else if (contentType.includes("application/json")) {
-    try {
-      const body = await req.json() as { password?: string };
-      password = body.password || "";
-    } catch {
-      return new Response(loginPageHtml("Invalid request"), {
-        status: 400, headers: { "Content-Type": "text/html" },
-      });
-    }
-  } else {
-    return new Response(loginPageHtml("Unsupported content type"), {
-      status: 415, headers: { "Content-Type": "text/html" },
-    });
-  }
-
-  if (!safeStringEqual(password, DASHBOARD_PASSWORD)) {
-    return new Response(loginPageHtml("Wrong password"), {
-      status: 401, headers: { "Content-Type": "text/html" },
-    });
-  }
-
-  // Wave 14 P1: mint a fresh opaque session token instead of echoing
-  // the master secret into the cookie. The token is a random 32-byte
-  // value keyed server-side with a 24h TTL; rotating DASHBOARD_PASSWORD
-  // doesn't invalidate live sessions, and revoking a single session
-  // doesn't require touching the master secret.
-  const sessionToken = createDashboardSession();
+function handleLogout(req: Request): Response {
+  const cookieVal = parseCookie(req.headers.get("Cookie") || "", "windy_auth");
+  if (cookieVal) revokeDashboardSession(cookieVal);
   return new Response(null, {
     status: 302,
     headers: {
-      "Location": "/",
-      "Set-Cookie":
-        `windy_auth=${sessionToken}; Path=/; HttpOnly; ` +
-        `SameSite=Strict; Secure; Max-Age=86400`,
+      Location: "/",
+      "Set-Cookie": "windy_auth=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0",
     },
   });
 }
 
-async function handleRequest(req: Request, server: import("bun").Server<any>): Promise<Response> {
+// ── Owner pairing (link a chat app) ────────────────────────────────
+// The dashboard mints a one-time code through the Python bridge; the
+// owner sends `/pair <code>` to the agent on Telegram/Signal/etc., which
+// binds that sender as the owner on that platform. Replaces the old
+// "first sender becomes owner" (TOFU) fallback.
+
+export const PAIR_CODE_TTL_SECONDS = 600;
+
+export async function handlePairCode(
+  req: Request,
+  server: import("bun").Server<any>,
+  headers: Record<string, string>,
+): Promise<Response> {
+  const identity = await ownerIdentityFor(req, server);
+  if (!identity) {
+    return Response.json({ error: "owner sign-in required" }, { status: 401, headers });
+  }
+  const result = await bridge.call("owner.pair.create", {
+    owner_identity: identity,
+    ttl_seconds: PAIR_CODE_TTL_SECONDS,
+  }) as { code?: string; expires_at?: string; error?: string };
+  if (!result || typeof result.code !== "string") {
+    return Response.json(
+      { error: result?.error || "the agent could not create a pairing code" },
+      { status: 502, headers },
+    );
+  }
+  return Response.json({ code: result.code, expires_at: result.expires_at }, { headers });
+}
+
+// Eternitas trust webhooks are small JSON events. Cap the body so an
+// unauthenticated sender can't make us buffer and forward megabytes to the
+// Python verifier before the HMAC check rejects it.
+export const TRUST_WEBHOOK_MAX_BYTES = 64 * 1024;
+
+export async function handleRequest(req: Request, server: import("bun").Server<any>): Promise<Response> {
   // Auth check for VPS deployments — pass server so we can read the
   // peer address, not a forgeable Host header.
-  const authResponse = checkDashboardAuth(req, server);
+  const authResponse = await checkDashboardAuth(req, server);
   if (authResponse) return authResponse;
 
   const url = new URL(req.url);
@@ -603,9 +766,21 @@ async function handleRequest(req: Request, server: import("bun").Server<any>): P
   }
 
   try {
-    // Auth — POST form login, sets cookie on match.
-    if (path === "/api/auth/login") {
-      return handleLogin(req);
+    // Auth — owner sign-in with the Windy hub (loopback + PKCE).
+    if (path === "/api/auth/hub/start" && req.method === "GET") {
+      return handleHubStart(req);
+    }
+    if (path === "/api/auth/hub/callback" && req.method === "GET") {
+      return handleHubCallback(req);
+    }
+    if (path === "/api/auth/logout" && req.method === "POST") {
+      return handleLogout(req);
+    }
+
+    // Owner pairing: one-time code the owner sends to the agent as
+    // `/pair <code>` to link a chat app (replaces first-sender-is-owner).
+    if (path === "/api/owner/pair-code" && req.method === "POST") {
+      return handlePairCode(req, server, headers);
     }
 
     // Trust webhook receiver. Signature verification happens on the
@@ -613,7 +788,14 @@ async function handleRequest(req: Request, server: import("bun").Server<any>): P
     // body + headers so the bytes the HMAC saw are the bytes that
     // land at the verifier.
     if (path === "/api/webhooks/trust" && req.method === "POST") {
+      const declared = Number(req.headers.get("Content-Length") || "0");
+      if (declared > TRUST_WEBHOOK_MAX_BYTES) {
+        return Response.json({ ok: false, error: "payload too large" }, { status: 413, headers });
+      }
       const raw = new Uint8Array(await req.arrayBuffer());
+      if (raw.byteLength > TRUST_WEBHOOK_MAX_BYTES) {
+        return Response.json({ ok: false, error: "payload too large" }, { status: 413, headers });
+      }
       const bodyB64 = Buffer.from(raw).toString("base64");
       const inboundHeaders: Record<string, string> = {};
       req.headers.forEach((v, k) => { inboundHeaders[k] = v; });
@@ -1789,6 +1971,9 @@ async function main() {
 
   const server = Bun.serve({
     port: PORT,
+    // Default stays 0.0.0.0 for existing installs; a deploy behind a
+    // tunnel/proxy sets GATEWAY_HOST=127.0.0.1 so nothing else can reach it.
+    hostname: process.env.GATEWAY_HOST || "0.0.0.0",
     fetch(req, server) {
       const pathname = new URL(req.url).pathname;
       const isWsChat = pathname === "/ws/chat";
@@ -1815,9 +2000,8 @@ async function main() {
             status: 401,
             headers: {
               "Content-Type": "text/plain",
-              // Hint to browsers that HTTP Basic could be used, though
-              // in practice the dashboard flow sets the cookie via
-              // POST /api/auth/login.
+              // The browser flow gets its session cookie from the hub
+              // sign-in at /api/auth/hub/start.
               "WWW-Authenticate": 'Bearer realm="windy-fly-dashboard"',
             },
           });

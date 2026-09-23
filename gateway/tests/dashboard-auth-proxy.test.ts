@@ -58,7 +58,7 @@ describe("shouldBypassAuthForLocalhost — production", () => {
 describe("shouldBypassAuthForLocalhost — non-production (dev)", () => {
   test("allows bypass for direct loopback with no proxy headers", () => {
     // Developer hitting http://localhost:3000 during dev should not
-    // be forced through the password form.
+    // be forced through the sign-in page.
     const req = reqWith();
     expect(shouldBypassAuthForLocalhost(req, mockServer("127.0.0.1"), "dev")).toBe(true);
     expect(shouldBypassAuthForLocalhost(req, mockServer("::1"), "dev")).toBe(true);
