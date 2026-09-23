@@ -90,7 +90,12 @@ class TestSendEmailHappyPath:
             body="Body text",
         )
 
-        adapter.send_email.assert_called_once_with("alice@example.com", "Hello", "Body text")
+        # The body gains the one-line AI-agent footer (legal review 09-23).
+        adapter.send_email.assert_called_once()
+        to, subject, sent_body = adapter.send_email.call_args.args
+        assert (to, subject) == ("alice@example.com", "Hello")
+        assert sent_body.startswith("Body text\n\n--\nSent by ")
+        assert "an AI agent acting for" in sent_body
         # 2026-05-14: send_email annotates the result with a ``provider``
         # key ("windymail" or "resend") so downstream observability + the
         # LLM can reason about which send path answered. Adapter fields

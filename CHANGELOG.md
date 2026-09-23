@@ -89,6 +89,12 @@
   revoked (start over with `windy go --force`) or suspended (reversible: the
   agent keeps its identity; no `--force`).
 
+- **Consent for messages to other people** (legal review, 2026-09-23).
+  - **Texts:** the first text to any new number now needs the owner's yes. `send_sms` returns `confirm_required` with a question the agent must relay word for word, and only `confirm_sms` (single-use, 10 minutes, bound to the exact text) sends it and remembers the number.
+  - Every text ends with "— <agent>, AI assistant for <owner>. Reply STOP to opt out."; a `recipient_opted_out` answer is final and never retried.
+  - **SMS itself stays off** until a sender that enforces STOP exists: without one, the tool says "SMS isn't available yet for Windy Fly agents."
+  - **Emails:** every email now ends "Sent by <agent>, an AI agent acting for <owner>.", and the Resend path adds `X-Windy-Agent: <passport>`.
+
 ## 0.7.2.1
 
 Found by the 0.7.2 clean-machine proof from PyPI:
