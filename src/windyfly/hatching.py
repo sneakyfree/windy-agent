@@ -274,7 +274,11 @@ def show_ecosystem_status(hatch_result=None, config: dict | None = None) -> None
     # ── Eternitas ──
     passport_id = getattr(hatch_result, "passport_id", "") or os.environ.get("ETERNITAS_PASSPORT", "")
     eternitas_errors = [e for e in errors if e.startswith("Eternitas:")]
-    if passport_id:
+    dead = os.environ.get("_WINDYFLY_PASSPORT_DEAD", "")
+    if passport_id and dead:
+        table.add_row("Eternitas", f"[red]{dead.title()}[/red]",
+                      f"{passport_id} — `windy go --force` for a new identity")
+    elif passport_id:
         # "(local)" only for a mock/offline issuer. A passport from the real
         # issuer (the default since 0.7.2, often not set in config) is real.
         from windyfly.eternitas.url import issuer_url
@@ -301,7 +305,7 @@ def show_ecosystem_status(hatch_result=None, config: dict | None = None) -> None
         elif matrix_errors:
             table.add_row("Windy Chat", "[yellow]Offline[/yellow]", "\u26a0\ufe0f  Chat: offline (will connect when available)")
         else:
-            table.add_row("Windy Chat", "[dim]Pending[/dim]", "Set SYNAPSE_REGISTRATION_SECRET to enable")
+            table.add_row("Windy Chat", "[dim]Not set up[/dim]", "Not connected yet")
     else:
         table.add_row("Windy Chat", "[green]Active[/green]", matrix_user)
 

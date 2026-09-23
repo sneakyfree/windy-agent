@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased (0.7.3)
+
+Found by the 0.7.2 clean-machine proof from PyPI:
+
+- **`windy deregister` works on a pip install.** It now loads the agent's own
+  env file (WINDY_ENV_FILE, else the project `.env`), like `windy ept refresh`,
+  so it finds the agent's passport without `--passport`, and after revoking it
+  comments the dead token out of `.env` (with a backup) as intended.
+- **`windy go` no longer shows a revoked passport as active.** It checks for the
+  `# REVOKED` mark `windy deregister` leaves, then asks Eternitas's public
+  registry (one 4-second call, fails open), and says plainly that the passport
+  is revoked or suspended and that `windy go --force` hatches a new identity,
+  instead of "✓ already has a passport" and "✓ Free Windy Mind brain connected".
+- `.env` is written owner-only (0600): it holds the passport token.
+- `windy login` flushes the sign-in link, so it shows up when output is piped
+  (containers, CI).
+- The post-hatch screens stop asking a customer for `SYNAPSE_REGISTRATION_SECRET`,
+  stop printing a gateway log path when no gateway runs, and no longer tell the
+  user to "click the link" when there's no link.
+
 ## 0.7.2
 
 **Terminal hatching now signs in with your Windy account.** Eternitas is

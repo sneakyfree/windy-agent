@@ -176,7 +176,9 @@ def _write_env_keeping_identity(env_lines: list[str]) -> None:
         else:
             out.append(line)
     out.extend(f"{k}={v}" for k, v in kept.items())
-    env_file.write_text("\n".join(out) + "\n", encoding="utf-8")
+    from windyfly.platform import write_private_text
+
+    write_private_text(env_file, "\n".join(out) + "\n")
 
 
 def existing_passport() -> str:
@@ -201,6 +203,44 @@ def existing_passport() -> str:
     if token and not token.startswith("mock-"):
         return _passport_from_ept(token) or "(passport token on file)"
     return ""
+
+
+def passport_status(passport: str, *, online: bool | None = None) -> str:
+    """"revoked"/"suspended" when this agent's passport is known dead, else "".
+
+    Local first: `windy deregister` comments the token out as ``# REVOKED …``
+    in the agent's .env. Otherwise one public registry lookup (no auth, 4s,
+    fails open to ""), so a passport revoked from elsewhere isn't shown as
+    active. The lookup is skipped under pytest unless ``online=True``.
+    """
+    for line in _read_raw_lines(PROJECT_ROOT / ".env"):
+        if line.startswith("# REVOKED ") and f", {passport})" in line:
+            if not _read_env_values(PROJECT_ROOT / ".env").get("ETERNITAS_PASSPORT_TOKEN"):
+                return "revoked"
+    if online is None:
+        online = not os.environ.get("PYTEST_CURRENT_TEST")
+    if not online or not passport.startswith("ET"):
+        return ""
+    try:
+        import httpx
+
+        from windyfly.eternitas.url import resolve_eternitas_url
+
+        base = resolve_eternitas_url("https://api.eternitas.ai")
+        if not base.startswith("http"):
+            return ""
+        resp = httpx.get(f"{base}/api/v1/registry/verify/{passport}", timeout=4.0)
+        status = str(resp.json().get("status") or "") if resp.status_code == 200 else ""
+    except Exception:
+        return ""
+    return status if status in ("revoked", "suspended") else ""
+
+
+def _read_raw_lines(path: Path) -> list[str]:
+    try:
+        return path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
 
 
 def write_quick_config(
@@ -447,6 +487,17 @@ def _report_keyless_brain_status() -> None:
     placeholder → the cloud brain isn't connected; the agent will run on the
     local Ollama lifeboat until it's hatched properly (e.g. on windyword.ai).
     """
+    dead = os.environ.get("_WINDYFLY_PASSPORT_DEAD")
+    if dead:
+        console.print(
+            f"  [yellow]⚠[/yellow]  The free Windy Mind brain isn't connected: "
+            f"this agent's passport is {dead}."
+        )
+        console.print(
+            "     [dim]I'll run on a local model. [bold]windy go --force[/bold] "
+            "hatches a new identity.[/dim]"
+        )
+        return
     ept = ""
     env_file = PROJECT_ROOT / ".env"
     if env_file.exists():
@@ -829,6 +880,21 @@ def _try_hatch_provisioning(non_interactive: bool = False) -> None:
     """
     already = existing_passport()
     if already and not os.environ.get("_WINDYFLY_FORCE_HATCH"):
+        dead = passport_status(already)
+        if dead:
+            os.environ["_WINDYFLY_PASSPORT_DEAD"] = dead
+            os.environ["_WINDYFLY_HATCHING_PLAYED"] = "1"
+            console.print(
+                f"  [red]✗[/red] 🪪  This agent's passport ({already}) is {dead} at Eternitas."
+            )
+            console.print(
+                "     Windy services refuse it, so this identity can't use the free "
+                "Windy Mind brain, Mail, Chat or Search."
+            )
+            console.print(
+                "     [dim]To start over with a new identity: [bold]windy go --force[/bold].[/dim]"
+            )
+            return
         console.print(
             f"  [green]✓[/green] 🪪  This agent already has a passport ({already}) "
             "— not hatching again."
@@ -1038,8 +1104,7 @@ def _try_hatch_provisioning(non_interactive: bool = False) -> None:
                 nudge_lines.append(f"    [green]Check your texts:[/green] {owner_phone}")
             nudge_lines.append("")
         nudge_lines.extend([
-            "  Click the link to open [bold]Windy Chat[/bold] and we can talk properly.",
-            "  Or download [bold]Windy Word[/bold] on your phone!",
+            "  Download [bold]Windy Word[/bold] on your phone and we can talk properly!",
             "",
             "  [dim]You can always come back to this terminal with:[/dim] [bold]windy start --cli[/bold]",
         ])

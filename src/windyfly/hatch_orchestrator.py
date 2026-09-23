@@ -469,7 +469,9 @@ def _persist_env_var(key: str, value: str) -> None:
                     lines.append(line)
         if not written:
             lines.append(f"{key}={value}")
-        env_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        from windyfly.platform import write_private_text
+
+        write_private_text(env_file, "\n".join(lines) + "\n")
     except OSError as exc:
         logger.warning("Could not persist %s to .env: %s", key, exc)
 

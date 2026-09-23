@@ -306,13 +306,23 @@ class _CallbackHandler(http.server.BaseHTTPRequestHandler):
             self._reply(200, "You're signed in. You can close this tab and go back to the terminal.")
 
 
+def _say(message: str) -> None:
+    # Flushed: when stdout is a pipe (CI, a container, `windy login | tee`)
+    # it is block-buffered, and the sign-in URL sat in the buffer while
+    # login() waited for a sign-in that needed that very URL.
+    import sys
+
+    sys.stdout.write(message + "\n")
+    sys.stdout.flush()
+
+
 def login(
     open_browser: bool = True,
     *,
     timeout: float = LOGIN_TIMEOUT_S,
     transport: httpx.BaseTransport | None = None,
     on_url: Callable[[str], None] | None = None,
-    echo: Callable[[str], None] = print,
+    echo: Callable[[str], None] = _say,
 ) -> dict[str, Any]:
     """Run the browser sign-in and store the session. Returns {windy_identity_id}.
 
