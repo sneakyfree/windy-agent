@@ -26,6 +26,7 @@ EVENT_TYPES = frozenset({
     "decay.run",
     "matrix.message",
     "matrix.reconnect",
+    "telegram.reconnect",
     "personality.change",
     "personality_drift",
     "offline.fallback",
