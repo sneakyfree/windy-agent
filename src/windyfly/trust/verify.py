@@ -250,13 +250,21 @@ def verify_webhook(
 ) -> VerifyResult:
     """Verify both signatures on an inbound trust.changed webhook.
 
-    Strict mode: both signatures must verify. When neither is
-    configured AND WINDYFLY_TRUST_STRICT is unset, we fail open with
-    a warning — preserves the dev-mode ergonomic, same as the trust
-    gate.
+    Strict mode (WINDYFLY_TRUST_STRICT, or WINDYFLY_ENV=production):
+    the HMAC secret must be configured and both signatures must verify.
+    Outside strict mode, when nothing is configured and no signatures
+    are offered, we fail open with a warning — the dev-mode ergonomic.
     """
-    strict = os.environ.get("WINDYFLY_TRUST_STRICT", "").lower() in ("1", "true", "yes")
+    # Production is always strict (SSO #5): an agent that ships without
+    # ETERNITAS_WEBHOOK_SECRET must refuse revocations it can't verify,
+    # never act on them unsigned. Dev keeps the fail-open ergonomic.
+    strict = (
+        os.environ.get("WINDYFLY_TRUST_STRICT", "").lower() in ("1", "true", "yes")
+        or os.environ.get("WINDYFLY_ENV", "").lower() == "production"
+    )
     hmac_secret = hmac_secret if hmac_secret is not None else os.environ.get("ETERNITAS_WEBHOOK_SECRET", "")
+    if strict and not hmac_secret:
+        return VerifyResult(False, "ETERNITAS_WEBHOOK_SECRET not configured (strict mode)")
     if eternitas_url is None:
         from windyfly.eternitas.url import resolve_eternitas_url
         eternitas_url = resolve_eternitas_url()

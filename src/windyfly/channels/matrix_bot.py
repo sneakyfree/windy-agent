@@ -319,9 +319,10 @@ class WindyFlyMatrixBot(ChannelAdapter):
         sender = event.sender
         display_name = room.user_name(sender) or sender
 
+        from windyfly.channels.pairing import loggable
         logger.info(
             "Message from %s in %s: %s",
-            display_name, room_id, body[:100],
+            display_name, room_id, loggable(body)[:100],
         )
 
         # Unified command detection (Matrix uses ! prefix)
@@ -623,13 +624,38 @@ class WindyFlyMatrixBot(ChannelAdapter):
         if not room_id:
             return
         rooms = getattr(self.client, "rooms", {}) or {}
-        if room_id in rooms:
+        if room_id not in rooms:
+            try:
+                await self.client.join(room_id)
+                logger.info("Joined hatch DM room %s", room_id)
+            except Exception as exc:
+                logger.warning("Could not join hatch DM room %s: %s", room_id, exc)
+                return
+        await self._pin_hatch_owner(room_id)
+
+    async def _pin_hatch_owner(self, room_id: str) -> None:
+        """Bind the hatch DM room's owner as this agent's Matrix owner.
+
+        No more Trust-On-First-Use, so a freshly hatched agent must learn
+        its owner some other way. The hatch DM room is created BY the
+        agent's own account with the owner as the one invitee (windy-chat
+        createAgentDMRoom), so "the member this agent itself invited" is
+        the owner. Only fills a gap: an owner already known for matrix
+        (env, config, pairing, an earlier binding) is never replaced.
+        """
+        from windyfly.channels.identity import bind_owner, owner_ids
+
+        if owner_ids(self.config).get("matrix"):
             return
         try:
-            await self.client.join(room_id)
-            logger.info("Joined hatch DM room %s", room_id)
+            resp = await self.client.room_get_state(room_id)
         except Exception as exc:
-            logger.warning("Could not join hatch DM room %s: %s", room_id, exc)
+            logger.warning("Could not read hatch DM room state %s: %s", room_id, exc)
+            return
+        owner = hatch_owner_from_state(getattr(resp, "events", None) or [], self.bot_user_id)
+        if owner:
+            bind_owner("matrix", owner)
+            logger.warning("Pinned hatch owner %s as Matrix owner (room %s)", owner, room_id)
 
     def _setup_signal_handlers(self, loop: asyncio.AbstractEventLoop) -> None:
         """Register SIGTERM and SIGINT handlers for graceful shutdown."""
@@ -900,3 +926,30 @@ class WindyFlyMatrixBot(ChannelAdapter):
             "TELUGU": "te",
         }
         return script_map.get(dominant, "en")
+
+
+def hatch_owner_from_state(events: list, agent_id: str) -> str | None:
+    """The owner of a hatch DM room, read from its state.
+
+    The hatch room is created BY the agent (windy-chat createAgentDMRoom)
+    with the owner as its only invitee. So: the room must have been
+    created by ``agent_id``, and exactly one other user may be invited or
+    joined. Anything else (someone else created it, a third member,
+    nobody else yet) returns None rather than guessing an owner.
+    """
+    created_by_agent = False
+    members = set()
+    for ev in events:
+        if not isinstance(ev, dict):
+            continue
+        if ev.get("type") == "m.room.create":
+            creator = (ev.get("content") or {}).get("creator") or ev.get("sender")
+            created_by_agent = creator == agent_id
+        elif ev.get("type") == "m.room.member":
+            target = ev.get("state_key")
+            membership = (ev.get("content") or {}).get("membership")
+            if target and target != agent_id and membership in ("invite", "join"):
+                members.add(target)
+    if created_by_agent and len(members) == 1:
+        return members.pop()
+    return None

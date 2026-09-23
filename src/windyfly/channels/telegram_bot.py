@@ -756,7 +756,7 @@ class TelegramChannel(ChannelAdapter):
 
         # Auth gate — same as text path.
         sender_id = str(update.message.from_user.id)
-        if self._allowed_user_ids and sender_id not in self._allowed_user_ids:
+        if not self._sender_allowed(sender_id):
             logger.warning(
                 "Dropping Telegram voice from unauthorized sender %s",
                 sender_id,
@@ -978,16 +978,36 @@ class TelegramChannel(ChannelAdapter):
         except Exception as e:
             logger.warning("voice-out send failed: %s", e)
 
+    def _sender_allowed(self, sender_id: str) -> bool:
+        """Allowlist check that also honours an owner bound by pairing.
+
+        ``allowed_user_ids`` is fixed at construction from the env; a
+        Telegram owner bound later via ``/pair`` lives in the persisted
+        owner bindings, so read those too (cheap: one small JSON file).
+        """
+        if not self._allowed_user_ids or sender_id in self._allowed_user_ids:
+            return True
+        from windyfly.channels.identity import owner_ids
+        return sender_id in owner_ids().get("telegram", set())
+
     async def _handle(self, update, context) -> None:
         if not update.message or not update.message.text:
             return
 
         sender_id = str(update.message.from_user.id)
-        if self._allowed_user_ids and sender_id not in self._allowed_user_ids:
-            logger.warning("Dropping Telegram message from unauthorized sender %s", sender_id)
+        text = update.message.text
+
+        # Owner pairing runs BEFORE the allowlist drop: a sender who isn't
+        # on the list yet is exactly who pairing is for.
+        from windyfly.channels.pairing import try_pair
+        pair_reply = try_pair("telegram", sender_id, text)
+        if pair_reply is not None:
+            await self._send_long_reply(update.message, pair_reply)
             return
 
-        text = update.message.text
+        if not self._sender_allowed(sender_id):
+            logger.warning("Dropping Telegram message from unauthorized sender %s", sender_id)
+            return
 
         # ── PAUSE / RESUME / SPEND / YOLO — process BEFORE panic
         # check so the spend controls are even faster than nuclear
