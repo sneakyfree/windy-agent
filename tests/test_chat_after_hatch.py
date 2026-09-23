@@ -11,7 +11,10 @@ conversation.
 from __future__ import annotations
 
 import argparse
+import os
 from unittest.mock import patch
+
+import pytest
 
 import windyfly.channels.cli as cli_mod
 from windyfly import cli
@@ -112,3 +115,27 @@ def test_interactive_chat_keeps_info_logs_off_the_terminal(monkeypatch, tmp_path
             h.close()
         root.handlers, lvl = saved
         root.setLevel(lvl)
+
+
+@pytest.mark.skipif(not os.path.exists("/proc/self/stat"), reason="needs /proc")
+def test_a_zombie_brain_counts_as_stopped():
+    """`windy stop` waited its full timeout on a brain that had already
+    exited but was never reaped (container with no init)."""
+    import subprocess
+    import sys
+    import time
+
+    from windyfly.platform import process_alive
+
+    child = subprocess.Popen([sys.executable, "-c", "pass"])
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        with open(f"/proc/{child.pid}/stat") as fh:
+            if fh.read().rsplit(")", 1)[1].split()[0] == "Z":
+                break
+        time.sleep(0.05)
+    try:
+        assert process_alive(child.pid) is False
+    finally:
+        child.wait()
+    assert process_alive(os.getpid()) is True

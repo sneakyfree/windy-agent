@@ -61,7 +61,8 @@ windyfly` → `windy login` → `windy go` → chat → `windy ept refresh`):
   - The "already running" refusal says the same thing.
   - `windy stop` now waits for the agent to exit and releases its runtime
     slot, so the next `windy chat` isn't refused as "already hosting this
-    agent".
+    agent". An exited-but-unreaped (zombie) process no longer counts as
+    running, which made `windy stop` sit out its whole timeout in containers.
   - `/quit`, `/exit` and Ctrl-D leave the chat.
   - INFO logs go to `data/cli.log` instead of scrolling through the
     conversation.

@@ -130,9 +130,19 @@ def process_alive(pid: int) -> bool:
     else:
         try:
             os.kill(pid, 0)
-            return True
         except (OSError, ProcessLookupError):
             return False
+        # A zombie has exited; it's only waiting for its parent to reap it.
+        # The daemon brain outlives the `windy go` that spawned it, so its
+        # parent is init — and in a container without a real init nothing
+        # ever reaps it. Counting it as alive made `windy stop` wait out its
+        # whole timeout and `windy start` report "already running".
+        try:
+            with open(f"/proc/{pid}/stat", encoding="ascii") as fh:
+                state = fh.read().rsplit(")", 1)[1].split()[0]
+            return state not in ("Z", "X")
+        except (OSError, IndexError):
+            return True
 
 
 def process_terminate(pid: int) -> bool:
