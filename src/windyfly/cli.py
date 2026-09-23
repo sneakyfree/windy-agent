@@ -729,6 +729,60 @@ def _cmd_ept(args: argparse.Namespace) -> None:
         console.print(f"[red]Refresh failed[/red] ({result.get('http') or result.get('error')})." + (f" {hint}" if hint else ""))
 
 
+def _cmd_deregister(args: argparse.Namespace) -> None:
+    """windy deregister [--passport ET26-…] [--yes] — permanently revoke a passport."""
+    import sys
+
+    from windyfly.eternitas.deregister import current_passport, deregister, mark_local_revoked
+
+    passport = (getattr(args, "passport", None) or "").strip() or current_passport()
+    if not passport:
+        console.print("No passport on this agent (and none given with --passport).")
+        return
+    own = passport == current_passport()
+    name = os.environ.get("WINDYFLY_AGENT_NAME", "") if own else ""
+    console.print(f"Passport: [bold]{passport}[/bold]" + (f"  (agent: {name})" if name else ""))
+    if not getattr(args, "yes", False):
+        if not sys.stdin.isatty():
+            console.print("[red]Refusing:[/red] this can't be undone. Run it in a terminal, or pass --yes.")
+            return
+        answer = console.input("Revoke this passport permanently? This cannot be undone. [y/N] ")
+        if answer.strip().lower() not in ("y", "yes"):
+            console.print("Cancelled. Nothing was changed.")
+            return
+    result = deregister(passport)
+    status = result.get("status")
+    if status == "revoked":
+        console.print(f"[green]✓[/green] Passport {passport} is revoked at Eternitas.")
+        console.print("  It is on the revocation list now, and every Windy service will refuse it: "
+                      "this agent can no longer use Windy Mail, Chat, Search, Cloud or the builder "
+                      "with this identity. Its memory and files on this machine are untouched.")
+        if own:
+            local = mark_local_revoked(passport)
+            if local.get("changed"):
+                console.print(f"  The dead token is commented out in {local['env_file']} "
+                              f"(backup: {local['backup']}).")
+            elif local.get("env_file") is None:
+                console.print("  Remove ETERNITAS_PASSPORT_TOKEN from wherever this agent's "
+                              "environment is set, so it stops presenting a revoked token.")
+    elif status == "no_login":
+        console.print("You're not signed in. Run [bold]windy login[/bold] first "
+                      "(revoking needs the owner's Windy account).")
+    elif status == "unverified":
+        console.print("Your Windy account's email isn't verified. Verify it at "
+                      "account.windyword.ai, then run [bold]windy login[/bold] again.")
+    elif status == "not_found":
+        console.print(f"[yellow]Eternitas doesn't list {passport} under your account.[/yellow] "
+                      "Check the passport, and that you signed in as its owner.")
+    elif status == "login_rejected":
+        console.print(f"[red]Eternitas refused the Windy sign-in[/red] (HTTP {result.get('http')}). "
+                      "Run [bold]windy login[/bold] again and retry.")
+    elif status == "unreachable":
+        console.print("[red]Couldn't reach Eternitas.[/red] Nothing was changed; try again later.")
+    else:
+        console.print(f"[red]Revocation failed[/red] (HTTP {result.get('http')}). Nothing was changed locally.")
+
+
 def _cmd_passport(_args: argparse.Namespace) -> None:
     """Show Eternitas passport."""
     from windyfly.commands import cmd_passport
@@ -1001,6 +1055,7 @@ _COMMAND_CATEGORIES = [
         ("logout", "Forget the stored Windy sign-in"),
         ("whoami", "Show which Windy account is signed in"),
         ("ept refresh", "Renew the Eternitas passport token"),
+        ("deregister", "Permanently revoke this agent's Eternitas passport"),
         ("mail", "Show mail status"),
         ("phone", "Show phone status"),
         ("cert", "Show birth certificate"),
@@ -1446,6 +1501,11 @@ def main() -> None:
     ept_refresh.add_argument("--force", action="store_true",
                              help="Ask Eternitas even if the token looks current")
 
+    # windy deregister — the owner permanently revokes the agent's passport
+    dereg_parser = sub.add_parser("deregister", help="Permanently revoke this agent's Eternitas passport")
+    dereg_parser.add_argument("--passport", help="Passport to revoke (default: this agent's)")
+    dereg_parser.add_argument("--yes", action="store_true", help="Skip the confirmation prompt")
+
     # windy mail
     sub.add_parser("mail", help="Show mail status")
 
@@ -1659,6 +1719,7 @@ def main() -> None:
         "logout": _cmd_logout,
         "whoami": _cmd_whoami,
         "ept": _cmd_ept,
+        "deregister": _cmd_deregister,
         "keys": _cmd_keys,
         "mail": _cmd_mail,
         "phone": _cmd_phone,

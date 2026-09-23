@@ -231,12 +231,18 @@ def exchange_code(
     }, transport)
 
 
-def get_access_token(*, transport: httpx.BaseTransport | None = None) -> str | None:
-    """A currently valid hub access token, refreshing it if needed; else None."""
+def get_access_token(
+    *, transport: httpx.BaseTransport | None = None, force_refresh: bool = False,
+) -> str | None:
+    """A currently valid hub access token, refreshing it if needed; else None.
+
+    ``force_refresh`` skips the "still valid" shortcut, for a caller that just
+    had the current token rejected (e.g. an expiry edge at the other end).
+    """
     session = load_session()
     if not session:
         return None
-    if float(session.get("expires_at") or 0) - time.time() > REFRESH_MARGIN_S:
+    if not force_refresh and float(session.get("expires_at") or 0) - time.time() > REFRESH_MARGIN_S:
         return session["access_token"]
     refresh = session.get("refresh_token") or ""
     if not refresh:
