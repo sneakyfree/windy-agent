@@ -21,6 +21,7 @@ from rich.prompt import Confirm, Prompt
 from rich.table import Table
 from rich.text import Text
 
+from windyfly import prompts
 from windyfly.eternitas.url import eternitas_env_line
 
 from windyfly.platform import get_project_root
@@ -191,7 +192,7 @@ def _check_prerequisites() -> dict[str, bool]:
     if not all(checks.values()):
         missing = [k for k, v in checks.items() if not v]
         console.print(f"[yellow]⚠ Missing: {', '.join(missing)}[/yellow]")
-        if Confirm.ask("  Attempt to auto-install missing tools?", default=True):
+        if prompts.ask(Confirm.ask, "  Attempt to auto-install missing tools?", default=True):
             _auto_install(checks)
         else:
             console.print("[red]Cannot continue without all prerequisites.[/red]")
@@ -269,7 +270,7 @@ def _step_api_keys() -> dict[str, str]:
         console.print(f"  [bold]{provider['name']}[/bold] — {provider['models']}")
         console.print(f"    [dim]Get your key: {provider['url']}[/dim]")
 
-        key = Prompt.ask(
+        key = prompts.ask(Prompt.ask,
             f"    Paste {provider['name']} API key [dim](or Enter to skip)[/dim]",
             default="",
             show_default=False,
@@ -378,7 +379,7 @@ def _step_model(api_keys: dict[str, str]) -> str:
     console.print(table)
     console.print()
 
-    choice = Prompt.ask(
+    choice = prompts.ask(Prompt.ask,
         "  Pick a model [dim](number)[/dim]",
         default="1",
     )
@@ -418,7 +419,7 @@ def _step_personality() -> str:
     console.print(table)
     console.print()
 
-    choice = Prompt.ask(
+    choice = prompts.ask(Prompt.ask,
         "  Pick a preset [dim](number or name)[/dim]",
         default="1",
     )
@@ -587,7 +588,7 @@ def _show_summary(model: str, preset: str, api_keys: dict[str, str]) -> None:
     console.print("    [dim]windy init[/dim]           — Re-run this wizard")
     console.print()
 
-    if Confirm.ask("  Launch Windy Fly now?", default=True):
+    if prompts.ask(Confirm.ask, "  Launch Windy Fly now?", default=True):
         console.print()
         console.print("  [cyan]Starting Windy Fly...[/cyan]")
         _launch_stack()
@@ -620,7 +621,7 @@ def run_wizard() -> None:
     # Check if already configured
     if ENV_FILE.exists() and CONFIG_FILE.exists():
         console.print("[yellow]⚠ Existing configuration found.[/yellow]")
-        if not Confirm.ask("  Overwrite and re-configure?", default=False):
+        if not prompts.ask(Confirm.ask, "  Overwrite and re-configure?", default=False):
             console.print("[dim]  Keeping existing config. Run `windy start` to launch.[/dim]")
             return
 

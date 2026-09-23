@@ -33,6 +33,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
 
+from windyfly import prompts
 from windyfly.eternitas.url import eternitas_env_line
 from windyfly.platform import IS_WINDOWS, can_run, get_project_root
 from windyfly.provider_defaults import PROVIDER_DEFAULTS, by_name, key_detection_order
@@ -234,6 +235,46 @@ def passport_status(passport: str, *, online: bool | None = None) -> str:
     except Exception:
         return ""
     return status if status in ("revoked", "suspended") else ""
+
+
+def _print_dead_passport(passport: str, dead: str) -> None:
+    """Say plainly that this agent's passport is revoked or suspended."""
+    if dead == "suspended":
+        # Reversible (Grant, 09-23): never suggest --force, which would
+        # abandon an identity that may be restored.
+        console.print(
+            f"  [yellow]⚠[/yellow] 🪪  Passport {passport} is suspended at Eternitas "
+            "(reversible). Your agent keeps its identity; it can't use Windy "
+            "services until the suspension is lifted."
+        )
+        console.print("     [dim]For the reason, check your Windy account.[/dim]")
+        return
+    console.print(
+        f"  [red]✗[/red] 🪪  This agent's passport ({passport}) is {dead} at Eternitas."
+    )
+    console.print(
+        "     Windy services refuse it, so this identity can't use the free "
+        "Windy Mind brain, Mail, Chat or Search."
+    )
+    console.print(
+        "     [dim]To start over with a new identity: [bold]windy go --force[/bold].[/dim]"
+    )
+
+
+def _dead_passport() -> tuple[str, str]:
+    """(passport, "revoked"|"suspended") when this agent's identity is dead, else ("", "").
+
+    Skipped under --force, which is exactly how you leave a dead identity behind.
+    """
+    if os.environ.get("_WINDYFLY_FORCE_HATCH"):
+        return "", ""
+    passport = existing_passport()
+    if not passport or passport.startswith("("):
+        return passport, ""
+    dead = os.environ.get("_WINDYFLY_PASSPORT_DEAD") or passport_status(passport)
+    if dead:
+        os.environ["_WINDYFLY_PASSPORT_DEAD"] = dead
+    return passport, dead
 
 
 def _read_raw_lines(path: Path) -> list[str]:
@@ -442,14 +483,21 @@ def _go_keyless(args: Any) -> None:
     launches. This is the ballroom flow.
     """
     console.print()
-    console.print(
-        "  [bold]🎁 Free agent, no key needed.[/bold] Your Windy Fly will "
-        "think through [bold]Windy Mind[/bold] — free AI compute, powered "
-        "by your agent's Windy passport."
-    )
-    console.print()
-    write_keyless_config()
-    console.print("  [green]✓[/green] Config written — Windy Mind brain, 🤝 buddy preset")
+    _, dead = _dead_passport()
+    if dead:
+        # Don't promise a brain the passport can't reach: the revoked /
+        # suspended lines below say what's actually true.
+        write_keyless_config()
+        console.print("  [green]✓[/green] Config written (keyless, 🤝 buddy preset)")
+    else:
+        console.print(
+            "  [bold]🎁 Free agent, no key needed.[/bold] Your Windy Fly will "
+            "think through [bold]Windy Mind[/bold] — free AI compute, powered "
+            "by your agent's Windy passport."
+        )
+        console.print()
+        write_keyless_config()
+        console.print("  [green]✓[/green] Config written — Windy Mind brain, 🤝 buddy preset")
     console.print()
 
     # Prereqs: the interactive menu installs uv/bun before it ever reaches
@@ -605,13 +653,22 @@ def cmd_go(args: Any) -> None:
             if "_API_KEY=" in line and len(line.split("=", 1)[1].strip()) > 8
         )
         if has_key or is_keyless_configured():
-            label = (
-                "API key configured" if has_key
-                else "Windy Mind (free, keyless) configured"
-            )
-            console.print(f"  [green]✓[/green] {label}")
+            dead = ""
+            if not has_key:
+                passport, dead = _dead_passport()
+            if dead:
+                # The keyless brain rides on the passport: if that's dead,
+                # "Windy Mind configured" would be false.
+                _print_dead_passport(passport, dead)
+                _report_keyless_brain_status()
+            else:
+                label = (
+                    "API key configured" if has_key
+                    else "Windy Mind (free, keyless) configured"
+                )
+                console.print(f"  [green]✓[/green] {label}")
             console.print()
-            if Confirm.ask("  Already set up! Launch Windy Fly?", default=True):
+            if prompts.ask(Confirm.ask, "  Already set up! Launch Windy Fly?", default=True):
                 _launch(args)
             return
 
@@ -636,7 +693,7 @@ def cmd_go(args: Any) -> None:
         if detected:
             provider = detected
             console.print(f"  [cyan]Found a {provider['provider']} API key on your clipboard![/cyan]")
-            if Confirm.ask(f"  Use this key for {provider['provider']}?", default=True):
+            if prompts.ask(Confirm.ask, f"  Use this key for {provider['provider']}?", default=True):
                 write_quick_config(provider["env_var"], clip, provider["model"])
                 console.print(f"  [green]✓[/green] Configured with {provider['provider']} ({provider['model']})")
                 _install_deps()
@@ -658,7 +715,7 @@ def cmd_go(args: Any) -> None:
         console.print(f"    [bold]{i}[/bold]  {p['name']}")
     console.print()
 
-    choice = Prompt.ask("  Choice", default="1")
+    choice = prompts.ask(Prompt.ask, "  Choice", default="1")
 
     try:
         idx = int(choice)
@@ -682,7 +739,7 @@ def cmd_go(args: Any) -> None:
     console.print()
 
     # Offer to open the browser
-    if Confirm.ask("  Open the API key page in your browser?", default=True):
+    if prompts.ask(Confirm.ask, "  Open the API key page in your browser?", default=True):
         try:
             webbrowser.open(selected["url"])
         except Exception as e:
@@ -901,30 +958,11 @@ def _try_hatch_provisioning(non_interactive: bool = False) -> None:
     """
     already = existing_passport()
     if already and not os.environ.get("_WINDYFLY_FORCE_HATCH"):
-        dead = passport_status(already)
+        dead = os.environ.get("_WINDYFLY_PASSPORT_DEAD") or passport_status(already)
         if dead:
             os.environ["_WINDYFLY_PASSPORT_DEAD"] = dead
             os.environ["_WINDYFLY_HATCHING_PLAYED"] = "1"
-            if dead == "suspended":
-                # Reversible (Grant, 09-23): never suggest --force, which would
-                # abandon an identity that may be restored.
-                console.print(
-                    f"  [yellow]⚠[/yellow] 🪪  Passport {already} is suspended at Eternitas "
-                    "(reversible). Your agent keeps its identity; it can't use Windy "
-                    "services until the suspension is lifted."
-                )
-                console.print("     [dim]For the reason, check your Windy account.[/dim]")
-                return
-            console.print(
-                f"  [red]✗[/red] 🪪  This agent's passport ({already}) is {dead} at Eternitas."
-            )
-            console.print(
-                "     Windy services refuse it, so this identity can't use the free "
-                "Windy Mind brain, Mail, Chat or Search."
-            )
-            console.print(
-                "     [dim]To start over with a new identity: [bold]windy go --force[/bold].[/dim]"
-            )
+            _print_dead_passport(already, dead)
             return
         console.print(
             f"  [green]✓[/green] 🪪  This agent already has a passport ({already}) "
@@ -974,7 +1012,7 @@ def _try_hatch_provisioning(non_interactive: bool = False) -> None:
             )
             console.print()
 
-            agent_name = Prompt.ask(
+            agent_name = prompts.ask(Prompt.ask,
                 "  [bold cyan]Name your agent[/bold cyan]",
                 default="Windy Fly",
             ).strip()
@@ -988,10 +1026,10 @@ def _try_hatch_provisioning(non_interactive: bool = False) -> None:
                 f'  [bold cyan]"{agent_name}"?[/bold cyan] '
                 "You sure? They're gonna put that on my [bold]birth certificate![/bold]"
             )
-            confirmed = Confirm.ask("  Lock it in?", default=True)
+            confirmed = prompts.ask(Confirm.ask, "  Lock it in?", default=True)
 
             if not confirmed:
-                agent_name = Prompt.ask(
+                agent_name = prompts.ask(Prompt.ask,
                     "  [bold cyan]Okay, what should it be?[/bold cyan]",
                     default="Windy Fly",
                 ).strip() or "Windy Fly"
@@ -1012,7 +1050,7 @@ def _try_hatch_provisioning(non_interactive: bool = False) -> None:
 
         owner_name = os.environ.get("WINDY_OWNER_NAME", "")
         if not owner_name and not non_interactive:
-            owner_name = Prompt.ask(
+            owner_name = prompts.ask(Prompt.ask,
                 "  [bold cyan]And who are you? (your name, for the birth certificate)[/bold cyan]",
                 default="skip",
             ).strip()
@@ -1025,7 +1063,7 @@ def _try_hatch_provisioning(non_interactive: bool = False) -> None:
 
         owner_phone = os.environ.get("OWNER_PHONE", "")
         if not owner_phone and not non_interactive:
-            owner_phone = Prompt.ask(
+            owner_phone = prompts.ask(Prompt.ask,
                 "  [bold cyan]Your phone number (I'll text you my birth certificate)[/bold cyan]",
                 default="skip",
             )
@@ -1036,7 +1074,7 @@ def _try_hatch_provisioning(non_interactive: bool = False) -> None:
 
         owner_email = os.environ.get("OWNER_EMAIL", "")
         if not owner_email and not non_interactive:
-            owner_email = Prompt.ask(
+            owner_email = prompts.ask(Prompt.ask,
                 "  [bold cyan]Your email (I'll email you my birth certificate)[/bold cyan]",
                 default="skip",
             )
@@ -1184,7 +1222,7 @@ def _try_clipboard_or_paste(provider: dict) -> tuple[str, dict[str, str]] | None
 
 def _prompt_for_key(provider: dict) -> tuple[str, dict[str, str]] | None:
     """Prompt user to paste their API key."""
-    key = Prompt.ask(
+    key = prompts.ask(Prompt.ask,
         "  Paste API key",
         default="",
         show_default=False,
@@ -1327,7 +1365,7 @@ def _help_get_key() -> tuple[str, dict[str, str]] | None:
             console.print(f"      {i}   {guide['name']}  {tag}")
         console.print()
 
-    choice = Prompt.ask("  Which provider?", default="1")
+    choice = prompts.ask(Prompt.ask, "  Which provider?", default="1")
 
     try:
         idx = int(choice) - 1
@@ -1352,7 +1390,7 @@ def _help_get_key() -> tuple[str, dict[str, str]] | None:
 
     # Open the browser
     console.print("  Press [bold]Enter[/bold] to open the signup page in your browser...")
-    Prompt.ask("  ", default="", show_default=False)
+    prompts.ask(Prompt.ask, "  ", default="", show_default=False)
 
     try:
         webbrowser.open(guide["url"])
@@ -1413,7 +1451,7 @@ def _clipboard_watch_with_paste_fallback(
 
     # Meanwhile, prompt for manual paste (non-blocking feel)
     console.print("  [dim]Paste your key here when ready (or wait for auto-detect):[/dim]")
-    key = Prompt.ask("  API key", default="", show_default=False)
+    key = prompts.ask(Prompt.ask, "  API key", default="", show_default=False)
     key = key.strip()
 
     if key:

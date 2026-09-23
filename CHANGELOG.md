@@ -77,6 +77,18 @@
     `X-Windy-Synthetic: 1` to requests to Windy hosts only (never third parties). The fire drill and the
     continuity battery mark their rows synthetic and warn on a quarantine.
 
+- **`windy go` no longer crashes without a terminal.** Run from a script, CI
+  or `docker exec` without `-i`, an already set-up `windy go` died with an
+  `EOFError` traceback at "Already set up! Launch Windy Fly?". Every setup
+  prompt now takes its stated default when stdin is at EOF, and says so in one
+  line. (Found by the 0.7.2.1 clean-machine proof.)
+- **No brain claims for a dead passport.** After `windy deregister` (or a
+  suspension), `windy go --keyless` no longer says the agent is "powered by
+  your agent's Windy passport" / "Windy Mind brain", and plain `windy go` no
+  longer says "Windy Mind (free, keyless) configured". Both say the passport is
+  revoked (start over with `windy go --force`) or suspended (reversible: the
+  agent keeps its identity; no `--force`).
+
 ## 0.7.2.1
 
 Found by the 0.7.2 clean-machine proof from PyPI:
