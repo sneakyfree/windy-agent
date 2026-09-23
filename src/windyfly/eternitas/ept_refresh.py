@@ -291,7 +291,7 @@ def _refresh(force: bool, transport, now) -> dict[str, Any]:
 
     os.environ[ENV_KEY] = new_token
     env_file = resolve_env_file()
-    persisted = bool(env_file) and _persist(env_file, new_token)
+    persisted = env_file is not None and _persist(env_file, new_token)
     if persisted:
         logger.info("EPT refresh for %s via %s: reissued=%s reason=%s, saved to %s",
                     _passport_prefix(passport), path_used, reissued, reason, env_file)
