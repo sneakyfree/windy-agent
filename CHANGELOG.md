@@ -27,6 +27,14 @@ credential), so hatching from the terminal needs the owner's Windy sign-in.
   systemd installs, set `WINDY_ENV_FILE` to your unit's `EnvironmentFile`
   so the renewed token survives restarts.
 
+- **Web search works on real installs again.** The Windy Search client read
+  `WINDY_PASSPORT_EPT` and required `WINDY_SEARCH_BASE_URL`, but hatch and
+  `windy ept refresh` store the passport token in `ETERNITAS_PASSPORT_TOKEN`.
+  So `web_search`/`fetch_url` refused every call. It now reads
+  `ETERNITAS_PASSPORT_TOKEN` (the old name still works), defaults to
+  https://api.windysearch.com, uses the canonical `POST /v1/search`, explains
+  401/429/503 plainly, and stops calling until the 1st after the monthly
+  budget runs out (instead of retrying a 429 all month).
 
 ## 0.7.1
 
