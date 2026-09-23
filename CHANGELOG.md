@@ -37,6 +37,12 @@ credential), so hatching from the terminal needs the owner's Windy sign-in.
   https://api.windysearch.com, uses the canonical `POST /v1/search`, explains
   401/429/503 plainly, and stops calling until the 1st after the monthly
   budget runs out (instead of retrying a 429 all month).
+- New `windy deregister [--passport …] [--yes]`: the owner permanently revokes
+  the agent's Eternitas passport (owner's Windy sign-in → Eternitas operator
+  session → revoke, with the full revocation cascade). It asks y/N (default
+  No), refuses non-interactively without `--yes`, and afterwards comments out
+  the dead `ETERNITAS_PASSPORT_TOKEN` line in the agent's env file (atomic,
+  with a backup). Memory and files are left alone.
 
 ## 0.7.1
 
