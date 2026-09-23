@@ -22,6 +22,15 @@ Found by the 0.7.2 clean-machine proof from PyPI:
   stop printing a gateway log path when no gateway runs, and no longer tell the
   user to "click the link" when there's no link.
 
+- **Security: a remote hatch can no longer take over the host agent's
+  identity** (hatch hallway audit §2e #5). `POST /hatch/remote` now refuses
+  an empty `passport_number` with a 400. The hatch subprocess no longer
+  inherits the gateway host's `ETERNITAS_PASSPORT`, `ETERNITAS_PASSPORT_TOKEN`,
+  `ETERNITAS_OPERATOR_JWT`, `WINDY_HUB_JWT`, `WINDY_ENV_FILE` or
+  `WINDY_CREDENTIALS_FILE`. `windyfly.hatch_remote` drops those itself too,
+  and no longer defaults `--passport-number` from the environment. Before
+  this, an empty passport made the new agent adopt the host's passport.
+
 ## 0.7.2
 
 **Terminal hatching now signs in with your Windy account.** Eternitas is

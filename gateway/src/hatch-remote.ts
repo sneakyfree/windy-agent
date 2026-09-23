@@ -112,6 +112,28 @@ export interface HatchRemoteOptions {
 }
 
 /**
+ * The gateway host's own agent identity. The hatch subprocess is a
+ * DIFFERENT agent, so none of these may leak into its environment: with
+ * them, it could adopt the host's passport, persist into the host's env
+ * file, or mint under the host owner's hub/operator token (audit §2e #5).
+ */
+export const HOST_IDENTITY_ENV = [
+  "ETERNITAS_PASSPORT",
+  "ETERNITAS_PASSPORT_TOKEN",
+  "ETERNITAS_OPERATOR_JWT",
+  "WINDY_HUB_JWT",
+  "WINDY_ENV_FILE",
+  "WINDY_CREDENTIALS_FILE",
+] as const;
+
+/** `process.env` minus the host agent's identity (see HOST_IDENTITY_ENV). */
+export function childEnv(extra: Record<string, string>): Record<string, string | undefined> {
+  const env: Record<string, string | undefined> = { ...process.env };
+  for (const key of HOST_IDENTITY_ENV) delete env[key];
+  return { ...env, ...extra };
+}
+
+/**
  * Validate the request body. Returns an error string if invalid, or
  * `null` if the body is shaped correctly.
  */
@@ -159,6 +181,13 @@ export function validateHatchRemoteBody(
     if ((b[key] as string).length > MAX_LEN[key]) {
       return { ok: false, error: `field '${key}' exceeds ${MAX_LEN[key]} chars` };
     }
+  }
+
+  // An empty passport would let the Python side fall back to whatever
+  // passport the HOST agent runs with, and adopt it (audit §2e #5).
+  // The browser/mobile doors always pre-allocate one; refuse anything else.
+  if ((b.passport_number as string).trim() === "") {
+    return { ok: false, error: "passport_number must not be empty" };
   }
 
   // owner_phone is NULLABLE, not optional-typed: Pro always sends the
@@ -392,12 +421,11 @@ export function startHatchRemoteSse(
         cwd: projectRoot,
         stdout: "pipe",
         stderr: "pipe",
-        env: {
-          ...process.env,
+        env: childEnv({
           // Python's stdout is line-buffered when piped by default; force
           // unbuffered so each JSON line hits the SSE stream immediately.
           PYTHONUNBUFFERED: "1",
-        },
+        }),
       });
       spawnedProc = proc;
 

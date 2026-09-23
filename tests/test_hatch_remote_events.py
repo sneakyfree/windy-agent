@@ -424,3 +424,71 @@ def test_play_hatching_json_emits_all_stages() -> None:
         assert data["index"] == expected_index
         assert data["total"] == 4
     assert events[-1][0] == "ceremony.complete"
+
+
+# ── audit §2e #5: the remote door never adopts the HOST agent's identity ──
+
+_HOST_IDENTITY = {
+    "ETERNITAS_PASSPORT": "ET26-HOST-0001",
+    "ETERNITAS_PASSPORT_TOKEN": "host.ept.token",
+    "ETERNITAS_OPERATOR_JWT": "host.operator.jwt",
+    "WINDY_HUB_JWT": "host.hub.jwt",
+    "WINDY_ENV_FILE": "/home/host/.windy/host.env",
+    "WINDY_CREDENTIALS_FILE": "/home/host/.windy/credentials.json",
+}
+
+
+def _run_until_ceremony(monkeypatch, scratch_env, passport_number: str) -> tuple[int | None, list]:
+    from windyfly import hatch_remote
+    import windyfly.hatching as hatching
+
+    seen: list[tuple[str, dict]] = []
+    monkeypatch.setattr(hatch_remote, "_emit_json", lambda n, d: seen.append((n, d)))
+    monkeypatch.setattr(hatch_remote, "_apply_broker_token", lambda t, p="": "seeded")
+
+    def stop(*a, **k):
+        raise RuntimeError("stop after seeding")
+
+    monkeypatch.setattr(hatching, "play_hatching", stop)
+    try:
+        rc = hatch_remote.run(
+            agent_name="Nora's Agent", windy_identity_id="wi_123",
+            passport_number=passport_number, broker_token="bk_live_abcdefghijkl",
+            owner_email="nora@example.com", owner_phone="", owner_name="Nora",
+            animate=False,
+        )
+    except RuntimeError:
+        rc = None
+    return rc, seen
+
+
+@pytest.mark.parametrize("passport", ["", "   "])
+def test_run_refuses_an_empty_passport(monkeypatch, scratch_env, passport) -> None:
+    scratch_env.update(_HOST_IDENTITY)
+    rc, seen = _run_until_ceremony(monkeypatch, scratch_env, passport)
+    assert rc is not None and rc != 0, "an empty passport must not reach the ceremony"
+    assert any(n == "hatch.error" for n, _ in seen)
+    assert scratch_env.get("ETERNITAS_PASSPORT") != "ET26-HOST-0001"
+
+
+def test_run_drops_the_host_identity_before_seeding(monkeypatch, scratch_env) -> None:
+    scratch_env.update(_HOST_IDENTITY)
+    rc, _ = _run_until_ceremony(monkeypatch, scratch_env, "ET26-ABC-DEF")
+    assert rc is None  # reached the ceremony
+    assert scratch_env["ETERNITAS_PASSPORT"] == "ET26-ABC-DEF"
+    for key in _HOST_IDENTITY:
+        if key != "ETERNITAS_PASSPORT":
+            assert key not in scratch_env, f"{key} leaked from the host"
+
+
+def test_main_does_not_default_the_passport_from_the_host(monkeypatch, scratch_env) -> None:
+    from windyfly import hatch_remote
+
+    scratch_env.update(_HOST_IDENTITY)
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(hatch_remote, "run", lambda **kw: captured.update(kw) or 0)
+    hatch_remote.main([
+        "--windy-identity-id", "wi_123", "--broker-token", "bk_live_abcdefghijkl",
+        "--owner-email", "nora@example.com", "--owner-name", "Nora",
+    ])
+    assert captured["passport_number"] == ""
