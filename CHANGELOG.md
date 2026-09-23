@@ -13,8 +13,10 @@ credential), so hatching from the terminal needs the owner's Windy sign-in.
 - An interactive `windy go` / hatch asks you to sign in when it needs to.
   Non-interactive hatches fail with a clear "run `windy login`" message
   instead of a bare 401.
-- auto-hatch credential order: `ETERNITAS_OPERATOR_JWT` →
-  `WINDY_HUB_JWT` → the `windy login` session.
+- auto-hatch credential order: the owner's hub token always wins —
+  `WINDY_HUB_JWT` → the `windy login` session → `ETERNITAS_OPERATOR_JWT`
+  (only when there is no hub token). Eternitas binds the owner from a hub
+  token; an operator JWT would file the agent under a placeholder operator.
 - Identity link-back uses the `windy_identity_id` claim and never falls
   back to `sub` on a hub login token (there `sub` is a different id).
 - Agents that are already hatched are unaffected: nothing re-hatches or

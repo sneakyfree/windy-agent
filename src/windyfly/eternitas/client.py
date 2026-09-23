@@ -46,17 +46,19 @@ class HatchAuthRequired(RuntimeError):
 def auto_hatch_credential() -> tuple[str, str]:
     """Pick the Bearer for ``/bots/auto-hatch`` → (token, source label).
 
-    Precedence:
-      1. ``ETERNITAS_OPERATOR_JWT``: an explicit operator credential wins.
-      2. ``WINDY_HUB_JWT``: a hub login token handed in by a caller
+    Precedence: the OWNER'S HUB TOKEN always wins.
+      1. ``WINDY_HUB_JWT``: a hub login token handed in by a caller
          (shape-checked: RS256, type human, carries a Windy identity).
-      3. The stored ``windy login`` session (refreshed if near expiry).
+      2. The stored ``windy login`` session (refreshed if near expiry).
+      3. ``ETERNITAS_OPERATOR_JWT``: used only when there is NO hub token.
       4. Nothing. That's the anonymous door, which Eternitas is closing.
+    Why the hub token must win (Eternitas lane, 2026-09-23): auto-hatch trusts
+    a hub human JWT and binds the owner from its windy_identity_id. An operator
+    JWT only counts as "authenticated", so the owner is resolved from the
+    unverified contact email and the bot lands on a new placeholder operator,
+    not the owner's account.
     The token itself is never logged, only the source label.
     """
-    operator_jwt = os.environ.get("ETERNITAS_OPERATOR_JWT", "").strip()
-    if operator_jwt:
-        return operator_jwt, "operator JWT"
     from windyfly import hub_login
 
     hub_jwt = os.environ.get("WINDY_HUB_JWT", "").strip()
@@ -69,6 +71,9 @@ def auto_hatch_credential() -> tuple[str, str]:
         session_token = None
     if session_token:
         return session_token, "windy login session"
+    operator_jwt = os.environ.get("ETERNITAS_OPERATOR_JWT", "").strip()
+    if operator_jwt:
+        return operator_jwt, "operator JWT"
     return "", "none"
 
 class EternitasClient:
