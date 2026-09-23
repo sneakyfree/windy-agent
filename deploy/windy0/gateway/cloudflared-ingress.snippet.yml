@@ -1,6 +1,6 @@
 # Insert ABOVE the final `- service: http_status:404` rule in /etc/cloudflared/config.yml
 # on Windy 0 (tunnel e2f8bb11-060e-4707-8c57-6852b4c6d24d). Do not add until go-live.
-  - hostname: agent.windyword.ai
+  - hostname: windy0-agent.thewindstorm.uk
     service: http://127.0.0.1:3000
     originRequest:
       connectTimeout: 10s
