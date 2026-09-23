@@ -1886,4 +1886,11 @@ async function main() {
   console.log(`[gateway] WebSocket chat at ws://localhost:${PORT}/ws/chat`);
 }
 
-main();
+// Only boot when run as the entry point (`bun run src/server.ts`, which is
+// how the CLI and Docker start it). The tests import helpers from this
+// module; booting on import made every test file that did so bind :3000,
+// which fails as "Failed to start server. Is port 3000 in use?" on any
+// runner with something already on 3000 (Veron's CI runner, 2026-08-04→).
+if (import.meta.main) {
+  main();
+}
