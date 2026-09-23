@@ -158,18 +158,20 @@ def test_get_access_token_none_when_refresh_fails_or_no_session():
 
 # ── auto_hatch credential precedence ─────────────────────────────────
 
-def test_precedence_operator_then_hub_env_then_session_then_none(monkeypatch):
+def test_precedence_hub_token_always_beats_operator_jwt(monkeypatch):
+    # Eternitas binds the owner from a hub human JWT; an operator JWT would file
+    # the bot under a placeholder operator. So the hub token must win.
     from windyfly.eternitas.client import auto_hatch_credential
 
     assert auto_hatch_credential() == ("", "none")
+    monkeypatch.setenv("ETERNITAS_OPERATOR_JWT", "op-jwt")
+    assert auto_hatch_credential() == ("op-jwt", "operator JWT")   # only when no hub token
     hub_login._write_session({"access_token": "sess", "refresh_token": "",
                               "expires_at": time.time() + 600, "windy_identity_id": "id"})
     assert auto_hatch_credential() == ("sess", "windy login session")
     hub = make_jwt(HUMAN)
     monkeypatch.setenv("WINDY_HUB_JWT", hub)
     assert auto_hatch_credential() == (hub, "WINDY_HUB_JWT")
-    monkeypatch.setenv("ETERNITAS_OPERATOR_JWT", "op-jwt")
-    assert auto_hatch_credential() == ("op-jwt", "operator JWT")
 
 
 def test_windy_hub_jwt_must_look_like_a_human_rs256_hub_token(monkeypatch):
