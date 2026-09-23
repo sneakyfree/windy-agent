@@ -25,6 +25,8 @@ INSTALLED_PATH="$HOME/.local/bin/windy-weekly-brief.sh"
 INSTALLED_PY="$HOME/.local/bin/windy-weekly-brief-format.py"
 install -m 0755 "$SOURCE_SH" "$INSTALLED_PATH"
 install -m 0644 "$SOURCE_PY" "$INSTALLED_PY"
+# Shared Telegram + email delivery (second channel; status file for windy-uptime).
+install -m 0644 "$(dirname "$SOURCE_SH")/windy-deliver.sh" "$HOME/.local/bin/windy-deliver.sh"
 
 mkdir -p ~/.config/systemd/user
 
