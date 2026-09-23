@@ -151,6 +151,9 @@ def _run_bot_channel(
     db = Database(db_path)
     write_queue = WriteQueue()
     write_queue.start()
+    # Every LLM call in this process lands in this ledger.
+    from windyfly.memory.cost_ledger import install_cost_sink
+    install_cost_sink(db, write_queue)
     tool_registry = ToolRegistry()
 
     # Same canonical capability + tool registration the telegram/matrix
@@ -416,6 +419,9 @@ def main() -> None:
         db = Database(db_path)
         write_queue = WriteQueue()
         write_queue.start()
+        # Every LLM call in this process lands in this ledger.
+        from windyfly.memory.cost_ledger import install_cost_sink
+        install_cost_sink(db, write_queue)
 
         tool_registry = ToolRegistry()
 
@@ -489,6 +495,9 @@ def main() -> None:
         db = Database(db_path)
         write_queue = WriteQueue()
         write_queue.start()
+        # Every LLM call in this process lands in this ledger.
+        from windyfly.memory.cost_ledger import install_cost_sink
+        install_cost_sink(db, write_queue)
         tool_registry = ToolRegistry()
 
         # Wave 14b: canonical capability + tool registration sequence.
@@ -740,6 +749,9 @@ def main() -> None:
         db = Database(db_path)
         write_queue = WriteQueue()
         write_queue.start()
+        # Every LLM call in this process lands in this ledger.
+        from windyfly.memory.cost_ledger import install_cost_sink
+        install_cost_sink(db, write_queue)
 
         sms = WindyFlySMS(config, db, write_queue)
         logger.info("SMS channel initialized with number %s", sms.phone_number)

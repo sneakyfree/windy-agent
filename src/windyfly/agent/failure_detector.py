@@ -169,34 +169,35 @@ def _distill_correction_code(
     if _os.environ.get("WINDY_LLM_CORRECTIONS", "1") == "0":
         return None
     try:
-        from windyfly.agent.models import call_llm
+        from windyfly.agent.models import call_llm, llm_purpose
 
         user_msg = friction.get("user_message", "")[:300]
         agent_msg = friction.get("agent_message", "")[:300]
-        result = call_llm(
-            [
-                {
-                    "role": "system",
-                    "content": (
-                        "You distill agent mistakes into one reusable "
-                        "lesson. Reply with ONE imperative sentence "
-                        "(<200 chars) telling a future agent exactly "
-                        "what to do differently. No quotes, no preamble."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": (
-                        f"Failure type: {fault_type}\n"
-                        f"The agent said: {agent_msg!r}\n"
-                        f"The user corrected it with: {user_msg!r}"
-                    ),
-                },
-            ],
-            model=_os.environ.get("WINDY_DISTILL_MODEL", "claude-haiku-4-5"),
-            temperature=None,
-            max_tokens=120,
-        )
+        with llm_purpose("failure_lesson"):
+            result = call_llm(
+                [
+                    {
+                        "role": "system",
+                        "content": (
+                            "You distill agent mistakes into one reusable "
+                            "lesson. Reply with ONE imperative sentence "
+                            "(<200 chars) telling a future agent exactly "
+                            "what to do differently. No quotes, no preamble."
+                        ),
+                    },
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Failure type: {fault_type}\n"
+                            f"The agent said: {agent_msg!r}\n"
+                            f"The user corrected it with: {user_msg!r}"
+                        ),
+                    },
+                ],
+                model=_os.environ.get("WINDY_DISTILL_MODEL", "claude-haiku-4-5"),
+                temperature=None,
+                max_tokens=120,
+            )
         lesson = (result.get("content") or "").strip()
         # extract_correction_text() splits on quote chars — keep the
         # lesson quote-free so it round-trips through the parser.

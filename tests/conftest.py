@@ -426,3 +426,17 @@ def _allow_fake_identity_in_tests(monkeypatch):
     from windyfly.eternitas.provision import FAKE_IDENTITY_OPTIN_ENV
 
     monkeypatch.setenv(FAKE_IDENTITY_OPTIN_ENV, "1")
+
+
+@pytest.fixture(autouse=True)
+def _no_cost_sink_leak():
+    """Each test starts with no per-call cost sink installed.
+
+    ``agent_respond`` (and each process boot) installs a sink bound to
+    that test's database and write queue. Left in place, a later test's
+    LLM calls would be recorded into a closed database."""
+    from windyfly.agent import models
+
+    models.set_cost_sink(None)
+    yield
+    models.set_cost_sink(None)

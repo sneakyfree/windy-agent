@@ -40,7 +40,7 @@ import logging
 import re
 from typing import Any
 
-from windyfly.agent.models import call_llm
+from windyfly.agent.models import call_llm, llm_purpose
 from windyfly.memory import goals as goals_mod
 
 logger = logging.getLogger(__name__)
@@ -101,16 +101,17 @@ def evaluate_goal(
     )
 
     try:
-        result = call_llm(
-            [
-                {"role": "system", "content": _EVALUATOR_SYSTEM_PROMPT},
-                {"role": "user", "content": user_prompt},
-            ],
-            model=eval_model,
-            temperature=0.0,
-            max_tokens=200,
-            config=config,
-        )
+        with llm_purpose("goal_eval"):
+            result = call_llm(
+                [
+                    {"role": "system", "content": _EVALUATOR_SYSTEM_PROMPT},
+                    {"role": "user", "content": user_prompt},
+                ],
+                model=eval_model,
+                temperature=0.0,
+                max_tokens=200,
+                config=config,
+            )
     except Exception as e:
         logger.warning("goal evaluator LLM call failed: %s", e)
         return {

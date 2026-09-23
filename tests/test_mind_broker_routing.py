@@ -62,7 +62,7 @@ def test_no_passport_no_mind_call(monkeypatch):
             [{"role": "user", "content": "hi"}],
             model="gpt-4o-mini",
         )
-        assert result == {"choices": [{"message": {"content": "direct"}}]}
+        assert result["choices"] == [{"message": {"content": "direct"}}]
         # httpx.post was never called — Mind path skipped entirely
         mock_post.assert_not_called()
         mock_openai.assert_called_once()
@@ -147,7 +147,7 @@ def test_mind_500_falls_through_to_direct_chain(monkeypatch):
             model="gpt-4o-mini",
         )
         # Direct chain succeeded
-        assert result == {"choices": [{"message": {"content": "direct"}}]}
+        assert result["choices"] == [{"message": {"content": "direct"}}]
         mock_openai.assert_called_once()
 
 
@@ -164,7 +164,7 @@ def test_mind_network_error_falls_through(monkeypatch):
             [{"role": "user", "content": "hi"}],
             model="gpt-4o-mini",
         )
-        assert result == {"choices": [{"message": {"content": "direct"}}]}
+        assert result["choices"] == [{"message": {"content": "direct"}}]
         mock_openai.assert_called_once()
 
 

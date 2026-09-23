@@ -322,6 +322,11 @@ _MIGRATIONS: dict[int, tuple[str, str]] = {
         "matches 'allergic'. Measured +4 probes on the marathon corpus.",
         "__callable__",
     ),
+    12: (
+        "cost_ledger: one row per LLM call — provider, status, error code, "
+        "billing, cache tokens, session, duration. Idempotent ADD COLUMNs.",
+        "__callable__",
+    ),
     # NOTE — deliberately NOT adding an index on episodes(session_id,
     # created_at), though every turn filters on exactly that and it is
     # currently a full scan of a 29k-row table.
@@ -574,11 +579,36 @@ def _migration_11_fts_porter_stemming(conn) -> None:
     )
 
 
+def _migration_12_cost_ledger_per_call(conn) -> None:
+    """Additive per-call columns on cost_ledger (idempotent)."""
+    import sqlite3
+    for coldef in (
+        "provider TEXT",
+        "status TEXT",
+        "error_code TEXT",
+        "billing TEXT",
+        "cache_write_tokens INTEGER",
+        "cache_read_tokens INTEGER",
+        "session_id TEXT",
+        "duration_ms INTEGER",
+    ):
+        try:
+            conn.execute(f"ALTER TABLE cost_ledger ADD COLUMN {coldef}")
+        except sqlite3.OperationalError as e:
+            if "duplicate column" not in str(e).lower():
+                raise
+    conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, description)"
+        " VALUES (12, 'cost_ledger per-call columns')"
+    )
+
+
 _CALLABLE_MIGRATIONS = {
     7: _migration_7_tracing,
     9: _migration_9_goal_pacing,
     10: _migration_10_goal_autorun,
     11: _migration_11_fts_porter_stemming,
+    12: _migration_12_cost_ledger_per_call,
 }
 
 

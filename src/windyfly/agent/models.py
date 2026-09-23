@@ -12,6 +12,8 @@ providers in cooldown after recent failures (circuit-breaker pattern).
 
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import hashlib
 import json
 import logging
@@ -24,12 +26,10 @@ from windyfly.agent.providers import get_provider_for_model
 
 logger = logging.getLogger(__name__)
 
-# Cost per 1K tokens (update as prices change)
+# Non-Anthropic list prices, USD per 1K tokens (input / output only).
 COST_MAP: dict[str, dict[str, float]] = {
     "gpt-4o-mini": {"input": 0.00015, "output": 0.0006},
     "gpt-4o": {"input": 0.0025, "output": 0.01},
-    "claude-sonnet": {"input": 0.003, "output": 0.015},
-    "claude-haiku": {"input": 0.00025, "output": 0.00125},
     "claude-3-5-sonnet": {"input": 0.003, "output": 0.015},
     "claude-3-5-haiku": {"input": 0.00025, "output": 0.00125},
     "grok-3": {"input": 0.003, "output": 0.015},
@@ -42,6 +42,61 @@ COST_MAP: dict[str, dict[str, float]] = {
     "glm-4": {"input": 0.0014, "output": 0.0014},
     "glm-4-flash": {"input": 0.0, "output": 0.0},
 }
+
+# Anthropic list prices, USD per MILLION tokens (Anthropic's rate card,
+# relayed by Windy Mind 2026-09-23). ``None`` = not published/confirmed:
+# a call that needs that price gets NO cost rather than a guess.
+#
+# There used to be no Opus entry here at all, and an unknown model fell
+# back to gpt-4o-mini's price, so claude-opus-5 was billed at $0.15/M
+# input — Windy 0's ledger read $0.14 for ~$4.70 of work (09-23). The
+# generic "claude-sonnet"/"claude-haiku" prefixes went too: they priced
+# every newer Sonnet/Haiku at an old model's rate.
+_CLAUDE_PRICES_PER_MTOK: dict[str, dict[str, float | None]] = {
+    "claude-opus-5-5": {"input": 4.0, "output": 20.0, "cache_write_5m": 5.0,
+                        "cache_write_1h": 8.0, "cache_read": 0.20},
+    "claude-opus-5": {"input": 5.0, "output": 25.0, "cache_write_5m": 6.25,
+                      "cache_write_1h": 10.0, "cache_read": 0.50},
+    "claude-opus-4-8": {"input": 5.0, "output": 25.0, "cache_write_5m": 6.25,
+                        "cache_write_1h": 10.0, "cache_read": 0.50},
+    "claude-fable-5-1": {"input": 10.0, "output": 50.0, "cache_write_5m": 12.50,
+                         "cache_write_1h": 20.0, "cache_read": 0.25},
+    # Fable 5's cache-read price is unconfirmed (only 5.1's is stated).
+    "claude-fable-5": {"input": 10.0, "output": 50.0, "cache_write_5m": 12.50,
+                       "cache_write_1h": 20.0, "cache_read": None},
+    "claude-sonnet-5": {"input": 2.0, "output": 10.0, "cache_write_5m": 2.50,
+                        "cache_write_1h": 4.0, "cache_read": 0.20},
+    "claude-haiku-4-5": {"input": 1.0, "output": 5.0, "cache_write_5m": 1.25,
+                         "cache_write_1h": 2.0, "cache_read": 0.10},
+}
+
+
+def _price_table() -> dict[str, dict[str, float | None]]:
+    """Every known model, USD per million tokens."""
+    table: dict[str, dict[str, float | None]] = {
+        name: {"input": c["input"] * 1000, "output": c["output"] * 1000,
+               "cache_write_5m": None, "cache_write_1h": None, "cache_read": None}
+        for name, c in COST_MAP.items()
+    }
+    table.update(_CLAUDE_PRICES_PER_MTOK)
+    return table
+
+
+def model_prices(model: str) -> dict[str, float | None] | None:
+    """Per-MTok prices for ``model``: exact id, else the LONGEST known
+    prefix (so claude-opus-5-5 never gets claude-opus-5's price and a
+    dated id like claude-opus-5-20260101 gets claude-opus-5's). None
+    when the model is unknown."""
+    name = (model or "").strip()
+    if name.startswith("anthropic/"):
+        name = name.split("/", 1)[1]
+    table = _price_table()
+    if name in table:
+        return table[name]
+    matches = [key for key in table if name.startswith(key)]
+    if not matches:
+        return None
+    return table[max(matches, key=len)]
 
 # Per-provider circuit breaker. After N consecutive failures, skip the
 # provider for an exponentially-growing cooldown window so we don't burn
@@ -170,18 +225,157 @@ def _build_chain(
     return [agent_cfg.get("default_model", "gpt-4o-mini")]
 
 
-def estimate_cost(model: str, input_tokens: int, output_tokens: int) -> float:
-    """Estimate the USD cost for a given model and token counts."""
-    costs = COST_MAP.get(model)
-    if not costs:
-        for key in COST_MAP:
-            if model.startswith(key):
-                costs = COST_MAP[key]
-                break
-    if not costs:
-        costs = COST_MAP["gpt-4o-mini"]
+_warned_unknown_models: set[str] = set()
 
-    return (input_tokens / 1000) * costs["input"] + (output_tokens / 1000) * costs["output"]
+
+def estimate_cost(
+    model: str,
+    input_tokens: int,
+    output_tokens: int,
+    *,
+    cache_write_5m_tokens: int = 0,
+    cache_write_1h_tokens: int = 0,
+    cache_read_tokens: int = 0,
+) -> float | None:
+    """List-price USD for one call, or None when it can't be priced.
+
+    Never guesses: an unknown model, or a token class whose price isn't
+    known (e.g. Fable 5 cache reads), makes the WHOLE cost None — a
+    partial number would read as the real total. Callers store None as
+    "unknown", not $0.
+    """
+    prices = model_prices(model)
+    if prices is None:
+        if model not in _warned_unknown_models:
+            _warned_unknown_models.add(model)
+            logger.warning("No price known for model %r; its cost is recorded as unknown", model)
+        return None
+    total = 0.0
+    for tokens, key in (
+        (input_tokens, "input"),
+        (output_tokens, "output"),
+        (cache_write_5m_tokens, "cache_write_5m"),
+        (cache_write_1h_tokens, "cache_write_1h"),
+        (cache_read_tokens, "cache_read"),
+    ):
+        if not tokens:
+            continue
+        per_mtok = prices.get(key)
+        if per_mtok is None:
+            return None
+        total += tokens * per_mtok / 1_000_000
+    return total
+
+
+# ── per-call cost records ────────────────────────────────────────────
+#
+# Every provider attempt in call_llm (success or failure, on every path:
+# the turn loop, the voice bridge, intent detection, sub-agents,
+# maintenance…) produces ONE record. The ledger used to be written once
+# per turn by the loop only, so tool rounds, retries and every helper
+# call were missing, and failed calls were never recorded.
+
+_cost_sink: Any = None
+_cost_sink_owner: Any = None
+_llm_purpose: contextvars.ContextVar[str] = contextvars.ContextVar("llm_purpose", default="chat")
+
+
+@contextlib.contextmanager
+def llm_purpose(purpose: str):
+    """Label the LLM calls made inside this block (intent, journal, …)
+    for the ledger's task type, without changing any call signature."""
+    token = _llm_purpose.set(purpose)
+    try:
+        yield
+    finally:
+        _llm_purpose.reset(token)
+
+
+def set_cost_sink(sink: Any, owner: Any = None) -> None:
+    """Install the process's per-call record sink (None to remove)."""
+    global _cost_sink, _cost_sink_owner
+    _cost_sink, _cost_sink_owner = sink, owner
+
+
+def cost_sink_owner() -> Any:
+    return _cost_sink_owner
+
+
+def _record_llm_call(record: dict[str, Any]) -> None:
+    sink = _cost_sink
+    if sink is None:
+        return
+    try:
+        from windyfly.agent.tracing import get_request_id
+        record.setdefault("request_id", get_request_id())
+        sink(record)
+    except Exception as e:  # accounting must never break a reply
+        logger.debug("cost record failed: %s", e)
+
+
+def _billing_for(provider_type: str, base_url: str, key: str) -> str:
+    """How this call is paid for (telemetry `billing`)."""
+    if "localhost" in (base_url or "") or "127.0.0.1" in (base_url or ""):
+        return "local"
+    if provider_type == "anthropic" and (
+        (key or "").startswith("sk-ant-oat") or _max_oauth_active()
+    ):
+        return "max_subscription"
+    return "metered"
+
+
+def _error_code(exc: BaseException) -> tuple[str, int | None]:
+    """A small closed set of failure codes, plus the HTTP status if any."""
+    status = getattr(exc, "status_code", None)
+    if not isinstance(status, int):
+        status = None
+    text = str(exc).lower()
+    if status == 429 or "rate_limit" in text or "429" in text:
+        return "rate_limited", status
+    if status in (401, 403):
+        return "auth", status
+    if status is not None:
+        return "provider_http", status
+    if "timeout" in text or "timed out" in text:
+        return "timeout", None
+    if "connect" in text or "network" in text:
+        return "network", None
+    return "internal", None
+
+
+def _cost_fields(result: dict[str, Any], model: str, billing: str) -> dict[str, Any]:
+    """Price a successful result; also stamps cost/billing onto it."""
+    w5 = int(result.get("cache_write_5m_tokens") or 0)
+    w1 = int(result.get("cache_write_1h_tokens") or 0)
+    cr = int(result.get("cache_read_tokens") or 0)
+    if billing == "local":
+        cost: float | None = 0.0
+    else:
+        cost = estimate_cost(
+            model, int(result.get("input_tokens") or 0), int(result.get("output_tokens") or 0),
+            cache_write_5m_tokens=w5, cache_write_1h_tokens=w1, cache_read_tokens=cr,
+        )
+    result["cost_usd"] = cost
+    result["billing"] = billing
+    return {
+        "had_tool_calls": bool(result.get("tool_calls")),
+        "input_tokens": int(result.get("input_tokens") or 0),
+        "output_tokens": int(result.get("output_tokens") or 0),
+        "cache_write_tokens": w5 + w1,
+        "cache_read_tokens": cr,
+        "cost_usd": cost,
+        "billing": billing,
+    }
+
+
+def sum_costs(costs: list[float | None]) -> float | None:
+    """Total of per-call costs; None if any call couldn't be priced."""
+    total = 0.0
+    for c in costs:
+        if c is None:
+            return None
+        total += c
+    return total
 
 
 def _max_oauth_active() -> bool:
@@ -744,8 +938,15 @@ def call_llm(
     config: dict[str, Any] | None = None,
     session_id: str | None = None,
     reasoning_depth: int | None = None,
+    purpose: str | None = None,
 ) -> dict[str, Any]:
     """Call an LLM, walking the configured failover chain on failures.
+
+    Every provider attempt, successful or not, is recorded once through
+    the process's cost sink (``set_cost_sink``); a successful result also
+    carries ``cost_usd`` (None when it can't be priced) and ``billing``.
+    ``purpose`` labels the record (default: the ``llm_purpose`` block
+    the call runs in, else "chat").
 
     Per ADR-010 §8 + ADR-022 §5: when the agent has an Eternitas passport,
     LLM calls route through Mind FIRST (the intelligence kernel handles
@@ -771,9 +972,31 @@ def call_llm(
     """
     # Mind broker first (BYOM moat per ADR-022). Bypass when Max OAuth
     # is active (ADR-022 exception register #1).
+    purpose = purpose or _llm_purpose.get()
+
+    def _record(status: str, rec_model: str, provider_key: str, started: float,
+                fields: dict[str, Any] | None = None, error: BaseException | None = None) -> None:
+        record: dict[str, Any] = {
+            "model": rec_model, "provider": provider_key, "status": status,
+            "purpose": purpose, "session_id": session_id,
+            "duration_ms": int((time.monotonic() - started) * 1000),
+            "input_tokens": 0, "output_tokens": 0, "cache_write_tokens": 0,
+            "cache_read_tokens": 0, "cost_usd": None, "billing": None,
+            "error_code": None, "http_status": None,
+        }
+        if fields:
+            record.update(fields)
+        if error is not None:
+            record["error_code"], record["http_status"] = _error_code(error)
+        _record_llm_call(record)
+
     if not _max_oauth_active():
+        _t0 = time.monotonic()
         mind_resp = _try_mind_broker(messages, model, temperature, max_tokens, tools)
         if mind_resp is not None:
+            mind_model = mind_resp.get("mind_model") or model or ""
+            fields = _cost_fields(mind_resp, mind_model, "metered")
+            _record("ok", mind_model, "windy-mind", _t0, fields)
             return mind_resp
 
     chain = _build_chain(model, config)
@@ -809,6 +1032,7 @@ def call_llm(
                 attempted[-1], ", ".join(attempted[:-1]),
             )
 
+        _t0 = time.monotonic()
         try:
             if provider_type == "anthropic":
                 result = _call_anthropic(
@@ -822,9 +1046,13 @@ def call_llm(
                     tools, base_url, api_key,
                 )
             _record_provider_success(provider_key)
+            fields = _cost_fields(result, chain_model, _billing_for(provider_type, base_url, api_key))
+            _record("ok", chain_model, provider_key, _t0, fields)
             return result
         except Exception as e:
             last_error = e
+            _record("failed", chain_model, provider_key, _t0,
+                    {"billing": _billing_for(provider_type, base_url, api_key)}, e)
             logger.warning(
                 "Provider %s (%s) failed: %s",
                 provider_key, chain_model, e,
@@ -851,6 +1079,7 @@ def call_llm(
                     retry_key = env_key
             if retry_key:
                 _oauth_reloaded = True
+                _t0 = time.monotonic()
                 try:
                     result = _call_anthropic(
                         messages, chain_model, temperature, max_tokens, tools,
@@ -858,12 +1087,16 @@ def call_llm(
                         session_id=session_id, reasoning_depth=reasoning_depth,
                     )
                     _record_provider_success(provider_key)
+                    fields = _cost_fields(result, chain_model, _billing_for(provider_type, base_url, retry_key))
+                    _record("ok", chain_model, provider_key, _t0, fields)
                     logger.info(
                         "Recovered after OAuth token reload (%s)", provider_key,
                     )
                     return result
                 except Exception as e2:
                     last_error = e2
+                    _record("failed", chain_model, provider_key, _t0,
+                            {"billing": _billing_for(provider_type, base_url, retry_key)}, e2)
                     logger.warning(
                         "Provider %s retry after token reload also failed: %s",
                         provider_key, e2,
@@ -873,6 +1106,11 @@ def call_llm(
     summary = f"attempted={attempted}"
     if skipped:
         summary += f", skipped={skipped}"
+    if not attempted:
+        # Nothing was even tried (no key / all cooling down): still a
+        # failed call from the user's point of view, so it gets a row.
+        _record("failed", chain[0] if chain else (model or ""), "none", time.monotonic(),
+                {"error_code": "no_provider"})
     raise RuntimeError(
         f"LLM call failed across all providers in chain ({summary}): {last_error}"
     )
@@ -1348,12 +1586,37 @@ def _call_anthropic(
         # block types (thinking, redacted_thinking, etc.) over time
         # and we don't want a new block type to crash the parser.
 
+    w5, w1, cache_read = _anthropic_cache_tokens(response.usage)
     return {
         "content": content,
         "model": model,
         "input_tokens": response.usage.input_tokens,
         "output_tokens": response.usage.output_tokens,
+        # Anthropic's input_tokens EXCLUDES cached tokens; they're priced
+        # separately (writes above input, reads far below it).
+        "cache_write_5m_tokens": w5,
+        "cache_write_1h_tokens": w1,
+        "cache_read_tokens": cache_read,
         "tool_calls": tool_calls,
         "citations": citations,
         "server_tools_used": server_tools_used,
     }
+
+
+def _usage_int(obj: Any, name: str) -> int | None:
+    value = getattr(obj, name, None) if obj is not None else None
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _anthropic_cache_tokens(usage: Any) -> tuple[int, int, int]:
+    """(cache writes 5m, cache writes 1h, cache reads) from an Anthropic
+    usage block. Writes are split by TTL when the SDK reports
+    ``cache_creation``; otherwise they're the default 5-minute kind."""
+    read = _usage_int(usage, "cache_read_input_tokens") or 0
+    created = _usage_int(usage, "cache_creation_input_tokens") or 0
+    split = getattr(usage, "cache_creation", None)
+    w5 = _usage_int(split, "ephemeral_5m_input_tokens")
+    w1 = _usage_int(split, "ephemeral_1h_input_tokens")
+    if w5 is None and w1 is None:
+        return created, 0, read
+    return w5 or 0, w1 or 0, read

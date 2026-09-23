@@ -14,10 +14,10 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from windyfly.tools.registry import ToolRegistry
 
-from windyfly.agent.models import call_llm, estimate_cost
-from windyfly.memory.cost_ledger import log_cost
+from windyfly.agent.models import call_llm, llm_purpose
+from windyfly.memory.cost_ledger import install_cost_sink
 from windyfly.memory.database import Database
-from windyfly.memory.write_queue import Priority, WriteQueue
+from windyfly.memory.write_queue import WriteQueue
 
 logger = logging.getLogger(__name__)
 
@@ -79,28 +79,24 @@ def spawn_sub_agent(
         },
     ]
 
-    result = call_llm(
-        messages,
-        model=model,
-        temperature=0.3,  # Lower temp for focused tasks
-        max_tokens=token_budget,
-        config=config,
-    )
+    # call_llm records the call (as task type "sub_agent") in the ledger.
+    install_cost_sink(db, write_queue)
+    with llm_purpose("sub_agent"):
+        result = call_llm(
+            messages,
+            model=model,
+            temperature=0.3,  # Lower temp for focused tasks
+            max_tokens=token_budget,
+            config=config,
+        )
 
     response_text = result["content"]
-    cost_usd = estimate_cost(model, result["input_tokens"], result["output_tokens"])
-
-    # Log cost separately as sub_agent task type
-    write_queue.enqueue(
-        Priority.MEDIUM,
-        log_cost,
-        db, model, result["input_tokens"], result["output_tokens"],
-        cost_usd,
-    )
+    cost_usd = result.get("cost_usd")
 
     logger.info(
-        "Sub-agent completed: %.4f USD, %d tokens",
-        cost_usd, result["output_tokens"],
+        "Sub-agent completed: %s, %d tokens",
+        "unknown cost" if cost_usd is None else f"{cost_usd:.4f} USD",
+        result["output_tokens"],
     )
 
     # Cache the result

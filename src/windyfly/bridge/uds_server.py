@@ -752,6 +752,9 @@ async def _serve_forever() -> None:
     db = Database(db_path)
     write_queue = WriteQueue()
     write_queue.start()
+    # Every LLM call in this process lands in this ledger.
+    from windyfly.memory.cost_ledger import install_cost_sink
+    install_cost_sink(db, write_queue)
 
     # Register the agent's tools + capabilities, exactly as the telegram/matrix
     # channels do in main.py — otherwise the voice bridge runs the full loop but
