@@ -15,17 +15,22 @@ adapted):
   still answers — but they see only Tier-0 pure-compute capabilities,
   no legacy tools, no registry commands, no rescue commands, and no
   owner name / private history in the prompt).
-- **No allowlist configured** → **Trust-On-First-Use (TOFU)**. The
-  first sender an unclaimed agent talks to on a platform is bound as
-  that platform's owner and persisted to disk; every *later* sender is
-  a SANDBOX stranger. This is the grandma-safe default: a freshly
-  hatched agent lives in a private 1:1 DM room its owner was invited to
-  at hatch, so the owner is always the first to speak — the agent binds
-  to her automatically with zero env editing, and it becomes impossible
-  for a stranger who later finds the agent to be treated as the owner.
-  (Pre-TOFU behavior — everyone-is-OWNER — was the 2026-07-06 Windy 0
-  finding: a demo user got greeted by the owner's name and offered SSH /
-  fleet / DNS tooling. TOFU is the line HiFly's public default flips.)
+- **No owner known for the platform** → **SANDBOX**, for everyone.
+  There is no Trust-On-First-Use any more (removed 2026-09-23, SSO #13).
+  TOFU bound whoever spoke first as owner, on the assumption that the
+  owner always speaks first. That fails exactly when it matters: a
+  stranger who reaches an unclaimed agent first (a leaked bot handle, a
+  guessable Matrix ID, a hatch that never invited the owner) became its
+  owner, with SSH / fleet / DNS tooling. An owner is now established
+  only by something the owner controls:
+    * an explicit allowlist (``WINDY_OWNER_IDS``, ``AGENT_OWNER_TELEGRAM_ID``,
+      config ``[trust] owner_ids``);
+    * the hatch pinning the owner's Matrix ID (``bind_owner`` at hatch);
+    * **pairing**: the owner signs in to the dashboard with their hub
+      login, gets a one-time code, and sends ``/pair <code>`` to the
+      agent on any platform (``windyfly.channels.pairing``).
+  Bindings persisted by the old TOFU path stay valid, so an agent that
+  already knows its owner keeps knowing it.
 - **Explicit opt-out** → set ``WINDY_LEGACY_OWNER_MODE=1`` to restore
   the historical everyone-is-OWNER behavior (single-user box, or a
   deliberately public bot where every sender should be trusted). Loud
@@ -40,9 +45,9 @@ Configuration:
     AGENT_OWNER_TELEGRAM_ID is absorbed automatically as a telegram
     owner so the existing fleet convention keeps working unmodified.
 
-    WINDY_OWNER_BINDINGS_PATH overrides where TOFU bindings persist
-    (default ~/.windy/owner-bindings.json). Delete that file to let the
-    agent re-bind on next contact.
+    WINDY_OWNER_BINDINGS_PATH overrides where owner bindings (hatch /
+    pairing / legacy TOFU) persist (default ~/.windy/owner-bindings.json).
+    Deleting that file un-owns those platforms until the owner pairs again.
 """
 
 from __future__ import annotations
@@ -58,7 +63,6 @@ from windyfly.agent.capabilities import Band
 logger = logging.getLogger(__name__)
 
 _warned_platforms: set[str] = set()
-_tofu_bound_platforms: set[str] = set()
 
 
 def _legacy_mode() -> bool:
@@ -69,7 +73,7 @@ def _legacy_mode() -> bool:
 
 
 def _bindings_path() -> Path:
-    """Where TOFU owner bindings persist.
+    """Where owner bindings (hatch, pairing, legacy TOFU) persist.
 
     ``WINDY_OWNER_BINDINGS_PATH`` wins when set (tests point it at a tmp
     file). Otherwise it lives under ``windy_state_dir()`` alongside the
@@ -84,10 +88,10 @@ def _bindings_path() -> Path:
 
 
 def _load_bindings() -> dict[str, set[str]]:
-    """Read persisted TOFU owner bindings: platform → {sender_id}.
+    """Read persisted owner bindings: platform → {sender_id}.
 
     Stored as ``{"matrix": "@owner:server", ...}`` — one owner per
-    platform (the first sender). Tolerant of a missing / corrupt file:
+    platform (the hatch-pinned or paired owner). Tolerant of a missing / corrupt file:
     a broken bindings file must never take the resolver offline (the
     grandma-proof bar — degrade to "no binding", never crash).
     """
@@ -111,10 +115,8 @@ def _persist_binding(platform: str, sender_id: str) -> None:
     """Atomically record ``platform → sender_id`` as the bound owner.
 
     Best-effort: if the write fails (read-only FS, etc.) we log and
-    carry on — the in-process ``_tofu_bound_platforms`` guard still
-    prevents re-binding a *different* sender within this process, so a
-    persistence failure degrades to "owner recognized until restart"
-    rather than "stranger becomes owner".
+    carry on. A lost binding degrades to "owner must pair again", never
+    to "stranger becomes owner" — nothing binds without an owner action.
     """
     path = _bindings_path()
     try:
@@ -155,7 +157,7 @@ def owner_ids(config: dict[str, Any] | None = None) -> dict[str, set[str]]:
 
     Precedence is a union (any source can add an owner): explicit env
     ``WINDY_OWNER_IDS`` + ``AGENT_OWNER_TELEGRAM_ID`` + config
-    ``[trust] owner_ids`` + persisted TOFU bindings. Explicit config is
+    ``[trust] owner_ids`` + persisted bindings (hatch, pairing, legacy TOFU). Explicit config is
     never *overridden* by a stale binding — they merge — so setting
     ``WINDY_OWNER_IDS`` is always sufficient to lock an agent down
     regardless of what got auto-bound earlier.
@@ -172,7 +174,7 @@ def owner_ids(config: dict[str, Any] | None = None) -> dict[str, set[str]]:
             for platform, ids in _parse_pairs(str(pair)).items():
                 owners.setdefault(platform, set()).update(ids)
 
-    # Persisted first-contact (TOFU) bindings.
+    # Persisted bindings: hatch-pinned, paired, or left over from TOFU.
     for platform, ids in _load_bindings().items():
         owners.setdefault(platform, set()).update(ids)
 
@@ -192,7 +194,6 @@ def bind_owner(platform: str, sender_id: str) -> None:
     if not platform or not sender_id:
         return
     _persist_binding(platform, sender_id)
-    _tofu_bound_platforms.add(platform)
 
 
 def resolve_band(
@@ -216,7 +217,7 @@ def resolve_band(
 
     if platform_owners:
         # Strict mode: an owner is known for this platform (via env,
-        # config, or a prior TOFU binding). Match → OWNER, else SANDBOX.
+        # config, a hatch/pairing binding, or a legacy TOFU binding). Match → OWNER, else SANDBOX.
         band = Band.OWNER if sender and sender in platform_owners else Band.SANDBOX
     elif _legacy_mode():
         # Explicit opt-in to the historical everyone-is-OWNER behavior.
@@ -230,24 +231,17 @@ def resolve_band(
             )
         band = Band.OWNER
     elif sender:
-        # Trust-On-First-Use: no owner known yet → the first sender we
-        # ever hear from on this platform becomes the bound owner. Every
-        # later stranger falls through to SANDBOX because the binding is
-        # persisted and re-read on the next call. This is the security-
-        # critical path: EVERY remote channel (matrix, telegram, discord,
-        # ...) always carries a sender id, so a stranger who DMs an
-        # unclaimed agent after the owner has spoken is sandboxed, never
-        # treated as owner.
-        bind_owner(platform, sender)
+        # No owner known on this platform and the sender is a real remote
+        # identity: they get SANDBOX. They can still chat (Tier-0 only);
+        # to become owner they pair with a code from the dashboard.
         if platform not in _warned_platforms:
             _warned_platforms.add(platform)
             logger.warning(
-                "channel '%s' had no owner configured — bound first "
-                "sender %s as owner (Trust-On-First-Use). Set "
-                "WINDY_OWNER_IDS=\"%s:<id>\" to pin this explicitly.",
-                platform, sender, platform,
+                "channel '%s' has no owner — sender treated as SANDBOX. "
+                "Pair from the dashboard (/pair <code>) or set "
+                "WINDY_OWNER_IDS=\"%s:<id>\".", platform, platform,
             )
-        band = Band.OWNER
+        band = Band.SANDBOX
     else:
         # No owner configured AND no attributable sender id. A remote
         # channel always populates a sender, so this is a local /
@@ -265,4 +259,3 @@ def resolve_band(
 
 def _reset_warnings_for_tests() -> None:
     _warned_platforms.clear()
-    _tofu_bound_platforms.clear()

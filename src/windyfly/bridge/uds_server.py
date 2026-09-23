@@ -180,6 +180,7 @@ class UDSBridge:
             "intents.list": self._handle_intents_list,
             "dashboard.summary": self._handle_dashboard_summary,
             "trust.webhook": self._handle_trust_webhook,
+            "owner.pair.create": self._handle_owner_pair_create,
             "soul.preview": self._handle_soul_preview,
             "soul.import": self._handle_soul_import,
             "sms.inbound": self._handle_sms_inbound,
@@ -316,6 +317,24 @@ class UDSBridge:
             self.db, user_id=user_id, config=self.config
         )
         return {"dashboard": summary}
+
+    async def _handle_owner_pair_create(self, params: dict) -> dict:
+        """Mint a one-time owner pairing code (SSO #13).
+
+        Called by the gateway AFTER it has verified the caller's hub JWT
+        and that its ``sub`` is this agent's owner — the bridge socket is
+        peer-uid gated, so only the local gateway reaches this.
+
+        Params: owner_identity (str, the hub sub), ttl_seconds (int, opt).
+        Returns: {"code": "XXXX-XXXX", "expires_at": iso8601}.
+        """
+        from windyfly.channels.pairing import DEFAULT_TTL_S, create_code
+
+        owner_identity = str(params.get("owner_identity") or "").strip()
+        if not owner_identity:
+            raise ValueError("owner_identity is required")
+        ttl = params.get("ttl_seconds", DEFAULT_TTL_S)
+        return create_code(owner_identity, int(ttl))
 
     async def _handle_trust_webhook(self, params: dict) -> dict:
         """Eternitas trust.changed webhook (fanned from gateway).

@@ -1,5 +1,5 @@
 """Sender identity → band enforcement (Sprint 4, 2026-07-04 audit;
-TOFU owner binding, 2026-07-06 Windy 0 fix).
+Trust-On-First-Use removed 2026-09-23, SSO #13).
 
 The public-launch disqualifier: only telegram checked who was talking;
 every other channel ran every sender at Band.OWNER. These tests pin
@@ -7,11 +7,11 @@ the contract end to end:
 
 - allowlist configured → strangers are SANDBOX (chat yes; commands,
   rescue, legacy tools no);
-- nothing configured → **Trust-On-First-Use**: the first sender is
-  bound as owner and persisted; every later sender is a SANDBOX
-  stranger. This is the grandma-safe default that replaced the old
-  everyone-is-OWNER legacy mode (which greeted a demo user by the
-  owner's name and offered them SSH/fleet tooling);
+- no owner known → **every remote sender is SANDBOX**. There is no
+  Trust-On-First-Use: a stranger who reaches an unclaimed agent first
+  must never become its owner. Owners come from an allowlist, the
+  hatch pinning the owner's Matrix ID, or /pair (test_owner_pairing);
+- bindings persisted earlier (hatch, pairing, legacy TOFU) stay valid;
 - WINDY_LEGACY_OWNER_MODE=1 → explicit opt-in to the old everyone-is-
   OWNER behavior, with a loud warning.
 """
@@ -31,7 +31,7 @@ from windyfly.channels.manager import ChannelManager
 
 @pytest.fixture(autouse=True)
 def _fresh_warnings(monkeypatch, tmp_path):
-    # Isolate the TOFU bindings file to a per-test temp path so tests
+    # Isolate the owner-bindings file to a per-test temp path so tests
     # never read or pollute the real ~/.windy/owner-bindings.json and
     # each test starts with a clean (unbound) slate.
     monkeypatch.setenv(
@@ -75,63 +75,50 @@ class TestResolveBand:
         assert band == Band.OWNER
 
 
-class TestTrustOnFirstUse:
-    """Default posture: no allowlist configured → bind the first
-    sender, sandbox everyone after. This is the grandma-safe default."""
+class TestNoTrustOnFirstUse:
+    """Default posture: no owner known → nobody remote is OWNER. The
+    first sender is NOT bound (the TOFU hole SSO #13 closed)."""
 
-    def test_first_sender_becomes_owner(self):
-        assert identity.resolve_band("matrix", "@grandma:hs") == Band.OWNER
+    def test_first_sender_is_sandbox(self):
+        assert identity.resolve_band("matrix", "@first:hs") == Band.SANDBOX
 
-    def test_later_stranger_is_sandbox(self):
-        # Grandma speaks first → bound. A stranger who finds the agent
-        # afterwards is NEVER treated as owner.
-        assert identity.resolve_band("matrix", "@grandma:hs") == Band.OWNER
-        assert identity.resolve_band("matrix", "@stranger:hs") == Band.SANDBOX
-        # The real owner still resolves to OWNER on subsequent messages.
-        assert identity.resolve_band("matrix", "@grandma:hs") == Band.OWNER
-
-    def test_binding_persists_to_disk(self, monkeypatch, tmp_path):
+    def test_first_sender_is_not_bound(self, monkeypatch, tmp_path):
         path = tmp_path / "bindings.json"
         monkeypatch.setenv("WINDY_OWNER_BINDINGS_PATH", str(path))
-        identity.resolve_band("discord", "owner-1")
-        assert path.exists()
-        # A fresh process (cleared in-memory guards) still recognizes
-        # the persisted owner and sandboxes a newcomer.
-        identity._reset_warnings_for_tests()
-        assert identity.resolve_band("discord", "owner-1") == Band.OWNER
-        assert identity.resolve_band("discord", "newcomer") == Band.SANDBOX
+        identity.resolve_band("discord", "stranger")
+        assert not path.exists()
+        # Still SANDBOX on every later message — nothing was learned.
+        assert identity.resolve_band("discord", "stranger") == Band.SANDBOX
 
-    def test_tofu_binds_per_platform(self):
-        # Binding one platform must not silently claim another.
-        assert identity.resolve_band("discord", "d-owner") == Band.OWNER
-        assert identity.resolve_band("slack", "s-owner") == Band.OWNER
-        assert identity.resolve_band("discord", "s-owner") == Band.SANDBOX
+    def test_persisted_binding_still_owner(self, monkeypatch, tmp_path):
+        # A binding written earlier (hatch, pairing, or the old TOFU path)
+        # stays authoritative, so an agent that knows its owner keeps
+        # knowing it after this change.
+        path = tmp_path / "bindings.json"
+        path.write_text('{"matrix": "@grant:hs"}', encoding="utf-8")
+        monkeypatch.setenv("WINDY_OWNER_BINDINGS_PATH", str(path))
+        assert identity.resolve_band("matrix", "@grant:hs") == Band.OWNER
+        assert identity.resolve_band("matrix", "@stranger:hs") == Band.SANDBOX
 
     def test_no_sender_when_unconfigured_is_local_operator(self):
         # No owner configured AND no sender id = a local / unattributed
-        # context (CLI, embedded) — a remote channel always carries a
-        # sender, so this can only be the operator. Resolves to OWNER,
-        # and does NOT bind a bogus empty owner, so a real sender can
-        # still claim ownership afterwards.
+        # context (CLI, embedded). Unchanged: OWNER, and nothing is bound.
         assert identity.resolve_band("matrix", None) == Band.OWNER
-        assert identity.resolve_band("matrix", "@grandma:hs") == Band.OWNER
-        # But once an allowlist is configured, a no-sender message is a
-        # stranger — the locked-down agent refuses it. (Covered fully by
-        # TestResolveBand.test_stranger_is_sandbox_when_allowlist_configured.)
+        assert identity.resolve_band("matrix", "@grandma:hs") == Band.SANDBOX
 
-    def test_tofu_warns_once(self, caplog):
+    def test_unowned_platform_warns_once(self, caplog):
         with caplog.at_level(logging.WARNING, logger="windyfly.channels.identity"):
             identity.resolve_band("irc", "a")
             identity.resolve_band("irc", "b")
-        assert sum(
-            "Trust-On-First-Use" in r.message for r in caplog.records
-        ) == 1
+        assert sum("has no owner" in r.message for r in caplog.records) == 1
+
+    def test_allowlist_wins(self, monkeypatch):
+        monkeypatch.setenv("WINDY_OWNER_IDS", "discord:real-owner")
+        assert identity.resolve_band("discord", "real-owner") == Band.OWNER
+        assert identity.resolve_band("discord", "someone") == Band.SANDBOX
 
     def test_explicit_env_is_honored_over_binding(self, monkeypatch):
-        # A stale binding never overrides an explicit allowlist: setting
-        # WINDY_OWNER_IDS is always sufficient to keep the real owner
-        # recognized and to lock the agent's policy down.
-        identity.resolve_band("discord", "auto-bound")  # binds auto-bound
+        identity.bind_owner("discord", "old-owner")
         monkeypatch.setenv("WINDY_OWNER_IDS", "discord:real-owner")
         assert identity.resolve_band("discord", "real-owner") == Band.OWNER
 
@@ -139,6 +126,11 @@ class TestTrustOnFirstUse:
         identity.bind_owner("matrix", "@boss:hs")
         assert identity.resolve_band("matrix", "@boss:hs") == Band.OWNER
         assert identity.resolve_band("matrix", "@rando:hs") == Band.SANDBOX
+
+    def test_bindings_are_per_platform(self):
+        identity.bind_owner("discord", "d-owner")
+        assert identity.resolve_band("discord", "d-owner") == Band.OWNER
+        assert identity.resolve_band("slack", "d-owner") == Band.SANDBOX
 
 
 class TestLegacyOwnerMode:
@@ -230,21 +222,20 @@ class TestCommandGating:
         assert "Paused" in reply
         self._handle("/resume", "111")
 
-    def test_tofu_first_sender_keeps_rescue(self):
-        # No allowlist → first sender is the TOFU owner → rescue works.
+    def test_unowned_first_sender_blocked_from_rescue(self):
+        # No owner known → even the very first caller is a stranger.
         was_cmd, reply = self._handle("/pause", "first-caller")
-        assert was_cmd
-        assert "Paused" in reply
-        self._handle("/resume", "first-caller")
-
-    def test_tofu_later_stranger_blocked_from_rescue(self):
-        # First caller binds; a later stranger is sandboxed and blocked.
-        self._handle("hi", "first-caller")  # binds owner
-        was_cmd, reply = self._handle("/pause", "second-caller")
         assert was_cmd
         assert "Only my owner" in reply
         from windyfly.agent.spend_monitor import is_paused
         assert not is_paused()
+
+    def test_bound_owner_keeps_rescue(self):
+        identity.bind_owner("discord", "the-owner")
+        was_cmd, reply = self._handle("/pause", "the-owner")
+        assert was_cmd
+        assert "Paused" in reply
+        self._handle("/resume", "the-owner")
 
 
 class TestSandboxToolExclusion:

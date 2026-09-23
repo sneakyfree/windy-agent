@@ -79,6 +79,13 @@ async def handle_incoming(text: str, context: dict | None = None) -> tuple[bool,
     ctx = context or {}
     platform = str(ctx.get("platform", "unknown"))
 
+    # Owner pairing comes first: it's how an owner gets recognised at all,
+    # so it must work for a sender who is still SANDBOX here.
+    from windyfly.channels.pairing import try_pair
+    pair_reply = try_pair(platform, ctx.get("sender_id"), text)
+    if pair_reply is not None:
+        return True, pair_reply
+
     # Sender gating (Sprint 4): when an owner allowlist is configured
     # for this platform, strangers resolve to SANDBOX — they can chat,
     # but commands and the rescue kit are owner-side controls.
