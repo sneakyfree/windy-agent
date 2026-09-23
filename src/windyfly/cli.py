@@ -696,6 +696,39 @@ def _cmd_whoami(_args: argparse.Namespace) -> None:
     console.print(f"Windy identity {identity[:8]}… ({state})")
 
 
+def _cmd_ept(args: argparse.Namespace) -> None:
+    """windy ept refresh [--force] — renew the Eternitas passport token."""
+    from windyfly.eternitas.ept_refresh import refresh_ept
+
+    if getattr(args, "ept_command", None) != "refresh":
+        console.print("Usage: windy ept refresh [--force]")
+        return
+    result = refresh_ept(force=bool(getattr(args, "force", False)))
+    status = result.get("status")
+    if status == "current":
+        console.print("[green]✓[/green] Passport token is current (use --force to ask Eternitas anyway).")
+    elif status == "refreshed":
+        where = result.get("env_file") or "this process only (set WINDY_ENV_FILE to persist)"
+        console.print(
+            f"[green]✓[/green] Passport token refreshed "
+            f"(reissued={result.get('reissued')}, reason={result.get('reason')}); saved to {where}."
+        )
+        if not result.get("has_windy_identity_id"):
+            console.print(
+                "[yellow]Note:[/yellow] the new token has no Windy identity link yet; "
+                "your owner link at Eternitas may need attention."
+            )
+    elif status == "unchanged":
+        console.print("[green]✓[/green] Eternitas says the token is current; nothing changed.")
+    elif status == "needs_login":
+        console.print("[yellow]The passport token has expired.[/yellow] Run [bold]windy login[/bold], then try again.")
+    elif status == "no_passport":
+        console.print("No passport on this agent. Hatch it first ([bold]windy go[/bold]).")
+    else:
+        hint = result.get("hint")
+        console.print(f"[red]Refresh failed[/red] ({result.get('http') or result.get('error')})." + (f" {hint}" if hint else ""))
+
+
 def _cmd_passport(_args: argparse.Namespace) -> None:
     """Show Eternitas passport."""
     from windyfly.commands import cmd_passport
@@ -967,6 +1000,7 @@ _COMMAND_CATEGORIES = [
         ("login", "Sign in with your Windy account (needed to hatch)"),
         ("logout", "Forget the stored Windy sign-in"),
         ("whoami", "Show which Windy account is signed in"),
+        ("ept refresh", "Renew the Eternitas passport token"),
         ("mail", "Show mail status"),
         ("phone", "Show phone status"),
         ("cert", "Show birth certificate"),
@@ -1405,6 +1439,13 @@ def main() -> None:
     sub.add_parser("logout", help="Forget the stored Windy sign-in")
     sub.add_parser("whoami", help="Show which Windy account is signed in")
 
+    # windy ept refresh — renew the Eternitas passport token
+    ept_parser = sub.add_parser("ept", help="Eternitas passport token (EPT) tools")
+    ept_sub = ept_parser.add_subparsers(dest="ept_command")
+    ept_refresh = ept_sub.add_parser("refresh", help="Renew the passport token now")
+    ept_refresh.add_argument("--force", action="store_true",
+                             help="Ask Eternitas even if the token looks current")
+
     # windy mail
     sub.add_parser("mail", help="Show mail status")
 
@@ -1617,6 +1658,7 @@ def main() -> None:
         "login": _cmd_login,
         "logout": _cmd_logout,
         "whoami": _cmd_whoami,
+        "ept": _cmd_ept,
         "keys": _cmd_keys,
         "mail": _cmd_mail,
         "phone": _cmd_phone,

@@ -398,6 +398,15 @@ def _step_sync_skill_files(ctx: BootContext) -> None:
     sync_skill_files(ctx.db)
 
 
+def _step_refresh_ept(ctx: BootContext) -> None:
+    """Refresh the Eternitas passport token in the background.
+
+    Runs on a daemon thread so a slow or unreachable Eternitas never delays
+    boot; the result is logged by ``windyfly.eternitas.ept_refresh``."""
+    from windyfly.eternitas.ept_refresh import refresh_in_background
+    refresh_in_background()
+
+
 def default_capability_registration_sequence() -> list[Step]:
     """The canonical post-DB-open registration order for both channels.
 
@@ -522,5 +531,10 @@ def default_capability_registration_sequence() -> list[Step]:
             "skills.file_sync",
             _step_sync_skill_files,
             optional=True,  # a malformed skill file must not block boot
+        ),
+        Step(
+            "eternitas.ept_refresh",
+            _step_refresh_ept,
+            optional=True,  # background thread; must never block boot
         ),
     ]

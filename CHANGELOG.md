@@ -19,6 +19,14 @@ credential), so hatching from the terminal needs the owner's Windy sign-in.
   back to `sub` on a hub login token (there `sub` is a different id).
 - Agents that are already hatched are unaffected: nothing re-hatches or
   asks you to sign in at startup.
+- Agents now renew their Eternitas passport token automatically (at boot
+  and daily; or run `windy ept refresh`), using Eternitas's new
+  self-refresh endpoint. A token is renewed with its own still-valid EPT,
+  or, once expired, with your `windy login`. This also picks up new
+  claims (e.g. the link to your Windy account) without a re-hatch. For
+  systemd installs, set `WINDY_ENV_FILE` to your unit's `EnvironmentFile`
+  so the renewed token survives restarts.
+
 
 ## 0.7.1
 

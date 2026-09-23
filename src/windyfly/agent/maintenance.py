@@ -149,10 +149,21 @@ def default_jobs(config: dict[str, Any]) -> list[MaintenanceJob]:
         model_caller = _journal_model_caller(config)
         write_day(db, day, model_caller=model_caller)
 
+    def _refresh_ept() -> None:
+        from windyfly.eternitas.ept_refresh import refresh_ept
+        refresh_ept()
+
     jobs = [
         MaintenanceJob(
             name="journal.daily",
             run=_write_yesterday_journal,
+            due=daily_due(after_hour=0),
+        ),
+        # Eternitas passport token: renews before expiry and picks up new
+        # claims (e.g. windy_identity_id) without a re-hatch.
+        MaintenanceJob(
+            name="eternitas.ept_refresh.daily",
+            run=_refresh_ept,
             due=daily_due(after_hour=0),
         ),
     ]
