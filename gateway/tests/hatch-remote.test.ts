@@ -169,6 +169,47 @@ describe("validateHatchRemoteBody", () => {
   });
 });
 
+describe("remote hatch identity isolation (audit §2e #5)", () => {
+  test("rejects an empty passport_number", () => {
+    const r = validateHatchRemoteBody({ ...goodBody, passport_number: "" });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain("passport_number");
+  });
+
+  test("rejects a whitespace-only passport_number", () => {
+    const r = validateHatchRemoteBody({ ...goodBody, passport_number: "   " });
+    expect(r.ok).toBe(false);
+  });
+
+  test("the subprocess never inherits the host agent's identity", async () => {
+    const host = {
+      ETERNITAS_PASSPORT: "ET26-HOST-0001",
+      ETERNITAS_PASSPORT_TOKEN: "host.ept.token",
+      ETERNITAS_OPERATOR_JWT: "host.operator.jwt",
+      WINDY_HUB_JWT: "host.hub.jwt",
+      WINDY_ENV_FILE: "/home/host/.windy/host.env",
+      WINDY_CREDENTIALS_FILE: "/home/host/.windy/credentials.json",
+    };
+    const saved: Record<string, string | undefined> = {};
+    for (const [k, v] of Object.entries(host)) { saved[k] = process.env[k]; process.env[k] = v; }
+    let seenEnv: Record<string, string | undefined> = {};
+    const spawnImpl = ((opts: { env: Record<string, string | undefined> }) => {
+      seenEnv = opts.env;
+      return fakeSpawn([])(opts as never);
+    }) as unknown as typeof import("bun").spawn;
+    try {
+      const resp = startHatchRemoteSse(goodBody, { spawnImpl });
+      await collectSseText(resp);
+    } finally {
+      for (const [k, v] of Object.entries(saved)) {
+        if (v === undefined) delete process.env[k]; else process.env[k] = v;
+      }
+    }
+    for (const k of Object.keys(host)) expect(seenEnv[k]).toBeUndefined();
+    expect(seenEnv.PYTHONUNBUFFERED).toBe("1");
+  });
+});
+
 describe("formatSseFrame", () => {
   test("emits event + data on separate lines with trailing blank line", () => {
     const frame = formatSseFrame("hatch.complete", { ok: true });

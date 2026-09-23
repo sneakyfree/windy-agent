@@ -15,7 +15,8 @@ mirror the ``/hatch/remote`` request body:
 * ``bot_identity_id`` — the BOT's Windy Pro identity id, minted by Pro
   before the handoff. The gateway is the only carrier of this value;
   without it the bot cannot mint its ``wk_`` key against Pro.
-* ``passport_number`` — pre-allocated passport id, if any
+* ``passport_number`` — the pre-allocated passport id (required; never
+  taken from the host environment)
 * ``broker_token`` — short-lived LLM credential from Pro's broker
   endpoint (stored as the active provider's API key for this hatch)
 * ``provider`` / ``model`` — what the broker issued the token FOR. With
@@ -44,6 +45,17 @@ logger = logging.getLogger("windyfly.hatch_remote")
 # here as documentation — the orchestrator itself decides when each
 # fires, so hatch_orchestrator.py is the source of truth, not this list.
 # (This used to point at docs/HATCH_SSE_EVENTS.md, which does not exist.)
+# The host agent's own identity, never inherited by a remote hatch.
+# Keep in sync with HOST_IDENTITY_ENV in gateway/src/hatch-remote.ts.
+HOST_IDENTITY_ENV: tuple[str, ...] = (
+    "ETERNITAS_PASSPORT",
+    "ETERNITAS_PASSPORT_TOKEN",
+    "ETERNITAS_OPERATOR_JWT",
+    "WINDY_HUB_JWT",
+    "WINDY_ENV_FILE",
+    "WINDY_CREDENTIALS_FILE",
+)
+
 EVENT_ORDER: list[str] = [
     "eternitas.registering",
     "eternitas.registered",
@@ -146,6 +158,20 @@ def run(
 ) -> int:
     """Invoke the orchestrator with event streaming. Returns exit code."""
 
+    # This process hatches a NEW agent, but it may have been started from
+    # the host agent's environment. Drop the host's identity first so
+    # nothing below can adopt its passport, write to its env file or mint
+    # under its owner's token (audit §2e #5).
+    for key in HOST_IDENTITY_ENV:
+        os.environ.pop(key, None)
+    passport_number = passport_number.strip()
+    if not passport_number:
+        _emit_json("hatch.error", {
+            "message": "no passport_number: the remote door only adopts a pre-allocated passport",
+            "type": "MissingPassport",
+        })
+        return 2
+
     # Seed environment so orchestrator sub-modules (mail, phone, sms,
     # eternitas linkback) see the owner details and the managed
     # credential. This matches how `windy go` sets these today.
@@ -157,8 +183,7 @@ def run(
         os.environ["WINDY_OWNER_NAME"] = owner_name
     if windy_identity_id:
         os.environ["WINDY_IDENTITY_ID"] = windy_identity_id
-    if passport_number:
-        os.environ["ETERNITAS_PASSPORT"] = passport_number
+    os.environ["ETERNITAS_PASSPORT"] = passport_number
     # The bot's Pro identity id. Same seeding pattern as the passport:
     # the orchestrator's sub-steps (bot credential minting in
     # auth/bot_credentials.py) read it from the environment, so the
@@ -234,7 +259,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--agent-name", default=os.environ.get("WINDYFLY_AGENT_NAME", "Windy Fly"))
     parser.add_argument("--windy-identity-id", default=os.environ.get("WINDY_IDENTITY_ID", ""))
     parser.add_argument("--bot-identity-id", default=os.environ.get("BOT_IDENTITY_ID", ""))
-    parser.add_argument("--passport-number", default=os.environ.get("ETERNITAS_PASSPORT", ""))
+    # No env default: ETERNITAS_PASSPORT here would be the HOST agent's.
+    parser.add_argument("--passport-number", default="")
     parser.add_argument("--broker-token", default=os.environ.get("WINDY_BROKER_TOKEN", ""))
     parser.add_argument("--provider", default=os.environ.get("WINDY_BROKER_PROVIDER", ""))
     parser.add_argument("--model", default=os.environ.get("WINDY_BROKER_MODEL", ""))
