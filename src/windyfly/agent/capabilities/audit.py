@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 # land in master we can consolidate into one shared redactor. The
 # patterns here intentionally mirror that file so behavior matches.
 _TELEGRAM_TOKEN_RE = re.compile(
-    r"(bot\d{6,}:[A-Za-z0-9_-]{4})[A-Za-z0-9_-]{20,}"
+    r"(?<![A-Za-z0-9])((?:bot)?\d{6,}:[A-Za-z0-9_-]{4})[A-Za-z0-9_-]{20,}"
 )
 _API_KEY_RE = re.compile(r"\b(sk-[A-Za-z0-9_-]{6})[A-Za-z0-9_-]{20,}")
 _WK_KEY_RE = re.compile(r"\b(wk[_-][A-Za-z0-9_-]{4})[A-Za-z0-9_-]{16,}")

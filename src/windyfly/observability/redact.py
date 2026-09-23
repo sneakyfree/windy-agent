@@ -17,11 +17,15 @@ from __future__ import annotations
 import logging
 import re
 
-# Telegram: bot<digits>:<base64-ish secret>. Keep the bot ID and the
-# first 4 chars of the secret so we can still tell instances apart in
-# logs without exposing the full credential.
+# Telegram: <digits>:<base64-ish secret>, with or without the "bot" URL
+# prefix. Keep the bot ID and the first 4 chars of the secret so we can
+# still tell instances apart in logs without exposing the full credential.
+# The prefix is optional because python-telegram-bot's InvalidToken
+# message quotes the BARE token ("The token `8669155077:AAE-…` was
+# rejected by the server") — the bot-prefix-only pattern let that line
+# write the full token into the log on every reconnect (2026-09-17→23).
 _TELEGRAM_TOKEN_RE = re.compile(
-    r"(bot\d{6,}:[A-Za-z0-9_-]{4})[A-Za-z0-9_-]{20,}"
+    r"(?<![A-Za-z0-9])((?:bot)?\d{6,}:[A-Za-z0-9_-]{4})[A-Za-z0-9_-]{20,}"
 )
 
 # OpenAI / Anthropic / OpenRouter style: sk-..., sk-proj-..., sk-ant-..., wk_...

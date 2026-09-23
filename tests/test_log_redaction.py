@@ -142,3 +142,47 @@ def test_end_to_end_via_root_handler():
     output = buf.getvalue()
     assert "AAE-5ee2VMzkkXmxI8Rnjg6gDZG0AGwjBzI" not in output
     assert "***REDACTED***" in output
+
+
+def test_redacts_bare_telegram_token_in_ptb_invalid_token_message():
+    # python-telegram-bot quotes the token WITHOUT the "bot" URL prefix
+    # when getMe 401s. This exact line leaked the full token into
+    # windy-0-telegram.log on every reconnect for six days.
+    text = (
+        "Telegram start failed: The token "
+        "`8669155077:AAE-5ee2VMzkkXmxI8Rnjg6gDZG0AGwjBzI` "
+        "was rejected by the server.. Reconnecting in 8s..."
+    )
+    out = redact(text)
+    assert "5ee2VMzkkXmxI8Rnjg6gDZG0AGwjBzI" not in out
+    assert "8669155077:AAE-***REDACTED***" in out
+
+
+def test_bare_token_pattern_leaves_clock_times_and_ids_alone():
+    for text in ("01:56:23 heartbeat ok", "room 12345678:abc", "ratio 1234567:12"):
+        assert redact(text) == text
+
+
+def test_telegram_reconnect_event_is_redacted(monkeypatch):
+    # The events ledger is written directly, not through the logging
+    # filter, so the reconnect path must redact on its own.
+    import types
+
+    import windyfly.observability.events as events
+    from windyfly.channels.telegram_bot import TelegramChannel
+
+    captured = {}
+    monkeypatch.setattr(
+        events, "log_event",
+        lambda db, wq, etype, props: captured.update(etype=etype, **props),
+    )
+    fake_self = types.SimpleNamespace(_db=object(), _write_queue=object())
+    TelegramChannel._log_reconnect_event(
+        fake_self,
+        "The token `8669155077:AAE-5ee2VMzkkXmxI8Rnjg6gDZG0AGwjBzI` "
+        "was rejected by the server.",
+        8,
+    )
+    assert captured["etype"] == "telegram.reconnect"
+    assert "5ee2VMzkkXmxI8Rnjg6gDZG0AGwjBzI" not in captured["error"]
+    assert "***REDACTED***" in captured["error"]

@@ -702,8 +702,11 @@ class TelegramChannel(ChannelAdapter):
             return
         try:
             from windyfly.observability.events import log_event
+            from windyfly.observability.redact import redact
             log_event(self._db, self._write_queue, "telegram.reconnect", {
-                "error": error[:200],
+                # Redact BEFORE truncating: PTB's InvalidToken text carries
+                # the bare token, and the ledger is not behind the log filter.
+                "error": redact(error)[:200],
                 "backoff_seconds": backoff_seconds,
             })
         except Exception as e:

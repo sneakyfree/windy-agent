@@ -111,12 +111,48 @@ HTTP_CODE=$(curl -sS -o /tmp/probe-getme.$$ -w "%{http_code}" \
 BODY=$(cat /tmp/probe-getme.$$ 2>/dev/null || echo "")
 rm -f /tmp/probe-getme.$$
 
+# 401/404 = Telegram rejected the TOKEN itself (revoked, or the bot was
+# deleted). No restart can fix that — the old behaviour bounced BOTH
+# channel units every 15 min for six days (2026-09-17→23), taking the
+# healthy Matrix runtime down with it. Record it, say it loudly (at most
+# once an hour, so the journal stays readable), and leave the units alone
+# until a human mints a new token in @BotFather.
+if [[ "$HTTP_CODE" == "401" || "$HTTP_CODE" == "404" ]]; then
+    NEW_FAILS=$((PREV_FAILS + 1))
+    LAST_ALERT=$(awk -F= '/^last_alert_epoch=/{print $2}' "$STATUS_FILE" 2>/dev/null || true)
+    LAST_ALERT=${LAST_ALERT:-0}
+    NOW_EPOCH=$(date +%s)
+    if (( NOW_EPOCH - LAST_ALERT >= 3600 )); then
+        logger -p user.err -t windy-liveness-probe \
+            "TELEGRAM TOKEN REJECTED (getMe http=$HTTP_CODE, ${NEW_FAILS} checks) — not restarting; mint a new token in @BotFather and update $ENV_FILE"
+        LAST_ALERT=$NOW_EPOCH
+    fi
+    write_status AUTH_REJECTED "$NEW_FAILS" "getMe http=$HTTP_CODE — token rejected by Telegram; restart suppressed"
+    echo "last_alert_epoch=$LAST_ALERT" >> "$STATUS_FILE"
+    # A unit that is actually DEAD still gets healed (the fire drill's
+    # stop-matrix step relies on it) — only the pointless bounce of
+    # running units is suppressed. The heartbeat check is skipped: with
+    # no token the Telegram poll heartbeat is stale by definition.
+    DEAD=()
+    for u in $UNITS; do
+        [[ "$(systemctl $SCOPE_FLAG is-active "$u" 2>/dev/null || echo missing)" != "active" ]] && DEAD+=("$u")
+    done
+    if (( ${#DEAD[@]} > 0 && NEW_FAILS >= FAIL_LIMIT )); then
+        attempt_restart "units dead ${NEW_FAILS}x (token rejected)" "${DEAD[@]}"
+        echo "last_alert_epoch=$LAST_ALERT" >> "$STATUS_FILE"
+    fi
+    exit 1
+fi
+
 if [[ "$HTTP_CODE" != "200" ]] || [[ "$BODY" != *'"ok":true'* ]]; then
     NEW_FAILS=$((PREV_FAILS + 1))
     write_status FAIL "$NEW_FAILS" "getMe http=$HTTP_CODE body=${BODY:0:80}"
     if (( NEW_FAILS >= FAIL_LIMIT )); then
+        # Telegram being unreachable says nothing about the Matrix
+        # runtime, so only the Telegram unit(s) get bounced here.
+        TG_UNITS=$(tr ' ' '\n' <<<"$UNITS" | grep -i telegram | tr '\n' ' ')
         # shellcheck disable=SC2086
-        attempt_restart "getMe failed ${NEW_FAILS}x" $UNITS
+        attempt_restart "getMe failed ${NEW_FAILS}x" ${TG_UNITS:-$UNITS}
     fi
     exit 1
 fi
