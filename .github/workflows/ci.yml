@@ -75,6 +75,10 @@ jobs:
           path: dist/
 
   docker-build:
+    # Board rule: only runners that can actually build images run this. GitHub
+    # sets the repo variable DOCKER_CAPABLE=true (veron1 has docker); the Windy
+    # Git act runners don't, so the job is skipped there instead of failing.
+    if: vars.DOCKER_CAPABLE == 'true'
     runs-on: [self-hosted, linux, x64]
     needs: test
     steps:
