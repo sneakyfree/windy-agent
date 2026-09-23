@@ -153,6 +153,11 @@ def default_jobs(config: dict[str, Any]) -> list[MaintenanceJob]:
         from windyfly.eternitas.ept_refresh import refresh_ept
         refresh_ept()
 
+    def _agent_keys() -> None:
+        from windyfly.eternitas.agent_keys import disabled, ensure_registered
+        if not disabled():
+            ensure_registered()
+
     jobs = [
         MaintenanceJob(
             name="journal.daily",
@@ -164,6 +169,13 @@ def default_jobs(config: dict[str, Any]) -> list[MaintenanceJob]:
         MaintenanceJob(
             name="eternitas.ept_refresh.daily",
             run=_refresh_ept,
+            due=daily_due(after_hour=0),
+        ),
+        # Agent signing key: registers one once Eternitas supports it, and
+        # finishes a rotation whose retire step failed.
+        MaintenanceJob(
+            name="eternitas.agent_keys.daily",
+            run=_agent_keys,
             due=daily_due(after_hour=0),
         ),
     ]

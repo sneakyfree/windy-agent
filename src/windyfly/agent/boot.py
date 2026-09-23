@@ -409,6 +409,15 @@ def _step_refresh_ept(ctx: BootContext) -> None:
     refresh_in_background()
 
 
+def _step_agent_keys(ctx: BootContext) -> None:
+    """Make sure the agent has an Eternitas signing key (agent-keys v1).
+
+    Background thread, like the EPT refresh. Until Eternitas ships the
+    agent-keys routes this logs one INFO line and does nothing else."""
+    from windyfly.eternitas.agent_keys import ensure_in_background
+    ensure_in_background()
+
+
 def default_capability_registration_sequence() -> list[Step]:
     """The canonical post-DB-open registration order for both channels.
 
@@ -537,6 +546,11 @@ def default_capability_registration_sequence() -> list[Step]:
         Step(
             "eternitas.ept_refresh",
             _step_refresh_ept,
+            optional=True,  # background thread; must never block boot
+        ),
+        Step(
+            "eternitas.agent_keys",
+            _step_agent_keys,
             optional=True,  # background thread; must never block boot
         ),
     ]

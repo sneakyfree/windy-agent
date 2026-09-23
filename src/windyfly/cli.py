@@ -718,6 +718,8 @@ def _cmd_login(args: argparse.Namespace) -> None:
         f"[green]✓ Signed in[/green] as Windy identity {who['windy_identity_id'][:8]}… "
         f"(stored in {hub_login.session_path()})"
     )
+    from windyfly.eternitas.agent_keys import register_after_signin
+    register_after_signin()  # best effort, never raises; see docs/AGENT_KEYS.md
 
 
 def _cmd_telemetry(args: argparse.Namespace) -> None:
@@ -921,6 +923,12 @@ def _cmd_passport(_args: argparse.Namespace) -> None:
     """Show Eternitas passport."""
     from windyfly.commands import cmd_passport
     cmd_passport(_args)
+
+
+def _cmd_agent_key(args: argparse.Namespace) -> None:
+    """windy agent-key status|rotate|reset|revoke — the Eternitas signing key."""
+    from windyfly.commands.agent_key import main
+    main(args)
 
 
 def _cmd_keys(args: argparse.Namespace) -> None:
@@ -1196,6 +1204,7 @@ _COMMAND_CATEGORIES = [
         ("phone", "Show phone status"),
         ("cert", "Show birth certificate"),
         ("keys", "Manage the wk_ bot credential (show, rotate)"),
+        ("agent-key", "Eternitas signing key (status, rotate, reset, revoke)"),
     ]),
     ("Configuration", [
         ("config", "View/edit configuration (show, set, reset, path)"),
@@ -1685,6 +1694,9 @@ def main() -> None:
         help="Also cascade-revoke to Mail, Cloud, and Chat so they drop cached auth",
     )
 
+    from windyfly.commands.agent_key import add_parser as _add_agent_key_parser
+    _add_agent_key_parser(sub)
+
     # ── Configuration ────────────────────────────────────────────
 
     # windy config
@@ -1890,6 +1902,7 @@ def main() -> None:
         "deregister": _cmd_deregister,
         "bring-home": _cmd_bring_home,
         "keys": _cmd_keys,
+        "agent-key": _cmd_agent_key,
         "mail": _cmd_mail,
         "phone": _cmd_phone,
         "cert": _cmd_cert,

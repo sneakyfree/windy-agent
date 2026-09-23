@@ -126,8 +126,8 @@ def redirect_uri_for(port: int) -> str:
     return f"http://127.0.0.1:{port}{CALLBACK_PATH}"
 
 
-def build_authorize_url(redirect_uri: str, state: str, challenge: str) -> str:
-    query = urllib.parse.urlencode({
+def build_authorize_url(redirect_uri: str, state: str, challenge: str, *, reauth: bool = False) -> str:
+    params = {
         "response_type": "code",
         "client_id": client_id(),
         "redirect_uri": redirect_uri,
@@ -135,7 +135,14 @@ def build_authorize_url(redirect_uri: str, state: str, challenge: str) -> str:
         "state": state,
         "code_challenge": challenge,
         "code_challenge_method": "S256",
-    })
+    }
+    if reauth:
+        # Force a real credential entry (no silent cookie sign-in), so the
+        # token's auth_time is "now". Owner-only actions such as
+        # `windy agent-key reset` need that (Eternitas checks auth_time <= 10 min).
+        params["prompt"] = "login"
+        params["max_age"] = "0"
+    query = urllib.parse.urlencode(params)
     return f"{hub_url()}/api/v1/oauth/authorize?{query}"
 
 
@@ -323,10 +330,17 @@ def login(
     transport: httpx.BaseTransport | None = None,
     on_url: Callable[[str], None] | None = None,
     echo: Callable[[str], None] = _say,
+    reauth: bool = False,
+    store: bool = True,
 ) -> dict[str, Any]:
     """Run the browser sign-in and store the session. Returns {windy_identity_id}.
 
     ``on_url`` receives the authorize URL (tests use it to play the browser).
+
+    ``reauth=True`` asks the hub for a fresh credential entry (``prompt=login``,
+    ``max_age=0``). ``store=False`` leaves the saved session untouched and
+    returns the new ``access_token`` to the caller instead, for one-shot owner
+    actions that must not reuse (or overwrite) the stored session.
     """
     verifier, challenge = new_pkce_pair()
     state = secrets.token_urlsafe(24)
@@ -335,7 +349,7 @@ def login(
     server.done = threading.Event()
     port = server.server_address[1]
     redirect_uri = redirect_uri_for(port)
-    url = build_authorize_url(redirect_uri, state, challenge)
+    url = build_authorize_url(redirect_uri, state, challenge, reauth=reauth)
 
     thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.2}, daemon=True)
     thread.start()
@@ -374,5 +388,7 @@ def login(
         raise LoginError("The browser came back without a sign-in code.")
 
     session = _session_from_tokens(exchange_code(code, verifier, redirect_uri, transport=transport))
+    if not store:
+        return {"windy_identity_id": session["windy_identity_id"], "access_token": session["access_token"]}
     _write_session(session)
     return {"windy_identity_id": session["windy_identity_id"]}
