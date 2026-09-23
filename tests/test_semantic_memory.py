@@ -333,26 +333,36 @@ def test_concurrent_embed_does_not_crash_the_process():
     assert errors == []
 
 
-@needs_real_model
-def test_cold_concurrent_load_yields_one_shared_model():
+def test_cold_concurrent_load_yields_one_shared_model(monkeypatch):
     """The FIRST embed from several threads must build exactly one model.
 
-    Resets the module cache so the load genuinely races, then asserts
-    every thread ended up on the same object. Two models meant two
-    concurrent native constructions — the crash.
+    Two models meant two concurrent native constructions — the crash.
+    This checks the lock, not the model, so it uses a slow fake
+    constructor: the real one fetched from Hugging Face on CI and failed
+    on the network rather than on the lock (a flake on every PR, 09-23).
+    The real-model concurrency test above still covers the native side.
     """
+    import sys
     import threading
+    import time
+    import types
 
-    # Fetch the weights first, outside the race. On CI the first load is a
-    # Hugging Face download; when that fails, _load_model() returns None and
-    # the assert below failed on the network rather than the lock. With
-    # the files cached, the race below builds from local disk.
-    if _emb._load_model() is None:
-        pytest.skip("embedding model could not be downloaded/loaded")
+    builds: list[int] = []
 
-    with _emb._MODEL_LOCK:
-        _emb._MODEL = None
-        _emb._MODEL_NAME = None
+    class FakeModel:
+        def __init__(self, name):
+            time.sleep(0.2)  # wide window for a second builder to slip in
+            builds.append(id(self))
+
+        def encode(self, text, normalize_embeddings=True):
+            return [0.0, 1.0]
+
+    fake_st = types.ModuleType("sentence_transformers")
+    fake_st.SentenceTransformer = FakeModel
+    monkeypatch.setitem(sys.modules, "sentence_transformers", fake_st)
+    monkeypatch.setattr(_emb, "is_available", lambda: True)
+    monkeypatch.setattr(_emb, "_MODEL", None)
+    monkeypatch.setattr(_emb, "_MODEL_NAME", None)
 
     seen: list[int] = []
     lock = threading.Lock()
@@ -362,14 +372,14 @@ def test_cold_concurrent_load_yields_one_shared_model():
         with lock:
             seen.append(id(_emb._MODEL))
 
-    threads = [threading.Thread(target=worker) for _ in range(4)]
+    threads = [threading.Thread(target=worker) for _ in range(8)]
     for t in threads:
         t.start()
     for t in threads:
-        t.join(timeout=180)
+        t.join(timeout=30)
 
-    assert _emb._MODEL is not None
-    assert len(set(seen)) == 1, f"more than one model constructed: {set(seen)}"
+    assert len(builds) == 1, f"{len(builds)} models constructed"
+    assert len(set(seen)) == 1
 
 
 # ── Retrieval reach ────────────────────────────────────────────────
