@@ -44,8 +44,11 @@ git clone https://github.com/sneakyfree/windy-agent && cd windy-agent
 windy go
 ```
 
-Full product, hot-editable. `windy go` bootstraps uv + Bun and starts
-brain + gateway. This is how the Windy fleet runs today (systemd units
+Full product, hot-editable. Since 0.7.3, `windy go` hatches through the one
+hub ceremony (link + code in your browser) and the agent is born in the
+Windy cloud; `windy bring-home` (coming soon) will move it onto this machine.
+For this one release, `WINDY_HATCH_VIA_HUB=0 windy go` still runs the old
+terminal hatch, which bootstraps uv + Bun and starts brain + gateway. This is how the Windy fleet runs today (systemd units
 pointing at checkouts) and how contributors work. Not for normies:
 requires git, a toolchain, and reading error messages.
 

@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased (0.7.3)
+
+- **`windy go` opens the one hub hatch ceremony (ADR-059) — now the default.**
+  `windy go` creates a hatch ticket at the hub (nothing is minted), prints
+  "Open this to hatch your agent: <link> (code ABCD-1234)", opens your browser
+  and waits while you check the code, name your agent and hatch it on the
+  ceremony page. At "It's alive!" it prints "Say hi: <Windy Chat link>". The
+  agent is born and lives in the cloud: nothing is written to `.env`, and this
+  machine only remembers it (0600, beside your Windy sign-in), so the next
+  `windy go` says you already have it. Ctrl-C cancels the ceremony at the hub.
+  If your account already has an agent, `windy go` names it and offers to use
+  it (never mints another). `windy bring-home`, to run the agent on this
+  machine, is a placeholder until the hub's handover ships.
+  **Opt-out for one release:** `WINDY_HATCH_VIA_HUB=0` runs the old terminal
+  hatch, with a notice that it goes away in the next release.
+
 ## 0.7.2.1
 
 Found by the 0.7.2 clean-machine proof from PyPI:

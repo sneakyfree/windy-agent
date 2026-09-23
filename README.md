@@ -6,7 +6,7 @@ Windy Fly is a personal AI agent — a lifelong, self-improving companion that r
 
 ```bash
 pip install windyfly    # official release (0.7.1+) — the brain + every chat channel
-windy go                # setup wizard + hatch ceremony
+windy go                # opens the hatch ceremony in your browser
 ```
 
 The PyPI wheel is the headless brain (no web dashboard). For the full
@@ -20,6 +20,14 @@ See [docs/DISTRIBUTION.md](docs/DISTRIBUTION.md).
 > it to a maintainer's account. See CHANGELOG.md.
 
 Your agent hatches, gets an identity, and starts chatting in under 2 minutes.
+
+> **0.7.3: `windy go` opens the one Windy hatch ceremony.** It prints a link
+> and a short code (`Open this to hatch your agent: <link> (code ABCD-1234)`)
+> and opens your browser. Check the code matches, name your agent, and at
+> "It's alive!" the terminal prints where to say hi in Windy Chat. Your agent
+> is born in the Windy cloud and lives there; `windy bring-home` (run it on
+> this machine) is coming soon. `WINDY_HATCH_VIA_HUB=0` keeps the old terminal
+> hatch for this one release.
 
 ---
 
@@ -47,14 +55,14 @@ Your agent hatches, gets an identity, and starts chatting in under 2 minutes.
 ```bash
 git clone https://github.com/sneakyfree/windy-agent && cd windy-agent
 uv sync                    # Install dependencies
-uv run windy go            # Interactive setup + hatch
+uv run windy go            # Hatch in the browser ceremony (link + code)
 ```
 
 ### From PyPI (headless — no dashboard)
 
 ```bash
 pip install windyfly        # 0.7.1+ (set AGENT_OWNER_TELEGRAM_ID for Telegram)
-windy go                   # Setup wizard
+windy go                   # Hatch in the browser ceremony (link + code)
 windy start                # Start the agent (brain + channels only)
 ```
 
@@ -66,9 +74,14 @@ docs/DISTRIBUTION.md.
 
 ### What Happens
 
-1. **Setup** — paste your API key (OpenAI, Anthropic, xAI, or others)
-2. **Hatch** — your agent comes alive with the "IT'S ALIVE!" ceremony
-3. **Chat** — talk in terminal, or open the dashboard at `http://localhost:3000`
+1. **Link + code** — `windy go` signs you in with your Windy account, prints
+   the ceremony link and a short code, and opens your browser
+2. **Hatch** — check the code, name your agent, and it comes alive with the
+   "It's alive! It's alive! The fly is alive!" ceremony, born in the Windy cloud
+3. **Chat** — the terminal prints "Say hi: <Windy Chat link>"; `windy bring-home`
+   (run the agent on this machine) is coming soon
+   *(With `WINDY_HATCH_VIA_HUB=0`, this release still runs the old terminal
+   hatch: paste an API key, hatch locally, chat in the terminal or dashboard.)*
 4. **Enjoy** — ask about the weather, set reminders, manage to-dos, search the web
 
 ---

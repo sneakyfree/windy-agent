@@ -534,6 +534,23 @@ def cmd_go(args: Any) -> None:
     if getattr(args, "force", False):
         os.environ["_WINDYFLY_FORCE_HATCH"] = "1"
 
+    # ADR-059: one ceremony, in the browser (the default since 0.7.3). The
+    # agent is born in the cloud and stays there; this terminal just opens
+    # the page and waits. WINDY_HATCH_VIA_HUB=0 keeps the old terminal hatch
+    # below for one more release.
+    from windyfly import hub_hatch
+
+    if hub_hatch.enabled():
+        rc = hub_hatch.go(
+            console,
+            force=bool(getattr(args, "force", False)),
+            open_browser=(lambda _url: None) if getattr(args, "no_browser", False) else None,
+        )
+        if rc:
+            sys.exit(rc)
+        return
+    console.print(f"  [yellow]{hub_hatch.DEPRECATION_NOTE}[/yellow]")
+
     # ── Non-interactive fast paths ───────────────────────────────
     key_arg = getattr(args, "key", None)
     if key_arg:
