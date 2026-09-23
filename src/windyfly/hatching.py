@@ -282,6 +282,9 @@ def show_ecosystem_status(hatch_result=None, config: dict | None = None) -> None
         issuer = issuer_url(config)
         mode = "" if issuer and not issuer.startswith("mock") else " (local mock — not a real passport)"
         table.add_row("Eternitas", "[green]Active[/green]", f"{passport_id}{mode}")
+        # A real passport from the real issuer is a live ecosystem link,
+        # even when the issuer is the built-in default rather than config.
+        has_real_services = has_real_services or not mode
     elif eternitas_errors:
         table.add_row("Eternitas", "[yellow]Offline[/yellow]", "\u26a0\ufe0f  Agent identity: offline (will retry)")
     else:

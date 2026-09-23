@@ -67,3 +67,13 @@ def test_table_placeholder_mail_and_mock_phone_are_pending(monkeypatch):
         phone_provisioned=True, phone_is_mock=True, phone_number="+15550001000"))
     assert "windy-fly@windymail.ai" not in out and "+15550001000" not in out
     assert "Not set up" in out
+
+
+def test_real_passport_is_not_called_local_mode(monkeypatch):
+    out = _render_table(monkeypatch, _result(passport_id="ET26-VNC7-16G5"))
+    assert "Running in local mode" not in out
+
+
+def test_no_passport_and_no_urls_is_local_mode(monkeypatch):
+    out = _render_table(monkeypatch, _result())
+    assert "Running in local mode" in out
