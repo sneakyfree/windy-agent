@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (0.7.3)
+## 0.7.2.1
 
 Found by the 0.7.2 clean-machine proof from PyPI:
 
