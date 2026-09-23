@@ -277,3 +277,16 @@ class TestTelegramAllowlist:
         from windyfly.channels.telegram_bot import TelegramChannel
 
         assert TelegramChannel(allowed_user_ids=[])._sender_allowed("anyone")
+
+
+def test_no_builtin_telegram_owner_in_main():
+    # Every fresh install used to trust one hardcoded Telegram account
+    # as owner via main.py's AGENT_OWNER_TELEGRAM_ID default.
+    import re
+    from pathlib import Path
+
+    src = (Path(__file__).resolve().parents[1] / "src/windyfly/main.py").read_text()
+    m = re.search(r'os\.environ\.get\(\s*"AGENT_OWNER_TELEGRAM_ID"\s*,\s*"([^"]*)"', src)
+    assert m is not None
+    assert m.group(1) == "", "AGENT_OWNER_TELEGRAM_ID must not default to a real account"
+    assert "allowed_user_ids=[owner_id] if owner_id else []" in src
