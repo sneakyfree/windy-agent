@@ -255,3 +255,38 @@ def _client_with(transport):
         k["transport"] = transport
         return real(*a, **k)
     return factory
+
+
+def _unset_after_test(monkeypatch, *names):
+    # load_dotenv writes os.environ directly; register each var with
+    # monkeypatch so whatever the command loads is removed after the test.
+    for name in names:
+        monkeypatch.setenv(name, "x")
+        monkeypatch.delenv(name)
+
+
+def test_pip_install_finds_its_own_passport_in_the_project_env(monkeypatch, tmp_path):
+    """0.7.2 clean-machine proof: `windy deregister --yes` on a pip install said
+    "No passport on this agent" because nothing loaded the project .env."""
+    cli, printed = _capture(monkeypatch)
+    # conftest neutralises load_dotenv suite-wide; this test needs the real one.
+    import dotenv
+    import dotenv.main
+    monkeypatch.setattr(dotenv, "load_dotenv", dotenv.main.load_dotenv)
+    _unset_after_test(monkeypatch, dr.ENV_KEY, dr.PASSPORT_KEY, "ETERNITAS_URL")
+    monkeypatch.setenv("WINDYFLY_HOME", str(tmp_path))
+    token = ept_for(PASSPORT)
+    env = tmp_path / ".env"
+    env.write_text(f"ETERNITAS_URL=https://eternitas.test\n"
+                   f"{dr.PASSPORT_KEY}={PASSPORT}\n{dr.ENV_KEY}={token}\n", encoding="utf-8")
+    _sign_in()
+    monkeypatch.setattr(dr.httpx, "Client", _client_with(_transport([])))
+    cli._cmd_deregister(_args(yes=True))
+    text = "\n".join(printed)
+    assert "No passport" not in text
+    assert f"Passport {PASSPORT} is revoked" in text
+    # ...and the local token is marked revoked (it used to stay live in .env)
+    lines = env.read_text(encoding="utf-8").splitlines()
+    assert not any(line.startswith(f"{dr.ENV_KEY}=") for line in lines)
+    assert any(line.startswith("# REVOKED ") and PASSPORT in line for line in lines)
+    assert list(tmp_path.glob(".env.bak-deregister-*"))

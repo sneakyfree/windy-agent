@@ -225,9 +225,7 @@ def auto_provision_and_save() -> bool:
 
     result = provision_matrix_bot()
     if result is None:
-        console.print("  [dim]○ Windy Chat — skipped (no Synapse secret available)[/dim]")
-        console.print("  [dim]  Set SYNAPSE_REGISTRATION_SECRET to enable auto-provisioning[/dim]")
-        console.print("  [dim]  Or add MATRIX_BOT_TOKEN manually to .env[/dim]")
+        console.print("  [dim]○ Windy Chat — not set up yet[/dim]")
         return False
 
     # Write to .env
@@ -256,7 +254,9 @@ def auto_provision_and_save() -> bool:
         if not password_written:
             new_lines.append(f"MATRIX_BOT_PASSWORD={result['password']}")
 
-        env_file.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+        from windyfly.platform import write_private_text
+
+        write_private_text(env_file, "\n".join(new_lines) + "\n")
 
     console.print(f"  [green]✓[/green] Windy Chat — {result['user_id']} provisioned")
     return True

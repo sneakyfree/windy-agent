@@ -312,6 +312,20 @@ def kill_by_name(patterns: list[str]) -> None:
 
 # ── Path helpers ──────────────────────────────────────────────────────
 
+def write_private_text(path: Path, text: str) -> None:
+    """Write a secrets file (.env) readable by its owner only (0600).
+
+    Created 0600 from the start, and tightened if it already existed with a
+    wider mode, so the passport token and keys are never world-readable."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(text)
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+
+
 def get_project_root() -> Path:
     """Return the Windy Fly project/working directory.
 

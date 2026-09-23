@@ -294,3 +294,34 @@ def test_resolve_identity_falls_back_to_login_session(monkeypatch):
     assert _resolve_windy_identity_id("") == "sess-id"
     monkeypatch.setenv("WINDY_IDENTITY_ID", "explicit")
     assert _resolve_windy_identity_id("") == "explicit"
+
+
+def test_sign_in_url_is_flushed_before_waiting(monkeypatch):
+    """0.7.2 PyPI proof: in a container (stdout a pipe) `windy login` printed
+    nothing, because the URL sat in the block buffer while login() waited."""
+    import sys
+
+    class PipeStdout:
+        """Block-buffered like a pipe: text is only visible after flush()."""
+        def __init__(self):
+            self.pending, self.visible = "", ""
+
+        def write(self, s):
+            self.pending += s
+            return len(s)
+
+        def flush(self):
+            self.visible += self.pending
+            self.pending = ""
+
+    pipe = PipeStdout()
+    monkeypatch.setattr(sys, "stdout", pipe)
+    seen = {}
+
+    def on_url(url):
+        seen["visible"] = url in pipe.visible
+        raise KeyboardInterrupt  # stop before waiting for a browser
+
+    with pytest.raises(KeyboardInterrupt):
+        hub_login.login(open_browser=False, timeout=0.2, on_url=on_url)
+    assert seen == {"visible": True}

@@ -483,7 +483,9 @@ def _step_finalize(
         eternitas_env_line(),
     ])
 
-    ENV_FILE.write_text("\n".join(env_lines) + "\n", encoding="utf-8")
+    from windyfly.platform import write_private_text
+
+    write_private_text(ENV_FILE, "\n".join(env_lines) + "\n")
     console.print("  [green]✓[/green] .env written")
 
     # Write windyfly.toml with personality from preset

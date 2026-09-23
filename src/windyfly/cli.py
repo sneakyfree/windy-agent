@@ -340,7 +340,8 @@ def cmd_start(args: argparse.Namespace) -> None:
         show_ecosystem_status()
 
     console.print("  [cyan]Brain log:[/cyan]    data/brain.log")
-    console.print("  [cyan]Gateway log:[/cyan]  data/gateway.log")
+    if gateway_pid:
+        console.print("  [cyan]Gateway log:[/cyan]  data/gateway.log")
     console.print()
 
     # Dashboard URL + auto-open browser
@@ -803,8 +804,18 @@ def _cmd_deregister(args: argparse.Namespace) -> None:
     """windy deregister [--passport ET26-…] [--yes] — permanently revoke a passport."""
     import sys
 
-    from windyfly.eternitas.deregister import current_passport, deregister, mark_local_revoked
+    from dotenv import load_dotenv
 
+    from windyfly.eternitas.deregister import current_passport, deregister, mark_local_revoked
+    from windyfly.eternitas.ept_refresh import resolve_env_file
+
+    # The agent's own env file (WINDY_ENV_FILE, else the project .env), as
+    # `windy ept refresh` does. On a pip install nothing else puts
+    # ETERNITAS_PASSPORT in the environment, so without this the agent's
+    # own passport wasn't found and the local token was never marked revoked.
+    env_file = resolve_env_file()
+    if env_file is not None:
+        load_dotenv(env_file, override=False)
     passport = (getattr(args, "passport", None) or "").strip() or current_passport()
     if not passport:
         console.print("No passport on this agent (and none given with --passport).")

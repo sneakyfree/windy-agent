@@ -37,7 +37,8 @@ def home(tmp_path, monkeypatch):
     monkeypatch.setenv("WINDYFLY_HOME", str(root))
     monkeypatch.delenv("WINDY_ENV_FILE", raising=False)
     for var in ("ETERNITAS_PASSPORT", "ETERNITAS_PASSPORT_TOKEN", "WINDY_JWT",
-                "_WINDYFLY_FORCE_HATCH", "OWNER_PHONE", "WINDYMAIL_SERVICE_TOKEN"):
+                "_WINDYFLY_FORCE_HATCH", "OWNER_PHONE", "WINDYMAIL_SERVICE_TOKEN",
+                "_WINDYFLY_PASSPORT_DEAD", "_WINDYFLY_HATCHING_PLAYED"):
         # setenv first so monkeypatch records the original and undoes the
         # hatch's own os.environ writes at teardown.
         monkeypatch.setenv(var, "")
@@ -148,3 +149,90 @@ def test_go_hands_the_hatch_its_config(home, monkeypatch):
     monkeypatch.setattr("windyfly.hatching.play_hatching", lambda **_k: None)
     quickstart._try_hatch_provisioning(non_interactive=True)
     assert isinstance(seen["config"], dict)
+
+
+# ── C. a revoked passport is not shown as active (0.7.2 PyPI proof) ──
+
+def test_go_after_deregister_says_revoked_not_active(home, monkeypatch, capsys):
+    # What `windy deregister` leaves behind: the number, and the token commented out.
+    (home / ".env").write_text(
+        "ETERNITAS_PASSPORT=ET26-DEAD-0001\n"
+        "# REVOKED 20260923T170800Z (windy deregister, ET26-DEAD-0001): "
+        "ETERNITAS_PASSPORT_TOKEN=eyJ.dead.sig\n"
+    )
+    monkeypatch.setattr("windyfly.hatch_orchestrator.run_hatch",
+                        lambda **_k: (_ for _ in ()).throw(AssertionError("no hatch")))
+    quickstart._try_hatch_provisioning(non_interactive=True)
+    quickstart._report_keyless_brain_status()
+    out = capsys.readouterr().out
+    assert "ET26-DEAD-0001) is revoked" in out
+    assert "windy go --force" in out
+    assert "already has a passport" not in out
+    assert "brain connected" not in out and "isn't connected" in out
+
+
+@respx.mock
+def test_registry_revoked_passport_is_reported(home, monkeypatch):
+    monkeypatch.setenv("ETERNITAS_URL", ETERNITAS_BASE)
+    respx.get(f"{ETERNITAS_BASE}/api/v1/registry/verify/ET26-GONE-0001").mock(
+        return_value=httpx.Response(200, json={"passport": "ET26-GONE-0001",
+                                               "status": "revoked", "valid": False}))
+    assert quickstart.passport_status("ET26-GONE-0001", online=True) == "revoked"
+
+
+@respx.mock
+def test_registry_check_fails_open(home, monkeypatch):
+    monkeypatch.setenv("ETERNITAS_URL", ETERNITAS_BASE)
+    respx.get(f"{ETERNITAS_BASE}/api/v1/registry/verify/ET26-LIVE-0001").mock(
+        side_effect=httpx.ConnectError("down"))
+    assert quickstart.passport_status("ET26-LIVE-0001", online=True) == ""
+
+
+def test_env_file_is_private(home):
+    """The .env holds the passport token: owner-only, even if it existed 0644."""
+    env = home / ".env"
+    env.write_text("OLD=1\n")
+    env.chmod(0o644)
+    quickstart._write_env_keeping_identity(["ETERNITAS_PASSPORT_TOKEN=eyJ.x.y"])
+    assert env.stat().st_mode & 0o777 == 0o600
+
+
+def test_status_table_never_asks_a_customer_for_a_server_secret(home, monkeypatch):
+    import io
+
+    from rich.console import Console
+
+    from windyfly import hatching
+
+    for var in ("MATRIX_BOT_TOKEN", "MATRIX_BOT_PASSWORD"):
+        monkeypatch.delenv(var, raising=False)
+    buf = io.StringIO()
+    monkeypatch.setattr(hatching, "console", Console(file=buf, width=160, color_system=None))
+    hatching.show_ecosystem_status(None, None)
+    assert "SYNAPSE_REGISTRATION_SECRET" not in buf.getvalue()
+
+
+def test_suspended_passport_is_reversible_so_no_force(home, monkeypatch, capsys):
+    """Grant 09-23: suspended = a reversible lock. --force would mint a new
+    identity and abandon the one that may be restored, so never suggest it."""
+    import io
+
+    from rich.console import Console
+
+    from windyfly import hatching
+
+    (home / ".env").write_text("ETERNITAS_PASSPORT=ET26-HOLD-0001\n")
+    monkeypatch.setattr(quickstart, "passport_status", lambda _p, **_k: "suspended")
+    monkeypatch.setattr("windyfly.hatch_orchestrator.run_hatch",
+                        lambda **_k: (_ for _ in ()).throw(AssertionError("no hatch")))
+    quickstart._try_hatch_provisioning(non_interactive=True)
+    quickstart._report_keyless_brain_status()
+    buf = io.StringIO()
+    monkeypatch.setattr(hatching, "console", Console(file=buf, width=200, color_system=None))
+    monkeypatch.setenv("ETERNITAS_PASSPORT", "ET26-HOLD-0001")
+    hatching.show_ecosystem_status(None, None)
+    out = capsys.readouterr().out + buf.getvalue()
+    assert "ET26-HOLD-0001 is suspended at Eternitas (reversible)" in out
+    assert "keeps its identity" in out and "check your Windy account" in out
+    assert "isn't connected" in out
+    assert "--force" not in out
