@@ -7,25 +7,35 @@
 > checkout, and nothing said so. This document makes the tiers
 > explicit instead of accidental.
 
-## Tier 1 — Docker (OFFICIAL consumer path)
+## Status, 2026-09-23 — read this first
+
+- **Official release channel: PyPI** (`pip install windyfly`, 0.7.1+).
+  That's what gets versioned, tagged and published.
+- **No Docker image has ever been published.** `ghcr.io/sneakyfree/windy-fly`
+  does not exist: the release workflow targets billing-locked GitHub-hosted
+  runners, and no credential with `write:packages` is set up. Earlier
+  versions of this page called Docker the "official consumer path" and
+  described `docker compose pull` upgrades. That was never true, so it's
+  removed until an image actually ships.
+- Docker still works as a **build-it-yourself** option from a source
+  checkout (CI builds the image on every PR).
+
+## Docker — build it yourself (coming soon as a published image)
 
 ```bash
-docker compose up -d
+git clone https://github.com/sneakyfree/windy-agent && cd windy-agent
+docker compose up -d --build
 ```
 
-The `Dockerfile` + `docker-compose.yml` at the repo root ship the
-complete product: brain + gateway + dashboard, pinned dependencies,
-no Python/Bun/uv on the host. This is the path consumer-facing docs
-should point at, the path the HiFly README should lead with, and the
-only tier where "it works" is reproducible enough for a grandma
-fleet.
+The `Dockerfile` + `docker-compose.yml` build the complete product
+(brain + gateway + dashboard) with pinned dependencies and no
+Python/Bun/uv on the host. When a published image exists, this section
+will switch to `docker compose pull`.
 
-- State lives in mounted volumes (`data/`, `~/.windy`), so upgrades
-  are `docker compose pull && docker compose up -d` and rollbacks are
-  re-pinning the previous image tag.
-- The update-safety machinery (rollback history, post-update
-  verification — `windyfly/update.py`) applies to in-place pip
-  updates; under Docker, the image tag IS the version pin.
+- State lives in mounted volumes (`data/`, `~/.windy`). To upgrade:
+  `git pull && docker compose up -d --build`.
+- The update-safety machinery (`windyfly/update.py`) applies to pip
+  installs. Under Docker, your checkout's commit is the version pin.
 
 ## Tier 2 — Source checkout + `windy go` (developer / fleet path)
 
@@ -39,7 +49,7 @@ brain + gateway. This is how the Windy fleet runs today (systemd units
 pointing at checkouts) and how contributors work. Not for normies:
 requires git, a toolchain, and reading error messages.
 
-## Tier 3 — `pip install windyfly` (headless CLI, EYES OPEN)
+## Tier 3 — `pip install windyfly` (official release; headless CLI)
 
 > **Resolved 2026-09-12 by the 0.7.0 release.** From 2026-08-11 this
 > tier carried an identity defect, not just a packaging lag: the

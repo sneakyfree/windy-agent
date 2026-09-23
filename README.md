@@ -5,13 +5,19 @@
 Windy Fly is a personal AI agent — a lifelong, self-improving companion that remembers everything, learns your preferences, and connects to the entire Windy ecosystem. Talk to it from your terminal, phone, browser, or any messaging platform.
 
 ```bash
-docker compose up -d    # The complete product — brain + dashboard
+pip install windyfly    # official release (0.7.1+) — the brain + every chat channel
+windy go                # setup wizard + hatch ceremony
 ```
 
-Or for developers, from a source checkout: `windy go` (interactive
-setup + hatch ceremony). See [docs/DISTRIBUTION.md](docs/DISTRIBUTION.md)
-for which install path fits you — the `pip` wheel is the headless brain
-only (no dashboard).
+The PyPI wheel is the headless brain (no web dashboard). For the full
+product with the dashboard, run it from a source checkout, either
+`windy go` or `docker compose up -d --build`, which **builds** the image
+locally from the `Dockerfile`. There is no published Docker image yet.
+See [docs/DISTRIBUTION.md](docs/DISTRIBUTION.md).
+
+> **0.7.1:** set your Telegram owner explicitly
+> (`AGENT_OWNER_TELEGRAM_ID=<your numeric id>`). Older releases defaulted
+> it to a maintainer's account. See CHANGELOG.md.
 
 Your agent hatches, gets an identity, and starts chatting in under 2 minutes.
 
@@ -47,15 +53,16 @@ uv run windy go            # Interactive setup + hatch
 ### From PyPI (headless — no dashboard)
 
 ```bash
-pip install windyfly        # 0.7.0+ carries the identity fixes
+pip install windyfly        # 0.7.1+ (set AGENT_OWNER_TELEGRAM_ID for Telegram)
 windy go                   # Setup wizard
 windy start                # Start the agent (brain + channels only)
 ```
 
 The wheel ships the Python brain and every channel adapter, but NOT
 the gateway/dashboard (that's a Bun/TypeScript app that lives in the
-source checkout and the Docker image). Want the full product without
-a toolchain? Use Docker above. Details: docs/DISTRIBUTION.md.
+source checkout). Want the full product? Use a source checkout: `windy go`,
+or `docker compose up -d --build` to build the image yourself. Details:
+docs/DISTRIBUTION.md.
 
 ### What Happens
 
