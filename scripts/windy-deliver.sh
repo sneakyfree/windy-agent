@@ -13,7 +13,7 @@
 #      red-alarm). Needs WINDY_ALERT_EMAIL plus a Resend key:
 #      WINDY_ALERT_RESEND_KEY if set (kept separate so alerts don't depend on
 #      the agent's own mail setup), else RESEND_API_KEY. Optional
-#      WINDY_ALERT_FROM (default "Windy 0 <noreply@windyword.ai>").
+#      WINDY_ALERT_FROM (default "Windy Fly <office@windyfly.ai>").
 #   3. A status file ${WINDY_ALERT_STATUS_DIR:-~/.windy/alerts}/<name>.status
 #      (ts, result, telegram, email) that windy-uptime can read. result is
 #      "delivered" if ANY channel succeeded, else "failed".
@@ -40,7 +40,7 @@ windy_deliver() {
             em=$(WINDY_DELIVER_KEY="$rkey" python3 - "$text" "$subject" <<'PY' 2>/dev/null || echo "000"
 import html, json, os, sys, urllib.request, urllib.error
 text, subject = sys.argv[1], sys.argv[2]
-body = {"from": os.environ.get("WINDY_ALERT_FROM", "Windy 0 <noreply@windyword.ai>"),
+body = {"from": os.environ.get("WINDY_ALERT_FROM", "Windy Fly <office@windyfly.ai>"),
         "to": [os.environ["WINDY_ALERT_EMAIL"]], "subject": subject,
         "text": text, "html": "<pre style='font-family:inherit'>" + html.escape(text) + "</pre>"}
 req = urllib.request.Request("https://api.resend.com/emails", data=json.dumps(body).encode(),
