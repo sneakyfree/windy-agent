@@ -345,6 +345,7 @@ def test_default_pro_config_path_under_home() -> None:
 def test_quickstart_byok_flag_skips_pro_broker(monkeypatch) -> None:
     """With --byok, the quickstart must NOT call Pro's broker even if a
     valid Pro config is sitting on disk."""
+    monkeypatch.setenv("WINDY_HATCH_VIA_HUB", "0")  # the old terminal hatch (opt-out, one release)
     from argparse import Namespace
     import windyfly.quickstart as qs
 
@@ -386,6 +387,7 @@ def test_quickstart_pro_broker_short_circuit(monkeypatch) -> None:
     """Without --byok, _try_pro_broker returning True should end cmd_go.
 
     i.e. Pro-credential detection takes precedence over the paste flow."""
+    monkeypatch.setenv("WINDY_HATCH_VIA_HUB", "0")  # the old terminal hatch (opt-out, one release)
     from argparse import Namespace
     import windyfly.quickstart as qs
 

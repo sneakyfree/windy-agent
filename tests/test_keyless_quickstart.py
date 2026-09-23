@@ -17,6 +17,9 @@ from windyfly import quickstart as qs
 @pytest.fixture()
 def project(tmp_path, monkeypatch):
     monkeypatch.setattr(qs, "PROJECT_ROOT", tmp_path)
+    # These cover the old terminal hatch, which WINDY_HATCH_VIA_HUB=0 keeps
+    # for one release (the default `windy go` is the hub ceremony, ADR-059).
+    monkeypatch.setenv("WINDY_HATCH_VIA_HUB", "0")
     # setup_wizard PRESETS is read by the config writer.
     return tmp_path
 

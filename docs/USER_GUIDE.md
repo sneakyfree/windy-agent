@@ -28,12 +28,20 @@ Run the setup wizard:
 windy go
 ```
 
-This will:
-1. Ask for your AI provider API key
-2. Let you choose a personality preset
-3. Name your agent
-4. Play the "IT'S ALIVE!" hatch ceremony
-5. Open the dashboard in your browser
+This will (0.7.3+):
+1. Sign you in with your Windy account (browser)
+2. Print the hatch ceremony link and a short code, and open your browser
+3. On the page: check the code matches your terminal, name your agent, and
+   watch it come alive ("It's alive! It's alive! The fly is alive!")
+4. Print "Say hi: <Windy Chat link>" in the terminal
+
+Your agent is born in the Windy cloud and lives there. Running `windy go`
+again tells you it already exists. `windy bring-home`, which moves it onto
+this machine, is coming soon.
+
+For this one release, `WINDY_HATCH_VIA_HUB=0 windy go` still runs the old
+terminal hatch (API key, preset, name, local ceremony, dashboard). It goes
+away in the next release.
 
 ---
 

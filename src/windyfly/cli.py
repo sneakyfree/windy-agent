@@ -800,6 +800,19 @@ def _cmd_ept(args: argparse.Namespace) -> None:
         console.print(f"[green]✓[/green] Passport token kept — still valid{why}.")
 
 
+def _cmd_bring_home(args: argparse.Namespace) -> None:
+    """windy bring-home — run your cloud agent on this machine (coming soon)."""
+    from windyfly.hub_hatch import cloud_agent
+
+    known = cloud_agent()
+    who = f"{known.get('agent_name') or 'Your agent'} ({known['passport_number']})" if known else "Your agent"
+    console.print(
+        f"[bold]Coming soon.[/bold] {who} lives in the Windy cloud. Bringing it home to run on "
+        "this machine needs the hub's handover, which isn't live yet. Until then, chat with it "
+        "in Windy Chat."
+    )
+
+
 def _cmd_deregister(args: argparse.Namespace) -> None:
     """windy deregister [--passport ET26-…] [--yes] — permanently revoke a passport."""
     import sys
@@ -1110,7 +1123,7 @@ def auto_detect_channels() -> list[str]:
 # All commands organized by category for help display
 _COMMAND_CATEGORIES = [
     ("Process Management", [
-        ("go", "One-command quickstart"),
+        ("go", "Hatch your agent in the Windy ceremony (browser)"),
         ("start", "Start brain + gateway"),
         ("stop", "Stop all processes"),
         ("restart", "Stop + start"),
@@ -1137,6 +1150,7 @@ _COMMAND_CATEGORIES = [
         ("whoami", "Show which Windy account is signed in"),
         ("ept refresh", "Renew the Eternitas passport token"),
         ("deregister", "Permanently revoke this agent's Eternitas passport"),
+        ("bring-home", "Run your cloud agent on this machine (coming soon)"),
         ("mail", "Show mail status"),
         ("phone", "Show phone status"),
         ("cert", "Show birth certificate"),
@@ -1437,7 +1451,7 @@ def main() -> None:
     # ── Process Management ───────────────────────────────────────
 
     # windy go
-    go_parser = sub.add_parser("go", help="One-command quickstart — paste a key and go")
+    go_parser = sub.add_parser("go", help="Hatch your agent: opens the Windy ceremony in your browser (link + code)")
     go_parser.add_argument(
         "--key", "-k",
         help="API key (auto-detects provider). Skips all prompts.",
@@ -1593,6 +1607,9 @@ def main() -> None:
     ept_refresh = ept_sub.add_parser("refresh", help="Renew the passport token now")
     ept_refresh.add_argument("--force", action="store_true",
                              help="Ask Eternitas even if the token looks current")
+
+    # windy bring-home — move a cloud-born agent onto this machine (hub handover; coming soon)
+    sub.add_parser("bring-home", help="Run your cloud agent on this machine (coming soon)")
 
     # windy deregister — the owner permanently revokes the agent's passport
     dereg_parser = sub.add_parser("deregister", help="Permanently revoke this agent's Eternitas passport")
@@ -1820,6 +1837,7 @@ def main() -> None:
         "whoami": _cmd_whoami,
         "ept": _cmd_ept,
         "deregister": _cmd_deregister,
+        "bring-home": _cmd_bring_home,
         "keys": _cmd_keys,
         "mail": _cmd_mail,
         "phone": _cmd_phone,
