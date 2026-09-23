@@ -1,15 +1,19 @@
 """Thin client for the Windy Search service (master plan B.12).
 
 Routes web_search + fetch_url through the centralized windy-search
-service when both env vars are set:
+service. Configuration:
 
-    WINDY_SEARCH_BASE_URL  e.g. https://api.windysearch.com
-    WINDY_PASSPORT_EPT     the agent's bot-passport EPT (JWT)
+    ETERNITAS_PASSPORT_TOKEN  the agent's bot-passport EPT (JWT) — the same
+                              variable every other module reads; its
+                              presence is what turns web access on
+    WINDY_PASSPORT_EPT        legacy alias for the EPT, still honoured
+    WINDY_SEARCH_BASE_URL     optional; defaults to https://api.windysearch.com
 
-When either is unset, callers fall back to direct Brave/DDG/httpx (the
-existing behavior in tools/web_search.py). This keeps B.12 opt-in:
-no production agent's behavior changes until the operator flips the
-env vars in their soul repo.
+Until 2026-09-23 this client required WINDY_PASSPORT_EPT + an explicit
+base URL, while hatch/refresh write the EPT to ETERNITAS_PASSPORT_TOKEN —
+so on real installs web access was silently off (the tool's hard gate
+fired every time). It also called the legacy POST /web/search; search now
+uses the canonical POST /v1/search.
 
 What you gain by routing through windy-search:
   - Cross-tenant query/page cache (no duplicate Brave spend)
@@ -26,6 +30,8 @@ from __future__ import annotations
 
 import logging
 import os
+import time
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -38,12 +44,22 @@ _TIMEOUT = 15.0
 _RENDER_TIMEOUT = 45.0
 
 
-def is_routed_through_search() -> bool:
-    """Both env vars must be set to opt in."""
-    return bool(
-        os.environ.get("WINDY_SEARCH_BASE_URL")
-        and os.environ.get("WINDY_PASSPORT_EPT")
+DEFAULT_BASE_URL = "https://api.windysearch.com"
+
+
+def _ept() -> str:
+    """The agent's EPT. ETERNITAS_PASSPORT_TOKEN is canonical (hatch and
+    `windy ept refresh` write it); WINDY_PASSPORT_EPT is kept as an alias
+    so operators who configured the old name keep working."""
+    return (
+        os.environ.get("ETERNITAS_PASSPORT_TOKEN", "").strip()
+        or os.environ.get("WINDY_PASSPORT_EPT", "").strip()
     )
+
+
+def is_routed_through_search() -> bool:
+    """Web access is on whenever the agent holds a passport token."""
+    return bool(_ept())
 
 
 # ── Budget-notice wiring (2026-07-06) ────────────────────────────────
@@ -111,48 +127,118 @@ def _budget_warning_fields(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _base_url() -> str:
-    return os.environ["WINDY_SEARCH_BASE_URL"].rstrip("/")
+    return (os.environ.get("WINDY_SEARCH_BASE_URL") or DEFAULT_BASE_URL).rstrip("/")
 
 
 def _auth_header() -> dict[str, str]:
-    return {"Authorization": f"Bearer {os.environ['WINDY_PASSPORT_EPT']}"}
+    return {"Authorization": f"Bearer {_ept()}"}
+
+
+# ── Budget exhausted: stop calling until it resets ───────────────────
+#
+# Windy Search returns 429 for BOTH limits; headers tell them apart:
+#   - per-minute rate limit: X-RateLimit-* headers → fine to retry in ~60s
+#   - monthly budget:        X-Cost-Cap-USD (+ Retry-After: 86400) →
+#                            do NOT retry; it resets on the 1st
+# After a budget 429 the client refuses locally until the reset, so a
+# looping tool call can't burn requests (or look broken) all month.
+_budget_exhausted_until: float = 0.0
+
+
+def _next_month_start(now: float) -> float:
+    d = datetime.fromtimestamp(now, timezone.utc)
+    y, m = (d.year + 1, 1) if d.month == 12 else (d.year, d.month + 1)
+    return datetime(y, m, 1, tzinfo=timezone.utc).timestamp()
+
+
+def _mark_budget_exhausted(e: httpx.HTTPStatusError) -> None:
+    global _budget_exhausted_until
+    now = time.time()
+    until = _next_month_start(now)
+    retry_after = e.response.headers.get("Retry-After", "")
+    if retry_after.isdigit():
+        until = max(until, now + int(retry_after)) if int(retry_after) > 0 else until
+    _budget_exhausted_until = until
+
+
+def _budget_blocked() -> bool:
+    return time.time() < _budget_exhausted_until
+
+
+def _blocked_fields() -> dict[str, Any]:
+    return {
+        "budget_exhausted": True,
+        "error": "monthly search budget reached",
+        "retry_after_utc": datetime.fromtimestamp(
+            _budget_exhausted_until, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "notice_to_user": _EXHAUSTED_NOTICE,
+    }
+
+
+def _error_message(e: httpx.HTTPStatusError) -> str:
+    """Plain, actionable wording per status. Never includes the token."""
+    code = e.response.status_code
+    if code == 401:
+        return ("search credential rejected (passport revoked or token "
+                "expired; run `windy ept refresh`)")
+    if code == 429 and _is_budget_exhausted(e):
+        return "monthly search budget reached"
+    if code == 429:
+        return "rate limited by windy-search (HTTP 429); retry in about a minute"
+    if code == 503:
+        return "windy-search temporarily unavailable (HTTP 503)"
+    return f"HTTP {code}"
 
 
 def search_via_windy_search(query: str, limit: int = 5) -> dict[str, Any]:
-    """Run a web search through windy-search. Returns the same dict
-    shape as the existing direct web_search for caller compatibility:
+    """Run a web search through windy-search's canonical POST /v1/search.
+    Returns the same dict shape as the direct web_search always did:
 
-        {"query": ..., "results": [{title, snippet, url}, ...], "provider": "windy-search"}
+        {"query": ..., "results": [{title, snippet, url}, ...], "provider": "windy-search:..."}
     """
+    if _budget_blocked():
+        return {"query": query, "results": [], "provider": "windy-search-error",
+                **_blocked_fields()}
     try:
         resp = httpx.post(
-            f"{_base_url()}/web/search",
+            f"{_base_url()}/v1/search",
             headers={**_auth_header(), "Content-Type": "application/json"},
-            json={"query": query, "limit": limit},
+            json={"query": query, "max_results": max(1, min(int(limit), 50))},
             timeout=_TIMEOUT,
         )
         resp.raise_for_status()
         payload = resp.json()
     except httpx.HTTPStatusError as e:
         logger.warning(
-            "windy-search /web/search returned %d: %s",
+            "windy-search /v1/search returned %d: %s",
             e.response.status_code, e.response.text[:200],
         )
-        result = {"query": query, "results": [], "provider": "windy-search-error",
-                  "error": f"HTTP {e.response.status_code}"}
+        result: dict[str, Any] = {"query": query, "results": [],
+                                  "provider": "windy-search-error",
+                                  "error": _error_message(e)}
         if _is_budget_exhausted(e):
+            _mark_budget_exhausted(e)
             result.update(_budget_exhausted_fields(e))
         return result
     except httpx.HTTPError as e:
-        logger.warning("windy-search /web/search network error: %s", e)
+        logger.warning("windy-search /v1/search network error: %s", type(e).__name__)
         return {"query": query, "results": [], "provider": "windy-search-error",
-                "error": str(e)}
+                "error": f"{type(e).__name__}: windy-search unreachable"}
+    except ValueError:
+        return {"query": query, "results": [], "provider": "windy-search-error",
+                "error": "windy-search returned a non-JSON response"}
 
+    results = [
+        {"title": r.get("title", ""), "snippet": r.get("snippet", ""), "url": r.get("url", "")}
+        for r in (payload.get("results") or [])
+        if isinstance(r, dict) and r.get("url")
+    ]
+    bridges = (payload.get("stats") or {}).get("bridges_used") or []
     return {
-        "query": payload.get("query", query),
-        "results": payload.get("results", []),
-        "provider": f"windy-search:{payload.get('backend', 'unknown')}",
-        "cache_hit": payload.get("cache_hit", False),
+        "query": query,
+        "results": results,
+        "provider": "windy-search:" + (",".join(str(b) for b in bridges) or "v1"),
+        "search_id": payload.get("id"),
         **_budget_warning_fields(payload),
     }
 
@@ -175,6 +261,8 @@ def fetch_via_windy_search(
     gives the agent transparent JS rendering with no extra reasoning — most
     pages stay on the cheap plain path, so it barely costs anything.
     """
+    if _budget_blocked():
+        return {"url": url, "content": "", **_blocked_fields()}
     try:
         resp = httpx.post(
             f"{_base_url()}/web/fetch",
@@ -189,11 +277,14 @@ def fetch_via_windy_search(
             "windy-search /web/fetch returned %d: %s",
             e.response.status_code, e.response.text[:200],
         )
-        result: dict[str, Any] = {"url": url, "content": "",
-                                  "error": f"HTTP {e.response.status_code}"}
+        fetch_result: dict[str, Any] = {"url": url, "content": "",
+                                        "error": (f"HTTP {e.response.status_code}"
+                                                  if e.response.status_code not in (401, 429, 503)
+                                                  else _error_message(e))}
         if _is_budget_exhausted(e):
-            result.update(_budget_exhausted_fields(e))
-        return result
+            _mark_budget_exhausted(e)
+            fetch_result.update(_budget_exhausted_fields(e))
+        return fetch_result
     except httpx.HTTPError as e:
         logger.warning("windy-search /web/fetch network error: %s", e)
         return {"url": url, "content": "", "error": str(e)}

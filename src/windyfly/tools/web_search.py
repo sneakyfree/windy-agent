@@ -58,12 +58,12 @@ _BROWSER_HEADERS = {
 
 _HARD_GATE_ERROR = (
     "WEB_SEARCH_UNAVAILABLE: I'm not connected to the web right now "
-    "— web_search and fetch_url require windy-search to be enabled "
-    "(env vars WINDY_SEARCH_BASE_URL + WINDY_PASSPORT_EPT). Tell "
-    "the user I can't browse the web in this configuration; "
-    "offer to answer from what I know, or suggest the operator "
-    "enable windy-search if web access matters for this task. Do "
-    "NOT retry — the gate is intentional, not a transient error."
+    "— web_search and fetch_url go through windy-search, which needs "
+    "this agent's Eternitas passport token (ETERNITAS_PASSPORT_TOKEN; "
+    "hatch the agent, or run `windy ept refresh`). Tell the user I "
+    "can't browse the web in this configuration; offer to answer from "
+    "what I know. Do NOT retry — the gate is intentional, not a "
+    "transient error."
 )
 
 

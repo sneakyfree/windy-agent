@@ -7,7 +7,9 @@ Brave→Google provider failover internally, and the consumer-side
 fallback bypassed Search V1's cost-cap, per-EII rate-limit, and
 integrity-event audit machinery.
 
-If WINDY_SEARCH_BASE_URL or WINDY_PASSPORT_EPT is missing,
+Routing is on whenever the agent holds a passport token
+(ETERNITAS_PASSPORT_TOKEN, or the legacy WINDY_PASSPORT_EPT alias); the
+base URL defaults to https://api.windysearch.com. With no token,
 web_search/fetch_url raise RuntimeError — fail loud at first call.
 
 The fetch_url 5xx rescue path (direct httpx when windy-search itself
@@ -26,6 +28,16 @@ from windyfly.tools.web_search import fetch_url, web_search
 from windyfly.tools.windy_search_client import is_routed_through_search
 
 
+@pytest.fixture(autouse=True)
+def _clean_search_state(monkeypatch):
+    """No real passport token from the developer's env, and no budget flag
+    leaking between tests (it's module-level by design)."""
+    import windyfly.tools.windy_search_client as client
+
+    monkeypatch.delenv("ETERNITAS_PASSPORT_TOKEN", raising=False)
+    monkeypatch.setattr(client, "_budget_exhausted_until", 0.0)
+
+
 class TestRoutingDecision:
     def test_neither_env_set_means_no_routing(self, monkeypatch):
         monkeypatch.delenv("WINDY_SEARCH_BASE_URL", raising=False)
@@ -37,10 +49,11 @@ class TestRoutingDecision:
         monkeypatch.delenv("WINDY_PASSPORT_EPT", raising=False)
         assert is_routed_through_search() is False
 
-    def test_only_ept_set_means_no_routing(self, monkeypatch):
+    def test_only_ept_set_routes_with_default_base_url(self, monkeypatch):
+        # A passport token alone is enough: the base URL has a default.
         monkeypatch.delenv("WINDY_SEARCH_BASE_URL", raising=False)
         monkeypatch.setenv("WINDY_PASSPORT_EPT", "ey...test...")
-        assert is_routed_through_search() is False
+        assert is_routed_through_search() is True
 
     def test_both_set_routes_through(self, monkeypatch):
         monkeypatch.setenv("WINDY_SEARCH_BASE_URL", "https://api.windysearch.com")
@@ -59,11 +72,13 @@ class TestSearchHardGate:
         with pytest.raises(RuntimeError, match="WEB_SEARCH_UNAVAILABLE"):
             web_search("anything")
 
-    def test_web_search_raises_when_only_ept_set(self, monkeypatch):
+    def test_web_search_routes_when_only_ept_set(self, monkeypatch):
         monkeypatch.delenv("WINDY_SEARCH_BASE_URL", raising=False)
         monkeypatch.setenv("WINDY_PASSPORT_EPT", "ey...test...")
-        with pytest.raises(RuntimeError, match="WEB_SEARCH_UNAVAILABLE"):
+        with patch("windyfly.tools.web_search.search_via_windy_search") as ws:
+            ws.return_value = {"query": "anything", "results": [], "provider": "windy-search:v1"}
             web_search("anything")
+            ws.assert_called_once()
 
     def test_web_search_raises_when_only_base_url_set(self, monkeypatch):
         monkeypatch.setenv("WINDY_SEARCH_BASE_URL", "https://api.windysearch.com")
@@ -147,10 +162,10 @@ class TestWindySearchClient:
         with patch("windyfly.tools.windy_search_client.httpx.post") as post:
             mock_resp = MagicMock()
             mock_resp.json.return_value = {
-                "query": "test",
-                "backend": "ddg",
-                "results": [{"url": "U", "title": "T", "snippet": "S"}],
-                "cache_hit": False,
+                "id": "srch_1",
+                "results": [{"url": "U", "title": "T", "snippet": "S", "rank": 1,
+                             "_provenance": {"bridge": "ddg"}}],
+                "stats": {"bridges_used": ["ddg"], "ms_total": 12},
             }
             mock_resp.raise_for_status = MagicMock()
             post.return_value = mock_resp
@@ -158,6 +173,9 @@ class TestWindySearchClient:
             result = search_via_windy_search("test", limit=5)
             assert result["query"] == "test"
             assert result["provider"] == "windy-search:ddg"
+            assert result["results"] == [{"title": "T", "snippet": "S", "url": "U"}]
+            assert post.call_args.args[0] == "https://api.windysearch.com/v1/search"
+            assert post.call_args.kwargs["json"] == {"query": "test", "max_results": 5}
             assert len(result["results"]) == 1
             kwargs = post.call_args.kwargs
             assert kwargs["headers"]["Authorization"] == "Bearer ey...test..."
@@ -336,7 +354,7 @@ class TestBudgetNotices:
             assert result["budget_exhausted"] is True
             assert "do not retry" in result["notice_to_user"]
             assert "built-in web search" in result["notice_to_user"]
-            assert result["error"] == "HTTP 429"
+            assert result["error"] == "monthly search budget reached"
 
     def test_rate_limit_429_is_not_budget_exhausted(self, monkeypatch):
         """The per-minute rate-limit 429 must NOT read as budget-exhausted —
@@ -349,7 +367,7 @@ class TestBudgetNotices:
             result = search_via_windy_search("q")
             assert "budget_exhausted" not in result
             assert "notice_to_user" not in result
-            assert result["error"] == "HTTP 429"
+            assert result["error"].startswith("rate limited by windy-search (HTTP 429)")
 
     def test_fetch_url_budget_429_skips_direct_rescue(self, monkeypatch):
         """Budget-exhausted is intentional policy, not a windy-search
