@@ -67,9 +67,11 @@ class TestKeylessFlow:
 
     def test_go_keyless_installs_missing_prereqs(self, project):
         """The --keyless kiosk fast-path must install uv/bun itself — it skips
-        the interactive Step 1 that would otherwise do it (finding B2)."""
+        the interactive Step 1 that would otherwise do it (finding B2). Source
+        checkouts only: a pip install needs neither (test_first_run_no_uv)."""
         installed = []
-        with patch.object(qs, "can_run", lambda _t: False), \
+        with patch("windyfly.platform.is_source_checkout", lambda _root=None: True), \
+             patch.object(qs, "can_run", lambda _t: False), \
              patch.object(qs, "_install_prereqs",
                           side_effect=lambda m: installed.extend(m)), \
              patch.object(qs, "_try_hatch_provisioning"), \
@@ -137,3 +139,23 @@ class TestKeylessFlow:
         with patch.object(qs, "_go_keyless") as mock_keyless:
             qs.cmd_go(Args())
         mock_keyless.assert_called_once()
+
+
+class TestGeneratedEnvNamesTheIssuer:
+    """The generated .env pins ETERNITAS_URL (clean-machine journey, 2026-09-23)."""
+
+    def test_keyless_env_defaults_to_production_issuer(self, project, monkeypatch):
+        monkeypatch.delenv("ETERNITAS_URL", raising=False)
+        qs.write_keyless_config()
+        env = (project / ".env").read_text()
+        assert "ETERNITAS_URL=https://api.eternitas.ai" in env
+
+    def test_keyed_env_defaults_to_production_issuer(self, project, monkeypatch):
+        monkeypatch.delenv("ETERNITAS_URL", raising=False)
+        qs.write_quick_config("OPENAI_API_KEY", "sk-test123", "gpt-4o-mini")
+        assert "ETERNITAS_URL=https://api.eternitas.ai" in (project / ".env").read_text()
+
+    def test_explicit_choice_is_kept(self, project, monkeypatch):
+        monkeypatch.setenv("ETERNITAS_URL", "off")
+        qs.write_keyless_config()
+        assert "ETERNITAS_URL=off" in (project / ".env").read_text()

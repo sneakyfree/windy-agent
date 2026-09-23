@@ -233,6 +233,31 @@ def _run_bot_channel(
         logger.info("Windy Fly shut down cleanly")
 
 
+
+def _configure_logging(channel: str, log_level: str) -> None:
+    """Root logging for this process.
+
+    Interactive chat (``--channel cli``): INFO chatter (runtime claim, tool
+    registration, memory…) interleaved with the conversation made it
+    unreadable, so the full log goes to data/cli.log and the terminal only
+    shows WARNING and above. Every other channel logs to stderr as before
+    (systemd/launchd capture it).
+    """
+    level = getattr(logging, log_level.upper(), logging.INFO)
+    fmt = "%(asctime)s [%(name)s] %(levelname)s: %(message)s"
+    if channel == "cli":
+        from windyfly.platform import get_data_dir, get_project_root
+
+        file_handler = logging.FileHandler(
+            get_data_dir(get_project_root()) / "cli.log", encoding="utf-8"
+        )
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(logging.WARNING)
+        logging.basicConfig(level=level, format=fmt, datefmt="%H:%M:%S",
+                            handlers=[file_handler, console_handler])
+    else:
+        logging.basicConfig(level=level, format=fmt, datefmt="%H:%M:%S")
+
 def main() -> None:
     """Main entry point for Windy Fly."""
     load_dotenv()
@@ -319,11 +344,7 @@ def main() -> None:
 
     # Configure logging
     log_level = args.log_level or config.get("log_level", "INFO")
-    logging.basicConfig(
-        level=getattr(logging, log_level.upper(), logging.INFO),
-        format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-        datefmt="%H:%M:%S",
-    )
+    _configure_logging(args.channel, log_level)
 
     # Install secret-redaction filter on the root handler so httpx /
     # telegram.ext / etc. don't leak bot tokens or API keys into the
@@ -365,7 +386,9 @@ def main() -> None:
         # status pill (A.6) would offer. Surface the holder to the user.
         print(
             f"Another Windy Fly runtime is already hosting this agent "
-            f"({runtime_claim.conflict_holder_summary()}). Exiting.",
+            f"({runtime_claim.conflict_holder_summary()}). Exiting.\n"
+            f"If that's your background agent on this machine, run: "
+            f"windy stop && windy chat",
             file=sys.stderr,
         )
         sys.exit(0)

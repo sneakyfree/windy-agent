@@ -205,7 +205,15 @@ def cmd_start(args: argparse.Namespace) -> None:
         if pid_info.gateway_alive:
             alive_parts.append(f"gateway={pid_info.gateway}")
         console.print(f"[yellow]⚠ Windy Fly is already running ({', '.join(alive_parts)})[/yellow]")
-        console.print("  Run [bold]windy stop[/bold] first, or [bold]windy status[/bold] to check.")
+        if getattr(args, "cli", False):
+            console.print(
+                "  Your agent is already running in the background. To chat with it "
+                "here, run: [bold]windy stop && windy chat[/bold]"
+            )
+        else:
+            console.print(
+                "  Run [bold]windy stop[/bold] first, or [bold]windy status[/bold] to check."
+            )
         return
 
     console.print("[bold cyan]🪰 Starting Windy Fly...[/bold cyan]")
@@ -240,11 +248,13 @@ def cmd_start(args: argparse.Namespace) -> None:
     if getattr(args, "cli", False):
         # CLI-only mode: run brain interactively in foreground
         console.print("  [cyan]Starting brain in CLI mode...[/cyan]")
-        console.print("  [dim]Type your messages below. Ctrl+C to exit.[/dim]")
+        console.print("  [dim]Type your messages below; /quit or press Ctrl-D to leave.[/dim]")
         console.print()
         try:
+            from windyfly.platform import python_cmd
+
             subprocess.run(
-                ["uv", "run", "python", "-m", "windyfly.main", "--channel", "cli"],
+                [*python_cmd(PROJECT_ROOT), "-m", "windyfly.main", "--channel", "cli"],
                 cwd=str(PROJECT_ROOT),
             )
         except KeyboardInterrupt:
@@ -270,8 +280,10 @@ def cmd_start(args: argparse.Namespace) -> None:
             popen_extra["start_new_session"] = True
 
     brain_log = open(get_log_path(PROJECT_ROOT, "brain"), "a")  # noqa: SIM115
+    from windyfly.platform import python_cmd
+
     brain_proc = subprocess.Popen(
-        ["uv", "run", "python", "-m", "windyfly.bridge.uds_server"],
+        [*python_cmd(PROJECT_ROOT), "-m", "windyfly.bridge.uds_server"],
         cwd=str(PROJECT_ROOT),
         stdout=brain_log,
         stderr=subprocess.STDOUT,
@@ -351,6 +363,9 @@ def cmd_start(args: argparse.Namespace) -> None:
         console.print("  [bold green]Windy Fly is running in the background.[/bold green]")
         console.print("  Run [bold]windy stop[/bold] to shut down.")
         console.print("  Run [bold]windy logs --follow[/bold] to watch logs.")
+        console.print(
+            "  To chat in this terminal instead: [bold]windy stop && windy chat[/bold]"
+        )
     else:
         console.print("  (Or type here to chat in the terminal)")
         console.print("  Run [bold]windy stop[/bold] to shut down.")
@@ -391,6 +406,34 @@ def cmd_stop(_args: argparse.Namespace) -> None:
             console.print(f"  [yellow]⚠ Could not stop {label} (PID {pid}): {e}[/yellow]")
 
     remove_pid_file(PROJECT_ROOT)
+
+    # Wait for the brain to actually exit (its atexit hook releases the
+    # Mind runtime slot), then release any slot it left behind, so an
+    # immediate `windy chat` isn't refused as "already hosting".
+    import time as _time
+
+    from windyfly import runtime_claim
+    from dotenv import load_dotenv
+    load_dotenv(PROJECT_ROOT / ".env")
+    deadline = _time.monotonic() + 10.0
+    pids = [p for p in (pid_info.brain, pid_info.gateway) if p is not None]
+
+    def _alive(pid: int) -> bool:
+        try:
+            return process_alive(pid)
+        except (ValueError, OSError):
+            return False
+
+    while _time.monotonic() < deadline and any(_alive(p) for p in pids):
+        _time.sleep(0.2)
+    if runtime_claim.claim_record_path().is_file():
+        if runtime_claim.release_recorded_claim():
+            console.print("  [green]✓[/green] Released the runtime slot")
+        else:
+            console.print(
+                "  [yellow]⚠ Couldn't release the runtime slot; it frees itself "
+                "within 90 seconds.[/yellow]"
+            )
 
     if stopped:
         console.print(f"\n  [green]✓ Stopped {stopped} process(es)[/green]")
@@ -698,35 +741,62 @@ def _cmd_whoami(_args: argparse.Namespace) -> None:
 
 def _cmd_ept(args: argparse.Namespace) -> None:
     """windy ept refresh [--force] — renew the Eternitas passport token."""
-    from windyfly.eternitas.ept_refresh import refresh_ept
+    from dotenv import load_dotenv
+
+    from windyfly.eternitas.ept_refresh import refresh_ept, resolve_env_file
 
     if getattr(args, "ept_command", None) != "refresh":
         console.print("Usage: windy ept refresh [--force]")
         return
+    # Load the SAME env file refresh_ept persists to (WINDY_ENV_FILE, else
+    # the project .env) — not whatever .env is in the CWD. Without the
+    # agent's own token in the environment, refresh_ept saw the file's token
+    # as "renewed by another process" and returned 'adopted', which this
+    # command then reported as "Refresh failed (None)".
+    env_file = resolve_env_file()
+    if env_file is not None:
+        load_dotenv(env_file, override=False)
     result = refresh_ept(force=bool(getattr(args, "force", False)))
     status = result.get("status")
-    if status == "current":
-        console.print("[green]✓[/green] Passport token is current (use --force to ask Eternitas anyway).")
-    elif status == "refreshed":
+    reason = result.get("reason")
+    if status == "refreshed":
         where = result.get("env_file") or "this process only (set WINDY_ENV_FILE to persist)"
         console.print(
             f"[green]✓[/green] Passport token refreshed "
-            f"(reissued={result.get('reissued')}, reason={result.get('reason')}); saved to {where}."
+            f"(reissued={result.get('reissued')}, reason={reason}); saved to {where}."
         )
         if not result.get("has_windy_identity_id"):
             console.print(
                 "[yellow]Note:[/yellow] the new token has no Windy identity link yet; "
                 "your owner link at Eternitas may need attention."
             )
-    elif status == "unchanged":
-        console.print("[green]✓[/green] Eternitas says the token is current; nothing changed.")
+    elif status == "current":
+        console.print("[green]✓[/green] Passport token is current (use --force to ask Eternitas anyway).")
+    elif status == "adopted":
+        console.print(
+            f"[green]✓[/green] Passport token is current (already renewed in "
+            f"{result.get('env_file') or 'the env file'})."
+        )
     elif status == "needs_login":
         console.print("[yellow]The passport token has expired.[/yellow] Run [bold]windy login[/bold], then try again.")
     elif status == "no_passport":
         console.print("No passport on this agent. Hatch it first ([bold]windy go[/bold]).")
-    else:
+    elif status == "failed" and (
+        result.get("http") or result.get("error") not in (None, "no_token")
+    ):
+        # Real failures only: an HTTP error/refusal, unreachable, or a crash.
+        what = (
+            f"HTTP {result['http']}" if result.get("http")
+            else "Eternitas unreachable" if result.get("error") == "unreachable"
+            else str(result.get("error"))
+        )
         hint = result.get("hint")
-        console.print(f"[red]Refresh failed[/red] ({result.get('http') or result.get('error')})." + (f" {hint}" if hint else ""))
+        console.print(f"[red]Refresh failed[/red] ({what})." + (f" {hint}" if hint else ""))
+    else:
+        # 'unchanged', or any status/reason this CLI doesn't know yet:
+        # Eternitas kept the current token, which is still valid.
+        why = f" ({reason})" if reason else ""
+        console.print(f"[green]✓[/green] Passport token kept — still valid{why}.")
 
 
 def _cmd_deregister(args: argparse.Namespace) -> None:
@@ -1343,7 +1413,15 @@ def main() -> None:
         prog="windy",
         description="Windy Fly — Your AI. Your Rules. Your Ecosystem.",
     )
+    parser.add_argument(
+        "--version", action="store_true", dest="show_version",
+        help="Show version info (same as `windy version`)",
+    )
     sub = parser.add_subparsers(dest="command", help="Command to run")
+    from windyfly.provider_defaults import by_name as _provider_by_name
+    _ANTHROPIC_DEFAULT_MODEL = (_provider_by_name("Anthropic") or {}).get(
+        "default_model", "claude-sonnet-4-6"
+    )
 
     # ── Process Management ───────────────────────────────────────
 
@@ -1359,7 +1437,7 @@ def main() -> None:
     )
     go_parser.add_argument(
         "--model", "-m",
-        help="Override default model (e.g., gpt-4o, claude-3-5-sonnet-latest)",
+        help=f"Override default model (e.g., gpt-4o, {_ANTHROPIC_DEFAULT_MODEL})",
     )
     go_parser.add_argument(
         "--preset", "-p",
@@ -1373,6 +1451,10 @@ def main() -> None:
     go_parser.add_argument(
         "--byok", action="store_true",
         help="Bring your own key — skip Windy Word managed-credential detection",
+    )
+    go_parser.add_argument(
+        "--force", action="store_true",
+        help="Hatch a NEW passport even though this agent already has one",
     )
 
     # windy start
@@ -1542,7 +1624,9 @@ def main() -> None:
     model_sub = model_parser.add_subparsers(dest="action", help="Model action")
     model_sub.add_parser("list", help="List available models")
     model_set = model_sub.add_parser("set", help="Set the default model")
-    model_set.add_argument("model_name", help="Model name (e.g., gpt-4o, claude-3-5-sonnet-latest)")
+    model_set.add_argument(
+        "model_name", help=f"Model name (e.g., gpt-4o, {_ANTHROPIC_DEFAULT_MODEL})"
+    )
     model_sub.add_parser("test", help="Test the current model")
 
     # windy soul
@@ -1647,6 +1731,11 @@ def main() -> None:
     # ── Parse and dispatch ───────────────────────────────────────
 
     args = parser.parse_args()
+
+    if getattr(args, "show_version", False):
+        from windyfly.commands import cmd_version
+        cmd_version(args)
+        return
 
     if args.command is None:
         # No subcommand — run quickstart if not configured, else show help

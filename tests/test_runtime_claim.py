@@ -10,6 +10,7 @@ All tests use httpx.MockTransport so we exercise the full code path
 """
 from __future__ import annotations
 
+import json
 import threading
 
 import httpx
@@ -19,8 +20,10 @@ from windyfly import runtime_claim
 
 
 @pytest.fixture(autouse=True)
-def _reset_runtime_state():
-    """Each test starts with a clean module state."""
+def _reset_runtime_state(monkeypatch, tmp_path):
+    """Each test starts with a clean module state (and its own project
+    root, since a granted claim writes data/runtime_claim.json there)."""
+    monkeypatch.setenv("WINDYFLY_HOME", str(tmp_path))
     runtime_claim._reset_state_for_tests()
     yield
     runtime_claim._reset_state_for_tests()
@@ -435,3 +438,65 @@ class TestEptBearer:
         monkeypatch.delenv("ETERNITAS_PASSPORT_TOKEN", raising=False)
         monkeypatch.delenv("WINDY_JWT", raising=False)
         assert _read_creds() is None
+
+
+# ─── claim record: `windy stop` releases a slot it didn't claim ─────────
+
+
+def _granting_handler(seen: list):
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.append((req.url.path, json.loads(req.content or b"{}")))
+        return httpx.Response(200, json={"claimed": True, "ttl_seconds": 90})
+    return handler
+
+
+def test_granted_claim_is_recorded_without_credentials(good_creds):
+    seen: list = []
+    out = runtime_claim.acquire_runtime_slot(
+        transport=httpx.MockTransport(_granting_handler(seen))
+    )
+    assert out == runtime_claim.ClaimOutcome.GRANTED
+    record = json.loads(runtime_claim.claim_record_path().read_text())
+    assert record["passport"] == "ET26-TEST-AAAA"
+    assert record["runtime_id"] == seen[0][1]["runtime_id"]
+    assert "fake.jwt.value" not in runtime_claim.claim_record_path().read_text()
+
+
+def test_clean_release_removes_the_record(good_creds):
+    seen: list = []
+    t = httpx.MockTransport(_granting_handler(seen))
+    runtime_claim.acquire_runtime_slot(transport=t)
+    runtime_claim.release_slot(transport=t)
+    assert not runtime_claim.claim_record_path().exists()
+
+
+def test_stop_side_release_frees_the_slot_the_brain_left_behind(good_creds):
+    """The first-run trap: `windy stop` returned while the brain still held
+    the slot, so `windy chat` was refused as 'already hosting this agent'."""
+    seen: list = []
+    t = httpx.MockTransport(_granting_handler(seen))
+    runtime_claim.acquire_runtime_slot(transport=t)
+    claimed_id = seen[0][1]["runtime_id"]
+    runtime_claim._reset_state_for_tests()   # the brain died without releasing
+
+    assert runtime_claim.release_recorded_claim(transport=t) is True
+    path, body = seen[-1]
+    assert path == "/v1/runtime/release"
+    assert body == {"passport": "ET26-TEST-AAAA", "runtime_id": claimed_id}
+    assert not runtime_claim.claim_record_path().exists()
+
+
+def test_stop_side_release_keeps_record_when_mind_refuses(good_creds):
+    seen: list = []
+    runtime_claim.acquire_runtime_slot(
+        transport=httpx.MockTransport(_granting_handler(seen))
+    )
+    refuse = httpx.MockTransport(lambda req: httpx.Response(500))
+    assert runtime_claim.release_recorded_claim(transport=refuse) is False
+    assert runtime_claim.claim_record_path().exists()
+
+
+def test_stop_side_release_is_a_noop_without_a_record(good_creds):
+    def boom(req):
+        raise AssertionError("must not call Mind")
+    assert runtime_claim.release_recorded_claim(transport=httpx.MockTransport(boom))

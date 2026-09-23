@@ -21,6 +21,8 @@ from rich.prompt import Confirm, Prompt
 from rich.table import Table
 from rich.text import Text
 
+from windyfly.eternitas.url import eternitas_env_line
+
 from windyfly.platform import get_project_root
 from windyfly.provider_defaults import PROVIDER_DEFAULTS as _PD
 
@@ -476,6 +478,9 @@ def _step_finalize(
         "# Windy Pro API (optional)",
         "WINDY_API_URL=http://localhost:8098",
         "WINDY_JWT=",
+        "",
+        "# Eternitas (agent identity: passport, birth certificate, trust)",
+        eternitas_env_line(),
     ])
 
     ENV_FILE.write_text("\n".join(env_lines) + "\n", encoding="utf-8")

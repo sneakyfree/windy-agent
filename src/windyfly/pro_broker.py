@@ -28,7 +28,7 @@ user already has a Windy Pro account. The flow:
        {
          "broker_token":     "wk_broker_...",
          "provider":         "anthropic",
-         "model":            "claude-3-5-sonnet-latest",
+         "model":            "claude-sonnet-4-6",
          "expires_at":       "2026-04-19T14:32:07Z",
          "usage_cap_tokens": 1_000_000
        }
@@ -77,7 +77,7 @@ PROVIDER_TO_ENV = {
 # Default fallback models per provider when Pro's broker doesn't pin one.
 PROVIDER_DEFAULT_MODEL = {
     "openai":    "gpt-4o-mini",
-    "anthropic": "claude-3-5-sonnet-latest",
+    "anthropic": "claude-sonnet-4-6",
     "grok":      "grok-3-mini",
     "xai":       "grok-3-mini",
     "gemini":    "gemini-2.5-flash",

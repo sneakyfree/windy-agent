@@ -130,9 +130,19 @@ def process_alive(pid: int) -> bool:
     else:
         try:
             os.kill(pid, 0)
-            return True
         except (OSError, ProcessLookupError):
             return False
+        # A zombie has exited; it's only waiting for its parent to reap it.
+        # The daemon brain outlives the `windy go` that spawned it, so its
+        # parent is init — and in a container without a real init nothing
+        # ever reaps it. Counting it as alive made `windy stop` wait out its
+        # whole timeout and `windy start` report "already running".
+        try:
+            with open(f"/proc/{pid}/stat", encoding="ascii") as fh:
+                state = fh.read().rsplit(")", 1)[1].split()[0]
+            return state not in ("Z", "X")
+        except (OSError, IndexError):
+            return True
 
 
 def process_terminate(pid: int) -> bool:
@@ -525,3 +535,31 @@ def diagnose() -> PlatformReport:
             report.issues.append("Bash not found — needed for install scripts")
 
     return report
+
+
+def is_source_checkout(root: Path | None = None) -> bool:
+    """True when running from a windy-agent source checkout (not a pip install).
+
+    A checkout has the package sources and pyproject next to each other; a
+    `pip install windyfly` does not, and there `uv`/`bun` are not needed at all
+    (the brain runs under the installed Python; the Bun gateway isn't shipped).
+    """
+    root = root or get_project_root()
+    return (root / "pyproject.toml").exists() and (root / "src" / "windyfly").is_dir()
+
+
+def python_cmd(root: Path | None = None) -> list[str]:
+    """The command prefix that runs this package's Python.
+
+    Source checkout with uv → ``uv run python`` (the project's own env).
+    Otherwise → the interpreter running right now (``sys.executable``), which is
+    where a pip-installed windyfly lives. Launching ``uv`` unconditionally
+    crashed a pip install with FileNotFoundError: 'uv' (clean-machine journey,
+    2026-09-23).
+    """
+    import shutil
+    import sys
+
+    if is_source_checkout(root) and shutil.which("uv"):
+        return ["uv", "run", "python"]
+    return [sys.executable]

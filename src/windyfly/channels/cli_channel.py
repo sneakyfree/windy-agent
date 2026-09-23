@@ -39,7 +39,7 @@ class CLIChannel(ChannelAdapter):
             if not user_input.strip():
                 continue
 
-            if user_input.strip().lower() in ("exit", "quit", "bye"):
+            if user_input.strip().lower() in ("exit", "quit", "bye", "/quit", "/exit", "/q", ":q"):
                 _console.print("Goodbye!")
                 break
 

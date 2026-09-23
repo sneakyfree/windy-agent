@@ -55,7 +55,7 @@ async def fetch_agent_chat_session(config: dict | None = None) -> dict | None:
             if resp.status_code == 404:
                 logger.warning(
                     "Chat says this agent was never provisioned — hatch "
-                    "first (or re-run windy hatch)"
+                    "first (run `windy go`)"
                 )
                 return None
             resp.raise_for_status()

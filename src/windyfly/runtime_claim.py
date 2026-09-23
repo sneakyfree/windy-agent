@@ -38,11 +38,13 @@ from __future__ import annotations
 
 import atexit
 import enum
+import json
 import logging
 import os
 import threading
 import uuid
 from dataclasses import dataclass
+from pathlib import Path
 
 import httpx
 
@@ -238,6 +240,7 @@ def acquire_runtime_slot(
             jwt=jwt,
             base_url=base,
         )
+        _write_claim_record(passport, runtime_id, base)
         logger.info(
             "runtime_claim.granted: passport=%s runtime_id=%s ttl=%ss",
             passport,
@@ -400,6 +403,87 @@ def release_slot(*, transport: httpx.BaseTransport | None = None) -> None:
             )
     except (httpx.RequestError, httpx.HTTPError) as e:
         logger.debug("runtime_claim.release_swallowed_error: %s", e)
+        return
+    _clear_claim_record(_state.runtime_id)
+
+
+# ── claim record: lets `windy stop` release a slot it didn't claim ───
+#
+# The release above only runs inside the process that holds the claim.
+# `windy stop` is a different process: it used to SIGTERM the brain and
+# return at once, so an immediate `windy chat` raced the brain's atexit
+# release (or found no release at all if the brain was killed hard) and
+# was refused with "Another Windy Fly runtime is already hosting this
+# agent" until the 90s TTL reaped the slot. The holder records which
+# runtime_id it claimed (no credentials — the stopper re-reads those
+# from the environment), and removes the record once it has released.
+
+def claim_record_path() -> Path:
+    from windyfly.platform import get_project_root
+
+    return get_project_root() / "data" / "runtime_claim.json"
+
+
+def _write_claim_record(passport: str, runtime_id: str, base_url: str) -> None:
+    try:
+        path = claim_record_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps({"passport": passport, "runtime_id": runtime_id,
+                        "base_url": base_url, "pid": os.getpid()}),
+            encoding="utf-8",
+        )
+    except Exception as e:  # the record is a convenience, never a boot blocker
+        logger.debug("runtime_claim.record_write_failed: %s", e)
+
+
+def _clear_claim_record(runtime_id: str) -> None:
+    try:
+        path = claim_record_path()
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if data.get("runtime_id") == runtime_id:
+            path.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
+def release_recorded_claim(*, transport: httpx.BaseTransport | None = None) -> bool:
+    """Release the slot named in the claim record, from outside the holder.
+
+    Called by `windy stop` after the brain has exited. Returns True when
+    Mind acknowledged the release (or there was nothing left to release).
+    Never raises.
+    """
+    try:
+        path = claim_record_path()
+        if not path.is_file():
+            return True
+        data = json.loads(path.read_text(encoding="utf-8"))
+        creds = _read_creds()
+        if creds is None:
+            return False
+        passport, bearer = creds
+        if data.get("passport") and data["passport"] != passport:
+            return False
+        base = str(data.get("base_url") or _mind_base_url())
+        with httpx.Client(
+            base_url=base,
+            timeout=_RELEASE_TIMEOUT_S,
+            transport=transport,
+            headers={"Authorization": f"Bearer {bearer}"},
+        ) as client:
+            resp = client.post(
+                "/v1/runtime/release",
+                json={"passport": passport, "runtime_id": data.get("runtime_id")},
+            )
+        # 404 = Mind no longer has that claim (already reaped/released).
+        ok = resp.status_code < 300 or resp.status_code == 404
+        if ok:
+            path.unlink(missing_ok=True)
+        return ok
+    except Exception as e:
+        logger.debug("runtime_claim.recorded_release_failed: %s", e)
+        return False
 
 
 def register_atexit_release() -> None:

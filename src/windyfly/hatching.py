@@ -275,8 +275,16 @@ def show_ecosystem_status(hatch_result=None, config: dict | None = None) -> None
     passport_id = getattr(hatch_result, "passport_id", "") or os.environ.get("ETERNITAS_PASSPORT", "")
     eternitas_errors = [e for e in errors if e.startswith("Eternitas:")]
     if passport_id:
-        mode = "" if eco.get("eternitas_url") else " (local)"
+        # "(local)" only for a mock/offline issuer. A passport from the real
+        # issuer (the default since 0.7.2, often not set in config) is real.
+        from windyfly.eternitas.url import issuer_url
+
+        issuer = issuer_url(config)
+        mode = "" if issuer and not issuer.startswith("mock") else " (local mock — not a real passport)"
         table.add_row("Eternitas", "[green]Active[/green]", f"{passport_id}{mode}")
+        # A real passport from the real issuer is a live ecosystem link,
+        # even when the issuer is the built-in default rather than config.
+        has_real_services = has_real_services or not mode
     elif eternitas_errors:
         table.add_row("Eternitas", "[yellow]Offline[/yellow]", "\u26a0\ufe0f  Agent identity: offline (will retry)")
     else:
@@ -299,12 +307,15 @@ def show_ecosystem_status(hatch_result=None, config: dict | None = None) -> None
 
     # ── Windy Mail ──
     email_addr = getattr(hatch_result, "email_address", "") if hatch_result else ""
+    mail_mock = bool(getattr(hatch_result, "mail_is_mock", False)) if hatch_result else False
     mail_errors = [e for e in errors if e.startswith("Mail:")]
     if not email_addr:
         email_addr = os.environ.get("WINDYMAIL_EMAIL", "")
-    if email_addr:
-        mode = "" if eco.get("windy_mail_url") else " (local)"
-        table.add_row("Windy Mail", "[green]Active[/green]", f"{email_addr}{mode}")
+    if email_addr and mail_mock:
+        # A local placeholder is not an inbox anyone can mail.
+        table.add_row("Windy Mail", "[dim]Pending[/dim]", "Not set up yet (local placeholder only)")
+    elif email_addr:
+        table.add_row("Windy Mail", "[green]Active[/green]", email_addr)
     elif mail_errors:
         table.add_row("Windy Mail", "[yellow]Offline[/yellow]", "\u26a0\ufe0f  Email: offline (will be available when mail service is up)")
     else:
@@ -315,10 +326,11 @@ def show_ecosystem_status(hatch_result=None, config: dict | None = None) -> None
     phone_mock = getattr(hatch_result, "phone_is_mock", False) if hatch_result else False
     if not phone:
         phone = os.environ.get("TWILIO_PHONE_NUMBER", "")
-    if phone:
-        tag = " (local)" if phone_mock else ""
-        status = "[yellow]Local[/yellow]" if phone_mock else "[green]Active[/green]"
-        table.add_row("Phone", status, f"{phone}{tag}")
+    if phone and phone_mock:
+        # A mock number (e.g. +1555…) was never real; don't show it as one.
+        table.add_row("Phone", "[dim]Pending[/dim]", "Not set up (add Twilio creds to enable)")
+    elif phone:
+        table.add_row("Phone", "[green]Active[/green]", phone)
     else:
         table.add_row("Phone", "[dim]Pending[/dim]", "Add Twilio creds to enable")
 

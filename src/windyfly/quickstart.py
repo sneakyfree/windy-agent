@@ -26,14 +26,16 @@ import subprocess
 import sys
 import time
 import webbrowser
+from pathlib import Path
 from typing import Any
 
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
 
+from windyfly.eternitas.url import eternitas_env_line
 from windyfly.platform import IS_WINDOWS, can_run, get_project_root
-from windyfly.provider_defaults import PROVIDER_DEFAULTS, key_detection_order
+from windyfly.provider_defaults import PROVIDER_DEFAULTS, by_name, key_detection_order
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -137,6 +139,70 @@ def watch_clipboard_for_key(timeout_seconds: int = 60) -> tuple[str, dict[str, s
 # ═══════════════════════════════════════════════════════════════════════
 
 
+
+
+
+
+# The agent's identity lives in .env. Re-running `windy go` rewrites .env
+# from scratch, which blanked ETERNITAS_PASSPORT_TOKEN — the next hatch then
+# minted a SECOND passport for the same agent (Eternitas caps auto-hatch at
+# 5/hour, and the first passport was orphaned). Keep these across rewrites.
+_IDENTITY_KEYS = ("ETERNITAS_PASSPORT", "ETERNITAS_PASSPORT_TOKEN")
+
+
+def _read_env_values(path: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if "=" in line and not line.lstrip().startswith("#"):
+                k, v = line.split("=", 1)
+                values[k.strip()] = v.strip()
+    except OSError:
+        pass
+    return values
+
+
+def _write_env_keeping_identity(env_lines: list[str]) -> None:
+    env_file = PROJECT_ROOT / ".env"
+    kept = {
+        k: v for k, v in _read_env_values(env_file).items()
+        if k in _IDENTITY_KEYS and v
+    }
+    out: list[str] = []
+    for line in env_lines:
+        key = line.split("=", 1)[0] if "=" in line else ""
+        if key in kept:
+            out.append(f"{key}={kept.pop(key)}")
+        else:
+            out.append(line)
+    out.extend(f"{k}={v}" for k, v in kept.items())
+    env_file.write_text("\n".join(out) + "\n", encoding="utf-8")
+
+
+def existing_passport() -> str:
+    """The passport this agent already has, or "" if it was never hatched.
+
+    Checks the process env and the project .env; an EPT alone counts (its
+    ``sub`` is the passport). Mock placeholders don't count.
+    """
+    from windyfly.runtime_claim import _passport_from_ept
+
+    file_values = _read_env_values(PROJECT_ROOT / ".env")
+    passport = (
+        os.environ.get("ETERNITAS_PASSPORT", "").strip()
+        or file_values.get("ETERNITAS_PASSPORT", "")
+    )
+    if passport and not passport.lower().startswith("mock"):
+        return passport
+    token = (
+        os.environ.get("ETERNITAS_PASSPORT_TOKEN", "").strip()
+        or file_values.get("ETERNITAS_PASSPORT_TOKEN", "")
+    )
+    if token and not token.startswith("mock-"):
+        return _passport_from_ept(token) or "(passport token on file)"
+    return ""
+
+
 def write_quick_config(
     env_var: str,
     api_key: str,
@@ -180,9 +246,12 @@ def write_quick_config(
         "# Windy Pro API (optional)",
         "WINDY_API_URL=http://localhost:8098",
         "WINDY_JWT=",
+        "",
+        "# Eternitas (agent identity: passport, birth certificate, trust)",
+        eternitas_env_line(),
     ])
 
-    (PROJECT_ROOT / ".env").write_text("\n".join(env_lines) + "\n", encoding="utf-8")
+    _write_env_keeping_identity(env_lines)
 
     # Build windyfly.toml
     agent_name = os.environ.get("WINDYFLY_AGENT_NAME", "Windy Fly")
@@ -257,7 +326,9 @@ def write_keyless_config(preset: str = "buddy") -> None:
         f"{MIND_URL_ENV}={MIND_DEFAULT_URL}",
         "WINDY_MIND_SEND_TOOLS=1",
         "",
-        "# ETERNITAS_PASSPORT_TOKEN is written here by the hatch ceremony.",
+        "# Eternitas (agent identity). ETERNITAS_PASSPORT_TOKEN is written here",
+        "# by the hatch ceremony.",
+        eternitas_env_line(),
         "ETERNITAS_PASSPORT_TOKEN=",
         "",
         "# Database",
@@ -272,7 +343,7 @@ def write_keyless_config(preset: str = "buddy") -> None:
         "MATRIX_BOT_TOKEN=",
         "MATRIX_BOT_PASSWORD=",
     ]
-    (PROJECT_ROOT / ".env").write_text("\n".join(env_lines) + "\n", encoding="utf-8")
+    _write_env_keeping_identity(env_lines)
 
     agent_name = os.environ.get("WINDYFLY_AGENT_NAME", "Windy Fly")
     toml_content = f"""[agent]
@@ -346,7 +417,7 @@ def _go_keyless(args: Any) -> None:
     # Without this, `_launch` → `cmd_start` Popen('uv') dies with a raw
     # FileNotFoundError traceback. can_run makes this idempotent for the
     # menu path. (Stress finding B2, 2026-07-05.)
-    missing = [t for t in ("uv", "bun") if not can_run(t)]
+    missing = _needed_prereqs()
     if missing:
         _install_prereqs(missing)
         console.print()
@@ -408,6 +479,8 @@ def _report_keyless_brain_status() -> None:
 
 def cmd_go(args: Any) -> None:
     """The zero-friction quickstart. One command, one paste, done."""
+    if getattr(args, "force", False):
+        os.environ["_WINDYFLY_FORCE_HATCH"] = "1"
 
     # ── Non-interactive fast paths ───────────────────────────────
     key_arg = getattr(args, "key", None)
@@ -430,11 +503,7 @@ def cmd_go(args: Any) -> None:
     console.print()
 
     # ── Step 1: Prerequisites (silent if met) ────────────────────
-    missing = []
-    if not can_run("uv"):
-        missing.append("uv")
-    if not can_run("bun"):
-        missing.append("bun")
+    missing = _needed_prereqs()
 
     if missing:
         console.print(f"  [yellow]Installing missing tools: {', '.join(missing)}...[/yellow]")
@@ -646,11 +715,7 @@ def _go_noninteractive(args: Any) -> None:
     console.print()
 
     # Prerequisites
-    missing = []
-    if not can_run("uv"):
-        missing.append("uv")
-    if not can_run("bun"):
-        missing.append("bun")
+    missing = _needed_prereqs()
     if missing:
         console.print(f"  [cyan]Installing: {', '.join(missing)}...[/cyan]")
         _install_prereqs(missing)
@@ -730,6 +795,21 @@ def _try_mail_provision() -> None:
         console.print("  [dim]○ Windy Mail — skipped[/dim]")
 
 
+def _load_hatch_config() -> dict | None:
+    """The windyfly.toml `windy go` just wrote, so the hatch sees the
+    configured ecosystem URLs instead of falling back to defaults/mocks."""
+    toml_file = PROJECT_ROOT / "windyfly.toml"
+    if not toml_file.exists():
+        return None
+    try:
+        from windyfly.config import load_config
+
+        return load_config(str(toml_file))
+    except Exception as e:
+        logger.debug("Hatch: could not load %s: %s", toml_file, e)
+        return None
+
+
 def _try_hatch_provisioning(non_interactive: bool = False) -> None:
     """Run the full hatch orchestrator — Eternitas, Mail, Phone, Birth Cert.
 
@@ -747,6 +827,23 @@ def _try_hatch_provisioning(non_interactive: bool = False) -> None:
     sensible defaults. A stray ``Prompt.ask`` on a closed stdin would
     otherwise crash with EOF mid-hatch — see Wave 11 Bug #1.
     """
+    already = existing_passport()
+    if already and not os.environ.get("_WINDYFLY_FORCE_HATCH"):
+        console.print(
+            f"  [green]✓[/green] 🪪  This agent already has a passport ({already}) "
+            "— not hatching again."
+        )
+        console.print(
+            "     [dim]To start over with a new identity: [bold]windy deregister[/bold], "
+            "or [bold]windy go --force[/bold].[/dim]"
+        )
+        os.environ["_WINDYFLY_HATCHING_PLAYED"] = "1"
+        return
+    if already:
+        # --force: mint a fresh identity rather than adopting the old one.
+        os.environ.pop("ETERNITAS_PASSPORT", None)
+        os.environ.pop("ETERNITAS_PASSPORT_TOKEN", None)
+
     try:
         from windyfly.hatch_orchestrator import run_hatch
         from windyfly.memory.database import Database
@@ -862,6 +959,7 @@ def _try_hatch_provisioning(non_interactive: bool = False) -> None:
                 agent_name=agent_name,
                 owner_id=owner_id,
                 owner_name=owner_name,
+                config=_load_hatch_config(),
                 db=db,
             )
         finally:
@@ -878,16 +976,8 @@ def _try_hatch_provisioning(non_interactive: bool = False) -> None:
         else:
             _try_matrix_provision()
 
-        if result.mail_provisioned:
-            console.print(f"  [green]✓[/green] 📧  Windy Mail — {result.email_address}")
-        else:
-            console.print("  [dim]○ 📧  Windy Mail — skipped[/dim]")
-
-        if result.phone_provisioned:
-            mock_tag = " (local)" if result.phone_is_mock else ""
-            console.print(f"  [green]✓[/green] 📱  Phone — {result.phone_number}{mock_tag}")
-        else:
-            console.print("  [dim]○ 📱  Phone — skipped[/dim]")
+        for line in hatch_service_lines(result):
+            console.print(line)
 
         if result.birth_certificate_path:
             console.print(f"  [green]✓[/green] 📜  Birth Certificate — {result.certificate_number}")
@@ -1081,7 +1171,7 @@ SIGNUP_GUIDES: list[dict[str, Any]] = [
         "tag": "Best for coding & reasoning — powers Claude",
         "tag_style": "bold",
         "env_var": "ANTHROPIC_API_KEY",
-        "model": "claude-3-5-sonnet-latest",
+        "model": by_name("Anthropic")["default_model"],  # type: ignore[index]
         "url": "https://console.anthropic.com/settings/keys",
         "steps": [
             "We'll open the [bold]Anthropic Console[/bold] in your browser",
@@ -1272,7 +1362,8 @@ def _validate_key(env_var: str, key: str) -> bool:
                     "content-type": "application/json",
                 },
                 json={
-                    "model": "claude-3-5-haiku-latest",
+                    # A retired id 404s, which read as "invalid key".
+                    "model": by_name("Anthropic")["budget_model"],  # type: ignore[index]
                     "max_tokens": 1,
                     "messages": [{"role": "user", "content": "hi"}],
                 },
@@ -1296,6 +1387,56 @@ def _validate_key(env_var: str, key: str) -> bool:
         return False
 
 
+def _tool_available(name: str) -> bool:
+    """Is `name` runnable now? Checks PATH, then the installers' usual homes.
+
+    uv/bun installers drop the binary in ~/.local/bin, ~/.cargo/bin or ~/.bun/bin,
+    which may not be on this process's PATH yet. If found there, that directory
+    is added to PATH so later subprocess calls work in this same run.
+    """
+    if shutil.which(name):
+        return True
+    for d in (Path.home() / ".local" / "bin", Path.home() / ".cargo" / "bin", Path.home() / ".bun" / "bin"):
+        if (d / name).exists():
+            os.environ["PATH"] = f"{d}{os.pathsep}{os.environ.get('PATH', '')}"
+            return True
+    return False
+
+
+def _needed_prereqs() -> list[str]:
+    """Tools this install actually needs. A pip install needs none of them."""
+    from windyfly.platform import is_source_checkout
+
+    if not is_source_checkout(PROJECT_ROOT):
+        return []
+    return [t for t in ("uv", "bun") if not can_run(t)]
+
+
+def hatch_service_lines(result: Any) -> list[str]:
+    """The Mail/Phone lines `windy go` prints after a hatch.
+
+    Only a REAL service gets a ✓. A local placeholder inbox or a mock phone
+    number used to print "✓ 📧 Windy Mail — windy-fly@windymail.ai" and
+    "✓ 📱 Phone +15550001000 (local)" for things that did not exist
+    (clean-machine journey, 2026-09-23).
+    """
+    lines = []
+    if result.mail_provisioned and not getattr(result, "mail_is_mock", False):
+        lines.append(f"  [green]✓[/green] 📧  Windy Mail — {result.email_address}")
+    elif result.mail_provisioned:
+        lines.append("  [dim]○ 📧  Windy Mail — not set up yet (local placeholder only)[/dim]")
+    else:
+        lines.append("  [dim]○ 📧  Windy Mail — skipped[/dim]")
+
+    if result.phone_provisioned and not result.phone_is_mock:
+        lines.append(f"  [green]✓[/green] 📱  Phone — {result.phone_number}")
+    elif result.phone_provisioned:
+        lines.append("  [dim]○ 📱  Phone — not set up (no Twilio credentials)[/dim]")
+    else:
+        lines.append("  [dim]○ 📱  Phone — skipped[/dim]")
+    return lines
+
+
 def _install_prereqs(missing: list[str]) -> None:
     """Install missing prerequisites."""
     if "uv" in missing:
@@ -1308,10 +1449,15 @@ def _install_prereqs(missing: list[str]) -> None:
                     check=True, capture_output=True,
                 )
             else:
+                # pipefail: without it `curl … | sh` reported success when curl was
+                # missing (slim images), and we printed "✓ uv installed" for a uv
+                # that did not exist (clean-machine journey, 2026-09-23).
                 subprocess.run(
-                    ["bash", "-c", "curl -LsSf https://astral.sh/uv/install.sh | sh"],
+                    ["bash", "-c", "set -o pipefail; curl -LsSf https://astral.sh/uv/install.sh | sh"],
                     check=True, capture_output=True,
                 )
+            if not _tool_available("uv"):
+                raise FileNotFoundError("uv not found after install")
             console.print("  [green]✓[/green] uv installed")
         except (subprocess.CalledProcessError, FileNotFoundError):
             console.print("  [red]✗ Could not install uv. Visit: https://docs.astral.sh/uv/[/red]")
@@ -1328,7 +1474,7 @@ def _install_prereqs(missing: list[str]) -> None:
                 )
             else:
                 subprocess.run(
-                    ["bash", "-c", "curl -fsSL https://bun.sh/install | bash"],
+                    ["bash", "-c", "set -o pipefail; curl -fsSL https://bun.sh/install | bash"],
                     check=True, capture_output=True,
                 )
             console.print("  [green]✓[/green] Bun installed")

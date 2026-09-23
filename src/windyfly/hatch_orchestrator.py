@@ -41,6 +41,7 @@ import os
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Callable, Optional
 
 from windyfly.platform import get_project_root
@@ -81,6 +82,7 @@ class HatchResult:
     # Windy Mail
     email_address: str = ""
     mail_provisioned: bool = False
+    mail_is_mock: bool = False  # a local placeholder inbox, not a real Windy Mail box
 
     # Phone
     phone_number: str = ""
@@ -357,6 +359,11 @@ async def _step_eternitas(
             result.eternitas_certificate = passport.certificate
             result.certificate_number = passport.certificate.get("certificate_no", "")
         os.environ["ETERNITAS_PASSPORT"] = passport.passport_id
+        # Persist the number too, not just the EPT: after a restart,
+        # `windy passport`, the runtime claim and trust checks read it, and
+        # `windy go` uses it to know this agent is already hatched (without
+        # it, a re-run minted a second passport).
+        _persist_env_var("ETERNITAS_PASSPORT", passport.passport_id)
         # The EPT is the agent's bearer credential for the Windy Mind
         # broker (and every EPT-gated ecosystem service). Registration
         # has returned it since the Eternitas client landed, but nothing
@@ -392,6 +399,7 @@ async def _adopt_preallocated_passport(
     )
     result.passport_id = passport_number
     result.passport_status = "active"
+    _persist_env_var("ETERNITAS_PASSPORT", passport_number)
 
     try:
         from windyfly.eternitas.provision import get_eternitas_client
@@ -444,7 +452,12 @@ def _persist_env_var(key: str, value: str) -> None:
     try:
         from windyfly.platform import get_project_root
 
-        env_file = get_project_root() / ".env"
+        # Same file ept_refresh writes: WINDY_ENV_FILE (a systemd unit's
+        # EnvironmentFile=) when set, else the project .env.
+        explicit = os.environ.get("WINDY_ENV_FILE", "").strip()
+        env_file = (
+            Path(explicit).expanduser() if explicit else get_project_root() / ".env"
+        )
         lines: list[str] = []
         written = False
         if env_file.exists():
@@ -715,8 +728,15 @@ async def _step_mail(result: HatchResult, agent_name: str, db, owner_id: str = "
                 result.errors.append("Mail: provisioning failed (service unavailable)")
             return
 
-        # Use mock mail server for local development when db is available
-        if db is not None:
+        # The local mock mail server is a dev/test fixture. It used to run
+        # whenever a db was passed — which the real `windy go` always does —
+        # so first-run users were told "✓ Windy Mail — <name>@windymail.ai"
+        # for an inbox that exists nowhere. Same opt-in as the fake
+        # Eternitas registry (FakeIdentityRefused), or an explicit mock URL.
+        from windyfly.eternitas.provision import _fake_identity_allowed
+
+        mock_opted_in = mail_url.startswith("mock") or _fake_identity_allowed()
+        if db is not None and mock_opted_in:
             from windyfly.mail_mock import MockMailServer
 
             server = MockMailServer(db)
@@ -725,10 +745,11 @@ async def _step_mail(result: HatchResult, agent_name: str, db, owner_id: str = "
             )
             result.email_address = mail_result["email"]
             result.mail_provisioned = True
+            result.mail_is_mock = True
             logger.info("Hatch: Mail provisioned as %s (mock)", result.email_address)
             return
 
-        # No config URL and no db — try real provisioning via env var as fallback
+        # No mock opt-in: real provisioning (config/env URL, EPT-authed).
         from windyfly.mail_provision import provision_mail
 
         mail_result = await provision_mail(
@@ -849,9 +870,9 @@ async def _step_birth_certificate(
             from pathlib import Path
             data_dir = str(Path(config["memory"].get("db_path", "data/windyfly.db")).parent)
 
-        from windyfly.eternitas.url import resolve_eternitas_url
+        from windyfly.eternitas.url import issuer_url
 
-        if not resolve_eternitas_url():
+        if not issuer_url(config):
             # Mock/dev lane (no Eternitas configured): there is no remote
             # authority to fetch from, so save the clearly-labeled local
             # PREVIEW instead of leaving dev hatches in a recovery loop.

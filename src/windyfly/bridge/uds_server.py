@@ -740,6 +740,8 @@ async def _serve_forever() -> None:
         sys.stderr.write(
             f"Another Windy Fly runtime is already hosting this agent "
             f"({runtime_claim.conflict_holder_summary()}). Brain exiting.\n"
+            f"If that's your background agent on this machine, run: "
+            f"windy stop && windy chat\n"
         )
         sys.exit(0)
     elif outcome == runtime_claim.ClaimOutcome.GRANTED:
