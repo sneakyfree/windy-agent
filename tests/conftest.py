@@ -120,6 +120,9 @@ def _isolate_production_flags(monkeypatch, tmp_path):
     # default AND holds provider-cooldowns.json + update-history.jsonl —
     # keep all of it out of the real ~/.windy on dev/prod machines.
     monkeypatch.setenv("WINDY_STATE_DIR", str(tmp_path / ".windy-state"))
+    # Agent signing keys live in WINDY_CREDENTIALS_FILE when it's set; a
+    # developer shell's value must not point the suite at a real key.
+    monkeypatch.delenv("WINDY_CREDENTIALS_FILE", raising=False)
     # Provider overrides (2026-07-30): the dashboard writes a providers
     # file holding REAL api_keys. Its default used to be the cwd-relative
     # "data/providers.json", resolved at import, so on a standing checkout

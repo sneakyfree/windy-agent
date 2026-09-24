@@ -102,6 +102,36 @@
   number on the owner's own account, or hand out a fake +1555 mock.
   (`WINDY_ENABLE_PHONE_PROVISION=1` re-enables it for development.)
 
+**Every agent gets its own signing key (Eternitas agent-keys v1).** A
+passport number shows that a passport exists; a key shows that the caller
+holds it. See `docs/AGENT_KEYS.md`.
+
+- The agent generates an ES256 (P-256) key pair on its own machine and
+  registers only the public key with Eternitas, with a proof of possession.
+  The private key never leaves the device and is not in logs or cloud
+  backups.
+- One credentials file per agent: `WINDY_CREDENTIALS_FILE`, otherwise
+  `<state dir>/credentials.json`. It is mode 0600, written atomically, keeps
+  a timestamped backup, and leaves other keys in the file alone.
+- Registration runs as a background boot step (`eternitas.agent_keys`), a
+  daily job, after `windy login`, and at the end of a successful hatch. Until
+  Eternitas ships the routes it logs one INFO line and does nothing else.
+- New `windy agent-key status|rotate|reset|revoke`. `reset` is the owner's
+  recovery for a lost key: it runs a fresh browser sign-in (`prompt=login`),
+  registers a new key (`reason: recovery`, or `--reason handover` when moving
+  the agent), and revokes the old ones. Eternitas allows 2 per passport per
+  24h. (`windy keys` stays the wk_ bot credential.)
+- **EPT refresh by key.** Once the agent has a registered key, the EPT refresh
+  first proves itself with an `Eternitas-Agent-Proof` header signed by that
+  key. It needs no bearer, so it works even after the EPT has lapsed. The
+  agent's own EPT and the owner's `windy login` session remain the fallbacks.
+- Eternitas error codes (`detail.code`, e.g. `too_many_active_keys`,
+  `stale_auth_time`, `owner_registration_limit`) are shown as they are.
+- `sign_artifact()` returns a detached JWS carrying `kid` and `passport`,
+  for Windy Drops signed publish.
+- `hub_login.login()` gains `reauth=` (sends `prompt=login` and `max_age=0`)
+  and `store=` (return the token without saving the session).
+
 ## 0.7.2.1
 
 Found by the 0.7.2 clean-machine proof from PyPI:

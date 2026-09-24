@@ -275,6 +275,15 @@ async def orchestrate_hatch(
         "errors": list(result.errors),
     })
 
+    # Eternitas agent-keys v1: give the newborn its own signing key while
+    # its fresh EPT is in hand. Best effort; boot retries if this misses.
+    if hatch_ok:
+        try:
+            from windyfly.eternitas.agent_keys import register_after_signin
+            await asyncio.to_thread(register_after_signin)
+        except Exception as exc:
+            logger.info("Hatch: agent key registration deferred (%s)", type(exc).__name__)
+
     # Save recovery file if any provisioning steps failed
     _save_recovery(result)
 

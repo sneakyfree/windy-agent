@@ -13,8 +13,11 @@ Eternitas now has a self-refresh door (Eternitas #159):
 
 where ``<token>`` is either
   (a) the bot's OWN current, unexpired EPT (``sub`` == passport), or
-  (b) the owner's hub access token (from ``windy login``) — the only way
-      back in once the EPT has expired.
+  (b) the owner's hub access token (from ``windy login``), or
+  (c) no bearer at all but an ``Eternitas-Agent-Proof`` header: a JWS by the
+      agent's registered agent-keys v1 key over {passport, nonce, iat, htm,
+      htu}. Tried FIRST when the agent has a registered key; (a)/(b) are the
+      fallbacks. (b) and (c) are the ways back in once the EPT has expired.
 
 Eternitas decides whether to re-issue (stale claims version, owner link
 changed, <30 days left, missing/unparseable); ``reissued: false`` means the
@@ -216,6 +219,32 @@ def refresh_ept(
         return {"status": "failed", "error": type(exc).__name__}
 
 
+def _refresh_by_agent_key(passport: str, url: str, transport) -> httpx.Response | None:
+    """POST /ept/refresh with ``Eternitas-Agent-Proof`` signed by the agent's
+    active registered key. None (→ use the bearer paths) when there is no such
+    key or the attempt fails; Eternitas never falls through to Bearer itself."""
+    try:
+        from windyfly.eternitas import agent_keys
+        if not agent_keys.has_registered_key():
+            return None
+        with httpx.Client(timeout=_HTTP_TIMEOUT, transport=transport) as client:
+            proof = agent_keys.agent_proof(client, passport, "POST", f"/api/v1/bots/{passport}/ept/refresh")
+            if not proof:
+                return None
+            resp = client.post(url, json={}, headers={"Eternitas-Agent-Proof": proof})
+    except Exception as exc:
+        logger.info("EPT refresh for %s: agent-key proof unavailable (%s); using the token paths",
+                    _passport_prefix(passport), type(exc).__name__)
+        return None
+    if resp.status_code == 200:
+        return resp
+    from windyfly.eternitas.agent_keys import error_code
+    code, message = error_code(resp)
+    logger.warning("EPT refresh for %s via agent key: HTTP %s %s %s; trying the token paths",
+                   _passport_prefix(passport), resp.status_code, code, message)
+    return None
+
+
 def _refresh(force: bool, transport, now) -> dict[str, Any]:
     token = os.environ.get(ENV_KEY, "").strip()
     due, why = needs_refresh(token, now)
@@ -228,46 +257,50 @@ def _refresh(force: bool, transport, now) -> dict[str, Any]:
         logger.info("EPT refresh: no passport on this agent (not hatched?)")
         return {"status": "no_passport"}
 
-    t = time.time() if now is None else now
-    exp = claims.get("exp")
-    bearer, path_used = "", ""
-    if token and isinstance(exp, (int, float)) and exp > t and claims.get("sub") == passport:
-        bearer, path_used = token, "own_ept"
-    else:
-        try:
-            from windyfly import hub_login
-            hub = hub_login.get_access_token()
-        except Exception:
-            hub = None
-        if hub:
-            bearer, path_used = hub, "owner_hub_login"
-    if not bearer:
-        logger.warning(
-            "EPT refresh for %s: the passport token has expired and there's no "
-            "Windy sign-in to renew it — run `windy login`, then `windy ept refresh`.",
-            _passport_prefix(passport),
-        )
-        return {"status": "needs_login", "reason": why}
-
     from windyfly.eternitas.url import resolve_eternitas_url
     base = resolve_eternitas_url("https://api.eternitas.ai")
     url = f"{base}/api/v1/bots/{passport}/ept/refresh"
-    try:
-        with httpx.Client(timeout=_HTTP_TIMEOUT, transport=transport) as client:
-            resp = client.post(url, json={}, headers={"Authorization": f"Bearer {bearer}"})
-    except httpx.HTTPError as exc:
-        logger.warning("EPT refresh for %s: Eternitas unreachable (%s)",
-                       _passport_prefix(passport), type(exc).__name__)
-        return {"status": "failed", "error": "unreachable"}
+
+    # (c) The agent's own registered signing key (agent-keys v1). Needs no
+    # bearer at all, so it also works once the EPT has lapsed. Any failure
+    # falls back to (a)/(b) below.
+    resp: httpx.Response | None = _refresh_by_agent_key(passport, url, transport)
+    path_used = "agent_key" if resp is not None else ""
+
+    if resp is None:
+        t = time.time() if now is None else now
+        exp = claims.get("exp")
+        bearer = ""
+        if token and isinstance(exp, (int, float)) and exp > t and claims.get("sub") == passport:
+            bearer, path_used = token, "own_ept"
+        else:
+            try:
+                from windyfly import hub_login
+                hub = hub_login.get_access_token()
+            except Exception:
+                hub = None
+            if hub:
+                bearer, path_used = hub, "owner_hub_login"
+        if not bearer:
+            logger.warning(
+                "EPT refresh for %s: the passport token has expired and there's no "
+                "Windy sign-in to renew it — run `windy login`, then `windy ept refresh`.",
+                _passport_prefix(passport),
+            )
+            return {"status": "needs_login", "reason": why}
+        try:
+            with httpx.Client(timeout=_HTTP_TIMEOUT, transport=transport) as client:
+                resp = client.post(url, json={}, headers={"Authorization": f"Bearer {bearer}"})
+        except httpx.HTTPError as exc:
+            logger.warning("EPT refresh for %s: Eternitas unreachable (%s)",
+                           _passport_prefix(passport), type(exc).__name__)
+            return {"status": "failed", "error": "unreachable"}
 
     if resp.status_code != 200:
-        detail = ""
-        try:
-            detail = str(resp.json().get("detail", ""))[:120]
-        except Exception:
-            pass
-        logger.warning("EPT refresh for %s via %s: HTTP %s %s",
-                       _passport_prefix(passport), path_used, resp.status_code, detail)
+        from windyfly.eternitas.agent_keys import error_code
+        code, detail = error_code(resp)
+        logger.warning("EPT refresh for %s via %s: HTTP %s %s %s",
+                       _passport_prefix(passport), path_used, resp.status_code, code, detail)
         if resp.status_code in (401, 403) and path_used == "own_ept":
             return {"status": "failed", "http": resp.status_code,
                     "hint": "run `windy login`, then `windy ept refresh --force`"}
