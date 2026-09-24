@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 
 import httpx
 
@@ -29,6 +30,8 @@ from windyfly.eternitas.models import (
 )
 
 logger = logging.getLogger(__name__)
+
+_HATCH_ID_RE = re.compile(r"[A-Za-z0-9._+-]{1,64}")
 
 _TIMEOUT = 10.0
 # Registration is measurably slow on prod (~30s): operator X-API-Key auth
@@ -152,6 +155,10 @@ class EternitasClient:
         if bearer:
             headers["Authorization"] = f"Bearer {bearer}"
         logger.info("Eternitas auto-hatch credential: %s", source)
+        # Eternitas #185: one opaque id per hatch attempt, the same on
+        # retries, joins the birth across services in Windy Admin.
+        if _HATCH_ID_RE.fullmatch(request.hatch_id or ""):
+            headers["X-Windy-Hatch-Id"] = request.hatch_id
 
         payload = request.to_auto_hatch_payload()
         # Only relevant if the deployment has turned Turnstile on. A terminal

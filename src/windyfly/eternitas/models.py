@@ -27,6 +27,9 @@ class RegistrationRequest(BaseModel):
     hatch_machine_id: str = Field(default="", exclude=True)
     hatch_timezone: str = Field(default="", exclude=True)
     hardware_specs: dict = Field(default_factory=dict, exclude=True)
+    # One opaque id per hatch attempt, sent as X-Windy-Hatch-Id so Windy
+    # Admin can join the birth across services. Names no one.
+    hatch_id: str = Field(default="", exclude=True)
 
     def to_auto_hatch_payload(self) -> dict[str, Any]:
         """Return the payload shape ``POST /api/v1/bots/auto-hatch`` expects.

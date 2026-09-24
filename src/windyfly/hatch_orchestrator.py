@@ -39,6 +39,7 @@ import json
 import logging
 import os
 import sys
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -334,6 +335,7 @@ async def _step_eternitas(
             hatch_tz = "UTC"
 
         client = get_eternitas_client(db=db, config=config)
+        hatch_id = str(uuid.uuid4())
         # Eternitas is closing the anonymous door, so a terminal hatch needs
         # the owner's Windy sign-in. Ask for it here, where a person is
         # present, instead of letting the call 401.
@@ -358,6 +360,7 @@ async def _step_eternitas(
                 model_id=os.environ.get("DEFAULT_MODEL", ""),
                 hatch_timezone=hatch_tz,
                 hardware_specs=result.hardware_specs or {},
+                hatch_id=hatch_id,
             )
         )
         result.passport_id = passport.passport_id
