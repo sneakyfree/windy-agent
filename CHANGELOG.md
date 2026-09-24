@@ -95,6 +95,13 @@
   - **SMS itself stays off** until a sender that enforces STOP exists: without one, the tool says "SMS isn't available yet for Windy Fly agents."
   - **Emails:** every email now ends "Sent by <agent>, an AI agent acting for <owner>.", and the Resend path adds `X-Windy-Agent: <passport>`.
 
+- **Texting, calls and phone numbers are parked until after launch.** `send_sms`
+  says "Texting isn't available yet; I can reach them by email or you can
+  message them in Windy Chat.", `make_call` says the same for calls, and the
+  hatch no longer assigns a phone number: it could otherwise BUY a Twilio
+  number on the owner's own account, or hand out a fake +1555 mock.
+  (`WINDY_ENABLE_PHONE_PROVISION=1` re-enables it for development.)
+
 ## 0.7.2.1
 
 Found by the 0.7.2 clean-machine proof from PyPI:

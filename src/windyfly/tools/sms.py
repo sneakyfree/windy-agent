@@ -69,7 +69,10 @@ _DEFAULT_BASE_URL = "https://api.windytext.com"
 _E164_RE = re.compile(r"^\+[1-9]\d{6,18}$")
 _MAX_SMS_CHARS = 1600  # Twilio's hard cap for one message (10 segments)
 _CONFIRM_TTL_S = 600
-_UNAVAILABLE = "SMS isn't available yet for Windy Fly agents."
+_UNAVAILABLE = (
+    "Texting isn't available yet; I can reach them by email or you can "
+    "message them in Windy Chat."
+)
 
 _APPROVED_SQL = """
 CREATE TABLE IF NOT EXISTS sms_approved (

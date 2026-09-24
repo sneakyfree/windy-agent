@@ -70,7 +70,7 @@ class TestUnavailable:
     def test_returns_unavailable_when_ept_unset(self, no_ept: None) -> None:
         result = send_sms(to="+15551234567", body="hi")
         assert result["status"] == "unavailable"
-        assert result["error"] == "SMS isn't available yet for Windy Fly agents."
+        assert result["error"] == "Texting isn't available yet; I can reach them by email or you can message them in Windy Chat."
 
 
 class TestValidation:

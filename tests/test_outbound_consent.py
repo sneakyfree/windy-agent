@@ -131,7 +131,7 @@ def test_sms_is_honestly_unavailable_without_a_sender(monkeypatch):
     # The agent's normal passport token must NOT turn SMS on (no STOP enforcement yet).
     monkeypatch.setenv("ETERNITAS_PASSPORT_TOKEN", "a-real-ept")
     out = sms_mod.send_sms(NUMBER, "hello")
-    assert out == {"status": "unavailable", "error": "SMS isn't available yet for Windy Fly agents."}
+    assert out == {"status": "unavailable", "error": "Texting isn't available yet; I can reach them by email or you can message them in Windy Chat."}
 
 
 def test_too_long_with_the_sign_off_is_refused(_env):
