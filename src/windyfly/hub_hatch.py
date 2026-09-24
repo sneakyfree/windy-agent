@@ -17,7 +17,7 @@ abandoned ceremony leaves nothing behind.
 The agent is born in the cloud and STAYS there (``then: "stay"``): no EPT
 and no local body are written. This machine only remembers "your agent
 (cloud)" so the next ``windy go`` says so; running it here is
-``windy bring-home`` (the hub handover, not built yet).
+``windy bring-home`` (the hub handover; see bring_home.py).
 
 Spec: ~/windy-orchestra/specs/HATCH_CEREMONY_PAGE.md §1 + §4.
 Tokens are never logged: only the ticket id, passport and status.
@@ -370,10 +370,16 @@ def go(
     known = cloud_agent()
     if known and not force:
         name = known.get("agent_name") or "your agent"
+        if known.get("where") == "home":
+            console.print(
+                f"  [bold]{name}[/bold] ({known['passport_number']}) lives on this machine. "
+                f"{_say_hi(known)}\n  Start it with [bold]windy start --channel matrix[/bold]."
+            )
+            return 0
         console.print(
             f"  You already have [bold]{name}[/bold] ({known['passport_number']}) in the cloud. "
             f"{_say_hi(known)}\n"
-            "  To run it on this machine: [bold]windy bring-home[/bold] (coming soon)."
+            "  To run it on this machine: [bold]windy bring-home[/bold]."
         )
         return 0
 
@@ -460,7 +466,7 @@ def _offer_existing(console: Any, ticket: Ticket) -> int:
         return 1
     remember_cloud_agent({"passport_number": ticket.passport_number, "agent": {"name": ticket.agent_name}})
     console.print(f"  OK: {name} lives in the cloud. To run it on this machine: "
-                  "[bold]windy bring-home[/bold] (coming soon).")
+                  "[bold]windy bring-home[/bold].")
     return 0
 
 

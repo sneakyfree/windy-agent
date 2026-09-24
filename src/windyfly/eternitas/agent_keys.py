@@ -598,7 +598,8 @@ def rotate(*, transport: httpx.BaseTransport | None = None, path: Path | None = 
 
 
 def reset(*, transport: httpx.BaseTransport | None = None, path: Path | None = None,
-          reason: str = "recovery", owner_token: Any = None) -> dict[str, Any]:
+          reason: str = "recovery", owner_token: Any = None, passport: str = "",
+          revoke_old: bool = True) -> dict[str, Any]:
     """Owner recovery for a lost or compromised key.
 
     1. A FRESH owner sign-in (``prompt=login``; ``owner_token`` is the
@@ -615,11 +616,16 @@ def reset(*, transport: httpx.BaseTransport | None = None, path: Path | None = N
     Registering before revoking means a refused reset never leaves the agent
     with no key at all. The one exception: Eternitas holds at most 2 active
     keys, so if both slots are taken (409 ``too_many_active_keys``) the old
-    keys are revoked first and the registration is retried once."""
+    keys are revoked first and the registration is retried once.
+
+    ``revoke_old=False`` (``windy bring-home``) only registers the new key:
+    the cloud body's key is its platform's to revoke when it stands down,
+    and a handover that then fails must leave the cloud agent working. It
+    never frees a slot by revoking, so a full passport is reported as is."""
     path = path or credentials_path()
     try:
         with _LOCK:
-            passport = current_passport()
+            passport = passport or current_passport()
             if not passport:
                 return {"status": "no_passport"}
             get_token = owner_token or fresh_owner_token
@@ -660,7 +666,8 @@ def reset(*, transport: httpx.BaseTransport | None = None, path: Path | None = N
                         (revoked if r.status_code in (200, 204, 404, 409) else failed).append(kid)
 
                 resp = _register(client, passport, key, hub, reason=reason)
-                if resp.status_code == 409 and error_code(resp)[0] == "too_many_active_keys":
+                if (revoke_old and resp.status_code == 409
+                        and error_code(resp)[0] == "too_many_active_keys"):
                     revoke_all(old_kids())
                     resp = _register(client, passport, key, hub, reason=reason)
                 code = error_code(resp)[0]
@@ -676,7 +683,8 @@ def reset(*, transport: httpx.BaseTransport | None = None, path: Path | None = N
                 sec["keys"] = [new]
                 _set_active(sec, new)
                 save_credentials(data, path)
-                revoke_all(old_kids())
+                if revoke_old:
+                    revoke_all(old_kids())
             if failed:
                 logger.warning("agent keys: reset could not revoke %d old key(s); run "
                                "`windy agent-key revoke --kid …`", len(failed))
@@ -689,16 +697,19 @@ def reset(*, transport: httpx.BaseTransport | None = None, path: Path | None = N
 
 
 def revoke(kid: str, *, reason: str = "revoked by owner",
-           transport: httpx.BaseTransport | None = None, path: Path | None = None) -> dict[str, Any]:
+           transport: httpx.BaseTransport | None = None, path: Path | None = None,
+           passport: str = "", bearer: str = "") -> dict[str, Any]:
     """Revoke one kid (agent's own EPT, else the owner). The key is removed from
     the file; if it was the active key, the next boot generates a fresh one."""
     path = path or credentials_path()
     try:
         with _LOCK:
-            passport = current_passport()
+            passport = passport or current_passport()
             if not passport:
                 return {"status": "no_passport"}
-            bearer, via = _bearer(passport)
+            via = "owner_given"
+            if not bearer:
+                bearer, via = _bearer(passport)
             if not bearer:
                 bearer, via = stored_hub_token(), "owner_hub_login"
             if not bearer:

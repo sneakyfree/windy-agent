@@ -331,14 +331,16 @@ def test_second_go_says_you_already_have_it_in_the_cloud():
     assert "You already have Pip (ET26-HUB1-0001) in the cloud" in out and "windy bring-home" in out
 
 
-def test_bring_home_is_a_no_network_stub(monkeypatch, capsys):
+def test_bring_home_without_a_cloud_agent_says_run_windy_go(monkeypatch):
     import windyfly.cli as cli
 
     monkeypatch.setattr(httpx.Client, "send", lambda *a, **k: pytest.fail("bring-home must not call out"))
     console, buf = _console()
     monkeypatch.setattr(cli, "console", console)
-    cli._cmd_bring_home(None)
-    assert "Coming soon" in buf.getvalue()
+    with pytest.raises(SystemExit) as exit_info:
+        cli._cmd_bring_home(None)
+    assert exit_info.value.code == 1
+    assert "No cloud agent on this machine" in buf.getvalue() and "windy go" in buf.getvalue()
 
 
 # ── secrets and the flag ─────────────────────────────────────────────

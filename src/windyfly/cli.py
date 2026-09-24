@@ -245,6 +245,22 @@ def cmd_start(args: argparse.Namespace) -> None:
     except Exception:
         pass  # Never let update check block startup
 
+    channel = getattr(args, "channel", None)
+    if channel:
+        # One chat channel in the foreground (e.g. a body brought home with
+        # `windy bring-home` answering in Windy Chat: --channel matrix).
+        from windyfly.platform import python_cmd
+
+        console.print(f"  [cyan]Starting {channel}…[/cyan] [dim](Ctrl-C to stop)[/dim]")
+        try:
+            subprocess.run(
+                [*python_cmd(PROJECT_ROOT), "-m", "windyfly.main", "--channel", channel],
+                cwd=str(PROJECT_ROOT),
+            )
+        except KeyboardInterrupt:
+            console.print("\n  [dim]Stopped. 🪰[/dim]")
+        return
+
     if getattr(args, "cli", False):
         # CLI-only mode: run brain interactively in foreground
         console.print("  [cyan]Starting brain in CLI mode...[/cyan]")
@@ -843,16 +859,12 @@ def _cmd_ept(args: argparse.Namespace) -> None:
 
 
 def _cmd_bring_home(args: argparse.Namespace) -> None:
-    """windy bring-home — run your cloud agent on this machine (coming soon)."""
-    from windyfly.hub_hatch import cloud_agent
+    """windy bring-home — move your cloud agent onto this machine (hub handover)."""
+    import sys
 
-    known = cloud_agent()
-    who = f"{known.get('agent_name') or 'Your agent'} ({known['passport_number']})" if known else "Your agent"
-    console.print(
-        f"[bold]Coming soon.[/bold] {who} lives in the Windy cloud. Bringing it home to run on "
-        "this machine needs the hub's handover, which isn't live yet. Until then, chat with it "
-        "in Windy Chat."
-    )
+    from windyfly.bring_home import run
+
+    sys.exit(run(console))
 
 
 def _cmd_deregister(args: argparse.Namespace) -> None:
@@ -1199,7 +1211,7 @@ _COMMAND_CATEGORIES = [
         ("whoami", "Show which Windy account is signed in"),
         ("ept refresh", "Renew the Eternitas passport token"),
         ("deregister", "Permanently revoke this agent's Eternitas passport"),
-        ("bring-home", "Run your cloud agent on this machine (coming soon)"),
+        ("bring-home", "Move your cloud agent onto this machine"),
         ("mail", "Show mail status"),
         ("phone", "Show phone status"),
         ("cert", "Show birth certificate"),
@@ -1549,6 +1561,10 @@ def main() -> None:
         "--no-browser", action="store_true",
         help="Don't open browser after starting",
     )
+    start_parser.add_argument(
+        "--channel", metavar="NAME",
+        help="Run one chat channel in the foreground (e.g. matrix = Windy Chat)",
+    )
 
     # windy stop
     sub.add_parser("stop", help="Stop all Windy Fly processes")
@@ -1667,8 +1683,8 @@ def main() -> None:
     ept_refresh.add_argument("--force", action="store_true",
                              help="Ask Eternitas even if the token looks current")
 
-    # windy bring-home — move a cloud-born agent onto this machine (hub handover; coming soon)
-    sub.add_parser("bring-home", help="Run your cloud agent on this machine (coming soon)")
+    # windy bring-home — move a cloud-born agent onto this machine (hub handover)
+    sub.add_parser("bring-home", help="Move your cloud agent onto this machine")
 
     # windy deregister — the owner permanently revokes the agent's passport
     dereg_parser = sub.add_parser("deregister", help="Permanently revoke this agent's Eternitas passport")
