@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased (0.7.4)
+
+- **Tool calls through Windy Mind reach the model you asked for.** Tool names
+  like `vision.describe` are made safe for every provider behind Mind (letters,
+  digits, `_`, `-`, at most 64 characters) and mapped back in the reply, and
+  Anthropic-only server tools are no longer sent to Mind. Before, a full toolset
+  made every named provider refuse the request, and Mind answered on a small
+  local model instead of the one the agent asked for.
+
 ## 0.7.3
 
 - **A busy Windy Mind no longer drops the agent into the lifeboat with the wrong

@@ -692,6 +692,73 @@ _MIND_BUSY_WAIT_S = 15.0
 _last_mind_failure: str | None = None
 
 
+_MIND_TOOL_NAME_MAX = 64  # the strictest provider behind Mind (OpenAI-style) caps names at 64
+
+
+def _mind_safe_request(
+    tools: list[dict] | None, messages: list[dict],
+) -> tuple[list[dict] | None, list[dict], dict[str, str]]:
+    """Make a tool request every provider behind Mind accepts.
+
+    Mind fans a request out to Anthropic, Groq, Cloudflare and others. Our
+    capability names carry dots (``vision.describe``, ``shell.exec``), which
+    Anthropic and OpenAI-style APIs reject (``^[a-zA-Z0-9_-]{1,64}$``), and the
+    Anthropic server-side tools (``web_search_20250305``) aren't
+    ``{"type": "function"}``, which Groq rejects. On 2026-09-24 that made every
+    named provider 400 and Mind answered a paid-Opus agent on a 7B model.
+
+    Returns (tools, messages, back) where ``back`` maps each safe name to the
+    original, for restoring names in the response's tool calls.
+    """
+    back: dict[str, str] = {}
+
+    def safe(name: str) -> str:
+        out = _sanitize_for_anthropic(name or "")
+        if len(out) > _MIND_TOOL_NAME_MAX:
+            import hashlib
+            out = out[: _MIND_TOOL_NAME_MAX - 9] + "_" + hashlib.sha1(name.encode()).hexdigest()[:8]
+        back[out] = name
+        return out
+
+    out_tools = None
+    if tools:
+        out_tools = []
+        for t in tools:
+            if t.get("type") and t.get("type") != "function":
+                continue  # Anthropic server tool: no provider behind Mind can run it
+            fn = t.get("function") or t
+            out_tools.append({"type": "function", "function": {
+                "name": safe(fn.get("name", "")),
+                "description": fn.get("description", ""),
+                "parameters": fn.get("parameters") or fn.get("input_schema") or {"type": "object", "properties": {}},
+            }})
+        out_tools = out_tools or None
+
+    out_msgs = []
+    for m in messages:
+        if m.get("tool_calls"):
+            m = {**m, "tool_calls": [
+                {**tc, "function": {**(tc.get("function") or {}), "name": safe((tc.get("function") or {}).get("name", ""))}}
+                for tc in m["tool_calls"]
+            ]}
+        if m.get("role") == "tool" and m.get("name"):
+            m = {**m, "name": safe(m["name"])}
+        out_msgs.append(m)
+    return out_tools, out_msgs, back
+
+
+def _mind_restore_tool_names(result: dict[str, Any], back: dict[str, str]) -> dict[str, Any]:
+    calls = result.get("tool_calls")
+    if not calls:
+        return result
+    fixed = []
+    for tc in calls:
+        fn = tc.get("function") or {}
+        name = fn.get("name", "")
+        fixed.append({**tc, "function": {**fn, "name": back.get(name) or _restore_from_anthropic(name)}})
+    return {**result, "tool_calls": fixed}
+
+
 def _try_mind_broker(
     messages: list[dict[str, str]],
     model: str | None,
@@ -748,6 +815,7 @@ def _try_mind_broker(
 
     mind_url = resolve_mind_url()
 
+    tools, messages, _tool_back = _mind_safe_request(tools, messages)
     body: dict[str, Any] = {
         "messages": messages,
         "max_tokens": min(max_tokens, 8192) if max_tokens else 4096,
@@ -833,7 +901,7 @@ def _try_mind_broker(
             return None
         _record_provider_success("windy-mind")
         _last_mind_failure = None
-        return translated
+        return _mind_restore_tool_names(translated, _tool_back)
     except Exception as e:
         _last_mind_failure = f"mind unreachable ({type(e).__name__})"
         _record_provider_failure("windy-mind", str(e))
