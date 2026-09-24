@@ -1,0 +1,7 @@
+[Unit]
+Description=Windy Fly gateway health check — restart the gateway if /api/health stops answering
+
+[Service]
+Type=oneshot
+EnvironmentFile=%h/.config/windy-gateway.env
+ExecStart=%h/.local/share/windyfly/agent/deploy/windy0/gateway/healthcheck.sh check

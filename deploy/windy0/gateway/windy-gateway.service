@@ -1,0 +1,28 @@
+# Windy Fly gateway (dashboard + /api/chat + /api/webhooks/trust) for Windy 0.
+# Installed by deploy/windy0/gateway/install.sh — NOT enabled by default.
+#
+# Paths go through ~/.local/share/windyfly/agent (a symlink to the live
+# checkout) because systemd ExecStart/WorkingDirectory can't cope with the
+# apostrophe in "Grant's Folder".
+[Unit]
+Description=Windy Fly gateway — owner dashboard + trust webhooks (loopback, behind cloudflared)
+# The gateway talks to the Python brain over the UDS bridge.
+Wants=windytalk-agent-bridge.service
+After=windytalk-agent-bridge.service network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/.local/share/windyfly/agent/gateway
+EnvironmentFile=%h/.config/windy-gateway.env
+ExecStart=%h/.bun/bin/bun run src/server.ts
+# Don't report "started" until /api/health answers (up to 30 s).
+ExecStartPost=%h/.local/share/windyfly/agent/deploy/windy0/gateway/healthcheck.sh wait
+Restart=always
+RestartSec=5
+# Loopback-only by config (GATEWAY_HOST=127.0.0.1); these harden the rest.
+NoNewPrivileges=yes
+PrivateTmp=no
+# PrivateTmp must stay off: the UDS bridge socket lives in /tmp.
+
+[Install]
+WantedBy=default.target
