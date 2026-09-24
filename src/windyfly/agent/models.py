@@ -683,6 +683,15 @@ def _reset_mind_url_log_for_tests() -> None:
     _mind_legacy_url_logged = False
 
 
+# Mind answers these when it is BUSY (quota spent, a lane down), not broken.
+_MIND_BUSY = (429, 502, 503, 504)
+_MIND_BUSY_WAIT_S = 15.0
+# The last Mind failure this process saw ("mind http 503"), cleared on success.
+# call_llm puts it in the chain-exhausted error so the lifeboat banner can name
+# the real cause instead of the direct chain's "no-key".
+_last_mind_failure: str | None = None
+
+
 def _try_mind_broker(
     messages: list[dict[str, str]],
     model: str | None,
@@ -709,6 +718,8 @@ def _try_mind_broker(
     Skipped entirely when Anthropic Max OAuth is active (ADR-022
     exception register #1).
     """
+    global _last_mind_failure
+    _last_mind_failure = None  # this call's outcome only; a no-op leaves it None
     import os
 
     ept = os.environ.get("ETERNITAS_PASSPORT_TOKEN") or os.environ.get(
@@ -732,6 +743,7 @@ def _try_mind_broker(
     # give it the same cooldown discipline as direct providers instead
     # of one silent 30s attempt per call.
     if _is_provider_in_cooldown("windy-mind"):
+        _last_mind_failure = "mind cooling down after errors"
         return None
 
     mind_url = resolve_mind_url()
@@ -781,7 +793,29 @@ def _try_mind_broker(
                 json=retry_body,
                 timeout=30.0,
             )
+        if resp.status_code in _MIND_BUSY:
+            # Busy, not broken (Mind 2026-09-24: free quotas spent, a lane
+            # down). One retry after a short wait usually lands, and beats a
+            # sticky drop to the local lifeboat model. Turns run off the
+            # event loop (agent/executor.py), so this sleep blocks no channel.
+            try:
+                wait = float(resp.headers.get("retry-after") or _MIND_BUSY_WAIT_S)
+            except (TypeError, ValueError):
+                wait = _MIND_BUSY_WAIT_S
+            wait = max(1.0, min(wait, 30.0))
+            logger.warning("Mind busy (%s); retrying once in %.0fs", resp.status_code, wait)
+            time.sleep(wait)
+            resp = httpx.post(
+                f"{mind_url}/v1/chat",
+                headers={
+                    "Authorization": f"Bearer {ept}",
+                    "Content-Type": "application/json",
+                },
+                json=body,
+                timeout=30.0,
+            )
         if resp.status_code != 200:
+            _last_mind_failure = f"mind http {resp.status_code}"
             _record_provider_failure(
                 "windy-mind", f"mind http {resp.status_code}: {resp.text[:120]}",
             )
@@ -798,8 +832,10 @@ def _try_mind_broker(
             )
             return None
         _record_provider_success("windy-mind")
+        _last_mind_failure = None
         return translated
     except Exception as e:
+        _last_mind_failure = f"mind unreachable ({type(e).__name__})"
         _record_provider_failure("windy-mind", str(e))
         logger.warning("Mind broker call failed (%s); falling through", e)
         return None
@@ -1013,9 +1049,11 @@ def call_llm(
             record["error_code"], record["http_status"] = _error_code(error)
         _record_llm_call(record)
 
+    mind_note: str | None = None
     if not _max_oauth_active():
         _t0 = time.monotonic()
         mind_resp = _try_mind_broker(messages, model, temperature, max_tokens, tools)
+        mind_note = _last_mind_failure if mind_resp is None else None
         if mind_resp is not None:
             mind_model = mind_resp.get("mind_model") or model or ""
             fields = _cost_fields(mind_resp, mind_model, "metered")
@@ -1147,6 +1185,8 @@ def call_llm(
     summary = f"attempted={attempted}"
     if skipped:
         summary += f", skipped={skipped}"
+    if mind_note:
+        summary += f", {mind_note}"
     if not attempted:
         # Nothing was even tried (no key / all cooling down): still a
         # failed call from the user's point of view, so it gets a row.

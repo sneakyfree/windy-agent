@@ -45,6 +45,7 @@ def _mind_env(monkeypatch, tmp_path):
     monkeypatch.setenv("ETERNITAS_PASSPORT_TOKEN", "ept-test-token")
     monkeypatch.delenv("WINDY_MIND_SEND_TOOLS", raising=False)
     monkeypatch.setattr(models, "_provider_cooldowns", {})
+    monkeypatch.setattr(models.time, "sleep", lambda s: None)  # the busy-retry wait
     yield
 
 
@@ -89,6 +90,26 @@ class TestBrokerResilience:
         with patch("httpx.post") as mock_post:
             assert self._call() is None
             mock_post.assert_not_called()
+
+    def test_busy_503_retries_once_then_answers(self):
+        with patch("httpx.post", side_effect=[_resp({"detail": "busy"}, 503), _resp(MIND_JSON)]) as post:
+            out = self._call()
+        assert out["content"] == "Hello from Mind!"
+        assert post.call_count == 2
+        assert models._last_mind_failure is None
+        assert "windy-mind" not in models._provider_cooldowns
+
+    def test_busy_twice_gives_up_and_names_mind(self):
+        with patch("httpx.post", return_value=_resp({"detail": "busy"}, 503)) as post:
+            assert self._call() is None
+        assert post.call_count == 2  # one retry, never a loop
+        assert models._last_mind_failure == "mind http 503"
+
+    def test_non_busy_error_is_not_retried(self):
+        with patch("httpx.post", return_value=_resp({"detail": "no"}, 401)) as post:
+            assert self._call() is None
+        assert post.call_count == 1
+        assert models._last_mind_failure == "mind http 401"
 
     def test_network_error_records_cooldown(self):
         with patch("httpx.post", side_effect=OSError("dns")):
