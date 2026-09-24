@@ -648,6 +648,24 @@ MIND_DEFAULT_URL = "https://api.windymind.ai"
 _mind_legacy_url_logged = False
 
 
+
+# 4xx that describe THIS request, not Mind's health (401/403 = auth and 408/429 =
+# busy keep the circuit-breaker).
+_MIND_REQUEST_ERRORS = frozenset({400, 404, 409, 413, 415, 422})
+
+
+def _mind_error_detail(resp: Any) -> str:
+    """Mind's error code/message for logs; never the request content."""
+    try:
+        d = resp.json()
+    except Exception:  # noqa: BLE001
+        return "(no json)"
+    det = d.get("detail", d.get("error", d)) if isinstance(d, dict) else d
+    if isinstance(det, dict):
+        return f"{det.get('code') or det.get('type') or ''} {str(det.get('message') or '')[:160]}".strip()
+    return str(det)[:160]
+
+
 def resolve_mind_url(default: str = MIND_DEFAULT_URL) -> str:
     """Return the Windy Mind base URL, canonical env name preferred.
 
@@ -882,6 +900,16 @@ def _try_mind_broker(
             )
         if resp.status_code != 200:
             _last_mind_failure = f"mind http {resp.status_code}"
+            if resp.status_code in _MIND_REQUEST_ERRORS:
+                # THIS request was refused (bad shape, unknown model, too
+                # large): Mind itself is fine. No circuit-breaker, or one bad
+                # helper call (the journal writer, 2026-09-24) benches Mind for
+                # 30 s and the next real turn drops into lifeboat.
+                logger.warning(
+                    "Mind refused this request (%s): %s; not cooling Mind down",
+                    resp.status_code, _mind_error_detail(resp),
+                )
+                return None
             _record_provider_failure(
                 "windy-mind", f"mind http {resp.status_code}: {resp.text[:120]}",
             )

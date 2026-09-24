@@ -71,7 +71,19 @@ _MODELS: list[ModelInfo] = [
         native_cap=200_000,
         extended_cap=1_000_000,
         extended_beta_header="context-1m-2025-08-07",
-        aliases=("opus", "smartest", "claude-opus", "opus-5"),
+        aliases=("opus-5",),
+        description="Very capable (previous Opus)",
+    ),
+    ModelInfo(
+        # 2026-09-24: Windy Mind serves claude-opus-5-5 on the owner path
+        # (Mind #163). The "opus"/"smartest" shortcuts move here so
+        # `/model opus` means the newest Opus. Same context tiers as Opus 5.
+        id="claude-opus-5-5",
+        family="opus",
+        native_cap=200_000,
+        extended_cap=1_000_000,
+        extended_beta_header="context-1m-2025-08-07",
+        aliases=("opus", "smartest", "claude-opus", "opus-5-5", "opus-5.5"),
         description="Most capable",
     ),
     ModelInfo(
