@@ -107,13 +107,16 @@ RESURRECT_EXACT = frozenset({
 
 # Phrase matches anywhere in a longer message — grandma-mode entry
 # points for users who don't remember the slash command.
+#
+# Only unmistakable distress phrases. Ordinary greetings ("are you there?",
+# "are you alive?") and everyday "save me …" used to flip a HEALTHY agent
+# onto the small local model (Grant's "Hey Windy Zero … Are you there?",
+# 2026-09-24). Real outages don't need a phrase: auto-resurrect already
+# switches over when the paid model actually fails.
 RESURRECT_PHRASES = (
     "bring me back",
     "bring me back alive",
     "bring me back to life",
-    "save me",
-    "are you alive",
-    "are you there",
     "i can't reach you",
     "are you dead",
 )
