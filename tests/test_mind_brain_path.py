@@ -131,7 +131,11 @@ class TestBrokerResilience:
                 [{"role": "user", "content": "hi"}], None, 0.7, 1024, tools,
             )
             assert out is not None
-            assert mock_post.call_args.kwargs["json"]["tools"] == tools
+            sent = mock_post.call_args.kwargs["json"]["tools"]
+            # Normalized for every provider behind Mind (see TestMindToolNames);
+            # a valid name passes through unchanged.
+            assert [t["type"] for t in sent] == ["function"]
+            assert sent[0]["function"]["name"] == "fs_read"
 
     def test_tools_opt_out_restores_skip(self, monkeypatch):
         monkeypatch.setenv("WINDY_MIND_SEND_TOOLS", "0")
@@ -242,3 +246,54 @@ def _async_return(value):
     async def _coro(*args, **kwargs):
         return value
     return _coro()
+
+
+class TestMindToolNames:
+    """2026-09-24: dotted capability names + an Anthropic server tool made every
+    named provider behind Mind 400, and Mind answered Windy Zero on a 7B model."""
+
+    TOOLS = [
+        {"type": "function", "function": {"name": "vision.describe", "description": "d",
+                                          "parameters": {"type": "object", "properties": {}}}},
+        {"type": "web_search_20250305", "name": "web_search", "max_uses": 3},
+        {"type": "function", "function": {"name": "shell.exec", "description": "e",
+                                          "parameters": {"type": "object", "properties": {}}}},
+        {"type": "function", "function": {"name": "x." + "y" * 90, "description": "long",
+                                          "parameters": {"type": "object", "properties": {}}}},
+    ]
+
+    def test_request_is_valid_for_every_provider_and_names_round_trip(self):
+        import re
+        sent = {}
+        reply = {**MIND_JSON, "choices": [{"message": {"role": "assistant", "content": None, "tool_calls": [
+            {"id": "c1", "type": "function", "function": {"name": "vision__W_DOT__describe", "arguments": "{}"}}]},
+            "finish_reason": "tool_calls"}]}
+
+        def fake_post(url, **kw):
+            sent.update(kw["json"])
+            return _resp(reply)
+        history = [
+            {"role": "user", "content": "look"},
+            {"role": "assistant", "content": None, "tool_calls": [
+                {"id": "c0", "type": "function", "function": {"name": "shell.exec", "arguments": "{}"}}]},
+            {"role": "tool", "tool_call_id": "c0", "name": "shell.exec", "content": "ok"},
+        ]
+        with patch("httpx.post", side_effect=fake_post):
+            out = models._try_mind_broker(history, "claude-opus-5", None, 100, self.TOOLS)
+        names = [t["function"]["name"] for t in sent["tools"]]
+        assert all(t["type"] == "function" for t in sent["tools"])
+        assert all(re.fullmatch(r"[A-Za-z0-9_-]{1,64}", n) for n in names), names
+        assert len(names) == 3  # the server tool is dropped
+        hist = sent["messages"]
+        assert re.fullmatch(r"[A-Za-z0-9_-]{1,64}", hist[1]["tool_calls"][0]["function"]["name"])
+        assert re.fullmatch(r"[A-Za-z0-9_-]{1,64}", hist[2]["name"])
+        assert out["tool_calls"][0]["function"]["name"] == "vision.describe"
+        assert history[1]["tool_calls"][0]["function"]["name"] == "shell.exec"  # caller's list untouched
+
+    def test_long_name_restores_through_the_map(self):
+        tools, _, back = models._mind_safe_request(self.TOOLS, [])
+        long_safe = tools[-1]["function"]["name"]
+        assert len(long_safe) <= 64
+        restored = models._mind_restore_tool_names(
+            {"tool_calls": [{"id": "c", "type": "function", "function": {"name": long_safe, "arguments": "{}"}}]}, back)
+        assert restored["tool_calls"][0]["function"]["name"] == "x." + "y" * 90
