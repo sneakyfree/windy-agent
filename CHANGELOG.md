@@ -2,6 +2,11 @@
 
 ## Unreleased (0.7.3)
 
+- **A terminal hatch through Eternitas's auto-hatch door sends `X-Windy-Hatch-Id`**
+  (a fresh uuid4 per hatch attempt; Eternitas #185), so Windy Admin can join one
+  birth across services. It's an opaque id and carries nothing about the owner.
+  The hub ceremony (the default `windy go`) already stamps its own session id.
+
 - **`windy go` opens the one hub hatch ceremony (ADR-059) — now the default.**
   `windy go` creates a hatch ticket at the hub (nothing is minted), prints
   "Open this to hatch your agent: <link> (code ABCD-1234)", opens your browser

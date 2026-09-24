@@ -240,6 +240,37 @@ async def test_401_with_session_sends_bearer_and_says_sign_in_rejected(monkeypat
     assert captured["auth"] == "Bearer sess-tok"
 
 
+@pytest.mark.asyncio
+async def test_auto_hatch_sends_hatch_id_header_only_when_well_formed(monkeypatch):
+    """Eternitas #185: one opaque X-Windy-Hatch-Id per hatch attempt."""
+    from windyfly.eternitas.client import HatchAuthRequired
+
+    captured: dict = {}
+    import windyfly.eternitas.client as client_mod
+    real = httpx.AsyncClient
+
+    def factory(*a, **kw):
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured["hatch_id"] = request.headers.get("X-Windy-Hatch-Id")
+            return httpx.Response(401, json={"detail": "auth required"})
+        kw["transport"] = httpx.MockTransport(handler)
+        return real(*a, **kw)
+
+    monkeypatch.setattr(client_mod.httpx, "AsyncClient", factory)
+    req = _request()
+    req.hatch_id = "0b7e7f5e-3a1c-4c7e-9d0a-5f1f2b8c9e10"
+    with pytest.raises(HatchAuthRequired):
+        await _client().auto_hatch(req)
+    assert captured["hatch_id"] == req.hatch_id
+    assert "hatch_id" not in req.to_auto_hatch_payload()
+
+    for bad in ("", "has space", "x" * 65, "semi;colon"):
+        req.hatch_id = bad
+        with pytest.raises(HatchAuthRequired):
+            await _client().auto_hatch(req)
+        assert captured["hatch_id"] is None
+
+
 # ── hatch prompt ─────────────────────────────────────────────────────
 
 def test_interactive_hatch_without_credential_runs_sign_in(monkeypatch):
