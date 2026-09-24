@@ -245,6 +245,22 @@ def cmd_start(args: argparse.Namespace) -> None:
     except Exception:
         pass  # Never let update check block startup
 
+    channel = getattr(args, "channel", None)
+    if channel:
+        # One chat channel in the foreground (e.g. a body brought home with
+        # `windy bring-home` answering in Windy Chat: --channel matrix).
+        from windyfly.platform import python_cmd
+
+        console.print(f"  [cyan]Starting {channel}…[/cyan] [dim](Ctrl-C to stop)[/dim]")
+        try:
+            subprocess.run(
+                [*python_cmd(PROJECT_ROOT), "-m", "windyfly.main", "--channel", channel],
+                cwd=str(PROJECT_ROOT),
+            )
+        except KeyboardInterrupt:
+            console.print("\n  [dim]Stopped. 🪰[/dim]")
+        return
+
     if getattr(args, "cli", False):
         # CLI-only mode: run brain interactively in foreground
         console.print("  [cyan]Starting brain in CLI mode...[/cyan]")
@@ -1544,6 +1560,10 @@ def main() -> None:
     start_parser.add_argument(
         "--no-browser", action="store_true",
         help="Don't open browser after starting",
+    )
+    start_parser.add_argument(
+        "--channel", metavar="NAME",
+        help="Run one chat channel in the foreground (e.g. matrix = Windy Chat)",
     )
 
     # windy stop

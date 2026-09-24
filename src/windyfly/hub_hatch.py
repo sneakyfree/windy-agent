@@ -373,7 +373,7 @@ def go(
         if known.get("where") == "home":
             console.print(
                 f"  [bold]{name}[/bold] ({known['passport_number']}) lives on this machine. "
-                f"{_say_hi(known)}\n  Start it with [bold]windy start[/bold]."
+                f"{_say_hi(known)}\n  Start it with [bold]windy start --channel matrix[/bold]."
             )
             return 0
         console.print(

@@ -158,6 +158,11 @@ holds it. See `docs/AGENT_KEYS.md`.
   proof. The body gets the keyless Windy Mind brain; the Matrix bot uses the
   handed-over device (`MATRIX_DEVICE_ID`) instead of minting another; Windy
   Mail sends authenticate with the agent's passport token.
+- **`windy start --channel matrix`** runs one chat channel in the foreground
+  (how a body brought home answers in Windy Chat; plain `windy start` runs
+  the voice bridge + gateway). The runtime now loads the project `.env`
+  explicitly: a bare `load_dotenv()` searched from the installed module's
+  folder, so a pip install never read the agent's own settings.
 
 ## 0.7.2.1
 

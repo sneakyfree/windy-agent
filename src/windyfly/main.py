@@ -263,6 +263,14 @@ def _configure_logging(channel: str, log_level: str) -> None:
 
 def main() -> None:
     """Main entry point for Windy Fly."""
+    # The agent's own .env lives in its project folder (where `windy go` /
+    # `windy bring-home` wrote it). A bare load_dotenv() searches upward
+    # from THIS module's directory, which on a pip install is
+    # site-packages, so the project file must be named explicitly. Neither
+    # call overrides variables already set (systemd EnvironmentFile wins).
+    from windyfly.platform import get_project_root
+
+    load_dotenv(get_project_root() / ".env")
     load_dotenv()
 
     parser = argparse.ArgumentParser(description="Windy Fly — AI agent brain")

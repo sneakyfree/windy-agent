@@ -314,15 +314,35 @@ def _line_text(ev: dict[str, Any]) -> str:
     return ""
 
 
+HEADER_TYPE = "windy.memory.header"
+
+
+def split_memory(ndjson: bytes) -> tuple[dict[str, Any], list[str]]:
+    """Windy Chat's ndjson-v1: an optional first ``windy.memory.header`` line
+    (event_count, the agent's matrix_user_id, rooms…), then one Matrix event
+    per line. Returns (header, event lines)."""
+    lines = [ln for ln in ndjson.decode("utf-8", errors="replace").splitlines() if ln.strip()]
+    if lines:
+        try:
+            first = json.loads(lines[0])
+        except ValueError:
+            first = None
+        if isinstance(first, dict) and first.get("type") == HEADER_TYPE:
+            return first, lines[1:]
+    return {}, lines
+
+
 def import_memory(ndjson: bytes, *, handover_id: str, db: Any) -> dict[str, int]:
-    """One episode per mappable line (role + text). Unmappable lines are
-    counted, not guessed; the verbatim NDJSON is kept beside the state."""
+    """One episode per message event. The role comes from the event's own
+    ``role`` or, for a Matrix event, from its sender (the agent's own id →
+    assistant, anyone else → user). Anything else is counted, not guessed;
+    the verbatim NDJSON is kept beside the state."""
     from windyfly.memory.episodes import save_episode
 
+    header, lines = split_memory(ndjson)
+    agent_id = str(header.get("matrix_user_id") or "")
     imported = skipped = 0
-    for line in ndjson.decode("utf-8", errors="replace").splitlines():
-        if not line.strip():
-            continue
+    for line in lines:
         try:
             ev = json.loads(line)
         except ValueError:
@@ -332,6 +352,8 @@ def import_memory(ndjson: bytes, *, handover_id: str, db: Any) -> dict[str, int]
             skipped += 1
             continue
         role, text = _line_role(ev), _line_text(ev)
+        if not role and ev.get("type") == "m.room.message" and ev.get("sender"):
+            role = "assistant" if agent_id and ev["sender"] == agent_id else "user"
         if not role or not text:
             skipped += 1
             continue
@@ -381,7 +403,7 @@ def install_memory(meta: dict[str, Any], passport: str, handover_id: str, token:
             ndjson = decode_memory(doc)
             want_sha = str(doc.get("sha256") or meta.get("sha256") or "")
             got_sha = hashlib.sha256(ndjson).hexdigest()
-            lines = [ln for ln in ndjson.splitlines() if ln.strip()]
+            _header, lines = split_memory(ndjson)
             want_n = doc.get("event_count", meta.get("event_count"))
             _atomic_write(_state_dir() / f"memory-{handover_id}.ndjson", ndjson)
             if want_sha and got_sha != want_sha:
@@ -458,7 +480,7 @@ def run(
     name = rec.get("agent_name") or "Your agent"
     if rec.get("where") == "home":
         console.print(f"  {name} ({passport}) already lives on this machine. "
-                      "Start it with [bold]windy start[/bold].")
+                      "Start it with [bold]windy start --channel matrix[/bold].")
         return 0
 
     get_token = owner_token or (lambda: agent_keys.fresh_owner_token(open_browser=True))
@@ -581,5 +603,6 @@ def run(
     if not installed.get("matrix"):
         console.print("  [yellow]The pickup had no Windy Chat credentials.[/yellow]")
     where = Path(installed.get("env_file") or "").parent
-    console.print(f"  Its settings are in {where}. Start it from there with [bold]windy start[/bold].")
+    console.print(f"  Its settings are in {where}. From there, start it in Windy Chat with "
+                  "[bold]windy start --channel matrix[/bold].")
     return 0

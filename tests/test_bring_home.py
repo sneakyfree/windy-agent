@@ -31,9 +31,16 @@ def _jwt(claims: dict) -> str:
 
 
 EPT = _jwt({"sub": "ET26-HOME-0001", "exp": 4_000_000_000, "cvr": 1})
-NDJSON = (b'{"role":"user","content":"hi pip","ts":"2026-09-23T10:00:00Z"}\n'
-          b'{"role":"assistant","content":"hello Nora","ts":"2026-09-23T10:00:02Z"}\n'
-          b'{"type":"m.reaction","key":"+1"}\n')
+AGENT_MX = f"@agent_{PASSPORT.lower()}:chat.windychat.ai"
+# Windy Chat's ndjson-v1 as seen live 2026-09-24: a header, then Matrix events.
+NDJSON = (json.dumps({"type": "windy.memory.header", "format": "ndjson-v1", "event_count": 3,
+                      "passport_number": PASSPORT, "matrix_user_id": AGENT_MX, "rooms": ["!dm:chat"]}).encode() + b"\n"
+          + json.dumps({"type": "m.room.message", "sender": "@nora:chat.windychat.ai", "room_id": "!dm:chat",
+                        "event_id": "$1", "origin_server_ts": 1, "content": {"msgtype": "m.text", "body": "hi pip"}}).encode() + b"\n"
+          + json.dumps({"type": "m.room.message", "sender": AGENT_MX, "room_id": "!dm:chat",
+                        "event_id": "$2", "origin_server_ts": 2, "content": {"msgtype": "m.text", "body": "hello Nora"}}).encode() + b"\n"
+          + json.dumps({"type": "m.reaction", "sender": "@nora:chat.windychat.ai", "event_id": "$3",
+                        "content": {"m.relates_to": {"key": "+1"}}}).encode() + b"\n")
 LETTER = "Dear me: Nora likes short answers."
 
 
@@ -41,7 +48,7 @@ def _memory_doc(ndjson: bytes = NDJSON, *, fmt: str = "ndjson-v1", sha: str | No
     return {"handover_id": "ho_1", "passport_number": PASSPORT, "format": fmt,
             "inline": base64.b64encode(gzip.compress(ndjson)).decode(),
             "sha256": sha or hashlib.sha256(ndjson).hexdigest(),
-            "event_count": len([ln for ln in ndjson.splitlines() if ln.strip()])}
+            "event_count": len(bring_home.split_memory(ndjson)[1])}
 
 
 class Fake:
@@ -130,7 +137,17 @@ class Fake:
 
 
 @pytest.fixture(autouse=True)
-def _isolated(tmp_path, monkeypatch):
+def _restore_environ():
+    # bring-home writes what it installs into os.environ (the runtime reads it
+    # from there); never let that leak into other test modules.
+    saved = dict(os.environ)
+    yield
+    os.environ.clear()
+    os.environ.update(saved)
+
+
+@pytest.fixture(autouse=True)
+def _isolated(tmp_path, monkeypatch, _restore_environ):
     monkeypatch.setenv("WINDY_STATE_DIR", str(tmp_path / "state"))
     monkeypatch.setenv("WINDY_HUB_URL", "https://hub.test")
     monkeypatch.setenv("ETERNITAS_URL", "https://eternitas.test")
@@ -180,7 +197,7 @@ def test_happy_path_brings_the_agent_home(tmp_path, caplog):
     fake = Fake()
     rc, out = _run(fake)
     assert rc == 0, out
-    assert "Pip is home" in out and "windy start" in out and str(tmp_path) in out
+    assert "Pip is home" in out and "windy start --channel matrix" in out and str(tmp_path) in out
 
     # key registered on the owner path BEFORE the handover started
     hosts = [c[1] for c in fake.calls]
@@ -309,6 +326,22 @@ def test_no_cloud_agent_says_run_windy_go(tmp_path):
     assert rc == 1 and "run windy go" in out.replace("[bold]", "").replace("[/bold]", "").lower() \
         or "windy go" in out
     assert fake.calls == []
+
+
+def test_generic_role_lines_still_import():
+    from windyfly.memory.database import Database
+
+    db = Database(":memory:")
+    out = bring_home.import_memory(b'{"role":"user","content":"yo"}\n{"role":"assistant","text":"hey"}\n',
+                                   handover_id="h", db=db)
+    assert out == {"imported": 2, "skipped": 0}
+
+
+def test_count_mismatch_is_not_imported(tmp_path):
+    fake = Fake(memory=(200, {**_memory_doc(), "event_count": 7}))
+    rc, out = _run(fake)
+    assert rc == 0 and "count_mismatch" in out
+    assert _episodes(tmp_path)[0] == []
 
 
 def test_upsert_env_is_atomic_and_keeps_other_lines(tmp_path):
