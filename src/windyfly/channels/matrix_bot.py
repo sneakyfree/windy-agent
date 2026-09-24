@@ -88,8 +88,12 @@ class WindyFlyMatrixBot(ChannelAdapter):
         self.tool_registry = tool_registry
 
         matrix_config = config.get("matrix", {})
-        homeserver = matrix_config.get("homeserver", "https://chat.windychat.ai")
-        bot_user = matrix_config.get("bot_user", "@windyfly:chat.windychat.ai")
+        # `windy bring-home` writes the handed-over identity to the env file
+        # (MATRIX_HOMESERVER / MATRIX_BOT_USER); env wins over config.
+        homeserver = (os.environ.get("MATRIX_HOMESERVER", "").strip()
+                      or matrix_config.get("homeserver", "https://chat.windychat.ai"))
+        bot_user = (os.environ.get("MATRIX_BOT_USER", "").strip()
+                    or matrix_config.get("bot_user", "@windyfly:chat.windychat.ai"))
 
         self.bot_user_id = bot_user
 
@@ -153,7 +157,12 @@ class WindyFlyMatrixBot(ChannelAdapter):
         """
         from windyfly.chat_session import fetch_agent_chat_session
 
-        session = await fetch_agent_chat_session(self.config)
+        # A body brought home (`windy bring-home`) holds the Matrix device
+        # Windy Chat handed over (MATRIX_BOT_TOKEN + MATRIX_DEVICE_ID). Use it
+        # as is: asking chat for a fresh session would mint a second device
+        # for the same agent.
+        handed_over = bool(os.environ.get("MATRIX_BOT_TOKEN") and os.environ.get("MATRIX_DEVICE_ID"))
+        session = None if handed_over else await fetch_agent_chat_session(self.config)
         if session and session.get("access_token"):
             self.bot_user_id = session["matrix_user_id"]
             self.client.user = self.bot_user_id
@@ -178,6 +187,10 @@ class WindyFlyMatrixBot(ChannelAdapter):
         if token:
             self.client.access_token = token
             self.client.user_id = self.bot_user_id
+            if os.environ.get("MATRIX_DEVICE_ID"):
+                self.client.device_id = os.environ["MATRIX_DEVICE_ID"]
+            if os.environ.get("MATRIX_DM_ROOM_ID"):
+                self._hatch_dm_room_id = os.environ["MATRIX_DM_ROOM_ID"]
             logger.info("Windy Fly logged in via token as %s", self.bot_user_id)
         elif password:
             response = await self.client.login(password)

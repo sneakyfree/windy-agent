@@ -144,6 +144,21 @@ holds it. See `docs/AGENT_KEYS.md`.
 - `hub_login.login()` gains `reauth=` (sends `prompt=login` and `max_age=0`)
   and `store=` (return the token without saving the session).
 
+- **`windy bring-home` — move your cloud agent onto this machine** (ADR-059,
+  hub handover AGENT_HANDOVER.md §9). One fresh sign-in; the agent's own
+  ES256 key is registered at Eternitas on the owner path (`reason:
+  handover`, old keys untouched so a failed handover leaves the cloud agent
+  working, and the new key is revoked). The hub hands over Windy Chat and
+  Windy Mail credentials in a one-time pickup, which is sealed to a 0600 file
+  the moment it arrives, so a crash never loses it (re-running resumes; after
+  the pickup is gone the same key starts a rotate round). The agent's memory
+  (`ndjson-v1`) is checked against its sha256/event count, kept verbatim and
+  imported as episodes; its turnover letter is the first thing the local
+  agent reads. The passport token comes from Eternitas by the new key's
+  proof. The body gets the keyless Windy Mind brain; the Matrix bot uses the
+  handed-over device (`MATRIX_DEVICE_ID`) instead of minting another; Windy
+  Mail sends authenticate with the agent's passport token.
+
 ## 0.7.2.1
 
 Found by the 0.7.2 clean-machine proof from PyPI:

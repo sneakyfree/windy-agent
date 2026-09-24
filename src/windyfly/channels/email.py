@@ -42,7 +42,11 @@ class WindyMailAdapter:
 
     def __init__(self, db: Database | None = None) -> None:
         self.email = os.environ.get("WINDYMAIL_EMAIL", "")
-        self.jmap_token = os.environ.get("WINDYMAIL_JMAP_TOKEN", "")
+        # Windy Mail authenticates an agent by its own Eternitas passport
+        # token on /api/v1/send; a body brought home (`windy bring-home`)
+        # has that and no separate JMAP token.
+        self.jmap_token = (os.environ.get("WINDYMAIL_JMAP_TOKEN", "")
+                           or os.environ.get("ETERNITAS_PASSPORT_TOKEN", ""))
         self.api_url = os.environ.get("WINDYMAIL_API_URL", "https://api.windymail.ai")
         self.db = db
         # Read budget. Production Mail sat behind a CPU-throttled host on
