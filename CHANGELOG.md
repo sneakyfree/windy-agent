@@ -2,6 +2,16 @@
 
 ## Unreleased (0.7.4)
 
+- **Short-lived, key-bound service tokens (Eternitas mode B).**
+  `agent_keys.request_agent_token(aud)` trades a DPoP proof by the agent's
+  registered key for a ≤5-minute `EPT+agent` scoped to one Windy service
+  (`windy-calendar`, `windy-mail`, …), bound to the key (`cnf.jkt`) and
+  carrying the agent's live Integrity Index. No bearer is sent, so a leaked
+  EPT can't mint one. Tokens are cached per service until 30 s before expiry,
+  refusals raise `AgentTokenError` with Eternitas's code (and `retry_after`
+  on 429), and a token bound to any other key is rejected. `service_dpop()`
+  makes the per-request proof that services require for writes.
+
 - **Tool calls through Windy Mind reach the model you asked for.** Tool names
   like `vision.describe` are made safe for every provider behind Mind (letters,
   digits, `_`, `-`, at most 64 characters) and mapped back in the reply, and
