@@ -430,7 +430,7 @@ def _fingerprint_token(token: str) -> str:
     """Return a redacted token identifier safe to print to chat / logs.
 
     Format: ``{first 15 chars}…{last 4 chars}`` — e.g. for an oat token
-    that becomes ``sk-ant-oat01-Vw…wAAA``. Enough for an operator with
+    that becomes ``sk-ant-oat01-FA…FAKE``. Enough for an operator with
     multiple credentials to identify which one is live at a glance,
     without spilling the body anywhere.
 

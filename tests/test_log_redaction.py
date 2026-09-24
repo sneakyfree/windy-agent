@@ -22,14 +22,14 @@ from windyfly.observability.redact import (
 
 def test_redacts_telegram_bot_token():
     text = (
-        "POST https://api.telegram.org/bot8669155077:"
-        "AAE-5ee2VMzkkXmxI8Rnjg6gDZG0AGwjBzI/getUpdates"
+        "POST https://api.telegram.org/bot1234567890:"
+        "AAFAKE-token-for-tests-only_0000000/getUpdates"
     )
     out = redact(text)
-    assert "AAE-5ee2VMzkkXmxI8Rnjg6gDZG0AGwjBzI" not in out
+    assert "AAFAKE-token-for-tests-only_0000000" not in out
     assert "***REDACTED***" in out
     # Bot ID + first 4 chars survive for instance-distinguishing
-    assert "bot8669155077:AAE-" in out
+    assert "bot1234567890:AAFA" in out
 
 
 def test_redacts_openai_api_key():
@@ -83,12 +83,12 @@ def test_filter_modifies_record_msg_in_place():
         level=logging.INFO,
         pathname=__file__,
         lineno=1,
-        msg="hit /bot8669155077:AAE-5ee2VMzkkXmxI8Rnjg6gDZG0AGwjBzI/x",
+        msg="hit /bot1234567890:AAFAKE-token-for-tests-only_0000000/x",
         args=None,
         exc_info=None,
     )
     f.filter(record)
-    assert "AAE-5ee2VMzkkXmxI8Rnjg6gDZG0AGwjBzI" not in record.msg
+    assert "AAFAKE-token-for-tests-only_0000000" not in record.msg
     assert "***REDACTED***" in record.msg
 
 
@@ -136,11 +136,11 @@ def test_end_to_end_via_root_handler():
     logger.setLevel(logging.INFO)
 
     logger.info(
-        "calling https://api.telegram.org/bot8669155077:"
-        "AAE-5ee2VMzkkXmxI8Rnjg6gDZG0AGwjBzI/getMe",
+        "calling https://api.telegram.org/bot1234567890:"
+        "AAFAKE-token-for-tests-only_0000000/getMe",
     )
     output = buf.getvalue()
-    assert "AAE-5ee2VMzkkXmxI8Rnjg6gDZG0AGwjBzI" not in output
+    assert "AAFAKE-token-for-tests-only_0000000" not in output
     assert "***REDACTED***" in output
 
 
@@ -150,12 +150,12 @@ def test_redacts_bare_telegram_token_in_ptb_invalid_token_message():
     # windy-0-telegram.log on every reconnect for six days.
     text = (
         "Telegram start failed: The token "
-        "`8669155077:AAE-5ee2VMzkkXmxI8Rnjg6gDZG0AGwjBzI` "
+        "`1234567890:AAFAKE-token-for-tests-only_0000000` "
         "was rejected by the server.. Reconnecting in 8s..."
     )
     out = redact(text)
-    assert "5ee2VMzkkXmxI8Rnjg6gDZG0AGwjBzI" not in out
-    assert "8669155077:AAE-***REDACTED***" in out
+    assert "KE-token-for-tests-only_0000000" not in out
+    assert "1234567890:AAFA***REDACTED***" in out
 
 
 def test_bare_token_pattern_leaves_clock_times_and_ids_alone():
@@ -179,10 +179,10 @@ def test_telegram_reconnect_event_is_redacted(monkeypatch):
     fake_self = types.SimpleNamespace(_db=object(), _write_queue=object())
     TelegramChannel._log_reconnect_event(
         fake_self,
-        "The token `8669155077:AAE-5ee2VMzkkXmxI8Rnjg6gDZG0AGwjBzI` "
+        "The token `1234567890:AAFAKE-token-for-tests-only_0000000` "
         "was rejected by the server.",
         8,
     )
     assert captured["etype"] == "telegram.reconnect"
-    assert "5ee2VMzkkXmxI8Rnjg6gDZG0AGwjBzI" not in captured["error"]
+    assert "KE-token-for-tests-only_0000000" not in captured["error"]
     assert "***REDACTED***" in captured["error"]

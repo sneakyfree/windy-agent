@@ -1,7 +1,7 @@
 """Logging filter that redacts secrets before they hit any handler.
 
 Without this, httpx's default INFO logging dumps the full Telegram URL
-(``…/bot8669155077:AAE-5ee2VMzkk…/getUpdates``) to the launchd log
+(``…/bot1234567890:AAFAKE…/getUpdates``) to the launchd log
 every 10 seconds. After ~10 minutes of polling the log contains the
 bot token a hundred-plus times. Same applies to ``Bearer`` tokens in
 upstream HTTP calls and ``sk-…`` API keys that show up in error
@@ -21,7 +21,7 @@ import re
 # prefix. Keep the bot ID and the first 4 chars of the secret so we can
 # still tell instances apart in logs without exposing the full credential.
 # The prefix is optional because python-telegram-bot's InvalidToken
-# message quotes the BARE token ("The token `8669155077:AAE-…` was
+# message quotes the BARE token ("The token `1234567890:AAFAKE…` was
 # rejected by the server") — the bot-prefix-only pattern let that line
 # write the full token into the log on every reconnect (2026-09-17→23).
 _TELEGRAM_TOKEN_RE = re.compile(
