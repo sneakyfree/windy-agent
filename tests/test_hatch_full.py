@@ -15,6 +15,12 @@ from windyfly.hatch_orchestrator import HatchResult, orchestrate_hatch
 from windyfly.memory.database import Database
 
 
+@pytest.fixture(autouse=True)
+def _phone_step_enabled(monkeypatch):
+    """The phone step is parked by default (09-23); these tests cover the opt-in path."""
+    monkeypatch.setenv("WINDY_ENABLE_PHONE_PROVISION", "1")
+
+
 @pytest.fixture
 def db():
     d = Database(":memory:")

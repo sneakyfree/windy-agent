@@ -771,7 +771,15 @@ async def _step_mail(result: HatchResult, agent_name: str, db, owner_id: str = "
 
 
 async def _step_phone(result: HatchResult, agent_name: str, db, config: dict | None = None) -> None:
-    """Provision phone number."""
+    """Provision phone number.
+
+    PARKED until after launch (Grant, 2026-09-23: Windy Text + Windy Call
+    parked). With the owner's own Twilio keys this step would BUY a number
+    on their account, and without them it hands out a fake +1555 mock, so
+    it is skipped unless WINDY_ENABLE_PHONE_PROVISION=1 (dev/tests only).
+    """
+    if os.environ.get("WINDY_ENABLE_PHONE_PROVISION", "").strip() != "1":
+        return
     try:
         from windyfly.phone_provision import provision_phone
 
@@ -1129,7 +1137,8 @@ async def retry_failed_provisioning(db=None) -> HatchResult | None:
 
     if "phone" in failed_steps:
         await _step_phone(result, agent_name, db)
-        if result.phone_provisioned:
+        # Parked (see _step_phone): nothing to retry, so it's not a failure.
+        if result.phone_provisioned or os.environ.get("WINDY_ENABLE_PHONE_PROVISION", "").strip() != "1":
             failed_steps.remove("phone")
 
     if "birth_certificate" in failed_steps:

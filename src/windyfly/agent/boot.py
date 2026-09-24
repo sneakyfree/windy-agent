@@ -186,7 +186,9 @@ def _step_register_windy_api(ctx: BootContext) -> None:
 
 
 def _step_register_mail(ctx: BootContext) -> None:
+    from windyfly.tools import outbound_identity
     from windyfly.tools.mail import register_mail_tools
+    outbound_identity.set_config(ctx.config)
     register_mail_tools(ctx.tool_registry)
 
 
@@ -197,7 +199,7 @@ def _step_register_chat(ctx: BootContext) -> None:
 
 def _step_register_sms(ctx: BootContext) -> None:
     from windyfly.tools.sms import register_sms_tools
-    register_sms_tools(ctx.tool_registry)
+    register_sms_tools(ctx.tool_registry, ctx.db)
 
 
 def _step_register_voice(ctx: BootContext) -> None:

@@ -77,6 +77,31 @@
     `X-Windy-Synthetic: 1` to requests to Windy hosts only (never third parties). The fire drill and the
     continuity battery mark their rows synthetic and warn on a quarantine.
 
+- **`windy go` no longer crashes without a terminal.** Run from a script, CI
+  or `docker exec` without `-i`, an already set-up `windy go` died with an
+  `EOFError` traceback at "Already set up! Launch Windy Fly?". Every setup
+  prompt now takes its stated default when stdin is at EOF, and says so in one
+  line. (Found by the 0.7.2.1 clean-machine proof.)
+- **No brain claims for a dead passport.** After `windy deregister` (or a
+  suspension), `windy go --keyless` no longer says the agent is "powered by
+  your agent's Windy passport" / "Windy Mind brain", and plain `windy go` no
+  longer says "Windy Mind (free, keyless) configured". Both say the passport is
+  revoked (start over with `windy go --force`) or suspended (reversible: the
+  agent keeps its identity; no `--force`).
+
+- **Consent for messages to other people** (legal review, 2026-09-23).
+  - **Texts:** the first text to any new number now needs the owner's yes. `send_sms` returns `confirm_required` with a question the agent must relay word for word, and only `confirm_sms` (single-use, 10 minutes, bound to the exact text) sends it and remembers the number.
+  - Every text ends with "— <agent>, AI assistant for <owner>. Reply STOP to opt out."; a `recipient_opted_out` answer is final and never retried.
+  - **SMS itself stays off** until a sender that enforces STOP exists: without one, the tool says "SMS isn't available yet for Windy Fly agents."
+  - **Emails:** every email now ends "Sent by <agent>, an AI agent acting for <owner>.", and the Resend path adds `X-Windy-Agent: <passport>`.
+
+- **Texting, calls and phone numbers are parked until after launch.** `send_sms`
+  says "Texting isn't available yet; I can reach them by email or you can
+  message them in Windy Chat.", `make_call` says the same for calls, and the
+  hatch no longer assigns a phone number: it could otherwise BUY a Twilio
+  number on the owner's own account, or hand out a fake +1555 mock.
+  (`WINDY_ENABLE_PHONE_PROVISION=1` re-enables it for development.)
+
 ## 0.7.2.1
 
 Found by the 0.7.2 clean-machine proof from PyPI:

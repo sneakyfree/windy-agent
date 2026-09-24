@@ -17,7 +17,7 @@ jobs:
         with:
           version: "0.12.5"
       - run: uv python install 3.12
-      - run: uv sync --all-extras
+      - run: uv sync --locked --all-extras
       - run: uv run ruff check src/
       - run: uv run pytest tests/ -v --tb=short
 

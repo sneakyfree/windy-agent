@@ -452,7 +452,9 @@ def _offer_existing(console: Any, ticket: Ticket) -> int:
     if not accept and _interactive():
         from rich.prompt import Confirm
 
-        accept = Confirm.ask("  Use that agent from this machine?", default=False)
+        from windyfly import prompts
+
+        accept = prompts.ask(Confirm.ask, "  Use that agent from this machine?", default=False)
     if not accept:
         console.print("  Nothing changed. (Set WINDY_HATCH_ADOPT_EXISTING=1 to accept without a prompt.)")
         return 1

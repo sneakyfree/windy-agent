@@ -327,6 +327,19 @@ _MIGRATIONS: dict[int, tuple[str, str]] = {
         "billing, cache tokens, session, duration. Idempotent ADD COLUMNs.",
         "__callable__",
     ),
+    13: (
+        "sms_approved: numbers the owner said yes to texting (first-contact gate)",
+        """
+        CREATE TABLE IF NOT EXISTS sms_approved (
+            number TEXT PRIMARY KEY,
+            approved_at TEXT NOT NULL,
+            approved_by TEXT NOT NULL DEFAULT 'owner'
+        );
+
+        INSERT OR IGNORE INTO schema_version (version, description)
+            VALUES (13, 'sms_approved: first-contact SMS consent');
+        """,
+    ),
     # NOTE — deliberately NOT adding an index on episodes(session_id,
     # created_at), though every turn filters on exactly that and it is
     # currently a full scan of a 29k-row table.

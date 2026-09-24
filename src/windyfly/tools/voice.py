@@ -91,11 +91,10 @@ def make_call(to: str, message: str, voice: str = "alice") -> dict[str, Any]:
     if not ept:
         return {
             "status": "unavailable",
+            # Windy Call is parked until after launch (Grant, 2026-09-23).
             "error": (
-                "Voice calls are not configured for this agent. "
-                "WINDY_PASSPORT_EPT must be set (usually populated by "
-                "hatch provisioning + the agent's broker token mint). "
-                "See master-plan D.3.2."
+                "Phone calls aren't available yet; I can reach them by "
+                "email or you can message them in Windy Chat."
             ),
         }
 

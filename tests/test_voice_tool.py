@@ -59,7 +59,7 @@ class TestUnavailable:
     def test_returns_unavailable_when_ept_unset(self, no_ept: None) -> None:
         result = make_call(to="+15551234567", message="hi")
         assert result["status"] == "unavailable"
-        assert "WINDY_PASSPORT_EPT" in result["error"]
+        assert "Phone calls aren't available yet" in result["error"]
 
 
 class TestValidation:

@@ -76,8 +76,20 @@ def _resend_send(to: str, subject: str, body: str) -> dict[str, Any]:
     """
     import httpx as _httpx
 
+    from windyfly.tools import outbound_identity
+
     api_key = os.environ["RESEND_API_KEY"]
     from_addr = os.environ["RESEND_FROM_ADDRESS"]
+    payload: dict[str, Any] = {
+        "from": from_addr,
+        "to": [to],
+        "subject": subject,
+        "text": body,
+    }
+    passport = outbound_identity.passport()
+    if passport:
+        # Resend passes custom headers through to the message.
+        payload["headers"] = {"X-Windy-Agent": passport}
     try:
         resp = _httpx.post(
             _RESEND_API_URL,
@@ -85,12 +97,7 @@ def _resend_send(to: str, subject: str, body: str) -> dict[str, Any]:
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
             },
-            json={
-                "from": from_addr,
-                "to": [to],
-                "subject": subject,
-                "text": body,
-            },
+            json=payload,
             timeout=_RESEND_TIMEOUT_S,
         )
     except _httpx.TimeoutException:
@@ -140,6 +147,16 @@ def _split_recipients(to: str) -> list[str]:
     return [r.strip() for r in to.split(",") if r.strip()]
 
 
+def with_ai_footer(body: str) -> str:
+    """Append the "Sent by <agent>, an AI agent acting for <owner>." line once."""
+    from windyfly.tools import outbound_identity
+
+    footer = outbound_identity.email_footer()
+    if footer in body:
+        return body
+    return f"{body.rstrip()}\n\n--\n{footer}\n"
+
+
 def send_email(to: str, subject: str, body: str) -> dict[str, Any]:
     """Send an email via the agent's own mailbox.
 
@@ -175,6 +192,10 @@ def send_email(to: str, subject: str, body: str) -> dict[str, Any]:
     recipients = _split_recipients(to)
     if not recipients:
         return {"status": "failed", "error": "No recipients provided"}
+
+    # Mail to third parties says who is really writing (legal review,
+    # 2026-09-23): one footer line on every path.
+    body = with_ai_footer(body)
 
     if len(recipients) == 1:
         result = send_fn(recipients[0], subject, body)

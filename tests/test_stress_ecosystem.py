@@ -102,7 +102,7 @@ class TestHatchOrchestrator:
         assert result.passport_status == "active"
         assert result.mail_provisioned is True
         assert result.email_address.endswith("@windymail.ai")
-        assert result.phone_provisioned is True
+        assert result.phone_provisioned is False  # phone parked (09-23)
         assert result.neural_fingerprint != ""
         assert result.certificate_number.startswith("ET-")  # ADR-064: Eternitas's number, WF- retired
 
@@ -248,7 +248,7 @@ class TestProvisioningRecovery:
         result = await retry_failed_provisioning(db=db)
         assert result is not None
         assert result.agent_name == "retry-fly"
-        assert result.phone_provisioned is True
+        assert result.phone_provisioned is False  # phone parked (09-23)
 
     async def test_retry_removes_successful_steps(self, db, tmp_path, monkeypatch):
         """Steps that succeed on retry are removed from the recovery file."""

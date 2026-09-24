@@ -17,15 +17,30 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from windyfly.tools import sms as sms_mod
 from windyfly.tools.registry import ToolRegistry
 from windyfly.tools.sms import register_sms_tools, send_sms
 
 
+@pytest.fixture(autouse=True)
+def _fresh_consent_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sms_mod, "_db", None)
+    monkeypatch.setattr(sms_mod, "_approved_mem", set())
+    monkeypatch.setattr(sms_mod, "_pending", {})
+    monkeypatch.setenv("WINDYFLY_AGENT_NAME", "Pip")
+    monkeypatch.setenv("WINDY_OWNER_NAME", "Grant Whitmer")
+
+
 @pytest.fixture
 def windy_text_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Populate WINDY_TEXT_BASE_URL + WINDY_PASSPORT_EPT for live path."""
+    """Populate WINDY_TEXT_BASE_URL + WINDY_PASSPORT_EPT for live path.
+
+    The transport tests below are about delivery, so the test number is
+    already approved; the first-contact gate is covered in
+    test_outbound_consent.py."""
     monkeypatch.setenv("WINDY_TEXT_BASE_URL", "https://api.windytext.test")
     monkeypatch.setenv("WINDY_PASSPORT_EPT", "test_ept_jwt_value")
+    sms_mod._approved_mem.add("+15551234567")
 
 
 @pytest.fixture
@@ -55,7 +70,7 @@ class TestUnavailable:
     def test_returns_unavailable_when_ept_unset(self, no_ept: None) -> None:
         result = send_sms(to="+15551234567", body="hi")
         assert result["status"] == "unavailable"
-        assert "WINDY_PASSPORT_EPT" in result["error"]
+        assert result["error"] == "Texting isn't available yet; I can reach them by email or you can message them in Windy Chat."
 
 
 class TestValidation:
@@ -102,7 +117,10 @@ class TestHappyPath:
         url = call_args.args[0] if call_args.args else call_args.kwargs.get("url", "")
         assert url == "https://api.windytext.test/sms/send"
         assert call_args.kwargs["headers"]["Authorization"] == "Bearer test_ept_jwt_value"
-        assert call_args.kwargs["json"] == {"to": "+15551234567", "body": "hello world"}
+        assert call_args.kwargs["json"] == {
+            "to": "+15551234567",
+            "body": "hello world\n— Pip, AI assistant for Grant. Reply STOP to opt out.",
+        }
 
     @patch("windyfly.tools.sms.httpx.post")
     def test_200_status_treated_as_sent(

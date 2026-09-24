@@ -100,10 +100,9 @@ class TestOrchestrateHatchFlow:
         assert result.mail_provisioned is True
         assert "@windymail.ai" in result.email_address
 
-        # Step 4: Phone (mock)
-        assert result.phone_provisioned is True
-        assert result.phone_number.startswith("+1")
-        assert result.phone_is_mock is True
+        # Step 4: Phone is PARKED until after launch — no number, not even a mock
+        assert result.phone_provisioned is False
+        assert result.phone_number == ""
 
         # Step 5: Birth certificate
         # ADR-064: the certificate number is Eternitas's (ET- + record id
@@ -144,7 +143,7 @@ class TestOrchestrateHatchFlow:
         result = await orchestrate_hatch("concurrent-fly", db=db)
 
         assert result.mail_provisioned is True
-        assert result.phone_provisioned is True
+        assert result.phone_provisioned is False  # phone parked (09-23)
         assert result.passport_id != ""
         assert result.certificate_number != ""
 

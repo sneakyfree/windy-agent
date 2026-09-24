@@ -56,9 +56,9 @@ class TestOrchestration:
         assert result.email_address.endswith("@windymail.ai")
 
         # Phone should succeed (mock)
-        assert result.phone_provisioned is True
-        assert result.phone_number.startswith("+1555")
-        assert result.phone_is_mock is True
+        assert result.phone_provisioned is False  # phone parked (09-23)
+        assert result.phone_number == ""  # phone parked (09-23)
+        assert result.phone_is_mock is False  # phone parked (09-23)
 
         # Birth certificate should be generated
         assert result.neural_fingerprint != ""
