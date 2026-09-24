@@ -92,7 +92,13 @@ def _auto_resurrect_banner(chosen_model: str, error_str: str) -> str:
     sends the human to fix the wrong thing, so name what actually happened.
     """
     e = (error_str or "").lower()
-    if "no-key" in e:
+    if "mind http 5" in e or "mind http 429" in e or "mind cooling" in e:
+        # Checked before "no-key": a Mind-routed agent has no direct key by
+        # design, so the direct chain always says no-key after Mind fails.
+        why = "(Windy Mind) is busy right now"
+    elif "mind unreachable" in e:
+        why = "(Windy Mind) couldn't be reached"
+    elif "no-key" in e:
         why = "couldn't find its credential for a moment"
     elif "429" in e or "rate limit" in e or "rate_limit" in e:
         why = "hit a rate limit"

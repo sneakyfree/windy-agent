@@ -2,6 +2,13 @@
 
 ## Unreleased (0.7.3)
 
+- **A busy Windy Mind no longer drops the agent into the lifeboat with the wrong
+  reason.** When Mind answers 429/502/503/504 (busy: a free quota spent, a lane
+  down), the agent waits (Retry-After, else 15 s, at most 30 s) and retries once.
+  If Mind is still busy, the lifeboat notice now says "Windy Mind is busy right
+  now" instead of blaming a missing credential (a Mind-routed agent has no
+  direct key by design, so the fallback chain always reported `no-key`).
+
 - **A terminal hatch through Eternitas's auto-hatch door sends `X-Windy-Hatch-Id`**
   (a fresh uuid4 per hatch attempt; Eternitas #185), so Windy Admin can join one
   birth across services. It's an opaque id and carries nothing about the owner.
