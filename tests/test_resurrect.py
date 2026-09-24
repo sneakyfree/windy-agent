@@ -15,7 +15,7 @@ Pin the contract added in PR #133:
   - The agent loop's offline path honors resurrection_state().model
   - /resurrect and /normal slash-command parsers recognize the
     documented aliases AND the grandma-mode phrase entry points
-    ("bring me back", "save me", "are you alive")
+    ("bring me back", "I can't reach you", "are you dead")
 """
 
 from __future__ import annotations
@@ -207,12 +207,24 @@ class TestResurrectParser:
         for phrase in (
             "bring me back",
             "Bring Me Back Alive",
-            "save me please",
-            "are you alive?",
             "I can't reach you",
-            "Are you there?",
+            "are you dead??",
         ):
             assert is_r(phrase), f"{phrase!r} should trigger /resurrect"
+
+    def test_greetings_do_not_flip_a_healthy_agent_to_lifeboat(self):
+        """Grant, 2026-09-24: "Hey, Windy Zero. It's me, Grant. Are you there?"
+        switched a healthy Opus agent onto llama3.2:3b. Greetings and everyday
+        "save me …" must reach the normal model; real outages auto-resurrect."""
+        is_r, _ = self._parsers()
+        for greeting in (
+            "Hey, Windy Zero. It's me, Grant. Are you there?",
+            "are you alive?",
+            "Are you there?",
+            "save me a spot on Friday",
+            "can you save me some time and summarize this",
+        ):
+            assert not is_r(greeting), f"{greeting!r} must NOT trigger lifeboat"
 
     def test_resurrect_does_not_trigger_on_unrelated(self):
         is_r, _ = self._parsers()
