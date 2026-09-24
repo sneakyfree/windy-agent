@@ -35,7 +35,16 @@ _turn_executor = ThreadPoolExecutor(
 
 async def run_turn(fn: Callable[..., Any], /, *args: Any, **kwargs: Any) -> Any:
     """Await ``fn(*args, **kwargs)`` executed on the agent-turn thread."""
+    import time
+
+    from windyfly.observability import turn_timing
+
+    submitted = time.monotonic()
+    call = partial(fn, *args, **kwargs)
+
+    def _timed() -> Any:
+        turn_timing.note_queued(time.monotonic() - submitted)
+        return call()
+
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(
-        _turn_executor, partial(fn, *args, **kwargs),
-    )
+    return await loop.run_in_executor(_turn_executor, _timed)

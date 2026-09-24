@@ -20,7 +20,7 @@ import logging
 import os
 import re
 import time
-from typing import Any
+from typing import Any, Callable
 
 from windyfly.agent.providers import get_provider_for_model
 
@@ -1053,6 +1053,22 @@ def _note_route(
         logger.debug("demotion note failed: %s", e)
 
 
+
+def _timed_llm(fn: Callable[..., dict[str, Any]]) -> Callable[..., dict[str, Any]]:
+    """Turn timing for every LLM call: ``llm`` for the reply's own rounds,
+    ``llm:<purpose>`` for labelled helpers (facts, journal, intent, ...)."""
+    import functools
+
+    from windyfly.observability import turn_timing
+
+    @functools.wraps(fn)
+    def wrapper(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        purpose = kwargs.get("purpose") or _llm_purpose.get()
+        with turn_timing.phase(f"llm:{purpose}" if purpose and purpose not in ("chat", "turn") else "llm"):
+            return fn(*args, **kwargs)
+    return wrapper
+
+@_timed_llm
 def call_llm(
     messages: list[dict[str, str]],
     *,
