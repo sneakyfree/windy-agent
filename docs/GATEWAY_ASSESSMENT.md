@@ -119,7 +119,9 @@ Ordered by how likely each is to surprise you.
 3. **Secrets wiring.** The gateway reads 14 env vars (MEASURED). The
    load-bearing ones: `BROKER_HMAC_SECRET` / `WINDY_BROKER_SIGNING_SECRET`
    (without them `/hatch/remote` 401s every request), `WINDY_PRO_URL`,
-   `DASHBOARD_PASSWORD`, `GATEWAY_PORT`.
+   `WINDY_IDENTITY_ID` (the owner — replaced `DASHBOARD_PASSWORD` on
+   2026-09-23, see `docs/GATEWAY_OWNER_LOGIN.md`), `GATEWAY_PORT`,
+   `GATEWAY_HOST`.
 4. **Public exposure.** `/hatch/remote` is deliberately **exempt from
    dashboard auth** (READ — `server.ts:451`), on the reasoning that the
    `broker_token` in the body is itself the authorization. That is defensible

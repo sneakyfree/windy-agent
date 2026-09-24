@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Link a chat app</title>
+<style>
+  :root { color-scheme: dark; }
+  body { background:#0a0e17; color:#e2e8f0; font-family:system-ui,sans-serif; margin:0;
+         display:flex; justify-content:center; align-items:center; min-height:100vh; }
+  main { max-width:420px; padding:24px 16px; text-align:center; }
+  h1 { font-size:1.4rem; margin:0 0 8px; }
+  p { color:#94a3b8; line-height:1.5; }
+  button { padding:12px 24px; border-radius:8px; border:none; background:#00d4ff; color:#000;
+           font-weight:600; cursor:pointer; font-size:1rem; }
+  button:disabled { opacity:.6; cursor:default; }
+  .code { font:600 2rem ui-monospace,monospace; letter-spacing:.12em; margin:16px 0 8px; color:#fff; }
+  .cmd { background:#111827; border:1px solid #1e293b; border-radius:8px; padding:10px 12px;
+         font-family:ui-monospace,monospace; display:inline-block; margin:8px 0; }
+  .err { color:#f87171; }
+  a { color:#00d4ff; }
+</style>
+</head>
+<body>
+<main>
+  <div style="font-size:2rem">🪰</div>
+  <h1>Link a chat app</h1>
+  <p>Talk to your agent from Telegram, Signal or another app. Get a one-time code, then send it to
+     your agent from that app. The code works once and expires in 10 minutes.</p>
+  <button id="get">Get a code</button>
+  <div id="out" aria-live="polite"></div>
+  <p><a href="/">Back to the dashboard</a></p>
+</main>
+<script>
+  const btn = document.getElementById("get");
+  const out = document.getElementById("out");
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    out.textContent = "";
+    try {
+      const r = await fetch("/api/owner/pair-code", { method: "POST", credentials: "same-origin" });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.code) throw new Error(d.error || ("HTTP " + r.status));
+      const code = document.createElement("div");
+      code.className = "code";
+      code.textContent = d.code;
+      const how = document.createElement("p");
+      how.append("Send this to your agent:");
+      const cmd = document.createElement("div");
+      cmd.className = "cmd";
+      cmd.textContent = "/pair " + d.code;
+      out.replaceChildren(code, how, cmd);
+    } catch (e) {
+      const p = document.createElement("p");
+      p.className = "err";
+      p.textContent = "Couldn't get a code: " + e.message;
+      out.replaceChildren(p);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+</script>
+</body>
+</html>

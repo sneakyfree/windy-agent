@@ -1,42 +1,34 @@
 /**
- * Contract tests for P1-S5 (empty-password policy), P1-S6
- * (constant-time compare), and the auth-bucket half of P1-O5
- * (rate-limit on failed logins).
+ * Contract tests for the dashboard startup guard (owner identity
+ * required in production — SSO #13 replaced the shared password), P1-S6
+ * (constant-time compare), and the auth-bucket half of P1-O5.
  *
  * Covers only the pure helpers — validateDashboardAuthConfig and
- * safeStringEqual. The live-server behaviour (login rate-limit 429s,
- * startup throw) is validated through the regression guards against
- * server.ts in login.test.ts.
+ * safeStringEqual. Hub sign-in behaviour lives in hub-login.test.ts.
  */
 
 import { describe, expect, test } from "bun:test";
 import { safeStringEqual, validateDashboardAuthConfig } from "../src/server";
 
 describe("validateDashboardAuthConfig — startup guard", () => {
-  test("production + empty password → refuses", () => {
+  test("production + no owner identity → refuses to start", () => {
     const r = validateDashboardAuthConfig("", "production");
     expect(r.ok).toBe(false);
+    expect(r.message).toContain("WINDY_IDENTITY_ID");
     expect(r.message).toContain("required");
   });
 
-  test("production + strong password → accepts silently", () => {
-    const r = validateDashboardAuthConfig("a".repeat(24), "production");
+  test("production + owner identity → accepts silently", () => {
+    const r = validateDashboardAuthConfig("00000000-0000-4000-8000-000000000001", "production");
     expect(r.ok).toBe(true);
     expect(r.message).toBe("");
   });
 
-  test("dev + empty password → warns but allows", () => {
+  test("dev + no owner → warns but allows (loopback-only)", () => {
     const r = validateDashboardAuthConfig("", "dev");
     expect(r.ok).toBe(true);
     expect(r.message).toContain("WARN");
-    expect(r.message).toContain("open");
-  });
-
-  test("production + short password → warns but allows (does not fail closed on length)", () => {
-    const r = validateDashboardAuthConfig("short", "production");
-    expect(r.ok).toBe(true);
-    expect(r.message).toContain("WARN");
-    expect(r.message).toContain("16");
+    expect(r.message).toContain("loopback");
   });
 });
 
@@ -63,17 +55,15 @@ describe("safeStringEqual — constant-time compare", () => {
 
 describe("server.ts — regression guards for auth-hardening", () => {
   const src = Bun.file(import.meta.dir + "/../src/server.ts");
-  test("no plain-string === on DASHBOARD_PASSWORD", async () => {
+  test("the shared dashboard password is gone from live code", async () => {
     const text = await src.text();
-    // The only remaining `=== DASHBOARD_PASSWORD` reference should be
-    // inside docstrings / comments. Any live code must use
-    // safeStringEqual.
     const live = text
       .split("\n")
       .filter((l) => !l.trim().startsWith("//") && !l.trim().startsWith("*"))
       .join("\n");
-    expect(live).not.toContain("=== `Bearer ${DASHBOARD_PASSWORD}`");
-    expect(live).not.toMatch(/cookie\.includes\(`windy_auth=\$\{DASHBOARD_PASSWORD\}`\)/);
+    expect(live).not.toContain("DASHBOARD_PASSWORD");
+    expect(live).not.toContain("/api/auth/login");
+    expect(live).not.toContain('type="password"');
   });
 
   test("auth rate-limit bucket is wired", async () => {
@@ -81,7 +71,7 @@ describe("server.ts — regression guards for auth-hardening", () => {
     expect(text).toContain(`isRateLimited(ip, "auth")`);
   });
 
-  test("empty password in production refuses at startup", async () => {
+  test("missing owner in production refuses at startup", async () => {
     const text = await src.text();
     expect(text).toContain("validateDashboardAuthConfig");
     expect(text).toMatch(/throw new Error/);
