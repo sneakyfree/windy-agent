@@ -784,6 +784,94 @@ def status(*, transport: httpx.BaseTransport | None = None,
     return out
 
 
+# ── mode B: short-lived key-bound tokens (Eternitas agent-keys v1 step 4) ──
+
+TOKEN_PATH = "/api/v1/tokens/agent"
+_TOKEN_CACHE: dict[tuple[str, str], dict[str, Any]] = {}
+_TOKEN_LOCK = threading.Lock()
+
+
+class AgentTokenError(Exception):
+    """A refused or failed mode B exchange. ``code`` is Eternitas's error code
+    (dpop_required, invalid_dpop_proof, passport_suspended, passport_revoked,
+    passport_not_active, unknown_audience, ...) or ``no_key`` / ``http_<n>`` /
+    ``unreachable``; ``retry_after`` is set on 429."""
+
+    def __init__(self, code: str, message: str = "", status: int = 0,
+                 retry_after: float | None = None) -> None:
+        super().__init__(f"{code}: {message}" if message else code)
+        self.code, self.message, self.status, self.retry_after = code, message, status, retry_after
+
+
+def _active_key(cred_path: Path | None) -> tuple[ec.EllipticCurvePrivateKey, str]:
+    entry = active_entry(load_credentials(cred_path or credentials_path()))
+    if entry is None or not entry.get("registered_at"):
+        raise AgentTokenError("no_key", "no registered agent key (run `windy agent-key ensure`)")
+    return load_private_key(entry["private_key"]), str(entry["kid"])
+
+
+def request_agent_token(aud: str, *, transport: httpx.BaseTransport | None = None,
+                        cred_path: Path | None = None, min_ttl: int = 30) -> dict[str, Any]:
+    """An ``EPT+agent`` for ``aud`` (a Windy service name such as ``windy-calendar``),
+    bound to this agent's active registered key (``cnf.jkt``), with LIVE ei/band/clr.
+
+    Auth is ONLY a DPoP proof by that key: no bearer, so a leaked EPT can't mint these.
+    Cached per (kid, aud) until ``min_ttl`` seconds before expiry (tokens live ≤5 min;
+    Eternitas allows 30 mints/min per passport). Returns Eternitas's body
+    ``{token, token_type, expires_in, aud, passport}`` plus ``expires_at`` (epoch s).
+    Raises :class:`AgentTokenError`. Services that take the token for WRITES also want a
+    per-request proof: see :func:`service_dpop`.
+    """
+    key, kid = _active_key(cred_path)
+    now = time.time()
+    with _TOKEN_LOCK:
+        hit = _TOKEN_CACHE.get((kid, aud))
+        if hit and hit["expires_at"] - min_ttl > now:
+            return dict(hit)
+    url = f"{_base_url()}{TOKEN_PATH}"
+    try:
+        with httpx.Client(timeout=15.0, transport=transport) as client:
+            resp = client.post(url, json={"aud": aud},
+                               headers={"DPoP": dpop_proof(key, "POST", url)})
+    except httpx.HTTPError as exc:
+        raise AgentTokenError("unreachable", type(exc).__name__) from exc
+    if resp.status_code != 200:
+        code, msg = error_code(resp)
+        retry = None
+        if resp.status_code == 429:
+            try:
+                retry = float(resp.headers.get("Retry-After", "") or 0) or None
+            except ValueError:
+                retry = None
+        raise AgentTokenError(code or f"http_{resp.status_code}", msg, resp.status_code, retry)
+    body = resp.json()
+    token = str(body.get("token") or "")
+    if not token:
+        raise AgentTokenError("bad_response", "no token in 200 body", 200)
+    # Never use a token bound to some other key: cnf.jkt must be OUR kid.
+    jkt = (_claims(token).get("cnf") or {}).get("jkt")
+    if jkt != kid:
+        raise AgentTokenError("jkt_mismatch", "token cnf.jkt != this agent's kid", 200)
+    out = dict(body)
+    out["expires_at"] = now + min(int(body.get("expires_in") or 300), 300)
+    with _TOKEN_LOCK:
+        _TOKEN_CACHE[(kid, aud)] = out
+    return dict(out)
+
+
+def service_dpop(htm: str, url: str, *, cred_path: Path | None = None) -> str:
+    """Per-request DPoP proof (fresh iat + unique jti) for calling a Windy service
+    with an ``EPT+agent``: send ``Authorization: DPoP <token>`` plus ``DPoP: <this>``.
+    ``url`` is the absolute URL of THAT request (no query string, per RFC 9449)."""
+    key, _ = _active_key(cred_path)
+    return dpop_proof(key, htm, url.split("?", 1)[0].split("#", 1)[0])
+
+
+def clear_token_cache() -> None:
+    with _TOKEN_LOCK:
+        _TOKEN_CACHE.clear()
+
+
 # ── background / hooks ───────────────────────────────────────────────
 
 def disabled() -> bool:
