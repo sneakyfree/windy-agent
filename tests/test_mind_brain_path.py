@@ -324,3 +324,41 @@ class TestRequestErrorsDoNotBenchMind:
         with patch("httpx.post", return_value=_resp({"detail": "no"}, 401)):
             assert self._call() is None
         assert "windy-mind" in models._provider_cooldowns
+
+
+class TestThinkingBudgetTruncation:
+    """Opus 5.5 thinks before it writes; an ambiguous prompt used the whole
+    2,125-token reply budget and Windy Zero sent just "I" (2026-09-24)."""
+
+    def _call(self, max_tokens=2125):
+        return models._try_mind_broker(
+            [{"role": "user", "content": "Can you fix it?"}], None, 0.7, max_tokens, None,
+        )
+
+    def _cut(self, text="I"):
+        return _resp({"model": "claude-opus-5-5", "choices": [{"message": {"role": "assistant", "content": text},
+                      "finish_reason": "length"}], "usage": {"prompt_tokens": 5, "completion_tokens": 2125}})
+
+    def test_truncated_reply_retries_once_with_full_budget(self):
+        with patch("httpx.post", side_effect=[self._cut(), _resp(MIND_JSON)]) as post:
+            out = self._call()
+        assert out["content"] == "Hello from Mind!"
+        assert post.call_count == 2
+        assert post.call_args_list[0].kwargs["json"]["max_tokens"] == 2125
+        assert post.call_args_list[1].kwargs["json"]["max_tokens"] == models._MIND_MAX_TOKENS
+
+    def test_normal_stop_is_not_retried(self):
+        with patch("httpx.post", return_value=_resp(MIND_JSON)) as post:
+            self._call()
+        post.assert_called_once()
+
+    def test_long_but_cut_reply_is_kept(self):
+        with patch("httpx.post", return_value=self._cut("x" * 500)) as post:
+            out = self._call()
+        post.assert_called_once()
+        assert len(out["content"]) == 500
+
+    def test_already_at_full_budget_does_not_retry(self):
+        with patch("httpx.post", return_value=self._cut()) as post:
+            self._call(max_tokens=models._MIND_MAX_TOKENS)
+        post.assert_called_once()
