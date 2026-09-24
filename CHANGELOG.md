@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (0.7.3)
+## 0.7.3
 
 - **A busy Windy Mind no longer drops the agent into the lifeboat with the wrong
   reason.** When Mind answers 429/502/503/504 (busy: a free quota spent, a lane
