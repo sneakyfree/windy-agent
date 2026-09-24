@@ -728,6 +728,22 @@ def _paid_health_probe(timeout: float = 4.0) -> dict[str, Any]:
         return {"ok": False, "reason": "import_failed", "detail": str(e)}
 
     candidates: list[tuple[str, str, dict[str, str]]] = []
+    # Windy Mind first: it is the PRIMARY brain for keyless agents (every
+    # hatched agent, and Windy Zero since ADR-064). Without this candidate a
+    # Mind-routed agent could never leave lifeboat on its own: the probe only
+    # knew direct keys, found none, and returned no_keys_configured forever
+    # (Windy Zero, 2026-09-24 stress test).
+    ept = (os.environ.get("ETERNITAS_PASSPORT_TOKEN") or os.environ.get("ETERNITAS_PASSPORT") or "").strip()
+    if ept:
+        try:
+            from windyfly.agent.models import resolve_mind_url
+            candidates.append((
+                "windy-mind",
+                f"{resolve_mind_url().rstrip('/')}/v1/models",
+                {"Authorization": f"Bearer {ept}"},
+            ))
+        except Exception:  # noqa: BLE001
+            pass
     if (key := os.environ.get("ANTHROPIC_API_KEY")):
         if key.startswith("sk-ant-oat"):
             # OAuth (Max-plan) tokens 401 the x-api-key path unconditionally,
@@ -865,6 +881,14 @@ def attempt_paid_recovery() -> dict[str, Any]:
     _mark_post_recovery()
 
     provider = probe.get("provider", "paid")
+    if provider == "windy-mind":
+        # Mind answered: lift its circuit-breaker too, or the very next turn
+        # skips Mind as "cooling down" and falls straight back into lifeboat.
+        try:
+            from windyfly.agent.models import _record_provider_success
+            _record_provider_success("windy-mind")
+        except Exception:  # noqa: BLE001
+            pass
     notice = (
         f"✅ Recovered — {provider} is healthy again, switching back "
         f"from lifeboat mode (was using "

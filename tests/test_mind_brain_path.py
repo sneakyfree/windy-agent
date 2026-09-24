@@ -297,3 +297,30 @@ class TestMindToolNames:
         restored = models._mind_restore_tool_names(
             {"tool_calls": [{"id": "c", "type": "function", "function": {"name": long_safe, "arguments": "{}"}}]}, back)
         assert restored["tool_calls"][0]["function"]["name"] == "x." + "y" * 90
+
+
+class TestRequestErrorsDoNotBenchMind:
+    """2026-09-24 stress test: one helper call (journal) got a 400 from Mind,
+    the 30 s circuit-breaker benched Mind, and the next REAL turn found no brain
+    and dropped Windy Zero into lifeboat. A request-shaped 4xx fails that call
+    only."""
+
+    def _call(self):
+        return models._try_mind_broker(
+            [{"role": "user", "content": "hi"}], None, 0.7, 1024, None,
+        )
+
+    @pytest.mark.parametrize("status", [400, 404, 422])
+    def test_request_error_fails_the_call_without_cooldown(self, status):
+        with patch("httpx.post", return_value=_resp({"detail": {"code": "bad_request", "message": "x"}}, status)):
+            assert self._call() is None
+        assert "windy-mind" not in models._provider_cooldowns
+        # The very next call still goes to Mind.
+        with patch("httpx.post", return_value=_resp(MIND_JSON)) as post:
+            assert self._call()["content"] == "Hello from Mind!"
+        post.assert_called_once()
+
+    def test_auth_error_still_cools_mind(self):
+        with patch("httpx.post", return_value=_resp({"detail": "no"}, 401)):
+            assert self._call() is None
+        assert "windy-mind" in models._provider_cooldowns

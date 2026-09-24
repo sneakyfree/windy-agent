@@ -360,3 +360,50 @@ class TestPaidHealthProbeOAuthTokens:
         h = self._capture_headers(monkeypatch, "sk-ant-api03-somekey")
         assert h["x-api-key"] == "sk-ant-api03-somekey"
         assert "Authorization" not in h
+
+
+class TestMindRoutedAgentCanLeaveLifeboat:
+    """Keyless (Mind-routed) agents had NO recovery candidate: the probe knew
+    only direct Anthropic/OpenAI keys, so lifeboat was a one-way door
+    (Windy Zero stress test, 2026-09-24)."""
+
+    def test_probe_uses_mind_with_the_ept(self, monkeypatch):
+        from windyfly.agent import resurrect as _r
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.setenv("ETERNITAS_PASSPORT_TOKEN", "ept-abc")
+        monkeypatch.setenv("MIND_API_URL", "https://mind.test")
+        seen = {}
+
+        class _Resp:
+            status_code = 200
+
+        def fake_get(url, headers=None, timeout=None):
+            seen.update(url=url, headers=headers)
+            return _Resp()
+
+        with patch("httpx.get", side_effect=fake_get):
+            out = _r._paid_health_probe()
+        assert out == {"ok": True, "provider": "windy-mind", "status": 200}
+        assert seen["url"] == "https://mind.test/v1/models"
+        assert seen["headers"]["Authorization"] == "Bearer ept-abc"
+
+    def test_no_ept_and_no_keys_is_still_no_keys(self, monkeypatch):
+        from windyfly.agent import resurrect as _r
+        for k in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "ETERNITAS_PASSPORT_TOKEN", "ETERNITAS_PASSPORT"):
+            monkeypatch.delenv(k, raising=False)
+        assert _r._paid_health_probe()["reason"] == "no_keys_configured"
+
+    def test_mind_recovery_lifts_mind_cooldown(self, monkeypatch, tmp_path):
+        from windyfly.agent import models, resurrect as _r
+        monkeypatch.setenv("WINDY_RESURRECT_FLAG", str(tmp_path / "flag"))
+        monkeypatch.setenv("WINDY_RECOVERY_PROBE_LAST", str(tmp_path / "probe"))
+        monkeypatch.setattr(models, "_provider_cooldowns", {"windy-mind": (9e12, 1)})
+        monkeypatch.setattr(models, "_save_cooldowns", lambda: None)
+        (tmp_path / "flag").write_text('{"active": true, "model": "llama3.2:3b"}')
+        monkeypatch.setattr(_r, "is_resurrected", lambda: True)
+        monkeypatch.setattr(_r, "_paid_health_probe", lambda: {"ok": True, "provider": "windy-mind", "status": 200})
+        monkeypatch.setattr(_r, "normalize", lambda: {"ok": True})
+        out = _r.attempt_paid_recovery()
+        assert out["recovered"] is True and out["provider"] == "windy-mind"
+        assert "windy-mind" not in models._provider_cooldowns
