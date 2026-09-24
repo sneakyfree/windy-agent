@@ -666,6 +666,20 @@ def _mind_error_detail(resp: Any) -> str:
     return str(det)[:160]
 
 
+
+_MIND_MAX_TOKENS = 8192
+
+
+def _truncated_before_answering(result: dict[str, Any] | None) -> bool:
+    """True when the model hit the token limit with (almost) nothing to show:
+    no tool call and under 40 visible characters."""
+    if not result or result.get("tool_calls"):
+        return False
+    if (result.get("finish_reason") or "") not in ("length", "max_tokens"):
+        return False
+    return len((result.get("content") or "").strip()) < 40
+
+
 def resolve_mind_url(default: str = MIND_DEFAULT_URL) -> str:
     """Return the Windy Mind base URL, canonical env name preferred.
 
@@ -834,7 +848,7 @@ def _try_mind_broker(
     tools, messages, _tool_back = _mind_safe_request(tools, messages)
     body: dict[str, Any] = {
         "messages": messages,
-        "max_tokens": min(max_tokens, 8192) if max_tokens else 4096,
+        "max_tokens": min(max_tokens, _MIND_MAX_TOKENS) if max_tokens else 4096,
     }
     if model:
         body["model"] = model
@@ -919,6 +933,26 @@ def _try_mind_broker(
             )
             return None
         translated = _translate_mind_response(resp)
+        if _truncated_before_answering(translated) and body.get("max_tokens", 0) < _MIND_MAX_TOKENS:
+            # Thinking models (Opus 5.5) spend the budget reasoning first; an
+            # ambiguous prompt used all 2,125 tokens and Windy Zero sent "I"
+            # (stress test, 2026-09-24). One retry with the full budget.
+            logger.warning(
+                "Mind reply cut off at %s tokens after %d chars; retrying once with %d",
+                body.get("max_tokens"), len((translated or {}).get("content") or ""), _MIND_MAX_TOKENS,
+            )
+            body = {**body, "max_tokens": _MIND_MAX_TOKENS}
+            resp = httpx.post(
+                f"{mind_url}/v1/chat",
+                headers={
+                    "Authorization": f"Bearer {ept}",
+                    "Content-Type": "application/json",
+                },
+                json=body,
+                timeout=60.0,
+            )
+            if resp.status_code == 200:
+                translated = _translate_mind_response(resp)
         if translated is None:
             _record_provider_failure("windy-mind", "mind response shape invalid")
             logger.warning(
@@ -927,6 +961,9 @@ def _try_mind_broker(
             return None
         _record_provider_success("windy-mind")
         _last_mind_failure = None
+        if (translated.get("finish_reason") or "") not in ("", "stop", "end_turn", "tool_calls", "tool_use"):
+            logger.info("Mind reply finish_reason=%s (%d chars)",
+                        translated.get("finish_reason"), len(translated.get("content") or ""))
         return _mind_restore_tool_names(translated, _tool_back)
     except Exception as e:
         _last_mind_failure = f"mind unreachable ({type(e).__name__})"
@@ -986,6 +1023,7 @@ def _translate_mind_response(resp: Any) -> dict[str, Any] | None:
         "server_tools_used": [],
         "mind_model": data.get("model"),
         "mind_provider": data.get("provider"),
+        "finish_reason": (choices[0] or {}).get("finish_reason"),
     }
 
 
