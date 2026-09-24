@@ -8,6 +8,8 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING
 
+from windyfly.observability import turn_timing as _turn_timing
+
 if TYPE_CHECKING:
     from windyfly.memory.database import Database
 
@@ -283,6 +285,7 @@ def search_episodes(
 _SEMANTIC_MIN_SIM = 0.30
 
 
+@_turn_timing.timed("memory_search")
 def search_episodes_hybrid(
     db: Database,
     query: str,

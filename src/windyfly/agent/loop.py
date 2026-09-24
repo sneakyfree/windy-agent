@@ -491,8 +491,11 @@ def _lifeboat_telemetry(
 
 
 def _dispatch_tool_call(*args: Any, **kwargs: Any) -> str:
-    """``_dispatch_tool_call_inner`` + the health row's tool counts."""
-    result = _dispatch_tool_call_inner(*args, **kwargs)
+    """``_dispatch_tool_call_inner`` + the health row's tool counts + turn timing."""
+    from windyfly.observability import turn_timing
+
+    with turn_timing.phase("tools"):
+        result = _dispatch_tool_call_inner(*args, **kwargs)
     ok = True
     try:
         parsed = json.loads(result) if isinstance(result, str) and result[:1] == "{" else None
@@ -569,13 +572,17 @@ def agent_respond(
     health row, and a turn where the human got no real answer emits one
     ``agent.run_failed``. The pipeline itself is ``_agent_respond_turn``.
     """
-    from windyfly.observability import agent_health
+    from windyfly.observability import agent_health, turn_timing
 
-    with agent_health.turn(write_queue):
-        return _agent_respond_turn(
-            config, db, write_queue, user_message, session_id,
-            tool_registry=tool_registry, band=band,
-        )
+    timing = turn_timing.start()
+    try:
+        with agent_health.turn(write_queue):
+            return _agent_respond_turn(
+                config, db, write_queue, user_message, session_id,
+                tool_registry=tool_registry, band=band,
+            )
+    finally:
+        turn_timing.finish(timing, request_id_short())
 
 
 def _agent_respond_turn(
@@ -740,11 +747,13 @@ def _agent_respond_turn(
     _max_ctx = _user_cap if _user_cap is not None else _native_cap
     _used = _session_tokens.get(session_id, 0)
     _pct_remaining = max(0.0, 100.0 - (_used / _max_ctx) * 100)
-    messages = assemble_prompt(
-        config, db, user_message, session_id,
-        pct_remaining=_pct_remaining,
-        band=band,
-    )
+    from windyfly.observability import turn_timing as _tt
+    with _tt.phase("prompt"):
+        messages = assemble_prompt(
+            config, db, user_message, session_id,
+            pct_remaining=_pct_remaining,
+            band=band,
+        )
 
     # 1.0.5/1.0.6 (RETIRED 2026-07-18, steering→substrate migration):
     # the shell-exec and fs-tool keyword nudges moved into the

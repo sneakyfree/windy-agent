@@ -198,18 +198,24 @@ def embed(text: str) -> bytes | None:
     # Serializing costs nothing that matters: MiniLM is single-digit
     # milliseconds per call and turns are seconds apart. Determinism
     # beats a micro-optimization no one asked for.
-    with _MODEL_LOCK:
+    from windyfly.observability import turn_timing
+    with turn_timing.phase("embed_wait"):
+        _MODEL_LOCK.acquire()  # waits here while the WriteQueue embeds an episode
+    try:
         model = _load_model()
         if model is None:
             return None
         try:
             import numpy as np
-            vec = model.encode(text, normalize_embeddings=True)
+            with turn_timing.phase("embed"):
+                vec = model.encode(text, normalize_embeddings=True)
             # Force float32 for stable BLOB shape
             return np.asarray(vec, dtype=np.float32).tobytes()
         except Exception as e:
             logger.warning("embed() failed: %s", e)
             return None
+    finally:
+        _MODEL_LOCK.release()
 
 
 def deserialize(blob: bytes | None) -> list[float] | None:

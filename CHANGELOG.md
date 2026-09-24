@@ -2,6 +2,13 @@
 
 ## Unreleased (0.7.4)
 
+- **Every reply logs where its time went.** One line per turn:
+  `[req:…] timing total=… queued=… prompt=… (memory_search=… embed=… embed_wait=…) llm=…×n tools=…×n other=…`.
+  `queued` is the wait for the agent's single turn thread, `embed_wait` is time
+  blocked behind a background memory save, and helper model calls (facts,
+  journal, …) show separately as `llm:<purpose>`. Durations only, and timing
+  can never break a reply.
+
 - **Short-lived, key-bound service tokens (Eternitas mode B).**
   `agent_keys.request_agent_token(aud)` trades a DPoP proof by the agent's
   registered key for a ≤5-minute `EPT+agent` scoped to one Windy service
