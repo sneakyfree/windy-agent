@@ -42,16 +42,16 @@ class TestFingerprintAndContextCap:
 
     def test_fingerprint_oat_token(self):
         token = (
-            "sk-ant-oat01-VwUdywrPUNW2MlOu4FNOPGhg3P3-hc6z-z8wpl"
-            "HFQkOgj9lEJkRXWwPvP-vsHmIFe-AE7_Klesjco3QTWjIP1A-hUMCwAAA"
+            "sk-ant-oat01-FAKEfakeFAKEfake-test-only-00000000000"
+            "FAKEtailFAKEtailFAKEtailFAKEtailFAKEtailFAKEtailFAKE"
         )
         fp = models._fingerprint_token(token)
         # Shape: first 15 + … + last 4
-        assert fp.startswith("sk-ant-oat01-Vw")
+        assert fp.startswith("sk-ant-oat01-FA")
         assert "…" in fp
-        assert fp.endswith("wAAA")
+        assert fp.endswith("FAKE")
         # Crucially: the BODY of the token is NOT in the fingerprint
-        assert "UdywrPUNW2MlOu" not in fp
+        assert "fakeFAKEfake-test" not in fp
 
     def test_fingerprint_empty(self):
         assert models._fingerprint_token("") == "(empty)"
@@ -122,7 +122,7 @@ class TestGetAnthropicAuthPath:
         callers shouldn't have to None-check fields."""
         monkeypatch.delenv("ANTHROPIC_OAUTH_ACCESS_TOKEN", raising=False)
         cases = [
-            "sk-ant-oat01-VwUdywrPUNW2MlOu4FNOPGhg3P3-hc6z-z8wplHFQkOgj9lEJkRXWwPvP",
+            "sk-ant-oat01-FAKEfakeFAKEfake-test-only-00000000000FAKEFAKEFAKE",
             "sk-ant-api03-LongEnoughTokenStringForFingerprintXX",
             "",
         ]
@@ -145,7 +145,7 @@ class TestStatusCommandIncludesAuth:
         live at a glance (PR #195)."""
         monkeypatch.setenv(
             "ANTHROPIC_API_KEY",
-            "sk-ant-oat01-VwUdywrPUNW2MlOu4FNOPGhg3P3-hc6z-z8wplHFQk",
+            "sk-ant-oat01-FAKEfakeFAKEfake-test-only-00000000000",
         )
         monkeypatch.delenv("ANTHROPIC_OAUTH_ACCESS_TOKEN", raising=False)
         monkeypatch.setenv("DEFAULT_MODEL", "claude-sonnet-4-6")
@@ -166,11 +166,11 @@ class TestStatusCommandIncludesAuth:
             f"/status didn't surface OAuth path for oat token: {reply!r}"
         )
         # PR #195 — fingerprint visible (truncated, body redacted)
-        assert "sk-ant-oat01-Vw" in reply, (
+        assert "sk-ant-oat01-FA" in reply, (
             f"/status didn't show OAuth fingerprint: {reply!r}"
         )
         # The body of the token MUST NOT leak
-        assert "UdywrPUNW2MlOu" not in reply, (
+        assert "fakeFAKEfake-test" not in reply, (
             f"/status leaked token body: {reply!r}"
         )
 
@@ -200,7 +200,7 @@ class TestStatusCommandIncludesAuth:
         monkeypatch.delenv("ANTHROPIC_OAUTH_ACCESS_TOKEN", raising=False)
         monkeypatch.setenv(
             "ANTHROPIC_API_KEY",
-            "sk-ant-oat01-VwUdywrPUNW2MlOu4FNOPGhg3P3-hc6z-z8wplHFQk",
+            "sk-ant-oat01-FAKEfakeFAKEfake-test-only-00000000000",
         )
         monkeypatch.setenv("DEFAULT_MODEL", "claude-sonnet-4-6")
         monkeypatch.setenv("WINDYFLY_DB_PATH", "/nonexistent/path.db")
@@ -236,7 +236,7 @@ class TestStatusCommandIncludesAuth:
         )
         # Plan (auth + fingerprint)
         assert "💳 Plan:" in reply
-        assert "sk-ant-oat01-Vw" in reply
+        assert "sk-ant-oat01-FA" in reply
         # Session
         assert "Session: telegram:1234:v0" in reply
         assert "0 fresh starts" in reply

@@ -122,7 +122,7 @@ drill_lifeboat() {
     (cd "$AGENT_DIR" && \
      WINDYFLY_DB_PATH="$SCRATCH/lifeboat.db" \
      WINDY_STATE_DIR="$SCRATCH/state-lifeboat" \
-     ANTHROPIC_API_KEY="sk-ant-api03-FIRE-DRILL-DEAD" \
+     ANTHROPIC_API_KEY="sk-ant-api03-FAKE-dead-key-for-fire-drill-only" \
      MIND_API_URL="http://127.0.0.1:9" \
      HOME="$SCRATCH" \
      uv run python - <<'PY'

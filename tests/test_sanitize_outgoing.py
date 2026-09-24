@@ -78,14 +78,14 @@ class TestTracebackStripping:
 
 class TestCredentialRedaction:
     def test_anthropic_oauth_token_redacted(self):
-        text = "Debug info: ANTHROPIC_API_KEY=sk-ant-oat01-VwUdywrPUNW2MlOu4FNOPGhg3P3-hc6z-z8wplHFQkOg"
+        text = "Debug info: ANTHROPIC_API_KEY=sk-ant-oat01-FAKEfakeFAKEfake-test-only-00000000000"
         out = sanitize_outgoing(text)
-        assert "VwUdywrPUNW2MlOu4FNOPGhg3P3" not in out
+        assert "FAKEfakeFAKEfake-test-only-" not in out
 
     def test_telegram_bot_token_redacted(self):
-        text = "URL: https://api.telegram.org/bot8669155077:AAEsupersecret_redacted_value_xxxxxxxxxxxxxxxxxxxx/getMe"
+        text = "URL: https://api.telegram.org/bot1234567890:AAFAKEsupersecret_redacted_value_xx/getMe"
         out = sanitize_outgoing(text)
-        assert "AAEsupersecret_redacted_value_xxxxxxxxxxxxxxxxxxxx" not in out
+        assert "AAFAKEsupersecret_redacted_value_xx" not in out
 
 
 class TestControlChars:
