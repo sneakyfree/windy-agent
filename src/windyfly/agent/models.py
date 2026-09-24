@@ -720,19 +720,17 @@ def _mind_safe_request(
         back[out] = name
         return out
 
-    out_tools = None
+    fn_tools: list[dict[str, Any]] = []
     if tools:
-        out_tools = []
         for t in tools:
             if t.get("type") and t.get("type") != "function":
                 continue  # Anthropic server tool: no provider behind Mind can run it
             fn = t.get("function") or t
-            out_tools.append({"type": "function", "function": {
+            fn_tools.append({"type": "function", "function": {
                 "name": safe(fn.get("name", "")),
                 "description": fn.get("description", ""),
                 "parameters": fn.get("parameters") or fn.get("input_schema") or {"type": "object", "properties": {}},
             }})
-        out_tools = out_tools or None
 
     out_msgs = []
     for m in messages:
@@ -744,7 +742,7 @@ def _mind_safe_request(
         if m.get("role") == "tool" and m.get("name"):
             m = {**m, "name": safe(m["name"])}
         out_msgs.append(m)
-    return out_tools, out_msgs, back
+    return (fn_tools or None), out_msgs, back
 
 
 def _mind_restore_tool_names(result: dict[str, Any], back: dict[str, str]) -> dict[str, Any]:
