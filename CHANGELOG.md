@@ -2,6 +2,7 @@
 
 ## Unreleased (0.7.4)
 
+- **A backup-brain reply is never unmarked.** When the model chain was exhausted and auto-resurrect declined (cooldown, disabled, or the post-recovery grace), the offline reply went out with no notice; a tripped Mind breaker hid this for 4 days on Windy Zero. The first such reply per session now says so in a sentence, later ones carry `🛟`. A 403/breaker is named in the auto-switch banner, and `offline.chain_exhausted` logs `notice_shown` separately from `auto_resurrected`.
 - **Every reply logs where its time went.** One line per turn:
   `[req:…] timing total=… queued=… prompt=… (memory_search=… embed=… embed_wait=…) llm=…×n tools=…×n other=…`.
   `queued` is the wait for the agent's single turn thread, `embed_wait` is time

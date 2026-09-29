@@ -691,6 +691,27 @@ def _within_post_recovery_grace() -> bool:
     return age < _POST_RECOVERY_GRACE_S
 
 
+# Sessions already told they are on a backup brain. The ok=False branches of
+# auto_resurrect_attempt (disabled / cooldown / post_recovery_grace) used to
+# hand back the offline reply with NO marker, which hid a 4-day Mind breaker
+# trip on Windy Zero (2026-09-25..29). First reply per session gets the full
+# sentence; later ones get a short marker. Never fully silent.
+_fallback_notified: set[str] = set()
+
+
+def should_show_fallback_notice(session_id: str) -> bool:
+    """True the first time this session is served by a fallback brain."""
+    if session_id in _fallback_notified:
+        return False
+    _fallback_notified.add(session_id)
+    return True
+
+
+def clear_fallback_notice(session_id: str) -> None:
+    """Call when the session is back on its real model."""
+    _fallback_notified.discard(session_id)
+
+
 def _mark_post_recovery() -> None:
     path = _post_recovery_grace_path()
     try:
