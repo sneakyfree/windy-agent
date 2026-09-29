@@ -108,6 +108,8 @@ def _auto_resurrect_banner(chosen_model: str, error_str: str) -> str:
         why = "timed out"
     elif "401" in e or "authentication" in e:
         why = "rejected its credential"
+    elif "403" in e or "circuit breaker" in e:
+        why = "has been switched off upstream"
     else:
         why = "didn't answer"
     return (
@@ -1174,6 +1176,7 @@ def _agent_respond_turn(
             # is never silent — that's the failure mode PR #117 era
             # taught us to always avoid.
             notification = ""
+            ar_result: dict = {}
             ar_reason: str | None = None
             try:
                 from windyfly.agent.resurrect import auto_resurrect_attempt
@@ -1277,6 +1280,21 @@ def _agent_respond_turn(
             from windyfly.agent.offline import queue_message
             context = [{"role": m["role"], "content": m["content"]} for m in messages[-5:]]
             offline_response = get_offline_response(user_message, context)
+            shown_notice = bool(notification)
+            if not notification and not offline_response.startswith("🛟"):
+                # auto_resurrect_attempt returned ok=False (disabled /
+                # cooldown / post_recovery_grace): never send a fallback
+                # reply unmarked.
+                from windyfly.agent.resurrect import should_show_fallback_notice
+                if should_show_fallback_notice(session_id):
+                    notification = (
+                        "🛟 *Heads up: I'm running on a backup brain right "
+                        "now, so answers may be weaker than usual. "
+                        "Your usual model didn't answer.*\n\n---\n\n"
+                    )
+                else:
+                    notification = "🛟 "
+                shown_notice = True
             full_response = notification + offline_response
             queue_message(user_message, session_id)
             write_queue.enqueue(Priority.HIGH, save_episode, db, "user", user_message, session_id=session_id)
@@ -1284,12 +1302,13 @@ def _agent_respond_turn(
             log_event(db, write_queue, "offline.chain_exhausted", {
                 "message": user_message[:100],
                 "error": msg[:200],
-                "auto_resurrected": bool(notification),
+                "auto_resurrected": bool(ar_result.get("ok")),
+                "notice_shown": shown_notice,
             })
             from windyfly.observability import agent_health as _ah
             _code = _ah.failure_code(msg)
             _ah.mark_turn_failed(_code, stage="llm", lifeboat=True, channel=_plat, model=model)
-            if notification:
+            if ar_result.get("ok"):
                 _ah.note_demotion(
                     model, str(ar_result.get("model") or "local"),
                     _ah.demotion_reason(_code, msg), write_queue=write_queue,
