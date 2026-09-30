@@ -392,6 +392,11 @@ class WindyFlyMatrixBot(ChannelAdapter):
                 "windy_original": True,
                 "windy_lang": self._detect_lang(response_text),
             }
+            # Chat contract: the model Mind actually SERVED; absent otherwise.
+            from windyfly.agent.loop import pop_served_model
+            served = pop_served_model(session_id)
+            if served:
+                content["uk.windypro.model"] = served
             await self.client.room_send(
                 room_id,
                 "m.room.message",
