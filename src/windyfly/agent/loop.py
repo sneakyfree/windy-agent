@@ -559,6 +559,24 @@ def _dispatch_tool_call_inner(
         return json.dumps({"error": f"Unknown tool: {fn_name}"})
 
 
+# Model Mind reported serving the last reply per session (x-mind-model),
+# for channels that label replies (Matrix `uk.windypro.model`). Set ONLY
+# from Mind's own answer, never from what was requested.
+_LAST_SERVED_MODEL: dict[str, str] = {}
+
+
+def _note_served_model(session_id: str, model: str | None) -> None:
+    if model:
+        _LAST_SERVED_MODEL[session_id] = str(model)
+    else:
+        _LAST_SERVED_MODEL.pop(session_id, None)
+
+
+def pop_served_model(session_id: str) -> str | None:
+    """Return and clear the model Mind served for this session's last turn."""
+    return _LAST_SERVED_MODEL.pop(session_id, None)
+
+
 def agent_respond(
     config: dict[str, Any],
     db: Database,
@@ -1807,6 +1825,7 @@ def _agent_respond_turn(
     session_total = _record_session_footprint(
         session_id, peak_input_tokens + output_tokens,
     )
+    _note_served_model(session_id, result.get("mind_model"))
     response_text = maybe_prepend_header(
         response_text, session_total, max_tokens=_max_ctx,
         # Engine transparency: what actually served this reply —
