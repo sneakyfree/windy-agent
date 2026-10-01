@@ -189,8 +189,17 @@ Windy Fly connects to the full Windy product suite:
 | **Windy Mail** | Agent email inbox | ✅ Integrated |
 | **Windy Cloud** | Backup storage, VPS deployment | ✅ Integrated |
 | **Windy Pro** | Desktop/mobile app connections | ✅ Integrated |
+| **Windy Mind** | All model compute (the agent's brain), with its own Eternitas token | ✅ Integrated |
 
 Check connectivity: `windy ecosystem`
+
+**Compute goes through Windy Mind.** The agent calls Mind with its own
+passport token; Mind picks, meters and ledgers the model. Any other tool
+that needs a model should do the same: one base URL plus a Mind key, as
+described in [Use Windy Mind for compute](https://github.com/sneakyfree/windy-mind/blob/main/docs/USE_MIND_FOR_COMPUTE.md).
+The only direct model call windy-agent makes is the declared backup: a
+local Ollama on the agent's own machine, used only when Mind is
+unreachable, with every such reply marked.
 
 ### Eternitas Trust Gate
 

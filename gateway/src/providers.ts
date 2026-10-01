@@ -107,7 +107,7 @@ const BUILTIN_PROVIDERS: Record<string, Omit<Provider, "key" | "builtin" | "has_
   ollama: {
     name: "Ollama (Local)",
     type: "openai",
-    base_url: "http://localhost:11434/v1",
+    base_url: "http://localhost:11434/v1", // own-machine Ollama (lifeboat floor), not Veron; an owner override in data/providers.json can change it
     api_key_env: "",
     models: ["llama3", "mistral", "codellama"],
   },
