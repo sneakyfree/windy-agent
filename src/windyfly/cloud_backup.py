@@ -84,6 +84,13 @@ def _get_cloud_token() -> str:
     return os.environ.get("WINDY_CLOUD_TOKEN", "") or os.environ.get("WINDY_JWT", "")
 
 
+# FROZEN. Part of the passport-derived backup key (material = "<passport>:<name>").
+# This is NOT the brand: renaming the product or the default agent name must never
+# change it, or every existing backup made with the default name becomes
+# undecryptable. A known-answer test (tests/test_backup_kdf_frozen.py) guards it.
+_KDF_DEFAULT_AGENT_NAME = "Windy Fly"
+
+
 def _get_encryption_key() -> bytes:
     """Derive the 32-byte backup key.
 
@@ -100,7 +107,7 @@ def _get_encryption_key() -> bytes:
             "sha256", user_secret.encode(), b"windy-backup-kdf-v2", 200_000
         )
     passport = os.environ.get("ETERNITAS_PASSPORT", "windyfly-local")
-    agent_name = os.environ.get("WINDYFLY_AGENT_NAME", "Windy Fly")
+    agent_name = os.environ.get("WINDYFLY_AGENT_NAME", _KDF_DEFAULT_AGENT_NAME)
     material = f"{passport}:{agent_name}".encode()
     return hashlib.pbkdf2_hmac("sha256", material, b"windy-backup-kdf-v2", 200_000)
 
