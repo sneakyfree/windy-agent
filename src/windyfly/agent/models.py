@@ -839,7 +839,7 @@ def _try_mind_broker(
     # Circuit breaker: Mind is the PRIMARY brain for keyless agents —
     # give it the same cooldown discipline as direct providers instead
     # of one silent 30s attempt per call.
-    if _is_provider_in_cooldown("windy-mind"):
+    if not _mind_helper_enabled() and _is_provider_in_cooldown("windy-mind"):
         _last_mind_failure = "mind cooling down after errors"
         return None
 
@@ -856,6 +856,9 @@ def _try_mind_broker(
         body["temperature"] = temperature
     if tools:
         body["tools"] = tools
+
+    if _mind_helper_enabled():
+        return _try_mind_via_helper(mind_url, ept, body, _tool_back)
 
     try:
         import httpx
@@ -970,6 +973,71 @@ def _try_mind_broker(
         _record_provider_failure("windy-mind", str(e))
         logger.warning("Mind broker call failed (%s); falling through", e)
         return None
+
+
+def _mind_helper_enabled() -> bool:
+    from windyfly.agent import mind_helper
+
+    return mind_helper.enabled()
+
+
+def _try_mind_via_helper(
+    mind_url: str, ept: str, body: dict[str, Any], tool_back: dict[str, str],
+) -> dict[str, Any] | None:
+    """The WINDY_MIND_HELPER=1 path: the vendored Mind helper owns timeouts, the ONE
+    transient retry and the floors, so none of that is retried here. Kept here:
+    the request-shape fixes (422 model-less, 8192 truncation) and 429 pacing."""
+    global _last_mind_failure
+    from windyfly.agent import mind_helper as mh
+
+    def _call(b: dict[str, Any]) -> Any:
+        try:
+            return mh.chat(mind_url, ept, b)
+        except mh.MindRefusedError as e:
+            if e.status == 429:
+                try:
+                    wait = float(e.headers.get("retry-after") or 5.0)
+                except (TypeError, ValueError):
+                    wait = 5.0
+                wait = max(1.0, min(wait, mh.RETRY_AFTER_CAP_S))
+                logger.warning("Mind rate-limited (429); pacing once, %.0fs", wait)
+                time.sleep(wait)
+                return mh.chat(mind_url, ept, b)
+            if e.status == 422 and "model" in b:
+                logger.warning("Mind rejected model %r (422): retrying model-less", b.get("model"))
+                return mh.chat(mind_url, ept, {k: v for k, v in b.items() if k != "model"})
+            raise
+
+    try:
+        res = _call(body)
+        translated = _translate_mind_response(mh.JsonShim(res.response))
+        if _truncated_before_answering(translated) and body.get("max_tokens", 0) < _MIND_MAX_TOKENS:
+            logger.warning("Mind reply cut off; retrying once with %d", _MIND_MAX_TOKENS)
+            res2 = _call({**body, "max_tokens": _MIND_MAX_TOKENS})
+            res = res2
+            translated = _translate_mind_response(mh.JsonShim(res2.response))
+    except mh.MindRefusedError as e:
+        _last_mind_failure = f"mind http {e.status}"
+        logger.warning("Mind refused (%s, %s): %s; not cooling Mind down", e.status, e.error_code, e)
+        return None
+    except mh.MindUnavailableError as e:
+        _last_mind_failure = f"mind unreachable ({e.reason})"
+        logger.warning("Mind unavailable (%s); falling through to the direct chain", e.reason)
+        return None
+    except Exception as e:  # accounting for a helper bug must not break a reply
+        _last_mind_failure = f"mind helper error ({type(e).__name__})"
+        logger.warning("Mind helper failed (%s); falling through", e)
+        return None
+    if translated is None:
+        _last_mind_failure = "mind response shape invalid"
+        return None
+    _last_mind_failure = None
+    if res.fallback:
+        # Marked, never silent: the loop turns this into the backup-brain notice.
+        translated["mind_fallback"] = res.fallback
+    if res.served_model:
+        translated["mind_model"] = res.served_model
+    return _mind_restore_tool_names(translated, tool_back)
 
 
 def _translate_mind_response(resp: Any) -> dict[str, Any] | None:
