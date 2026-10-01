@@ -65,9 +65,11 @@ class SeenStore:
                 logger.warning("sms inbox: could not persist seen ids: %s", e)
 
 
-def contact_relay(body: str) -> str:
+def contact_relay(body: str, sender: str | None = None) -> str:
+    # Windy Text sends the sender MASKED (e.g. +1 ••• •••-1234); shown as-is.
+    who = f"from {sender.strip()[:32]}" if sender and sender.strip() else "from a contact"
     return (
-        "New text from a contact (I have not replied or acted on it):\n"
+        f"New text {who} (I have not replied or acted on it):\n"
         f"“{body.strip()[:1500]}”"
     )
 
@@ -96,6 +98,6 @@ async def handle_new(
             reply = await run_owner_turn(body)
             await send_dm(reply + OWNER_NOTE)
         else:
-            await send_dm(contact_relay(body))
+            await send_dm(contact_relay(body, str(item.get("from") or "") or None))
         handled += 1
     return handled
