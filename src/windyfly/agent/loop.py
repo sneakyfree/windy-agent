@@ -577,6 +577,16 @@ def pop_served_model(session_id: str) -> str | None:
     return _LAST_SERVED_MODEL.pop(session_id, None)
 
 
+_MIND_FALLBACK_NOTICES = {
+    "mind_slow": "\U0001f6df Mind is slow right now, so this answer came from a backup route. ",
+    "mind_down": "\U0001f6df Mind is unreachable right now, so this answer came from a backup route. ",
+}
+
+
+def _mind_fallback_notice(reason: str) -> str:
+    return _MIND_FALLBACK_NOTICES.get(reason, _MIND_FALLBACK_NOTICES["mind_down"])
+
+
 def agent_respond(
     config: dict[str, Any],
     db: Database,
@@ -1825,7 +1835,9 @@ def _agent_respond_turn(
     session_total = _record_session_footprint(
         session_id, peak_input_tokens + output_tokens,
     )
-    _note_served_model(session_id, result.get("mind_model"))
+    _mind_fb = result.get("mind_fallback")  # set by the Mind helper path (MD14)
+    # A fallback reply is not "the model Mind served": no uk.windypro.model on it.
+    _note_served_model(session_id, None if _mind_fb else result.get("mind_model"))
     response_text = maybe_prepend_header(
         response_text, session_total, max_tokens=_max_ctx,
         # Engine transparency: what actually served this reply —
@@ -1834,6 +1846,8 @@ def _agent_respond_turn(
         # provider's model.
         engine=result.get("mind_model") or result.get("model"),
     )
+    if _mind_fb:
+        response_text = _mind_fallback_notice(_mind_fb) + response_text
 
     # 8.5. Recovery notice — when step 1.7 detected paid LLM is
     # healthy again and dropped the resurrect flag, surface the
