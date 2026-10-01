@@ -165,7 +165,9 @@ def with_ai_footer(body: str) -> str:
     return f"{body.rstrip()}\n\n--\n{footer}\n"
 
 
-def send_email(to: str, subject: str, body: str) -> dict[str, Any]:
+def _send_email_now(
+    to: str, subject: str, body: str, *, approved_by: str | None = None,
+) -> dict[str, Any]:
     """Send an email via the agent's own mailbox.
 
     ``to`` may be a single address or a comma-separated list. Returns
@@ -213,6 +215,9 @@ def send_email(to: str, subject: str, body: str) -> dict[str, Any]:
 
     # Mail to third parties says who is really writing (legal review,
     # 2026-09-23): one footer line on every path.
+    if approved_by:
+        # Who authorised this send, stated in the message itself.
+        body = f"{body}\n\n(Sent with the approval of {approved_by}.)"
     body = with_ai_footer(body)
 
     if len(recipients) == 1:
@@ -251,6 +256,76 @@ def send_email(to: str, subject: str, body: str) -> dict[str, Any]:
         "total": len(recipients),
         "per_recipient": per_recipient,
     }
+
+
+# ── owner confirmation before outbound sends (dark: WINDY_SEND_CONFIRM=1) ────────
+# The MODEL can only DRAFT. The owner's own message ('send' / 'cancel'), handled
+# in code by channels.base (never by the model), is what actually sends.
+_PENDING: dict[str, dict[str, Any]] = {}
+PENDING_TTL_S = 30 * 60
+
+
+def send_confirm_enabled() -> bool:
+    return os.environ.get("WINDY_SEND_CONFIRM", "") == "1"
+
+
+def _prune_pending() -> None:
+    import time as _t
+
+    now = _t.time()
+    for k in [k for k, v in _PENDING.items() if now - v["at"] > PENDING_TTL_S]:
+        _PENDING.pop(k, None)
+
+
+def _queue_draft(to: str, subject: str, body: str) -> dict[str, Any]:
+    import time as _t
+    import uuid as _u
+
+    _prune_pending()
+    draft_id = _u.uuid4().hex[:8]
+    _PENDING[draft_id] = {"to": to, "subject": subject, "body": body, "at": _t.time()}
+    return {
+        "status": "pending_owner_approval",
+        "draft_id": draft_id,
+        "to": to,
+        "subject": subject,
+        "note": (
+            "NOT SENT. This is a draft. Show the owner the recipient, subject and body "
+            "and tell them to reply 'send' to approve or 'cancel' to drop it. "
+            "Never say the email was sent."
+        ),
+    }
+
+
+def pending_drafts() -> list[dict[str, Any]]:
+    _prune_pending()
+    return [{"draft_id": k, **v} for k, v in sorted(_PENDING.items(), key=lambda kv: kv[1]["at"])]
+
+
+def approve_latest(approved_by: str) -> dict[str, Any]:
+    """Send the newest pending draft. Called only from the owner's own message."""
+    _prune_pending()
+    if not _PENDING:
+        return {"status": "none", "error": "There is no draft waiting for approval."}
+    draft_id = max(_PENDING, key=lambda k: _PENDING[k]["at"])
+    d = _PENDING.pop(draft_id)
+    result = _send_email_now(d["to"], d["subject"], d["body"], approved_by=approved_by)
+    result["draft_id"] = draft_id
+    result.setdefault("to", d["to"])
+    return result
+
+
+def cancel_pending() -> int:
+    n = len(_PENDING)
+    _PENDING.clear()
+    return n
+
+
+def send_email(to: str, subject: str, body: str) -> dict[str, Any]:
+    """Model-facing send. With WINDY_SEND_CONFIRM=1 it only DRAFTS (owner approves)."""
+    if send_confirm_enabled():
+        return _queue_draft(to, subject, body)
+    return _send_email_now(to, subject, body)
 
 
 def list_inbox(unread_only: bool = False, limit: int = 20) -> dict[str, Any]:
