@@ -119,10 +119,10 @@ _CONTRACT: dict[str, tuple[str, frozenset[str]]] = {
 
 # The filing cabinet (contract v1.2, specs/WINDY_CODE_CABINET_MCP_v1.2.md): DARK on both
 # sides. These tools exist only when WINDY_CODE_CABINET=1 here AND the builder lists them
-# (its CABINET_ENABLED). Not in the vendored v1 manifest yet: vendor v1.2 when C3 ships.
+# (its CABINET_ENABLED). Drift-tested against the vendored contracts/windy-code-web.mcp.v1.2.json.
 _CABINET_CONTRACT: dict[str, tuple[str, frozenset[str]]] = {
     "windycodeweb_file_project": ("file_project", frozenset({"name", "kind", "summary", "ref", "links"})),
-    "windycodeweb_log_activity": ("log_activity", frozenset({"project_id", "speak"})),
+    "windycodeweb_log_activity": ("log_activity", frozenset({"project_id", "speak", "idempotency_key"})),
     "windycodeweb_list_cabinet": ("list_cabinet", frozenset()),
 }
 CABINET_KINDS = ("code_repo", "mobile_app", "database", "app", "site", "other")
@@ -392,7 +392,14 @@ def windycodeweb_log_activity(project_id: str, speak: str) -> dict[str, Any]:
         return {"status": "failed", "error": "keep it to one sentence under 280 characters"}
     if _has_secret(speak):
         return {"status": "failed", "error": "that note looks like it contains a secret; describe the change without it"}
-    return _call("windycodeweb_log_activity", {"project_id": project_id, "speak": speak})
+    # The same sentence on the same project on the same (UTC) day is one note, even if the
+    # model repeats the call: the builder dedupes on this key (contract v1.2, ≤64 chars).
+    import hashlib
+
+    day = time.strftime("%Y-%m-%d", time.gmtime())
+    key = hashlib.sha256(f"{project_id}\n{speak}\n{day}".encode()).hexdigest()[:32]
+    return _call("windycodeweb_log_activity", {"project_id": project_id, "speak": speak,
+                                               "idempotency_key": key})
 
 
 def windycodeweb_list_cabinet() -> dict[str, Any]:

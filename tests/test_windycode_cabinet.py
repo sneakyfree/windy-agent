@@ -88,8 +88,15 @@ def test_file_project_sends_v12_args(builder_env):
 def test_log_activity_and_list_cabinet_names(builder_env):
     with patch.object(mod, "_rpc", return_value=_mcp({"speak": "Noted."})) as rpc:
         assert mod.windycodeweb_log_activity("p1", "Added a search box  to the list.")["status"] == "ok"
-        assert rpc.call_args.args[3] == {"name": "log_activity", "arguments": {
+        sent = rpc.call_args.args[3]
+        key = sent["arguments"].pop("idempotency_key")
+        assert sent == {"name": "log_activity", "arguments": {
             "project_id": "p1", "speak": "Added a search box to the list."}}
+        assert len(key) <= 64
+        mod.windycodeweb_log_activity("p1", "Added a search box to the list.")
+        assert rpc.call_args.args[3]["arguments"]["idempotency_key"] == key  # a repeat dedupes
+        mod.windycodeweb_log_activity("p1", "Added a footer.")
+        assert rpc.call_args.args[3]["arguments"]["idempotency_key"] != key
         mod.windycodeweb_list_cabinet()
         assert rpc.call_args.args[3] == {"name": "list_cabinet", "arguments": {}}
 
@@ -132,6 +139,21 @@ def test_bad_kind_and_long_note_refused(builder_env):
         assert mod.windycodeweb_file_project("X", "spaceship")["status"] == "failed"
         assert mod.windycodeweb_log_activity("p1", "x" * 281)["status"] == "failed"
     rpc.assert_not_called()
+
+
+def test_cabinet_drift_against_vendored_v12_manifest():
+    """Every cabinet tool + argument this client sends exists in the builder's v1.2
+    manifest (vendored from windy-code-web contracts/; re-vendor, never hand-edit)."""
+    import json
+    from pathlib import Path
+
+    manifest = json.loads((Path(mod.__file__).parent / "contracts"
+                           / "windy-code-web.mcp.v1.2.json").read_text())
+    assert manifest["contract"] == "windy-code-web.mcp.v1.2"
+    schemas = {t["name"]: set(t["inputSchema"].get("properties", {})) for t in manifest["tools"]}
+    for fly_tool, (tool, args) in {**mod._CONTRACT, **mod._CABINET_CONTRACT}.items():
+        assert tool in schemas, f"{fly_tool} calls {tool}, not in the v1.2 manifest"
+        assert args <= schemas[tool], f"{fly_tool} sends {sorted(args - schemas[tool])} to {tool}"
 
 
 def test_cabinet_contract_names_match_v12_spec():
