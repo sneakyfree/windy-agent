@@ -161,8 +161,8 @@ def _send_email_handler(
         # LLM saw "dormant_integration" and routed to the setup wizard
         # even though Resend was perfectly available — the actual bug
         # the user hit 2026-05-14 with the Austin-TX-mortgage prompt.
-        from windyfly.tools.mail import _resend_configured, _resend_send
-        if _resend_configured():
+        from windyfly.tools.mail import _resend_configured, _resend_send, strict_mailbox
+        if _resend_configured() and not strict_mailbox():
             send_result = _resend_send(to, subject, body)
             if send_result.get("status") == "sent":
                 return {
@@ -226,6 +226,8 @@ def _send_email_handler(
             "message_id": result.get("id"),
             "thread_id": result.get("threadId"),
             "outcome_score": 1.0,
+            "provider": "gmail",
+            "notice": "Sent via your Gmail, not from your agent's own mailbox.",
         }
     except Exception as e:
         logger.warning("[email.send] FAILED: to=%s err=%s", to, e)
@@ -315,7 +317,12 @@ def register_email_capabilities(
     """
     from windyfly.tools.mail import _resend_configured
 
-    if not (_is_configured() or _resend_configured()):
+    from windyfly.tools.mail import strict_mailbox
+
+    # Strict mode: Resend alone never justifies a second send tool (Windy Mail's
+    # send_email is the one path); only a connected Gmail does.
+    live = _is_configured() or (_resend_configured() and not strict_mailbox())
+    if not live:
         logger.info(
             "email.* (Gmail/Resend) NOT registered — no live backend; the "
             "agent uses its Windy Mail inbox (send_email) instead."
