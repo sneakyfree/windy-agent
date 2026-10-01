@@ -12,8 +12,8 @@ fresh Matrix device session for its provisioned identity. While the
 Fly holds the ``matrix`` runtime-claim slot (main.py wires this), the
 chat-side midwife (agent-roster) yields — one soul, one voice.
 
-Mirrors mail_provision.py (windy-mail #62): same EPT bearer pattern,
-same never-crash contract.
+Uses the same EPT bearer pattern as the (since removed) CLI mail
+provisioning (windy-mail #62), with the same never-crash contract.
 """
 
 import logging

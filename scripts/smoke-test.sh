@@ -10,11 +10,10 @@
 #      the selftest command grows a --full flag. For now the existing self-test
 #      is the closest equivalent.
 #   2. GET  /api/health                  — gateway liveness
-#   3. POST /hatch/remote                — drives the SSE ceremony with a
-#                                          broker_token and captures the event
-#                                          stream
-#   4. Parse the SSE stream and verify every one of the 13 canonical events
-#      fires in the contract order (src/windyfly/hatch_remote.EVENT_ORDER).
+#   3. POST /hatch/remote                — retired in 0.7.5 (ADR-059): must
+#                                          answer 410 {"error":"hatch_moved"}.
+#                                          Agents hatch only in the Windy
+#                                          hatch ceremony (`windy go`).
 #
 # Usage:
 #
@@ -24,19 +23,12 @@
 # Environment overrides (handy for CI):
 #
 #   GATEWAY_URL                    override base URL
-#   SMOKE_BROKER_TOKEN             pre-minted broker token (skips live mint)
-#   SMOKE_WINDY_IDENTITY_ID        identity to pass to /hatch/remote
-#   SMOKE_PASSPORT_NUMBER          passport to claim (test-mode ok)
-#   SMOKE_OWNER_EMAIL/PHONE/NAME   owner contact fields for the hatch payload
-#   SMOKE_TIMEOUT_SECONDS          how long to wait for hatch.complete (default 120)
 #
 # Exit codes:
-#   0 — every canonical event fired in order; hatch.complete observed
+#   0 — all checks passed
 #   1 — self-test failed
 #   2 — gateway health check failed
-#   3 — /hatch/remote HTTP failure
-#   4 — SSE event ordering violated
-#   5 — hatch.complete not seen within timeout
+#   3 — /hatch/remote did not answer 410 hatch_moved
 # ============================================================================
 
 set -u -o pipefail
@@ -45,25 +37,6 @@ set -u -o pipefail
 
 GATEWAY_URL="${GATEWAY_URL:-${1:-http://localhost:3000}}"
 GATEWAY_URL="${GATEWAY_URL%/}"  # strip trailing slash
-
-TIMEOUT="${SMOKE_TIMEOUT_SECONDS:-120}"
-
-# Contract-pinned event order. MUST match src/windyfly/hatch_remote.EVENT_ORDER.
-CANONICAL_EVENTS=(
-  "eternitas.registering"
-  "eternitas.registered"
-  "mail.provisioning"
-  "mail.provisioned"
-  "chat.provisioning"
-  "chat.provisioned"
-  "cloud.provisioning"
-  "cloud.provisioned"
-  "phone.assigning"
-  "phone.assigned"
-  "birth_certificate.generating"
-  "birth_certificate.ready"
-  "hatch.complete"
-)
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -121,114 +94,23 @@ else
   exit 2
 fi
 
-# ── Step 3: POST /hatch/remote and capture SSE ──────────────────────────────
+# ── Step 3: the retired remote hatch answers 410 ────────────────────────────
 
-step "POST /hatch/remote → SSE stream"
+step "POST /hatch/remote → 410 hatch_moved"
 
-BROKER_TOKEN="${SMOKE_BROKER_TOKEN:-wk_broker_smoketest_$(date +%s)}"
-WINDY_IDENTITY_ID="${SMOKE_WINDY_IDENTITY_ID:-wi_smoke_$(date +%s)}"
-PASSPORT_NUMBER="${SMOKE_PASSPORT_NUMBER:-ET26-SMOKE-TEST}"
-OWNER_EMAIL="${SMOKE_OWNER_EMAIL:-smoke@example.com}"
-OWNER_PHONE="${SMOKE_OWNER_PHONE:-+15555555555}"
-OWNER_NAME="${SMOKE_OWNER_NAME:-Smoke Tester}"
+http_code="$(curl -s -o /tmp/smoke-hatch.json -w '%{http_code}' \
+    --max-time 10 -X POST -H "Content-Type: application/json" -d '{}' \
+    "${GATEWAY_URL}/hatch/remote" || true)"
 
-REQUEST_BODY=$(cat <<JSON
-{
-  "windy_identity_id": "${WINDY_IDENTITY_ID}",
-  "passport_number":   "${PASSPORT_NUMBER}",
-  "broker_token":      "${BROKER_TOKEN}",
-  "owner_email":       "${OWNER_EMAIL}",
-  "owner_phone":       "${OWNER_PHONE}",
-  "owner_name":        "${OWNER_NAME}",
-  "agent_name":        "Smoke Agent"
-}
-JSON
-)
-
-SSE_LOG=/tmp/smoke-sse.log
-: >"${SSE_LOG}"
-
-# curl --no-buffer keeps SSE frames flowing; --max-time caps the whole run.
-# We background it, tail the log for hatch.complete, and kill when seen.
-curl -s --no-buffer \
-    --max-time "${TIMEOUT}" \
-    -X POST \
-    -H "Content-Type: application/json" \
-    -H "Accept: text/event-stream" \
-    -d "${REQUEST_BODY}" \
-    "${GATEWAY_URL}/hatch/remote" >"${SSE_LOG}" 2>/tmp/smoke-sse.err &
-CURL_PID=$!
-
-waited=0
-while [ $waited -lt "${TIMEOUT}" ]; do
-  if grep -q "^event: hatch.complete$" "${SSE_LOG}" 2>/dev/null; then
-    break
-  fi
-  if ! kill -0 "${CURL_PID}" 2>/dev/null; then
-    break  # curl exited on its own
-  fi
-  sleep 1
-  waited=$((waited + 1))
-done
-
-# Nudge curl if it's still hanging.
-kill "${CURL_PID}" 2>/dev/null || true
-wait "${CURL_PID}" 2>/dev/null || true
-
-if [ ! -s "${SSE_LOG}" ]; then
-  fail "no SSE output captured"
-  [ -s /tmp/smoke-sse.err ] && note "curl stderr: $(cat /tmp/smoke-sse.err)"
+if [ "${http_code}" = "410" ] && grep -q '"error":"hatch_moved"' /tmp/smoke-hatch.json; then
+  pass "remote hatch retired (HTTP 410 hatch_moved)"
+else
+  fail "expected HTTP 410 hatch_moved, got HTTP ${http_code:-no-response}"
+  [ -s /tmp/smoke-hatch.json ] && note "$(cat /tmp/smoke-hatch.json)"
   exit 3
-fi
-
-pass "SSE stream captured ($(wc -l <"${SSE_LOG}") lines)"
-
-# ── Step 4: verify canonical event ordering ────────────────────────────────
-
-step "verifying 13 canonical events in order"
-
-# Extract the `event:` field from each SSE frame, in arrival order.
-OBSERVED=$(awk '/^event: / { print $2 }' "${SSE_LOG}")
-OBSERVED_COUNT=$(printf '%s\n' "${OBSERVED}" | grep -c '.' || true)
-note "observed ${OBSERVED_COUNT} event frame(s)"
-
-missing=()
-last_index=-1
-order_violation=""
-
-for canonical in "${CANONICAL_EVENTS[@]}"; do
-  # find the first line number (1-based in OBSERVED) matching this canonical name
-  # — awk's exit-on-match keeps it cheap even with a long event log.
-  idx=$(printf '%s\n' "${OBSERVED}" | awk -v target="${canonical}" '
-    $0 == target { print NR; exit }
-  ')
-
-  if [ -z "${idx}" ]; then
-    missing+=("${canonical}")
-    continue
-  fi
-
-  if [ "${idx}" -le "${last_index}" ]; then
-    order_violation="${canonical} appeared at position ${idx} — expected after position ${last_index}"
-    break
-  fi
-  pass "${canonical} @ frame ${idx}"
-  last_index="${idx}"
-done
-
-if [ "${#missing[@]}" -gt 0 ]; then
-  fail "missing events: ${missing[*]}"
-  printf '  last 20 observed frames:\n'
-  printf '%s\n' "${OBSERVED}" | tail -20 | sed 's/^/    /'
-  exit 5
-fi
-
-if [ -n "${order_violation}" ]; then
-  fail "event ordering violated — ${order_violation}"
-  exit 4
 fi
 
 # ── Done ────────────────────────────────────────────────────────────────────
 
-printf '\n%s %s\n\n' "$(c_green '✓')" "$(c_green 'smoke test passed — all 13 canonical events fired in order')"
+printf '\n%s %s\n\n' "$(c_green '✓')" "$(c_green 'smoke test passed')"
 exit 0

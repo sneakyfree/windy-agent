@@ -357,12 +357,9 @@ def test_default_goes_to_the_ceremony(monkeypatch):
     monkeypatch.delenv("WINDY_HATCH_VIA_HUB", raising=False)
     seen = {}
     monkeypatch.setattr(hub_hatch, "go", lambda console, **kw: seen.update(kw) or 0)
-    monkeypatch.setattr(quickstart, "_go_keyless", lambda args: pytest.fail("old path used by default"))
 
     class Args:
         force = True
-        key = None
-        keyless = True
         no_browser = False
 
     quickstart.cmd_go(Args())
@@ -370,24 +367,53 @@ def test_default_goes_to_the_ceremony(monkeypatch):
 
 
 @pytest.mark.parametrize("value", ["0", "false", "no", "off"])
-def test_opt_out_keeps_the_old_path_and_says_it_is_going(monkeypatch, value):
+def test_old_opt_out_is_ignored_there_is_one_hallway(monkeypatch, value):
+    """0.7.5: WINDY_HATCH_VIA_HUB=0 no longer selects a terminal hatch."""
     from windyfly import quickstart
 
     monkeypatch.setenv("WINDY_HATCH_VIA_HUB", value)
-    monkeypatch.setattr(hub_hatch, "go", lambda *a, **k: pytest.fail("ceremony used despite the opt-out"))
-    ran = []
-    monkeypatch.setattr(quickstart, "_go_keyless", lambda args: ran.append("keyless"))
+    calls = []
+    monkeypatch.setattr(hub_hatch, "go", lambda console, **kw: calls.append(kw) or 0)
     console, buf = _console()
     monkeypatch.setattr(quickstart, "console", console)
 
     class Args:
         force = False
-        key = None
-        keyless = True
+        no_browser = True
 
     quickstart.cmd_go(Args())
-    assert ran == ["keyless"]
-    assert "the old terminal hatch goes away in the next release" in buf.getvalue()
+    assert len(calls) == 1
+    assert hub_hatch.DEPRECATION_NOTE not in buf.getvalue()
+    for legacy in ("_go_keyless", "_go_noninteractive", "_try_hatch_provisioning",
+                   "_try_matrix_provision", "_try_mail_provision"):
+        assert not hasattr(quickstart, legacy), legacy
+
+
+def test_ceremony_failure_exits_with_its_code(monkeypatch):
+    from windyfly import quickstart
+
+    monkeypatch.setattr(hub_hatch, "go", lambda console, **kw: 3)
+
+    class Args:
+        force = False
+        no_browser = True
+
+    with pytest.raises(SystemExit) as exc:
+        quickstart.cmd_go(Args())
+    assert exc.value.code == 3
+
+
+def test_legacy_go_flags_are_gone():
+    import subprocess
+    import sys
+
+    for flag in ("--key=sk-test", "--keyless", "--byok"):
+        result = subprocess.run(
+            [sys.executable, "-m", "windyfly.cli", "go", flag],
+            capture_output=True, text=True, timeout=30,
+        )
+        assert result.returncode == 2, flag
+        assert "unrecognized arguments" in result.stderr, flag
 
 
 @pytest.mark.parametrize("value, on", [(None, True), ("1", True), ("", True), ("0", False), ("off", False)])

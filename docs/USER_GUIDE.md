@@ -39,9 +39,8 @@ Your agent is born in the Windy cloud and lives there. Running `windy go`
 again tells you it already exists. `windy bring-home`, which moves it onto
 this machine, is coming soon.
 
-For this one release, `WINDY_HATCH_VIA_HUB=0 windy go` still runs the old
-terminal hatch (API key, preset, name, local ceremony, dashboard). It goes
-away in the next release.
+The old terminal hatch (API key, preset, name, local ceremony) was removed
+in 0.7.5: the browser ceremony is the only way to hatch.
 
 ---
 

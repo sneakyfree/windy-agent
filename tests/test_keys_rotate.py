@@ -1,7 +1,6 @@
 """Wave 10: tests for `windy keys rotate` + `windy keys show`.
 
-The auto-rotation path is already covered in test_hatch_orchestrator and
-elsewhere. This file pins the *manual* CLI surface: that rotate is
+This file pins the *manual* CLI surface: that rotate is
 idempotent, abortable, and that revoke failures don't mask a successful
 mint.
 

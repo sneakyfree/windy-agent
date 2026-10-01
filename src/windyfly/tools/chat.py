@@ -59,7 +59,7 @@ def _trust_gate_enabled() -> bool:
     """Trust gate runs only when the agent has a passport.
 
     Agents hatched through Eternitas always have ETERNITAS_PASSPORT
-    populated (set by `windyfly.hatch_orchestrator` at step 1). Pre-passport
+    populated (written to .env when the agent is hatched). Pre-passport
     boot (e.g. test rigs that exercise chat without the full hatch
     ceremony, or pre-hatch debug calls) skips the gate gracefully.
     """

@@ -989,11 +989,6 @@ def _register_all():
         pid_file = _PID_FILE
         if pid_file.exists():
             lines.append(f"PID file exists: {pid_file.read_text(encoding="utf-8").strip()[:50]}")
-        # Imported rather than re-spelled so the audit cannot drift from
-        # the path the orchestrator actually writes.
-        from windyfly.hatch_orchestrator import _RECOVERY_PATH as recovery
-        if recovery.exists():
-            lines.append("⚠ Provisioning recovery file exists — run /hatch to retry")
         return "\n".join(lines)
     _r("audit", "Full audit — stale files, orphaned data", "02_diagnostics", cmd_audit)
 
@@ -2086,7 +2081,7 @@ def _register_budget_through_help():
     _r("owner", "Show owner info", "09_identity", cmd_owner)
 
     async def cmd_hatch(ctx):
-        return "Run 'windy go' from terminal to re-run the hatch ceremony and re-provision ecosystem services."
+        return "Run 'windy go' from terminal — it opens the Windy hatch ceremony in your browser."
     _r("hatch", "Re-run the hatch ceremony", "09_identity", cmd_hatch, aliases=["provision", "rehatch"])
 
     # ═══════════════════════════════════════════════════════════════

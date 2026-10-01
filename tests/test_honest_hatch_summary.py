@@ -1,4 +1,4 @@
-"""`windy go` must not claim services that do not exist (clean-machine journey, 2026-09-23)."""
+"""The ecosystem status table must not claim services that do not exist (clean-machine journey, 2026-09-23)."""
 from __future__ import annotations
 
 import io
@@ -8,7 +8,6 @@ import pytest
 from rich.console import Console
 
 import windyfly.hatching as hatching
-from windyfly.quickstart import hatch_service_lines
 
 
 def _result(**kw):
@@ -17,23 +16,6 @@ def _result(**kw):
                 matrix_user_id="", certificate_number="", birth_certificate_path="", errors=[])
     base.update(kw)
     return SimpleNamespace(**base)
-
-
-def test_placeholder_mail_and_mock_phone_get_no_checkmark():
-    lines = "\n".join(hatch_service_lines(_result(
-        mail_provisioned=True, mail_is_mock=True, email_address="windy-fly@windymail.ai",
-        phone_provisioned=True, phone_is_mock=True, phone_number="+15550001000")))
-    assert "✓" not in lines
-    assert "windy-fly@windymail.ai" not in lines and "+15550001000" not in lines
-    assert "not set up" in lines
-
-
-def test_real_services_keep_their_checkmark():
-    lines = hatch_service_lines(_result(
-        mail_provisioned=True, email_address="fly-1a2b3c@windymail.ai",
-        phone_provisioned=True, phone_number="+18015550123"))
-    assert lines[0].count("✓") == 1 and "fly-1a2b3c@windymail.ai" in lines[0]
-    assert "✓" in lines[1] and "+18015550123" in lines[1]
 
 
 def _render_table(monkeypatch, result, config=None):

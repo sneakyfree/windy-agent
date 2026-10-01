@@ -26,8 +26,8 @@ Your agent hatches, gets an identity, and starts chatting in under 2 minutes.
 > and opens your browser. Check the code matches, name your agent, and at
 > "It's alive!" the terminal prints where to say hi in Windy Chat. Your agent
 > is born in the Windy cloud and lives there; `windy bring-home` (run it on
-> this machine) is coming soon. `WINDY_HATCH_VIA_HUB=0` keeps the old terminal
-> hatch for this one release.
+> this machine) is coming soon. This is the only way to hatch: the old
+> terminal hatch was removed in 0.7.5.
 
 ---
 
@@ -80,8 +80,6 @@ docs/DISTRIBUTION.md.
    "It's alive! It's alive! The fly is alive!" ceremony, born in the Windy cloud
 3. **Chat** — the terminal prints "Say hi: <Windy Chat link>"; `windy bring-home`
    (run the agent on this machine) is coming soon
-   *(With `WINDY_HATCH_VIA_HUB=0`, this release still runs the old terminal
-   hatch: paste an API key, hatch locally, chat in the terminal or dashboard.)*
 4. **Enjoy** — ask about the weather, set reminders, manage to-dos, search the web
 
 ---

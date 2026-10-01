@@ -33,17 +33,16 @@ class TestCLIHelp:
             assert cmd in output, f"Command '{cmd}' not found in --help output"
 
     def test_windy_go_help(self):
-        """windy go --help should show --key, --model, --preset, --no-browser."""
+        """windy go --help shows --no-browser and --force; the terminal-hatch flags are gone."""
         result = subprocess.run(
             [sys.executable, "-m", "windyfly.cli", "go", "--help"],
             capture_output=True, text=True, timeout=30,
         )
         assert result.returncode == 0
         output = result.stdout
-        assert "--key" in output or "-k" in output
-        assert "--model" in output or "-m" in output
-        assert "--preset" in output or "-p" in output
         assert "--no-browser" in output
+        assert "--force" in output
+        assert "--key" not in output and "--keyless" not in output
 
     def test_windy_config_help(self):
         """windy config --help should show show, set, reset, path."""

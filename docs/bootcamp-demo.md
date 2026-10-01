@@ -58,8 +58,8 @@ birth certificate renders, passport number locks in.
 
 > **0.7.3+:** `windy go` prints a link and a short code and opens the
 > ceremony in the browser instead ("Is this the same code?" → name →
-> "It's alive! It's alive! The fly is alive!"). This beat's terminal
-> ceremony is `WINDY_HATCH_VIA_HUB=0 windy go`, for one more release.
+> "It's alive! It's alive! The fly is alive!"). Since 0.7.5 there is no
+> terminal hatch; `windy start` still plays this beat's terminal ceremony.
 
 Don't narrate the Python. Let the art carry it. One line out loud:
 

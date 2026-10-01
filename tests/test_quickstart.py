@@ -1,23 +1,21 @@
-"""Tests for windyfly.quickstart — the ``windy go`` zero-friction launcher.
+"""Tests for windyfly.quickstart's config helpers.
 
-Covers provider detection from key prefixes, config file generation,
-signup guides data integrity, and clipboard reading safety.
+Covers provider detection from key prefixes and config file generation.
+(The terminal key-paste hatch — signup guides, clipboard watching — was
+removed in 0.7.5; ADR-059, one hallway.)
 """
 
 from __future__ import annotations
 
 import os
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
 from windyfly.quickstart import (
     KEY_PATTERNS,
     PROVIDER_MENU,
-    SIGNUP_GUIDES,
     detect_provider,
-    read_clipboard,
     write_quick_config,
 )
 
@@ -167,43 +165,3 @@ class TestWriteQuickConfig:
 
         write_quick_config("OPENAI_API_KEY", "sk-test123", "gpt-4o-mini")
         assert (tmp_path / "data").exists()
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# Signup Guides
-# ═══════════════════════════════════════════════════════════════════════
-
-
-class TestSignupGuides:
-    def test_has_6_entries(self):
-        """SIGNUP_GUIDES should have exactly 6 provider entries."""
-        assert len(SIGNUP_GUIDES) == 6
-
-    def test_each_guide_has_required_keys(self):
-        """Each signup guide should have name, url, steps, env_var, model."""
-        for guide in SIGNUP_GUIDES:
-            assert "name" in guide, f"Guide missing 'name'"
-            assert "url" in guide, f"Guide {guide.get('name', '?')} missing 'url'"
-            assert "steps" in guide, f"Guide {guide.get('name', '?')} missing 'steps'"
-            assert "env_var" in guide, f"Guide {guide.get('name', '?')} missing 'env_var'"
-            assert "model" in guide, f"Guide {guide.get('name', '?')} missing 'model'"
-            assert isinstance(guide["steps"], list), f"Guide {guide['name']} steps not a list"
-            assert len(guide["steps"]) > 0, f"Guide {guide['name']} has no steps"
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# Clipboard
-# ═══════════════════════════════════════════════════════════════════════
-
-
-class TestReadClipboard:
-    def test_returns_string_or_none(self):
-        """read_clipboard() should return a string or None, never raise."""
-        result = read_clipboard()
-        assert result is None or isinstance(result, str)
-
-    def test_does_not_crash_when_no_clipboard_tool(self):
-        """read_clipboard() should not crash even if clipboard tools are missing."""
-        with patch("subprocess.run", side_effect=FileNotFoundError):
-            result = read_clipboard()
-            assert result is None or isinstance(result, str)

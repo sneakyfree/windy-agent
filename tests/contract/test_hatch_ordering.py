@@ -1,5 +1,4 @@
-"""Contract tests for P1-E3 (shared-JWKS coupling) and P1-E4
-(wk_ bot key minted before cloud quota).
+"""Contract tests for P1-E3 (shared-JWKS coupling).
 
 P1-E3 — link_passport_with_identity sends the same owner JWT as
 Bearer to both Windy Pro and Windy Cloud. This works only because
@@ -7,40 +6,22 @@ both services validate against a shared JWKS. The test proves that
 a half-linked state (one 200, one 401) surfaces as a per-service
 status in the summary dict, not a global failure.
 
-P1-E4 — before this fix, _step_cloud_quota fell back to the owner
-JWT because no wk_ key was minted yet at hatch time. Now
-_step_mint_bot_key runs between link-passport and the
-matrix/mail/phone fan-out, and cloud_quota uses the wk_ key when
-available.
+(P1-E4 covered the terminal hatch orchestrator's step order; that
+orchestrator was removed in 0.7.5 — ADR-059, one hallway.)
 """
 
 from __future__ import annotations
 
-from unittest.mock import patch
 
 import httpx
 import pytest
 import respx
 
 from windyfly.eternitas.provision import link_passport_with_identity
-from windyfly.hatch_orchestrator import (
-    HatchResult,
-    _step_cloud_quota,
-    _step_mint_bot_key,
-    orchestrate_hatch,
-)
-from windyfly.memory.database import Database
 
 
 PRO = "https://pro.windy.test"
 CLOUD = "https://cloud.windy.test"
-
-
-@pytest.fixture
-def db(tmp_path):
-    d = Database(str(tmp_path / "agent.db"))
-    yield d
-    d.close()
 
 
 @pytest.fixture(autouse=True)
@@ -123,156 +104,3 @@ class TestP1E3SharedJwks:
         pro_auth = pro.calls.last.request.headers.get("Authorization")
         cloud_auth = cloud.calls.last.request.headers.get("Authorization")
         assert pro_auth == cloud_auth == "Bearer owner_jwt_shared"
-
-
-# ────────────────────────────────────────────────────────────────────
-# P1-E4
-# ────────────────────────────────────────────────────────────────────
-
-
-class TestP1E4MintBotKey:
-    async def test_mint_step_skips_without_jwt(self):
-        """Offline hatch (no JWT) → mint step is a silent no-op."""
-        result = HatchResult(passport_id="ET26-X")
-        await _step_mint_bot_key(result)
-        assert result.errors == []
-
-    async def test_mint_step_skips_without_passport(self):
-        """No passport → nothing to mint against."""
-        result = HatchResult(passport_id="")
-        await _step_mint_bot_key(result)
-        assert result.errors == []
-
-    @respx.mock
-    async def test_mint_step_happy_path(self, monkeypatch, tmp_path):
-        """Browser/remote lane: windy-pro handed us the bot identity id,
-        so the mint runs against the real /api/v1/identity/api-keys."""
-        from windyfly.auth import bot_credentials
-        monkeypatch.setattr(bot_credentials, "_CACHE_FILE", tmp_path / "key.json")
-        monkeypatch.setenv("WINDY_PRO_URL", PRO)
-        monkeypatch.setenv("WINDY_JWT", "owner_jwt")
-        monkeypatch.setenv("BOT_IDENTITY_ID", "bot_identity_9f2c")
-        route = respx.post(f"{PRO}/api/v1/identity/api-keys").mock(
-            return_value=httpx.Response(201, json={
-                "apiKey": "wk_minted_in_hatch",
-                "keyPrefix": "wk_minted_i",
-                "expiresAt": "2027-04-16T00:00:00Z",
-                "id": "wbk_h_1",
-                "scopes": ["cloud:upload", "mail:send"],
-            })
-        )
-        result = HatchResult(passport_id="ET26-X")
-
-        await _step_mint_bot_key(result)
-
-        import json as _json
-        assert _json.loads(route.calls.last.request.content)["identityId"] == "bot_identity_9f2c"
-        cached = bot_credentials._load_cached()
-        assert cached is not None
-        assert cached.bot_key == "wk_minted_in_hatch"
-        assert "cloud:upload" in cached.scopes
-        assert result.errors == []
-
-    @respx.mock
-    async def test_mint_step_records_visible_skip_without_bot_identity(
-        self, monkeypatch, tmp_path,
-    ):
-        """Terminal lane: JWT + passport but no windy-pro bot identity.
-        The step must say so out loud — no request, no cached key, and a
-        skip entry the hatch summary will surface."""
-        from windyfly.auth import bot_credentials
-        monkeypatch.setattr(bot_credentials, "_CACHE_FILE", tmp_path / "key.json")
-        monkeypatch.setenv("WINDY_PRO_URL", PRO)
-        monkeypatch.setenv("WINDY_JWT", "owner_jwt")
-        monkeypatch.setenv("WINDY_IDENTITY_ID", "owner_identity_1")  # the OWNER's
-        route = respx.post(f"{PRO}/api/v1/identity/api-keys").mock(
-            return_value=httpx.Response(201, json={"apiKey": "wk_never"})
-        )
-        result = HatchResult(passport_id="ET26-X")
-
-        await _step_mint_bot_key(result)
-
-        assert not route.called
-        assert bot_credentials._load_cached() is None
-        assert len(result.errors) == 1
-        assert "skipped: no bot identity id" in result.errors[0]
-
-    @respx.mock
-    async def test_mint_step_surfaces_a_real_failure_as_an_error(
-        self, monkeypatch, tmp_path,
-    ):
-        """A 400 (identityId isn't a bot) is a failure, not a skip, and
-        must read as one."""
-        from windyfly.auth import bot_credentials
-        monkeypatch.setattr(bot_credentials, "_CACHE_FILE", tmp_path / "key.json")
-        monkeypatch.setenv("WINDY_PRO_URL", PRO)
-        monkeypatch.setenv("WINDY_JWT", "owner_jwt")
-        monkeypatch.setenv("BOT_IDENTITY_ID", "not_a_bot")
-        respx.post(f"{PRO}/api/v1/identity/api-keys").mock(
-            return_value=httpx.Response(400, json={
-                "error": "API keys can only be created for bot identities",
-            })
-        )
-        result = HatchResult(passport_id="ET26-X")
-
-        await _step_mint_bot_key(result)
-
-        assert len(result.errors) == 1
-        assert result.errors[0].startswith("Bot-key mint:")
-        assert "skipped" not in result.errors[0]
-
-    @respx.mock
-    async def test_cloud_quota_uses_wk_key_when_minted(self, monkeypatch, tmp_path):
-        """After mint_bot_key, cloud_quota sends the wk_ key as
-        Bearer, not the owner JWT."""
-        from windyfly.auth import bot_credentials
-        from datetime import datetime, timedelta, timezone
-        monkeypatch.setattr(bot_credentials, "_CACHE_FILE", tmp_path / "key.json")
-        monkeypatch.setenv("WINDY_CLOUD_URL", CLOUD)
-        monkeypatch.setenv("WINDY_JWT", "owner_jwt_fallback")
-
-        # Pre-populate the cache as if step 1c already ran.
-        bot_credentials._save_cached(bot_credentials.BotCredential(
-            bot_key="wk_from_mint",
-            expires_at=datetime.now(timezone.utc) + timedelta(days=90),
-            passport_number="ET26-X",
-            scopes=["cloud:upload"],
-        ))
-
-        route = respx.post(f"{CLOUD}/api/v1/billing/allocate").mock(
-            return_value=httpx.Response(200, json={
-                "plan_id": "cp_free", "quota_bytes": 1_000_000, "tier": "free",
-            })
-        )
-
-        result = HatchResult(passport_id="ET26-X")
-        await _step_cloud_quota(result, owner_id="owner-x")
-
-        auth = route.calls.last.request.headers.get("Authorization")
-        assert auth == "Bearer wk_from_mint", \
-            f"Expected wk_ key, got {auth!r}"
-        assert result.cloud_provisioned
-
-    @respx.mock
-    async def test_cloud_quota_falls_back_to_owner_jwt(self, monkeypatch, tmp_path):
-        """Without a cached wk_ key, cloud_quota still works on the
-        owner JWT (cloud_provision's own fallback)."""
-        from windyfly.auth import bot_credentials
-        monkeypatch.setattr(bot_credentials, "_CACHE_FILE", tmp_path / "key.json")
-        bot_credentials.clear_cached_bot_key()
-
-        monkeypatch.setenv("WINDY_CLOUD_URL", CLOUD)
-        monkeypatch.setenv("WINDY_JWT", "owner_jwt_only")
-
-        route = respx.post(f"{CLOUD}/api/v1/billing/allocate").mock(
-            return_value=httpx.Response(200, json={
-                "plan_id": "cp_free", "quota_bytes": 1, "tier": "free",
-            })
-        )
-
-        result = HatchResult(passport_id="ET26-X")
-        await _step_cloud_quota(result, owner_id="owner-x")
-
-        auth = route.calls.last.request.headers.get("Authorization")
-        assert auth == "Bearer owner_jwt_only"
-        assert result.cloud_provisioned

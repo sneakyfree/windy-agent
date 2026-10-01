@@ -105,29 +105,3 @@ class TestSilentMockIsImpossible:
             db=db, config={"ecosystem": {"eternitas_url": "https://api.eternitas.ai"}}
         )
         assert isinstance(client, EternitasClient)
-
-
-class TestHatchFailsLoudlyRatherThanFaking:
-    async def test_hatch_reports_failure_not_a_fake_passport(self, db, monkeypatch):
-        """The ceremony must go red, not green-with-an-invented-passport."""
-        monkeypatch.delenv(FAKE_IDENTITY_OPTIN_ENV, raising=False)
-        monkeypatch.delenv("ETERNITAS_PASSPORT", raising=False)
-        # Switched off explicitly: the default would be the real issuer, and a
-        # test must never reach it over the network.
-        monkeypatch.setenv("ETERNITAS_URL", "off")
-
-        from windyfly.hatch_orchestrator import orchestrate_hatch
-
-        events: list[tuple[str, dict]] = []
-        result = await orchestrate_hatch(
-            "unconfigured-fly", db=db, on_event=lambda e, d: events.append((e, d))
-        )
-
-        assert result.passport_id == ""
-        assert any("Eternitas" in e for e in result.errors)
-
-        registered = [d for name, d in events if name == "eternitas.registered"]
-        assert registered and registered[0]["ok"] is False
-
-        complete = [d for name, d in events if name == "hatch.complete"]
-        assert complete and complete[0]["ok"] is False

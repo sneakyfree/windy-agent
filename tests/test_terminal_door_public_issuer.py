@@ -1,4 +1,7 @@
-"""The terminal door hatches through the CONSUMER door, like the other two.
+"""Eternitas client: the consumer `/bots/auto-hatch` door contract.
+
+(The terminal hatch these tests were written for was removed in 0.7.5 —
+ADR-059, one hallway. The client contract below still stands.)
 
 `windy go` used to mint via `POST /api/v1/bots/register`, which demands an
 operator API key belonging to an already-VERIFIED operator. That key is blank
@@ -22,8 +25,6 @@ import respx
 
 from windyfly.eternitas.client import EternitasClient
 from windyfly.eternitas.models import RegistrationRequest
-from windyfly.hatch_orchestrator import orchestrate_hatch
-from windyfly.memory.database import Database
 
 ETERNITAS_BASE = "https://api.eternitas.test"
 
@@ -36,13 +37,6 @@ _PASSPORT_RESPONSE = {
     "trust_score": 70,
     "certificate": {"certificate_no": "ET-AUTO0001", "passport": "ET26-AUTO-0001"},
 }
-
-
-@pytest.fixture
-def db():
-    d = Database(":memory:")
-    yield d
-    d.close()
 
 
 @pytest.fixture(autouse=True)
@@ -60,43 +54,6 @@ def clean_env(monkeypatch):
     ):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv("ETERNITAS_URL", ETERNITAS_BASE)
-
-
-class TestTheHatchUsesTheConsumerDoor:
-    @respx.mock
-    async def test_hatch_mints_via_auto_hatch_not_register(self, db):
-        """The regression: a hatch with no operator key must still work."""
-        auto = respx.post(f"{ETERNITAS_BASE}/api/v1/bots/auto-hatch").mock(
-            return_value=httpx.Response(201, json=_PASSPORT_RESPONSE)
-        )
-        register = respx.post(f"{ETERNITAS_BASE}/api/v1/bots/register").mock(
-            return_value=httpx.Response(401, json={"detail": "Invalid API key"})
-        )
-        respx.get(url__startswith=f"{ETERNITAS_BASE}/api/v1/certificates/").mock(
-            return_value=httpx.Response(404)
-        )
-
-        result = await orchestrate_hatch("Terminal Fly", owner_name="Grant", db=db)
-
-        assert auto.called, "the hatch did not use the consumer door"
-        assert not register.called, "the hatch used the enterprise door"
-        assert result.passport_id == "ET26-AUTO-0001"
-        assert result.certificate_number == "ET-AUTO0001"
-
-    @respx.mock
-    async def test_no_operator_api_key_is_sent(self, db, monkeypatch):
-        """Even when a key exists, the consumer door does not use it."""
-        monkeypatch.setenv("ETERNITAS_OPERATOR_KEY", "et_op_should_not_be_used")
-        route = respx.post(f"{ETERNITAS_BASE}/api/v1/bots/auto-hatch").mock(
-            return_value=httpx.Response(201, json=_PASSPORT_RESPONSE)
-        )
-        respx.get(url__startswith=f"{ETERNITAS_BASE}/api/v1/certificates/").mock(
-            return_value=httpx.Response(404)
-        )
-
-        await orchestrate_hatch("Terminal Fly", db=db)
-
-        assert "X-API-Key" not in route.calls.last.request.headers
 
 
 class TestAutoHatchContract:

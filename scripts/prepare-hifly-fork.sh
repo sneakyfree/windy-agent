@@ -31,14 +31,7 @@ echo "✓ Repo copied"
 # 2. Remove Windy-exclusive files
 rm -rf \
     src/windyfly/eternitas/ \
-    src/windyfly/matrix_provision.py \
-    src/windyfly/mail_provision.py \
-    src/windyfly/mail_mock.py \
     src/windyfly/mail_rate_limiter.py \
-    src/windyfly/phone_provision.py \
-    src/windyfly/birth_certificate.py \
-    src/windyfly/hatch_email.py \
-    src/windyfly/hatch_actions.py \
     src/windyfly/ecosystem_health.py \
     src/windyfly/cloud_backup.py \
     src/windyfly/vps_deploy.py \
@@ -46,9 +39,6 @@ rm -rf \
     tests/test_eternitas.py \
     tests/test_contract_eternitas.py \
     tests/test_contract_matrix.py \
-    tests/test_contract_mail.py \
-    tests/test_hatch_actions.py \
-    tests/test_hatch_email.py \
     BRAND-ARCHITECTURE.md \
     2>/dev/null || true
 

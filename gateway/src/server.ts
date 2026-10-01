@@ -39,7 +39,7 @@ import { bridge } from "./bridge";
 import { handleClose, handleMessage, handleWebSocket } from "./websocket";
 import * as providers from "./providers";
 import * as machines from "./machines";
-import { handleHatchRemote, honoursPreallocatedPassport } from "./hatch-remote";
+import { handleHatchRemote } from "./hatch-remote";
 
 const PORT = Number(process.env.GATEWAY_PORT) || 3000;
 const PUBLIC_DIR = resolve(import.meta.dir, "../public");
@@ -462,10 +462,8 @@ export function isDashboardAuthValid(
 function checkDashboardAuth(req: Request, server: import("bun").Server<any>): Response | null {
   // Health + webhooks + login are exempt from dashboard auth.
   // Webhook receiver is its own auth (HMAC + JWS in Python).
-  // /hatch/remote is exempt because the broker_token in the request
-  // body is itself a short-lived authorization factor minted by
-  // windy-pro — dashboard auth would be redundant and break the
-  // Electron app's "Grandma Ribbon" ceremony for remote agents.
+  // /hatch/remote is exempt so an old caller gets the 410 "hatch_moved"
+  // answer rather than a login challenge (the route no longer does anything).
   const url = new URL(req.url);
   if (url.pathname === "/api/health") return null;
   if (url.pathname === "/api/auth/login") return null;
@@ -650,12 +648,10 @@ async function handleRequest(req: Request, server: import("bun").Server<any>): P
           // unknown — a made-up commit is worse than an absent one.
           commit: gatewayCommit(),
           brain_connected: bridge.isConnected(),
-          // R3 guard flag: is the handoff contract honoured on this
-          // build? Derived from the Python hallway's actual adoption
-          // branch (see honoursPreallocatedPassport), NOT a constant.
-          // windy-pro's WINDY_AGENT_URL must stay unset until whoever
-          // arms it has read `true` here from the running gateway.
-          honours_preallocated_passport: honoursPreallocatedPassport(),
+          // R3 guard flag for windy-pro's WINDY_AGENT_URL. Always false
+          // since 0.7.5: this gateway no longer hatches (/hatch/remote
+          // answers 410 — agents hatch in the Windy hatch ceremony).
+          honours_preallocated_passport: false,
           uptime_seconds: Math.floor(process.uptime()),
           timestamp: new Date().toISOString(),
         },
@@ -1714,31 +1710,10 @@ base_url = "http://localhost:8098"
       }
     }
 
-    // ── Remote hatch ceremony (Wave 8) ─────────────────────────
-    // Streams the hatch_orchestrator's progress as SSE so windy-pro's
-    // Electron app can render the "Grandma Ribbon" ceremony live.
-    // The broker_token is a short-lived managed credential from Pro;
-    // we pass it through to the Python subprocess which stores it in
-    // the provider env var without ever asking the user for a key.
-    //
-    // Rate-limit via the "upstream" bucket (30 req/min/IP) — each hatch
-    // spawns a Python subprocess and fans out to every ecosystem
-    // service, so a flood here would burn CPU + quota. The bucket is
-    // shared with the providers/validate fan-out, which has similar
-    // characteristics. See Wave 11 Bug #12.
+    // ── Remote hatch: retired (0.7.5, ADR-059) ─────────────────
+    // Hatching happens only in the Windy hatch ceremony; old callers get 410.
     if (path === "/hatch/remote") {
-      const clientIP = req.headers.get("x-forwarded-for")?.split(",")[0].trim()
-        || req.headers.get("x-real-ip")?.trim()
-        || "127.0.0.1";
-      if (isRateLimited(clientIP, "upstream")) {
-        return Response.json(
-          { error: "rate limited — too many hatch requests from this IP" },
-          { status: 429, headers: { ...headers, "Retry-After": "60" } }
-        );
-      }
-      // Wave 14 P1: pass the client IP through so the per-IP
-      // concurrency cap in hatch-remote can enforce.
-      return handleHatchRemote(req, { clientIp: clientIP });
+      return handleHatchRemote(req);
     }
 
     if (path === "/api/setup/launch" && req.method === "POST") {
