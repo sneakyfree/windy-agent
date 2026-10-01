@@ -471,6 +471,19 @@ def assemble_prompt(
             "the user says yes to the builder's question."
         )
 
+    # The filing cabinet (Windy Code contract v1.2): dark behind WINDY_CODE_CABINET=1.
+    from windyfly.tools.windycode_web import cabinet_enabled
+    if cabinet_enabled():
+        system_parts.append(
+            "THE OWNER'S CABINET: if your tool list has windycodeweb_file_project, file "
+            "a project there only when your person asked you to make, build or set up "
+            "something that has a URL, repo or store listing (sites you build in Windy "
+            "Code are filed for you); never for answers or research. After each "
+            "meaningful step, add one plain sentence with windycodeweb_log_activity. "
+            "Anything that publishes, spends money or connects a domain still waits "
+            "for their OK."
+        )
+
     # First-contact guard: when the bot has no prior memory at all,
     # the LLM's default warmth kicks in and produces "welcome back" /
     # "good to see you again" even though it has nothing to remember.
