@@ -55,6 +55,12 @@ async def provision_phone(
     permissions), then Windy Cloud (if ecosystem.windy_cloud_url is set),
     falls back to mock phone pool.
     """
+    from windyfly.sms_park import sms_enabled
+
+    if not sms_enabled():
+        # PARKED (Grant, 2026-09-23): never buy, never mock-assign a number.
+        return PhoneProvisionResult(success=False, error="phone numbers are parked until after launch")
+
     account_sid = os.environ.get("TWILIO_ACCOUNT_SID", "")
     auth_token = os.environ.get("TWILIO_AUTH_TOKEN", "")
 

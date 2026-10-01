@@ -52,6 +52,12 @@ async def send_hatch_sms(
     Returns:
         Dict with status and message details.
     """
+    from windyfly.sms_park import sms_enabled
+
+    if not sms_enabled():
+        # PARKED (Grant, 2026-09-23): no birth SMS, not even the mock.
+        return {"status": "parked", "to": owner_phone}
+
     message = format_hatch_sms(agent_name, dashboard_url)
 
     # Try real Twilio

@@ -47,6 +47,11 @@ class WindyFlySMS:
         self.write_queue = write_queue
         self.tool_registry = tool_registry
 
+        from windyfly.sms_park import sms_enabled
+
+        if not sms_enabled():
+            raise RuntimeError("SMS is parked until after launch (set WINDY_ENABLE_SMS=1 to enable)")
+
         self.account_sid = os.environ.get("TWILIO_ACCOUNT_SID", "")
         self.auth_token = os.environ.get("TWILIO_AUTH_TOKEN", "")
         self.phone_number = os.environ.get("TWILIO_PHONE_NUMBER", "")
