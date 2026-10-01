@@ -21,7 +21,7 @@ import httpx
 from windyfly.hub_login import hub_url
 
 PURPOSES = ("sleep", "wake")
-HUB_AUD = "windy_hub"  # family convention windy_<platform> (Boss); Eternitas registration pending
+HUB_AUD = "windy-hub"  # live Eternitas mode-B audiences are hyphenated (Hub 09-30); family ruling pending
 TIMEOUT_S = 20.0
 
 
