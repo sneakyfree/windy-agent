@@ -1,6 +1,65 @@
 # Changelog
 
-## Unreleased (0.7.4)
+## 0.7.4
+
+**Default changes in this release**
+
+- **Windy Code is where agents build websites.** With an Eternitas token the
+  `windycodeweb_*` tools now reach the live builder (cloud.windycloud.com) by
+  default, and the agent is told to build there: a one-file save keeps the
+  site's other files, there are templates, click-to-edit text and binary files
+  (images), and the builder's daily limits come back in plain words.
+  `WINDY_CODE_WEB_DEFAULT=0` opts out. (#419, #424, #427)
+- **Nothing goes live without the owner's own yes.** Publish, unpublish and
+  connect-a-domain hold the builder's confirmation in code; the model never sees
+  it, and only the owner's reply ("yes, publish" / "yes, unpublish" /
+  "yes, connect") spends it. A token the model sends back is refused, and the
+  trust check now fails closed. Builder-side Inbox approvals are relayed and never
+  retried. (#425)
+- **Site writes are refused on tainted turns** (content from an untrusted page or
+  email in the same turn). (#419)
+- **SMS and phone numbers are parked.** The birth SMS, the Twilio SMS channel and
+  phone-number buying all need `WINDY_ENABLE_SMS=1`; a parked or mock SMS is no
+  longer recorded as sent. (#411)
+- **Replies carry the model that answered** (`uk.windypro.model`, Windy Chat's
+  contract), set only from Windy Mind's own answer. (#402, #404)
+- **The backup encryption key can't drift with branding.** The passport-derived
+  backup key's default name is a frozen constant with known-answer tests, so
+  existing backups keep decrypting. (#407)
+
+**Built in, off by default (each enabled only on Windy Hub's word)**
+
+- `WINDY_SEND_CONFIRM=1`: the agent only drafts outbound email; the owner's own
+  "send" (or "cancel") sends it, and the mail says who approved it. (#415)
+- `WINDY_MAIL_STRICT=1`: send only from the agent's own Windy mailbox; no silent
+  Resend or Gmail fallback. `WINDY_MAIL_SEND_EPT=1`: sends authenticate with the
+  agent's own Eternitas token. (#410, #417)
+- `WINDY_TEXT_BYO=1`: text through Windy Text on the owner's own Twilio account
+  (first text to a new number needs the owner's yes, handled in code), and read
+  inbound texts: contacts are only relayed to the owner, the owner's texts can't
+  trigger side effects. (#416, #420)
+- `WINDY_LOOP_GUARD=1`: at most 6 agent-only messages in a row per room, and 120
+  replies an hour to non-owners pauses the agent until the owner sends /resume.
+  (#414)
+- `WINDY_PARITY_BANDS=1`: an agent with a valid Eternitas passport gets the user
+  band (safe tools), a revoked or suspended one is refused, and an agent is never
+  taken for the owner. (#426)
+- `WINDY_MIND_HELPER=1`: Windy Mind's shared resilience helper (one retry, then a
+  standby, then a local model, always marked). (#405, #408)
+- `model = "auto"`: send Mind no model so its owner policy picks. (#409)
+
+**Fixes**
+
+- A greeting no longer flips a healthy agent into the lifeboat. (#398)
+- Mind-routed agents recover from the lifeboat, a 4xx from Mind no longer cools
+  Mind down, and `/model opus` means Opus 5.5. (#399)
+- A thinking model that runs out of tokens before answering is retried once with
+  the full budget. (#400)
+- Tests can never reach a real local Ollama (CI runs on a GPU host). (#421)
+- Test fixtures use obviously fake credentials; a secret-shapes lint guards CI.
+  (#395, #412, #413)
+
+### Earlier in 0.7.4
 
 - **A backup-brain reply is never unmarked.** When the model chain was exhausted and auto-resurrect declined (cooldown, disabled, or the post-recovery grace), the offline reply went out with no notice; a tripped Mind breaker hid this for 4 days on Windy Zero. The first such reply per session now says so in a sentence, later ones carry `🛟`. A 403/breaker is named in the auto-switch banner, and `offline.chain_exhausted` logs `notice_shown` separately from `auto_resurrected`.
 - **Every reply logs where its time went.** One line per turn:
