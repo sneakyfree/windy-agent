@@ -179,10 +179,10 @@ def send_sms(to: str | None = None, body: str = "") -> dict[str, Any]:
         logger.debug("SMS unavailable: WINDY_PASSPORT_EPT unset (SMS stays off until a sender enforces STOP)")
         return {"status": "unavailable", "error": _UNAVAILABLE}
 
+    if byo_enabled():
+        return _send_byo(base_url, ept, to, body)
+
     if not to:
-        if byo_enabled():
-            # No `to` = text the owner on their own verified phone (no first-contact gate).
-            return _deliver(base_url, ept, None, body)
         return {"status": "failed", "error": "`to` is required."}
 
     if not _E164_RE.match(to):
@@ -244,6 +244,158 @@ def owner_reply(text: str) -> str | None:
     if res.get("status") == "sent":
         return f"Texted {res.get('to')}, with your OK."
     return f"Not sent: {res.get('error') or res.get('status')}"
+
+
+# ── BYO texting via Windy Text (WINDY_TEXT_BYO=1) ────────────────────
+# Windy Text decides consent (owner-approved recipients, STOP) and adds the
+# "[Name · Windy] " label to every text; the agent asks it, never keeps its own
+# list, and adds no footer. The first text to a contact uses the wording Grant
+# approved (10-01). A send whose 200 lacks prefix_applied=true is reported to the
+# owner as sent WITHOUT the label.
+_FIRST_TEXT = ("Hi, this is {agent}, an AI assistant texting for {owner}. {message} "
+               "Reply STOP to opt out, HELP for help.")
+
+
+def _names() -> tuple[str, str]:
+    agent = (os.environ.get("WINDYFLY_AGENT_NAME") or "your Windy assistant").strip()
+    owner_full = (os.environ.get("WINDY_OWNER_NAME") or "").strip()
+    owner = owner_full.split()[0] if owner_full else "its owner"
+    return agent, owner
+
+
+def first_text(message: str) -> str:
+    agent, owner = _names()
+    msg = message.strip()
+    if msg and msg[-1] not in ".!?":
+        msg += "."
+    return _FIRST_TEXT.format(agent=agent, owner=owner, message=msg)
+
+
+TELEPHONY_AUD = "windy-telephony"
+# Mode-B is unavailable (not refused) for these: fall back to the legacy EPT Bearer,
+# which works until Windy Text sets TELEPHONY_REQUIRE_MODE_B (then its 401 is final).
+_MODE_B_UNAVAILABLE = {"no_key", "unknown_audience", "unreachable"}
+
+
+def _send_auth(url: str, legacy: dict[str, str]) -> tuple[dict[str, str], dict[str, Any] | None]:
+    """Auth for the money route POST /sms/send: a ≤5-min EPT+agent token for
+    aud windy-telephony bound to the agent's registered key, plus a DPoP proof for
+    this exact URL. A revoked/suspended passport is refused (never a fallback)."""
+    from windyfly.eternitas import agent_keys as ak
+
+    try:
+        tok = ak.request_agent_token(TELEPHONY_AUD)["token"]
+        proof = ak.service_dpop("POST", url)
+    except ak.AgentTokenError as e:
+        if e.code in _MODE_B_UNAVAILABLE:
+            return legacy, None
+        return legacy, {"status": "failed", "sent": False,
+                        "error": "My Eternitas standing doesn't allow sending texts right now, so I didn't send it."}
+    except Exception:
+        return legacy, None  # no key store yet, etc.
+    # "Bearer" + the DPoP header: what windy-text prod verifies today (it accepts the
+    # "DPoP" scheme too once windy-text #73 is live); the proof still binds the key.
+    return {**legacy, "Authorization": f"Bearer {tok}", "DPoP": proof}, None
+
+
+def _request_approval(base_url: str, headers: dict[str, str], to: str) -> dict[str, Any]:
+    """Ask Windy Text to put an approval request in the owner's Windy Inbox
+    (POST /sms/recipient/request, windy-text c98c2e0). Only the owner's tap there
+    approves; the agent never approves a recipient itself, and doesn't retry until
+    GET /sms/recipient says approved."""
+    try:
+        r = httpx.post(f"{base_url}/sms/recipient/request", json={"to": to},
+                       headers=headers, timeout=_TIMEOUT)
+    except httpx.HTTPError:
+        return {"status": "needs_owner_approval", "sent": False,
+                "error": "I need your OK before texting this number, and I couldn't ask Windy just now."}
+    detail = ""
+    try:
+        detail = str((r.json() or {}).get("detail") or "")
+    except ValueError:
+        pass
+    if r.status_code == 200:
+        return {"status": "approved_retry", "sent": False,
+                "error": "That number was just approved. Ask me once more and I'll send it."}
+    if r.status_code == 202:
+        asked_inbox = False
+        try:
+            asked_inbox = (r.json() or {}).get("owner_asked") == "inbox"
+        except ValueError:
+            pass
+        _agent, owner = _names()
+        msg = (f"I've asked {owner} in the Windy Inbox before texting this number. I'll wait for the OK."
+               if asked_inbox else
+               "I asked for your OK in Windy before texting this number. I'll wait for it.")
+        return {"status": "needs_owner_approval", "sent": False, "requested": True, "error": msg}
+    if r.status_code == 403 and "opted_out" in detail:
+        return {"status": "opted_out", "sent": False,
+                "error": "That number has opted out of texts (they replied STOP). I won't text it."}
+    if r.status_code == 429:
+        return {"status": "needs_owner_approval", "sent": False,
+                "error": "There are already a lot of texting requests waiting for your OK in Windy. Please review them first."}
+    plain = plain_error(detail.split(":", 1)[0]) if detail else None
+    return {"status": "failed", "sent": False, "error": plain or f"Windy Text answered {r.status_code}"}
+
+
+def _send_byo(base_url: str, ept: str, to: str | None, body: str) -> dict[str, Any]:
+    if to and not _E164_RE.match(to):
+        return {"status": "failed",
+                "error": f"`to` must be E.164 (start with +, country code, then digits). Got {to!r}."}
+    headers = {"Authorization": f"Bearer {ept}", "Content-Type": "application/json"}
+    try:
+        r = httpx.get(f"{base_url}/sms/recipient", params={"to": to} if to else None,
+                      headers=headers, timeout=_TIMEOUT)
+        rec = r.json() if r.status_code == 200 else None
+    except (httpx.HTTPError, ValueError):
+        rec = None
+    if not isinstance(rec, dict):
+        # Fail closed: without the server's consent answer, don't text anyone.
+        return {"status": "failed", "sent": False,
+                "error": "I couldn't check whether I'm allowed to text that number, so I didn't send it."}
+    if rec.get("opted_out"):
+        return {"status": "opted_out", "sent": False,
+                "error": "That number has opted out of texts (they replied STOP). I won't text it."}
+    if not rec.get("approved"):
+        if not to:
+            return {"status": "failed", "sent": False,
+                    "error": "Your phone isn't set up for texting yet, so I didn't send it."}
+        return _request_approval(base_url, headers, to)
+    text = first_text(body) if rec.get("first_contact") and rec.get("kind") == "contact" else body
+    if len(text) > _MAX_SMS_CHARS:
+        return {"status": "failed", "sent": False,
+                "error": f"Text too long ({len(text)} characters; the limit is {_MAX_SMS_CHARS})."}
+    send_url = f"{base_url}/sms/send"
+    send_headers, refused = _send_auth(send_url, headers)
+    if refused:
+        return refused
+    try:
+        resp = httpx.post(send_url,
+                          json={"body": text} if to is None else {"to": to, "body": text},
+                          headers=send_headers, timeout=_TIMEOUT)
+    except httpx.HTTPError as exc:
+        return {"status": "failed", "sent": False, "error": f"Couldn't reach Windy Text: {type(exc).__name__}"}
+    if resp.status_code in (200, 201):
+        try:
+            data = resp.json()
+        except ValueError:
+            data = {}
+        out = {"status": "sent", "sent": True, "to": "owner" if to is None else to,
+               "first_contact": bool(data.get("first_contact")), "sid": data.get("sid", "")}
+        if data.get("prefix_applied") is not True:
+            out.update({"status": "sent_without_label",
+                        "notice_to_user": ("That text went out WITHOUT the usual '[name · Windy]' "
+                                           "label. Please tell Windy support.")})
+        return out
+    try:
+        err = resp.json()
+    except ValueError:
+        err = {}
+    raw_code = err.get("error_code") or err.get("error")
+    plain = plain_error(raw_code if isinstance(raw_code, str) else None)
+    return {"status": "failed", "sent": False, "http_status": resp.status_code,
+            "error_code": raw_code,
+            "error": plain or err.get("detail") or f"Windy Text answered {resp.status_code}"}
 
 
 def _deliver(base_url: str, ept: str, to: str | None, body: str) -> dict[str, Any]:
