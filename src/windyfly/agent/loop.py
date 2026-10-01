@@ -265,6 +265,13 @@ TAINT_FORBIDDEN_TOOLS = frozenset({
     "upload_to_cloud",
     "windycode_run", "windycode_write_file", "windycode_save_to_git",
     "windycode_create_project",
+    # Browser builder + direct Sites writes: content from an injected page/email
+    # must not land on a site the user owns (publish is confirm-gated too).
+    "windycodeweb_create_project", "windycodeweb_add_files",
+    "windycodeweb_undo", "windycodeweb_publish", "windycodeweb_unpublish",
+    "windycodeweb_connect_domain",
+    "create_site", "add_or_edit_files", "publish_site", "undo_to_version",
+    "connect_domain_to_site",
 })
 
 

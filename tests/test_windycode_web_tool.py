@@ -71,10 +71,29 @@ def test_registration_adds_all_tools() -> None:
     }
 
 
-def test_unavailable_when_env_unset(no_builder_env: None) -> None:
+def test_unavailable_without_token(no_builder_env: None) -> None:
     out = windycodeweb_list_projects()
     assert out["status"] == "unavailable"
-    assert "WINDY_CODE_WEB_URL" in out["error"]
+    assert "Eternitas token" in out["error"]
+
+
+def test_defaults_to_live_builder(no_builder_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Hatch never set WINDY_CODE_WEB_URL; the tools must still reach the builder.
+    monkeypatch.setenv("ETERNITAS_PASSPORT_TOKEN", "ept_test_token")
+    with patch("windyfly.tools.windycode_web.httpx.request") as req:
+        req.return_value = _response(200, {"projects": []})
+        out = windycodeweb_list_projects()
+    assert out["status"] == "ok"
+    assert req.call_args[0] == ("GET", "https://cloud.windycloud.com/api/v1/projects")
+
+
+def test_off_disables(no_builder_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ETERNITAS_PASSPORT_TOKEN", "ept_test_token")
+    monkeypatch.setenv("WINDY_CODE_WEB_URL", "off")
+    with patch("windyfly.tools.windycode_web.httpx.request") as req:
+        out = windycodeweb_list_projects()
+    assert out["status"] == "unavailable"
+    req.assert_not_called()
 
 
 def test_create_project_posts_with_bearer(builder_env: None) -> None:

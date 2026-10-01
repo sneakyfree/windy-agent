@@ -33,6 +33,23 @@ def test_taint_gate_denies_external_effect_tools_when_tainted():
         assert deny is True, f"{name} must be refused on a tainted turn"
 
 
+def test_taint_gate_denies_site_writes_when_tainted():
+    # An injected page/email must not put content on a site the user owns,
+    # through the builder or straight through Windy Sites.
+    for name in [
+        "windycodeweb_create_project", "windycodeweb_add_files",
+        "windycodeweb_undo", "windycodeweb_publish", "windycodeweb_unpublish",
+        "windycodeweb_connect_domain", "create_site", "add_or_edit_files",
+        "publish_site", "undo_to_version", "connect_domain_to_site",
+    ]:
+        deny, _band = _taint_gate(name, True, Band.OWNER)
+        assert deny is True, f"{name} must be refused on a tainted turn"
+    # reading the builder stays possible on a tainted turn
+    for name in ["windycodeweb_list_projects", "windycodeweb_preview",
+                 "windycodeweb_project_status", "list_my_sites"]:
+        assert name not in TAINT_FORBIDDEN_TOOLS
+
+
 def test_taint_gate_allows_external_effect_when_untainted():
     deny, band = _taint_gate("send_email", False, Band.OWNER)
     assert deny is False and band == Band.OWNER

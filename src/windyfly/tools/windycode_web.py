@@ -21,8 +21,9 @@ Design decisions:
     the LLM can relay in plain words.
 
 Environment:
-    WINDY_CODE_WEB_URL       — builder API base, e.g. https://windycode.org
-                               (unset ⇒ tools report unavailable)
+    WINDY_CODE_WEB_URL       — builder API base; default https://cloud.windycloud.com
+                               (the live builder; windycode.org is only the marketing
+                               site). Set it to "off" to disable these tools.
     ETERNITAS_PASSPORT_TOKEN / WINDY_JWT — the EPT presented as the bearer
 """
 
@@ -40,12 +41,18 @@ from windyfly.tools.registry import ToolRegistry
 logger = logging.getLogger(__name__)
 
 _TIMEOUT = 30.0
+# The live builder (portal at /build/, API at /api/v1/projects). Hatch never set
+# WINDY_CODE_WEB_URL, so with no default these tools always answered
+# "unavailable" and agents built sites around Windy Code instead of in it.
+DEFAULT_BUILDER_URL = "https://cloud.windycloud.com"
 _PUBLISH_TRUST_ACTION = "windycode_web_publish"
 
 
 def _creds() -> tuple[str, str]:
     """Resolve (builder_url, token). Empty strings indicate not configured."""
-    url = os.environ.get("WINDY_CODE_WEB_URL", "").rstrip("/")
+    url = (os.environ.get("WINDY_CODE_WEB_URL", "").strip() or DEFAULT_BUILDER_URL).rstrip("/")
+    if url.lower() == "off":
+        url = ""
     token = (
         os.environ.get("ETERNITAS_PASSPORT_TOKEN", "")
         or os.environ.get("WINDY_JWT", "")
@@ -65,9 +72,9 @@ def _request(method: str, path: str, json_body: dict | None = None) -> dict[str,
         return {
             "status": "unavailable",
             "error": (
-                "The browser builder is not configured for this agent. "
-                "WINDY_CODE_WEB_URL and an Eternitas token "
-                "(ETERNITAS_PASSPORT_TOKEN or WINDY_JWT) must be set."
+                "The browser builder is not available to this agent: it "
+                "needs an Eternitas token (ETERNITAS_PASSPORT_TOKEN or "
+                "WINDY_JWT), and WINDY_CODE_WEB_URL must not be 'off'."
             ),
         }
     try:
@@ -268,10 +275,13 @@ def register_windycodeweb_tools(registry: ToolRegistry) -> None:
     registry.register(
         name="windycodeweb_create_project",
         description=(
-            "Start a new project in the user's BROWSER builder (their private "
-            "draft website) — use FIRST when they ask you to build something "
-            "and they aren't at a desktop with Windy Code open. Returns "
-            "{project:{id,...}, speak}."
+            "Start a new project in Windy Code, the user's BROWSER builder "
+            "(their private draft website). This is the DEFAULT way to build "
+            "a website or web page for the user: use it instead of "
+            "create_site, writing files, or shell commands, unless they are "
+            "at a desktop with Windy Code open (then use windycode_*). The "
+            "user sees the project, its preview and its Undo list at "
+            "cloud.windycloud.com/build/. Returns {project:{id,...}, speak}."
         ),
         parameters={
             "type": "object",
