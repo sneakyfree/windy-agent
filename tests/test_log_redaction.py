@@ -53,9 +53,9 @@ def test_redacts_wk_broker_key():
 
 
 def test_redacts_zai_key():
-    text = "ZAI_API_KEY=c9842e4898804f4999e39f780f006cae.3KmkZghdXNEO9xo0"
+    text = "ZAI_API_KEY=00000000000000000000000000000000.aaaaaaaaaaaaaaaa"
     out = redact(text)
-    assert "3KmkZghdXNEO9xo0" not in out
+    assert "aaaaaaaaaaaaaaaa" not in out
     assert "***REDACTED***" in out
 
 
