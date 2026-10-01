@@ -1,0 +1,14 @@
+repo: sneakyfree/windy-drops
+commit: 21ff089
+fetched: gh api "repos/sneakyfree/windy-drops/contents/<path>?ref=21ff089" -H "Accept: application/vnd.github.raw"
+rule: copied byte-for-byte; never edit by hand. To update, re-fetch every file from a new commit,
+      update this file (commit + hashes), and re-run tests/test_windy_drops_vendored.py.
+
+# sha256  vendored-file  <-  upstream path
+48b11d197b62cf9ddfc119c25557ac3470c2d57796a1a8e890b9ad7f4edf4cb0  vectors.json  <-  tools/conformance/jws/vectors.json
+9a8eac23cb5e5ecc8fce3e90352e8aef1210fd1ac1d4f4f7d5fd77ea33e374b1  README.md     <-  tools/conformance/jws/README.md
+0db3b16bea64391e67269cb6a67a031781c33279ed9d461448e4fd59f368f884  verify.py     <-  python/sdk/src/windy_drops/lib/verify.py
+8baa2121f96a7a3c59eb14f0ddcab6591e564a6aa051f755643662af9277a06d  canonical.py  <-  python/sdk/src/windy_drops/lib/canonical.py
+
+# canonical.py is not in the original vendoring list but verify.py imports it (`from .canonical import
+# canonicalize`), so it is vendored from the same commit. __init__.py is ours (package marker only).
