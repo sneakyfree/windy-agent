@@ -131,3 +131,47 @@ def test_off_keeps_the_old_behavior(monkeypatch):
     monkeypatch.delenv("WINDY_TEXT_BYO")
     out = sms.send_sms(to="+15551230000", body="hi")
     assert out["status"] == "unavailable"  # legacy WINDY_PASSPORT_EPT unset: SMS stays off
+
+
+def test_send_uses_mode_b_dpop_when_available(monkeypatch):
+    from windyfly.eternitas import agent_keys as ak
+
+    calls = _server(monkeypatch, OWNER_OK)
+    monkeypatch.setattr(ak, "request_agent_token", lambda aud: {"token": f"tok-{aud}"})
+    monkeypatch.setattr(ak, "service_dpop", lambda m, u: f"proof-{m}-{u.rsplit('/', 1)[-1]}")
+    sms.send_sms(body="hi")
+    h = calls["post"][0]["auth"]
+    assert h == "DPoP tok-windy-telephony"
+
+
+def test_mode_b_unavailable_falls_back_to_legacy(monkeypatch):
+    from windyfly.eternitas import agent_keys as ak
+
+    calls = _server(monkeypatch, OWNER_OK)
+
+    def no_key(aud):
+        raise ak.AgentTokenError("unknown_audience")
+
+    monkeypatch.setattr(ak, "request_agent_token", no_key)
+    sms.send_sms(body="hi")
+    assert calls["post"][0]["auth"] == "Bearer ept-own"
+
+
+def test_revoked_passport_is_refused_not_fallen_back(monkeypatch):
+    from windyfly.eternitas import agent_keys as ak
+
+    calls = _server(monkeypatch, OWNER_OK)
+
+    def revoked(aud):
+        raise ak.AgentTokenError("passport_revoked")
+
+    monkeypatch.setattr(ak, "request_agent_token", revoked)
+    out = sms.send_sms(body="hi")
+    assert out["status"] == "failed" and calls["post"] == []
+
+
+def test_owner_asked_in_inbox_wording(monkeypatch):
+    _server(monkeypatch, {"approved": False, "opted_out": False, "first_contact": True, "kind": "contact"},
+            send_status=202, send_body={"status": "pending", "owner_asked": "inbox"})
+    out = sms.send_sms(to="+15551230000", body="hi")
+    assert out["error"].startswith("I've asked Grant in the Windy Inbox")
