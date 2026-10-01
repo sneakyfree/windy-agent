@@ -66,10 +66,26 @@ def test_later_texts_are_bare(monkeypatch):
     assert calls["post"][0]["json"]["body"] == "On my way"
 
 
-def test_not_approved_never_sends(monkeypatch):
-    calls = _server(monkeypatch, {"approved": False, "opted_out": False, "first_contact": True, "kind": "contact"})
+def test_not_approved_files_one_request_and_never_sends(monkeypatch):
+    calls = _server(monkeypatch, {"approved": False, "opted_out": False, "first_contact": True, "kind": "contact"},
+                    send_status=202, send_body={"status": "pending"})
     out = sms.send_sms(to="+15551230000", body="hi")
-    assert out["status"] == "needs_owner_approval" and out["sent"] is False and calls["post"] == []
+    assert out["status"] == "needs_owner_approval" and out["requested"] and out["sent"] is False
+    assert [c["url"].rsplit("/", 2)[-2:] for c in calls["post"]] == [["recipient", "request"]]
+    assert calls["post"][0]["json"] == {"to": "+15551230000"}
+    assert "asked for your OK in Windy" in out["error"]
+
+
+def test_request_says_opted_out(monkeypatch):
+    _server(monkeypatch, {"approved": False, "opted_out": False, "first_contact": True, "kind": "contact"},
+            send_status=403, send_body={"detail": "recipient_opted_out"})
+    assert sms.send_sms(to="+15551230000", body="hi")["status"] == "opted_out"
+
+
+def test_too_many_pending(monkeypatch):
+    _server(monkeypatch, {"approved": False, "opted_out": False, "first_contact": True, "kind": "contact"},
+            send_status=429, send_body={"detail": "too_many_pending_requests"})
+    assert "waiting for your OK" in sms.send_sms(to="+15551230000", body="hi")["error"]
 
 
 def test_opted_out_never_sends(monkeypatch):

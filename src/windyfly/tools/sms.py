@@ -271,6 +271,38 @@ def first_text(message: str) -> str:
     return _FIRST_TEXT.format(agent=agent, owner=owner, message=msg)
 
 
+def _request_approval(base_url: str, headers: dict[str, str], to: str) -> dict[str, Any]:
+    """Ask Windy Text to put an approval request in the owner's Windy Inbox
+    (POST /sms/recipient/request, windy-text c98c2e0). Only the owner's tap there
+    approves; the agent never approves a recipient itself, and doesn't retry until
+    GET /sms/recipient says approved."""
+    try:
+        r = httpx.post(f"{base_url}/sms/recipient/request", json={"to": to},
+                       headers=headers, timeout=_TIMEOUT)
+    except httpx.HTTPError:
+        return {"status": "needs_owner_approval", "sent": False,
+                "error": "I need your OK before texting this number, and I couldn't ask Windy just now."}
+    detail = ""
+    try:
+        detail = str((r.json() or {}).get("detail") or "")
+    except ValueError:
+        pass
+    if r.status_code == 200:
+        return {"status": "approved_retry", "sent": False,
+                "error": "That number was just approved. Ask me once more and I'll send it."}
+    if r.status_code == 202:
+        return {"status": "needs_owner_approval", "sent": False, "requested": True,
+                "error": "I asked for your OK in Windy before texting this number. I'll wait for it."}
+    if r.status_code == 403 and "opted_out" in detail:
+        return {"status": "opted_out", "sent": False,
+                "error": "That number has opted out of texts (they replied STOP). I won't text it."}
+    if r.status_code == 429:
+        return {"status": "needs_owner_approval", "sent": False,
+                "error": "There are already a lot of texting requests waiting for your OK in Windy. Please review them first."}
+    plain = plain_error(detail.split(":", 1)[0]) if detail else None
+    return {"status": "failed", "sent": False, "error": plain or f"Windy Text answered {r.status_code}"}
+
+
 def _send_byo(base_url: str, ept: str, to: str | None, body: str) -> dict[str, Any]:
     if to and not _E164_RE.match(to):
         return {"status": "failed",
@@ -290,9 +322,10 @@ def _send_byo(base_url: str, ept: str, to: str | None, body: str) -> dict[str, A
         return {"status": "opted_out", "sent": False,
                 "error": "That number has opted out of texts (they replied STOP). I won't text it."}
     if not rec.get("approved"):
-        return {"status": "needs_owner_approval", "sent": False,
-                "error": ("I need your OK before texting this number for the first time. "
-                          "Approve it when Windy asks you, then ask me again.")}
+        if not to:
+            return {"status": "failed", "sent": False,
+                    "error": "Your phone isn't set up for texting yet, so I didn't send it."}
+        return _request_approval(base_url, headers, to)
     text = first_text(body) if rec.get("first_contact") and rec.get("kind") == "contact" else body
     if len(text) > _MAX_SMS_CHARS:
         return {"status": "failed", "sent": False,
