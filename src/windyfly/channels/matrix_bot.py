@@ -776,6 +776,41 @@ class WindyFlyMatrixBot(ChannelAdapter):
         except Exception as e:
             logger.debug("Offline queue replay: %s", e)
 
+    async def _sms_inbox_loop(self) -> None:
+        """Poll Windy Text for inbound texts; relay contacts, answer the owner (USER band)."""
+        from windyfly.agent.capabilities import Band
+        from windyfly.agent.executor import run_turn
+        from windyfly.channels import sms_inbox
+        from windyfly.platform import windy_state_dir
+        from windyfly.tools import sms as _sms
+
+        seen = sms_inbox.SeenStore(windy_state_dir() / "sms_inbox_seen.json")
+        room_id = self._hatch_dm_room_id or ""
+        session_id = self._room_sessions.setdefault(room_id, str(uuid.uuid4()))
+
+        async def send_dm(text: str) -> None:
+            await self.client.room_send(room_id, "m.room.message", {
+                "msgtype": "m.text", "body": text, "windy_original": True})
+
+        async def run_owner_turn(body: str) -> str:
+            reply = await run_turn(
+                agent_respond, self.config, self.db, self.write_queue,
+                f"[Text message from you] {body}", session_id, self.tool_registry,
+                band=Band.USER,  # no side-effecting tool from a text
+            )
+            return str(reply)
+
+        while not self._shutting_down:
+            try:
+                base, ept = _sms._windy_text_env()
+                if ept:
+                    items = await asyncio.to_thread(sms_inbox.fetch_inbox, base, ept)
+                    await sms_inbox.handle_new(
+                        items, seen, send_dm=send_dm, run_owner_turn=run_owner_turn)
+            except Exception as e:  # a poll failure must never take the bot down
+                logger.warning("sms inbox poll failed: %s", e)
+            await asyncio.sleep(sms_inbox.POLL_S)
+
     async def start(self) -> None:
         """Start the bot: login, register callbacks, sync forever with reconnection."""
         await self.login()
@@ -818,6 +853,10 @@ class WindyFlyMatrixBot(ChannelAdapter):
 
         # Start heartbeat in background
         heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+        # Inbound texts (dark: WINDY_TEXT_BYO=1).
+        from windyfly.tools import sms as _sms
+        if _sms.byo_enabled() and self._hatch_dm_room_id:
+            self._sms_task = asyncio.create_task(self._sms_inbox_loop())
 
         # Sync with reconnection retry loop (exponential backoff)
         self._backoff = _INITIAL_BACKOFF_S
