@@ -86,7 +86,7 @@ def is_ollama_available() -> bool:
     """
     import httpx
     try:
-        response = httpx.get("http://localhost:11434/api/tags", timeout=2)
+        response = httpx.get("http://localhost:11434/api/tags", timeout=2)  # own-machine Ollama (lifeboat floor), not Veron
         return response.status_code == 200
     except (httpx.ConnectError, httpx.TimeoutException, Exception):
         return False
@@ -228,7 +228,7 @@ def warm_ollama_model(model: str | None = None) -> bool:
         # a full reply, but the model stays resident for ~5 minutes
         # so the user's first chat is fast.
         resp = httpx.post(
-            "http://localhost:11434/api/generate",
+            "http://localhost:11434/api/generate",  # own-machine Ollama (lifeboat floor), not Veron
             json={
                 "model": chosen,
                 "prompt": "hi",
@@ -267,7 +267,7 @@ def _call_ollama(
     timeout_s = _ollama_timeout_s()
     try:
         response = httpx.post(
-            "http://localhost:11434/api/chat",
+            "http://localhost:11434/api/chat",  # own-machine Ollama (lifeboat floor), not Veron
             json={
                 "model": model,
                 "messages": messages,
