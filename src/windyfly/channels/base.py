@@ -99,6 +99,22 @@ async def handle_incoming(text: str, context: dict | None = None) -> tuple[bool,
             "just chat with me normally."
         )
 
+    # Owner approval of a drafted outbound email (dark: WINDY_SEND_CONFIRM=1). Handled
+    # here, in code, so the model can never approve its own send.
+    from windyfly.tools import mail as _mail
+
+    if _mail.send_confirm_enabled() and band >= Band.OWNER and _mail.pending_drafts():
+        word = text.strip().strip(".!").lower()
+        if word == "send":
+            who = str(ctx.get("sender_id") or "the owner")
+            res = _mail.approve_latest(who)
+            if res.get("status") == "sent":
+                return True, f"Sent to {res.get('to', 'the recipient')}, with your approval."
+            return True, f"Not sent: {res.get('error') or res.get('status')}"
+        if word == "cancel":
+            n = _mail.cancel_pending()
+            return True, f"Cancelled {n} draft{'s' if n != 1 else ''}. Nothing was sent."
+
     rescue_reply = try_rescue(
         text,
         platform=platform,
