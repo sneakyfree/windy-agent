@@ -121,6 +121,20 @@ def test_refusals_become_plain_sentences(monkeypatch, status, code, phrase):
     assert out["status"] == "failed" and out["sent"] is False and phrase in out["error"]
 
 
+def test_code_in_detail_also_becomes_a_plain_sentence(monkeypatch):
+    """Live 10-01: Windy Text's 409 carried the code in `detail`, and the raw code reached the user."""
+    _server(monkeypatch, OWNER_OK, send_status=409, send_body={"detail": "carrier_registration_pending"})
+    out = sms.send_sms(body="hello")
+    assert out["error_code"] == "carrier_registration_pending"
+    assert "carriers haven't approved" in out["error"]
+
+
+def test_free_text_detail_is_still_relayed(monkeypatch):
+    _server(monkeypatch, OWNER_OK, send_status=400, send_body={"detail": "Body is empty."})
+    out = sms.send_sms(body="hello")
+    assert out["error"] == "Body is empty." and out["error_code"] is None
+
+
 def test_no_confirm_tool_for_the_model_in_byo_mode():
     reg = ToolRegistry()
     sms.register_sms_tools(reg)
