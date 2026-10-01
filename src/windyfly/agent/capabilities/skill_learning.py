@@ -43,14 +43,23 @@ def register_skill_learning_capabilities(
     """Register skill.list / skill.view / skill.save."""
     logger.info("Registering skill.* capabilities (learning surface)")
 
+    from windyfly.skills import drops as _drops
+
+    drops_on = _drops.enabled()
+
+    def _visible(s: dict[str, Any]) -> bool:
+        # A drop-sourced skill only surfaces while the flag is on, i.e. while the
+        # refresh that demotes withdrawn/revoked drops is running.
+        return drops_on or not _drops.is_drop_row(s)
+
     def skill_list() -> dict[str, Any]:
         from windyfly.memory.skills import list_skills
 
         rows = [
             s for s in list_skills(db, promoted_only=True)
-            if s.get("language") == "playbook"
+            if s.get("language") == "playbook" and _visible(s)
         ][:MAX_PLAYBOOK_SKILLS_LISTED]
-        return {
+        out: dict[str, Any] = {
             "count": len(rows),
             "skills": [
                 {
@@ -58,10 +67,18 @@ def register_skill_learning_capabilities(
                     "description": s.get("description") or "",
                     "version": s.get("version"),
                     "times_used": s.get("usage_count") or 0,
+                    **({"source": "windy-drops (third-party)", "drop_id": s.get("drop_id")}
+                       if _drops.is_drop_row(s) else {}),
                 }
                 for s in rows
             ],
         }
+        if drops_on:
+            out["drops"] = {
+                "pending_owner_confirm": _drops.pending_names(),
+                "available_in_library": _drops.available(),
+            }
+        return out
 
     def skill_view(*, name: str) -> dict[str, Any]:
         from windyfly.memory.skills import get_skill_by_name
@@ -69,7 +86,7 @@ def register_skill_learning_capabilities(
 
         slug = sanitize_skill_name(name)
         skill = get_skill_by_name(db, slug) if slug else None
-        if not skill or not skill.get("promoted"):
+        if not skill or not skill.get("promoted") or not _visible(skill):
             return {"ok": False, "error": f"no promoted skill named {name!r}"}
         try:
             # Direct tiny update (manager.increment_usage needs a write
@@ -82,6 +99,18 @@ def register_skill_learning_capabilities(
             db.commit()
         except Exception:
             pass
+        if _drops.is_drop_row(skill):
+            return {
+                "ok": True,
+                "name": skill["name"],
+                "description": skill.get("description") or "",
+                "version": skill.get("version"),
+                "third_party": True,
+                "drop_id": skill.get("drop_id"),
+                "drop_version": skill.get("drop_version"),
+                "signer_passport": skill.get("signer_passport"),
+                "body": _drops.wrap_body(skill.get("code") or ""),
+            }
         return {
             "ok": True,
             "name": skill["name"],
@@ -123,6 +152,14 @@ def register_skill_learning_capabilities(
             }
 
         existing = get_skill_by_name(db, slug)
+        if _drops.is_drop_row(existing):
+            # Re-saving a third-party drop under its own name would strip its
+            # provenance and its third-party wrapper.
+            return {
+                "ok": False,
+                "error": f"{slug!r} is an installed Windy Drops skill; save yours "
+                         "under a different name",
+            }
         skill_id = create_skill(
             db,
             name=slug,
@@ -216,5 +253,69 @@ def register_skill_learning_capabilities(
                 "tags": {"type": "string", "description": "optional comma-separated tags"},
             },
             "required": ["name", "description", "body"],
+        },
+    ))
+
+    if drops_on:
+        register_skill_drop_capabilities(registry, db)
+
+
+def register_skill_drop_capabilities(registry: CapabilityRegistry, db: Any) -> None:
+    """skill.install_drop / skill.uninstall_drop (dark: WINDY_SKILL_DROPS=1).
+
+    There is deliberately NO approve/confirm capability: an install is spent only
+    by the owner's own reply, handled in code by ``channels.base.handle_incoming``.
+    """
+    from windyfly.agent.capabilities.descriptor import Band
+    from windyfly.skills import drops as _drops
+
+    _drops.bind_db(db)
+    logger.info("Registering skill.install_drop / skill.uninstall_drop (WINDY_SKILL_DROPS=1)")
+
+    def install_drop(*, drop_id: str) -> dict[str, Any]:
+        return _drops.request_install(db, drop_id)
+
+    def uninstall_drop(*, drop_id: str) -> dict[str, Any]:
+        return _drops.uninstall(db, drop_id)
+
+    registry.register(Capability(
+        id="skill.install_drop",
+        description=(
+            "Ask to install a signed third-party playbook skill from Windy Drops by its "
+            "drop id. This NEVER installs by itself: it checks the signature and the "
+            "signer's standing, then waits for the OWNER to reply \"yes, install <name>\". "
+            "You cannot approve it yourself. Installed drop skills are instructions only "
+            "and never grant tools or permissions."
+        ),
+        handler=install_drop,
+        tier=Tier.READ_EXTERNAL,
+        scope="learning",
+        audit_required=True,
+        input_schema={
+            "type": "object",
+            "properties": {
+                "drop_id": {"type": "string", "description": "the Windy Drops id"},
+            },
+            "required": ["drop_id"],
+        },
+    ))
+
+    registry.register(Capability(
+        id="skill.uninstall_drop",
+        description=(
+            "Remove an installed Windy Drops skill (by drop id or skill name), or cancel "
+            "a pending install. It disappears from skill.list."
+        ),
+        handler=uninstall_drop,
+        tier=Tier.WRITE_LOCAL_SAFE,
+        band_required=Band.TRUSTED,
+        scope="learning",
+        audit_required=True,
+        input_schema={
+            "type": "object",
+            "properties": {
+                "drop_id": {"type": "string", "description": "drop id or skill name"},
+            },
+            "required": ["drop_id"],
         },
     ))

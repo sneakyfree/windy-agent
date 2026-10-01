@@ -618,15 +618,25 @@ def assemble_prompt(
         # lesson: a ~3k-token index beats a 100k-token dump).
         try:
             from windyfly.memory.skills import list_skills
+            from windyfly.skills import drops as _drops
+            drops_on = _drops.enabled()
             playbooks = [
                 s for s in list_skills(db, promoted_only=True)
                 if s.get("language") == "playbook"
+                and (drops_on or not _drops.is_drop_row(s))
             ][:12]
             if playbooks:
                 skill_lines = [
                     "## Skills you know (playbooks — load with skill.view before doing these tasks):"
                 ]
                 for s in playbooks:
+                    if _drops.is_drop_row(s):
+                        # Third-party text never reaches the system prompt:
+                        # the slug only (constrained charset), clearly labelled.
+                        skill_lines.append(
+                            f"- {s['name']} — (third-party skill from Windy Drops)"
+                        )
+                        continue
                     desc = (s.get("description") or "").strip()
                     skill_lines.append(
                         f"- {s['name']}" + (f" — {desc[:90]}" if desc else "")

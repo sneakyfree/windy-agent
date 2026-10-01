@@ -400,6 +400,14 @@ def _step_sync_skill_files(ctx: BootContext) -> None:
     sync_skill_files(ctx.db)
 
 
+def _step_skill_drops_refresh(ctx: BootContext) -> None:
+    """Skill drops (dark: WINDY_SKILL_DROPS=1): refresh installed Windy Drops skills now
+    and every 6 h on a daemon thread, demoting withdrawn/revoked ones. A no-op (no
+    thread, no network) when the flag is unset."""
+    from windyfly.skills.drops import start_refresh_thread
+    start_refresh_thread(ctx.db)
+
+
 def _step_refresh_ept(ctx: BootContext) -> None:
     """Refresh the Eternitas passport token in the background.
 
@@ -542,6 +550,11 @@ def default_capability_registration_sequence() -> list[Step]:
             "skills.file_sync",
             _step_sync_skill_files,
             optional=True,  # a malformed skill file must not block boot
+        ),
+        Step(
+            "skills.drops_refresh",
+            _step_skill_drops_refresh,
+            optional=True,  # background thread; must never block boot
         ),
         Step(
             "eternitas.ept_refresh",

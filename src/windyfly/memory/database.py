@@ -340,6 +340,11 @@ _MIGRATIONS: dict[int, tuple[str, str]] = {
             VALUES (13, 'sms_approved: first-contact SMS consent');
         """,
     ),
+    14: (
+        "skills: provenance for skills installed from Windy Drops (source, drop_id, "
+        "version, bundle sha256, signer passport + kid, installed_at). Idempotent ADD COLUMNs.",
+        "__callable__",
+    ),
     # NOTE — deliberately NOT adding an index on episodes(session_id,
     # created_at), though every turn filters on exactly that and it is
     # currently a full scan of a 29k-row table.
@@ -616,12 +621,42 @@ def _migration_12_cost_ledger_per_call(conn) -> None:
     )
 
 
+def _migration_14_skill_drop_provenance(conn) -> None:
+    """Provenance columns on skills for signed Windy Drops installs (idempotent).
+
+    ``source`` is NULL for every skill the owner or agent wrote; 'drop' marks a
+    third-party skill installed from the Windy Drops registry. Statement-at-a-time
+    (no executescript) so the caller's EXCLUSIVE transaction stays intact.
+    """
+    import sqlite3
+    for coldef in (
+        "source TEXT",
+        "drop_id TEXT",
+        "drop_version TEXT",
+        "bundle_sha256 TEXT",
+        "signer_passport TEXT",
+        "signer_kid TEXT",
+        "installed_at TEXT",
+    ):
+        try:
+            conn.execute(f"ALTER TABLE skills ADD COLUMN {coldef}")
+        except sqlite3.OperationalError as e:
+            if "duplicate column" not in str(e).lower():
+                raise
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_skills_drop_id ON skills(drop_id)")
+    conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, description)"
+        " VALUES (14, 'skills: Windy Drops provenance columns')"
+    )
+
+
 _CALLABLE_MIGRATIONS = {
     7: _migration_7_tracing,
     9: _migration_9_goal_pacing,
     10: _migration_10_goal_autorun,
     11: _migration_11_fts_porter_stemming,
     12: _migration_12_cost_ledger_per_call,
+    14: _migration_14_skill_drop_provenance,
 }
 
 

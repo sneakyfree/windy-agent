@@ -140,6 +140,15 @@ async def handle_incoming(text: str, context: dict | None = None) -> tuple[bool,
         if sms_reply is not None:
             return True, sms_reply
 
+    # Skill drops (dark: WINDY_SKILL_DROPS=1): the owner's own "yes, install <name>"
+    # spends a held install. The model has no approve tool; a stranger never gets here.
+    if band >= Band.OWNER:
+        from windyfly.skills import drops as _drops
+
+        drop_reply = _drops.owner_reply(text)
+        if drop_reply is not None:
+            return True, drop_reply
+
     if is_command(text):
         response = await registry.execute(parse_command(text), context)
         return True, response

@@ -1,0 +1,1294 @@
+{
+  "format": "windy-drops-jws-vectors/1",
+  "about": "Conformance vectors for verifying a signed drop. Each vector is self-contained: pass manifest, bundle_sha256, keys (the passport's /bots/{p}/keys list, null = unknown passport), the revocation inputs and (optionally) the bundle bytes to a verifier, and expect.reason. Reason codes are stable. Signed with a throwaway test key (tools/conformance/test-keys), never an agent key. Reference verifier: python/sdk/src/windy_drops/lib/verify.py.",
+  "vectors": [
+    {
+      "name": "valid",
+      "description": "A genuine signed drop: every check passes.",
+      "manifest": {
+        "schema": "windy.drop.v1",
+        "id": "your-handle-vector-skill",
+        "name": "My Skill",
+        "subtitle": "A starter agent skill",
+        "type": "skill",
+        "version": "0.1.0",
+        "author": [
+          {
+            "name": "Your Name"
+          }
+        ],
+        "license": "MIT",
+        "surfaces": [
+          "windy-fly"
+        ],
+        "tags": [
+          "starter"
+        ],
+        "signature": {
+          "algorithm": "ES256",
+          "signer": {
+            "passport": "ET26-TEST-0001",
+            "integrity_band": "fair",
+            "clearance_level": "verified"
+          },
+          "signed_at": "2026-10-01T06:57:56Z",
+          "signed_digest": "sha256:691964aa906dfdfceb8279509e732225758626259c06561350cde5d8cdbfb544",
+          "jws": "eyJhbGciOiJFUzI1NiIsInR5cCI6ImV0ZXJuaXRhcy1zaWcrandzIiwia2lkIjoicEtSN0IxS1loYkFYZlJyMDZabmVmdVJGSi1CRlhQT3YyT3pMNDhnWmxQZyIsInBhc3Nwb3J0IjoiRVQyNi1URVNULTAwMDEiLCJzaWduZWRfYXQiOiIyMDI2LTEwLTAxVDA2OjU3OjU2WiJ9..8BxR53veXNs_6xYVeqlGmsfJQL2RQrtg1Tshlm9z45eBNfX3LCiaF2ONBeiogKwCeQ1pHVrFbHdpU5yVK8umiA"
+        }
+      },
+      "bundle_sha256": "2223c779c1fe732daa618ad04dae0ff380a36b2244fa11e7fafdd02eee64ab3f",
+      "bundle_b64": "UEsDBBQAAAgAAAAAIQAf4N3DxQIAAMUCAAAIAAAAU0tJTEwubWQtLS0Kc2NoZW1hOiB3aW5keS5kcm9wLnYxCmlkOiB5b3VyLWhhbmRsZS12ZWN0b3Itc2tpbGwKbmFtZTogTXkgU2tpbGwKc3VidGl0bGU6IEEgc3RhcnRlciBhZ2VudCBza2lsbAp0eXBlOiBza2lsbAp2ZXJzaW9uOiAwLjEuMAphdXRob3I6CiAgLSBuYW1lOiBZb3VyIE5hbWUKbGljZW5zZTogTUlUCnN1cmZhY2VzOgogIC0gd2luZHktZmx5CnRhZ3M6CiAgLSBzdGFydGVyCi0tLQoKIyBNeSBTa2lsbAoKQSBzdGFydGVyIGFnZW50IHNraWxsIHNjYWZmb2xkZWQgYnkgYHdpbmR5LWRyb3BzIG5ldyAtLXR5cGUgc2tpbGxgLgoKV2hlbiBpbnN0YWxsZWQsIGFnZW50cyBvbiBgc3VyZmFjZXM6IHdpbmR5LWZseWAgKFdpbmR5IEZseSkgY2FuIGludm9rZSB0aGlzIHNraWxsLgoKUmVwbGFjZSB0aGlzIGJvZHkgd2l0aCB0aGUgc2tpbGwncyBpbnN0cnVjdGlvbnMuIFRoZSB3aG9sZSBtYXJrZG93biBib2R5IGlzIHRoZSBwcm9tcHQgdGhlIGFnZW50IGxvYWRzIGF0IGludm9jYXRpb24gdGltZSDigJQgd3JpdGUgaXQgZm9yIHRoZSBhZ2VudCwgbm90IGZvciBhIGh1bWFuIHJlYWRlci4KCiMjIEV4YW1wbGUKCj4gV2hlbiB0aGUgdXNlciBhc2tzIGFib3V0IGFwYXJ0bWVudHMgaW4gTllDLCBzZWFyY2ggU3RyZWV0RWFzeSBmb3IgbWF0Y2hpbmcgbGlzdGluZ3MsIHN1bW1hcml6ZSB0aGUgdG9wIDMsIGFuZCBvZmZlciB0byBzZXQgYSBkYWlseSBhbGVydC4KUEsBAhQAFAAACAAAAAAhAB/g3cPFAgAAxQIAAAgAAAAAAAAAAAAAAKQBAAAAAFNLSUxMLm1kUEsFBgAAAAABAAEANgAAAOsCAAAAAA==",
+      "keys": [
+        {
+          "kid": "pKR7B1KYhbAXfRr06ZnefuRFJ-BFXPOv2OzL48gZlPg",
+          "kty": "EC",
+          "crv": "P-256",
+          "alg": "ES256",
+          "use": "sig",
+          "x": "WJkMdgkastad_xXGt1DHoUcqDhAQ8VTfbOtSyiAFpTk",
+          "y": "-PXAVi_Prbao8ImzvHK25crZU2Y17Hannlx-AGqhsl4",
+          "status": "active",
+          "revoked_at": null
+        }
+      ],
+      "revoked_kids": [],
+      "revoked_passports": [],
+      "suspended_passports": [],
+      "expect": {
+        "ok": true,
+        "reason": "ok"
+      }
+    },
+    {
+      "name": "valid_signature_band_below_minimum",
+      "description": "Authentic (every check passes) but the signer's band (poor) is below the surface's minimum (fair): authenticity ok, POLICY refuses with band_below_minimum.",
+      "manifest": {
+        "schema": "windy.drop.v1",
+        "id": "your-handle-vector-skill-poor",
+        "name": "My Skill",
+        "subtitle": "A starter agent skill",
+        "type": "skill",
+        "version": "0.1.0",
+        "author": [
+          {
+            "name": "Your Name"
+          }
+        ],
+        "license": "MIT",
+        "surfaces": [
+          "windy-fly"
+        ],
+        "tags": [
+          "starter"
+        ],
+        "signature": {
+          "algorithm": "ES256",
+          "signer": {
+            "passport": "ET26-TEST-0001",
+            "integrity_band": "poor",
+            "clearance_level": "verified"
+          },
+          "signed_at": "2026-10-01T06:57:56Z",
+          "signed_digest": "sha256:bb254b36fada710c0079656d1b8cdef52ffefafd5d07aa414deb198d21f05078",
+          "jws": "eyJhbGciOiJFUzI1NiIsInR5cCI6ImV0ZXJuaXRhcy1zaWcrandzIiwia2lkIjoicEtSN0IxS1loYkFYZlJyMDZabmVmdVJGSi1CRlhQT3YyT3pMNDhnWmxQZyIsInBhc3Nwb3J0IjoiRVQyNi1URVNULTAwMDEiLCJzaWduZWRfYXQiOiIyMDI2LTEwLTAxVDA2OjU3OjU2WiJ9..60sbfXsLJxeD-LC_6Ziw2ryvm9Wi58bKgdoc-NeBxIDvnlEloUe8Qc4oS3fnH6Ah__QOww_7guw1G8A0LZ-35A"
+        }
+      },
+      "bundle_sha256": "758667dd26b83c645a14fe8fe9b40cdcc4346ac57d83a49d7dab75b9ceb1ae66",
+      "bundle_b64": "UEsDBBQAAAgAAAAAIQBNjLJmygIAAMoCAAAIAAAAU0tJTEwubWQtLS0Kc2NoZW1hOiB3aW5keS5kcm9wLnYxCmlkOiB5b3VyLWhhbmRsZS12ZWN0b3Itc2tpbGwtcG9vcgpuYW1lOiBNeSBTa2lsbApzdWJ0aXRsZTogQSBzdGFydGVyIGFnZW50IHNraWxsCnR5cGU6IHNraWxsCnZlcnNpb246IDAuMS4wCmF1dGhvcjoKICAtIG5hbWU6IFlvdXIgTmFtZQpsaWNlbnNlOiBNSVQKc3VyZmFjZXM6CiAgLSB3aW5keS1mbHkKdGFnczoKICAtIHN0YXJ0ZXIKLS0tCgojIE15IFNraWxsCgpBIHN0YXJ0ZXIgYWdlbnQgc2tpbGwgc2NhZmZvbGRlZCBieSBgd2luZHktZHJvcHMgbmV3IC0tdHlwZSBza2lsbGAuCgpXaGVuIGluc3RhbGxlZCwgYWdlbnRzIG9uIGBzdXJmYWNlczogd2luZHktZmx5YCAoV2luZHkgRmx5KSBjYW4gaW52b2tlIHRoaXMgc2tpbGwuCgpSZXBsYWNlIHRoaXMgYm9keSB3aXRoIHRoZSBza2lsbCdzIGluc3RydWN0aW9ucy4gVGhlIHdob2xlIG1hcmtkb3duIGJvZHkgaXMgdGhlIHByb21wdCB0aGUgYWdlbnQgbG9hZHMgYXQgaW52b2NhdGlvbiB0aW1lIOKAlCB3cml0ZSBpdCBmb3IgdGhlIGFnZW50LCBub3QgZm9yIGEgaHVtYW4gcmVhZGVyLgoKIyMgRXhhbXBsZQoKPiBXaGVuIHRoZSB1c2VyIGFza3MgYWJvdXQgYXBhcnRtZW50cyBpbiBOWUMsIHNlYXJjaCBTdHJlZXRFYXN5IGZvciBtYXRjaGluZyBsaXN0aW5ncywgc3VtbWFyaXplIHRoZSB0b3AgMywgYW5kIG9mZmVyIHRvIHNldCBhIGRhaWx5IGFsZXJ0LgpQSwECFAAUAAAIAAAAACEATYyyZsoCAADKAgAACAAAAAAAAAAAAAAApAEAAAAAU0tJTEwubWRQSwUGAAAAAAEAAQA2AAAA8AIAAAAA",
+      "keys": [
+        {
+          "kid": "pKR7B1KYhbAXfRr06ZnefuRFJ-BFXPOv2OzL48gZlPg",
+          "kty": "EC",
+          "crv": "P-256",
+          "alg": "ES256",
+          "use": "sig",
+          "x": "WJkMdgkastad_xXGt1DHoUcqDhAQ8VTfbOtSyiAFpTk",
+          "y": "-PXAVi_Prbao8ImzvHK25crZU2Y17Hannlx-AGqhsl4",
+          "status": "active",
+          "revoked_at": null
+        }
+      ],
+      "revoked_kids": [],
+      "revoked_passports": [],
+      "suspended_passports": [],
+      "policy": {
+        "min_band": "fair",
+        "allow_unproven": false,
+        "expect": {
+          "ok": false,
+          "reason": "band_below_minimum"
+        }
+      },
+      "expect": {
+        "ok": true,
+        "reason": "ok"
+      }
+    },
+    {
+      "name": "bundle_sha_mismatch",
+      "description": "The downloaded bundle bytes do not hash to the registry's bundle_sha256.",
+      "manifest": {
+        "schema": "windy.drop.v1",
+        "id": "your-handle-vector-skill",
+        "name": "My Skill",
+        "subtitle": "A starter agent skill",
+        "type": "skill",
+        "version": "0.1.0",
+        "author": [
+          {
+            "name": "Your Name"
+          }
+        ],
+        "license": "MIT",
+        "surfaces": [
+          "windy-fly"
+        ],
+        "tags": [
+          "starter"
+        ],
+        "signature": {
+          "algorithm": "ES256",
+          "signer": {
+            "passport": "ET26-TEST-0001",
+            "integrity_band": "fair",
+            "clearance_level": "verified"
+          },
+          "signed_at": "2026-10-01T06:57:56Z",
+          "signed_digest": "sha256:691964aa906dfdfceb8279509e732225758626259c06561350cde5d8cdbfb544",
+          "jws": "eyJhbGciOiJFUzI1NiIsInR5cCI6ImV0ZXJuaXRhcy1zaWcrandzIiwia2lkIjoicEtSN0IxS1loYkFYZlJyMDZabmVmdVJGSi1CRlhQT3YyT3pMNDhnWmxQZyIsInBhc3Nwb3J0IjoiRVQyNi1URVNULTAwMDEiLCJzaWduZWRfYXQiOiIyMDI2LTEwLTAxVDA2OjU3OjU2WiJ9..8BxR53veXNs_6xYVeqlGmsfJQL2RQrtg1Tshlm9z45eBNfX3LCiaF2ONBeiogKwCeQ1pHVrFbHdpU5yVK8umiA"
+        }
+      },
+      "bundle_sha256": "2223c779c1fe732daa618ad04dae0ff380a36b2244fa11e7fafdd02eee64ab3f",
+      "bundle_b64": "UEsDBBQAAAgAAAAAIQAf4N3DxQIAAMUCAAAIAAAAU0tJTEwubWQtLS0Kc2NoZW1hOiB3aW5keS5kcm9wLnYxCmlkOiB5b3VyLWhhbmRsZS12ZWN0b3Itc2tpbGwKbmFtZTogTXkgU2tpbGwKc3VidGl0bGU6IEEgc3RhcnRlciBhZ2VudCBza2lsbAp0eXBlOiBza2lsbAp2ZXJzaW9uOiAwLjEuMAphdXRob3I6CiAgLSBuYW1lOiBZb3VyIE5hbWUKbGljZW5zZTogTUlUCnN1cmZhY2VzOgogIC0gd2luZHktZmx5CnRhZ3M6CiAgLSBzdGFydGVyCi0tLQoKIyBNeSBTa2lsbAoKQSBzdGFydGVyIGFnZW50IHNraWxsIHNjYWZmb2xkZWQgYnkgYHdpbmR5LWRyb3BzIG5ldyAtLXR5cGUgc2tpbGxgLgoKV2hlbiBpbnN0YWxsZWQsIGFnZW50cyBvbiBgc3VyZmFjZXM6IHdpbmR5LWZseWAgKFdpbmR5IEZseSkgY2FuIGludm9rZSB0aGlz33NraWxsLgoKUmVwbGFjZSB0aGlzIGJvZHkgd2l0aCB0aGUgc2tpbGwncyBpbnN0cnVjdGlvbnMuIFRoZSB3aG9sZSBtYXJrZG93biBib2R5IGlzIHRoZSBwcm9tcHQgdGhlIGFnZW50IGxvYWRzIGF0IGludm9jYXRpb24gdGltZSDigJQgd3JpdGUgaXQgZm9yIHRoZSBhZ2VudCwgbm90IGZvciBhIGh1bWFuIHJlYWRlci4KCiMjIEV4YW1wbGUKCj4gV2hlbiB0aGUgdXNlciBhc2tzIGFib3V0IGFwYXJ0bWVudHMgaW4gTllDLCBzZWFyY2ggU3RyZWV0RWFzeSBmb3IgbWF0Y2hpbmcgbGlzdGluZ3MsIHN1bW1hcml6ZSB0aGUgdG9wIDMsIGFuZCBvZmZlciB0byBzZXQgYSBkYWlseSBhbGVydC4KUEsBAhQAFAAACAAAAAAhAB/g3cPFAgAAxQIAAAgAAAAAAAAAAAAAAKQBAAAAAFNLSUxMLm1kUEsFBgAAAAABAAEANgAAAOsCAAAAAA==",
+      "keys": [
+        {
+          "kid": "pKR7B1KYhbAXfRr06ZnefuRFJ-BFXPOv2OzL48gZlPg",
+          "kty": "EC",
+          "crv": "P-256",
+          "alg": "ES256",
+          "use": "sig",
+          "x": "WJkMdgkastad_xXGt1DHoUcqDhAQ8VTfbOtSyiAFpTk",
+          "y": "-PXAVi_Prbao8ImzvHK25crZU2Y17Hannlx-AGqhsl4",
+          "status": "active",
+          "revoked_at": null
+        }
+      ],
+      "revoked_kids": [],
+      "revoked_passports": [],
+      "suspended_passports": [],
+      "expect": {
+        "ok": false,
+        "reason": "bundle_sha_mismatch"
+      }
+    },
+    {
+      "name": "no_signature",
+      "description": "The manifest has no signature block (refuse unsigned by default).",
+      "manifest": {
+        "schema": "windy.drop.v1",
+        "id": "your-handle-vector-skill",
+        "name": "My Skill",
+        "subtitle": "A starter agent skill",
+        "type": "skill",
+        "version": "0.1.0",
+        "author": [
+          {
+            "name": "Your Name"
+          }
+        ],
+        "license": "MIT",
+        "surfaces": [
+          "windy-fly"
+        ],
+        "tags": [
+          "starter"
+        ]
+      },
+      "bundle_sha256": "2223c779c1fe732daa618ad04dae0ff380a36b2244fa11e7fafdd02eee64ab3f",
+      "bundle_b64": "UEsDBBQAAAgAAAAAIQAf4N3DxQIAAMUCAAAIAAAAU0tJTEwubWQtLS0Kc2NoZW1hOiB3aW5keS5kcm9wLnYxCmlkOiB5b3VyLWhhbmRsZS12ZWN0b3Itc2tpbGwKbmFtZTogTXkgU2tpbGwKc3VidGl0bGU6IEEgc3RhcnRlciBhZ2VudCBza2lsbAp0eXBlOiBza2lsbAp2ZXJzaW9uOiAwLjEuMAphdXRob3I6CiAgLSBuYW1lOiBZb3VyIE5hbWUKbGljZW5zZTogTUlUCnN1cmZhY2VzOgogIC0gd2luZHktZmx5CnRhZ3M6CiAgLSBzdGFydGVyCi0tLQoKIyBNeSBTa2lsbAoKQSBzdGFydGVyIGFnZW50IHNraWxsIHNjYWZmb2xkZWQgYnkgYHdpbmR5LWRyb3BzIG5ldyAtLXR5cGUgc2tpbGxgLgoKV2hlbiBpbnN0YWxsZWQsIGFnZW50cyBvbiBgc3VyZmFjZXM6IHdpbmR5LWZseWAgKFdpbmR5IEZseSkgY2FuIGludm9rZSB0aGlzIHNraWxsLgoKUmVwbGFjZSB0aGlzIGJvZHkgd2l0aCB0aGUgc2tpbGwncyBpbnN0cnVjdGlvbnMuIFRoZSB3aG9sZSBtYXJrZG93biBib2R5IGlzIHRoZSBwcm9tcHQgdGhlIGFnZW50IGxvYWRzIGF0IGludm9jYXRpb24gdGltZSDigJQgd3JpdGUgaXQgZm9yIHRoZSBhZ2VudCwgbm90IGZvciBhIGh1bWFuIHJlYWRlci4KCiMjIEV4YW1wbGUKCj4gV2hlbiB0aGUgdXNlciBhc2tzIGFib3V0IGFwYXJ0bWVudHMgaW4gTllDLCBzZWFyY2ggU3RyZWV0RWFzeSBmb3IgbWF0Y2hpbmcgbGlzdGluZ3MsIHN1bW1hcml6ZSB0aGUgdG9wIDMsIGFuZCBvZmZlciB0byBzZXQgYSBkYWlseSBhbGVydC4KUEsBAhQAFAAACAAAAAAhAB/g3cPFAgAAxQIAAAgAAAAAAAAAAAAAAKQBAAAAAFNLSUxMLm1kUEsFBgAAAAABAAEANgAAAOsCAAAAAA==",
+      "keys": [
+        {
+          "kid": "pKR7B1KYhbAXfRr06ZnefuRFJ-BFXPOv2OzL48gZlPg",
+          "kty": "EC",
+          "crv": "P-256",
+          "alg": "ES256",
+          "use": "sig",
+          "x": "WJkMdgkastad_xXGt1DHoUcqDhAQ8VTfbOtSyiAFpTk",
+          "y": "-PXAVi_Prbao8ImzvHK25crZU2Y17Hannlx-AGqhsl4",
+          "status": "active",
+          "revoked_at": null
+        }
+      ],
+      "revoked_kids": [],
+      "revoked_passports": [],
+      "suspended_passports": [],
+      "expect": {
+        "ok": false,
+        "reason": "no_signature"
+      }
+    },
+    {
+      "name": "bad_algorithm",
+      "description": "signature.algorithm is not ES256.",
+      "manifest": {
+        "schema": "windy.drop.v1",
+        "id": "your-handle-vector-skill",
+        "name": "My Skill",
+        "subtitle": "A starter agent skill",
+        "type": "skill",
+        "version": "0.1.0",
+        "author": [
+          {
+            "name": "Your Name"
+          }
+        ],
+        "license": "MIT",
+        "surfaces": [
+          "windy-fly"
+        ],
+        "tags": [
+          "starter"
+        ],
+        "signature": {
+          "algorithm": "RS256",
+          "signer": {
+            "passport": "ET26-TEST-0001",
+            "integrity_band": "fair",
+            "clearance_level": "verified"
+          },
+          "signed_at": "2026-10-01T06:57:56Z",
+          "signed_digest": "sha256:691964aa906dfdfceb8279509e732225758626259c06561350cde5d8cdbfb544",
+          "jws": "eyJhbGciOiJFUzI1NiIsInR5cCI6ImV0ZXJuaXRhcy1zaWcrandzIiwia2lkIjoicEtSN0IxS1loYkFYZlJyMDZabmVmdVJGSi1CRlhQT3YyT3pMNDhnWmxQZyIsInBhc3Nwb3J0IjoiRVQyNi1URVNULTAwMDEiLCJzaWduZWRfYXQiOiIyMDI2LTEwLTAxVDA2OjU3OjU2WiJ9..8BxR53veXNs_6xYVeqlGmsfJQL2RQrtg1Tshlm9z45eBNfX3LCiaF2ONBeiogKwCeQ1pHVrFbHdpU5yVK8umiA"
+        }
+      },
+      "bundle_sha256": "2223c779c1fe732daa618ad04dae0ff380a36b2244fa11e7fafdd02eee64ab3f",
+      "bundle_b64": "UEsDBBQAAAgAAAAAIQAf4N3DxQIAAMUCAAAIAAAAU0tJTEwubWQtLS0Kc2NoZW1hOiB3aW5keS5kcm9wLnYxCmlkOiB5b3VyLWhhbmRsZS12ZWN0b3Itc2tpbGwKbmFtZTogTXkgU2tpbGwKc3VidGl0bGU6IEEgc3RhcnRlciBhZ2VudCBza2lsbAp0eXBlOiBza2lsbAp2ZXJzaW9uOiAwLjEuMAphdXRob3I6CiAgLSBuYW1lOiBZb3VyIE5hbWUKbGljZW5zZTogTUlUCnN1cmZhY2VzOgogIC0gd2luZHktZmx5CnRhZ3M6CiAgLSBzdGFydGVyCi0tLQoKIyBNeSBTa2lsbAoKQSBzdGFydGVyIGFnZW50IHNraWxsIHNjYWZmb2xkZWQgYnkgYHdpbmR5LWRyb3BzIG5ldyAtLXR5cGUgc2tpbGxgLgoKV2hlbiBpbnN0YWxsZWQsIGFnZW50cyBvbiBgc3VyZmFjZXM6IHdpbmR5LWZseWAgKFdpbmR5IEZseSkgY2FuIGludm9rZSB0aGlzIHNraWxsLgoKUmVwbGFjZSB0aGlzIGJvZHkgd2l0aCB0aGUgc2tpbGwncyBpbnN0cnVjdGlvbnMuIFRoZSB3aG9sZSBtYXJrZG93biBib2R5IGlzIHRoZSBwcm9tcHQgdGhlIGFnZW50IGxvYWRzIGF0IGludm9jYXRpb24gdGltZSDigJQgd3JpdGUgaXQgZm9yIHRoZSBhZ2VudCwgbm90IGZvciBhIGh1bWFuIHJlYWRlci4KCiMjIEV4YW1wbGUKCj4gV2hlbiB0aGUgdXNlciBhc2tzIGFib3V0IGFwYXJ0bWVudHMgaW4gTllDLCBzZWFyY2ggU3RyZWV0RWFzeSBmb3IgbWF0Y2hpbmcgbGlzdGluZ3MsIHN1bW1hcml6ZSB0aGUgdG9wIDMsIGFuZCBvZmZlciB0byBzZXQgYSBkYWlseSBhbGVydC4KUEsBAhQAFAAACAAAAAAhAB/g3cPFAgAAxQIAAAgAAAAAAAAAAAAAAKQBAAAAAFNLSUxMLm1kUEsFBgAAAAABAAEANgAAAOsCAAAAAA==",
+      "keys": [
+        {
+          "kid": "pKR7B1KYhbAXfRr06ZnefuRFJ-BFXPOv2OzL48gZlPg",
+          "kty": "EC",
+          "crv": "P-256",
+          "alg": "ES256",
+          "use": "sig",
+          "x": "WJkMdgkastad_xXGt1DHoUcqDhAQ8VTfbOtSyiAFpTk",
+          "y": "-PXAVi_Prbao8ImzvHK25crZU2Y17Hannlx-AGqhsl4",
+          "status": "active",
+          "revoked_at": null
+        }
+      ],
+      "revoked_kids": [],
+      "revoked_passports": [],
+      "suspended_passports": [],
+      "expect": {
+        "ok": false,
+        "reason": "bad_algorithm"
+      }
+    },
+    {
+      "name": "no_passport",
+      "description": "signature.signer.passport is missing.",
+      "manifest": {
+        "schema": "windy.drop.v1",
+        "id": "your-handle-vector-skill",
+        "name": "My Skill",
+        "subtitle": "A starter agent skill",
+        "type": "skill",
+        "version": "0.1.0",
+        "author": [
+          {
+            "name": "Your Name"
+          }
+        ],
+        "license": "MIT",
+        "surfaces": [
+          "windy-fly"
+        ],
+        "tags": [
+          "starter"
+        ],
+        "signature": {
+          "algorithm": "ES256",
+          "signer": {
+            "integrity_band": "fair",
+            "clearance_level": "verified"
+          },
+          "signed_at": "2026-10-01T06:57:56Z",
+          "signed_digest": "sha256:691964aa906dfdfceb8279509e732225758626259c06561350cde5d8cdbfb544",
+          "jws": "eyJhbGciOiJFUzI1NiIsInR5cCI6ImV0ZXJuaXRhcy1zaWcrandzIiwia2lkIjoicEtSN0IxS1loYkFYZlJyMDZabmVmdVJGSi1CRlhQT3YyT3pMNDhnWmxQZyIsInBhc3Nwb3J0IjoiRVQyNi1URVNULTAwMDEiLCJzaWduZWRfYXQiOiIyMDI2LTEwLTAxVDA2OjU3OjU2WiJ9..8BxR53veXNs_6xYVeqlGmsfJQL2RQrtg1Tshlm9z45eBNfX3LCiaF2ONBeiogKwCeQ1pHVrFbHdpU5yVK8umiA"
+        }
+      },
+      "bundle_sha256": "2223c779c1fe732daa618ad04dae0ff380a36b2244fa11e7fafdd02eee64ab3f",
+      "bundle_b64": "UEsDBBQAAAgAAAAAIQAf4N3DxQIAAMUCAAAIAAAAU0tJTEwubWQtLS0Kc2NoZW1hOiB3aW5keS5kcm9wLnYxCmlkOiB5b3VyLWhhbmRsZS12ZWN0b3Itc2tpbGwKbmFtZTogTXkgU2tpbGwKc3VidGl0bGU6IEEgc3RhcnRlciBhZ2VudCBza2lsbAp0eXBlOiBza2lsbAp2ZXJzaW9uOiAwLjEuMAphdXRob3I6CiAgLSBuYW1lOiBZb3VyIE5hbWUKbGljZW5zZTogTUlUCnN1cmZhY2VzOgogIC0gd2luZHktZmx5CnRhZ3M6CiAgLSBzdGFydGVyCi0tLQoKIyBNeSBTa2lsbAoKQSBzdGFydGVyIGFnZW50IHNraWxsIHNjYWZmb2xkZWQgYnkgYHdpbmR5LWRyb3BzIG5ldyAtLXR5cGUgc2tpbGxgLgoKV2hlbiBpbnN0YWxsZWQsIGFnZW50cyBvbiBgc3VyZmFjZXM6IHdpbmR5LWZseWAgKFdpbmR5IEZseSkgY2FuIGludm9rZSB0aGlzIHNraWxsLgoKUmVwbGFjZSB0aGlzIGJvZHkgd2l0aCB0aGUgc2tpbGwncyBpbnN0cnVjdGlvbnMuIFRoZSB3aG9sZSBtYXJrZG93biBib2R5IGlzIHRoZSBwcm9tcHQgdGhlIGFnZW50IGxvYWRzIGF0IGludm9jYXRpb24gdGltZSDigJQgd3JpdGUgaXQgZm9yIHRoZSBhZ2VudCwgbm90IGZvciBhIGh1bWFuIHJlYWRlci4KCiMjIEV4YW1wbGUKCj4gV2hlbiB0aGUgdXNlciBhc2tzIGFib3V0IGFwYXJ0bWVudHMgaW4gTllDLCBzZWFyY2ggU3RyZWV0RWFzeSBmb3IgbWF0Y2hpbmcgbGlzdGluZ3MsIHN1bW1hcml6ZSB0aGUgdG9wIDMsIGFuZCBvZmZlciB0byBzZXQgYSBkYWlseSBhbGVydC4KUEsBAhQAFAAACAAAAAAhAB/g3cPFAgAAxQIAAAgAAAAAAAAAAAAAAKQBAAAAAFNLSUxMLm1kUEsFBgAAAAABAAEANgAAAOsCAAAAAA==",
+      "keys": [
+        {
+          "kid": "pKR7B1KYhbAXfRr06ZnefuRFJ-BFXPOv2OzL48gZlPg",
+          "kty": "EC",
+          "crv": "P-256",
+          "alg": "ES256",
+          "use": "sig",
+          "x": "WJkMdgkastad_xXGt1DHoUcqDhAQ8VTfbOtSyiAFpTk",
+          "y": "-PXAVi_Prbao8ImzvHK25crZU2Y17Hannlx-AGqhsl4",
+          "status": "active",
+          "revoked_at": null
+        }
+      ],
+      "revoked_kids": [],
+      "revoked_passports": [],
+      "suspended_passports": [],
+      "expect": {
+        "ok": false,
+        "reason": "no_passport"
+      }
+    },
+    {
+      "name": "no_jws",
+      "description": "A legacy raw signature with no JWS (refused).",
+      "manifest": {
+        "schema": "windy.drop.v1",
+        "id": "your-handle-vector-skill",
+        "name": "My Skill",
+        "subtitle": "A starter agent skill",
+        "type": "skill",
+        "version": "0.1.0",
+        "author": [
+          {
+            "name": "Your Name"
+          }
+        ],
+        "license": "MIT",
+        "surfaces": [
+          "windy-fly"
+        ],
+        "tags": [
+          "starter"
+        ],
+        "signature": {
+          "algorithm": "ES256",
+          "signer": {
+            "passport": "ET26-TEST-0001",
+            "integrity_band": "fair",
+            "clearance_level": "verified"
+          },
+          "signed_at": "2026-10-01T06:57:56Z",
+          "signed_digest": "sha256:691964aa906dfdfceb8279509e732225758626259c06561350cde5d8cdbfb544"
+        }
+      },
+      "bundle_sha256": "2223c779c1fe732daa618ad04dae0ff380a36b2244fa11e7fafdd02eee64ab3f",
+      "bundle_b64": "UEsDBBQAAAgAAAAAIQAf4N3DxQIAAMUCAAAIAAAAU0tJTEwubWQtLS0Kc2NoZW1hOiB3aW5keS5kcm9wLnYxCmlkOiB5b3VyLWhhbmRsZS12ZWN0b3Itc2tpbGwKbmFtZTogTXkgU2tpbGwKc3VidGl0bGU6IEEgc3RhcnRlciBhZ2VudCBza2lsbAp0eXBlOiBza2lsbAp2ZXJzaW9uOiAwLjEuMAphdXRob3I6CiAgLSBuYW1lOiBZb3VyIE5hbWUKbGljZW5zZTogTUlUCnN1cmZhY2VzOgogIC0gd2luZHktZmx5CnRhZ3M6CiAgLSBzdGFydGVyCi0tLQoKIyBNeSBTa2lsbAoKQSBzdGFydGVyIGFnZW50IHNraWxsIHNjYWZmb2xkZWQgYnkgYHdpbmR5LWRyb3BzIG5ldyAtLXR5cGUgc2tpbGxgLgoKV2hlbiBpbnN0YWxsZWQsIGFnZW50cyBvbiBgc3VyZmFjZXM6IHdpbmR5LWZseWAgKFdpbmR5IEZseSkgY2FuIGludm9rZSB0aGlzIHNraWxsLgoKUmVwbGFjZSB0aGlzIGJvZHkgd2l0aCB0aGUgc2tpbGwncyBpbnN0cnVjdGlvbnMuIFRoZSB3aG9sZSBtYXJrZG93biBib2R5IGlzIHRoZSBwcm9tcHQgdGhlIGFnZW50IGxvYWRzIGF0IGludm9jYXRpb24gdGltZSDigJQgd3JpdGUgaXQgZm9yIHRoZSBhZ2VudCwgbm90IGZvciBhIGh1bWFuIHJlYWRlci4KCiMjIEV4YW1wbGUKCj4gV2hlbiB0aGUgdXNlciBhc2tzIGFib3V0IGFwYXJ0bWVudHMgaW4gTllDLCBzZWFyY2ggU3RyZWV0RWFzeSBmb3IgbWF0Y2hpbmcgbGlzdGluZ3MsIHN1bW1hcml6ZSB0aGUgdG9wIDMsIGFuZCBvZmZlciB0byBzZXQgYSBkYWlseSBhbGVydC4KUEsBAhQAFAAACAAAAAAhAB/g3cPFAgAAxQIAAAgAAAAAAAAAAAAAAKQBAAAAAFNLSUxMLm1kUEsFBgAAAAABAAEANgAAAOsCAAAAAA==",
+      "keys": [
+        {
+          "kid": "pKR7B1KYhbAXfRr06ZnefuRFJ-BFXPOv2OzL48gZlPg",
+          "kty": "EC",
+          "crv": "P-256",
+          "alg": "ES256",
+          "use": "sig",
+          "x": "WJkMdgkastad_xXGt1DHoUcqDhAQ8VTfbOtSyiAFpTk",
+          "y": "-PXAVi_Prbao8ImzvHK25crZU2Y17Hannlx-AGqhsl4",
+          "status": "active",
+          "revoked_at": null
+        }
+      ],
+      "revoked_kids": [],
+      "revoked_passports": [],
+      "suspended_passports": [],
+      "expect": {
+        "ok": false,
+        "reason": "no_jws"
+      }
+    },
+    {
+      "name": "digest_mismatch",
+      "description": "The manifest was edited after signing (version bumped).",
+      "manifest": {
+        "schema": "windy.drop.v1",
+        "id": "your-handle-vector-skill",
+        "name": "My Skill",
+        "subtitle": "A starter agent skill",
+        "type": "skill",
+        "version": "9.9.9",
+        "author": [
+          {
+            "name": "Your Name"
+          }
+        ],
+        "license": "MIT",
+        "surfaces": [
+          "windy-fly"
+        ],
+        "tags": [
+          "starter"
+        ],
+        "signature": {
+          "algorithm": "ES256",
+          "signer": {
+            "passport": "ET26-TEST-0001",
+            "integrity_band": "fair",
+            "clearance_level": "verified"
+          },
+          "signed_at": "2026-10-01T06:57:56Z",
+          "signed_digest": "sha256:691964aa906dfdfceb8279509e732225758626259c06561350cde5d8cdbfb544",
+          "jws": "eyJhbGciOiJFUzI1NiIsInR5cCI6ImV0ZXJuaXRhcy1zaWcrandzIiwia2lkIjoicEtSN0IxS1loYkFYZlJyMDZabmVmdVJGSi1CRlhQT3YyT3pMNDhnWmxQZyIsInBhc3Nwb3J0IjoiRVQyNi1URVNULTAwMDEiLCJzaWduZWRfYXQiOiIyMDI2LTEwLTAxVDA2OjU3OjU2WiJ9..8BxR53veXNs_6xYVeqlGmsfJQL2RQrtg1Tshlm9z45eBNfX3LCiaF2ONBeiogKwCeQ1pHVrFbHdpU5yVK8umiA"
+        }
+      },
+      "bundle_sha256": "2223c779c1fe732daa618ad04dae0ff380a36b2244fa11e7fafdd02eee64ab3f",
+      "bundle_b64": "UEsDBBQAAAgAAAAAIQAf4N3DxQIAAMUCAAAIAAAAU0tJTEwubWQtLS0Kc2NoZW1hOiB3aW5keS5kcm9wLnYxCmlkOiB5b3VyLWhhbmRsZS12ZWN0b3Itc2tpbGwKbmFtZTogTXkgU2tpbGwKc3VidGl0bGU6IEEgc3RhcnRlciBhZ2VudCBza2lsbAp0eXBlOiBza2lsbAp2ZXJzaW9uOiAwLjEuMAphdXRob3I6CiAgLSBuYW1lOiBZb3VyIE5hbWUKbGljZW5zZTogTUlUCnN1cmZhY2VzOgogIC0gd2luZHktZmx5CnRhZ3M6CiAgLSBzdGFydGVyCi0tLQoKIyBNeSBTa2lsbAoKQSBzdGFydGVyIGFnZW50IHNraWxsIHNjYWZmb2xkZWQgYnkgYHdpbmR5LWRyb3BzIG5ldyAtLXR5cGUgc2tpbGxgLgoKV2hlbiBpbnN0YWxsZWQsIGFnZW50cyBvbiBgc3VyZmFjZXM6IHdpbmR5LWZseWAgKFdpbmR5IEZseSkgY2FuIGludm9rZSB0aGlzIHNraWxsLgoKUmVwbGFjZSB0aGlzIGJvZHkgd2l0aCB0aGUgc2tpbGwncyBpbnN0cnVjdGlvbnMuIFRoZSB3aG9sZSBtYXJrZG93biBib2R5IGlzIHRoZSBwcm9tcHQgdGhlIGFnZW50IGxvYWRzIGF0IGludm9jYXRpb24gdGltZSDigJQgd3JpdGUgaXQgZm9yIHRoZSBhZ2VudCwgbm90IGZvciBhIGh1bWFuIHJlYWRlci4KCiMjIEV4YW1wbGUKCj4gV2hlbiB0aGUgdXNlciBhc2tzIGFib3V0IGFwYXJ0bWVudHMgaW4gTllDLCBzZWFyY2ggU3RyZWV0RWFzeSBmb3IgbWF0Y2hpbmcgbGlzdGluZ3MsIHN1bW1hcml6ZSB0aGUgdG9wIDMsIGFuZCBvZmZlciB0byBzZXQgYSBkYWlseSBhbGVydC4KUEsBAhQAFAAACAAAAAAhAB/g3cPFAgAAxQIAAAgAAAAAAAAAAAAAAKQBAAAAAFNLSUxMLm1kUEsFBgAAAAABAAEANgAAAOsCAAAAAA==",
+      "keys": [
+        {
+          "kid": "pKR7B1KYhbAXfRr06ZnefuRFJ-BFXPOv2OzL48gZlPg",
+          "kty": "EC",
+          "crv": "P-256",
+          "alg": "ES256",
+          "use": "sig",
+          "x": "WJkMdgkastad_xXGt1DHoUcqDhAQ8VTfbOtSyiAFpTk",
+          "y": "-PXAVi_Prbao8ImzvHK25crZU2Y17Hannlx-AGqhsl4",
+          "status": "active",
+          "revoked_at": null
+        }
+      ],
+      "revoked_kids": [],
+      "revoked_passports": [],
+      "suspended_passports": [],
+      "expect": {
+        "ok": false,
+        "reason": "digest_mismatch"
+      }
+    },
+    {
+      "name": "bad_jws_format",
+      "description": "The JWS is not detached compact form.",
+      "manifest": {
+        "schema": "windy.drop.v1",
+        "id": "your-handle-vector-skill",
+        "name": "My Skill",
+        "subtitle": "A starter agent skill",
+        "type": "skill",
+        "version": "0.1.0",
+        "author": [
+          {
+            "name": "Your Name"
+          }
+        ],
+        "license": "MIT",
+        "surfaces": [
+          "windy-fly"
+        ],
+        "tags": [
+          "starter"
+        ],
+        "signature": {
+          "algorithm": "ES256",
+          "signer": {
+            "passport": "ET26-TEST-0001",
+            "integrity_band": "fair",
+            "clearance_level": "verified"
+          },
+          "signed_at": "2026-10-01T06:57:56Z",
+          "signed_digest": "sha256:691964aa906dfdfceb8279509e732225758626259c06561350cde5d8cdbfb544",
+          "jws": "not-a-jws"
+        }
+      },
+      "bundle_sha256": "2223c779c1fe732daa618ad04dae0ff380a36b2244fa11e7fafdd02eee64ab3f",
+      "bundle_b64": "UEsDBBQAAAgAAAAAIQAf4N3DxQIAAMUCAAAIAAAAU0tJTEwubWQtLS0Kc2NoZW1hOiB3aW5keS5kcm9wLnYxCmlkOiB5b3VyLWhhbmRsZS12ZWN0b3Itc2tpbGwKbmFtZTogTXkgU2tpbGwKc3VidGl0bGU6IEEgc3RhcnRlciBhZ2VudCBza2lsbAp0eXBlOiBza2lsbAp2ZXJzaW9uOiAwLjEuMAphdXRob3I6CiAgLSBuYW1lOiBZb3VyIE5hbWUKbGljZW5zZTogTUlUCnN1cmZhY2VzOgogIC0gd2luZHktZmx5CnRhZ3M6CiAgLSBzdGFydGVyCi0tLQoKIyBNeSBTa2lsbAoKQSBzdGFydGVyIGFnZW50IHNraWxsIHNjYWZmb2xkZWQgYnkgYHdpbmR5LWRyb3BzIG5ldyAtLXR5cGUgc2tpbGxgLgoKV2hlbiBpbnN0YWxsZWQsIGFnZW50cyBvbiBgc3VyZmFjZXM6IHdpbmR5LWZseWAgKFdpbmR5IEZseSkgY2FuIGludm9rZSB0aGlzIHNraWxsLgoKUmVwbGFjZSB0aGlzIGJvZHkgd2l0aCB0aGUgc2tpbGwncyBpbnN0cnVjdGlvbnMuIFRoZSB3aG9sZSBtYXJrZG93biBib2R5IGlzIHRoZSBwcm9tcHQgdGhlIGFnZW50IGxvYWRzIGF0IGludm9jYXRpb24gdGltZSDigJQgd3JpdGUgaXQgZm9yIHRoZSBhZ2VudCwgbm90IGZvciBhIGh1bWFuIHJlYWRlci4KCiMjIEV4YW1wbGUKCj4gV2hlbiB0aGUgdXNlciBhc2tzIGFib3V0IGFwYXJ0bWVudHMgaW4gTllDLCBzZWFyY2ggU3RyZWV0RWFzeSBmb3IgbWF0Y2hpbmcgbGlzdGluZ3MsIHN1bW1hcml6ZSB0aGUgdG9wIDMsIGFuZCBvZmZlciB0byBzZXQgYSBkYWlseSBhbGVydC4KUEsBAhQAFAAACAAAAAAhAB/g3cPFAgAAxQIAAAgAAAAAAAAAAAAAAKQBAAAAAFNLSUxMLm1kUEsFBgAAAAABAAEANgAAAOsCAAAAAA==",
+      "keys": [
+        {
+          "kid": "pKR7B1KYhbAXfRr06ZnefuRFJ-BFXPOv2OzL48gZlPg",
+          "kty": "EC",
+          "crv": "P-256",
+          "alg": "ES256",
+          "use": "sig",
+          "x": "WJkMdgkastad_xXGt1DHoUcqDhAQ8VTfbOtSyiAFpTk",
+          "y": "-PXAVi_Prbao8ImzvHK25crZU2Y17Hannlx-AGqhsl4",
+          "status": "active",
+          "revoked_at": null
+        }
+      ],
+      "revoked_kids": [],
+      "revoked_passports": [],
+      "suspended_passports": [],
+      "expect": {
+        "ok": false,
+        "reason": "bad_jws_format"
+      }
+    },
+    {
+      "name": "bad_header",
+      "description": "The protected header typ is wrong.",
+      "manifest": {
+        "schema": "windy.drop.v1",
+        "id": "your-handle-vector-skill",
+        "name": "My Skill",
+        "subtitle": "A starter agent skill",
+        "type": "skill",
+        "version": "0.1.0",
+        "author": [
+          {
+            "name": "Your Name"
+          }
+        ],
+        "license": "MIT",
+        "surfaces": [
+          "windy-fly"
+        ],
+        "tags": [
+          "starter"
+        ],
+        "signature": {
+          "algorithm": "ES256",
+          "signer": {
+            "passport": "ET26-TEST-0001",
+            "integrity_band": "fair",
+            "clearance_level": "verified"
+          },
+          "signed_at": "2026-10-01T06:57:56Z",
+          "signed_digest": "sha256:691964aa906dfdfceb8279509e732225758626259c06561350cde5d8cdbfb544",
+          "jws": "eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6InBLUjdCMUtZaGJBWGZScjA2Wm5lZnVSRkotQkZYUE92Mk96TDQ4Z1psUGciLCJwYXNzcG9ydCI6IkVUMjYtVEVTVC0wMDAxIiwic2lnbmVkX2F0IjoiMjAyNi0xMC0wMVQwNjo1Nzo1NloifQ..8BxR53veXNs_6xYVeqlGmsfJQL2RQrtg1Tshlm9z45eBNfX3LCiaF2ONBeiogKwCeQ1pHVrFbHdpU5yVK8umiA"
+        }
+      },
+      "bundle_sha256": "2223c779c1fe732daa618ad04dae0ff380a36b2244fa11e7fafdd02eee64ab3f",
+      "bundle_b64": "UEsDBBQAAAgAAAAAIQAf4N3DxQIAAMUCAAAIAAAAU0tJTEwubWQtLS0Kc2NoZW1hOiB3aW5keS5kcm9wLnYxCmlkOiB5b3VyLWhhbmRsZS12ZWN0b3Itc2tpbGwKbmFtZTogTXkgU2tpbGwKc3VidGl0bGU6IEEgc3RhcnRlciBhZ2VudCBza2lsbAp0eXBlOiBza2lsbAp2ZXJzaW9uOiAwLjEuMAphdXRob3I6CiAgLSBuYW1lOiBZb3VyIE5hbWUKbGljZW5zZTogTUlUCnN1cmZhY2VzOgogIC0gd2luZHktZmx5CnRhZ3M6CiAgLSBzdGFydGVyCi0tLQoKIyBNeSBTa2lsbAoKQSBzdGFydGVyIGFnZW50IHNraWxsIHNjYWZmb2xkZWQgYnkgYHdpbmR5LWRyb3BzIG5ldyAtLXR5cGUgc2tpbGxgLgoKV2hlbiBpbnN0YWxsZWQsIGFnZW50cyBvbiBgc3VyZmFjZXM6IHdpbmR5LWZseWAgKFdpbmR5IEZseSkgY2FuIGludm9rZSB0aGlzIHNraWxsLgoKUmVwbGFjZSB0aGlzIGJvZHkgd2l0aCB0aGUgc2tpbGwncyBpbnN0cnVjdGlvbnMuIFRoZSB3aG9sZSBtYXJrZG93biBib2R5IGlzIHRoZSBwcm9tcHQgdGhlIGFnZW50IGxvYWRzIGF0IGludm9jYXRpb24gdGltZSDigJQgd3JpdGUgaXQgZm9yIHRoZSBhZ2VudCwgbm90IGZvciBhIGh1bWFuIHJlYWRlci4KCiMjIEV4YW1wbGUKCj4gV2hlbiB0aGUgdXNlciBhc2tzIGFib3V0IGFwYXJ0bWVudHMgaW4gTllDLCBzZWFyY2ggU3RyZWV0RWFzeSBmb3IgbWF0Y2hpbmcgbGlzdGluZ3MsIHN1bW1hcml6ZSB0aGUgdG9wIDMsIGFuZCBvZmZlciB0byBzZXQgYSBkYWlseSBhbGVydC4KUEsBAhQAFAAACAAAAAAhAB/g3cPFAgAAxQIAAAgAAAAAAAAAAAAAAKQBAAAAAFNLSUxMLm1kUEsFBgAAAAABAAEANgAAAOsCAAAAAA==",
+      "keys": [
+        {
+          "kid": "pKR7B1KYhbAXfRr06ZnefuRFJ-BFXPOv2OzL48gZlPg",
+          "kty": "EC",
+          "crv": "P-256",
+          "alg": "ES256",
+          "use": "sig",
+          "x": "WJkMdgkastad_xXGt1DHoUcqDhAQ8VTfbOtSyiAFpTk",
+          "y": "-PXAVi_Prbao8ImzvHK25crZU2Y17Hannlx-AGqhsl4",
+          "status": "active",
+          "revoked_at": null
+        }
+      ],
+      "revoked_kids": [],
+      "revoked_passports": [],
+      "suspended_passports": [],
+      "expect": {
+        "ok": false,
+        "reason": "bad_header"
+      }
+    },
+    {
+      "name": "passport_mismatch",
+      "description": "The JWS header binds a different passport than signature.signer.passport.",
+      "manifest": {
+        "schema": "windy.drop.v1",
+        "id": "your-handle-vector-skill",
+        "name": "My Skill",
+        "subtitle": "A starter agent skill",
+        "type": "skill",
+        "version": "0.1.0",
+        "author": [
+          {
+            "name": "Your Name"
+          }
+        ],
+        "license": "MIT",
+        "surfaces": [
+          "windy-fly"
+        ],
+        "tags": [
+          "starter"
+        ],
+        "signature": {
+          "algorithm": "ES256",
+          "signer": {
+            "passport": "ET26-TEST-0002",
+            "integrity_band": "fair",
+            "clearance_level": "verified"
+          },
+          "signed_at": "2026-10-01T06:57:56Z",
+          "signed_digest": "sha256:691964aa906dfdfceb8279509e732225758626259c06561350cde5d8cdbfb544",
+          "jws": "eyJhbGciOiJFUzI1NiIsInR5cCI6ImV0ZXJuaXRhcy1zaWcrandzIiwia2lkIjoicEtSN0IxS1loYkFYZlJyMDZabmVmdVJGSi1CRlhQT3YyT3pMNDhnWmxQZyIsInBhc3Nwb3J0IjoiRVQyNi1URVNULTAwMDEiLCJzaWduZWRfYXQiOiIyMDI2LTEwLTAxVDA2OjU3OjU2WiJ9..8BxR53veXNs_6xYVeqlGmsfJQL2RQrtg1Tshlm9z45eBNfX3LCiaF2ONBeiogKwCeQ1pHVrFbHdpU5yVK8umiA"
+        }
+      },
+      "bundle_sha256": "2223c779c1fe732daa618ad04dae0ff380a36b2244fa11e7fafdd02eee64ab3f",
+      "bundle_b64": "UEsDBBQAAAgAAAAAIQAf4N3DxQIAAMUCAAAIAAAAU0tJTEwubWQtLS0Kc2NoZW1hOiB3aW5keS5kcm9wLnYxCmlkOiB5b3VyLWhhbmRsZS12ZWN0b3Itc2tpbGwKbmFtZTogTXkgU2tpbGwKc3VidGl0bGU6IEEgc3RhcnRlciBhZ2VudCBza2lsbAp0eXBlOiBza2lsbAp2ZXJzaW9uOiAwLjEuMAphdXRob3I6CiAgLSBuYW1lOiBZb3VyIE5hbWUKbGljZW5zZTogTUlUCnN1cmZhY2VzOgogIC0gd2luZHktZmx5CnRhZ3M6CiAgLSBzdGFydGVyCi0tLQoKIyBNeSBTa2lsbAoKQSBzdGFydGVyIGFnZW50IHNraWxsIHNjYWZmb2xkZWQgYnkgYHdpbmR5LWRyb3BzIG5ldyAtLXR5cGUgc2tpbGxgLgoKV2hlbiBpbnN0YWxsZWQsIGFnZW50cyBvbiBgc3VyZmFjZXM6IHdpbmR5LWZseWAgKFdpbmR5IEZseSkgY2FuIGludm9rZSB0aGlzIHNraWxsLgoKUmVwbGFjZSB0aGlzIGJvZHkgd2l0aCB0aGUgc2tpbGwncyBpbnN0cnVjdGlvbnMuIFRoZSB3aG9sZSBtYXJrZG93biBib2R5IGlzIHRoZSBwcm9tcHQgdGhlIGFnZW50IGxvYWRzIGF0IGludm9jYXRpb24gdGltZSDigJQgd3JpdGUgaXQgZm9yIHRoZSBhZ2VudCwgbm90IGZvciBhIGh1bWFuIHJlYWRlci4KCiMjIEV4YW1wbGUKCj4gV2hlbiB0aGUgdXNlciBhc2tzIGFib3V0IGFwYXJ0bWVudHMgaW4gTllDLCBzZWFyY2ggU3RyZWV0RWFzeSBmb3IgbWF0Y2hpbmcgbGlzdGluZ3MsIHN1bW1hcml6ZSB0aGUgdG9wIDMsIGFuZCBvZmZlciB0byBzZXQgYSBkYWlseSBhbGVydC4KUEsBAhQAFAAACAAAAAAhAB/g3cPFAgAAxQIAAAgAAAAAAAAAAAAAAKQBAAAAAFNLSUxMLm1kUEsFBgAAAAABAAEANgAAAOsCAAAAAA==",
+      "keys": [
+        {
+          "kid": "pKR7B1KYhbAXfRr06ZnefuRFJ-BFXPOv2OzL48gZlPg",
+          "kty": "EC",
+          "crv": "P-256",
+          "alg": "ES256",
+          "use": "sig",
+          "x": "WJkMdgkastad_xXGt1DHoUcqDhAQ8VTfbOtSyiAFpTk",
+          "y": "-PXAVi_Prbao8ImzvHK25crZU2Y17Hannlx-AGqhsl4",
+          "status": "active",
+          "revoked_at": null
+        }
+      ],
+      "revoked_kids": [],
+      "revoked_passports": [],
+      "suspended_passports": [],
+      "expect": {
+        "ok": false,
+        "reason": "passport_mismatch"
+      }
+    },
+    {
+      "name": "bad_sig_length",
+      "description": "The raw signature is not 64 bytes.",
+      "manifest": {
+        "schema": "windy.drop.v1",
+        "id": "your-handle-vector-skill",
+        "name": "My Skill",
+        "subtitle": "A starter agent skill",
+        "type": "skill",
+        "version": "0.1.0",
+        "author": [
+          {
+            "name": "Your Name"
+          }
+        ],
+        "license": "MIT",
+        "surfaces": [
+          "windy-fly"
+        ],
+        "tags": [
+          "starter"
+        ],
+        "signature": {
+          "algorithm": "ES256",
+          "signer": {
+            "passport": "ET26-TEST-0001",
+            "integrity_band": "fair",
+            "clearance_level": "verified"
+          },
+          "signed_at": "2026-10-01T06:57:56Z",
+          "signed_digest": "sha256:691964aa906dfdfceb8279509e732225758626259c06561350cde5d8cdbfb544",
+          "jws": "eyJhbGciOiJFUzI1NiIsInR5cCI6ImV0ZXJuaXRhcy1zaWcrandzIiwia2lkIjoicEtSN0IxS1loYkFYZlJyMDZabmVmdVJGSi1CRlhQT3YyT3pMNDhnWmxQZyIsInBhc3Nwb3J0IjoiRVQyNi1URVNULTAwMDEiLCJzaWduZWRfYXQiOiIyMDI2LTEwLTAxVDA2OjU3OjU2WiJ9..8BxR53veXNs_6xYVeqlGmsfJQL2RQrtg1Tshlm9z45eBNfX3LCiaF2ONBeiogKwCeQ1pHVrFbHdpU5yV"
+        }
+      },
+      "bundle_sha256": "2223c779c1fe732daa618ad04dae0ff380a36b2244fa11e7fafdd02eee64ab3f",
+      "bundle_b64": "UEsDBBQAAAgAAAAAIQAf4N3DxQIAAMUCAAAIAAAAU0tJTEwubWQtLS0Kc2NoZW1hOiB3aW5keS5kcm9wLnYxCmlkOiB5b3VyLWhhbmRsZS12ZWN0b3Itc2tpbGwKbmFtZTogTXkgU2tpbGwKc3VidGl0bGU6IEEgc3RhcnRlciBhZ2VudCBza2lsbAp0eXBlOiBza2lsbAp2ZXJzaW9uOiAwLjEuMAphdXRob3I6CiAgLSBuYW1lOiBZb3VyIE5hbWUKbGljZW5zZTogTUlUCnN1cmZhY2VzOgogIC0gd2luZHktZmx5CnRhZ3M6CiAgLSBzdGFydGVyCi0tLQoKIyBNeSBTa2lsbAoKQSBzdGFydGVyIGFnZW50IHNraWxsIHNjYWZmb2xkZWQgYnkgYHdpbmR5LWRyb3BzIG5ldyAtLXR5cGUgc2tpbGxgLgoKV2hlbiBpbnN0YWxsZWQsIGFnZW50cyBvbiBgc3VyZmFjZXM6IHdpbmR5LWZseWAgKFdpbmR5IEZseSkgY2FuIGludm9rZSB0aGlzIHNraWxsLgoKUmVwbGFjZSB0aGlzIGJvZHkgd2l0aCB0aGUgc2tpbGwncyBpbnN0cnVjdGlvbnMuIFRoZSB3aG9sZSBtYXJrZG93biBib2R5IGlzIHRoZSBwcm9tcHQgdGhlIGFnZW50IGxvYWRzIGF0IGludm9jYXRpb24gdGltZSDigJQgd3JpdGUgaXQgZm9yIHRoZSBhZ2VudCwgbm90IGZvciBhIGh1bWFuIHJlYWRlci4KCiMjIEV4YW1wbGUKCj4gV2hlbiB0aGUgdXNlciBhc2tzIGFib3V0IGFwYXJ0bWVudHMgaW4gTllDLCBzZWFyY2ggU3RyZWV0RWFzeSBmb3IgbWF0Y2hpbmcgbGlzdGluZ3MsIHN1bW1hcml6ZSB0aGUgdG9wIDMsIGFuZCBvZmZlciB0byBzZXQgYSBkYWlseSBhbGVydC4KUEsBAhQAFAAACAAAAAAhAB/g3cPFAgAAxQIAAAgAAAAAAAAAAAAAAKQBAAAAAFNLSUxMLm1kUEsFBgAAAAABAAEANgAAAOsCAAAAAA==",
+      "keys": [
+        {
+          "kid": "pKR7B1KYhbAXfRr06ZnefuRFJ-BFXPOv2OzL48gZlPg",
+          "kty": "EC",
+          "crv": "P-256",
+          "alg": "ES256",
+          "use": "sig",
+          "x": "WJkMdgkastad_xXGt1DHoUcqDhAQ8VTfbOtSyiAFpTk",
+          "y": "-PXAVi_Prbao8ImzvHK25crZU2Y17Hannlx-AGqhsl4",
+          "status": "active",
+          "revoked_at": null
+        }
+      ],
+      "revoked_kids": [],
+      "revoked_passports": [],
+      "suspended_passports": [],
+      "expect": {
+        "ok": false,
+        "reason": "bad_sig_length"
+      }
+    },
+    {
+      "name": "passport_revoked",
+      "description": "The signer passport is on the Eternitas revocation list.",
+      "manifest": {
+        "schema": "windy.drop.v1",
+        "id": "your-handle-vector-skill",
+        "name": "My Skill",
+        "subtitle": "A starter agent skill",
+        "type": "skill",
+        "version": "0.1.0",
+        "author": [
+          {
+            "name": "Your Name"
+          }
+        ],
+        "license": "MIT",
+        "surfaces": [
+          "windy-fly"
+        ],
+        "tags": [
+          "starter"
+        ],
+        "signature": {
+          "algorithm": "ES256",
+          "signer": {
+            "passport": "ET26-TEST-0001",
+            "integrity_band": "fair",
+            "clearance_level": "verified"
+          },
+          "signed_at": "2026-10-01T06:57:56Z",
+          "signed_digest": "sha256:691964aa906dfdfceb8279509e732225758626259c06561350cde5d8cdbfb544",
+          "jws": "eyJhbGciOiJFUzI1NiIsInR5cCI6ImV0ZXJuaXRhcy1zaWcrandzIiwia2lkIjoicEtSN0IxS1loYkFYZlJyMDZabmVmdVJGSi1CRlhQT3YyT3pMNDhnWmxQZyIsInBhc3Nwb3J0IjoiRVQyNi1URVNULTAwMDEiLCJzaWduZWRfYXQiOiIyMDI2LTEwLTAxVDA2OjU3OjU2WiJ9..8BxR53veXNs_6xYVeqlGmsfJQL2RQrtg1Tshlm9z45eBNfX3LCiaF2ONBeiogKwCeQ1pHVrFbHdpU5yVK8umiA"
+        }
+      },
+      "bundle_sha256": "2223c779c1fe732daa618ad04dae0ff380a36b2244fa11e7fafdd02eee64ab3f",
+      "bundle_b64": "UEsDBBQAAAgAAAAAIQAf4N3DxQIAAMUCAAAIAAAAU0tJTEwubWQtLS0Kc2NoZW1hOiB3aW5keS5kcm9wLnYxCmlkOiB5b3VyLWhhbmRsZS12ZWN0b3Itc2tpbGwKbmFtZTogTXkgU2tpbGwKc3VidGl0bGU6IEEgc3RhcnRlciBhZ2VudCBza2lsbAp0eXBlOiBza2lsbAp2ZXJzaW9uOiAwLjEuMAphdXRob3I6CiAgLSBuYW1lOiBZb3VyIE5hbWUKbGljZW5zZTogTUlUCnN1cmZhY2VzOgogIC0gd2luZHktZmx5CnRhZ3M6CiAgLSBzdGFydGVyCi0tLQoKIyBNeSBTa2lsbAoKQSBzdGFydGVyIGFnZW50IHNraWxsIHNjYWZmb2xkZWQgYnkgYHdpbmR5LWRyb3BzIG5ldyAtLXR5cGUgc2tpbGxgLgoKV2hlbiBpbnN0YWxsZWQsIGFnZW50cyBvbiBgc3VyZmFjZXM6IHdpbmR5LWZseWAgKFdpbmR5IEZseSkgY2FuIGludm9rZSB0aGlzIHNraWxsLgoKUmVwbGFjZSB0aGlzIGJvZHkgd2l0aCB0aGUgc2tpbGwncyBpbnN0cnVjdGlvbnMuIFRoZSB3aG9sZSBtYXJrZG93biBib2R5IGlzIHRoZSBwcm9tcHQgdGhlIGFnZW50IGxvYWRzIGF0IGludm9jYXRpb24gdGltZSDigJQgd3JpdGUgaXQgZm9yIHRoZSBhZ2VudCwgbm90IGZvciBhIGh1bWFuIHJlYWRlci4KCiMjIEV4YW1wbGUKCj4gV2hlbiB0aGUgdXNlciBhc2tzIGFib3V0IGFwYXJ0bWVudHMgaW4gTllDLCBzZWFyY2ggU3RyZWV0RWFzeSBmb3IgbWF0Y2hpbmcgbGlzdGluZ3MsIHN1bW1hcml6ZSB0aGUgdG9wIDMsIGFuZCBvZmZlciB0byBzZXQgYSBkYWlseSBhbGVydC4KUEsBAhQAFAAACAAAAAAhAB/g3cPFAgAAxQIAAAgAAAAAAAAAAAAAAKQBAAAAAFNLSUxMLm1kUEsFBgAAAAABAAEANgAAAOsCAAAAAA==",
+      "keys": [
+        {
+          "kid": "pKR7B1KYhbAXfRr06ZnefuRFJ-BFXPOv2OzL48gZlPg",
+          "kty": "EC",
+          "crv": "P-256",
+          "alg": "ES256",
+          "use": "sig",
+          "x": "WJkMdgkastad_xXGt1DHoUcqDhAQ8VTfbOtSyiAFpTk",
+          "y": "-PXAVi_Prbao8ImzvHK25crZU2Y17Hannlx-AGqhsl4",
+          "status": "active",
+          "revoked_at": null
+        }
+      ],
+      "revoked_kids": [],
+      "revoked_passports": [
+        "ET26-TEST-0001"
+      ],
+      "suspended_passports": [],
+      "expect": {
+        "ok": false,
+        "reason": "passport_revoked"
+      }
+    },
+    {
+      "name": "key_revoked",
+      "description": "The signing key (kid) is on the Eternitas revocation list.",
+      "manifest": {
+        "schema": "windy.drop.v1",
+        "id": "your-handle-vector-skill",
+        "name": "My Skill",
+        "subtitle": "A starter agent skill",
+        "type": "skill",
+        "version": "0.1.0",
+        "author": [
+          {
+            "name": "Your Name"
+          }
+        ],
+        "license": "MIT",
+        "surfaces": [
+          "windy-fly"
+        ],
+        "tags": [
+          "starter"
+        ],
+        "signature": {
+          "algorithm": "ES256",
+          "signer": {
+            "passport": "ET26-TEST-0001",
+            "integrity_band": "fair",
+            "clearance_level": "verified"
+          },
+          "signed_at": "2026-10-01T06:57:56Z",
+          "signed_digest": "sha256:691964aa906dfdfceb8279509e732225758626259c06561350cde5d8cdbfb544",
+          "jws": "eyJhbGciOiJFUzI1NiIsInR5cCI6ImV0ZXJuaXRhcy1zaWcrandzIiwia2lkIjoicEtSN0IxS1loYkFYZlJyMDZabmVmdVJGSi1CRlhQT3YyT3pMNDhnWmxQZyIsInBhc3Nwb3J0IjoiRVQyNi1URVNULTAwMDEiLCJzaWduZWRfYXQiOiIyMDI2LTEwLTAxVDA2OjU3OjU2WiJ9..8BxR53veXNs_6xYVeqlGmsfJQL2RQrtg1Tshlm9z45eBNfX3LCiaF2ONBeiogKwCeQ1pHVrFbHdpU5yVK8umiA"
+        }
+      },
+      "bundle_sha256": "2223c779c1fe732daa618ad04dae0ff380a36b2244fa11e7fafdd02eee64ab3f",
+      "bundle_b64": "UEsDBBQAAAgAAAAAIQAf4N3DxQIAAMUCAAAIAAAAU0tJTEwubWQtLS0Kc2NoZW1hOiB3aW5keS5kcm9wLnYxCmlkOiB5b3VyLWhhbmRsZS12ZWN0b3Itc2tpbGwKbmFtZTogTXkgU2tpbGwKc3VidGl0bGU6IEEgc3RhcnRlciBhZ2VudCBza2lsbAp0eXBlOiBza2lsbAp2ZXJzaW9uOiAwLjEuMAphdXRob3I6CiAgLSBuYW1lOiBZb3VyIE5hbWUKbGljZW5zZTogTUlUCnN1cmZhY2VzOgogIC0gd2luZHktZmx5CnRhZ3M6CiAgLSBzdGFydGVyCi0tLQoKIyBNeSBTa2lsbAoKQSBzdGFydGVyIGFnZW50IHNraWxsIHNjYWZmb2xkZWQgYnkgYHdpbmR5LWRyb3BzIG5ldyAtLXR5cGUgc2tpbGxgLgoKV2hlbiBpbnN0YWxsZWQsIGFnZW50cyBvbiBgc3VyZmFjZXM6IHdpbmR5LWZseWAgKFdpbmR5IEZseSkgY2FuIGludm9rZSB0aGlzIHNraWxsLgoKUmVwbGFjZSB0aGlzIGJvZHkgd2l0aCB0aGUgc2tpbGwncyBpbnN0cnVjdGlvbnMuIFRoZSB3aG9sZSBtYXJrZG93biBib2R5IGlzIHRoZSBwcm9tcHQgdGhlIGFnZW50IGxvYWRzIGF0IGludm9jYXRpb24gdGltZSDigJQgd3JpdGUgaXQgZm9yIHRoZSBhZ2VudCwgbm90IGZvciBhIGh1bWFuIHJlYWRlci4KCiMjIEV4YW1wbGUKCj4gV2hlbiB0aGUgdXNlciBhc2tzIGFib3V0IGFwYXJ0bWVudHMgaW4gTllDLCBzZWFyY2ggU3RyZWV0RWFzeSBmb3IgbWF0Y2hpbmcgbGlzdGluZ3MsIHN1bW1hcml6ZSB0aGUgdG9wIDMsIGFuZCBvZmZlciB0byBzZXQgYSBkYWlseSBhbGVydC4KUEsBAhQAFAAACAAAAAAhAB/g3cPFAgAAxQIAAAgAAAAAAAAAAAAAAKQBAAAAAFNLSUxMLm1kUEsFBgAAAAABAAEANgAAAOsCAAAAAA==",
+      "keys": [
+        {
+          "kid": "pKR7B1KYhbAXfRr06ZnefuRFJ-BFXPOv2OzL48gZlPg",
+          "kty": "EC",
+          "crv": "P-256",
+          "alg": "ES256",
+          "use": "sig",
+          "x": "WJkMdgkastad_xXGt1DHoUcqDhAQ8VTfbOtSyiAFpTk",
+          "y": "-PXAVi_Prbao8ImzvHK25crZU2Y17Hannlx-AGqhsl4",
+          "status": "active",
+          "revoked_at": null
+        }
+      ],
+      "revoked_kids": [
+        "pKR7B1KYhbAXfRr06ZnefuRFJ-BFXPOv2OzL48gZlPg"
+      ],
+      "revoked_passports": [],
+      "suspended_passports": [],
+      "expect": {
+        "ok": false,
+        "reason": "key_revoked"
+      }
+    },
+    {
+      "name": "passport_suspended",
+      "description": "The signer passport is suspended (reversible).",
+      "manifest": {
+        "schema": "windy.drop.v1",
+        "id": "your-handle-vector-skill",
+        "name": "My Skill",
+        "subtitle": "A starter agent skill",
+        "type": "skill",
+        "version": "0.1.0",
+        "author": [
+          {
+            "name": "Your Name"
+          }
+        ],
+        "license": "MIT",
+        "surfaces": [
+          "windy-fly"
+        ],
+        "tags": [
+          "starter"
+        ],
+        "signature": {
+          "algorithm": "ES256",
+          "signer": {
+            "passport": "ET26-TEST-0001",
+            "integrity_band": "fair",
+            "clearance_level": "verified"
+          },
+          "signed_at": "2026-10-01T06:57:56Z",
+          "signed_digest": "sha256:691964aa906dfdfceb8279509e732225758626259c06561350cde5d8cdbfb544",
+          "jws": "eyJhbGciOiJFUzI1NiIsInR5cCI6ImV0ZXJuaXRhcy1zaWcrandzIiwia2lkIjoicEtSN0IxS1loYkFYZlJyMDZabmVmdVJGSi1CRlhQT3YyT3pMNDhnWmxQZyIsInBhc3Nwb3J0IjoiRVQyNi1URVNULTAwMDEiLCJzaWduZWRfYXQiOiIyMDI2LTEwLTAxVDA2OjU3OjU2WiJ9..8BxR53veXNs_6xYVeqlGmsfJQL2RQrtg1Tshlm9z45eBNfX3LCiaF2ONBeiogKwCeQ1pHVrFbHdpU5yVK8umiA"
+        }
+      },
+      "bundle_sha256": "2223c779c1fe732daa618ad04dae0ff380a36b2244fa11e7fafdd02eee64ab3f",
+      "bundle_b64": "UEsDBBQAAAgAAAAAIQAf4N3DxQIAAMUCAAAIAAAAU0tJTEwubWQtLS0Kc2NoZW1hOiB3aW5keS5kcm9wLnYxCmlkOiB5b3VyLWhhbmRsZS12ZWN0b3Itc2tpbGwKbmFtZTogTXkgU2tpbGwKc3VidGl0bGU6IEEgc3RhcnRlciBhZ2VudCBza2lsbAp0eXBlOiBza2lsbAp2ZXJzaW9uOiAwLjEuMAphdXRob3I6CiAgLSBuYW1lOiBZb3VyIE5hbWUKbGljZW5zZTogTUlUCnN1cmZhY2VzOgogIC0gd2luZHktZmx5CnRhZ3M6CiAgLSBzdGFydGVyCi0tLQoKIyBNeSBTa2lsbAoKQSBzdGFydGVyIGFnZW50IHNraWxsIHNjYWZmb2xkZWQgYnkgYHdpbmR5LWRyb3BzIG5ldyAtLXR5cGUgc2tpbGxgLgoKV2hlbiBpbnN0YWxsZWQsIGFnZW50cyBvbiBgc3VyZmFjZXM6IHdpbmR5LWZseWAgKFdpbmR5IEZseSkgY2FuIGludm9rZSB0aGlzIHNraWxsLgoKUmVwbGFjZSB0aGlzIGJvZHkgd2l0aCB0aGUgc2tpbGwncyBpbnN0cnVjdGlvbnMuIFRoZSB3aG9sZSBtYXJrZG93biBib2R5IGlzIHRoZSBwcm9tcHQgdGhlIGFnZW50IGxvYWRzIGF0IGludm9jYXRpb24gdGltZSDigJQgd3JpdGUgaXQgZm9yIHRoZSBhZ2VudCwgbm90IGZvciBhIGh1bWFuIHJlYWRlci4KCiMjIEV4YW1wbGUKCj4gV2hlbiB0aGUgdXNlciBhc2tzIGFib3V0IGFwYXJ0bWVudHMgaW4gTllDLCBzZWFyY2ggU3RyZWV0RWFzeSBmb3IgbWF0Y2hpbmcgbGlzdGluZ3MsIHN1bW1hcml6ZSB0aGUgdG9wIDMsIGFuZCBvZmZlciB0byBzZXQgYSBkYWlseSBhbGVydC4KUEsBAhQAFAAACAAAAAAhAB/g3cPFAgAAxQIAAAgAAAAAAAAAAAAAAKQBAAAAAFNLSUxMLm1kUEsFBgAAAAABAAEANgAAAOsCAAAAAA==",
+      "keys": [
+        {
+          "kid": "pKR7B1KYhbAXfRr06ZnefuRFJ-BFXPOv2OzL48gZlPg",
+          "kty": "EC",
+          "crv": "P-256",
+          "alg": "ES256",
+          "use": "sig",
+          "x": "WJkMdgkastad_xXGt1DHoUcqDhAQ8VTfbOtSyiAFpTk",
+          "y": "-PXAVi_Prbao8ImzvHK25crZU2Y17Hannlx-AGqhsl4",
+          "status": "active",
+          "revoked_at": null
+        }
+      ],
+      "revoked_kids": [],
+      "revoked_passports": [],
+      "suspended_passports": [
+        "ET26-TEST-0001"
+      ],
+      "expect": {
+        "ok": false,
+        "reason": "passport_suspended"
+      }
+    },
+    {
+      "name": "unknown_passport",
+      "description": "Eternitas does not know the passport (404).",
+      "manifest": {
+        "schema": "windy.drop.v1",
+        "id": "your-handle-vector-skill",
+        "name": "My Skill",
+        "subtitle": "A starter agent skill",
+        "type": "skill",
+        "version": "0.1.0",
+        "author": [
+          {
+            "name": "Your Name"
+          }
+        ],
+        "license": "MIT",
+        "surfaces": [
+          "windy-fly"
+        ],
+        "tags": [
+          "starter"
+        ],
+        "signature": {
+          "algorithm": "ES256",
+          "signer": {
+            "passport": "ET26-TEST-0001",
+            "integrity_band": "fair",
+            "clearance_level": "verified"
+          },
+          "signed_at": "2026-10-01T06:57:56Z",
+          "signed_digest": "sha256:691964aa906dfdfceb8279509e732225758626259c06561350cde5d8cdbfb544",
+          "jws": "eyJhbGciOiJFUzI1NiIsInR5cCI6ImV0ZXJuaXRhcy1zaWcrandzIiwia2lkIjoicEtSN0IxS1loYkFYZlJyMDZabmVmdVJGSi1CRlhQT3YyT3pMNDhnWmxQZyIsInBhc3Nwb3J0IjoiRVQyNi1URVNULTAwMDEiLCJzaWduZWRfYXQiOiIyMDI2LTEwLTAxVDA2OjU3OjU2WiJ9..8BxR53veXNs_6xYVeqlGmsfJQL2RQrtg1Tshlm9z45eBNfX3LCiaF2ONBeiogKwCeQ1pHVrFbHdpU5yVK8umiA"
+        }
+      },
+      "bundle_sha256": "2223c779c1fe732daa618ad04dae0ff380a36b2244fa11e7fafdd02eee64ab3f",
+      "bundle_b64": "UEsDBBQAAAgAAAAAIQAf4N3DxQIAAMUCAAAIAAAAU0tJTEwubWQtLS0Kc2NoZW1hOiB3aW5keS5kcm9wLnYxCmlkOiB5b3VyLWhhbmRsZS12ZWN0b3Itc2tpbGwKbmFtZTogTXkgU2tpbGwKc3VidGl0bGU6IEEgc3RhcnRlciBhZ2VudCBza2lsbAp0eXBlOiBza2lsbAp2ZXJzaW9uOiAwLjEuMAphdXRob3I6CiAgLSBuYW1lOiBZb3VyIE5hbWUKbGljZW5zZTogTUlUCnN1cmZhY2VzOgogIC0gd2luZHktZmx5CnRhZ3M6CiAgLSBzdGFydGVyCi0tLQoKIyBNeSBTa2lsbAoKQSBzdGFydGVyIGFnZW50IHNraWxsIHNjYWZmb2xkZWQgYnkgYHdpbmR5LWRyb3BzIG5ldyAtLXR5cGUgc2tpbGxgLgoKV2hlbiBpbnN0YWxsZWQsIGFnZW50cyBvbiBgc3VyZmFjZXM6IHdpbmR5LWZseWAgKFdpbmR5IEZseSkgY2FuIGludm9rZSB0aGlzIHNraWxsLgoKUmVwbGFjZSB0aGlzIGJvZHkgd2l0aCB0aGUgc2tpbGwncyBpbnN0cnVjdGlvbnMuIFRoZSB3aG9sZSBtYXJrZG93biBib2R5IGlzIHRoZSBwcm9tcHQgdGhlIGFnZW50IGxvYWRzIGF0IGludm9jYXRpb24gdGltZSDigJQgd3JpdGUgaXQgZm9yIHRoZSBhZ2VudCwgbm90IGZvciBhIGh1bWFuIHJlYWRlci4KCiMjIEV4YW1wbGUKCj4gV2hlbiB0aGUgdXNlciBhc2tzIGFib3V0IGFwYXJ0bWVudHMgaW4gTllDLCBzZWFyY2ggU3RyZWV0RWFzeSBmb3IgbWF0Y2hpbmcgbGlzdGluZ3MsIHN1bW1hcml6ZSB0aGUgdG9wIDMsIGFuZCBvZmZlciB0byBzZXQgYSBkYWlseSBhbGVydC4KUEsBAhQAFAAACAAAAAAhAB/g3cPFAgAAxQIAAAgAAAAAAAAAAAAAAKQBAAAAAFNLSUxMLm1kUEsFBgAAAAABAAEANgAAAOsCAAAAAA==",
+      "keys": null,
+      "revoked_kids": [],
+      "revoked_passports": [],
+      "suspended_passports": [],
+      "expect": {
+        "ok": false,
+        "reason": "unknown_passport"
+      }
+    },
+    {
+      "name": "unknown_key",
+      "description": "The passport has keys, but not this kid.",
+      "manifest": {
+        "schema": "windy.drop.v1",
+        "id": "your-handle-vector-skill",
+        "name": "My Skill",
+        "subtitle": "A starter agent skill",
+        "type": "skill",
+        "version": "0.1.0",
+        "author": [
+          {
+            "name": "Your Name"
+          }
+        ],
+        "license": "MIT",
+        "surfaces": [
+          "windy-fly"
+        ],
+        "tags": [
+          "starter"
+        ],
+        "signature": {
+          "algorithm": "ES256",
+          "signer": {
+            "passport": "ET26-TEST-0001",
+            "integrity_band": "fair",
+            "clearance_level": "verified"
+          },
+          "signed_at": "2026-10-01T06:57:56Z",
+          "signed_digest": "sha256:691964aa906dfdfceb8279509e732225758626259c06561350cde5d8cdbfb544",
+          "jws": "eyJhbGciOiJFUzI1NiIsInR5cCI6ImV0ZXJuaXRhcy1zaWcrandzIiwia2lkIjoicEtSN0IxS1loYkFYZlJyMDZabmVmdVJGSi1CRlhQT3YyT3pMNDhnWmxQZyIsInBhc3Nwb3J0IjoiRVQyNi1URVNULTAwMDEiLCJzaWduZWRfYXQiOiIyMDI2LTEwLTAxVDA2OjU3OjU2WiJ9..8BxR53veXNs_6xYVeqlGmsfJQL2RQrtg1Tshlm9z45eBNfX3LCiaF2ONBeiogKwCeQ1pHVrFbHdpU5yVK8umiA"
+        }
+      },
+      "bundle_sha256": "2223c779c1fe732daa618ad04dae0ff380a36b2244fa11e7fafdd02eee64ab3f",
+      "bundle_b64": "UEsDBBQAAAgAAAAAIQAf4N3DxQIAAMUCAAAIAAAAU0tJTEwubWQtLS0Kc2NoZW1hOiB3aW5keS5kcm9wLnYxCmlkOiB5b3VyLWhhbmRsZS12ZWN0b3Itc2tpbGwKbmFtZTogTXkgU2tpbGwKc3VidGl0bGU6IEEgc3RhcnRlciBhZ2VudCBza2lsbAp0eXBlOiBza2lsbAp2ZXJzaW9uOiAwLjEuMAphdXRob3I6CiAgLSBuYW1lOiBZb3VyIE5hbWUKbGljZW5zZTogTUlUCnN1cmZhY2VzOgogIC0gd2luZHktZmx5CnRhZ3M6CiAgLSBzdGFydGVyCi0tLQoKIyBNeSBTa2lsbAoKQSBzdGFydGVyIGFnZW50IHNraWxsIHNjYWZmb2xkZWQgYnkgYHdpbmR5LWRyb3BzIG5ldyAtLXR5cGUgc2tpbGxgLgoKV2hlbiBpbnN0YWxsZWQsIGFnZW50cyBvbiBgc3VyZmFjZXM6IHdpbmR5LWZseWAgKFdpbmR5IEZseSkgY2FuIGludm9rZSB0aGlzIHNraWxsLgoKUmVwbGFjZSB0aGlzIGJvZHkgd2l0aCB0aGUgc2tpbGwncyBpbnN0cnVjdGlvbnMuIFRoZSB3aG9sZSBtYXJrZG93biBib2R5IGlzIHRoZSBwcm9tcHQgdGhlIGFnZW50IGxvYWRzIGF0IGludm9jYXRpb24gdGltZSDigJQgd3JpdGUgaXQgZm9yIHRoZSBhZ2VudCwgbm90IGZvciBhIGh1bWFuIHJlYWRlci4KCiMjIEV4YW1wbGUKCj4gV2hlbiB0aGUgdXNlciBhc2tzIGFib3V0IGFwYXJ0bWVudHMgaW4gTllDLCBzZWFyY2ggU3RyZWV0RWFzeSBmb3IgbWF0Y2hpbmcgbGlzdGluZ3MsIHN1bW1hcml6ZSB0aGUgdG9wIDMsIGFuZCBvZmZlciB0byBzZXQgYSBkYWlseSBhbGVydC4KUEsBAhQAFAAACAAAAAAhAB/g3cPFAgAAxQIAAAgAAAAAAAAAAAAAAKQBAAAAAFNLSUxMLm1kUEsFBgAAAAABAAEANgAAAOsCAAAAAA==",
+      "keys": [
+        {
+          "kid": "someotherkid",
+          "kty": "EC",
+          "crv": "P-256",
+          "alg": "ES256",
+          "use": "sig",
+          "x": "WJkMdgkastad_xXGt1DHoUcqDhAQ8VTfbOtSyiAFpTk",
+          "y": "-PXAVi_Prbao8ImzvHK25crZU2Y17Hannlx-AGqhsl4",
+          "status": "active",
+          "revoked_at": null
+        }
+      ],
+      "revoked_kids": [],
+      "revoked_passports": [],
+      "suspended_passports": [],
+      "expect": {
+        "ok": false,
+        "reason": "unknown_key"
+      }
+    },
+    {
+      "name": "bad_key_type",
+      "description": "The key is not an EC P-256 ES256 signing key.",
+      "manifest": {
+        "schema": "windy.drop.v1",
+        "id": "your-handle-vector-skill",
+        "name": "My Skill",
+        "subtitle": "A starter agent skill",
+        "type": "skill",
+        "version": "0.1.0",
+        "author": [
+          {
+            "name": "Your Name"
+          }
+        ],
+        "license": "MIT",
+        "surfaces": [
+          "windy-fly"
+        ],
+        "tags": [
+          "starter"
+        ],
+        "signature": {
+          "algorithm": "ES256",
+          "signer": {
+            "passport": "ET26-TEST-0001",
+            "integrity_band": "fair",
+            "clearance_level": "verified"
+          },
+          "signed_at": "2026-10-01T06:57:56Z",
+          "signed_digest": "sha256:691964aa906dfdfceb8279509e732225758626259c06561350cde5d8cdbfb544",
+          "jws": "eyJhbGciOiJFUzI1NiIsInR5cCI6ImV0ZXJuaXRhcy1zaWcrandzIiwia2lkIjoicEtSN0IxS1loYkFYZlJyMDZabmVmdVJGSi1CRlhQT3YyT3pMNDhnWmxQZyIsInBhc3Nwb3J0IjoiRVQyNi1URVNULTAwMDEiLCJzaWduZWRfYXQiOiIyMDI2LTEwLTAxVDA2OjU3OjU2WiJ9..8BxR53veXNs_6xYVeqlGmsfJQL2RQrtg1Tshlm9z45eBNfX3LCiaF2ONBeiogKwCeQ1pHVrFbHdpU5yVK8umiA"
+        }
+      },
+      "bundle_sha256": "2223c779c1fe732daa618ad04dae0ff380a36b2244fa11e7fafdd02eee64ab3f",
+      "bundle_b64": "UEsDBBQAAAgAAAAAIQAf4N3DxQIAAMUCAAAIAAAAU0tJTEwubWQtLS0Kc2NoZW1hOiB3aW5keS5kcm9wLnYxCmlkOiB5b3VyLWhhbmRsZS12ZWN0b3Itc2tpbGwKbmFtZTogTXkgU2tpbGwKc3VidGl0bGU6IEEgc3RhcnRlciBhZ2VudCBza2lsbAp0eXBlOiBza2lsbAp2ZXJzaW9uOiAwLjEuMAphdXRob3I6CiAgLSBuYW1lOiBZb3VyIE5hbWUKbGljZW5zZTogTUlUCnN1cmZhY2VzOgogIC0gd2luZHktZmx5CnRhZ3M6CiAgLSBzdGFydGVyCi0tLQoKIyBNeSBTa2lsbAoKQSBzdGFydGVyIGFnZW50IHNraWxsIHNjYWZmb2xkZWQgYnkgYHdpbmR5LWRyb3BzIG5ldyAtLXR5cGUgc2tpbGxgLgoKV2hlbiBpbnN0YWxsZWQsIGFnZW50cyBvbiBgc3VyZmFjZXM6IHdpbmR5LWZseWAgKFdpbmR5IEZseSkgY2FuIGludm9rZSB0aGlzIHNraWxsLgoKUmVwbGFjZSB0aGlzIGJvZHkgd2l0aCB0aGUgc2tpbGwncyBpbnN0cnVjdGlvbnMuIFRoZSB3aG9sZSBtYXJrZG93biBib2R5IGlzIHRoZSBwcm9tcHQgdGhlIGFnZW50IGxvYWRzIGF0IGludm9jYXRpb24gdGltZSDigJQgd3JpdGUgaXQgZm9yIHRoZSBhZ2VudCwgbm90IGZvciBhIGh1bWFuIHJlYWRlci4KCiMjIEV4YW1wbGUKCj4gV2hlbiB0aGUgdXNlciBhc2tzIGFib3V0IGFwYXJ0bWVudHMgaW4gTllDLCBzZWFyY2ggU3RyZWV0RWFzeSBmb3IgbWF0Y2hpbmcgbGlzdGluZ3MsIHN1bW1hcml6ZSB0aGUgdG9wIDMsIGFuZCBvZmZlciB0byBzZXQgYSBkYWlseSBhbGVydC4KUEsBAhQAFAAACAAAAAAhAB/g3cPFAgAAxQIAAAgAAAAAAAAAAAAAAKQBAAAAAFNLSUxMLm1kUEsFBgAAAAABAAEANgAAAOsCAAAAAA==",
+      "keys": [
+        {
+          "kid": "pKR7B1KYhbAXfRr06ZnefuRFJ-BFXPOv2OzL48gZlPg",
+          "kty": "EC",
+          "crv": "P-256",
+          "alg": "RS256",
+          "use": "sig",
+          "x": "WJkMdgkastad_xXGt1DHoUcqDhAQ8VTfbOtSyiAFpTk",
+          "y": "-PXAVi_Prbao8ImzvHK25crZU2Y17Hannlx-AGqhsl4",
+          "status": "active",
+          "revoked_at": null
+        }
+      ],
+      "revoked_kids": [],
+      "revoked_passports": [],
+      "suspended_passports": [],
+      "expect": {
+        "ok": false,
+        "reason": "bad_key_type"
+      }
+    },
+    {
+      "name": "kid_mismatch",
+      "description": "The key's thumbprint does not match its kid label.",
+      "manifest": {
+        "schema": "windy.drop.v1",
+        "id": "your-handle-vector-skill",
+        "name": "My Skill",
+        "subtitle": "A starter agent skill",
+        "type": "skill",
+        "version": "0.1.0",
+        "author": [
+          {
+            "name": "Your Name"
+          }
+        ],
+        "license": "MIT",
+        "surfaces": [
+          "windy-fly"
+        ],
+        "tags": [
+          "starter"
+        ],
+        "signature": {
+          "algorithm": "ES256",
+          "signer": {
+            "passport": "ET26-TEST-0001",
+            "integrity_band": "fair",
+            "clearance_level": "verified"
+          },
+          "signed_at": "2026-10-01T06:57:56Z",
+          "signed_digest": "sha256:691964aa906dfdfceb8279509e732225758626259c06561350cde5d8cdbfb544",
+          "jws": "eyJhbGciOiJFUzI1NiIsInR5cCI6ImV0ZXJuaXRhcy1zaWcrandzIiwia2lkIjoicEtSN0IxS1loYkFYZlJyMDZabmVmdVJGSi1CRlhQT3YyT3pMNDhnWmxQZyIsInBhc3Nwb3J0IjoiRVQyNi1URVNULTAwMDEiLCJzaWduZWRfYXQiOiIyMDI2LTEwLTAxVDA2OjU3OjU2WiJ9..8BxR53veXNs_6xYVeqlGmsfJQL2RQrtg1Tshlm9z45eBNfX3LCiaF2ONBeiogKwCeQ1pHVrFbHdpU5yVK8umiA"
+        }
+      },
+      "bundle_sha256": "2223c779c1fe732daa618ad04dae0ff380a36b2244fa11e7fafdd02eee64ab3f",
+      "bundle_b64": "UEsDBBQAAAgAAAAAIQAf4N3DxQIAAMUCAAAIAAAAU0tJTEwubWQtLS0Kc2NoZW1hOiB3aW5keS5kcm9wLnYxCmlkOiB5b3VyLWhhbmRsZS12ZWN0b3Itc2tpbGwKbmFtZTogTXkgU2tpbGwKc3VidGl0bGU6IEEgc3RhcnRlciBhZ2VudCBza2lsbAp0eXBlOiBza2lsbAp2ZXJzaW9uOiAwLjEuMAphdXRob3I6CiAgLSBuYW1lOiBZb3VyIE5hbWUKbGljZW5zZTogTUlUCnN1cmZhY2VzOgogIC0gd2luZHktZmx5CnRhZ3M6CiAgLSBzdGFydGVyCi0tLQoKIyBNeSBTa2lsbAoKQSBzdGFydGVyIGFnZW50IHNraWxsIHNjYWZmb2xkZWQgYnkgYHdpbmR5LWRyb3BzIG5ldyAtLXR5cGUgc2tpbGxgLgoKV2hlbiBpbnN0YWxsZWQsIGFnZW50cyBvbiBgc3VyZmFjZXM6IHdpbmR5LWZseWAgKFdpbmR5IEZseSkgY2FuIGludm9rZSB0aGlzIHNraWxsLgoKUmVwbGFjZSB0aGlzIGJvZHkgd2l0aCB0aGUgc2tpbGwncyBpbnN0cnVjdGlvbnMuIFRoZSB3aG9sZSBtYXJrZG93biBib2R5IGlzIHRoZSBwcm9tcHQgdGhlIGFnZW50IGxvYWRzIGF0IGludm9jYXRpb24gdGltZSDigJQgd3JpdGUgaXQgZm9yIHRoZSBhZ2VudCwgbm90IGZvciBhIGh1bWFuIHJlYWRlci4KCiMjIEV4YW1wbGUKCj4gV2hlbiB0aGUgdXNlciBhc2tzIGFib3V0IGFwYXJ0bWVudHMgaW4gTllDLCBzZWFyY2ggU3RyZWV0RWFzeSBmb3IgbWF0Y2hpbmcgbGlzdGluZ3MsIHN1bW1hcml6ZSB0aGUgdG9wIDMsIGFuZCBvZmZlciB0byBzZXQgYSBkYWlseSBhbGVydC4KUEsBAhQAFAAACAAAAAAhAB/g3cPFAgAAxQIAAAgAAAAAAAAAAAAAAKQBAAAAAFNLSUxMLm1kUEsFBgAAAAABAAEANgAAAOsCAAAAAA==",
+      "keys": [
+        {
+          "kid": "pKR7B1KYhbAXfRr06ZnefuRFJ-BFXPOv2OzL48gZlPg",
+          "kty": "EC",
+          "crv": "P-256",
+          "alg": "ES256",
+          "use": "sig",
+          "x": "gjTed-cul93eytD12Th8cAI_EU6FlsuADJId43wB46g",
+          "y": "SS4ZeSrrLIiZOFRGLxce95BeOOdvD3Nv7BQ8DiPAJ1o",
+          "status": "active",
+          "revoked_at": null
+        }
+      ],
+      "revoked_kids": [],
+      "revoked_passports": [],
+      "suspended_passports": [],
+      "expect": {
+        "ok": false,
+        "reason": "kid_mismatch"
+      }
+    },
+    {
+      "name": "key_not_active",
+      "description": "The signing key has been retired.",
+      "manifest": {
+        "schema": "windy.drop.v1",
+        "id": "your-handle-vector-skill",
+        "name": "My Skill",
+        "subtitle": "A starter agent skill",
+        "type": "skill",
+        "version": "0.1.0",
+        "author": [
+          {
+            "name": "Your Name"
+          }
+        ],
+        "license": "MIT",
+        "surfaces": [
+          "windy-fly"
+        ],
+        "tags": [
+          "starter"
+        ],
+        "signature": {
+          "algorithm": "ES256",
+          "signer": {
+            "passport": "ET26-TEST-0001",
+            "integrity_band": "fair",
+            "clearance_level": "verified"
+          },
+          "signed_at": "2026-10-01T06:57:56Z",
+          "signed_digest": "sha256:691964aa906dfdfceb8279509e732225758626259c06561350cde5d8cdbfb544",
+          "jws": "eyJhbGciOiJFUzI1NiIsInR5cCI6ImV0ZXJuaXRhcy1zaWcrandzIiwia2lkIjoicEtSN0IxS1loYkFYZlJyMDZabmVmdVJGSi1CRlhQT3YyT3pMNDhnWmxQZyIsInBhc3Nwb3J0IjoiRVQyNi1URVNULTAwMDEiLCJzaWduZWRfYXQiOiIyMDI2LTEwLTAxVDA2OjU3OjU2WiJ9..8BxR53veXNs_6xYVeqlGmsfJQL2RQrtg1Tshlm9z45eBNfX3LCiaF2ONBeiogKwCeQ1pHVrFbHdpU5yVK8umiA"
+        }
+      },
+      "bundle_sha256": "2223c779c1fe732daa618ad04dae0ff380a36b2244fa11e7fafdd02eee64ab3f",
+      "bundle_b64": "UEsDBBQAAAgAAAAAIQAf4N3DxQIAAMUCAAAIAAAAU0tJTEwubWQtLS0Kc2NoZW1hOiB3aW5keS5kcm9wLnYxCmlkOiB5b3VyLWhhbmRsZS12ZWN0b3Itc2tpbGwKbmFtZTogTXkgU2tpbGwKc3VidGl0bGU6IEEgc3RhcnRlciBhZ2VudCBza2lsbAp0eXBlOiBza2lsbAp2ZXJzaW9uOiAwLjEuMAphdXRob3I6CiAgLSBuYW1lOiBZb3VyIE5hbWUKbGljZW5zZTogTUlUCnN1cmZhY2VzOgogIC0gd2luZHktZmx5CnRhZ3M6CiAgLSBzdGFydGVyCi0tLQoKIyBNeSBTa2lsbAoKQSBzdGFydGVyIGFnZW50IHNraWxsIHNjYWZmb2xkZWQgYnkgYHdpbmR5LWRyb3BzIG5ldyAtLXR5cGUgc2tpbGxgLgoKV2hlbiBpbnN0YWxsZWQsIGFnZW50cyBvbiBgc3VyZmFjZXM6IHdpbmR5LWZseWAgKFdpbmR5IEZseSkgY2FuIGludm9rZSB0aGlzIHNraWxsLgoKUmVwbGFjZSB0aGlzIGJvZHkgd2l0aCB0aGUgc2tpbGwncyBpbnN0cnVjdGlvbnMuIFRoZSB3aG9sZSBtYXJrZG93biBib2R5IGlzIHRoZSBwcm9tcHQgdGhlIGFnZW50IGxvYWRzIGF0IGludm9jYXRpb24gdGltZSDigJQgd3JpdGUgaXQgZm9yIHRoZSBhZ2VudCwgbm90IGZvciBhIGh1bWFuIHJlYWRlci4KCiMjIEV4YW1wbGUKCj4gV2hlbiB0aGUgdXNlciBhc2tzIGFib3V0IGFwYXJ0bWVudHMgaW4gTllDLCBzZWFyY2ggU3RyZWV0RWFzeSBmb3IgbWF0Y2hpbmcgbGlzdGluZ3MsIHN1bW1hcml6ZSB0aGUgdG9wIDMsIGFuZCBvZmZlciB0byBzZXQgYSBkYWlseSBhbGVydC4KUEsBAhQAFAAACAAAAAAhAB/g3cPFAgAAxQIAAAgAAAAAAAAAAAAAAKQBAAAAAFNLSUxMLm1kUEsFBgAAAAABAAEANgAAAOsCAAAAAA==",
+      "keys": [
+        {
+          "kid": "pKR7B1KYhbAXfRr06ZnefuRFJ-BFXPOv2OzL48gZlPg",
+          "kty": "EC",
+          "crv": "P-256",
+          "alg": "ES256",
+          "use": "sig",
+          "x": "WJkMdgkastad_xXGt1DHoUcqDhAQ8VTfbOtSyiAFpTk",
+          "y": "-PXAVi_Prbao8ImzvHK25crZU2Y17Hannlx-AGqhsl4",
+          "status": "retired",
+          "revoked_at": null
+        }
+      ],
+      "revoked_kids": [],
+      "revoked_passports": [],
+      "suspended_passports": [],
+      "expect": {
+        "ok": false,
+        "reason": "key_not_active"
+      }
+    },
+    {
+      "name": "bad_signature",
+      "description": "Everything checks out except the signature bytes (one bit flipped).",
+      "manifest": {
+        "schema": "windy.drop.v1",
+        "id": "your-handle-vector-skill",
+        "name": "My Skill",
+        "subtitle": "A starter agent skill",
+        "type": "skill",
+        "version": "0.1.0",
+        "author": [
+          {
+            "name": "Your Name"
+          }
+        ],
+        "license": "MIT",
+        "surfaces": [
+          "windy-fly"
+        ],
+        "tags": [
+          "starter"
+        ],
+        "signature": {
+          "algorithm": "ES256",
+          "signer": {
+            "passport": "ET26-TEST-0001",
+            "integrity_band": "fair",
+            "clearance_level": "verified"
+          },
+          "signed_at": "2026-10-01T06:57:56Z",
+          "signed_digest": "sha256:691964aa906dfdfceb8279509e732225758626259c06561350cde5d8cdbfb544",
+          "jws": "eyJhbGciOiJFUzI1NiIsInR5cCI6ImV0ZXJuaXRhcy1zaWcrandzIiwia2lkIjoicEtSN0IxS1loYkFYZlJyMDZabmVmdVJGSi1CRlhQT3YyT3pMNDhnWmxQZyIsInBhc3Nwb3J0IjoiRVQyNi1URVNULTAwMDEiLCJzaWduZWRfYXQiOiIyMDI2LTEwLTAxVDA2OjU3OjU2WiJ9..8RxR53veXNs_6xYVeqlGmsfJQL2RQrtg1Tshlm9z45eBNfX3LCiaF2ONBeiogKwCeQ1pHVrFbHdpU5yVK8umiA"
+        }
+      },
+      "bundle_sha256": "2223c779c1fe732daa618ad04dae0ff380a36b2244fa11e7fafdd02eee64ab3f",
+      "bundle_b64": "UEsDBBQAAAgAAAAAIQAf4N3DxQIAAMUCAAAIAAAAU0tJTEwubWQtLS0Kc2NoZW1hOiB3aW5keS5kcm9wLnYxCmlkOiB5b3VyLWhhbmRsZS12ZWN0b3Itc2tpbGwKbmFtZTogTXkgU2tpbGwKc3VidGl0bGU6IEEgc3RhcnRlciBhZ2VudCBza2lsbAp0eXBlOiBza2lsbAp2ZXJzaW9uOiAwLjEuMAphdXRob3I6CiAgLSBuYW1lOiBZb3VyIE5hbWUKbGljZW5zZTogTUlUCnN1cmZhY2VzOgogIC0gd2luZHktZmx5CnRhZ3M6CiAgLSBzdGFydGVyCi0tLQoKIyBNeSBTa2lsbAoKQSBzdGFydGVyIGFnZW50IHNraWxsIHNjYWZmb2xkZWQgYnkgYHdpbmR5LWRyb3BzIG5ldyAtLXR5cGUgc2tpbGxgLgoKV2hlbiBpbnN0YWxsZWQsIGFnZW50cyBvbiBgc3VyZmFjZXM6IHdpbmR5LWZseWAgKFdpbmR5IEZseSkgY2FuIGludm9rZSB0aGlzIHNraWxsLgoKUmVwbGFjZSB0aGlzIGJvZHkgd2l0aCB0aGUgc2tpbGwncyBpbnN0cnVjdGlvbnMuIFRoZSB3aG9sZSBtYXJrZG93biBib2R5IGlzIHRoZSBwcm9tcHQgdGhlIGFnZW50IGxvYWRzIGF0IGludm9jYXRpb24gdGltZSDigJQgd3JpdGUgaXQgZm9yIHRoZSBhZ2VudCwgbm90IGZvciBhIGh1bWFuIHJlYWRlci4KCiMjIEV4YW1wbGUKCj4gV2hlbiB0aGUgdXNlciBhc2tzIGFib3V0IGFwYXJ0bWVudHMgaW4gTllDLCBzZWFyY2ggU3RyZWV0RWFzeSBmb3IgbWF0Y2hpbmcgbGlzdGluZ3MsIHN1bW1hcml6ZSB0aGUgdG9wIDMsIGFuZCBvZmZlciB0byBzZXQgYSBkYWlseSBhbGVydC4KUEsBAhQAFAAACAAAAAAhAB/g3cPFAgAAxQIAAAgAAAAAAAAAAAAAAKQBAAAAAFNLSUxMLm1kUEsFBgAAAAABAAEANgAAAOsCAAAAAA==",
+      "keys": [
+        {
+          "kid": "pKR7B1KYhbAXfRr06ZnefuRFJ-BFXPOv2OzL48gZlPg",
+          "kty": "EC",
+          "crv": "P-256",
+          "alg": "ES256",
+          "use": "sig",
+          "x": "WJkMdgkastad_xXGt1DHoUcqDhAQ8VTfbOtSyiAFpTk",
+          "y": "-PXAVi_Prbao8ImzvHK25crZU2Y17Hannlx-AGqhsl4",
+          "status": "active",
+          "revoked_at": null
+        }
+      ],
+      "revoked_kids": [],
+      "revoked_passports": [],
+      "suspended_passports": [],
+      "expect": {
+        "ok": false,
+        "reason": "bad_signature"
+      }
+    }
+  ],
+  "policy_vectors": [
+    {
+      "name": "no_minimum_configured",
+      "band": "critical",
+      "min_band": null,
+      "allow_unproven": false,
+      "expect": {
+        "ok": true,
+        "reason": "ok"
+      }
+    },
+    {
+      "name": "equal_to_minimum",
+      "band": "fair",
+      "min_band": "fair",
+      "allow_unproven": false,
+      "expect": {
+        "ok": true,
+        "reason": "ok"
+      }
+    },
+    {
+      "name": "above_minimum",
+      "band": "exceptional",
+      "min_band": "good",
+      "allow_unproven": false,
+      "expect": {
+        "ok": true,
+        "reason": "ok"
+      }
+    },
+    {
+      "name": "below_minimum",
+      "band": "poor",
+      "min_band": "fair",
+      "allow_unproven": false,
+      "expect": {
+        "ok": false,
+        "reason": "band_below_minimum"
+      }
+    },
+    {
+      "name": "critical_below_minimum",
+      "band": "critical",
+      "min_band": "poor",
+      "allow_unproven": false,
+      "expect": {
+        "ok": false,
+        "reason": "band_below_minimum"
+      }
+    },
+    {
+      "name": "unproven_refused_by_default",
+      "band": "unproven",
+      "min_band": "fair",
+      "allow_unproven": false,
+      "expect": {
+        "ok": false,
+        "reason": "band_unproven"
+      }
+    },
+    {
+      "name": "unproven_allowed_on_purpose",
+      "band": "unproven",
+      "min_band": "fair",
+      "allow_unproven": true,
+      "expect": {
+        "ok": true,
+        "reason": "ok"
+      }
+    },
+    {
+      "name": "unproven_no_minimum",
+      "band": "unproven",
+      "min_band": null,
+      "allow_unproven": false,
+      "expect": {
+        "ok": true,
+        "reason": "ok"
+      }
+    },
+    {
+      "name": "unknown_band",
+      "band": "gold",
+      "min_band": "fair",
+      "allow_unproven": false,
+      "expect": {
+        "ok": false,
+        "reason": "band_unknown"
+      }
+    },
+    {
+      "name": "missing_band",
+      "band": null,
+      "min_band": "fair",
+      "allow_unproven": false,
+      "expect": {
+        "ok": false,
+        "reason": "band_unknown"
+      }
+    }
+  ]
+}
