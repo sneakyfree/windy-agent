@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://api.windymind.ai/contracts/route-table.v1.json",
+  "title": "Windy Mind route table v1 (payload of the ES256 JWS from GET /v1/route-table)",
+  "description": "Routing INTENT for one caller. Never contains a secret, a key, or a provider URL except the authenticated standby floor. Additive changes only within v1; a breaking change bumps v and is announced to every consumer lane first. Source of truth: windy-mind/contracts; consumers vendor this file with a drift test.",
+  "type": "object",
+  "required": [
+    "v", "iat", "ttl_s", "stale_ok_s", "switched_off_ttl_s", "switched_off_stale_ok_s",
+    "degraded", "caller", "named_model_fallback", "chains", "floors", "switched_off"
+  ],
+  "properties": {
+    "v": { "const": 1 },
+    "iat": { "type": "integer", "description": "Issued-at, unix seconds." },
+    "ttl_s": { "type": "integer", "minimum": 1, "description": "Refresh interval for the table." },
+    "stale_ok_s": { "type": "integer", "minimum": 0, "description": "How long chains/floors may be used when Mind is unreachable." },
+    "switched_off_ttl_s": { "type": "integer", "minimum": 1 },
+    "switched_off_stale_ok_s": { "type": "integer", "minimum": 0, "description": "Beyond this age with Mind unreachable, treat the named premium model as unknown and use the safe chain." },
+    "degraded": { "type": "boolean", "description": "True when issued by the degraded standby." },
+    "caller": { "type": "string", "description": "Passport id or owner switchboard id. Not secret." },
+    "named_model_fallback": { "type": "string", "description": "Name of the chain a failed named model falls to." },
+    "chains": {
+      "type": "object",
+      "additionalProperties": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+      "required": ["auto"]
+    },
+    "floors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "url", "model", "requires_auth"],
+        "properties": {
+          "kind": { "enum": ["standby"] },
+          "url": { "type": "string" },
+          "model": { "type": "string" },
+          "requires_auth": { "const": true }
+        },
+        "additionalProperties": false
+      }
+    },
+    "switched_off": { "type": "array", "items": { "type": "string" }, "description": "Model ids the caller (or the house) has switched off." }
+  },
+  "additionalProperties": true
+}
