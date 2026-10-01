@@ -1,0 +1,366 @@
+{
+  "auth": "bearer-ept-or-windy-jwt",
+  "class": "cloud",
+  "contract": "windy-code-web.mcp.v1",
+  "doctrine": "ADR-060 v1.0",
+  "endpoint": "/mcp",
+  "product": "windy-code-web",
+  "protocolVersion": "2025-06-18",
+  "tools": [
+    {
+      "description": "Saves a new version of a project (a checkpoint on the Undo timeline). files = { path: BASE64 of the file content } \u2014 base64 is REQUIRED (the storage wire is binary-safe). By default (mode 'merge') send ONLY the files you changed: they are laid over the latest version, and paths in delete are removed. mode 'replace' = files is the whole site. label = a HUMAN sentence like 'Added the beach photos' \u2014 grandma reads this list. Idempotent. Returns { checkpoint, created, speak }.",
+      "inputSchema": {
+        "properties": {
+          "delete": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "files": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "label": {
+            "type": "string"
+          },
+          "mode": {
+            "default": "merge",
+            "enum": [
+              "merge",
+              "replace"
+            ],
+            "type": "string"
+          },
+          "project_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "files",
+          "label"
+        ],
+        "type": "object"
+      },
+      "name": "add_or_edit_files",
+      "tier": "auto_allow"
+    },
+    {
+      "description": "The answer to \"put it on my own name\": connects a domain the user owns (or just bought) to this project's site. Accepts a Domains-issued bundle confirm_token + bundle_actions so buy+connect = the SAME single yes; otherwise returns confirm_required to relay. PURE relay of the ecosystem CONFIRM_FLOW.",
+      "inputSchema": {
+        "properties": {
+          "bundle_actions": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "confirm_token": {
+            "type": "string"
+          },
+          "fqdn": {
+            "type": "string"
+          },
+          "project_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "fqdn"
+        ],
+        "type": "object"
+      },
+      "name": "connect_domain",
+      "tier": "always_confirm"
+    },
+    {
+      "description": "The answer to \"make me a scrapbook / a page for my shop\". Starts a new project (a private draft website). Returns { project, speak, state_proof, next_actions }.",
+      "inputSchema": {
+        "properties": {
+          "kind": {
+            "default": "site",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "name": "create_project",
+      "tier": "auto_allow"
+    },
+    {
+      "description": "Change ONE annotated part of the page (\"make the headline say\u2026\"): keyed, escaped replacement saved as a new checkpoint (auto-labelled, undoable). For anything bigger use add_or_edit_files.",
+      "inputSchema": {
+        "properties": {
+          "edit_id": {
+            "type": "string"
+          },
+          "new_value": {
+            "type": "string"
+          },
+          "project_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "edit_id",
+          "new_value"
+        ],
+        "type": "object"
+      },
+      "name": "edit_text",
+      "tier": "auto_allow"
+    },
+    {
+      "description": "The full knob list of the builder with trust tiers \u2014 how a new agent learns what it can do here. Also at /.well-known/windy-capabilities.json.",
+      "inputSchema": {
+        "properties": {},
+        "type": "object"
+      },
+      "name": "get_capabilities",
+      "tier": "auto_allow"
+    },
+    {
+      "description": "Any promotions running right now (sales, free-domain offers). Mention one ONLY when it genuinely helps what the user is doing \u2014 never interrupt with it.",
+      "inputSchema": {
+        "properties": {},
+        "type": "object"
+      },
+      "name": "get_current_promos",
+      "tier": "auto_allow"
+    },
+    {
+      "description": "The Undo timeline for a project \u2014 every saved version with its human label. Returns { checkpoints, speak }.",
+      "inputSchema": {
+        "properties": {
+          "project_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id"
+        ],
+        "type": "object"
+      },
+      "name": "list_checkpoints",
+      "tier": "auto_allow"
+    },
+    {
+      "description": "The parts of the page grandma can change directly (annotated text/images with their current values). Un-annotated content needs add_or_edit_files instead.",
+      "inputSchema": {
+        "properties": {
+          "project_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id"
+        ],
+        "type": "object"
+      },
+      "name": "list_editables",
+      "tier": "auto_allow"
+    },
+    {
+      "description": "The answer to \"what am I building?\" / \"read me my projects\". Returns { projects: [{id, name, kind, state, speak}], speak }.",
+      "inputSchema": {
+        "properties": {},
+        "type": "object"
+      },
+      "name": "list_projects",
+      "tier": "auto_allow"
+    },
+    {
+      "description": "The six finished examples grandma can start from (scrapbook, pamphlet, personal site, event page, recipe book, business card). Offer these when she isn't sure what she wants.",
+      "inputSchema": {
+        "properties": {},
+        "type": "object"
+      },
+      "name": "list_templates",
+      "tier": "auto_allow"
+    },
+    {
+      "description": "A private tokened link to see the WORKING version before it's public (15-minute life). Use to tell the user 'here's how it looks so far'.",
+      "inputSchema": {
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "version_id": {
+            "default": "",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id"
+        ],
+        "type": "object"
+      },
+      "name": "preview_project",
+      "tier": "auto_allow"
+    },
+    {
+      "description": "The answer to \"is my site up, and where?\". Returns { project_id, name, state, url, speak, state_proof }.",
+      "inputSchema": {
+        "properties": {
+          "project_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id"
+        ],
+        "type": "object"
+      },
+      "name": "project_status",
+      "tier": "auto_allow"
+    },
+    {
+      "description": "Puts the project online. ALWAYS returns confirm_required first for agents: RELAY the question VERBATIM, then call again with the confirm_token after the human says yes. Publishing is explicit.",
+      "inputSchema": {
+        "properties": {
+          "confirm_token": {
+            "type": "string"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "version_id": {
+            "default": "",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id"
+        ],
+        "type": "object"
+      },
+      "name": "publish_project",
+      "tier": "always_confirm"
+    },
+    {
+      "description": "The voice-first gallery (B3.7): everything the user has, composed to be SPOKEN \u2014 count first, then each project's name, state, and address in listening order. Use for 'read me my projects' over windy-talk.",
+      "inputSchema": {
+        "properties": {},
+        "type": "object"
+      },
+      "name": "read_projects_aloud",
+      "tier": "auto_allow"
+    },
+    {
+      "description": "Windy Doctor for the builder \u2014 use FIRST when something seems wrong. Returns { checks: [{status, severity, finding, remediation}] } where remediation is a LITERAL next step. SAFE TO RUN.",
+      "inputSchema": {
+        "properties": {},
+        "type": "object"
+      },
+      "name": "run_diagnostics",
+      "tier": "auto_allow"
+    },
+    {
+      "description": "Start a NEW project from what the person asked for in plain words ('a page for my bakery'): picks the closest finished example and puts your first words (fills: headline, intro, \u2026) into the first version, so the first preview already shows them. Returns { project, template, filled, skipped_fills, editables, speak }.",
+      "inputSchema": {
+        "properties": {
+          "fills": {
+            "additionalProperties": {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            "description": "Optional first words, {edit_id: text}, e.g. headline, intro.",
+            "maxProperties": 20,
+            "type": "object"
+          },
+          "prompt": {
+            "description": "What they asked for, \u2264200 chars.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "prompt"
+        ],
+        "type": "object"
+      },
+      "name": "start_from_prompt",
+      "tier": "auto_allow"
+    },
+    {
+      "description": "\"Make mine like this\": clones a finished example into a NEW project and returns the interview deck \u2014 \u22645 warm questions to ask ONE AT A TIME, then personalize with add_or_edit_files. Returns { project, interview, speak }.",
+      "inputSchema": {
+        "properties": {
+          "fills": {
+            "additionalProperties": {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            "description": "Optional first words, {edit_id: text}, e.g. headline, intro.",
+            "maxProperties": 20,
+            "type": "object"
+          },
+          "name": {
+            "default": "",
+            "description": "Her name for it (defaults to the example's title).",
+            "type": "string"
+          },
+          "slug": {
+            "description": "From list_templates.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug"
+        ],
+        "type": "object"
+      },
+      "name": "start_from_template",
+      "tier": "auto_allow"
+    },
+    {
+      "description": "The giant Undo: puts an EARLIER saved version back as the working version. Reversible; does not change what's published. Returns { speak }.",
+      "inputSchema": {
+        "properties": {
+          "checkpoint_id": {
+            "type": "string"
+          },
+          "project_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "checkpoint_id"
+        ],
+        "type": "object"
+      },
+      "name": "undo_to_checkpoint",
+      "tier": "auto_allow"
+    },
+    {
+      "description": "Makes a live site PRIVATE again (visitors stop seeing it; nothing is deleted). Returns confirm_required first \u2014 relay the question verbatim, then call again with the confirm_token after the human says yes.",
+      "inputSchema": {
+        "properties": {
+          "confirm_token": {
+            "type": "string"
+          },
+          "project_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id"
+        ],
+        "type": "object"
+      },
+      "name": "unpublish_project",
+      "tier": "always_confirm"
+    }
+  ]
+}
