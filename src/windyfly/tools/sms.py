@@ -87,10 +87,20 @@ _approved_mem: set[str] = set()          # used only when no database is wired
 _pending: dict[str, dict[str, Any]] = {}  # confirm_token -> {to, body, body_sha256, expires}
 
 
+def byo_enabled() -> bool:
+    """WINDY_TEXT_BYO=1 (OFF by default; enabled only on Windy Hub's word): texting goes
+    through Windy Text on the OWNER's own Twilio account, authenticated with the agent's
+    own EPT (it carries the owner's windy_identity_id). Spec: TEXT_BYO_TWILIO.md."""
+    return os.environ.get("WINDY_TEXT_BYO", "") == "1"
+
+
 def _windy_text_env() -> tuple[str, str]:
     """Return (base_url, ept). Either may be empty when unconfigured."""
+    base = os.environ.get("WINDY_TEXT_BASE_URL", _DEFAULT_BASE_URL).rstrip("/")
+    if byo_enabled():
+        return base, os.environ.get("ETERNITAS_PASSPORT_TOKEN", "")
     return (
-        os.environ.get("WINDY_TEXT_BASE_URL", _DEFAULT_BASE_URL).rstrip("/"),
+        base,
         # Do NOT switch to ETERNITAS_PASSPORT_TOKEN until a sender enforces
         # STOP (orchestrator 09-23). Reading only the legacy variable keeps
         # agent SMS off on real installs until then.
@@ -130,7 +140,32 @@ def _with_footer(body: str) -> str:
     return f"{body.rstrip()}\n{footer}"
 
 
-def send_sms(to: str, body: str) -> dict[str, Any]:
+# Windy Text refusals -> one plain sentence the agent can say to a person.
+_PLAIN_ERRORS: dict[str, str] = {
+    "carrier_registration_pending": (
+        "I can receive texts, but the phone carriers haven't approved sending from this "
+        "number yet. That usually takes a few days."),
+    "recipient_not_consented": (
+        "That person hasn't agreed to get texts from me yet, so I didn't send it."),
+    "owner_opted_out": "You've turned off texts from me, so I didn't send it.",
+    "recipient_opted_out": "That number has opted out of texts (they replied STOP), so I didn't send it.",
+    "quiet_hours": "It's quiet hours for that person, so I didn't send it. I can try in the morning.",
+    "spend_cap_reached": "Your texting spending limit has been reached, so I didn't send it.",
+    "spend_ledger_unavailable": "Texting is briefly unavailable on Windy's side, so I didn't send it. Try again shortly.",
+    "texting_not_set_up": "Texting isn't set up for your account yet, so I didn't send it.",
+    "owner_phone_not_verified": "Your phone number isn't verified for texting yet, so I didn't send it.",
+    "twilio_key_invalid": "Your Twilio key isn't working, so I didn't send it. Please reconnect Twilio.",
+}
+
+
+def plain_error(code: str | None) -> str | None:
+    """Map a Windy Text error code (e.g. 'spend_cap_reached:daily') to a plain sentence."""
+    if not code:
+        return None
+    return _PLAIN_ERRORS.get(code) or _PLAIN_ERRORS.get(code.split(":", 1)[0])
+
+
+def send_sms(to: str | None = None, body: str = "") -> dict[str, Any]:
     """Send a text message to ``to``, or ask the owner first.
 
     Returns ``{status: confirm_required, question, confirm_token}`` the
@@ -143,6 +178,12 @@ def send_sms(to: str, body: str) -> dict[str, Any]:
     if not ept:
         logger.debug("SMS unavailable: WINDY_PASSPORT_EPT unset (SMS stays off until a sender enforces STOP)")
         return {"status": "unavailable", "error": _UNAVAILABLE}
+
+    if not to:
+        if byo_enabled():
+            # No `to` = text the owner on their own verified phone (no first-contact gate).
+            return _deliver(base_url, ept, None, body)
+        return {"status": "failed", "error": "`to` is required."}
 
     if not _E164_RE.match(to):
         return {
@@ -163,7 +204,8 @@ def send_sms(to: str, body: str) -> dict[str, Any]:
         }
         return {
             "status": "confirm_required",
-            "question": f"Text {to} for the first time? Reply yes to allow.",
+            "question": f"Text {to} for the first time? Reply yes to allow."
+            + (" Or no." if byo_enabled() else ""),
             "confirm_token": token,
         }
 
@@ -186,7 +228,25 @@ def confirm_sms(confirm_token: str) -> dict[str, Any]:
     return _deliver(base_url, ept, pending["to"], pending["body"])
 
 
-def _deliver(base_url: str, ept: str, to: str, body: str) -> dict[str, Any]:
+def owner_reply(text: str) -> str | None:
+    """BYO mode: the OWNER's own 'yes' / 'no' to a pending first text, handled in code by
+    channels.base so the model can never approve its own first contact. None = not ours."""
+    if not byo_enabled() or not _pending:
+        return None
+    word = text.strip().strip(".!").lower()
+    if word not in ("yes", "no"):
+        return None
+    token = max(_pending, key=lambda k: _pending[k]["expires"])
+    if word == "no":
+        _pending.pop(token, None)
+        return "OK, I won't text that number."
+    res = confirm_sms(token)
+    if res.get("status") == "sent":
+        return f"Texted {res.get('to')}, with your OK."
+    return f"Not sent: {res.get('error') or res.get('status')}"
+
+
+def _deliver(base_url: str, ept: str, to: str | None, body: str) -> dict[str, Any]:
     text = _with_footer(body)
     if len(text) > _MAX_SMS_CHARS:
         return {
@@ -200,7 +260,8 @@ def _deliver(base_url: str, ept: str, to: str, body: str) -> dict[str, Any]:
                 "Authorization": f"Bearer {ept}",
                 "Content-Type": "application/json",
             },
-            json={"to": to, "body": text},
+            # Never a `from`: Windy Text picks the owner's number (422 if sent).
+            json={"body": text} if to is None else {"to": to, "body": text},
             timeout=_TIMEOUT,
         )
     except httpx.ConnectError as exc:
@@ -219,7 +280,7 @@ def _deliver(base_url: str, ept: str, to: str, body: str) -> dict[str, Any]:
         return {
             "status": "sent",
             "sid": data.get("sid", ""),
-            "to": data.get("to", to),
+            "to": data.get("to", to or "owner"),
             "from": data.get("from", ""),
             "integrity_event_posted": data.get("integrity_event_posted", False),
         }
@@ -240,14 +301,17 @@ def _deliver(base_url: str, ept: str, to: str, body: str) -> dict[str, Any]:
         # They replied STOP. Final: never retry, never work around it.
         return {
             "status": "opted_out",
-            "error": f"{to} has opted out of texts (they replied STOP). Don't text this number again.",
+            "error": f"{to or 'That number'} has opted out of texts (they replied STOP). Don't text this number again.",
             "http_status": resp.status_code,
         }
+    raw_code = err.get("error_code") or err.get("error")
+    plain = plain_error(raw_code if isinstance(raw_code, str) else None)
     return {
         "status": "failed",
-        "error": err.get("detail", err.get("error", resp.text[:200])),
+        "error": plain or err.get("detail", err.get("error", resp.text[:200])),
         "http_status": resp.status_code,
-        "error_code": err.get("error_code"),
+        "error_code": raw_code,
+        "sent": False,
     }
 
 
@@ -286,10 +350,13 @@ def register_sms_tools(registry: ToolRegistry, db: Database | None = None) -> No
                     "description": "The text-message body to send.",
                 },
             },
-            "required": ["to", "body"],
+            # BYO: omit `to` to text the owner on their own verified phone.
+            "required": ["body"] if byo_enabled() else ["to", "body"],
         },
         fn=send_sms,
     )
+    if byo_enabled():
+        return  # the owner approves first contact by replying yes (owner_reply), not the model
     registry.register(
         name="confirm_sms",
         description=(
