@@ -169,9 +169,17 @@ def test_emit_llm_record_skips_failed_calls(monkeypatch):
     admin_telemetry._reset_for_tests()
     emit_llm_record(None, {"status": "failed", "model": "claude-opus-5"})
     assert admin_telemetry.pending() == []
+    # A Mind-routed call is Mind's to report (it emits its own llm.call): no row here.
     emit_llm_record(None, {"status": "ok", "model": "claude-opus-5",
                            "provider": "windy-mind", "cost_usd": 0.01,
                            "billing": "metered"})
+    assert admin_telemetry.pending() == []
+    emit_llm_record(None, {"status": "ok", "model": "claude-opus-5", "provider": "windymind"})
+    assert admin_telemetry.pending() == []
+    # A direct-provider call (an owner's own key) still emits.
+    emit_llm_record(None, {"status": "ok", "model": "claude-opus-5",
+                           "provider": "anthropic", "cost_usd": 0.01,
+                           "billing": "metered"})
     (row,) = admin_telemetry.pending()
-    assert row["provider"] == "windymind"
+    assert row["provider"] == "anthropic"
     admin_telemetry._reset_for_tests()
