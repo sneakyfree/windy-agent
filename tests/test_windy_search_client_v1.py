@@ -125,3 +125,22 @@ def test_token_never_logged(monkeypatch, caplog):
     monkeypatch.setattr(client.httpx, "post", boom)
     client.search_via_windy_search("q")
     assert TOKEN not in caplog.text
+
+
+def test_robots_refusal_is_final_and_plain(monkeypatch):
+    calls = _respond(monkeypatch, status=403,
+                     body={"detail": "This website's robots.txt asks automated readers not to read this page, so Windy Search won't fetch it."},
+                     headers={"X-Windy-Refusal": "robots"})
+    out = client.fetch_via_windy_search("https://example.com/private")
+    assert out["robots_refused"] and out["content"] == ""
+    assert "robots.txt" in out["error"] and len(calls) == 1
+
+
+def test_robots_refusal_is_not_rescued_by_direct_fetch(monkeypatch):
+    from windyfly.tools import web_search
+
+    _respond(monkeypatch, status=403, body={}, headers={"X-Windy-Refusal": "robots"})
+    direct = []
+    monkeypatch.setattr(web_search, "_direct_fetch_url", lambda *a, **k: direct.append(1) or {"content": "x"})
+    out = web_search.fetch_url("https://example.com/private")
+    assert direct == [] and out.get("robots_refused")
