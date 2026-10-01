@@ -15,8 +15,8 @@ Design decisions:
     must carry ``data-windy-edit-id="<stable-key>"`` so click-to-edit works.
   * **Publish is an EXTERNAL EFFECT**: trust-gated here (ADR-019/020 pattern)
     AND the builder relays a confirm question — when a publish call returns
-    ``confirm_required``, relay ``speak`` to the user VERBATIM, get their yes,
-    then call publish again with the ``confirm_token``. Never invent consent.
+    ``confirm_required``, relay its question VERBATIM; the token is held in code
+    and only the OWNER's own reply ("yes, publish") spends it. Never invent consent.
   * **Never raises.** Unavailable/failed/denied come back as structured dicts
     the LLM can relay in plain words.
 
@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 import os
 from typing import Any
 
@@ -296,8 +297,8 @@ def windycodeweb_preview(project_id: str) -> dict[str, Any]:
 
 
 def _publish_gate() -> dict[str, Any] | None:
-    """Trust plane first (ADR-019/020, like post_chat_message); the builder's
-    confirm relay then does the human-consent half. None = proceed."""
+    """Trust plane first (ADR-019/020). FAILS CLOSED: a trust check that errors refuses
+    (Hub, 10-01: nothing goes live on an unverifiable agent). None = proceed."""
     if not _trust_gate_enabled():
         return None
     from windyfly.trust.gate import TrustDenied, require_trust
@@ -307,19 +308,77 @@ def _publish_gate() -> dict[str, Any] | None:
     except TrustDenied as denied:
         return {"status": "denied", "reason": denied.reason, "band": denied.band,
                 "action": _PUBLISH_TRUST_ACTION, "error": str(denied)}
-    except Exception as exc:  # fail-open with loud log, matching chat.py
-        logger.warning("Trust gate check errored (fail-open): %s", exc)
+    except Exception as exc:
+        logger.warning("Trust gate check errored (fail-closed): %s", exc)
+        return {"status": "denied", "reason": "trust_check_unavailable",
+                "action": _PUBLISH_TRUST_ACTION,
+                "error": "I couldn't verify my standing right now, so I didn't do it. Try again shortly."}
     return None
 
 
-def windycodeweb_unpublish(project_id: str, confirm_token: str = "") -> dict[str, Any]:
+# ── owner-held confirmation (Hub, 10-01) ─────────────────────────────
+# The builder answers an agent's publish / unpublish / connect_domain with
+# confirm_required + a confirm_token. That token is HELD HERE, never shown to the
+# model; only the OWNER's own message ("yes, publish" / "yes, unpublish" /
+# "yes, connect"), intercepted in code by channels.base, spends it. A token the
+# model passes back in is refused.
+_HELD: dict[str, dict[str, Any]] = {}
+HOLD_TTL_S = 30 * 60
+_WORD = {"windycodeweb_publish": "publish", "windycodeweb_unpublish": "unpublish",
+         "windycodeweb_connect_domain": "connect"}
+
+
+def _refuse_model_token() -> dict[str, Any]:
+    return {"status": "refused", "done": False,
+            "error": ("Only the owner can confirm this, by replying in chat. "
+                      "Call the tool without a confirm_token and relay its question.")}
+
+
+def _gated(fly_tool: str, args: dict[str, Any], model_token: str) -> dict[str, Any]:
+    if model_token.strip():
+        return _refuse_model_token()
     denied = _publish_gate()
     if denied:
         return denied
-    args: dict[str, Any] = {"project_id": project_id}
-    if confirm_token.strip():
-        args["confirm_token"] = confirm_token.strip()
-    return _call("windycodeweb_unpublish", args)
+    out = _call(fly_tool, args)
+    if out.get("status") == "ok" and out.get("confirm_required") and out.get("confirm_token"):
+        word = _WORD[fly_tool]
+        _HELD[word] = {"fly_tool": fly_tool, "args": dict(args),
+                       "token": str(out["confirm_token"]), "at": time.time()}
+        question = str(out.get("speak") or "Do it?")
+        return {"status": "confirm_required", "done": False,
+                "question": f"{question} (Reply \"yes, {word}\" to go ahead.)",
+                "note": ("NOT DONE. Relay the question to the owner verbatim. Only "
+                         "their reply confirms it; do not call this tool again.")}
+    out.pop("confirm_token", None)  # a token is never handed to the model
+    return out
+
+
+def owner_confirm(text: str) -> str | None:
+    """The OWNER's own reply ("yes, publish" etc.), handled in code by channels.base.
+    None = not a confirmation for anything held here."""
+    words = [w for w in text.strip().lower().replace(",", " ").replace(".", " ").split() if w]
+    if not words or words[-1] not in ("publish", "unpublish", "connect"):
+        return None
+    if len(words) > 2 or (len(words) == 2 and words[0] != "yes"):
+        return None
+    word = words[-1]
+    held = _HELD.pop(word, None)
+    if held is None:
+        return None
+    if time.time() - held["at"] > HOLD_TTL_S:
+        return f"That {word} request expired. Ask me again."
+    denied = _publish_gate()
+    if denied:
+        return f"Not done: {denied['error']}"
+    out = _call(held["fly_tool"], {**held["args"], "confirm_token": held["token"]})
+    if out.get("status") == "ok":
+        return str(out.get("speak") or f"Done: {word}.")
+    return f"Not done: {out.get('error') or out.get('status')}"
+
+
+def windycodeweb_unpublish(project_id: str, confirm_token: str = "") -> dict[str, Any]:
+    return _gated("windycodeweb_unpublish", {"project_id": project_id}, confirm_token)
 
 
 def windycodeweb_connect_domain(
@@ -331,25 +390,14 @@ def windycodeweb_connect_domain(
     if not fqdn or "." not in fqdn:
         return {"status": "failed",
                 "error": "fqdn must be a full name like grandmarose.com"}
-    denied = _publish_gate()
-    if denied:
-        return denied
     args: dict[str, Any] = {"project_id": project_id, "fqdn": fqdn.strip().lower()}
-    if confirm_token.strip():
-        args["confirm_token"] = confirm_token.strip()
     if bundle_actions:
         args["bundle_actions"] = bundle_actions
-    return _call("windycodeweb_connect_domain", args)
+    return _gated("windycodeweb_connect_domain", args, confirm_token)
 
 
 def windycodeweb_publish(project_id: str, confirm_token: str = "") -> dict[str, Any]:
-    denied = _publish_gate()
-    if denied:
-        return denied
-    args: dict[str, Any] = {"project_id": project_id}
-    if confirm_token.strip():
-        args["confirm_token"] = confirm_token.strip()
-    return _call("windycodeweb_publish", args)
+    return _gated("windycodeweb_publish", {"project_id": project_id}, confirm_token)
 
 
 # ─── registration ────────────────────────────────────────────────────
@@ -590,15 +638,13 @@ def register_windycodeweb_tools(registry: ToolRegistry) -> None:
         name="windycodeweb_unpublish",
         description=(
             "Make a live site PRIVATE again (visitors stop seeing it; nothing "
-            "is deleted). EXTERNAL EFFECT: if the result has confirm_required, "
-            "relay its 'speak' question VERBATIM, get the user's yes, call "
-            "again with the confirm_token."
+            "is deleted). EXTERNAL EFFECT: returns confirm_required with a "
+            "question; relay it VERBATIM. The owner confirms by replying; do "
+            "not call again."
         ),
         parameters={
             "type": "object",
-            "properties": {"project_id": _pid,
-                           "confirm_token": {"type": "string",
-                                             "description": "After the user says yes."}},
+            "properties": {"project_id": _pid},
             "required": ["project_id"],
         },
         fn=windycodeweb_unpublish,
@@ -608,12 +654,10 @@ def register_windycodeweb_tools(registry: ToolRegistry) -> None:
         name="windycodeweb_connect_domain",
         description=(
             "Put the user's project on their OWN domain ('put it on "
-            "grandmarose.com'). EXTERNAL EFFECT. Two paths: (a) standalone — "
-            "relay the confirm_required question, then retry with "
-            "confirm_token; (b) bundled with a purchase — pass the "
-            "Domains-issued bundle confirm_token AND bundle_actions verbatim "
-            "so buy+connect happens on the user's ONE yes. Never split a "
-            "bundle into two questions."
+            "grandmarose.com'). EXTERNAL EFFECT: returns confirm_required "
+            "with a question; relay it VERBATIM. The owner confirms by "
+            "replying; do not call again. With a Domains bundle, pass "
+            "bundle_actions verbatim."
         ),
         parameters={
             "type": "object",
@@ -621,8 +665,6 @@ def register_windycodeweb_tools(registry: ToolRegistry) -> None:
                 "project_id": _pid,
                 "fqdn": {"type": "string",
                          "description": "Full name, e.g. grandmarose.com."},
-                "confirm_token": {"type": "string",
-                                  "description": "Own-flow token OR Domains bundle token."},
                 "bundle_actions": {"type": "array", "items": {"type": "object"},
                                    "description": "EXACT actions list from the Domains bundle."},
             },
@@ -634,19 +676,14 @@ def register_windycodeweb_tools(registry: ToolRegistry) -> None:
     registry.register(
         name="windycodeweb_publish",
         description=(
-            "Put the project online — an EXTERNAL EFFECT. If the result has "
-            "confirm_required, relay its 'speak' question to the user "
-            "VERBATIM, get their explicit yes, then call again with the "
-            "confirm_token. Never publish without the user's yes."
+            "Put the project online — an EXTERNAL EFFECT. Returns "
+            "confirm_required with a question; relay it to the owner VERBATIM. "
+            "The owner confirms by replying; do not call again."
         ),
         parameters={
             "type": "object",
             "properties": {
                 "project_id": _pid,
-                "confirm_token": {
-                    "type": "string",
-                    "description": "From the confirm_required response, after the user says yes.",
-                },
             },
             "required": ["project_id"],
         },

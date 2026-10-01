@@ -123,6 +123,15 @@ async def handle_incoming(text: str, context: dict | None = None) -> tuple[bool,
     if rescue_reply is not None:
         return True, rescue_reply
 
+    # Builder publish / unpublish / connect: only the owner's own reply spends the
+    # held confirmation (the model never sees the token).
+    if band >= Band.OWNER:
+        from windyfly.tools import windycode_web as _wcw
+
+        builder_reply = _wcw.owner_confirm(text)
+        if builder_reply is not None:
+            return True, builder_reply
+
     if is_command(text):
         response = await registry.execute(parse_command(text), context)
         return True, response

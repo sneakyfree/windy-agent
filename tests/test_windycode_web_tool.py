@@ -276,7 +276,10 @@ def test_status_reports_missing_tools(builder_env: None) -> None:
     assert out["status"] == "degraded" and "start_from_prompt" in out["missing_tools"]
 
 
-def test_publish_relays_confirm_required(builder_env: None) -> None:
+def test_publish_holds_the_token_and_never_shows_it(builder_env: None) -> None:
+    from windyfly.tools import windycode_web as w
+
+    w._HELD.clear()
     with patch(POST) as post:
         post.return_value = _mcp({
             "confirm_required": True,
@@ -284,16 +287,17 @@ def test_publish_relays_confirm_required(builder_env: None) -> None:
             "speak": "Put “Garden Club” online for everyone to see?",
         })
         out = windycodeweb_publish("p1")
-    assert out["status"] == "ok"
-    assert out["confirm_required"] is True
-    assert out["confirm_token"] == "ct_abc"
+    assert out["status"] == "confirm_required" and out["done"] is False
+    assert "ct_abc" not in str(out)  # the model never sees the token
+    assert "yes, publish" in out["question"]
+    assert w._HELD["publish"]["token"] == "ct_abc"
 
 
-def test_publish_passes_confirm_token(builder_env: None) -> None:
+def test_model_replaying_a_token_is_refused(builder_env: None) -> None:
     with patch(POST) as post:
-        post.return_value = _mcp({"state": "applying", "speak": "Going live."})
-        windycodeweb_publish("p1", confirm_token="ct_abc")
-    assert _sent(post) == ("publish_project", {"project_id": "p1", "confirm_token": "ct_abc"})
+        out = windycodeweb_publish("p1", confirm_token="ct_abc")
+    assert out["status"] == "refused" and out["done"] is False
+    post.assert_not_called()  # nothing reached the builder
 
 
 def test_publish_trust_denied(builder_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -319,20 +323,20 @@ def test_boot_registers_windycode_web() -> None:
     assert 'Step("tools.windycode_web",  _step_register_windycode_web)' in src
 
 
-def test_connect_domain_bundle_passes_verbatim(builder_env: None) -> None:
+def test_connect_domain_bundle_actions_pass_verbatim_without_a_model_token(builder_env: None) -> None:
     from windyfly.tools.windycode_web import windycodeweb_connect_domain
 
     bundle = [{"type": "register_domain", "fqdn": "grandmarose.com"},
               {"type": "connect_domain_to_site", "fqdn": "grandmarose.com"}]
     with patch(POST) as post:
-        post.return_value = _mcp({"state": "applying", "speak": "Connecting."})
-        out = windycodeweb_connect_domain("p1", "GrandmaRose.com",
-                                          confirm_token="bt_1", bundle_actions=bundle)
-    assert out["status"] == "ok"
+        post.return_value = _mcp({"confirm_required": True, "confirm_token": "bt_1",
+                                  "speak": "Connect grandmarose.com?"})
+        out = windycodeweb_connect_domain("p1", "GrandmaRose.com", bundle_actions=bundle)
+    assert out["status"] == "confirm_required"
     _, sent = _sent(post)
     assert sent["fqdn"] == "grandmarose.com"
-    assert sent["confirm_token"] == "bt_1"
-    assert sent["bundle_actions"] == bundle  # untouched — one yes, never split
+    assert "confirm_token" not in sent
+    assert sent["bundle_actions"] == bundle  # untouched
 
 
 def test_connect_domain_rejects_junk(builder_env: None) -> None:
