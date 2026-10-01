@@ -82,7 +82,7 @@ Repro (with correct password from `~/.windyfly-phase5-state`):
 ```
 curl -X POST -H "Content-Type: application/x-www-form-urlencoded" \
   --data-urlencode "password=$PW" https://fly.windyword.ai/api/auth/login
-→ Set-Cookie: windy_auth=AyHarf9ifHMn3YWSf77kDReXvIrIZewg; …
+→ Set-Cookie: windy_auth=<REDACTED>; …
 ```
 The cookie value is `DASHBOARD_PASSWORD` verbatim (`server.ts:384`). Cookie attributes are good: HttpOnly, Secure, SameSite=Strict, Max-Age=86400.
 
