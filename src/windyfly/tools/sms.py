@@ -392,6 +392,8 @@ def _send_byo(base_url: str, ept: str, to: str | None, body: str) -> dict[str, A
     except ValueError:
         err = {}
     raw_code = err.get("error_code") or err.get("error")
+    if not raw_code and plain_error(err.get("detail") if isinstance(err.get("detail"), str) else None):
+        raw_code = err["detail"]  # Windy Text's 409s carry the code in `detail` (10-01 probe)
     plain = plain_error(raw_code if isinstance(raw_code, str) else None)
     return {"status": "failed", "sent": False, "http_status": resp.status_code,
             "error_code": raw_code,
