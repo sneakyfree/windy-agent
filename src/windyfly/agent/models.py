@@ -205,6 +205,14 @@ def _record_provider_success(provider_key: str) -> None:
         _save_cooldowns()
 
 
+AUTO_MODEL = "auto"
+
+
+def is_auto_model(model: str | None) -> bool:
+    """``auto`` = send Mind NO model, so its owner policy decides (Switchboard)."""
+    return bool(model) and str(model).strip().lower() == AUTO_MODEL
+
+
 def _build_chain(
     explicit_model: str | None,
     config: dict[str, Any] | None,
@@ -221,8 +229,10 @@ def _build_chain(
     agent_cfg = (config or {}).get("agent", {})
     chain = agent_cfg.get("failover_chain")
     if chain:
-        return list(chain)
-    return [agent_cfg.get("default_model", "gpt-4o-mini")]
+        return [m for m in chain if not is_auto_model(m)]
+    default = agent_cfg.get("default_model", "gpt-4o-mini")
+    # "auto" names no provider model: only Mind can serve it, so no direct chain.
+    return [] if is_auto_model(default) else [default]
 
 
 _warned_unknown_models: set[str] = set()
@@ -1180,6 +1190,8 @@ def call_llm(
     # Mind broker first (BYOM moat per ADR-022). Bypass when Max OAuth
     # is active (ADR-022 exception register #1).
     purpose = purpose or _llm_purpose.get()
+    if is_auto_model(model):
+        model = None  # Mind's owner policy picks; nothing is sent
 
     def _record(status: str, rec_model: str, provider_key: str, started: float,
                 fields: dict[str, Any] | None = None, error: BaseException | None = None) -> None:
