@@ -125,3 +125,19 @@ def test_token_never_logged(monkeypatch, caplog):
     monkeypatch.setattr(client.httpx, "post", boom)
     client.search_via_windy_search("q")
     assert TOKEN not in caplog.text
+
+
+def test_daily_free_allowance_429_stops_for_today_not_a_minute(monkeypatch):
+    monkeypatch.setattr(client, "_budget_kind", "monthly")
+    calls = _respond(monkeypatch, status=429,
+                     body={"detail": "Today's 100 free searches are used up. They reset at midnight UTC."},
+                     headers={"X-Search-Free-Limit": "100", "X-Search-Free-Remaining": "0",
+                              "X-Search-Free-Scope": "owner", "Retry-After": "3600"})
+    first = client.search_via_windy_search("q")
+    assert first["budget_exhausted"] and first.get("daily_free_used_up")
+    assert "midnight UTC" in first["notice_to_user"]
+    assert "retry in about a minute" not in first["error"]
+    assert time.time() + 3500 < client._budget_exhausted_until <= time.time() + 3700
+    second = client.search_via_windy_search("q")
+    assert len(calls) == 1 and second["budget_exhausted"]
+    assert "midnight UTC" in second["notice_to_user"]  # daily wording, not the monthly one
