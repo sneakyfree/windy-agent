@@ -40,28 +40,11 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-FLAG_ENV = "WINDY_HATCH_VIA_HUB"
 TICKETS_PATH = "/api/v1/agent/hatch/tickets"
 MIN_POLL_S = 2.0            # the hub rate-limits faster polling with 429
 DEFAULT_POLL_S = 3.0
 _HTTP_TIMEOUT = 30.0
 TERMINAL = ("complete", "partial", "failed", "expired", "cancelled")
-
-
-def opted_out() -> bool:
-    """``WINDY_HATCH_VIA_HUB=0``: the old terminal hatch, for one more release."""
-    return os.environ.get(FLAG_ENV, "").strip().lower() in ("0", "false", "no", "off")
-
-
-def enabled() -> bool:
-    """The ceremony is the default ``windy go`` (ADR-059, 0.7.3)."""
-    return not opted_out()
-
-
-DEPRECATION_NOTE = (
-    "WINDY_HATCH_VIA_HUB=0: using the old terminal hatch — "
-    "the old terminal hatch goes away in the next release."
-)
 
 
 # ── local state (beside the hub session, 0600) ───────────────────────

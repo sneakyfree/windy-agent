@@ -383,7 +383,7 @@ def test_old_opt_out_is_ignored_there_is_one_hallway(monkeypatch, value):
 
     quickstart.cmd_go(Args())
     assert len(calls) == 1
-    assert hub_hatch.DEPRECATION_NOTE not in buf.getvalue()
+    assert "terminal hatch" not in buf.getvalue()
     for legacy in ("_go_keyless", "_go_noninteractive", "_try_hatch_provisioning",
                    "_try_matrix_provision", "_try_mail_provision"):
         assert not hasattr(quickstart, legacy), legacy
@@ -416,13 +416,10 @@ def test_legacy_go_flags_are_gone():
         assert "unrecognized arguments" in result.stderr, flag
 
 
-@pytest.mark.parametrize("value, on", [(None, True), ("1", True), ("", True), ("0", False), ("off", False)])
-def test_flag_values(monkeypatch, value, on):
-    if value is None:
-        monkeypatch.delenv("WINDY_HATCH_VIA_HUB", raising=False)
-    else:
-        monkeypatch.setenv("WINDY_HATCH_VIA_HUB", value)
-    assert hub_hatch.enabled() is on
+def test_flag_helpers_are_gone():
+    """0.7.5: one hallway, so the opt-out helpers went with the terminal hatch."""
+    for name in ("FLAG_ENV", "opted_out", "enabled", "DEPRECATION_NOTE"):
+        assert not hasattr(hub_hatch, name), name
 
 
 def test_expiry_parse_tolerates_garbage():
