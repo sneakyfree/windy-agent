@@ -174,6 +174,8 @@ def test_emit_llm_record_skips_failed_calls(monkeypatch):
                            "provider": "windy-mind", "cost_usd": 0.01,
                            "billing": "metered"})
     assert admin_telemetry.pending() == []
+    emit_llm_record(None, {"status": "ok", "model": "claude-opus-5", "provider": "windymind"})
+    assert admin_telemetry.pending() == []
     # A direct-provider call (an owner's own key) still emits.
     emit_llm_record(None, {"status": "ok", "model": "claude-opus-5",
                            "provider": "anthropic", "cost_usd": 0.01,

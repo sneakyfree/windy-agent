@@ -540,7 +540,7 @@ def emit_llm_record(write_queue: WriteQueue, record: dict) -> None:
     if record.get("status") != "ok":
         return
     provider = record.get("provider")
-    if provider == "windy-mind":
+    if provider in ("windy-mind", "windymind"):  # internal name, and the name HQ shows
         # Windy Mind emits its own llm.call for every call it brokers (with the
         # real cost); a second row from the agent double-counted every Mind-routed
         # call at HQ (Super Admin finding, Hub ruling 10-01). Mind is the one source.
