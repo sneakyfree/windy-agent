@@ -1,8 +1,35 @@
 # Changelog
 
-## Unreleased (0.7.5)
+## 0.7.5
 
-- **One hallway.** The old terminal hatch is gone: `windy go` always opens the Windy hatch ceremony in the browser (ADR-059); `WINDY_HATCH_VIA_HUB=0`, the terminal key-paste/kiosk hatch, CLI-side Matrix/mail provisioning, the mock mail service, birth SMS and phone-number provisioning, and the gateway's remote hatch are removed.
+**Default changes in this release**
+
+- **One hallway.** The old terminal hatch is gone: `windy go` always opens the
+  Windy hatch ceremony in the browser (ADR-059); `WINDY_HATCH_VIA_HUB=0`, the
+  terminal key-paste/kiosk hatch, CLI-side Matrix/mail provisioning, the mock mail
+  service, birth SMS and phone-number provisioning, and the gateway's remote hatch
+  are removed, along with the unused opt-out helpers. (#430, #438)
+- **The offline queue is never replayed through the model.** Messages that arrive
+  while the agent is offline are no longer re-run on reconnect (a replay ran with no
+  sender band, so a stranger's queued message could act as the owner); the owner is
+  told what was missed instead. (#434)
+- **Reading a page is obvious.** `web_search` finds pages and `fetch_url` reads one;
+  a link in the owner's message adds a hint to read it before answering. (#429)
+- **Windy Search limits are spoken plainly.** The daily free-search allowance means
+  "stop for today" (no retry loop), and a site whose robots.txt refuses automated
+  readers is final: no retry and no direct-fetch workaround. (#431, #433)
+- **No double-counted model calls at HQ.** Calls routed through Windy Mind no longer
+  emit a local `llm.call`; Mind is the one source of those events. (#437)
+
+**Built in, off by default (each enabled only on Windy Hub's word)**
+
+- `WINDY_TEXT_BYO=1` now follows Windy Text's rules: the recipient consent check
+  fails closed, the first text to a new number uses Text's approved template, the
+  server adds the `[Name · Windy]` label, and sends authenticate with the agent's
+  mode-B Eternitas token plus a DPoP proof. (#436)
+- `WINDY_SKILL_DROPS=1`: install SIGNED skill bundles from Windy Drops as playbook
+  skills: signature and live trust band checked, the owner confirms in code, no
+  permission widening, refreshed every 6 h. (#435)
 
 ## 0.7.4
 
