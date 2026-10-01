@@ -65,6 +65,17 @@ class WindyMailAdapter:
                 "WindyMailAdapter requires WINDYMAIL_EMAIL and WINDYMAIL_JMAP_TOKEN in .env"
             )
 
+    def _send_bearer(self) -> str:
+        """Bearer for POST /api/v1/send. Windy Mail authenticates a SEND by the agent's own
+        Eternitas passport token; with WINDY_MAIL_SEND_EPT=1 (dark) the EPT is ALWAYS used
+        for sends when present, and the JMAP token stays for inbox reads only. Off = the
+        legacy order (JMAP token first)."""
+        if os.environ.get("WINDY_MAIL_SEND_EPT", "") == "1":
+            ept = os.environ.get("ETERNITAS_PASSPORT_TOKEN", "").strip()
+            if ept:
+                return ept
+        return self.jmap_token
+
     def send_email(self, to: str, subject: str, body: str) -> dict[str, Any]:
         """Send an email via Windy Mail API.
 
@@ -117,7 +128,7 @@ class WindyMailAdapter:
                     "body_text": body,
                     "mode": "independent",
                 },
-                headers={"Authorization": f"Bearer {self.jmap_token}"},
+                headers={"Authorization": f"Bearer {self._send_bearer()}"},
                 timeout=10.0,
             )
             if resp.status_code in (200, 201, 202):
