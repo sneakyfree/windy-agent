@@ -116,19 +116,19 @@ def test_unavailable_when_env_unset(no_builder_env: None) -> None:
     assert "WINDY_CODE_WEB_URL" in out["error"]
 
 
-def test_no_default_url_while_dark(no_builder_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
-    # WINDY_CODE_WEB_DEFAULT unset: a token alone must not send the EPT anywhere.
+def test_no_default_url_when_opted_out(no_builder_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    # WINDY_CODE_WEB_DEFAULT=0: a token alone must not send the EPT anywhere.
     monkeypatch.setenv("ETERNITAS_PASSPORT_TOKEN", "ept_test_token")
-    monkeypatch.delenv("WINDY_CODE_WEB_DEFAULT", raising=False)
+    monkeypatch.setenv("WINDY_CODE_WEB_DEFAULT", "0")
     with patch(POST) as post:
         out = windycodeweb_list_projects()
     assert out["status"] == "unavailable"
     post.assert_not_called()
 
 
-def test_defaults_to_live_builder_when_flag_on(no_builder_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_defaults_to_live_builder_by_default(no_builder_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ETERNITAS_PASSPORT_TOKEN", "ept_test_token")
-    monkeypatch.setenv("WINDY_CODE_WEB_DEFAULT", "1")
+    monkeypatch.delenv("WINDY_CODE_WEB_DEFAULT", raising=False)
     with patch(POST) as post:
         post.return_value = _mcp({"projects": []})
         out = windycodeweb_list_projects()
@@ -397,11 +397,11 @@ def _prompt_system_text() -> str:
     return "\n\n".join(m["content"] for m in msgs if m["role"] == "system")
 
 
-def test_prompt_rule_is_dark_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("WINDY_CODE_WEB_DEFAULT", raising=False)
+def test_prompt_rule_is_off_when_opted_out(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("WINDY_CODE_WEB_DEFAULT", "0")
     assert "BUILDING WEBSITES AND PAGES" not in _prompt_system_text()
 
 
-def test_prompt_rule_when_flag_on(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("WINDY_CODE_WEB_DEFAULT", "1")
+def test_prompt_rule_on_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("WINDY_CODE_WEB_DEFAULT", raising=False)
     assert "BUILDING WEBSITES AND PAGES" in _prompt_system_text()

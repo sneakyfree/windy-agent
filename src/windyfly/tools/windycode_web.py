@@ -24,11 +24,11 @@ Environment:
     WINDY_CODE_WEB_URL       — builder API base (the live builder is
                                https://cloud.windycloud.com; windycode.org is only
                                the marketing site). "off" disables these tools.
-    WINDY_CODE_WEB_DEFAULT   — "1" = with no WINDY_CODE_WEB_URL, use the live
-                               builder AND tell the model to build sites there.
-                               DARK (off) until merge-mode saves are live in the
-                               builder: today a save replaces the whole site, so a
-                               one-file save would delete the other files.
+    WINDY_CODE_WEB_DEFAULT   — ON by default since 0.7.4: with no WINDY_CODE_WEB_URL,
+                               use the live builder AND tell the model to build
+                               sites there (merge-mode saves keep the other files;
+                               publish needs the owner's own "yes, publish").
+                               "0" opts out.
     ETERNITAS_PASSPORT_TOKEN / WINDY_JWT — the EPT presented as the bearer
 """
 
@@ -50,13 +50,15 @@ _TIMEOUT = 30.0
 # The live builder (portal at /build/, API at /api/v1/projects). Hatch never set
 # WINDY_CODE_WEB_URL, so these tools always answered "unavailable" and agents
 # built sites around Windy Code. Used as the default only when
-# WINDY_CODE_WEB_DEFAULT=1 (Hub flips it once merge-mode saves are live).
+# builder_default_enabled() (on by default since 0.7.4; WINDY_CODE_WEB_DEFAULT=0 opts out).
 DEFAULT_BUILDER_URL = "https://cloud.windycloud.com"
 
 
 def builder_default_enabled() -> bool:
-    """WINDY_CODE_WEB_DEFAULT=1: the live builder is the default site path."""
-    return os.environ.get("WINDY_CODE_WEB_DEFAULT", "").strip() == "1"
+    """The live builder is the default site path. ON by default since 0.7.4 (Hub GO,
+    10-01, after both gates: merge-mode saves proven byte-for-byte on the live builder
+    and the owner-held publish confirm). WINDY_CODE_WEB_DEFAULT=0 opts out."""
+    return os.environ.get("WINDY_CODE_WEB_DEFAULT", "1").strip() != "0"
 
 
 _PUBLISH_TRUST_ACTION = "windycode_web_publish"
@@ -115,10 +117,10 @@ def _unavailable() -> dict[str, Any]:
     return {
         "status": "unavailable",
         "error": (
-            "The browser builder is not configured for this agent. "
-            "WINDY_CODE_WEB_URL (or WINDY_CODE_WEB_DEFAULT=1) and an "
-            "Eternitas token (ETERNITAS_PASSPORT_TOKEN or WINDY_JWT) "
-            "must be set."
+            "The browser builder is not available to this agent: it needs an "
+            "Eternitas token (ETERNITAS_PASSPORT_TOKEN or WINDY_JWT), and "
+            "WINDY_CODE_WEB_URL must not be 'off' (nor WINDY_CODE_WEB_DEFAULT=0 "
+            "with no WINDY_CODE_WEB_URL)."
         ),
     }
 
