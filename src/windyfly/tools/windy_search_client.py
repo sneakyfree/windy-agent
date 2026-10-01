@@ -281,6 +281,19 @@ def fetch_via_windy_search(
                                         "error": (f"HTTP {e.response.status_code}"
                                                   if e.response.status_code not in (401, 429, 503)
                                                   else _error_message(e))}
+        if (e.response.status_code == 403
+                and e.response.headers.get("X-Windy-Refusal", "").lower() == "robots"):
+            # The site's robots.txt asks automated readers not to read this page
+            # (windy-search #109). Final for this URL: never retry, never route
+            # around it (the direct-httpx rescue only runs on 5xx/network errors).
+            fetch_result.update({
+                "robots_refused": True,
+                "error": ("This website's robots.txt asks automated readers not to "
+                          "read this page, so I won't fetch it."),
+                "notice_to_user": ("This website asks automated readers not to read "
+                                   "this page, so I didn't open it."),
+            })
+            return fetch_result
         if _is_budget_exhausted(e):
             _mark_budget_exhausted(e)
             fetch_result.update(_budget_exhausted_fields(e))
