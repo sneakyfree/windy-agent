@@ -114,7 +114,7 @@ BUILTIN_PROVIDERS: dict[str, dict[str, Any]] = {
     "ollama": {
         "name": "Ollama (Local)",
         "type": "openai",
-        "base_url": "http://localhost:11434/v1",
+        "base_url": "http://localhost:11434/v1",  # own-machine Ollama (lifeboat floor), not Veron; [providers] in windyfly.toml can override it
         "api_key_env": "",
         "models": ["llama3", "mistral", "codellama"],
     },
