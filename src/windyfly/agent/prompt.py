@@ -438,8 +438,8 @@ def assemble_prompt(
 
     # Windy Code is where agents build for the user (10-01 audit: agents had
     # five ways to make a site and the builder was the one never used).
-    # Phrased conditionally: the tool list for this reply decides. DARK behind
-    # WINDY_CODE_WEB_DEFAULT=1 until the builder's merge-mode saves are live.
+    # Phrased conditionally: the tool list for this reply decides. On by default
+    # since 0.7.4; WINDY_CODE_WEB_DEFAULT=0 turns it off.
     from windyfly.tools.windycode_web import builder_default_enabled
     if builder_default_enabled():
         system_parts.append(
