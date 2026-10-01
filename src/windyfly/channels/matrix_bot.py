@@ -782,8 +782,12 @@ class WindyFlyMatrixBot(ChannelAdapter):
             count = replay_queued_messages(
                 self.config, self.db, self.write_queue, self.tool_registry,
             )
-            if count > 0:
-                logger.info("Replayed %d offline-queued messages on reconnect", count)
+            if count > 0 and self._hatch_dm_room_id:
+                from windyfly.agent.offline import offline_notice
+                await self.client.room_send(
+                    self._hatch_dm_room_id, "m.room.message",
+                    {"msgtype": "m.text", "body": offline_notice(count), "windy_original": True},
+                )
         except Exception as e:
             logger.debug("Offline queue replay: %s", e)
 

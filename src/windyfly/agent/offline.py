@@ -418,38 +418,32 @@ def replay_queued_messages(
     write_queue: "WriteQueue",
     tool_registry: "ToolRegistry | None" = None,
 ) -> int:
-    """Replay all queued messages now that we're back online.
+    """Clear the offline queue WITHOUT sending it through the model again.
 
-    Args:
-        config: Config dict.
-        db: Database instance.
-        write_queue: WriteQueue.
-        tool_registry: Optional tool registry.
+    The old replay pushed every queued message back through agent_respond on
+    reconnect: with no band (so it ran as the owner, whoever had sent it), at
+    full paid-model context, and the replies went nowhere. On 2026-10-01 a
+    restart replayed 11 stale messages from a 4-day outage (~34k tokens each)
+    and Windy Zero's spend monitor auto-paused it. Now nothing is replayed; the
+    caller tells the owner how many messages arrived while it was offline
+    (``offline_notice``) so they can ask again if still needed (Hub, 10-01).
 
-    Returns:
-        Number of messages successfully replayed.
+    Returns the number of queued messages that were cleared.
     """
-    queue = get_queued_messages()
-    if not queue:
-        return 0
+    count = len(get_queued_messages())
+    if count:
+        clear_queue()
+        logger.info("Offline queue: %d message(s) cleared, not replayed", count)
+    return count
 
-    from windyfly.agent.loop import agent_respond
 
-    replayed = 0
-    for msg in queue:
-        try:
-            agent_respond(
-                config, db, write_queue,
-                msg["message"], msg.get("session_id", "offline"),
-                tool_registry,
-            )
-            replayed += 1
-        except Exception as e:
-            logger.error("Failed to replay queued message: %s", e)
-
-    clear_queue()
-    logger.info("Replayed %d/%d queued messages", replayed, len(queue))
-    return replayed
+def offline_notice(count: int) -> str:
+    """The one line the owner sees after a reconnect with a non-empty queue."""
+    s = "" if count == 1 else "s"
+    return (
+        f"While I was offline you sent {count} message{s}. "
+        "Ask again if you still need anything from them."
+    )
 
 
 def _load_queue() -> list[dict[str, str]]:
