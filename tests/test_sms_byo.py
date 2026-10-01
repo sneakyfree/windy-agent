@@ -28,7 +28,8 @@ def _server(monkeypatch, recipient=None, send_status=200, send_body=None, recipi
         return httpx.Response(recipient_status, json=recipient or {}, request=httpx.Request("GET", url))
 
     def post(url, json=None, headers=None, timeout=None):
-        calls["post"].append({"url": url, "json": json, "auth": headers["Authorization"]})
+        calls["post"].append({"url": url, "json": json, "auth": headers["Authorization"],
+                              "dpop": headers.get("DPoP")})
         return httpx.Response(send_status, json=send_body if send_body is not None else {"sid": "SM1", "prefix_applied": True},
                               request=httpx.Request("POST", url))
 
@@ -140,8 +141,8 @@ def test_send_uses_mode_b_dpop_when_available(monkeypatch):
     monkeypatch.setattr(ak, "request_agent_token", lambda aud: {"token": f"tok-{aud}"})
     monkeypatch.setattr(ak, "service_dpop", lambda m, u: f"proof-{m}-{u.rsplit('/', 1)[-1]}")
     sms.send_sms(body="hi")
-    h = calls["post"][0]["auth"]
-    assert h == "DPoP tok-windy-telephony"
+    assert calls["post"][0]["auth"] == "Bearer tok-windy-telephony"
+    assert calls["post"][0]["dpop"] == "proof-POST-send"  # bound to POST /sms/send
 
 
 def test_mode_b_unavailable_falls_back_to_legacy(monkeypatch):

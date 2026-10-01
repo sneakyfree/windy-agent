@@ -293,7 +293,9 @@ def _send_auth(url: str, legacy: dict[str, str]) -> tuple[dict[str, str], dict[s
                         "error": "My Eternitas standing doesn't allow sending texts right now, so I didn't send it."}
     except Exception:
         return legacy, None  # no key store yet, etc.
-    return {**legacy, "Authorization": f"DPoP {tok}", "DPoP": proof}, None
+    # "Bearer" + the DPoP header: what windy-text prod verifies today (it accepts the
+    # "DPoP" scheme too once windy-text #73 is live); the proof still binds the key.
+    return {**legacy, "Authorization": f"Bearer {tok}", "DPoP": proof}, None
 
 
 def _request_approval(base_url: str, headers: dict[str, str], to: str) -> dict[str, Any]:
