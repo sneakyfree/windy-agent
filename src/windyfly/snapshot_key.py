@@ -21,7 +21,7 @@ import httpx
 from windyfly.hub_login import hub_url
 
 PURPOSES = ("sleep", "wake")
-HUB_AUD = "windy-hub"  # Eternitas audience name: TO CONFIRM with Eternitas/Hub
+HUB_AUD = "windy_hub"  # family convention windy_<platform> (Boss); Eternitas registration pending
 TIMEOUT_S = 20.0
 
 
