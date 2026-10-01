@@ -95,3 +95,12 @@ def test_expired_hold_is_not_spent(monkeypatch):
         was, reply = _incoming("yes, publish")
     assert was and "expired" in reply
     post.assert_not_called()
+
+
+def test_builder_side_inbox_approval_is_relayed_not_retried():
+    with patch(POST) as post:
+        post.return_value = _mcp({"owner_confirm": "sent", "speak": "I asked you in your Windy Inbox."})
+        out = w.windycodeweb_publish("p1")
+    assert out["status"] == "awaiting_owner" and out["done"] is False
+    assert out["speak"] == "I asked you in your Windy Inbox." and "do not call" in out["note"]
+    assert post.call_count == 1 and not w._HELD
