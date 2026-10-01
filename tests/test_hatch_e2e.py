@@ -593,10 +593,10 @@ class TestHatchEmailAndSMS:
         assert not any("Birth email" in e for e in result.errors)
 
     async def test_sms_step_with_owner_phone(self, db, monkeypatch, recovery_dir):
-        """With OWNER_PHONE set, SMS is sent (mock)."""
+        """With OWNER_PHONE set but SMS mock/parked, nothing is sent and the record says so."""
         monkeypatch.setenv("OWNER_PHONE", "+15559876543")
         result = await orchestrate_hatch("sms-fly", db=db)
-        assert result.hatch_sms_sent is True
+        assert result.hatch_sms_sent is False
 
     async def test_sms_step_skipped_without_phone(self, db, recovery_dir):
         """Without OWNER_PHONE, SMS step is silently skipped."""
