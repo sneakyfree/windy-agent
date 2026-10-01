@@ -57,6 +57,14 @@ def _adapter() -> Any | None:
         return None
 
 
+def strict_mailbox() -> bool:
+    """WINDY_MAIL_STRICT=1 (OFF by default): an agent sends ONLY from its own Windy
+    Mail mailbox. No silent Resend fallback (it bypasses Mail's From address, limits,
+    bounce handling and Sent folder, and hides the failure); a missing mailbox
+    credential returns a structured 'unavailable' the agent tells its owner."""
+    return os.environ.get("WINDY_MAIL_STRICT", "") == "1"
+
+
 def _resend_configured() -> bool:
     """Resend send-path requires both an API key and a verified
     sender address. Either one missing means we can't use Resend."""
@@ -174,9 +182,19 @@ def send_email(to: str, subject: str, body: str) -> dict[str, Any]:
     if adapter is not None:
         send_fn = adapter.send_email
         path = "windymail"
-    elif _resend_configured():
+    elif _resend_configured() and (
+        not strict_mailbox() or os.environ.get("WINDY_MAIL_ALLOW_RESEND") == "1"
+    ):
         send_fn = _resend_send
         path = "resend"
+    elif strict_mailbox():
+        return {
+            "status": "unavailable",
+            "error": (
+                "No mailbox credential: this agent's own Windy Mail mailbox is "
+                "not ready to send, so nothing was sent. Tell the owner."
+            ),
+        }
     else:
         return {
             "status": "unavailable",
@@ -202,6 +220,10 @@ def send_email(to: str, subject: str, body: str) -> dict[str, Any]:
         # Annotate with the chosen path so downstream observability /
         # the LLM can reason about which provider answered.
         result.setdefault("provider", path)
+        if path == "resend" and strict_mailbox():
+            result["notice"] = (
+                "Sent via Resend, not from your agent's own mailbox: tell the owner."
+            )
         return result
 
     per_recipient: list[dict[str, Any]] = []
