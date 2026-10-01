@@ -179,10 +179,10 @@ def send_sms(to: str | None = None, body: str = "") -> dict[str, Any]:
         logger.debug("SMS unavailable: WINDY_PASSPORT_EPT unset (SMS stays off until a sender enforces STOP)")
         return {"status": "unavailable", "error": _UNAVAILABLE}
 
+    if byo_enabled():
+        return _send_byo(base_url, ept, to, body)
+
     if not to:
-        if byo_enabled():
-            # No `to` = text the owner on their own verified phone (no first-contact gate).
-            return _deliver(base_url, ept, None, body)
         return {"status": "failed", "error": "`to` is required."}
 
     if not _E164_RE.match(to):
@@ -244,6 +244,86 @@ def owner_reply(text: str) -> str | None:
     if res.get("status") == "sent":
         return f"Texted {res.get('to')}, with your OK."
     return f"Not sent: {res.get('error') or res.get('status')}"
+
+
+# ── BYO texting via Windy Text (WINDY_TEXT_BYO=1) ────────────────────
+# Windy Text decides consent (owner-approved recipients, STOP) and adds the
+# "[Name · Windy] " label to every text; the agent asks it, never keeps its own
+# list, and adds no footer. The first text to a contact uses the wording Grant
+# approved (10-01). A send whose 200 lacks prefix_applied=true is reported to the
+# owner as sent WITHOUT the label.
+_FIRST_TEXT = ("Hi, this is {agent}, an AI assistant texting for {owner}. {message} "
+               "Reply STOP to opt out, HELP for help.")
+
+
+def _names() -> tuple[str, str]:
+    agent = (os.environ.get("WINDYFLY_AGENT_NAME") or "your Windy assistant").strip()
+    owner_full = (os.environ.get("WINDY_OWNER_NAME") or "").strip()
+    owner = owner_full.split()[0] if owner_full else "its owner"
+    return agent, owner
+
+
+def first_text(message: str) -> str:
+    agent, owner = _names()
+    msg = message.strip()
+    if msg and msg[-1] not in ".!?":
+        msg += "."
+    return _FIRST_TEXT.format(agent=agent, owner=owner, message=msg)
+
+
+def _send_byo(base_url: str, ept: str, to: str | None, body: str) -> dict[str, Any]:
+    if to and not _E164_RE.match(to):
+        return {"status": "failed",
+                "error": f"`to` must be E.164 (start with +, country code, then digits). Got {to!r}."}
+    headers = {"Authorization": f"Bearer {ept}", "Content-Type": "application/json"}
+    try:
+        r = httpx.get(f"{base_url}/sms/recipient", params={"to": to} if to else None,
+                      headers=headers, timeout=_TIMEOUT)
+        rec = r.json() if r.status_code == 200 else None
+    except (httpx.HTTPError, ValueError):
+        rec = None
+    if not isinstance(rec, dict):
+        # Fail closed: without the server's consent answer, don't text anyone.
+        return {"status": "failed", "sent": False,
+                "error": "I couldn't check whether I'm allowed to text that number, so I didn't send it."}
+    if rec.get("opted_out"):
+        return {"status": "opted_out", "sent": False,
+                "error": "That number has opted out of texts (they replied STOP). I won't text it."}
+    if not rec.get("approved"):
+        return {"status": "needs_owner_approval", "sent": False,
+                "error": ("I need your OK before texting this number for the first time. "
+                          "Approve it when Windy asks you, then ask me again.")}
+    text = first_text(body) if rec.get("first_contact") and rec.get("kind") == "contact" else body
+    if len(text) > _MAX_SMS_CHARS:
+        return {"status": "failed", "sent": False,
+                "error": f"Text too long ({len(text)} characters; the limit is {_MAX_SMS_CHARS})."}
+    try:
+        resp = httpx.post(f"{base_url}/sms/send",
+                          json={"body": text} if to is None else {"to": to, "body": text},
+                          headers=headers, timeout=_TIMEOUT)
+    except httpx.HTTPError as exc:
+        return {"status": "failed", "sent": False, "error": f"Couldn't reach Windy Text: {type(exc).__name__}"}
+    if resp.status_code in (200, 201):
+        try:
+            data = resp.json()
+        except ValueError:
+            data = {}
+        out = {"status": "sent", "sent": True, "to": "owner" if to is None else to,
+               "first_contact": bool(data.get("first_contact")), "sid": data.get("sid", "")}
+        if data.get("prefix_applied") is not True:
+            out.update({"status": "sent_without_label",
+                        "notice_to_user": ("That text went out WITHOUT the usual '[name · Windy]' "
+                                           "label. Please tell Windy support.")})
+        return out
+    try:
+        err = resp.json()
+    except ValueError:
+        err = {}
+    raw_code = err.get("error_code") or err.get("error")
+    plain = plain_error(raw_code if isinstance(raw_code, str) else None)
+    return {"status": "failed", "sent": False, "http_status": resp.status_code,
+            "error_code": raw_code,
+            "error": plain or err.get("detail") or f"Windy Text answered {resp.status_code}"}
 
 
 def _deliver(base_url: str, ept: str, to: str | None, body: str) -> dict[str, Any]:
