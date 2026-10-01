@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased (0.7.5)
+
+- **One hallway.** The old terminal hatch is gone: `windy go` always opens the Windy hatch ceremony in the browser (ADR-059); `WINDY_HATCH_VIA_HUB=0`, the terminal key-paste/kiosk hatch, CLI-side Matrix/mail provisioning, the mock mail service, birth SMS and phone-number provisioning, and the gateway's remote hatch are removed.
+
 ## 0.7.4
 
 **Default changes in this release**

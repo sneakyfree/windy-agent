@@ -2,7 +2,7 @@
 
 Commands::
 
-    windy go               — One-command quickstart (paste a key, done)
+    windy go               — Hatch your agent in the Windy ceremony (browser)
     windy init             — Interactive setup wizard (terminal TUI)
     windy setup            — Browser-based setup wizard (opens localhost)
     windy start            — Start brain + gateway (opens dashboard)
@@ -345,15 +345,9 @@ def cmd_start(args: argparse.Namespace) -> None:
     time.sleep(2)
 
     # ── The Hatching Ceremony ──
-    # Skip if already played during quickstart provisioning
-    if not os.environ.get("_WINDYFLY_HATCHING_PLAYED"):
-        from windyfly.hatching import play_hatching, show_ecosystem_status
-        play_hatching(animate=True)
-        show_ecosystem_status()
-    else:
-        # Still show ecosystem status even if ceremony already played
-        from windyfly.hatching import show_ecosystem_status
-        show_ecosystem_status()
+    from windyfly.hatching import play_hatching, show_ecosystem_status
+    play_hatching(animate=True)
+    show_ecosystem_status()
 
     console.print("  [cyan]Brain log:[/cyan]    data/brain.log")
     if gateway_pid:
@@ -1518,29 +1512,8 @@ def main() -> None:
     # windy go
     go_parser = sub.add_parser("go", help="Hatch your agent: opens the Windy ceremony in your browser (link + code)")
     go_parser.add_argument(
-        "--key", "-k",
-        help="API key (auto-detects provider). Skips all prompts.",
-    )
-    go_parser.add_argument(
-        "--keyless", action="store_true",
-        help="No key — free agent powered by Windy Mind. Skips all prompts.",
-    )
-    go_parser.add_argument(
-        "--model", "-m",
-        help=f"Override default model (e.g., gpt-4o, {_ANTHROPIC_DEFAULT_MODEL})",
-    )
-    go_parser.add_argument(
-        "--preset", "-p",
-        choices=["buddy", "engineer", "powerhouse", "coder", "friend", "writer", "researcher", "silent"],
-        help="Personality preset (default: buddy)",
-    )
-    go_parser.add_argument(
         "--no-browser", action="store_true",
         help="Don't open browser (for headless servers)",
-    )
-    go_parser.add_argument(
-        "--byok", action="store_true",
-        help="Bring your own key — skip Windy Word managed-credential detection",
     )
     go_parser.add_argument(
         "--force", action="store_true",

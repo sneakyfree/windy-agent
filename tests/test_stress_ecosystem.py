@@ -13,12 +13,8 @@ Uses respx to mock all HTTP calls — no real servers needed.
 
 from __future__ import annotations
 
-import asyncio
 import json
-import os
-import tempfile
 import time
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -78,138 +74,6 @@ def clean_env(monkeypatch):
 # ═══════════════════════════════════════════════════════════════════════
 
 
-class TestHatchOrchestrator:
-    """Full hatch lifecycle with mock services."""
-
-    @pytest.fixture(autouse=True)
-    def _isolate_recovery(self, tmp_path, monkeypatch):
-        """Prevent hatch tests from writing recovery files to the real data/ dir."""
-        monkeypatch.setattr(
-            "windyfly.hatch_orchestrator._RECOVERY_PATH",
-            tmp_path / "provision_recovery.json",
-        )
-
-    async def test_full_hatch_populates_result(self, db):
-        """orchestrate_hatch() with all mocks → HatchResult fully populated."""
-        from windyfly.hatch_orchestrator import orchestrate_hatch
-
-        result = await orchestrate_hatch(
-            agent_name="stress-fly", owner_id="owner-1", owner_name="Grant", db=db,
-        )
-        assert result.agent_name == "stress-fly"
-        assert result.owner_name == "Grant"
-        assert result.passport_id.startswith("ET-")
-        assert result.passport_status == "active"
-        assert result.mail_provisioned is True
-        assert result.email_address.endswith("@windymail.ai")
-        assert result.phone_provisioned is False  # phone parked (09-23)
-        assert result.neural_fingerprint != ""
-        assert result.certificate_number.startswith("ET-")  # ADR-064: Eternitas's number, WF- retired
-
-    async def test_eternitas_receives_correct_payload(self, db):
-        """Verify mock Eternitas received correct registration fields."""
-        from windyfly.eternitas.mock import MockEternitasClient
-        from windyfly.eternitas.models import RegistrationRequest
-
-        client = MockEternitasClient(db)
-        req = RegistrationRequest(
-            name="payload-fly", description="Test", bot_type="personal_assistant",
-            contact_email="test@test.com", intended_platforms=["windy_chat"],
-        )
-        passport = await client.register(req)
-        assert passport.passport_id.startswith("ET-L")
-        assert passport.name == "payload-fly"
-        assert passport.trust_score == 70
-
-    async def test_mail_provisioning_via_mock(self, db):
-        """Verify mock mail server provisions inbox."""
-        from windyfly.mail_mock import MockMailServer
-
-        server = MockMailServer(db)
-        result = await server.provision_inbox("stress-fly", "ET-L00001")
-        assert result["email"] == "stress-fly@windymail.ai"
-        assert result["smtp_password"] != ""
-        assert result["imap_password"] != ""
-        assert result["jmap_token"].startswith("mock-jmap-")
-
-    async def test_birth_certificate_on_disk(self, db):
-        """Verify birth certificate PDF generated on disk."""
-        from windyfly.hatch_orchestrator import orchestrate_hatch
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            config = {"memory": {"db_path": f"{tmpdir}/windyfly.db"}}
-            result = await orchestrate_hatch("cert-fly", db=db, config=config)
-            assert result.birth_certificate_path.endswith(".pdf")
-            assert os.path.exists(result.birth_certificate_path)
-            assert os.path.getsize(result.birth_certificate_path) > 100
-
-    async def test_no_errors_on_full_mock_hatch(self, db, monkeypatch):
-        """With all mock services, only Matrix should error (no Synapse secret)."""
-        monkeypatch.setenv("OWNER_PHONE", "+15559999999")
-        from windyfly.hatch_orchestrator import orchestrate_hatch
-
-        result = await orchestrate_hatch("clean-fly", db=db)
-        # Matrix is the only expected failure (no Synapse secret)
-        non_matrix = [e for e in result.errors if "Matrix" not in e]
-        assert non_matrix == [], f"Unexpected errors: {non_matrix}"
-
-    async def test_hatch_with_eternitas_down(self, db):
-        """Eternitas failure captured but hatch completes."""
-        from windyfly.hatch_orchestrator import orchestrate_hatch
-
-        # Force real client with unreachable URL
-        with patch.dict(os.environ, {"ETERNITAS_API_URL": "http://unreachable.test"}):
-            with respx.mock:
-                respx.post("http://unreachable.test/api/v1/bots/register").mock(
-                    side_effect=httpx.ConnectError("refused")
-                )
-                result = await orchestrate_hatch("fail-et-fly", db=db)
-
-        assert any("Eternitas" in e for e in result.errors)
-        # Hatch still completes — mail and phone should work via mocks
-        assert result.mail_provisioned is True
-
-    async def test_hatch_with_matrix_down(self, db):
-        """Matrix failure captured but hatch completes."""
-        from windyfly.hatch_orchestrator import orchestrate_hatch
-
-        result = await orchestrate_hatch("fail-mx-fly", db=db)
-        assert result.matrix_provisioned is False
-        assert result.passport_id.startswith("ET-")
-        assert result.mail_provisioned is True
-
-    async def test_hatch_idempotent_passport(self, db):
-        """Hatching same agent twice reuses passport."""
-        from windyfly.hatch_orchestrator import orchestrate_hatch
-
-        r1 = await orchestrate_hatch("idem-fly", db=db)
-        r2 = await orchestrate_hatch("idem-fly", db=db)
-        assert r1.passport_id == r2.passport_id
-
-    async def test_different_agents_get_different_passports(self, db, monkeypatch):
-        """Different agents get different passports.
-
-        A successful hatch exports ETERNITAS_PASSPORT so the agent it just
-        hatched knows who it is. In production these two hatches are two
-        separate processes; here we clear it between them. Leaving it set
-        is a handoff, and a hatch handed a passport adopts it instead of
-        minting a second (three doors, one hallway, one issuer).
-        """
-        from windyfly.hatch_orchestrator import orchestrate_hatch
-
-        r1 = await orchestrate_hatch("fly-alpha", db=db)
-        monkeypatch.delenv("ETERNITAS_PASSPORT", raising=False)
-        r2 = await orchestrate_hatch("fly-beta", db=db)
-        assert r1.passport_id != r2.passport_id
-
-    async def test_recovery_file_created_on_failure(self, db, tmp_path, monkeypatch):
-        """Recovery file created when provisioning steps fail."""
-        from windyfly.hatch_orchestrator import orchestrate_hatch, _RECOVERY_PATH
-
-        monkeypatch.setattr("windyfly.hatch_orchestrator._RECOVERY_PATH", tmp_path / "recovery.json")
-        # Hatch will fail Matrix (no secret) — check if recovery is saved
-        # Note: with mock DB, Matrix always fails but mail succeeds
-        await orchestrate_hatch("recovery-fly", db=db)
         # Recovery file may or may not exist depending on whether Matrix
         # failure is classified as a "real" failure vs missing config
 
@@ -217,96 +81,6 @@ class TestHatchOrchestrator:
 # ═══════════════════════════════════════════════════════════════════════
 # Category 2: Provisioning Recovery (5 tests)
 # ═══════════════════════════════════════════════════════════════════════
-
-
-class TestProvisioningRecovery:
-    """Retry failed provisioning steps."""
-
-    async def test_retry_with_no_recovery_file(self, db, tmp_path, monkeypatch):
-        """No recovery file → returns None."""
-        from windyfly.hatch_orchestrator import retry_failed_provisioning
-
-        monkeypatch.setattr("windyfly.hatch_orchestrator._RECOVERY_PATH", tmp_path / "nonexistent.json")
-        result = await retry_failed_provisioning(db=db)
-        assert result is None
-
-    async def test_retry_creates_result(self, db, tmp_path, monkeypatch):
-        """Recovery file with failed steps → retries and returns result."""
-        from windyfly.hatch_orchestrator import retry_failed_provisioning
-
-        recovery = tmp_path / "recovery.json"
-        recovery.write_text(json.dumps({
-            "failed_steps": ["phone"],
-            "last_attempt": "2026-03-31T12:00:00Z",
-            "retry_count": 0,
-            "agent_name": "retry-fly",
-            "passport_id": "ET-L00001",
-            "errors": [],
-        }))
-        monkeypatch.setattr("windyfly.hatch_orchestrator._RECOVERY_PATH", recovery)
-
-        result = await retry_failed_provisioning(db=db)
-        assert result is not None
-        assert result.agent_name == "retry-fly"
-        assert result.phone_provisioned is False  # phone parked (09-23)
-
-    async def test_retry_removes_successful_steps(self, db, tmp_path, monkeypatch):
-        """Steps that succeed on retry are removed from the recovery file."""
-        from windyfly.hatch_orchestrator import retry_failed_provisioning
-
-        recovery = tmp_path / "recovery.json"
-        recovery.write_text(json.dumps({
-            "failed_steps": ["phone"],
-            "last_attempt": "2026-03-31T12:00:00Z",
-            "retry_count": 0,
-            "agent_name": "remove-fly",
-            "passport_id": "ET-L00001",
-            "errors": [],
-        }))
-        monkeypatch.setattr("windyfly.hatch_orchestrator._RECOVERY_PATH", recovery)
-
-        await retry_failed_provisioning(db=db)
-        # Phone succeeds via mock → recovery file should be deleted
-        assert not recovery.exists()
-
-    async def test_retry_increments_count(self, db, tmp_path, monkeypatch):
-        """Failed retry increments retry_count."""
-        from windyfly.hatch_orchestrator import retry_failed_provisioning
-
-        recovery = tmp_path / "recovery.json"
-        recovery.write_text(json.dumps({
-            "failed_steps": ["matrix"],
-            "last_attempt": "2026-03-31T12:00:00Z",
-            "retry_count": 0,
-            "agent_name": "count-fly",
-            "passport_id": "ET-L00001",
-            "errors": [],
-        }))
-        monkeypatch.setattr("windyfly.hatch_orchestrator._RECOVERY_PATH", recovery)
-
-        await retry_failed_provisioning(db=db)
-        # Matrix will still fail (no Synapse secret) → count incremented
-        if recovery.exists():
-            data = json.loads(recovery.read_text(encoding="utf-8"))
-            assert data["retry_count"] == 1
-
-    async def test_recovery_file_deleted_when_all_pass(self, db, tmp_path, monkeypatch):
-        """Recovery file deleted when all steps succeed."""
-        from windyfly.hatch_orchestrator import retry_failed_provisioning
-
-        recovery = tmp_path / "recovery.json"
-        recovery.write_text(json.dumps({
-            "failed_steps": ["phone"],
-            "last_attempt": "2026-03-31T12:00:00Z",
-            "retry_count": 2,
-            "agent_name": "all-pass-fly",
-            "passport_id": "ET-L00001",
-            "errors": [],
-        }))
-        monkeypatch.setattr("windyfly.hatch_orchestrator._RECOVERY_PATH", recovery)
-
-        await retry_failed_provisioning(db=db)
-        assert not recovery.exists()
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -519,20 +293,6 @@ class TestEcosystemCLI:
                      "TWILIO_PHONE_NUMBER", "WINDY_JWT", "WINDY_API_URL", "WINDY_CLOUD_URL"]:
             monkeypatch.delenv(key, raising=False)
         show_ecosystem_status()
-
-    def test_show_ecosystem_status_with_hatch_result(self):
-        """show_ecosystem_status() with HatchResult shows all fields."""
-        from windyfly.hatching import show_ecosystem_status
-        from windyfly.hatch_orchestrator import HatchResult
-        result = HatchResult(
-            agent_name="test-fly", passport_id="ET-00001",
-            matrix_user_id="@windyfly:chat.windychat.ai", matrix_provisioned=True,
-            email_address="fly@windymail.ai", mail_provisioned=True,
-            phone_number="+15550100", phone_provisioned=True, phone_is_mock=True,
-            certificate_number="WF-001", birth_certificate_path="data/cert.pdf",
-            neural_fingerprint="abc123",
-        )
-        show_ecosystem_status(result)
 
     def test_show_ecosystem_status_with_env_vars(self, monkeypatch):
         """show_ecosystem_status() picks up env vars when no HatchResult."""

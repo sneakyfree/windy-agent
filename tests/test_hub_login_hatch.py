@@ -273,35 +273,6 @@ async def test_auto_hatch_sends_hatch_id_header_only_when_well_formed(monkeypatc
 
 # ── hatch prompt ─────────────────────────────────────────────────────
 
-def test_interactive_hatch_without_credential_runs_sign_in(monkeypatch):
-    from windyfly import hatch_orchestrator as ho
-
-    ran = []
-    monkeypatch.setattr(ho, "_hatch_is_interactive", lambda: True)
-    monkeypatch.setattr(hub_login, "login",
-                        lambda open_browser=True, **_: ran.append(open_browser) or {"windy_identity_id": "5e1b9569"})
-    ho._ensure_hatch_sign_in()
-    assert ran == [True]
-
-
-def test_noninteractive_hatch_never_prompts(monkeypatch):
-    from windyfly import hatch_orchestrator as ho
-
-    monkeypatch.setenv("WINDY_HATCH_NONINTERACTIVE", "1")
-    monkeypatch.setattr(hub_login, "login", lambda **_: pytest.fail("must not prompt"))
-    ho._ensure_hatch_sign_in()
-    assert ho._hatch_is_interactive() is False
-
-
-def test_existing_credential_skips_prompt(monkeypatch):
-    from windyfly import hatch_orchestrator as ho
-
-    monkeypatch.setenv("ETERNITAS_OPERATOR_JWT", "op")
-    monkeypatch.setattr(ho, "_hatch_is_interactive", lambda: True)
-    monkeypatch.setattr(hub_login, "login", lambda **_: pytest.fail("must not prompt"))
-    ho._ensure_hatch_sign_in()
-
-
 # ── identity derivation ──────────────────────────────────────────────
 
 def test_identity_prefers_windy_identity_id_over_sub():
@@ -315,16 +286,6 @@ def test_hub_human_token_never_falls_back_to_sub():
 
 def test_legacy_token_without_identity_claim_still_uses_sub():
     assert identity_from_jwt(make_jwt({"sub": "legacy-id"}, alg="ES256")) == "legacy-id"
-
-
-def test_resolve_identity_falls_back_to_login_session(monkeypatch):
-    from windyfly.hatch_orchestrator import _resolve_windy_identity_id
-
-    hub_login._write_session({"access_token": "a", "refresh_token": "",
-                              "expires_at": time.time() + 600, "windy_identity_id": "sess-id"})
-    assert _resolve_windy_identity_id("") == "sess-id"
-    monkeypatch.setenv("WINDY_IDENTITY_ID", "explicit")
-    assert _resolve_windy_identity_id("") == "explicit"
 
 
 def test_sign_in_url_is_flushed_before_waiting(monkeypatch):

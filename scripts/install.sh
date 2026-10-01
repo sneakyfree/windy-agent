@@ -7,14 +7,11 @@
 #   — or —
 #   bash <(curl -fsSL https://raw.githubusercontent.com/sneakyfree/windy-agent/main/scripts/install.sh)
 #
-# Zero-prompt install (have your key ready):
-#   WINDY_KEY=sk-abc123 curl -fsSL https://windyfly.ai | bash
-#
 # What it does:
 #   1. Checks/installs Python 3.12+, uv, and Bun
 #   2. Clones the windy-agent repo (or updates if already cloned)
 #   3. Installs all dependencies
-#   4. Launches quickstart (or auto-configures if WINDY_KEY is set)
+#   4. Runs `windy go`, which opens the Windy hatch ceremony in your browser
 # ═══════════════════════════════════════════════════════════════════════
 
 set -euo pipefail
@@ -200,15 +197,10 @@ main() {
     echo -e "${GREEN}${BOLD}🪰 Installation complete!${RESET}"
     echo ""
 
-    # Launch the quickstart — one key, one paste, done
-    echo -e "  ${CYAN}Launching quickstart...${RESET}"
+    # Hatch: `windy go` opens the Windy hatch ceremony in the browser (ADR-059)
+    echo -e "  ${CYAN}Opening the Windy hatch ceremony...${RESET}"
     echo ""
-    if [ -n "${WINDY_KEY:-}" ]; then
-        # Zero-prompt install: WINDY_KEY=sk-abc123 curl ... | bash
-        uv run windy go --key "$WINDY_KEY"
-    else
-        uv run windy go
-    fi
+    uv run windy go
 
     # Show reference commands after setup completes
     echo ""

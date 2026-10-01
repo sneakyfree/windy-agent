@@ -187,24 +187,6 @@ def test_update_cache_is_cwd_independent(tmp_path, monkeypatch):
         importlib.reload(update)
 
 
-def test_hatch_recovery_path_is_cwd_independent(tmp_path, monkeypatch):
-    """A half-finished hatch must be resumable from any directory."""
-    from windyfly import hatch_orchestrator
-
-    assert hatch_orchestrator._RECOVERY_PATH.is_absolute()
-    before = hatch_orchestrator._RECOVERY_PATH
-    monkeypatch.chdir(tmp_path)
-    import importlib
-
-    importlib.reload(hatch_orchestrator)
-    try:
-        assert hatch_orchestrator._RECOVERY_PATH == before
-    finally:
-        importlib.reload(hatch_orchestrator)
-
-
-
-
 def test_honours_windyfly_home_override(tmp_path, monkeypatch):
     """Fleet installs and tests pin the root explicitly; the pid file must
     follow it rather than the cwd."""
