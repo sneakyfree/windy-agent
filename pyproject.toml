@@ -17,6 +17,7 @@ dependencies = [
     "python-dotenv>=1.0",
     "fpdf2>=2.7",
     "cryptography>=42.0",
+    "PyJWT[crypto]>=2.8",
 ]
 
 [project.optional-dependencies]
