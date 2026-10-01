@@ -97,16 +97,26 @@ _EXHAUSTED_NOTICE = (
 )
 
 
+def _is_daily_free_used_up(e: httpx.HTTPStatusError) -> bool:
+    """True iff this 429 is the per-owner DAILY free allowance (windy-search 29b39f7,
+    off until Hub enables it): stop for today, never retry in a minute."""
+    h = e.response.headers
+    return e.response.status_code == 429 and (
+        "X-Search-Free-Limit" in h or "X-Search-Free-Scope" in h)
+
+
 def _is_budget_exhausted(e: httpx.HTTPStatusError) -> bool:
-    """True iff this 429 is the monthly-budget gate, not the rate limit."""
-    return (
-        e.response.status_code == 429
-        and "X-Cost-Cap-USD" in e.response.headers
-    )
+    """True iff this 429 is a budget gate (monthly cost cap or the daily free
+    allowance), not the per-minute rate limit."""
+    return e.response.status_code == 429 and (
+        "X-Cost-Cap-USD" in e.response.headers or _is_daily_free_used_up(e))
 
 
 def _budget_exhausted_fields(e: httpx.HTTPStatusError) -> dict[str, Any]:
     """Friendly, actionable fields for a budget-429 tool result."""
+    if _is_daily_free_used_up(e):
+        return {"budget_exhausted": True, "daily_free_used_up": True,
+                "notice_to_user": "Today's free searches are used up. They reset at midnight UTC."}
     return {
         "budget_exhausted": True,
         "budget_cap_usd": e.response.headers.get("X-Cost-Cap-USD"),
@@ -143,6 +153,8 @@ def _auth_header() -> dict[str, str]:
 # After a budget 429 the client refuses locally until the reset, so a
 # looping tool call can't burn requests (or look broken) all month.
 _budget_exhausted_until: float = 0.0
+_budget_kind: str = "monthly"
+_DAILY_NOTICE = "Today's free searches are used up. They reset at midnight UTC."
 
 
 def _next_month_start(now: float) -> float:
@@ -152,8 +164,18 @@ def _next_month_start(now: float) -> float:
 
 
 def _mark_budget_exhausted(e: httpx.HTTPStatusError) -> None:
-    global _budget_exhausted_until
+    global _budget_exhausted_until, _budget_kind
     now = time.time()
+    if _is_daily_free_used_up(e):
+        _budget_kind = "daily"
+        d = datetime.fromtimestamp(now, timezone.utc)
+        until = datetime(d.year, d.month, d.day, tzinfo=timezone.utc).timestamp() + 86400
+        retry_after = e.response.headers.get("Retry-After", "")
+        if retry_after.isdigit() and int(retry_after) > 0:
+            until = now + int(retry_after)
+        _budget_exhausted_until = until
+        return
+    _budget_kind = "monthly"
     until = _next_month_start(now)
     retry_after = e.response.headers.get("Retry-After", "")
     if retry_after.isdigit():
@@ -166,12 +188,13 @@ def _budget_blocked() -> bool:
 
 
 def _blocked_fields() -> dict[str, Any]:
+    daily = _budget_kind == "daily"
     return {
         "budget_exhausted": True,
-        "error": "monthly search budget reached",
+        "error": "daily free searches used up" if daily else "monthly search budget reached",
         "retry_after_utc": datetime.fromtimestamp(
             _budget_exhausted_until, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "notice_to_user": _EXHAUSTED_NOTICE,
+        "notice_to_user": _DAILY_NOTICE if daily else _EXHAUSTED_NOTICE,
     }
 
 
@@ -181,6 +204,8 @@ def _error_message(e: httpx.HTTPStatusError) -> str:
     if code == 401:
         return ("search credential rejected (passport revoked or token "
                 "expired; run `windy ept refresh`)")
+    if code == 429 and _is_daily_free_used_up(e):
+        return "daily free searches used up (resets at midnight UTC); don't retry today"
     if code == 429 and _is_budget_exhausted(e):
         return "monthly search budget reached"
     if code == 429:
