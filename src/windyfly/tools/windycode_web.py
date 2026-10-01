@@ -296,8 +296,10 @@ def windycodeweb_preview(project_id: str) -> dict[str, Any]:
 
 
 def _publish_gate() -> dict[str, Any] | None:
-    """Trust plane first (ADR-019/020, like post_chat_message); the builder's
-    confirm relay then does the human-consent half. None = proceed."""
+    """Trust plane first (ADR-019/020); the builder's confirm relay then does
+    the human-consent half. None = proceed. FAILS CLOSED: putting a site
+    online, taking it down or pointing a domain must not happen because the
+    trust check itself broke (Hub 10-01)."""
     if not _trust_gate_enabled():
         return None
     from windyfly.trust.gate import TrustDenied, require_trust
@@ -307,8 +309,11 @@ def _publish_gate() -> dict[str, Any] | None:
     except TrustDenied as denied:
         return {"status": "denied", "reason": denied.reason, "band": denied.band,
                 "action": _PUBLISH_TRUST_ACTION, "error": str(denied)}
-    except Exception as exc:  # fail-open with loud log, matching chat.py
-        logger.warning("Trust gate check errored (fail-open): %s", exc)
+    except Exception as exc:
+        logger.warning("Trust gate check errored (fail-closed): %s", exc)
+        return {"status": "denied", "reason": "trust_check_unavailable",
+                "action": _PUBLISH_TRUST_ACTION,
+                "error": "I couldn't check my permissions just now, so I didn't do it. Try again in a minute."}
     return None
 
 
