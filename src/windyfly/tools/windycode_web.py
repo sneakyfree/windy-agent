@@ -21,9 +21,14 @@ Design decisions:
     the LLM can relay in plain words.
 
 Environment:
-    WINDY_CODE_WEB_URL       — builder API base; default https://cloud.windycloud.com
-                               (the live builder; windycode.org is only the marketing
-                               site). Set it to "off" to disable these tools.
+    WINDY_CODE_WEB_URL       — builder API base (the live builder is
+                               https://cloud.windycloud.com; windycode.org is only
+                               the marketing site). "off" disables these tools.
+    WINDY_CODE_WEB_DEFAULT   — "1" = with no WINDY_CODE_WEB_URL, use the live
+                               builder AND tell the model to build sites there.
+                               DARK (off) until merge-mode saves are live in the
+                               builder: today a save replaces the whole site, so a
+                               one-file save would delete the other files.
     ETERNITAS_PASSPORT_TOKEN / WINDY_JWT — the EPT presented as the bearer
 """
 
@@ -42,15 +47,24 @@ logger = logging.getLogger(__name__)
 
 _TIMEOUT = 30.0
 # The live builder (portal at /build/, API at /api/v1/projects). Hatch never set
-# WINDY_CODE_WEB_URL, so with no default these tools always answered
-# "unavailable" and agents built sites around Windy Code instead of in it.
+# WINDY_CODE_WEB_URL, so these tools always answered "unavailable" and agents
+# built sites around Windy Code. Used as the default only when
+# WINDY_CODE_WEB_DEFAULT=1 (Hub flips it once merge-mode saves are live).
 DEFAULT_BUILDER_URL = "https://cloud.windycloud.com"
+
+
+def builder_default_enabled() -> bool:
+    """WINDY_CODE_WEB_DEFAULT=1: the live builder is the default site path."""
+    return os.environ.get("WINDY_CODE_WEB_DEFAULT", "").strip() == "1"
 _PUBLISH_TRUST_ACTION = "windycode_web_publish"
 
 
 def _creds() -> tuple[str, str]:
     """Resolve (builder_url, token). Empty strings indicate not configured."""
-    url = (os.environ.get("WINDY_CODE_WEB_URL", "").strip() or DEFAULT_BUILDER_URL).rstrip("/")
+    url = os.environ.get("WINDY_CODE_WEB_URL", "").strip()
+    if not url and builder_default_enabled():
+        url = DEFAULT_BUILDER_URL
+    url = url.rstrip("/")
     if url.lower() == "off":
         url = ""
     token = (
@@ -72,9 +86,10 @@ def _request(method: str, path: str, json_body: dict | None = None) -> dict[str,
         return {
             "status": "unavailable",
             "error": (
-                "The browser builder is not available to this agent: it "
-                "needs an Eternitas token (ETERNITAS_PASSPORT_TOKEN or "
-                "WINDY_JWT), and WINDY_CODE_WEB_URL must not be 'off'."
+                "The browser builder is not configured for this agent. "
+                "WINDY_CODE_WEB_URL (or WINDY_CODE_WEB_DEFAULT=1) and an "
+                "Eternitas token (ETERNITAS_PASSPORT_TOKEN or WINDY_JWT) "
+                "must be set."
             ),
         }
     try:

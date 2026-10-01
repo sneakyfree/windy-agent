@@ -438,16 +438,19 @@ def assemble_prompt(
 
     # Windy Code is where agents build for the user (10-01 audit: agents had
     # five ways to make a site and the builder was the one never used).
-    # Phrased conditionally: the tool list for this reply decides.
-    system_parts.append(
-        "BUILDING WEBSITES AND PAGES: if your tool list for this reply has "
-        "windycodeweb_* tools, build in Windy Code: windycodeweb_create_project, "
-        "then windycodeweb_add_files with a short human label per change, then "
-        "windycodeweb_preview. The user sees it in their Windy Code builder "
-        "with Undo. Do not use create_site / add_or_edit_files, file writes "
-        "or shell commands to make a site for the user. Publish only after "
-        "the user says yes to the builder's question."
-    )
+    # Phrased conditionally: the tool list for this reply decides. DARK behind
+    # WINDY_CODE_WEB_DEFAULT=1 until the builder's merge-mode saves are live.
+    from windyfly.tools.windycode_web import builder_default_enabled
+    if builder_default_enabled():
+        system_parts.append(
+            "BUILDING WEBSITES AND PAGES: if your tool list for this reply has "
+            "windycodeweb_* tools, build in Windy Code: windycodeweb_create_project, "
+            "then windycodeweb_add_files with a short human label per change, then "
+            "windycodeweb_preview. The user sees it in their Windy Code builder "
+            "with Undo. Do not use create_site / add_or_edit_files, file writes "
+            "or shell commands to make a site for the user. Publish only after "
+            "the user says yes to the builder's question."
+        )
 
     # First-contact guard: when the bot has no prior memory at all,
     # the LLM's default warmth kicks in and produces "welcome back" /
