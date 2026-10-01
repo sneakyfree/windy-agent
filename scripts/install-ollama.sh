@@ -34,7 +34,7 @@ set -euo pipefail
 # ── Tunables (override via env) ───────────────────────────────────
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
 OLLAMA_VERSION="${OLLAMA_VERSION:-v0.23.1}"
-OLLAMA_HOST_BIND="${OLLAMA_HOST_BIND:-127.0.0.1:11434}"
+OLLAMA_HOST_BIND="${OLLAMA_HOST_BIND:-127.0.0.1:11434}"  # own-machine Ollama (lifeboat floor), not Veron (installs on THIS machine)
 DEFAULT_MODEL="${WINDY_OLLAMA_DEFAULT_MODEL:-llama3.2:3b}"
 RESUME_DOWNLOAD="${RESUME_DOWNLOAD:-1}"
 

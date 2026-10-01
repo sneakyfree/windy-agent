@@ -9,7 +9,7 @@ integrity-event audit machinery.
 
 Requires both env vars at first call:
   WINDY_SEARCH_BASE_URL  e.g. https://api.windysearch.com
-  WINDY_PASSPORT_EPT     the agent's bot-passport EPT (JWT)
+  ETERNITAS_PASSPORT_TOKEN  the agent's bot-passport EPT (JWT); WINDY_PASSPORT_EPT is a legacy alias
 
 If either is missing, web_search()/fetch_url() raise RuntimeError with
 an actionable message. Fail loud at first call rather than silently
@@ -219,7 +219,8 @@ def fetch_url(
     """Fetch a URL through windy-search (hard-gated) with a 5xx rescue.
 
     Hard gate (Search V1, 2026-05-17): WINDY_SEARCH_BASE_URL +
-    WINDY_PASSPORT_EPT must be set or RuntimeError is raised.
+    the agent's EPT (ETERNITAS_PASSPORT_TOKEN, or the legacy WINDY_PASSPORT_EPT
+    alias) must be set or RuntimeError is raised.
 
     ``render`` (default "auto"): windy-search renders JS-heavy / bot-walled
     pages in a Browserbase cloud browser when the plain fetch returns an
