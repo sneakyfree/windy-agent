@@ -63,7 +63,7 @@ class LoopGuard:
     def _load_paused(self) -> bool:
         if self._state_path and self._state_path.exists():
             try:
-                return bool(json.loads(self._state_path.read_text()).get("paused"))
+                return bool(json.loads(self._state_path.read_text(encoding="utf-8")).get("paused"))
             except (OSError, ValueError):
                 return False
         return False
@@ -73,7 +73,7 @@ class LoopGuard:
             try:
                 self._state_path.parent.mkdir(parents=True, exist_ok=True)
                 tmp = self._state_path.with_suffix(".tmp")
-                tmp.write_text(json.dumps({"paused": self._paused, "at": self._clock()}))
+                tmp.write_text(json.dumps({"paused": self._paused, "at": self._clock()}), encoding="utf-8")
                 os.replace(tmp, self._state_path)
             except OSError:
                 pass
