@@ -353,9 +353,14 @@ def _gated(fly_tool: str, args: dict[str, Any], model_token: str) -> dict[str, A
     out.pop("confirm_token", None)  # a token is never handed to the model
     if out.get("status") == "ok" and out.get("owner_confirm") == "sent":
         # Builder-side approval (Windy Inbox): the owner was asked there directly.
+        # Contract v1.1: approval_id / expires_at / already_asked; the later outcome
+        # shows up in project_status.owner_confirms.
         return {"status": "awaiting_owner", "done": False,
                 "speak": out.get("speak") or "I've asked you to approve it in your Windy Inbox.",
-                "note": "NOT DONE yet. Relay 'speak' to the owner; do not call this tool again."}
+                "approval_id": out.get("approval_id"), "expires_at": out.get("expires_at"),
+                "already_asked": bool(out.get("already_asked")),
+                "note": ("NOT DONE yet. Relay 'speak' to the owner; do not call this tool again. "
+                         "Check project_status later for the outcome.")}
     return out
 
 

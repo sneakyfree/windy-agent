@@ -104,3 +104,19 @@ def test_builder_side_inbox_approval_is_relayed_not_retried():
     assert out["status"] == "awaiting_owner" and out["done"] is False
     assert out["speak"] == "I asked you in your Windy Inbox." and "do not call" in out["note"]
     assert post.call_count == 1 and not w._HELD
+
+
+def test_inbox_contract_v11_fields_and_fail_closed():
+    with patch(POST) as post:
+        post.return_value = _mcp({"confirm_required": True, "owner_confirm": "sent",
+                                  "approval_id": "a" * 32, "action": "publish",
+                                  "expires_at": "2026-10-01T12:00:00Z", "already_asked": True,
+                                  "speak": "Check your Windy Inbox.", "next_actions": ["project_status"]})
+        out = w.windycodeweb_publish("p1")
+    assert out["status"] == "awaiting_owner" and out["approval_id"] == "a" * 32
+    assert out["already_asked"] is True and not w._HELD
+    with patch(POST) as post:
+        post.return_value = _mcp({"failed": True, "code": "owner_confirm_unavailable",
+                                  "speak": "I couldn't reach your Windy Inbox, so nothing was published."})
+        out = w.windycodeweb_publish("p1")
+    assert out["status"] == "failed" and "nothing was published" in out["speak"]
