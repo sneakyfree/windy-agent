@@ -278,7 +278,7 @@ def list_installed_ollama_models(timeout: float = 2.0) -> list[dict[str, Any]]:
     try:
         import httpx
         resp = httpx.get(
-            "http://localhost:11434/api/tags", timeout=timeout,
+            "http://localhost:11434/api/tags", timeout=timeout,  # own-machine Ollama (lifeboat floor), not Veron
         )
         if resp.status_code != 200:
             return []
