@@ -1,0 +1,58 @@
+{
+  "contract": "windy.message-keys.v1",
+  "owner": "Windy Chat (sneakyfree/windy-chat)",
+  "description": "Custom keys Chat puts in the content of an agent's m.room.message events. Chat owns this file; consumers (Windy Mobile, Windy Agent, Windy Word) vendor a snapshot and add a drift test. Nobody writes these keys independently of this contract.",
+  "applies_to": "m.room.message events sent by an agent's Matrix account in its DM room",
+  "keys": {
+    "uk.windypro.model": {
+      "type": "string",
+      "max_length": 96,
+      "status": "live",
+      "meaning": "The model id Windy Mind actually SERVED for this reply, taken from Mind's response (x-mind-model / response model). Never the model that was requested.",
+      "absent_when": [
+        "Mind did not say which model answered",
+        "tool-result lines (Sent / Done / Ready to send)",
+        "owner notices and system lines (pause/restore notes, greetings, /model confirmations)",
+        "messages not written by an agent"
+      ],
+      "consumer_rule": "Render a small label under the bubble when present; render nothing when absent. Never infer a model from anything else.",
+      "example": {
+        "msgtype": "m.text",
+        "body": "Here you go.",
+        "uk.windypro.model": "claude-sonnet-5"
+      }
+    },
+    "uk.windypro.raw": {
+      "type": "boolean",
+      "status": "reserved",
+      "meaning": "true when the reply was produced in Pure/raw mode. NOT written yet; no consumer should build on it until this file marks it live.",
+      "absent_when": [
+        "always, until status becomes live"
+      ],
+      "example": null
+    },
+    "uk.windypro.fallback": {
+      "type": "string",
+      "enum": [
+        "mind_down",
+        "mind_slow"
+      ],
+      "status": "reserved",
+      "meaning": "The reply came from a Mind-issued fallback floor (MD14 route table) because Windy Mind was down or too slow. uk.windypro.model on the same event still names the model that actually answered; this key never replaces it.",
+      "absent_when": [
+        "the reply came from Windy Mind normally (the common case)",
+        "tool-result lines, owner notices and system lines",
+        "the writer does not run the MD14 helper yet (no writer today)"
+      ],
+      "consumer_rule": "When present, show a small 'backup brain' label next to the model label. Never infer it from the model id. Ignore unknown values.",
+      "example": {
+        "msgtype": "m.text",
+        "body": "Here you go.",
+        "uk.windypro.model": "gpt-oss:20b",
+        "uk.windypro.fallback": "mind_down"
+      }
+    }
+  },
+  "writer": "services/agent-roster/lib/model-pref.js replyModelKey() (agent-roster); the same contract applies to Windy Agent's own Matrix replies for Windy Zero ONLY by vendoring this file.",
+  "change_rule": "Add keys or change meaning only by editing this file in a Chat PR and notifying Windy Hub, Windy Agent and Windy Mobile BEFORE merge. Never rename or repurpose a live key."
+}
