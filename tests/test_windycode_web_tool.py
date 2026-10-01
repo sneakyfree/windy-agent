@@ -40,8 +40,8 @@ def builder_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture
 def no_builder_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    for var in ("WINDY_CODE_WEB_URL", "ETERNITAS_PASSPORT_TOKEN", "WINDY_JWT",
-                "ETERNITAS_PASSPORT"):
+    for var in ("WINDY_CODE_WEB_URL", "WINDY_CODE_WEB_DEFAULT",
+                "ETERNITAS_PASSPORT_TOKEN", "WINDY_JWT", "ETERNITAS_PASSPORT"):
         monkeypatch.delenv(var, raising=False)
 
 
@@ -75,6 +75,36 @@ def test_unavailable_when_env_unset(no_builder_env: None) -> None:
     out = windycodeweb_list_projects()
     assert out["status"] == "unavailable"
     assert "WINDY_CODE_WEB_URL" in out["error"]
+
+
+def test_no_default_url_while_dark(no_builder_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    # WINDY_CODE_WEB_DEFAULT unset: a token alone must not send the EPT anywhere.
+    monkeypatch.setenv("ETERNITAS_PASSPORT_TOKEN", "ept_test_token")
+    monkeypatch.delenv("WINDY_CODE_WEB_DEFAULT", raising=False)
+    with patch("windyfly.tools.windycode_web.httpx.request") as req:
+        out = windycodeweb_list_projects()
+    assert out["status"] == "unavailable"
+    req.assert_not_called()
+
+
+def test_defaults_to_live_builder_when_flag_on(no_builder_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ETERNITAS_PASSPORT_TOKEN", "ept_test_token")
+    monkeypatch.setenv("WINDY_CODE_WEB_DEFAULT", "1")
+    with patch("windyfly.tools.windycode_web.httpx.request") as req:
+        req.return_value = _response(200, {"projects": []})
+        out = windycodeweb_list_projects()
+    assert out["status"] == "ok"
+    assert req.call_args[0] == ("GET", "https://cloud.windycloud.com/api/v1/projects")
+
+
+def test_off_disables(no_builder_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ETERNITAS_PASSPORT_TOKEN", "ept_test_token")
+    monkeypatch.setenv("WINDY_CODE_WEB_DEFAULT", "1")
+    monkeypatch.setenv("WINDY_CODE_WEB_URL", "off")
+    with patch("windyfly.tools.windycode_web.httpx.request") as req:
+        out = windycodeweb_list_projects()
+    assert out["status"] == "unavailable"
+    req.assert_not_called()
 
 
 def test_create_project_posts_with_bearer(builder_env: None) -> None:
@@ -227,3 +257,26 @@ def test_preview_happy_path(builder_env: None) -> None:
         out = windycodeweb_preview("p1")
     assert out["status"] == "ok"
     assert out["preview_url"].startswith("https://x/preview/")
+
+
+def _prompt_system_text() -> str:
+    from windyfly.agent.prompt import assemble_prompt
+    from windyfly.memory.database import Database
+
+    config = {
+        "agent": {"default_model": "gpt-4o-mini"},
+        "memory": {"db_path": ":memory:", "max_nodes_per_context": 10},
+        "personality": {"soul_path": "SOUL.md", "autonomy": 5},
+    }
+    msgs = assemble_prompt(config, Database(":memory:"), "make me a website", "s1")
+    return "\n\n".join(m["content"] for m in msgs if m["role"] == "system")
+
+
+def test_prompt_rule_is_dark_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("WINDY_CODE_WEB_DEFAULT", raising=False)
+    assert "BUILDING WEBSITES AND PAGES" not in _prompt_system_text()
+
+
+def test_prompt_rule_when_flag_on(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("WINDY_CODE_WEB_DEFAULT", "1")
+    assert "BUILDING WEBSITES AND PAGES" in _prompt_system_text()
