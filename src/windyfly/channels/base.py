@@ -132,6 +132,14 @@ async def handle_incoming(text: str, context: dict | None = None) -> tuple[bool,
         if builder_reply is not None:
             return True, builder_reply
 
+    # BYO texting (dark: WINDY_TEXT_BYO=1): the owner's yes/no to a first text.
+    if band >= Band.OWNER:
+        from windyfly.tools import sms as _sms
+
+        sms_reply = _sms.owner_reply(text)
+        if sms_reply is not None:
+            return True, sms_reply
+
     if is_command(text):
         response = await registry.execute(parse_command(text), context)
         return True, response

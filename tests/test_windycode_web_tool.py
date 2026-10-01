@@ -315,6 +315,16 @@ def test_publish_trust_denied(builder_env: None, monkeypatch: pytest.MonkeyPatch
     post.assert_not_called()  # denied publishes never reach the wire
 
 
+def test_publish_gate_fails_closed(builder_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ETERNITAS_PASSPORT", "ET26-TEST")
+    with patch(POST) as post, patch(
+        "windyfly.trust.gate.require_trust", side_effect=RuntimeError("eternitas down")
+    ):
+        out = windycodeweb_publish("p1")
+    assert out["status"] == "denied" and out["reason"] == "trust_check_unavailable"
+    post.assert_not_called()  # a broken trust check never reaches the wire
+
+
 def test_boot_registers_windycode_web() -> None:
     from windyfly.agent import boot
 
