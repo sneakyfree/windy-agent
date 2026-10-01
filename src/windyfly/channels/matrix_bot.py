@@ -344,6 +344,17 @@ class WindyFlyMatrixBot(ChannelAdapter):
         sender = event.sender
         display_name = room.user_name(sender) or sender
 
+        # Eternitas parity (dark: WINDY_PARITY_BANDS=1): a revoked or suspended
+        # agent is refused outright, once per message, with one honest line.
+        from windyfly.channels import parity as _parity
+        if _parity.enabled() and _parity.verdict(sender) == "refused":
+            try:
+                await self.client.room_send(room_id, "m.room.message", {
+                    "msgtype": "m.text", "body": _parity.REFUSED_LINE, "windy_original": True})
+            except Exception as e:
+                logger.error("parity refusal notice failed: %s", e)
+            return
+
         # Loop guard (dark: WINDY_LOOP_GUARD=1). Decide before any work is done.
         guard = self._loop_guard()
         is_owner = False

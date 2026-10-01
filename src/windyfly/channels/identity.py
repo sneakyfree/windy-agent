@@ -214,7 +214,15 @@ def resolve_band(
     owners = owner_ids(config)
     platform_owners = owners.get(platform)
 
-    if platform_owners:
+    from windyfly.channels import parity as _parity
+
+    parity_on = _parity.enabled()
+    if parity_on and _parity.passport_of(sender):
+        # An agent sender (dark: WINDY_PARITY_BANDS=1): never the owner, never
+        # TOFU-bound; a valid Eternitas passport gets the USER band, anything
+        # else (unknown, TEST, revoked, Eternitas down) stays SANDBOX.
+        band = Band.USER if _parity.verdict(sender) == "user" else Band.SANDBOX
+    elif platform_owners:
         # Strict mode: an owner is known for this platform (via env,
         # config, or a prior TOFU binding). Match → OWNER, else SANDBOX.
         band = Band.OWNER if sender and sender in platform_owners else Band.SANDBOX
