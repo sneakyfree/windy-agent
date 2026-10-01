@@ -30,6 +30,10 @@ Environment:
                                publish needs the owner's own "yes, publish").
                                "0" opts out.
     ETERNITAS_PASSPORT_TOKEN / WINDY_JWT — the EPT presented as the bearer
+    WINDY_CODE_CABINET       — "1" adds the filing-cabinet tools (file_project,
+                               log_activity, list_cabinet; contract v1.2). Off by
+                               default; the builder also hides them until its
+                               CABINET_ENABLED is on.
 """
 
 from __future__ import annotations
@@ -113,6 +117,26 @@ _CONTRACT: dict[str, tuple[str, frozenset[str]]] = {
 }
 
 
+# The filing cabinet (contract v1.2, specs/WINDY_CODE_CABINET_MCP_v1.2.md): DARK on both
+# sides. These tools exist only when WINDY_CODE_CABINET=1 here AND the builder lists them
+# (its CABINET_ENABLED). Drift-tested against the vendored contracts/windy-code-web.mcp.v1.2.json.
+_CABINET_CONTRACT: dict[str, tuple[str, frozenset[str]]] = {
+    "windycodeweb_file_project": ("file_project", frozenset({"name", "kind", "summary", "ref", "links"})),
+    "windycodeweb_log_activity": ("log_activity", frozenset({"project_id", "speak", "idempotency_key"})),
+    "windycodeweb_list_cabinet": ("list_cabinet", frozenset()),
+}
+CABINET_KINDS = ("code_repo", "mobile_app", "database", "app", "site", "other")
+LINK_KINDS = ("live", "preview", "repo", "store", "dashboard", "docs", "other")
+# Query parameters that carry credentials: stripped before a link leaves this agent.
+_SECRET_PARAMS = frozenset({"token", "access_token", "key", "api_key", "apikey", "secret",
+                            "sig", "signature", "password", "pass", "auth", "code"})
+
+
+def cabinet_enabled() -> bool:
+    """WINDY_CODE_CABINET=1 exposes the filing-cabinet tools (off by default)."""
+    return os.environ.get("WINDY_CODE_CABINET", "").strip().lower() in ("1", "true", "yes", "on")
+
+
 def _unavailable() -> dict[str, Any]:
     return {
         "status": "unavailable",
@@ -136,7 +160,7 @@ def _rpc(base: str, token: str, method: str, params: dict[str, Any]) -> httpx.Re
 
 def _call(fly_tool: str, args: dict[str, Any]) -> dict[str, Any]:
     """One builder MCP tools/call; never raises. Unknown args are a bug here."""
-    tool, allowed = _CONTRACT[fly_tool]
+    tool, allowed = _CONTRACT.get(fly_tool) or _CABINET_CONTRACT[fly_tool]
     extra = set(args) - allowed
     if extra:  # caught by the drift test; never sent
         return {"status": "failed", "error": f"internal: {fly_tool} sent {sorted(extra)}"}
@@ -296,6 +320,90 @@ def windycodeweb_project_status(project_id: str) -> dict[str, Any]:
 
 def windycodeweb_preview(project_id: str) -> dict[str, Any]:
     return _call("windycodeweb_preview", {"project_id": project_id})
+
+
+# ─── the filing cabinet ──────────────────────────────────────────────
+
+
+def _has_secret(text: str) -> bool:
+    from windyfly.observability.redact import redact
+
+    return redact(text) != text
+
+
+def _clean_link(link: Any) -> tuple[dict[str, str] | None, str]:
+    """One cabinet link, made safe to leave this agent: https only, no user:password@,
+    credential-looking query parameters stripped. Returns (link, problem)."""
+    from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+    if not isinstance(link, dict) or not str(link.get("url", "")).strip():
+        return None, "each link needs a url"
+    parts = urlsplit(str(link["url"]).strip())
+    if parts.scheme != "https" or not parts.hostname:
+        return None, f"links must start with https:// ({link['url']!r} doesn't)"
+    if parts.username or parts.password:
+        return None, "that link has a username or password in it, so I won't file it"
+    query = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True)
+             if k.lower() not in _SECRET_PARAMS]
+    out = {"kind": str(link.get("kind") or "other"),
+           "url": urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), ""))}
+    if out["kind"] not in LINK_KINDS:
+        out["kind"] = "other"
+    label = str(link.get("label") or "").strip()[:80]
+    if label:
+        if _has_secret(label):
+            return None, "a link label looks like it contains a secret, so I didn't file it"
+        out["label"] = label
+    return out, ""
+
+
+def windycodeweb_file_project(name: str, kind: str = "other", summary: str = "",
+                              ref: str = "", links: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    name = (name or "").strip()[:200]
+    if not name:
+        return {"status": "failed", "error": "name is required: what the owner would call this project"}
+    if kind not in CABINET_KINDS:
+        return {"status": "failed", "error": f"kind must be one of {', '.join(CABINET_KINDS)}"}
+    args: dict[str, Any] = {"name": name, "kind": kind}
+    summary = (summary or "").strip()[:200]
+    if summary:
+        if _has_secret(summary):
+            return {"status": "failed", "error": "the summary looks like it contains a secret; say it without it"}
+        args["summary"] = summary
+    if (ref or "").strip():
+        args["ref"] = ref.strip()[:255]
+    clean: list[dict[str, str]] = []
+    for link in (links or [])[:20]:
+        ok, problem = _clean_link(link)
+        if problem:
+            return {"status": "failed", "error": problem}
+        if ok is not None:
+            clean.append(ok)
+    if clean:
+        args["links"] = clean
+    return _call("windycodeweb_file_project", args)
+
+
+def windycodeweb_log_activity(project_id: str, speak: str) -> dict[str, Any]:
+    speak = " ".join((speak or "").split())
+    if not project_id or not speak:
+        return {"status": "failed", "error": "project_id and one plain sentence (speak) are required"}
+    if len(speak) > 280:
+        return {"status": "failed", "error": "keep it to one sentence under 280 characters"}
+    if _has_secret(speak):
+        return {"status": "failed", "error": "that note looks like it contains a secret; describe the change without it"}
+    # The same sentence on the same project on the same (UTC) day is one note, even if the
+    # model repeats the call: the builder dedupes on this key (contract v1.2, ≤64 chars).
+    import hashlib
+
+    day = time.strftime("%Y-%m-%d", time.gmtime())
+    key = hashlib.sha256(f"{project_id}\n{speak}\n{day}".encode()).hexdigest()[:32]
+    return _call("windycodeweb_log_activity", {"project_id": project_id, "speak": speak,
+                                               "idempotency_key": key})
+
+
+def windycodeweb_list_cabinet() -> dict[str, Any]:
+    return _call("windycodeweb_list_cabinet", {})
 
 
 def _publish_gate() -> dict[str, Any] | None:
@@ -700,4 +808,69 @@ def register_windycodeweb_tools(registry: ToolRegistry) -> None:
             "required": ["project_id"],
         },
         fn=windycodeweb_publish,
+    )
+
+    if cabinet_enabled():
+        _register_cabinet_tools(registry)
+
+
+def _register_cabinet_tools(registry: ToolRegistry) -> None:
+    """The filing cabinet (contract v1.2). Behind WINDY_CODE_CABINET=1."""
+    registry.register(
+        name="windycodeweb_file_project",
+        description=(
+            "File a project that lives OUTSIDE the Windy Code builder (a code repo, a "
+            "mobile app, a database) in the owner's Windy Code cabinet, so they see one "
+            "tidy drawer for it. Only when the owner asked you to make, build or set up "
+            "something that has a URL, repo or store listing; never for answers or "
+            "research. Sites and apps you build with windycodeweb_start are filed for you. "
+            "Pass a stable ref (e.g. the repo URL): filing it again returns the same "
+            "drawer. Links must be https; never put passwords or tokens in them."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "What the owner calls it (≤200)."},
+                "kind": {"type": "string", "enum": list(CABINET_KINDS)},
+                "summary": {"type": "string", "description": "One plain line (≤200)."},
+                "ref": {"type": "string", "description": "Your stable key, e.g. the repo URL."},
+                "links": {
+                    "type": "array", "maxItems": 20,
+                    "items": {"type": "object", "properties": {
+                        "kind": {"type": "string", "enum": list(LINK_KINDS)},
+                        "url": {"type": "string", "description": "https://…"},
+                        "label": {"type": "string"}}, "required": ["url"]},
+                },
+            },
+            "required": ["name", "kind"],
+        },
+        fn=windycodeweb_file_project,
+    )
+    registry.register(
+        name="windycodeweb_log_activity",
+        description=(
+            "Add ONE plain sentence to a cabinet drawer after a meaningful step, written "
+            "for the owner: what changed and why ('Added a search box to the recipe "
+            "list.'). Never secrets, never file contents. It is always a note: the "
+            "builder records publishes and saves itself."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "project_id": {"type": "string", "description": "From file_project or list_cabinet."},
+                "speak": {"type": "string", "description": "One sentence, ≤280 characters."},
+            },
+            "required": ["project_id", "speak"],
+        },
+        fn=windycodeweb_log_activity,
+    )
+    registry.register(
+        name="windycodeweb_list_cabinet",
+        description=(
+            "List the cabinet drawers you filed (and the owner's drawers you last worked "
+            "on), with their project_id. Use it to find a project's id again in a later "
+            "conversation."
+        ),
+        parameters={"type": "object", "properties": {}, "required": []},
+        fn=windycodeweb_list_cabinet,
     )
