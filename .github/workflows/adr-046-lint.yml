@@ -19,6 +19,8 @@ on:
 
 jobs:
   lint:
+    # Fork PRs never reach the self-hosted runner (public repo; Boss ruling 10-01).
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, linux, x64]
     steps:
       - uses: actions/checkout@v4

@@ -8,6 +8,8 @@ on:
 
 jobs:
   test:
+    # Fork PRs never reach the self-hosted runner (public repo; Boss ruling 10-01).
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, linux, x64]
     strategy:
       matrix:
@@ -38,6 +40,8 @@ jobs:
   # so its 137 tests across 9 files had never been executed by any runner.
   # They pass (135 pass / 2 skip / 0 fail, verified locally on bun 1.3.14).
   gateway-test:
+    # Fork PRs never reach the self-hosted runner (public repo; Boss ruling 10-01).
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, linux, x64]
     steps:
       - uses: actions/checkout@v4
@@ -51,6 +55,8 @@ jobs:
         run: bun test
 
   build:
+    # Fork PRs never reach the self-hosted runner (public repo; Boss ruling 10-01).
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, linux, x64]
     needs: test
     steps:
@@ -78,7 +84,7 @@ jobs:
     # Board rule: only runners that can actually build images run this. GitHub
     # sets the repo variable DOCKER_CAPABLE=true (veron1 has docker); the Windy
     # Git act runners don't, so the job is skipped there instead of failing.
-    if: vars.DOCKER_CAPABLE == 'true'
+    if: (vars.DOCKER_CAPABLE == 'true') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: [self-hosted, linux, x64]
     needs: test
     steps:
