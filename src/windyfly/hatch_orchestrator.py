@@ -937,7 +937,8 @@ async def _step_hatch_sms(result: HatchResult) -> None:
             owner_phone=owner_phone,
             agent_name=result.agent_name,
         )
-        result.hatch_sms_sent = sms_result.get("status") in ("sent", "mock_sent")
+        # Only a real send counts: mock_sent and parked sent nothing.
+        result.hatch_sms_sent = sms_result.get("status") == "sent"
     except Exception as exc:
         result.errors.append(f"Hatch SMS: {exc}")
         logger.warning("Hatch: SMS-on-hatch failed: %s", exc)

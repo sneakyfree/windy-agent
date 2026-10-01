@@ -83,10 +83,10 @@ class TestOrchestration:
         assert r1.passport_id == r2.passport_id
 
     async def test_hatch_sms_with_owner_phone(self, db, monkeypatch):
-        """If OWNER_PHONE is set, hatch SMS should be sent (mock)."""
+        """With OWNER_PHONE set but SMS mock/parked, nothing is sent and the record says so."""
         monkeypatch.setenv("OWNER_PHONE", "+15559999999")
         result = await orchestrate_hatch("sms-fly", db=db)
-        assert result.hatch_sms_sent is True
+        assert result.hatch_sms_sent is False
 
     async def test_hatch_without_owner_phone(self, db):
         """Without OWNER_PHONE, SMS step should be silently skipped."""
@@ -178,3 +178,16 @@ class TestHatchResult:
         r = HatchResult()
         r.errors.append("Test error")
         assert len(r.errors) == 1
+
+
+async def test_hatch_sms_sent_true_only_for_a_real_send(db, monkeypatch):
+    """A real Twilio send ('sent') is recorded; mock_sent and parked are not."""
+    import windyfly.hatch_actions as ha
+
+    monkeypatch.setenv("OWNER_PHONE", "+15559999999")
+
+    async def real(**kw):
+        return {"status": "sent", "sid": "SM1"}
+
+    monkeypatch.setattr(ha, "send_hatch_sms", real)
+    assert (await orchestrate_hatch("sms-real", db=db)).hatch_sms_sent is True

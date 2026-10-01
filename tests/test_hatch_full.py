@@ -133,10 +133,10 @@ class TestFullHatchIntegration:
 
 class TestHatchSMS:
     async def test_sms_sent_with_owner_phone(self, db, monkeypatch):
-        """If OWNER_PHONE is set, hatch SMS should be sent."""
+        """With OWNER_PHONE set but SMS mock/parked, nothing is sent and the record says so."""
         monkeypatch.setenv("OWNER_PHONE", "+15559999999")
         result = await orchestrate_hatch("sms-fly", db=db)
-        assert result.hatch_sms_sent is True
+        assert result.hatch_sms_sent is False
 
     async def test_sms_skipped_without_owner_phone(self, db):
         """Without OWNER_PHONE, SMS step should be silently skipped."""
