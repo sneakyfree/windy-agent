@@ -451,3 +451,30 @@ def _sms_unparked_for_legacy_tests(monkeypatch):
     phone tests exercise the unparked code, so they run with the flag on;
     tests/test_sms_parked.py removes it to prove the parked default."""
     monkeypatch.setenv("WINDY_ENABLE_SMS", "1")
+
+
+@pytest.fixture(autouse=True)
+def _no_real_ollama(monkeypatch):
+    """No test may reach a real Ollama (localhost:11434): CI runs on Veron, the
+    production GPU host (Windy Cloud, 10-01: 2,940 warm-up calls in 30 h). Requests
+    there fail as if Ollama were down; tests that mock httpx are unaffected."""
+    import httpx
+
+    def _is_ollama(request) -> bool:
+        return request.url.host in ("localhost", "127.0.0.1", "::1") and request.url.port == 11434
+
+    real_sync = httpx.HTTPTransport.handle_request
+    real_async = httpx.AsyncHTTPTransport.handle_async_request
+
+    def sync_guard(self, request):
+        if _is_ollama(request):
+            raise httpx.ConnectError("tests never reach a real Ollama", request=request)
+        return real_sync(self, request)
+
+    async def async_guard(self, request):
+        if _is_ollama(request):
+            raise httpx.ConnectError("tests never reach a real Ollama", request=request)
+        return await real_async(self, request)
+
+    monkeypatch.setattr(httpx.HTTPTransport, "handle_request", sync_guard)
+    monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", async_guard)
