@@ -1,7 +1,8 @@
 """Hub-held snapshot key fetch (AGENTS_CONTRACT_DRAFT §10d). OFF by default.
 
 POST {hub}/api/v1/agents/{agent_id}/snapshot-key  {purpose: "sleep"|"wake"}
-  Bearer = the agent's own EPT  ->  {key_b64, key_version, expires_in}
+  Authorization: DPoP <EPT+agent mode-B token, aud=HUB_AUD> + a DPoP proof by the
+  agent's registered key  ->  {key_b64, key_version, expires_in}
 
 The key lives in memory only: never logged, never written to disk, and never
 part of a snapshot. Gated by WINDY_SNAPSHOT_KEY=1 until the Hub route exists
@@ -13,12 +14,14 @@ from __future__ import annotations
 import base64
 import os
 from dataclasses import dataclass, field
+from typing import Callable
 
 import httpx
 
 from windyfly.hub_login import hub_url
 
 PURPOSES = ("sleep", "wake")
+HUB_AUD = "windy-hub"  # Eternitas audience name: TO CONFIRM with Eternitas/Hub
 TIMEOUT_S = 20.0
 
 
@@ -37,20 +40,31 @@ def enabled() -> bool:
     return os.environ.get("WINDY_SNAPSHOT_KEY", "") == "1"
 
 
-def fetch_snapshot_key(agent_id: str, purpose: str, ept: str,
-                       *, client: httpx.Client | None = None) -> SnapshotKey:
+def _default_auth(url: str) -> dict[str, str]:
+    from windyfly.eternitas import agent_keys as ak
+
+    try:
+        tok = ak.request_agent_token(HUB_AUD)["token"]
+        proof = ak.service_dpop("POST", url)
+    except Exception as e:  # AgentTokenError and key problems: never echo details
+        raise SnapshotKeyError(f"no agent token ({type(e).__name__})") from e
+    return {"Authorization": f"DPoP {tok}", "DPoP": proof}
+
+
+def fetch_snapshot_key(agent_id: str, purpose: str,
+                       *, client: httpx.Client | None = None,
+                       auth: Callable[[str], dict[str, str]] | None = None,
+                       ) -> SnapshotKey:
     if not enabled():
         raise SnapshotKeyError("snapshot key disabled (WINDY_SNAPSHOT_KEY!=1)")
     if purpose not in PURPOSES:
         raise SnapshotKeyError(f"bad purpose {purpose!r}")
-    if not ept:
-        raise SnapshotKeyError("no EPT: rotate credentials first")
     url = f"{hub_url()}/api/v1/agents/{agent_id}/snapshot-key"
+    headers = (auth or _default_auth)(url)
     own = client is None
     http = client or httpx.Client(timeout=TIMEOUT_S)
     try:
-        resp = http.post(url, json={"purpose": purpose},
-                         headers={"Authorization": f"Bearer {ept}"})
+        resp = http.post(url, json={"purpose": purpose}, headers=headers)
     except httpx.HTTPError as e:
         raise SnapshotKeyError(f"hub unreachable: {type(e).__name__}") from e
     finally:
