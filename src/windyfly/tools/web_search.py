@@ -262,9 +262,11 @@ def register_web_search_tool(registry: ToolRegistry) -> None:
     registry.register(
         name="web_search",
         description=(
-            "Search the web for information. Use this when the user asks about "
-            "current events, facts you're unsure about, or anything you don't "
-            "have in memory. Returns titles, snippets, and URLs."
+            "FIND pages on the web: search when you need current events, a fact "
+            "you're unsure about, or anything not in memory and you don't have a "
+            "URL yet. Returns titles, snippets and URLs; snippets are short, so "
+            "to actually READ a result (or any URL the user gave you) call "
+            "fetch_url on it."
         ),
         parameters={
             "type": "object",
@@ -280,9 +282,13 @@ def register_web_search_tool(registry: ToolRegistry) -> None:
     registry.register(
         name="fetch_url",
         description=(
-            "Fetch and read a specific web page (HTML stripped, plain text). "
-            "Use when the user shares a URL and asks you to read, summarize, "
-            "or extract info from it. Default returns up to 20000 chars; pass "
+            "READ a specific web page, live (plain text). Use it WHENEVER the "
+            "user gives you a URL (http/https), asks what a page says, wants a "
+            "page summarized or checked, or you need the full text of a "
+            "web_search result to answer correctly. Never answer about a page "
+            "from memory or a search snippet when you can read it. Leave "
+            "render on 'auto' (JavaScript-heavy pages are rendered in a real "
+            "browser only when needed). Default returns up to 20000 chars; pass "
             "max_chars to change the slice size (LLM-context cost). For long "
             "pages (Wikipedia, blog posts), the response includes total_length "
             "and next_offset — call again with offset=next_offset to read the "

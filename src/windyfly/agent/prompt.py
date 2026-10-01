@@ -8,6 +8,7 @@ relevant knowledge nodes, and the user's current message.
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from windyfly.control_panel import get_sliders
@@ -53,6 +54,9 @@ def _is_first_contact(db: Database) -> bool:
     n_eps = (ep_row or {}).get("c", 0)
     n_nodes = (nd_row or {}).get("c", 0)
     return n_eps == 0 and n_nodes == 0
+
+
+_URL_IN_MESSAGE = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
 
 
 def assemble_prompt(
@@ -440,6 +444,20 @@ def assemble_prompt(
     # five ways to make a site and the builder was the one never used).
     # Phrased conditionally: the tool list for this reply decides. On by default
     # since 0.7.4; WINDY_CODE_WEB_DEFAULT=0 turns it off.
+    # A link in the message (Windy Hand ask, 10-01): read it, don't guess. Only the
+    # INBOUND message's own text is scanned (never tool output, fetched pages or mail),
+    # and only for the owner or a USER-band sender, so a stranger can't steer the
+    # agent into fetching their URL (Hub condition).
+    from windyfly.agent.capabilities import Band as _Band
+
+    _link_ok = band is None or (isinstance(band, int) and band >= _Band.USER)
+    if _link_ok and _URL_IN_MESSAGE.search(user_message or ""):
+        system_parts.append(
+            "LINK IN THIS MESSAGE: the user's message contains a web address. If "
+            "fetch_url is in your tool list, read the page with fetch_url before "
+            "answering about it; don't rely on memory or a search snippet."
+        )
+
     from windyfly.tools.windycode_web import builder_default_enabled
     if builder_default_enabled():
         system_parts.append(
