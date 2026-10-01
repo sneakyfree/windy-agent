@@ -444,8 +444,14 @@ def assemble_prompt(
     # five ways to make a site and the builder was the one never used).
     # Phrased conditionally: the tool list for this reply decides. On by default
     # since 0.7.4; WINDY_CODE_WEB_DEFAULT=0 turns it off.
-    # A link in the message (Windy Hand ask, 10-01): read it, don't guess.
-    if _URL_IN_MESSAGE.search(user_message or ""):
+    # A link in the message (Windy Hand ask, 10-01): read it, don't guess. Only the
+    # INBOUND message's own text is scanned (never tool output, fetched pages or mail),
+    # and only for the owner or a USER-band sender, so a stranger can't steer the
+    # agent into fetching their URL (Hub condition).
+    from windyfly.agent.capabilities import Band as _Band
+
+    _link_ok = band is None or (isinstance(band, int) and band >= _Band.USER)
+    if _link_ok and _URL_IN_MESSAGE.search(user_message or ""):
         system_parts.append(
             "LINK IN THIS MESSAGE: the user's message contains a web address. If "
             "fetch_url is in your tool list, read the page with fetch_url before "
