@@ -38,6 +38,7 @@ def test_taint_gate_denies_site_writes_when_tainted():
     # through the builder or straight through Windy Sites.
     for name in [
         "windycodeweb_create_project", "windycodeweb_add_files",
+        "windycodeweb_start", "windycodeweb_start_from_template", "windycodeweb_edit_text",
         "windycodeweb_undo", "windycodeweb_publish", "windycodeweb_unpublish",
         "windycodeweb_connect_domain", "create_site", "add_or_edit_files",
         "publish_site", "undo_to_version", "connect_domain_to_site",
@@ -46,7 +47,8 @@ def test_taint_gate_denies_site_writes_when_tainted():
         assert deny is True, f"{name} must be refused on a tainted turn"
     # reading the builder stays possible on a tainted turn
     for name in ["windycodeweb_list_projects", "windycodeweb_preview",
-                 "windycodeweb_project_status", "list_my_sites"]:
+                 "windycodeweb_project_status", "windycodeweb_list_editables",
+                 "windycodeweb_list_templates", "list_my_sites"]:
         assert name not in TAINT_FORBIDDEN_TOOLS
 
 

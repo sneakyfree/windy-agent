@@ -444,9 +444,10 @@ def assemble_prompt(
     if builder_default_enabled():
         system_parts.append(
             "BUILDING WEBSITES AND PAGES: if your tool list for this reply has "
-            "windycodeweb_* tools, build in Windy Code: windycodeweb_create_project, "
-            "then windycodeweb_add_files with a short human label per change, then "
-            "windycodeweb_preview. The user sees it in their Windy Code builder "
+            "windycodeweb_* tools, build in Windy Code: windycodeweb_start with the "
+            "person's own words as fills, then windycodeweb_edit_text or "
+            "windycodeweb_add_files (changed files only) with a short human label "
+            "per change, then windycodeweb_preview. The user sees it in their Windy Code builder "
             "with Undo. Do not use create_site / add_or_edit_files, file writes "
             "or shell commands to make a site for the user. Publish only after "
             "the user says yes to the builder's question."
