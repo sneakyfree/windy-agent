@@ -10,8 +10,8 @@ the LLM can interpret rather than crashing the whole tool call.
 **One send path (Hub, 2026-10-02):** an agent sends ONLY from its own
 Windy Mail mailbox, through Windy Mail's ``/api/v1/send`` with its
 Eternitas passport token. There is no Resend, Gmail or SendGrid
-fallback: a mail that went out "From: office@windyword.ai" outside Mail
-showed why. From and Reply-To are always the agent's own address.
+fallback, so From and Reply-To are always the agent's own address and
+every send gets Mail's limits, bounce handling and Sent folder.
 
 Why not fold this into ``channels/email.py``? That file holds the
 CLASSES that own the auth/rate-limit lifecycle. This module turns
