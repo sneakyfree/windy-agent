@@ -1,17 +1,15 @@
-"""Email channel for Windy Fly via SendGrid.
+"""Email for Windy Fly.
 
-Each agent gets agentname@windyfly.ai.
-Receives inbound email via SendGrid Inbound Parse webhook,
-sends outbound email via SendGrid Mail Send API.
+Outbound mail goes ONLY through Windy Mail (``WindyMailAdapter``): the agent's own
+mailbox, POST /api/v1/send, authenticated with its Eternitas passport token
+(Hub, 2026-10-02). There is no SendGrid, Resend or Gmail sender.
 
-Requires:
-  - SENDGRID_API_KEY env var
-  - WINDYFLY_EMAIL_ADDRESS env var (e.g. grant@windyfly.ai)
+``WindyFlyEmail`` is the legacy INBOUND handler (an Inbound Parse webhook relayed by the
+local bridge): it turns an inbound email into an agent turn. It never sends.
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import uuid
@@ -67,14 +65,11 @@ class WindyMailAdapter:
 
     def _send_bearer(self) -> str:
         """Bearer for POST /api/v1/send. Windy Mail authenticates a SEND by the agent's own
-        Eternitas passport token; with WINDY_MAIL_SEND_EPT=1 (dark) the EPT is ALWAYS used
-        for sends when present, and the JMAP token stays for inbox reads only. Off = the
-        legacy order (JMAP token first)."""
-        if os.environ.get("WINDY_MAIL_SEND_EPT", "") == "1":
-            ept = os.environ.get("ETERNITAS_PASSPORT_TOKEN", "").strip()
-            if ept:
-                return ept
-        return self.jmap_token
+        Eternitas passport token, so the EPT is always used when present (Hub, 10-02; was
+        WINDY_MAIL_SEND_EPT=1). The JMAP token is for inbox reads, and for a send only when
+        there is no EPT: still Mail's /send, still the agent's own From."""
+        ept = os.environ.get("ETERNITAS_PASSPORT_TOKEN", "").strip()
+        return ept or self.jmap_token
 
     def send_email(self, to: str, subject: str, body: str) -> dict[str, Any]:
         """Send an email via Windy Mail API.
@@ -193,29 +188,25 @@ class WindyMailAdapter:
 
 
 def get_email_adapter() -> WindyMailAdapter | None:
-    """Return the best available email adapter, or None.
+    """Return the Windy Mail adapter, or None when the agent has no mailbox yet.
 
-    Priority:
-        1. Windy Mail (WINDYMAIL_EMAIL set)
-        2. SendGrid   (SENDGRID_API_KEY set) — returns None here;
-           callers use WindyFlyEmail directly for the SendGrid path.
+    Windy Mail is the only email backend (Hub, 2026-10-02): there is no fallback.
     """
     if os.environ.get("WINDYMAIL_EMAIL"):
         try:
             return WindyMailAdapter()
         except RuntimeError:
-            logger.warning("WINDYMAIL_EMAIL set but adapter init failed — falling back")
-    # SendGrid path is handled by WindyFlyEmail class (legacy / HiFly)
+            logger.warning("WINDYMAIL_EMAIL set but the Windy Mail adapter failed to start")
     return None
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# SendGrid adapter — original WindyFlyEmail (HiFly / legacy)
+# Inbound handler — legacy WindyFlyEmail (receives only; never sends)
 # ═══════════════════════════════════════════════════════════════════════
 
 
 class WindyFlyEmail:
-    """Windy Fly email channel via SendGrid."""
+    """Inbound email → an agent turn. Outbound mail goes through Windy Mail only."""
 
     def __init__(
         self,
@@ -228,13 +219,6 @@ class WindyFlyEmail:
         self.db = db
         self.write_queue = write_queue
         self.tool_registry = tool_registry
-
-        self.api_key = os.environ.get("SENDGRID_API_KEY", "")
-        self.from_email = os.environ.get("WINDYFLY_EMAIL_ADDRESS", "fly@windyfly.ai")
-        self.from_name = config.get("email", {}).get("from_name", "Windy Fly")
-
-        if not self.api_key:
-            raise RuntimeError("Set SENDGRID_API_KEY in .env")
 
         # Map email address → session_id
         self._email_sessions: dict[str, str] = {}
@@ -251,7 +235,7 @@ class WindyFlyEmail:
         subject: str,
         body: str,
     ) -> str:
-        """Handle inbound email via SendGrid Inbound Parse.
+        """Handle an inbound email (Inbound Parse webhook via the local bridge).
 
         Args:
             from_email: Sender's email address.
@@ -294,87 +278,3 @@ class WindyFlyEmail:
         })
 
         return response
-
-    def send_email(
-        self,
-        to_email: str,
-        subject: str,
-        body: str,
-        reply_to: str | None = None,
-        html_body: str | None = None,
-    ) -> dict[str, Any]:
-        """Send outbound email via SendGrid.
-
-        Args:
-            to_email: Recipient email address.
-            subject: Email subject.
-            body: Plain text body.
-            reply_to: Optional reply-to address.
-            html_body: Optional HTML body (sent alongside plain text).
-
-        Returns:
-            Dict with status.
-
-        Raises:
-            RateLimitedError: If the rate limiter blocks the send.
-            TrustDenied: If the agent's integrity band doesn't allow send_email.
-        """
-        from windyfly.trust.gate import TrustDenied, require_trust_sync
-        try:
-            require_trust_sync("send_email", db=self.db)
-        except TrustDenied as denied:
-            logger.warning("Email send blocked by trust gate: %s", denied)
-            return {"status": "denied", "error": str(denied)}
-
-        # Rate limit check
-        try:
-            from windyfly.mail_rate_limiter import MailRateLimiter
-
-            limiter = MailRateLimiter(self.db)
-            result = limiter.check_send_allowed(self.from_email, to_email, subject, body)
-            if not result.allowed:
-                raise RateLimitedError(
-                    f"Email to {to_email} blocked by rate limiter: {result.reason}"
-                )
-        except RateLimitedError:
-            raise
-        except Exception as e:
-            logger.warning("Rate limiter check failed (sending anyway): %s", e)
-
-        import urllib.request
-
-        url = "https://api.sendgrid.com/v3/mail/send"
-        content = [{"type": "text/plain", "value": body}]
-        if html_body:
-            content.append({"type": "text/html", "value": html_body})
-        payload = {
-            "personalizations": [{"to": [{"email": to_email}]}],
-            "from": {"email": self.from_email, "name": self.from_name},
-            "subject": subject,
-            "content": content,
-        }
-        if reply_to:
-            payload["reply_to"] = {"email": reply_to}
-
-        data = json.dumps(payload).encode("utf-8")
-        req = urllib.request.Request(url, data=data, method="POST")
-        req.add_header("Authorization", f"Bearer {self.api_key}")
-        req.add_header("Content-Type", "application/json")
-
-        try:
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                status = resp.status
-                log_event(self.db, self.write_queue, "email.outbound", {
-                    "to": to_email, "subject": subject, "status": status,
-                })
-                # Record successful send for rate tracking
-                try:
-                    from windyfly.mail_rate_limiter import MailRateLimiter
-
-                    MailRateLimiter(self.db).record_send(self.from_email, to_email, body)
-                except Exception as e:
-                    logger.warning("Rate limiter record_send failed: %s", e)
-                return {"status": "sent", "http_status": status}
-        except Exception as e:
-            logger.error("SendGrid email failed: %s", e)
-            return {"status": "failed", "error": str(e)}

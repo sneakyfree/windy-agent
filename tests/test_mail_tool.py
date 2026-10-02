@@ -62,7 +62,8 @@ class TestSendEmailUnavailable:
             body="hello",
         )
         assert result["status"] == "unavailable"
-        assert "WINDYMAIL_EMAIL" in result["error"]
+        # Plain words for the owner, and no fallback sender (Hub, 10-02).
+        assert "Windy Mail mailbox" in result["error"] and "nothing was sent" in result["error"]
 
     def test_executes_via_registry(self, no_mail_env: None) -> None:
         # The registry path (LLM dispatch) should also surface unavailable

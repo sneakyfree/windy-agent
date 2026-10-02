@@ -46,7 +46,9 @@ def test_setup_status_includes_known_integrations(monkeypatch):
     monkeypatch.delenv("CLOUDFLARE_API_TOKEN", raising=False)
     out = get_setup_status()
     keys = {i["key"] for i in out["integrations"]}
-    assert {"gmail", "calendar", "cloudflare", "github"} <= keys
+    assert {"calendar", "cloudflare", "github"} <= keys
+    # Email needs no setup: an agent sends only from its own Windy Mail address (Hub, 10-02).
+    assert "gmail" not in keys
 
 
 def test_setup_status_each_entry_has_required_fields(monkeypatch):
@@ -103,7 +105,7 @@ def test_dormant_nudge_explicitly_warns_against_developer_jargon():
     'Run `windy setup-gmail`' in her Telegram chat. If this
     instruction is missing from the nudge, the LLM may helpfully
     parrot the technical command from the integration `note` field."""
-    for key in ("gmail", "calendar", "cloudflare", "github"):
+    for key in ("calendar", "cloudflare", "github"):
         text = dormant_nudge(key)
         assert "do NOT relay" in text or "do not relay" in text.lower(), (
             f"dormant_nudge({key!r}) missing the no-jargon instruction "
@@ -122,8 +124,8 @@ def test_dormant_nudge_for_cli_capable_integration_includes_optional_cli(
 ):
     """If the integration has a CLI option, the nudge tells the LLM it's
     available BUT only for explicit power-users — not the default."""
-    text = dormant_nudge("gmail")
-    assert "windy setup-gmail" in text
+    text = dormant_nudge("calendar")
+    assert "windy setup-calendar" in text
     # And it must qualify the CLI as conditional
     assert "developer" in text.lower() or "operator" in text.lower()
 
@@ -131,23 +133,13 @@ def test_dormant_nudge_for_cli_capable_integration_includes_optional_cli(
 # ── Each capability now uses dormant_nudge ─────────────────────────
 
 
-def test_email_dormant_refusal_uses_grandma_friendly_text(tmp_path, monkeypatch):
-    """Regression: the old text said 'Run `windy setup-gmail`' verbatim.
-    The new text must NOT — it must come from dormant_nudge."""
-    import windyfly.agent.capabilities.email as email_mod
-    monkeypatch.setattr(email_mod, "_TOKEN_PATH", tmp_path / "missing.json")
+def test_email_is_not_a_setup_integration():
+    """Hub, 10-02: agents send only from their own Windy Mail mailbox, so there is no
+    Gmail/Resend email setup for the LLM to route a person into."""
+    import importlib.util
 
-    out = email_mod._send_email_handler(
-        to="a@b.com", subject="hi", body="x",
-    )
-    assert out["executed"] is False
-    assert out["kind"] == "dormant_integration"
-    assert out["integration"] == "gmail"
-    # The error must include the LLM instruction (so it doesn't parrot
-    # CLI commands), not be the old verbatim "Run `windy setup-gmail`".
-    assert "do NOT relay" in out["error"]
-    # Must offer the chat-driven path
-    assert "set up email" in out["error"]
+    assert importlib.util.find_spec("windyfly.agent.capabilities.email") is None
+    assert not is_configured("gmail")
 
 
 def test_cloudflare_dormant_refusal_uses_grandma_friendly_text():
@@ -237,9 +229,15 @@ def test_setup_start_github_returns_walkthrough():
     assert out["method"] == "token_paste"
 
 
-def test_setup_start_gmail_marks_oauth_required():
+def test_setup_start_has_no_gmail_walkthrough():
     from windyfly.agent.capabilities.setup import _start_handler
     out = _start_handler(integration="gmail")
+    assert out["ok"] is False and "gmail" not in out["error"].split("Known:")[1]
+
+
+def test_setup_start_calendar_marks_oauth_required():
+    from windyfly.agent.capabilities.setup import _start_handler
+    out = _start_handler(integration="calendar")
     assert out["ok"] is True
     assert out["method"] == "oauth_required"
     assert out["after_paste_action"] is None
@@ -258,7 +256,7 @@ def test_setup_start_oauth_walkthroughs_dont_tell_llm_to_relay_cli(
     monkeypatch.delenv("GMAIL_TOKEN", raising=False)
     monkeypatch.delenv("GOOGLE_CALENDAR_TOKEN", raising=False)
     from windyfly.agent.capabilities.setup import _start_handler
-    for integration in ("gmail", "calendar"):
+    for integration in ("calendar",):
         out = _start_handler(integration=integration)
         assert out["method"] == "oauth_required"
         # The note must NOT contain a positive instruction to relay CLI.
@@ -406,7 +404,7 @@ def test_save_credential_validation_failure_does_not_persist(tmp_path, monkeypat
 def test_save_credential_oauth_integration_returns_oauth_required():
     from windyfly.agent.capabilities.setup import _save_credential_handler
     out = _save_credential_handler(
-        integration="gmail", value="some-pasted-thing-doesnt-matter",
+        integration="calendar", value="some-pasted-thing-doesnt-matter",
     )
     assert out["ok"] is False
     assert out["kind"] == "oauth_required"

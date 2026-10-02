@@ -7,14 +7,11 @@ when those aren't set (e.g. agent never went through hatch with a
 provisioned mailbox), tools return a structured "unavailable" result
 the LLM can interpret rather than crashing the whole tool call.
 
-**Send fallback via Resend (PR 2026-05-14):** when WindyMail isn't
-configured but ``RESEND_API_KEY`` IS, ``send_email`` falls through to
-Resend's HTTP API. This unblocks any agent whose hatch couldn't
-provision a JMAP mailbox (Stalwart 0.16 Bearer-auth issue, locked
-service tokens, fresh installs, etc.) — Resend has its own verified-
-domain pool and works out-of-the-box with just a key + a sender
-address from a verified domain. ``list_inbox`` still requires
-WindyMail (Resend is send-only).
+**One send path (Hub, 2026-10-02):** an agent sends ONLY from its own
+Windy Mail mailbox, through Windy Mail's ``/api/v1/send`` with its
+Eternitas passport token. There is no Resend, Gmail or SendGrid
+fallback: a mail that went out "From: office@windyword.ai" outside Mail
+showed why. From and Reply-To are always the agent's own address.
 
 Why not fold this into ``channels/email.py``? That file holds the
 CLASSES that own the auth/rate-limit lifecycle. This module turns
@@ -35,10 +32,6 @@ from windyfly.tools.registry import ToolRegistry
 logger = logging.getLogger(__name__)
 
 
-_RESEND_API_URL = "https://api.resend.com/emails"
-_RESEND_TIMEOUT_S = 15
-
-
 def _adapter() -> Any | None:
     """Return a ``WindyMailAdapter`` or ``None`` if env isn't set.
 
@@ -55,95 +48,6 @@ def _adapter() -> Any | None:
     except RuntimeError as exc:
         logger.debug("WindyMailAdapter unavailable: %s", exc)
         return None
-
-
-def strict_mailbox() -> bool:
-    """WINDY_MAIL_STRICT=1 (OFF by default): an agent sends ONLY from its own Windy
-    Mail mailbox. No silent Resend fallback (it bypasses Mail's From address, limits,
-    bounce handling and Sent folder, and hides the failure); a missing mailbox
-    credential returns a structured 'unavailable' the agent tells its owner."""
-    return os.environ.get("WINDY_MAIL_STRICT", "") == "1"
-
-
-def _resend_configured() -> bool:
-    """Resend send-path requires both an API key and a verified
-    sender address. Either one missing means we can't use Resend."""
-    return bool(
-        os.environ.get("RESEND_API_KEY")
-        and os.environ.get("RESEND_FROM_ADDRESS")
-    )
-
-
-def _resend_send(to: str, subject: str, body: str) -> dict[str, Any]:
-    """Send a single email via Resend's HTTP API.
-
-    Used as the fallback when WindyMailAdapter isn't configured but
-    ``RESEND_API_KEY`` + ``RESEND_FROM_ADDRESS`` are. Returns the same
-    ``{status, message_id, error}`` shape as the WindyMail adapter so
-    callers don't have to branch on send-path.
-    """
-    import httpx as _httpx
-
-    from windyfly.tools import outbound_identity
-
-    api_key = os.environ["RESEND_API_KEY"]
-    from_addr = os.environ["RESEND_FROM_ADDRESS"]
-    payload: dict[str, Any] = {
-        "from": from_addr,
-        "to": [to],
-        "subject": subject,
-        "text": body,
-    }
-    passport = outbound_identity.passport()
-    if passport:
-        # Resend passes custom headers through to the message.
-        payload["headers"] = {"X-Windy-Agent": passport}
-    try:
-        resp = _httpx.post(
-            _RESEND_API_URL,
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            json=payload,
-            timeout=_RESEND_TIMEOUT_S,
-        )
-    except _httpx.TimeoutException:
-        return {
-            "status": "failed",
-            "error": f"Resend request timed out after {_RESEND_TIMEOUT_S}s",
-            "provider": "resend",
-        }
-    except _httpx.HTTPError as e:
-        return {
-            "status": "failed",
-            "error": f"Resend transport error: {e}",
-            "provider": "resend",
-        }
-
-    if resp.status_code in (200, 201, 202):
-        try:
-            data = resp.json()
-        except Exception:
-            data = {}
-        logger.info("Resend sent to %s — %s", to, subject)
-        return {
-            "status": "sent",
-            "message_id": data.get("id"),
-            "provider": "resend",
-        }
-
-    # Non-2xx — surface a trimmed body; Resend returns useful errors
-    # like "from address not verified" or "invalid api key".
-    body_preview = (resp.text or "")[:300]
-    logger.warning(
-        "Resend send failed HTTP %s: %s", resp.status_code, body_preview,
-    )
-    return {
-        "status": "failed",
-        "error": f"Resend HTTP {resp.status_code}: {body_preview}",
-        "provider": "resend",
-    }
 
 
 def _split_recipients(to: str) -> list[str]:
@@ -176,38 +80,17 @@ def _send_email_now(
     succeeded; ``partial`` if some failed; ``failed`` if all failed.
     """
     adapter = _adapter()
-
-    # Pick the send path. WindyMail wins if configured (it carries the
-    # trust-gate + rate-limiter plumbing). Otherwise Resend, if its
-    # env is configured. If neither, return a structured "unavailable"
-    # the LLM can explain to the user.
-    if adapter is not None:
-        send_fn = adapter.send_email
-        path = "windymail"
-    elif _resend_configured() and (
-        not strict_mailbox() or os.environ.get("WINDY_MAIL_ALLOW_RESEND") == "1"
-    ):
-        send_fn = _resend_send
-        path = "resend"
-    elif strict_mailbox():
+    if adapter is None:
+        # No fallback by design: nothing leaves except from the agent's own mailbox.
         return {
             "status": "unavailable",
             "error": (
-                "No mailbox credential: this agent's own Windy Mail mailbox is "
-                "not ready to send, so nothing was sent. Tell the owner."
+                "This agent's own Windy Mail mailbox isn't ready to send, "
+                "so nothing was sent. Tell the owner."
             ),
         }
-    else:
-        return {
-            "status": "unavailable",
-            "error": (
-                "Email is not configured for this agent. Either "
-                "WINDYMAIL_EMAIL + WINDYMAIL_JMAP_TOKEN (preferred — "
-                "uses the agent's provisioned mailbox), or "
-                "RESEND_API_KEY + RESEND_FROM_ADDRESS (fallback — "
-                "uses Resend's verified-domain pool) must be set."
-            ),
-        }
+    send_fn = adapter.send_email
+    path = "windymail"
 
     recipients = _split_recipients(to)
     if not recipients:
@@ -225,10 +108,6 @@ def _send_email_now(
         # Annotate with the chosen path so downstream observability /
         # the LLM can reason about which provider answered.
         result.setdefault("provider", path)
-        if path == "resend" and strict_mailbox():
-            result["notice"] = (
-                "Sent via Resend, not from your agent's own mailbox: tell the owner."
-            )
         return result
 
     per_recipient: list[dict[str, Any]] = []

@@ -123,25 +123,20 @@ class TestSMSTruncation:
 class TestEmailHTMLSupport:
     """R3.3: Email should support optional HTML body."""
 
-    @patch.dict("os.environ", {
-        "SENDGRID_API_KEY": "SG.test_key",
-        "WINDYFLY_EMAIL_ADDRESS": "test@windyfly.ai",
-    })
-    def test_send_email_accepts_html_body(self):
-        """send_email() should accept html_body parameter."""
+    def test_inbound_handler_never_sends(self, monkeypatch):
+        """Hub, 10-02: the legacy WindyFlyEmail is inbound-only. Its SendGrid sender
+        (its own From address) is gone, and it needs no SendGrid key."""
         from windyfly.memory.database import Database
         from windyfly.memory.write_queue import WriteQueue
         from windyfly.channels.email import WindyFlyEmail
 
+        monkeypatch.delenv("SENDGRID_API_KEY", raising=False)
         db = Database(":memory:")
         wq = WriteQueue()
         wq.start()
         try:
             email = WindyFlyEmail({"email": {}}, db, wq)
-            # Verify the method signature accepts html_body
-            import inspect
-            sig = inspect.signature(email.send_email)
-            assert "html_body" in sig.parameters
+            assert not hasattr(email, "send_email")
         finally:
             wq.stop()
             db.close()

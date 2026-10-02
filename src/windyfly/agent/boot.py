@@ -336,13 +336,6 @@ def _step_register_mcp_client(ctx: BootContext) -> None:
     register_mcp_client_capabilities(ctx.capability_registry, ctx.config)
 
 
-def _step_register_email(ctx: BootContext) -> None:
-    from windyfly.agent.capabilities.email import (
-        register_email_capabilities,
-    )
-    register_email_capabilities(ctx.capability_registry, ctx.config)
-
-
 def _step_register_cloudflare(ctx: BootContext) -> None:
     from windyfly.agent.capabilities.cloudflare import (
         register_cloudflare_capabilities,
@@ -494,11 +487,6 @@ def default_capability_registration_sequence() -> list[Step]:
         Step(
             "capabilities.github",
             _step_register_github,
-            requires=("capabilities.audit",),
-        ),
-        Step(
-            "capabilities.email",
-            _step_register_email,
             requires=("capabilities.audit",),
         ),
         Step(
