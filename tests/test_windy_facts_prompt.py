@@ -17,7 +17,7 @@ def _system_text(message: str = "how much does Windy cost?") -> str:
 def test_facts_block_forbids_prices_and_names_the_dashboard():
     text = _system_text()
     assert "WINDY FACTS" in text
-    assert "Never state a Windy price" in text and "app.windyword.ai" in text
+    assert "windy_plans" in text and "never present" in text and "app.windyword.ai/upgrade" in text
 
 
 def test_facts_block_carries_no_numbers_to_repeat():

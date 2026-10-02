@@ -183,6 +183,8 @@ class BootSequence:
 def _step_register_windy_api(ctx: BootContext) -> None:
     from windyfly.tools.windy_api import register_windy_tools
     register_windy_tools(ctx.tool_registry)
+    from windyfly.tools.windy_plans import register_windy_plans_tool
+    register_windy_plans_tool(ctx.tool_registry)
 
 
 def _step_register_mail(ctx: BootContext) -> None:

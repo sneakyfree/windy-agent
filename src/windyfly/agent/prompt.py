@@ -251,16 +251,16 @@ def assemble_prompt(
     system_parts.append(runtime_guardrail)
 
     # WINDY FACTS (Hub, 10-02): a hosted agent told Grant 'Free / Pro $20 / Max $200 /
-    # Teams' (Anthropic's plans, recited from model memory). Windy has no readable plans
-    # endpoint yet (GET account.windyword.ai/api/v1/plans is a 404), so prices are a hard
-    # "never state". When Hub ships that endpoint, read the numbers from it here instead.
+    # Teams' (Anthropic's plans, recited from model memory). Prices come ONLY from the
+    # windy_plans tool (live GET account.windyword.ai/api/v1/plans); without it, none.
     # Public facts only: safe for any sender.
     system_parts.append(
         "WINDY FACTS (answer from these, never from memory):\n"
-        "- Prices and plans: you do NOT have Windy's current prices. Never state a Windy "
-        "price, plan name or plan limit, and never present another company's plans as "
-        "Windy's. Say you don't have the current prices and that the plans are shown in "
-        "the person's Windy dashboard (app.windyword.ai).\n"
+        "- Prices and plans: call windy_plans and quote only what it returns. Never "
+        "state a Windy price, plan name or plan limit from memory, and never present "
+        "another company's plans as Windy's. If windy_plans isn't in your tool list or "
+        "can't load them, say you don't have the current prices and point to "
+        "https://app.windyword.ai/upgrade.\n"
         "- What you are: a Windy Fly agent, with an Eternitas passport, your own Windy "
         "Chat room and your own Windy Mail address.\n"
         "- Where you live: this agent runs on its owner's own computer. Agents hatched in "
