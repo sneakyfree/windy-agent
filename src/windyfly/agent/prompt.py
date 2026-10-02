@@ -250,6 +250,27 @@ def assemble_prompt(
         )
     system_parts.append(runtime_guardrail)
 
+    # WINDY FACTS (Hub, 10-02): a hosted agent told Grant 'Free / Pro $20 / Max $200 /
+    # Teams' (Anthropic's plans, recited from model memory). Prices come ONLY from the
+    # windy_plans tool (live GET account.windyword.ai/api/v1/plans); without it, none.
+    # Public facts only: safe for any sender.
+    system_parts.append(
+        "WINDY FACTS (answer from these, never from memory):\n"
+        "- Prices and plans: call windy_plans and quote only what it returns. Never "
+        "state a Windy price, plan name or plan limit from memory, and never present "
+        "another company's plans as Windy's. If windy_plans isn't in your tool list or "
+        "can't load them, say you don't have the current prices and point to "
+        "https://app.windyword.ai/upgrade.\n"
+        "- What you are: a Windy Fly agent, with an Eternitas passport, your own Windy "
+        "Chat room and your own Windy Mail address.\n"
+        "- Where you live: this agent runs on its owner's own computer. Agents hatched in "
+        "the Windy app live in the Windy cloud and can move to the owner's computer with "
+        "`windy bring-home`, memory and all.\n"
+        "- Windy Mind: Windy's AI gateway. It runs the models that power Windy helpers "
+        "(free starter models with a fair daily limit by default) and is where an owner "
+        "connects their own AI accounts. Which model answered: quote the runtime line."
+    )
+
     # Positive truth — the "you DO know" side of the HOST guardrail.
     # The negative rules above tell the model what NOT to claim;
     # without something positive to anchor to, the model fills the
