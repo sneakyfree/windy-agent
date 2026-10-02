@@ -79,18 +79,23 @@ def test_422_retries_model_less():
     assert r and "model" not in bodies[-1] and len(bodies) == 2
 
 
-def test_403_is_a_wall_not_retried_and_no_cooldown():
+def test_403_model_disabled_retries_once_with_minds_choice_and_no_cooldown():
+    """Mind 10-02: 403 model_disabled = only that model is off: ONE retry without a
+    model (Mind picks), never a loop, never a cooldown, never an owner stop."""
+    import json as _json
+
     calls = []
 
     def h(req):
         if req.url.path != "/v1/chat":
             return httpx.Response(503)
-        calls.append(1)
+        calls.append(_json.loads(req.content))
         return httpx.Response(403, headers={"x-mind-error": "model_disabled"}, json={"detail": "off"})
 
     assert _run(httpx.MockTransport(h)) is None
-    assert len(calls) == 1
+    assert len(calls) == 2 and "model" in calls[0] and "model" not in calls[1]
     assert not models._is_provider_in_cooldown("windy-mind")
+    assert models.owner_paused() is None
 
 
 def test_outage_falls_through_after_one_helper_retry():
@@ -111,3 +116,19 @@ def test_fallback_notice_is_never_empty():
     assert loop._mind_fallback_notice("mind_slow").startswith("\U0001f6df")
     assert loop._mind_fallback_notice("mind_down") != loop._mind_fallback_notice("mind_slow")
     assert loop._mind_fallback_notice("weird").startswith("\U0001f6df")
+
+
+def test_403_grant_off_via_helper_is_an_owner_stop_not_retried():
+    calls = []
+
+    def h(req):
+        if req.url.path != "/v1/chat":
+            return httpx.Response(503)
+        calls.append(1)
+        return httpx.Response(403, headers={"x-mind-error": "grant_off", "x-mind-grant-reason": "stopped by owner"},
+                              json={"detail": "This helper is paused by its owner."})
+
+    assert _run(httpx.MockTransport(h)) is None
+    assert len(calls) == 1
+    assert models.owner_paused()["reason"] == "stopped by owner"
+    assert models._last_mind_stop == "stopped by owner"

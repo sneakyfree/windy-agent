@@ -734,6 +734,86 @@ _MIND_BUSY_WAIT_S = 15.0
 _last_mind_failure: str | None = None
 
 
+# ── the owner's stop (Hub + Mind, 10-02) ───────────────────────────────────
+# The phone's kill switch / "Mind OFF" makes Mind answer a 403 with x-mind-error:
+# grant_off; an owner-tripped breaker answers 403 with x-mind-breaker-owner: self.
+# Both mean STOP: no retry, no other provider, no local lifeboat, until the owner
+# clears it. (403 model_disabled is NOT a stop: only that model is off.)
+PAUSE_RECHECK_S = 30.0
+_paused: dict[str, Any] = {}          # {"reason": str, "since": float} while stopped
+_pause_checked: dict[str, float] = {"at": 0.0}
+_last_mind_stop: str | None = None    # set by the Mind call; raised by call_llm
+
+
+class AgentPausedByOwner(RuntimeError):
+    """The owner stopped this agent in Windy Mind. Never fall back; say so plainly."""
+
+    def __init__(self, reason: str = "") -> None:
+        self.reason = reason or "paused by its owner"
+        super().__init__(f"agent stopped by its owner in Windy Mind ({self.reason})")
+
+
+def _mind_stop_reason(status: int, headers: Any) -> str | None:
+    """None unless this Mind answer means the OWNER stopped the agent."""
+    if status != 403 or headers is None:
+        return None
+    get = headers.get
+    err = (get("x-mind-error") or "").strip().lower()
+    if err == "model_disabled":
+        return None
+    if err == "grant_off" or (get("x-mind-breaker-owner") or "").strip().lower() == "self":
+        return (get("x-mind-grant-reason") or "").strip() or "paused by its owner"
+    return None
+
+
+def _latch_pause(reason: str) -> None:
+    global _last_mind_stop
+    _last_mind_stop = reason
+    if not _paused:
+        logger.warning("Windy Mind: this agent was STOPPED by its owner (%s); not falling back", reason)
+    _paused.update(reason=reason, since=_paused.get("since") or time.time())
+
+
+def owner_paused() -> dict[str, Any] | None:
+    """The current stop, or None."""
+    return dict(_paused) if _paused else None
+
+
+def check_owner_pause(*, force: bool = False) -> dict[str, Any] | None:
+    """Ask Mind (GET /v1/grants/me, no model call) whether the owner has this agent
+    switched off; at most every PAUSE_RECHECK_S. While stopped it FAILS CLOSED (an
+    unanswered check keeps the agent stopped); while running it fails open."""
+    ept = (os.environ.get("ETERNITAS_PASSPORT_TOKEN") or os.environ.get("ETERNITAS_PASSPORT") or "").strip()
+    if not ept:
+        return owner_paused()
+    now = time.time()
+    if not force and now - _pause_checked["at"] < PAUSE_RECHECK_S:
+        return owner_paused()
+    _pause_checked["at"] = now
+    url = resolve_mind_url().rstrip("/")
+    try:
+        import httpx
+
+        r = httpx.get(f"{url}/v1/grants/me", headers={"Authorization": f"Bearer {ept}"}, timeout=5.0)
+        state = (r.json() or {}).get("state") if r.status_code == 200 else None
+        reason = (r.json() or {}).get("state_reason") if r.status_code == 200 else None
+    except Exception as e:  # noqa: BLE001
+        logger.debug("grants/me check failed: %s", e)
+        state, reason = None, None
+    if state == "off":
+        _latch_pause(str(reason or "") or "paused by its owner")
+    elif state in ("on", "throttled") and _paused:
+        logger.warning("Windy Mind: the owner turned this agent back ON; resuming")
+        clear_owner_pause()
+    return owner_paused()
+
+
+def clear_owner_pause() -> None:
+    global _last_mind_stop
+    _paused.clear()
+    _last_mind_stop = None
+
+
 _MIND_TOOL_NAME_MAX = 64  # the strictest provider behind Mind (OpenAI-style) caps names at 64
 
 
@@ -925,6 +1005,21 @@ def _try_mind_broker(
                 json=body,
                 timeout=30.0,
             )
+        if (resp.status_code == 403 and "model" in body
+                and (resp.headers.get("x-mind-error") or "").lower() == "model_disabled"):
+            # Only that model is switched off: let Mind pick another, once.
+            logger.warning("Mind: model %r is switched off; retrying with Mind's choice", body.get("model"))
+            resp = httpx.post(
+                f"{mind_url}/v1/chat",
+                headers={"Authorization": f"Bearer {ept}", "Content-Type": "application/json"},
+                json={k: v for k, v in body.items() if k != "model"},
+                timeout=30.0,
+            )
+        stop = _mind_stop_reason(resp.status_code, resp.headers)
+        if stop:
+            _last_mind_failure = "mind stopped by owner"
+            _latch_pause(stop)
+            return None
         if resp.status_code != 200:
             _last_mind_failure = f"mind http {resp.status_code}"
             if resp.status_code in _MIND_REQUEST_ERRORS:
@@ -1028,6 +1123,16 @@ def _try_mind_via_helper(
             translated = _translate_mind_response(mh.JsonShim(res2.response))
     except mh.MindRefusedError as e:
         _last_mind_failure = f"mind http {e.status}"
+        stop = _mind_stop_reason(e.status, e.headers)
+        if stop:
+            _last_mind_failure = "mind stopped by owner"
+            _latch_pause(stop)
+            return None
+        if e.status == 403 and (e.error_code or "").lower() == "model_disabled" and "model" in body:
+            try:
+                return _try_mind_via_helper(mind_url, ept, {k: v for k, v in body.items() if k != "model"}, tool_back)
+            except Exception:  # noqa: BLE001
+                return None
         logger.warning("Mind refused (%s, %s): %s; not cooling Mind down", e.status, e.error_code, e)
         return None
     except mh.MindUnavailableError as e:
@@ -1277,11 +1382,17 @@ def call_llm(
             record["error_code"], record["http_status"] = _error_code(error)
         _record_llm_call(record)
 
+    global _last_mind_stop
+    if check_owner_pause():
+        # Stopped by the owner: no Mind call, no direct provider, no local model.
+        raise AgentPausedByOwner(_paused.get("reason", ""))
     mind_note: str | None = None
     if not _max_oauth_active():
         _t0 = time.monotonic()
         mind_resp = _try_mind_broker(messages, model, temperature, max_tokens, tools)
         mind_note = _last_mind_failure if mind_resp is None else None
+        if mind_resp is None and _last_mind_stop:
+            raise AgentPausedByOwner(_last_mind_stop)
         if mind_resp is not None:
             mind_model = mind_resp.get("mind_model") or model or ""
             fields = _cost_fields(mind_resp, mind_model, "metered")

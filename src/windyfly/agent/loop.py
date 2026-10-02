@@ -22,7 +22,7 @@ from windyfly.agent.capabilities import capability_registry  # noqa: F401
 from windyfly.agent.context_header import maybe_prepend_header
 from windyfly.agent.emotion_detector import detect_emotional_context, get_emotional_trend
 from windyfly.agent.intent_detector import detect_intent
-from windyfly.agent.models import call_llm, estimate_cost, llm_purpose, sum_costs
+from windyfly.agent.models import AgentPausedByOwner, call_llm, estimate_cost, llm_purpose, sum_costs
 from windyfly.agent.offline import get_offline_response, is_online
 from windyfly.agent.prompt import assemble_prompt
 from windyfly.agent.tracing import set_request_id, request_id_short
@@ -481,6 +481,17 @@ _SELF_ENV_TRUTH_FALLBACK = (
 )
 
 
+OWNER_PAUSED_REPLY = (
+    "⏸️ I've been stopped by my owner in Windy Mind, so I'm not answering right now. "
+    "I'll reply again as soon as my owner turns me back on."
+)
+
+
+def owner_paused_reply() -> str:
+    """The one plain line a stopped agent says: no model call, no backup brain."""
+    return OWNER_PAUSED_REPLY
+
+
 def _lifeboat_telemetry(
     model: str, code: str, reason: str, channel: str | None, write_queue: Any,
     *, lifeboat: bool = True,
@@ -736,6 +747,15 @@ def _agent_respond_turn(
             f"Telegram but I won't make any LLM calls until you "
             f"say /resume."
         )
+
+    # 0.6. Stopped by the OWNER in Windy Mind (the phone's kill switch / "Mind OFF";
+    # Hub + Mind, 10-02). Checked every turn (≤ once per 30 s, no model call) so it
+    # also stops an agent that is on the local lifeboat or on Max OAuth. STOP means
+    # stop: no model, no other provider, no local backup brain.
+    from windyfly.agent import models as _models
+    if _models.check_owner_pause():
+        logger.info("[req:%s] stopped by owner in Windy Mind — not answering", request_id_short())
+        return owner_paused_reply()
 
     # 0.7. First-contact welcome (PR #142). Brand-new bots — episodes
     # and nodes tables both empty — get a deterministic 5-bullet tour
@@ -1193,6 +1213,11 @@ def _agent_respond_turn(
                 )
             else:
                 raise
+    except AgentPausedByOwner:
+        # Mind said the owner switched this agent off mid-turn: same plain stop,
+        # never the lifeboat below.
+        logger.info("[req:%s] stopped by owner in Windy Mind mid-turn", request_id_short())
+        return owner_paused_reply()
     except RuntimeError as e:
         msg = str(e)
         if "providers in chain" in msg or "providers" in msg.lower():

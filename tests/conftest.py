@@ -478,3 +478,18 @@ def _no_real_ollama(monkeypatch):
 
     monkeypatch.setattr(httpx.HTTPTransport, "handle_request", sync_guard)
     monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", async_guard)
+
+
+@pytest.fixture(autouse=True)
+def _no_owner_pause_check(monkeypatch):
+    """Every turn asks Mind's /v1/grants/me whether the owner stopped the agent. Tests
+    that set a fake EPT must never reach the real Mind for it: the check reports the
+    in-process state only, and that state starts empty. tests/test_owner_pause.py
+    exercises the real function explicitly."""
+    from windyfly.agent import models
+
+    models.clear_owner_pause()
+    models._pause_checked["at"] = 0.0
+    monkeypatch.setattr(models, "check_owner_pause", lambda force=False: models.owner_paused())
+    yield
+    models.clear_owner_pause()
