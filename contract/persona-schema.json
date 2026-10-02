@@ -1,0 +1,207 @@
+{
+  "contract": "windy.persona.v2",
+  "status": "APPROVED by Hub 10-02 (labels, memory names, default 2, the 10 ids). Pure stays PAUSED: servers report pure_enabled:false until Hub's separate OK.",
+  "owner": "windy-agent (this file); served by Windy Chat's panel service; mirrored by Windy Mobile and the Hub dashboard",
+  "change_rule": "Additive changes only within v2 (new slider, new preset). Renaming or removing an id, or changing a range, is a v3. Tell Chat, Mobile and Hub before any change.",
+  "sliders": {
+    "range": {
+      "min": -10,
+      "max": 10,
+      "step": 1
+    },
+    "default": 0,
+    "zero_means": "stock model behaviour: the slider adds nothing to the prompt",
+    "items": [
+      {
+        "id": "humor",
+        "label": "Humor",
+        "low": "Serious",
+        "high": "Playful"
+      },
+      {
+        "id": "warmth",
+        "label": "Warmth",
+        "low": "Matter-of-fact",
+        "high": "Warm"
+      },
+      {
+        "id": "sarcasm",
+        "label": "Sarcasm",
+        "low": "Never sarcastic",
+        "high": "Dry wit"
+      },
+      {
+        "id": "directness",
+        "label": "Directness",
+        "low": "Gentle",
+        "high": "Blunt"
+      },
+      {
+        "id": "brevity",
+        "label": "Length",
+        "low": "Detailed",
+        "high": "Short"
+      },
+      {
+        "id": "formality",
+        "label": "Formality",
+        "low": "Casual",
+        "high": "Formal"
+      },
+      {
+        "id": "pushback",
+        "label": "Pushback",
+        "low": "Goes along",
+        "high": "Challenges you"
+      },
+      {
+        "id": "curiosity",
+        "label": "Curiosity",
+        "low": "Answers only",
+        "high": "Asks questions"
+      },
+      {
+        "id": "proactivity",
+        "label": "Initiative",
+        "low": "Waits to be asked",
+        "high": "Suggests next steps"
+      },
+      {
+        "id": "creativity",
+        "label": "Creativity",
+        "low": "Conventional",
+        "high": "Inventive"
+      }
+    ]
+  },
+  "pure": {
+    "type": "boolean",
+    "default": false,
+    "label": "Pure mode",
+    "meaning": "per agent: no personality, no memory reads or writes, no tools; replies are labelled. Owner-only. PAUSED: v2 servers report pure_enabled:false and refuse to set it until Hub's separate OK.",
+    "enabled": false
+  },
+  "memory": {
+    "type": "integer",
+    "min": 0,
+    "max": 3,
+    "default": 2,
+    "levels": [
+      {
+        "value": 0,
+        "label": "Off",
+        "meaning": "remembers nothing between conversations"
+      },
+      {
+        "value": 1,
+        "label": "Light",
+        "meaning": "remembers key facts you tell it"
+      },
+      {
+        "value": 2,
+        "label": "Normal",
+        "meaning": "remembers facts and recent conversations"
+      },
+      {
+        "value": 3,
+        "label": "Everything",
+        "meaning": "keeps everything until you delete it"
+      }
+    ]
+  },
+  "presets": {
+    "source": "server-defined by Windy Chat's panel service; each preset is a full {sliders, memory} value set, never a partial",
+    "items": [
+      {
+        "id": "stock",
+        "label": "Stock",
+        "sliders": {
+          "humor": 0,
+          "warmth": 0,
+          "sarcasm": 0,
+          "directness": 0,
+          "brevity": 0,
+          "formality": 0,
+          "pushback": 0,
+          "curiosity": 0,
+          "proactivity": 0,
+          "creativity": 0
+        },
+        "memory": 2
+      },
+      {
+        "id": "friendly",
+        "label": "Friendly",
+        "sliders": {
+          "humor": 2,
+          "warmth": 5,
+          "sarcasm": 0,
+          "directness": 0,
+          "brevity": 0,
+          "formality": -2,
+          "pushback": 0,
+          "curiosity": 0,
+          "proactivity": 0,
+          "creativity": 0
+        },
+        "memory": 2
+      },
+      {
+        "id": "straight_shooter",
+        "label": "Straight shooter",
+        "sliders": {
+          "humor": 0,
+          "warmth": -1,
+          "sarcasm": 0,
+          "directness": 6,
+          "brevity": 4,
+          "formality": 0,
+          "pushback": 4,
+          "curiosity": 0,
+          "proactivity": 0,
+          "creativity": 0
+        },
+        "memory": 2
+      },
+      {
+        "id": "thoughtful",
+        "label": "Thoughtful",
+        "sliders": {
+          "humor": 0,
+          "warmth": 0,
+          "sarcasm": 0,
+          "directness": 0,
+          "brevity": -3,
+          "formality": 2,
+          "pushback": 0,
+          "curiosity": 5,
+          "proactivity": 2,
+          "creativity": 0
+        },
+        "memory": 2
+      },
+      {
+        "id": "quick",
+        "label": "Quick",
+        "sliders": {
+          "humor": 0,
+          "warmth": 0,
+          "sarcasm": 0,
+          "directness": 0,
+          "brevity": 8,
+          "formality": -1,
+          "pushback": 0,
+          "curiosity": 0,
+          "proactivity": 2,
+          "creativity": 0
+        },
+        "memory": 2
+      }
+    ]
+  },
+  "api": {
+    "read": "GET /api/v2/agent/panel/:agent/state -> {contract, etag, sliders{id:int}, pure, pure_enabled, memory, preset}",
+    "write": "PUT /api/v2/agent/panel/:agent/state with If-Match: <etag>; the whole state at once (atomic); 412 on a stale etag",
+    "auth": "the owner's Windy (Hub) session; agents never write their own persona"
+  }
+}
