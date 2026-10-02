@@ -167,21 +167,18 @@ def test_windy_mail_path_gets_the_footer():
         assert body.count("Sent by Pip") == 1
 
 
-def test_resend_path_gets_the_footer_and_the_agent_header(monkeypatch):
+def test_no_mailbox_means_nothing_is_sent_even_with_resend_env(monkeypatch):
+    """Hub, 10-02: no Resend (or any other) fallback. A mail went out 'From:
+    office@windyword.ai' outside Mail; an agent sends only from its own mailbox."""
     monkeypatch.setenv("RESEND_API_KEY", "re_test")
     monkeypatch.setenv("RESEND_FROM_ADDRESS", "pip@windyfly.ai")
-    seen = {}
+    posted = []
 
-    def fake_post(url, headers=None, json=None, timeout=None):
-        seen.update(json)
-        r = MagicMock(status_code=200)
-        r.json.return_value = {"id": "rs-1"}
-        return r
-
-    with patch.object(mail_mod, "_adapter", return_value=None), patch("httpx.post", side_effect=fake_post):
-        assert mail_mod.send_email("a@example.com", "Hi", "Body")["status"] == "sent"
-    assert seen["text"].endswith("Sent by Pip, an AI agent acting for Grant Whitmer.\n")
-    assert seen["headers"] == {"X-Windy-Agent": "ET26-TEST-0001"}
+    with patch.object(mail_mod, "_adapter", return_value=None), \
+            patch("httpx.post", side_effect=lambda *a, **k: posted.append(a)):
+        out = mail_mod.send_email("a@example.com", "Hi", "Body")
+    assert out["status"] == "unavailable" and "nothing was sent" in out["error"]
+    assert posted == []
 
 
 def test_email_footer_without_a_known_owner(monkeypatch):

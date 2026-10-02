@@ -24,7 +24,7 @@ fully closes):
           returns {ok: true, configured_keys: [...], zones: 21}
     LLM:  "Got it — I can see all 21 zones now. Try asking..."
 
-Gmail / Calendar still return ``{ok: false, kind:
+Calendar still returns ``{ok: false, kind:
 "oauth_required"}`` because they need a browser flow. A future Tier
 3 builds the magic-link OAuth.
 
@@ -121,30 +121,6 @@ _WALKTHROUGHS: dict[str, dict[str, Any]] = {
             "After paste, call setup.save_credential(integration='github', "
             "value=<the-token>). Don't echo the token. Confirm with "
             "plain-English success."
-        ),
-    },
-    "gmail": {
-        "integration": "gmail",
-        "name": "Gmail (sending email)",
-        "estimated_minutes": None,
-        "method": "oauth_required",
-        "steps": [
-            "Gmail needs Google's browser-based sign-in (OAuth) — there's no token to paste.",
-            "The chat-driven version of this setup is in active development.",
-        ],
-        "after_paste_action": None,
-        "note_to_llm": (
-            "INSTRUCTION TO THE LLM: This integration cannot be set up "
-            "from chat yet — it requires a browser sign-in flow that "
-            "isn't wired into the chat interface. Tell the user, in "
-            "warm plain English, something like: 'Email setup needs a "
-            "browser sign-in step that I can't drive from chat just "
-            "yet — that's something Grant has to enable on his end "
-            "for now. I'll let you know the moment I can do it "
-            "myself.' DO NOT mention `windy setup-gmail`, terminal "
-            "commands, env vars, or any developer-only path. Most "
-            "users are non-technical and seeing CLI syntax in chat "
-            "is a product failure."
         ),
     },
     "calendar": {
@@ -355,11 +331,11 @@ def _save_credential_handler(
     """Validate + persist a credential pasted in chat.
 
     Cloudflare/GitHub: validate against the live API, write to env
-    file atomically, hot-load into os.environ. Gmail/Calendar:
-    refuse with oauth_required because their tokens come from a
+    file atomically, hot-load into os.environ. Calendar:
+    refuses with oauth_required because their tokens come from a
     browser flow, not a paste.
     """
-    if integration in ("gmail", "calendar"):
+    if integration == "calendar":
         return {
             "ok": False,
             "kind": "oauth_required",
@@ -467,7 +443,7 @@ def register_setup_capabilities(
     registry.register(Capability(
         id="setup.status",
         description=(
-            "Check which optional integrations (Gmail, Cloudflare, "
+            "Check which optional integrations (Cloudflare, "
             "Calendar, GitHub) are connected. Returns a snapshot of "
             "configured + dormant integrations with friendly setup "
             "hints. Call this at conversation start or when the user "
@@ -505,8 +481,8 @@ def register_setup_capabilities(
                 "integration": {
                     "type": "string",
                     "description": (
-                        "Integration key: 'cloudflare', 'github', "
-                        "'gmail', or 'calendar'. Use setup.status to "
+                        "Integration key: 'cloudflare', 'github' "
+                        "or 'calendar'. Use setup.status to "
                         "see all keys + which are dormant."
                     ),
                 },
@@ -521,8 +497,8 @@ def register_setup_capabilities(
             "Validate a credential pasted by the user in chat, then "
             "persist it to the bot's environment AND hot-load it into "
             "the running process. No restart needed. Currently "
-            "supports cloudflare and github (token-paste). Gmail and "
-            "calendar return oauth_required (Tier 3 / magic-link "
+            "supports cloudflare and github (token-paste). Calendar "
+            "returns oauth_required (Tier 3 / magic-link "
             "ships that). NEVER echo the token in your reply to the "
             "user. On success, confirm with plain English what's now "
             "possible (e.g. 'I can see all your zones now')."
@@ -547,8 +523,8 @@ def register_setup_capabilities(
                     "type": "string",
                     "description": (
                         "Integration key: 'cloudflare' or 'github' "
-                        "(token-paste); 'gmail' or 'calendar' will "
-                        "return oauth_required."
+                        "(token-paste); 'calendar' returns "
+                        "oauth_required."
                     ),
                 },
                 "value": {

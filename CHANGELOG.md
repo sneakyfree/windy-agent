@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased (0.7.6)
+
+- **Agents send email only from their own Windy Mail mailbox, through Windy Mail.**
+  The Resend, Gmail (`email.send`, `windy setup-gmail`) and SendGrid senders are
+  removed, so From and Reply-To are always the agent's own address; with no
+  mailbox, nothing is sent. Sends authenticate with the agent's Eternitas token
+  (was `WINDY_MAIL_SEND_EPT=1`); `WINDY_MAIL_STRICT` and
+  `WINDY_MAIL_ALLOW_RESEND` are gone.
+
 ## 0.7.5
 
 **Default changes in this release**

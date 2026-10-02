@@ -257,7 +257,7 @@ UNTRUSTED_SOURCE_TOOLS = frozenset({
 # [I2 taint model] External-effect / exfil / RCE tool_registry tools that BYPASS
 # the capability band gate (they run via tool_registry.execute, not
 # capability_registry.invoke). Once a turn is tainted these are refused outright:
-# capping the band only stops band-gated CAPABILITIES (shell/ssh/fleet/email.send/
+# capping the band only stops band-gated CAPABILITIES (shell/ssh/fleet/
 # destructive writes), so these plain tools need their own guard so an injected
 # instruction can't exfiltrate/act after the agent has read untrusted content.
 TAINT_FORBIDDEN_TOOLS = frozenset({
@@ -285,7 +285,7 @@ def _taint_gate(fn_name: str, turn_tainted: bool, band: Any) -> tuple[bool, Any]
         caller returns a refusal instead of dispatching.
       - otherwise ``effective_band`` is the band to dispatch at: capped to
         ``USER`` once tainted so TRUSTED+ capabilities (shell/ssh/fleet/
-        email.send/destructive writes) are denied, while read/search/summarize
+        destructive writes) are denied, while read/search/summarize
         (USER and below) stay available.
     """
     from windyfly.agent.capabilities import Band

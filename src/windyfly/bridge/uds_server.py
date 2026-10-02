@@ -395,7 +395,7 @@ class UDSBridge:
     async def _handle_email_inbound(self, params: dict) -> dict:
         from windyfly.channels.email import WindyFlyEmail
         email = WindyFlyEmail(self.config, self.db, self.write_queue)
-        # SendGrid sends: from, subject, text (or html)
+        # Inbound Parse webhook fields: from, subject, text (or html)
         # Also handle: envelope → from, subject, plain
         from_addr = params.get("from", params.get("sender", ""))
         if isinstance(from_addr, str) and "<" in from_addr:
@@ -411,14 +411,15 @@ class UDSBridge:
         return {"response": response}
 
     async def _handle_email_send(self, params: dict) -> dict:
-        from windyfly.channels.email import WindyFlyEmail
-        email = WindyFlyEmail(self.config, self.db, self.write_queue)
-        result = email.send_email(
+        # The one send path (Hub, 10-02): the agent's own Windy Mail mailbox through
+        # Mail's /send, with the AI footer, the trust gate and the rate limiter.
+        # Was a SendGrid sender with its own From address.
+        from windyfly.tools.mail import _send_email_now
+        return _send_email_now(
             params.get("to", ""),
             params.get("subject", ""),
             params.get("body", ""),
         )
-        return result
 
     async def _handle_journal_list(self, params: dict) -> dict:
         from windyfly.memory.nodes import get_nodes_by_type

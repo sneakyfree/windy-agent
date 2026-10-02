@@ -474,8 +474,7 @@ def cmd_setup_calendar(_args: argparse.Namespace) -> None:
          ``data/google_calendar_creds.json`` (or path in
          ``GOOGLE_CALENDAR_CREDENTIALS`` env var).
 
-    Same scaffolding as ``windy setup-gmail`` — different scope, same
-    Google Cloud project is fine.
+    Any Google Cloud project with the Calendar API enabled is fine.
     """
     console.print("[bold cyan]🪰 Setting up Google Calendar OAuth...[/bold cyan]")
     console.print()
@@ -503,44 +502,12 @@ def cmd_setup_calendar(_args: argparse.Namespace) -> None:
 
 
 def cmd_setup_gmail(_args: argparse.Namespace) -> None:
-    """One-time Gmail OAuth flow → activates the email.send capability.
-
-    Prereqs:
-      1. Google Cloud project with the Gmail API enabled (the same
-         project the calendar tool uses is fine).
-      2. ``gmail.send`` scope added to the OAuth consent screen.
-      3. Desktop-app OAuth Client ID downloaded as
-         ``data/google_oauth_creds.json`` (or path in
-         ``GOOGLE_OAUTH_CREDENTIALS`` env var).
-
-    Opens a browser, captures the consent, writes
-    ``data/gmail_token.json``. Restart the bot afterwards so the
-    capability registers as ``configured=True``.
-    """
-    console.print("[bold cyan]🪰 Setting up Gmail OAuth...[/bold cyan]")
-    console.print()
-    from windyfly.agent.capabilities.email import setup_gmail_oauth
-    ok = setup_gmail_oauth()
-    if ok:
-        console.print()
-        console.print("[bold green]✓ Gmail connected.[/bold green]")
-        console.print(
-            "  Restart the bot to pick up the new token: "
-            "[cyan]systemctl --user restart windy-0.service[/cyan]"
-        )
-    else:
-        console.print()
-        console.print("[bold red]✗ Gmail setup failed.[/bold red]")
-        console.print(
-            "  See the logged reason above. Common fixes:\n"
-            "  • Download the Desktop-app OAuth client JSON from\n"
-            "    Google Cloud Console → APIs & Services → Credentials\n"
-            "  • Save it as data/google_oauth_creds.json (or set\n"
-            "    GOOGLE_OAUTH_CREDENTIALS to point at it)\n"
-            "  • Add the gmail.send scope to your OAuth consent screen"
-        )
-        sys.exit(1)
-
+    """Gmail sending was removed (Hub, 2026-10-02): agents send only from their own
+    Windy Mail mailbox. Kept so the old command explains itself."""
+    console.print(
+        "Your agent sends email from its own Windy Mail address, through Windy Mail. "
+        "Sending through Gmail was removed, so there is nothing to set up here."
+    )
 
 def cmd_setup(_args: argparse.Namespace) -> None:
     """Launch the browser-based setup wizard."""
@@ -1789,7 +1756,7 @@ def main() -> None:
     # windy setup-gmail
     sub.add_parser(
         "setup-gmail",
-        help="One-time Gmail OAuth flow (activates email.send capability)",
+        help="Retired: agents send email from their own Windy Mail address",
     )
 
     # ── Help ─────────────────────────────────────────────────────
