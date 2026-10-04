@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (0.7.6)
+## 0.7.6
 
 - **Calls to Windy Mind use the agent's own short-lived token.** Every chat call
   carries an `EPT+agent` for `windy-mind` (bound to the agent's registered key)
@@ -15,6 +15,28 @@
   mailbox, nothing is sent. Sends authenticate with the agent's Eternitas token
   (was `WINDY_MAIL_SEND_EPT=1`); `WINDY_MAIL_STRICT` and
   `WINDY_MAIL_ALLOW_RESEND` are gone.
+
+- **An owner's stop in Windy Mind is a stop.** When the owner switches an agent
+  off (the phone's kill switch, or "Mind OFF"), the agent says so in one plain
+  line, makes no model call and does not fall back to a backup brain or the
+  local model, until the owner turns it back on. It checks before each turn and
+  keeps stopped if it can't ask.
+
+- **Prices come only from Windy.** A new `windy_plans` tool reads Windy's current
+  plans live from the account server (cached for an hour); the agent quotes only
+  what it returns and, if it can't be read, says so and points to the plans page
+  instead of guessing. A short WINDY FACTS block in its instructions says the same.
+
+- **Plain words when texting isn't ready.** When Windy Text can't send yet (for
+  example, carrier registration is still pending), the agent says that in plain
+  words instead of showing a raw error code.
+
+- **Persona schema.** `contract/persona-schema.json` (`windy.persona.v2`) is the
+  shared persona format that Windy Chat vendors.
+
+- **Windy Code filing cabinet tools (off by default).** `file_project`,
+  `log_activity` and `list_cabinet` exist behind `WINDY_CODE_CABINET=1` and only
+  when Windy Code lists them too; nothing changes for anyone who doesn't set it.
 
 ## 0.7.5
 

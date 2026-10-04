@@ -9,10 +9,11 @@ import pytest
 
 from windyfly.tools import windy_plans as mod
 
+# Fixture numbers are deliberately fake: prices live only at the Hub endpoint.
 LIVE = {"currency": "usd", "see_plans_url": "https://app.windyword.ai/upgrade", "plans": [
     {"id": "free", "display_name": "Free", "monthly_cents": 0, "annual_cents": 0,
      "cloud_session_minutes": 5, "cloud_devices": 1, "storage_bytes": 524288000},
-    {"id": "pro", "display_name": "Windy Pro", "monthly_cents": 499, "annual_cents": 4900,
+    {"id": "pro", "display_name": "Windy Pro", "monthly_cents": 1234, "annual_cents": 12300,
      "cloud_session_minutes": 15, "cloud_devices": 3, "storage_bytes": 5368709120},
     {"id": "hurricane", "display_name": "Windy Hurricane", "monthly_cents": None, "annual_cents": None,
      "cloud_session_minutes": 60, "cloud_devices": 100, "storage_bytes": 5497558138880},
@@ -39,7 +40,7 @@ def test_lines_come_from_the_endpoint():
     assert get.call_args.args[0] == mod.DEFAULT_PLANS_URL
     assert out["status"] == "ok" and out["see_plans_url"] == "https://app.windyword.ai/upgrade"
     assert out["plans"][0].startswith("Free: free (5-minute cloud sessions, 1 device")
-    assert out["plans"][1] == "Windy Pro: $4.99/month or $49/year (15-minute cloud sessions, 3 devices, 5 GB storage)"
+    assert out["plans"][1] == "Windy Pro: $12.34/month or $123/year (15-minute cloud sessions, 3 devices, 5 GB storage)"
     assert out["plans"][2].startswith("Windy Hurricane: custom pricing")
 
 
