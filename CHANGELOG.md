@@ -4,8 +4,8 @@
 
 - **Calls to Windy Mind use the agent's own short-lived token.** Every chat call
   carries an `EPT+agent` for `windy-mind` (bound to the agent's registered key)
-  plus a fresh DPoP proof; the owner-stop check and the recovery probe send the
-  token without a proof. If the token can't be minted or Mind refuses it, the
+  plus a fresh DPoP proof; the runtime claim, heartbeat and release calls do too;
+  the owner-stop check and the recovery probe send the token without a proof. If the token can't be minted or Mind refuses it, the
   agent falls back to its long-lived Eternitas token, which Mind stops accepting
   on writes from 2026-11-03. Set `WINDY_MIND_EPT_AGENT=0` to turn it off.
 
