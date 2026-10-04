@@ -757,12 +757,10 @@ def _paid_health_probe(timeout: float = 4.0) -> dict[str, Any]:
     ept = (os.environ.get("ETERNITAS_PASSPORT_TOKEN") or os.environ.get("ETERNITAS_PASSPORT") or "").strip()
     if ept:
         try:
+            from windyfly.agent import mind_auth
             from windyfly.agent.models import resolve_mind_url
-            candidates.append((
-                "windy-mind",
-                f"{resolve_mind_url().rstrip('/')}/v1/models",
-                {"Authorization": f"Bearer {ept}"},
-            ))
+            _mind_models = f"{resolve_mind_url().rstrip('/')}/v1/models"
+            candidates.append(("windy-mind", _mind_models, mind_auth.headers("GET", _mind_models, ept)[0]))
         except Exception:  # noqa: BLE001
             pass
     if (key := os.environ.get("ANTHROPIC_API_KEY")):

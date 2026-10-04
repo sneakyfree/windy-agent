@@ -22,6 +22,7 @@ import re
 import time
 from typing import Any, Callable
 
+from windyfly.agent import mind_auth
 from windyfly.agent.providers import get_provider_for_model
 
 logger = logging.getLogger(__name__)
@@ -792,9 +793,7 @@ def check_owner_pause(*, force: bool = False) -> dict[str, Any] | None:
     _pause_checked["at"] = now
     url = resolve_mind_url().rstrip("/")
     try:
-        import httpx
-
-        r = httpx.get(f"{url}/v1/grants/me", headers={"Authorization": f"Bearer {ept}"}, timeout=5.0)
+        r = mind_auth.get(f"{url}/v1/grants/me", ept, 5.0)
         state = (r.json() or {}).get("state") if r.status_code == 200 else None
         reason = (r.json() or {}).get("state_reason") if r.status_code == 200 else None
     except Exception as e:  # noqa: BLE001
@@ -951,16 +950,8 @@ def _try_mind_broker(
         return _try_mind_via_helper(mind_url, ept, body, _tool_back)
 
     try:
-        import httpx
-
-        resp = httpx.post(
-            f"{mind_url}/v1/chat",
-            headers={
-                "Authorization": f"Bearer {ept}",
-                "Content-Type": "application/json",
-            },
-            json=body,
-            timeout=30.0,
+        resp = mind_auth.post(
+            f"{mind_url}/v1/chat", ept, body, 30.0,
         )
         if resp.status_code == 422 and "model" in body:
             # Catalog drift: Mind's /v1/chat validates `model` against a
@@ -975,14 +966,8 @@ def _try_mind_broker(
                 "broker picks", body.get("model"),
             )
             retry_body = {k: v for k, v in body.items() if k != "model"}
-            resp = httpx.post(
-                f"{mind_url}/v1/chat",
-                headers={
-                    "Authorization": f"Bearer {ept}",
-                    "Content-Type": "application/json",
-                },
-                json=retry_body,
-                timeout=30.0,
+            resp = mind_auth.post(
+                f"{mind_url}/v1/chat", ept, retry_body, 30.0,
             )
         if resp.status_code in _MIND_BUSY:
             # Busy, not broken (Mind 2026-09-24: free quotas spent, a lane
@@ -996,24 +981,15 @@ def _try_mind_broker(
             wait = max(1.0, min(wait, 30.0))
             logger.warning("Mind busy (%s); retrying once in %.0fs", resp.status_code, wait)
             time.sleep(wait)
-            resp = httpx.post(
-                f"{mind_url}/v1/chat",
-                headers={
-                    "Authorization": f"Bearer {ept}",
-                    "Content-Type": "application/json",
-                },
-                json=body,
-                timeout=30.0,
+            resp = mind_auth.post(
+                f"{mind_url}/v1/chat", ept, body, 30.0,
             )
         if (resp.status_code == 403 and "model" in body
                 and (resp.headers.get("x-mind-error") or "").lower() == "model_disabled"):
             # Only that model is switched off: let Mind pick another, once.
             logger.warning("Mind: model %r is switched off; retrying with Mind's choice", body.get("model"))
-            resp = httpx.post(
-                f"{mind_url}/v1/chat",
-                headers={"Authorization": f"Bearer {ept}", "Content-Type": "application/json"},
-                json={k: v for k, v in body.items() if k != "model"},
-                timeout=30.0,
+            resp = mind_auth.post(
+                f"{mind_url}/v1/chat", ept, {k: v for k, v in body.items() if k != "model"}, 30.0,
             )
         stop = _mind_stop_reason(resp.status_code, resp.headers)
         if stop:
@@ -1050,14 +1026,8 @@ def _try_mind_broker(
                 body.get("max_tokens"), len((translated or {}).get("content") or ""), _MIND_MAX_TOKENS,
             )
             body = {**body, "max_tokens": _MIND_MAX_TOKENS}
-            resp = httpx.post(
-                f"{mind_url}/v1/chat",
-                headers={
-                    "Authorization": f"Bearer {ept}",
-                    "Content-Type": "application/json",
-                },
-                json=body,
-                timeout=60.0,
+            resp = mind_auth.post(
+                f"{mind_url}/v1/chat", ept, body, 60.0,
             )
             if resp.status_code == 200:
                 translated = _translate_mind_response(resp)

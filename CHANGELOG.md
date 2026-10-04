@@ -2,6 +2,13 @@
 
 ## Unreleased (0.7.6)
 
+- **Calls to Windy Mind use the agent's own short-lived token.** Every chat call
+  carries an `EPT+agent` for `windy-mind` (bound to the agent's registered key)
+  plus a fresh DPoP proof; the owner-stop check and the recovery probe send the
+  token without a proof. If the token can't be minted or Mind refuses it, the
+  agent falls back to its long-lived Eternitas token, which Mind stops accepting
+  on writes from 2026-11-03. Set `WINDY_MIND_EPT_AGENT=0` to turn it off.
+
 - **Agents send email only from their own Windy Mail mailbox, through Windy Mail.**
   The Resend, Gmail (`email.send`, `windy setup-gmail`) and SendGrid senders are
   removed, so From and Reply-To are always the agent's own address; with no
