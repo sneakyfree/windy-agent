@@ -96,33 +96,45 @@ def forget_token() -> None:
         pass
 
 
-def post(url: str, ept: str, body: dict[str, Any], timeout: float) -> Any:
-    """POST JSON to Mind with EPT+agent + a fresh DPoP proof per attempt.
+def _call(send: Any, method: str, url: str, ept: str) -> Any:
+    """Send one request with EPT+agent (+ a fresh DPoP proof on non-GET).
 
-    One refused-credential retry with a fresh mint and proof, then one with the
-    legacy EPT (until the sunset). Any other answer is returned as is.
+    ``send(auth_headers)`` performs the request. One refused-credential retry with a
+    fresh mint and proof, then one with the legacy EPT (until the sunset). Any other
+    answer is returned as is.
     """
-    import httpx
-
-    def _send(auth: dict[str, str]) -> Any:
-        return httpx.post(url, headers={**auth, "Content-Type": "application/json"},
-                          json=body, timeout=timeout)
-
-    auth, agent = headers("POST", url, ept)
-    resp = _send(auth)
+    auth, agent = headers(method, url, ept)
+    resp = send(auth)
     if not agent:
         return resp
     code = refused_auth(resp)
     if code:
         logger.warning("Windy Mind refused the EPT+agent (%s); minting a fresh one", code)
         forget_token()
-        auth, agent = headers("POST", url, ept)
-        resp = _send(auth)
+        auth, agent = headers(method, url, ept)
+        resp = send(auth)
         code = refused_auth(resp) if agent else None
         if code:
             _warn_once(f"refused:{code}", "Windy Mind refused the EPT+agent twice (%s); using the legacy EPT", code)
-            resp = _send(legacy_headers(ept))
+            resp = send(legacy_headers(ept))
     return resp
+
+
+def post(url: str, ept: str, body: dict[str, Any], timeout: float) -> Any:
+    """POST JSON to Mind with EPT+agent + a fresh DPoP proof per attempt."""
+    import httpx
+
+    return _call(
+        lambda auth: httpx.post(url, headers={**auth, "Content-Type": "application/json"},
+                                json=body, timeout=timeout),
+        "POST", url, ept)
+
+
+def client_post(client: Any, path: str, ept: str, body: dict[str, Any]) -> Any:
+    """POST ``path`` through an httpx.Client whose base_url is Mind (claim, heartbeat,
+    release). The proof's htu is the client's base_url + path."""
+    url = str(client.base_url).rstrip("/") + path
+    return _call(lambda auth: client.post(path, json=body, headers=auth), "POST", url, ept)
 
 
 def get(url: str, ept: str, timeout: float) -> Any:
