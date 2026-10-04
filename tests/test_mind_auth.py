@@ -144,3 +144,61 @@ class TestWiredIntoTheBrokerPath:
         assert url.endswith("/v1/chat")
         assert headers["Authorization"] == "Bearer agent-tok-1"
         assert headers["DPoP"] == "proof-1"
+
+
+class TestClientPost:
+    """Runtime claim / heartbeat / release go through an httpx.Client on Mind's base URL."""
+
+    def _client(self, handler):
+        import httpx
+
+        return httpx.Client(base_url="https://api.windymind.ai", transport=httpx.MockTransport(handler),
+                            headers={"Authorization": "Bearer legacy-ept"})
+
+    def test_heartbeat_is_ept_agent_with_a_proof_for_its_own_url(self, _on):
+        _, proofs = _on
+        seen = []
+
+        def handler(request):
+            import httpx
+
+            seen.append(request.headers)
+            return httpx.Response(200, json={"ok": True})
+
+        with self._client(handler) as c:
+            r = mind_auth.client_post(c, "/v1/runtime/heartbeat", "legacy-ept", {"passport": "P"})
+        assert r.status_code == 200
+        assert seen[0]["authorization"] == "Bearer agent-tok-1"  # per-request header beats the client default
+        assert seen[0]["dpop"] == "proof-1"
+        assert proofs == [("POST", "https://api.windymind.ai/v1/runtime/heartbeat")]
+
+    def test_refused_proof_is_resigned_then_legacy(self):
+        import httpx
+
+        seen = []
+
+        def handler(request):
+            seen.append(dict(request.headers))
+            if "dpop" in request.headers:
+                return httpx.Response(401, headers={"x-mind-error": "dpop_replay"})
+            return httpx.Response(200)
+
+        with self._client(handler) as c:
+            r = mind_auth.client_post(c, "/v1/runtime/release", "legacy-ept", {})
+        assert r.status_code == 200
+        assert [h.get("dpop") for h in seen] == ["proof-1", "proof-2", None]
+        assert seen[-1]["authorization"] == "Bearer legacy-ept"
+
+    def test_flag_off_keeps_the_legacy_bearer(self, monkeypatch):
+        import httpx
+
+        monkeypatch.setenv(mind_auth.ENV_FLAG, "0")
+        seen = []
+
+        def handler(request):
+            seen.append(request.headers)
+            return httpx.Response(200)
+
+        with self._client(handler) as c:
+            mind_auth.client_post(c, "/v1/runtime/claim", "legacy-ept", {})
+        assert seen[0]["authorization"] == "Bearer legacy-ept" and "dpop" not in seen[0]

@@ -48,6 +48,8 @@ from pathlib import Path
 
 import httpx
 
+from windyfly.agent import mind_auth
+
 logger = logging.getLogger(__name__)
 
 # Spec invariants — keep aligned with kit-army-config/docs/phase-a2-...
@@ -223,7 +225,7 @@ def acquire_runtime_slot(
             transport=transport,
             headers={"Authorization": f"Bearer {jwt}"},
         ) as client:
-            resp = client.post("/v1/runtime/claim", json=payload)
+            resp = mind_auth.client_post(client, "/v1/runtime/claim", jwt, payload)
     except httpx.RequestError as e:
         logger.warning(
             "runtime_claim.network_error: %s (proceeding without claim discipline)",
@@ -330,9 +332,11 @@ def _heartbeat_loop(state: _ClaimState, stop: threading.Event) -> None:
                 timeout=_CLAIM_TIMEOUT_S,
                 headers={"Authorization": f"Bearer {state.jwt}"},
             ) as client:
-                resp = client.post(
+                resp = mind_auth.client_post(
+                    client,
                     "/v1/runtime/heartbeat",
-                    json={
+                    state.jwt,
+                    {
                         "passport": state.passport,
                         "runtime_id": state.runtime_id,
                     },
@@ -394,9 +398,11 @@ def release_slot(*, transport: httpx.BaseTransport | None = None) -> None:
             transport=transport,
             headers={"Authorization": f"Bearer {_state.jwt}"},
         ) as client:
-            client.post(
+            mind_auth.client_post(
+                client,
                 "/v1/runtime/release",
-                json={
+                _state.jwt,
+                {
                     "passport": _state.passport,
                     "runtime_id": _state.runtime_id,
                 },
@@ -472,9 +478,11 @@ def release_recorded_claim(*, transport: httpx.BaseTransport | None = None) -> b
             transport=transport,
             headers={"Authorization": f"Bearer {bearer}"},
         ) as client:
-            resp = client.post(
+            resp = mind_auth.client_post(
+                client,
                 "/v1/runtime/release",
-                json={"passport": passport, "runtime_id": data.get("runtime_id")},
+                bearer,
+                {"passport": passport, "runtime_id": data.get("runtime_id")},
             )
         # 404 = Mind no longer has that claim (already reaped/released).
         ok = resp.status_code < 300 or resp.status_code == 404
