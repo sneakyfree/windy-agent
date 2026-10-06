@@ -17,6 +17,8 @@ from __future__ import annotations
 import logging
 import re
 
+from windyfly.vault.redactor import redact as _vault_redact
+
 # Telegram: <digits>:<base64-ish secret>, with or without the "bot" URL
 # prefix. Keep the bot ID and the first 4 chars of the secret so we can
 # still tell instances apart in logs without exposing the full credential.
@@ -61,6 +63,7 @@ def redact(text: str) -> str:
     Each pattern preserves a small prefix so log lines remain
     distinguishable across instances without leaking the secret.
     """
+    text = _vault_redact(text)   # Vault lease values by exact value (strand gene G6.1)
     text = _TELEGRAM_TOKEN_RE.sub(r"\1***REDACTED***", text)
     text = _API_KEY_RE.sub(r"\1***REDACTED***", text)
     text = _WK_KEY_RE.sub(r"\1***REDACTED***", text)

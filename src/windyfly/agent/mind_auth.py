@@ -21,17 +21,15 @@ import logging
 import os
 from typing import Any
 
+from windyfly.agent import service_auth
+
 logger = logging.getLogger(__name__)
 
 MIND_AUD = "windy-mind"
 ENV_FLAG = "WINDY_MIND_EPT_AGENT"
 
-# 401 x-mind-error values where a fresh mint and a fresh proof can help. A refused
-# proof is never resent: every attempt signs a new one (fresh jti).
-REMINT_CODES = frozenset({
-    "wrong_audience", "expired", "unknown_kid",
-    "dpop_required", "invalid_dpop", "dpop_replay",
-})
+# 401 x-mind-error values where a fresh mint and proof can help: shared with every service.
+REMINT_CODES = service_auth.REMINT_CODES
 
 _warned: set[str] = set()
 
@@ -64,36 +62,20 @@ def headers(method: str, url: str, ept: str) -> tuple[dict[str, str], bool]:
     if not enabled():
         return legacy_headers(ept), False
     try:
-        from windyfly.eternitas import agent_keys as ak
-
-        token = ak.request_agent_token(MIND_AUD)["token"]
-        out = {"Authorization": f"Bearer {token}"}
-        if method.upper() != "GET":
-            out["DPoP"] = ak.service_dpop(method.upper(), url)
-        return out, True
-    except Exception as exc:  # noqa: BLE001  (AgentTokenError, key IO, network)
-        code = getattr(exc, "code", type(exc).__name__)
-        _warn_once(f"mint:{code}", "Windy Mind: no EPT+agent (%s); using the legacy EPT", code)
+        return service_auth.agent_headers(MIND_AUD, method, url), True
+    except service_auth.ServiceAuthError as exc:
+        _warn_once(f"mint:{exc.code}", "Windy Mind: no EPT+agent (%s); using the legacy EPT", exc.code)
         return legacy_headers(ept), False
 
 
 def refused_auth(resp: Any) -> str | None:
-    """The x-mind-error code when Mind refused the credential in a way a fresh
-    token/proof can fix, else None."""
-    if getattr(resp, "status_code", 0) != 401:
-        return None
-    code = str((getattr(resp, "headers", None) or {}).get("x-mind-error") or "").strip().lower()
-    return code if code in REMINT_CODES else None
+    """The x-mind-error code when Mind refused the credential in a way a fresh token/proof can fix."""
+    return service_auth.refused_code(resp, "x-mind-error")
 
 
 def forget_token() -> None:
     """Drop the cached mint so the next headers() call asks Eternitas for a new one."""
-    try:
-        from windyfly.eternitas import agent_keys as ak
-
-        ak.clear_token_cache()
-    except Exception:  # noqa: BLE001
-        pass
+    service_auth.forget_token()
 
 
 def _call(send: Any, method: str, url: str, ept: str) -> Any:
