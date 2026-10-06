@@ -56,6 +56,9 @@ _BEARER_RE = re.compile(
 
 
 def _redact(text: str) -> str:
+    from windyfly.vault.redactor import redact as _vault_redact
+
+    text = _vault_redact(text)  # Vault lease values by exact value (strand gene G6.1)
     text = _TELEGRAM_TOKEN_RE.sub(r"\1***REDACTED***", text)
     text = _API_KEY_RE.sub(r"\1***REDACTED***", text)
     text = _WK_KEY_RE.sub(r"\1***REDACTED***", text)
