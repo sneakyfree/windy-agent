@@ -181,6 +181,21 @@ def set_model(platform: str, channel_id: str, model: str | None) -> None:
     _update_field(platform, channel_id, "model", model)
 
 
+def clear_all_models() -> int:
+    """Drop every channel's /model preference (the agent's own switch in Windy Mind
+    must show everywhere). Returns how many channels had one."""
+    n = 0
+    with _lock:
+        state = _load()
+        for k, entry in list(state.items()):
+            if isinstance(entry, dict) and entry.get("model"):
+                state[k] = {**entry, "model": None}
+                n += 1
+        if n:
+            _save(state)
+    return n
+
+
 def set_memory_cap(
     platform: str, channel_id: str, cap: int | None,
 ) -> None:

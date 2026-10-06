@@ -137,6 +137,20 @@ def client_post(client: Any, path: str, ept: str, body: dict[str, Any]) -> Any:
     return _call(lambda auth: client.post(path, json=body, headers=auth), "POST", url, ept)
 
 
+def request(method: str, url: str, ept: str, body: dict[str, Any] | None = None,
+            timeout: float = 10.0, extra_headers: dict[str, str] | None = None) -> Any:
+    """Any method to Mind with EPT+agent (a fresh DPoP proof on non-GET), same retry/fallback as post()."""
+    import httpx
+
+    def _send(auth: dict[str, str]) -> Any:
+        h = {**auth, **(extra_headers or {})}
+        if body is not None:
+            h["Content-Type"] = "application/json"
+        return httpx.request(method.upper(), url, headers=h, json=body, timeout=timeout)
+
+    return _call(_send, method.upper(), url, ept)
+
+
 def get(url: str, ept: str, timeout: float) -> Any:
     """GET from Mind, bearer-only. A refused credential retries once with the legacy EPT."""
     import httpx

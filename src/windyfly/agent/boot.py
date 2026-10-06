@@ -338,6 +338,11 @@ def _step_register_mcp_client(ctx: BootContext) -> None:
     register_mcp_client_capabilities(ctx.capability_registry, ctx.config)
 
 
+def _step_register_mind_model(ctx: BootContext) -> None:
+    from windyfly.agent.capabilities.mind_model import register_mind_model_capabilities
+    register_mind_model_capabilities(ctx.capability_registry, ctx.config)
+
+
 def _step_register_cloudflare(ctx: BootContext) -> None:
     from windyfly.agent.capabilities.cloudflare import (
         register_cloudflare_capabilities,
@@ -499,6 +504,11 @@ def default_capability_registration_sequence() -> list[Step]:
         Step(
             "capabilities.mcp_client",
             _step_register_mcp_client,
+            requires=("capabilities.audit",),
+        ),
+        Step(
+            "capabilities.mind_model",
+            _step_register_mind_model,
             requires=("capabilities.audit",),
         ),
         Step(

@@ -1,0 +1,343 @@
+{
+ "owner": "windy-mind",
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://api.windymind.ai/contracts/agent-self.v1.json",
+ "title": "Windy Mind agent self-view (contract C16, Nervous System S18.2 + S18.5)",
+ "description": "GET /v1/agents/me: what powers the CALLING AGENT. Callers: an EPT / EPT+agent, or a wm_ key (bound to a passport or not). People get 403 agents_only (owners use /v1/agents/{passport}/power, menu.v1). The owner-only profile fields of menu.v1 1.1.0 (chain_detail, last_served, tier, key, account_kind) are NEVER on this route. Reload signal: `config_version` is a hash of the SETTINGS only (identity, default_model, chain, source, state, state_reason), never of usage, and is also sent as a weak ETag; If-None-Match with it returns 304 when nothing an agent must reload on has changed. Additive changes only within v1. 1.1.0 (S18.3, Hub 10-06): `may_pick` (what this agent may switch itself to; no prices) and `picked_by`; PUT /v1/agents/me/model lets the agent switch ITSELF within may_pick (flag MIND_AGENT_SELF_SWITCH, off = 404); DELETE returns it to the owner's setting. The owner always wins (an owner PUT on /power overrides at once; mode none freezes it), a switch never lifts a pause/off/switch, and each switch sends the owner a Hub Inbox notice (kind agent_switched_model) with a one-tap undo. config_version changes on a switch.",
+ "x-endpoints": [
+  {
+   "method": "GET",
+   "path": "/v1/agents/me",
+   "auth": "agent (EPT / EPT+agent / wm_ key)",
+   "responses": {
+    "200": "#/$defs/AgentSelf",
+    "304": "not modified (If-None-Match = current ETag)",
+    "403": "agents_only (Error envelope)"
+   }
+  },
+  {
+   "method": "PUT",
+   "path": "/v1/agents/me/model",
+   "auth": "agent (EPT / EPT+agent / wm_ key bound to a passport)",
+   "request": "#/$defs/ModelSwitch",
+   "flag": "MIND_AGENT_SELF_SWITCH",
+   "responses": {
+    "200": "#/$defs/AgentSelf",
+    "403": "not_allowed_for_agent (#/$defs/SwitchRefusal) | agents_only",
+    "404": "self-switch off (flag)",
+    "429": "switch_rate (> 10 switches per hour per agent; Retry-After)"
+   }
+  },
+  {
+   "method": "DELETE",
+   "path": "/v1/agents/me/model",
+   "auth": "agent",
+   "flag": "MIND_AGENT_SELF_SWITCH",
+   "responses": {
+    "200": "#/$defs/AgentSelf (back to the owner's setting)",
+    "403": "agents_only"
+   }
+  }
+ ],
+ "$defs": {
+  "AgentSelf": {
+   "type": "object",
+   "required": [
+    "v",
+    "identity",
+    "default_model",
+    "state",
+    "config_version"
+   ],
+   "properties": {
+    "v": {
+     "const": 1
+    },
+    "identity": {
+     "oneOf": [
+      {
+       "type": "object",
+       "required": [
+        "kind",
+        "passport"
+       ],
+       "properties": {
+        "kind": {
+         "const": "passport"
+        },
+        "passport": {
+         "type": "string"
+        }
+       }
+      },
+      {
+       "type": "object",
+       "required": [
+        "kind",
+        "key_id"
+       ],
+       "properties": {
+        "kind": {
+         "const": "key"
+        },
+        "key_id": {
+         "type": [
+          "string",
+          "null"
+         ]
+        }
+       }
+      }
+     ]
+    },
+    "passport": {
+     "type": "string",
+     "description": "passport identity only"
+    },
+    "default_model": {
+     "type": "string",
+     "description": "a catalog model id, or 'auto'"
+    },
+    "chain": {
+     "type": [
+      "array",
+      "null"
+     ],
+     "items": {
+      "type": "string"
+     },
+     "description": "this agent's model chain (main then backups); null for a key without a passport (it follows its owner's order)"
+    },
+    "source": {
+     "enum": [
+      "custom",
+      "inherit",
+      "owner"
+     ]
+    },
+    "state": {
+     "enum": [
+      "on",
+      "off",
+      "paused"
+     ],
+     "description": "off/paused when a grant or a switch (breaker) stops this agent"
+    },
+    "state_reason": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "description": "e.g. zombie, owner, switched_off:actor; a plain code, never content"
+    },
+    "effective": {
+     "type": "object",
+     "description": "passport identity: {model, provider, funded_by} (menu.v1 1.0.0)"
+    },
+    "burn": {
+     "type": "object",
+     "description": "passport identity: this agent's own usage window {window_hours, calls, tokens_in, tokens_out}; NO amounts ever (no usd, cost or micro_usd keys: Hub's money-surface rule; Mind strips menu.v1's cost_usd on this route); never part of config_version",
+     "properties": {
+      "window_hours": {
+       "type": "integer"
+      },
+      "calls": {
+       "type": "integer"
+      },
+      "tokens_in": {
+       "type": "integer"
+      },
+      "tokens_out": {
+       "type": "integer"
+      }
+     },
+     "not": {
+      "anyOf": [
+       {
+        "required": [
+         "cost_usd"
+        ]
+       },
+       {
+        "required": [
+         "usd"
+        ]
+       },
+       {
+        "required": [
+         "cost"
+        ]
+       },
+       {
+        "required": [
+         "micro_usd"
+        ]
+       }
+      ]
+     }
+    },
+    "config_version": {
+     "type": "string",
+     "pattern": "^[0-9a-f]{16}$"
+    },
+    "may_pick": {
+     "type": "object",
+     "required": [
+      "mode",
+      "models"
+     ],
+     "additionalProperties": false,
+     "description": "S18.3 (Hub 10-06): which models this agent may switch itself to. free_and_own = free models + models on the owner's own connected keys (never house-paid); none = only the owner chooses; list = the owner's explicit list. `models` = the ids the agent may pick RIGHT NOW (resolved), never prices. Existing owners start at none; owners/helpers created after the flag start at free_and_own.",
+     "properties": {
+      "mode": {
+       "enum": [
+        "free_and_own",
+        "none",
+        "list"
+       ]
+      },
+      "models": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      },
+      "source": {
+       "enum": [
+        "owner",
+        "agent"
+       ],
+       "description": "owner = the owner's default for all agents; agent = this agent's own override"
+      }
+     }
+    },
+    "picked_by": {
+     "enum": [
+      "owner",
+      "agent",
+      null
+     ],
+     "description": "1.1.0: who set the current model/chain: agent = this agent switched itself (S18.3); null = nothing custom"
+    }
+   },
+   "not": {
+    "anyOf": [
+     {
+      "required": [
+       "chain_detail"
+      ]
+     },
+     {
+      "required": [
+       "last_served"
+      ]
+     },
+     {
+      "required": [
+       "tier"
+      ]
+     },
+     {
+      "required": [
+       "key"
+      ]
+     },
+     {
+      "required": [
+       "account_kind"
+      ]
+     }
+    ]
+   }
+  },
+  "ModelSwitch": {
+   "type": "object",
+   "additionalProperties": false,
+   "description": "Exactly one of model or chain. Every id must be in may_pick.models.",
+   "oneOf": [
+    {
+     "required": [
+      "model"
+     ]
+    },
+    {
+     "required": [
+      "chain"
+     ]
+    }
+   ],
+   "properties": {
+    "model": {
+     "type": "string"
+    },
+    "chain": {
+     "type": "array",
+     "minItems": 1,
+     "maxItems": 3,
+     "items": {
+      "type": "string"
+     }
+    }
+   }
+  },
+  "SwitchRefusal": {
+   "type": "object",
+   "required": [
+    "error"
+   ],
+   "description": "403 not_allowed_for_agent, in the envelope Mind answers on its agent/menu routes: {error:{code, message, retry_after_s, allowed}}; allowed = the models the agent MAY pick (ids only, no prices).",
+   "properties": {
+    "error": {
+     "type": "object",
+     "required": [
+      "code",
+      "message",
+      "allowed"
+     ],
+     "properties": {
+      "code": {
+       "const": "not_allowed_for_agent"
+      },
+      "message": {
+       "type": "string"
+      },
+      "retry_after_s": {
+       "type": [
+        "integer",
+        "null"
+       ]
+      },
+      "allowed": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     }
+    }
+   }
+  }
+ },
+ "x-owner-notice": {
+  "kind": "agent_switched_model",
+  "to": "Hub Inbox (compute-alert), one per switch, batched to one per agent per hour",
+  "payload": [
+   "owner_windy_identity_id",
+   "passport",
+   "from",
+   "to",
+   "from_label",
+   "to_label",
+   "funded_by (free | own_key)",
+   "at",
+   "undo (restores the chain from before the first switch of the batch)",
+   "count (batched)",
+   "first_from_label (batched)"
+  ],
+  "wording": "Hub's, verbatim (specs/MIND_S18_3_AGENT_SELF_SWITCH_HUB_RULINGS_2026-10-06.md); no amounts anywhere",
+  "added_by_hub": [
+   "agent_name (Hub fills it from its own registry; Mind has no helper names)"
+  ],
+  "batching": "one event per switch; batch {count, first_from, first_from_label, first_from_chain, since} covers the agent last hour; Hub collapses cards by (passport, hour); a batched undo restores first_from_chain"
+ }
+}

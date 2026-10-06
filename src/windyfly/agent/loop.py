@@ -934,6 +934,7 @@ def _agent_respond_turn(
     # 1.75. Budget enforcement
     # Model selection precedence (PR #197):
     #   1. Per-channel /model preference (session_reset.get_model)
+    #   1b. a model picked in Windy Mind (mind_self.picked_model)
     #   2. env DEFAULT_MODEL
     #   3. config agent.default_model
     #   4. "gpt-4o-mini" last-resort
@@ -943,8 +944,11 @@ def _agent_respond_turn(
     _channel_model = (
         get_model(_plat, _chan) if (_plat and _chan) else None
     )
+    from windyfly.agent import mind_self as _mind_self
+
     model = (
         _channel_model
+        or _mind_self.picked_model()  # picked in Windy Mind (the agent itself or its owner)
         or os.environ.get("DEFAULT_MODEL")
         or config.get("agent", {}).get("default_model")
         or "gpt-4o-mini"
