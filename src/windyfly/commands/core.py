@@ -1049,6 +1049,7 @@ def _register_all():
     ) -> str:
         """Resolution order for "which model is active for this turn":
           1. Per-channel ``/model`` preference (if set)
+          1b. A model picked in Windy Mind (the agent itself or its owner)
           2. ``DEFAULT_MODEL`` env var
           3. ``[agent].default_model`` from config
           4. Hardcoded fallback ``claude-sonnet-4-6``
@@ -1062,6 +1063,14 @@ def _register_all():
                     return m
             except Exception:
                 pass
+        try:
+            from windyfly.agent import mind_self
+
+            picked = mind_self.picked_model()
+            if picked:
+                return picked
+        except Exception:
+            pass
         env = os.environ.get("DEFAULT_MODEL")
         if env:
             return env

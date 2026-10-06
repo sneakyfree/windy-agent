@@ -1,0 +1,331 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://windymind.ai/contracts/mind-refusal.v1.json",
+  "title": "Windy Mind refusal and stop codes (contract C5; plan v2.1)",
+  "description": "The machine signal is the `x-mind-error` RESPONSE HEADER: stable, safe to log and to branch on. Bodies: the /v1/tokens and /internal/v1/agents routes answer {error, code, message}; the compute walls (chat, speech) still answer FastAPI's {detail: <plain words>} until each wall migrates into services/admission.py (S4.0), so clients branch on the header, never on body text. `status` = what Mind answers today; `agent` = what a well-behaved agent does (Windy Agent #445 semantics). Codes marked planned are reserved names, not emitted yet.",
+  "owner": "windy-mind",
+  "x-codes": {
+    "grant_off": {
+      "status": 403,
+      "agent": "STOP: no retry, no fallback (also arrives as an SSE {error:{code}} line mid-stream when MIND_STREAM_KILL_ENABLED)"
+    },
+    "token_revoked": {
+      "status": 401,
+      "agent": "STOP; tell the owner once"
+    },
+    "token_expired": {
+      "status": 401,
+      "agent": "STOP; tell the owner once"
+    },
+    "token_paused": {
+      "status": 403,
+      "agent": "STOP; tell the owner once"
+    },
+    "token_read_only": {
+      "status": 403,
+      "agent": "a read token never spends: use another token"
+    },
+    "owner_only": {
+      "status": 403,
+      "agent": "tokens and agents can't manage tokens (L9)"
+    },
+    "step_up_required": {
+      "status": 401,
+      "agent": "humans only: sign in again (prompt=login)"
+    },
+    "model_disabled": {
+      "status": 403,
+      "agent": "retry once without a model"
+    },
+    "empty_answer": {
+      "status": 502,
+      "agent": "the model ran out of room before answering: retry once, raise max_tokens, or pick another model"
+    },
+    "model_not_available": {
+      "status": 404,
+      "agent": "send model \"auto\" or one from GET /v1/models"
+    },
+    "vision_off": {
+      "status": 400,
+      "agent": "send text only"
+    },
+    "early_access": {
+      "status": 403,
+      "agent": "the feature isn't open to this account yet"
+    },
+    "vision_consent_required": {
+      "status": 403,
+      "agent": "show the picture notice and get the person's OK first"
+    },
+    "model_cannot_see": {
+      "status": 400,
+      "agent": "send model \"auto\" or a vision model"
+    },
+    "code_allowance_used": {
+      "status": 429,
+      "agent": "not a stop; Retry-After"
+    },
+    "dpop_required": {
+      "status": 401,
+      "agent": "send a DPoP proof (EPT+agent on a non-GET)"
+    },
+    "invalid_dpop": {
+      "status": 401,
+      "agent": "fix the proof: htm/htu/iat/jti/key"
+    },
+    "mode_b_required": {
+      "status": 401,
+      "agent": "the 365-day EPT is retired here: mint an EPT+agent and send a DPoP proof"
+    },
+    "dpop_replay": {
+      "status": 401,
+      "agent": "fresh jti per request"
+    },
+    "dpop_unavailable": {
+      "status": 503,
+      "agent": "busy-retry"
+    },
+    "wrong_audience": {
+      "status": 401,
+      "agent": "mint the EPT+agent with aud windy-mind"
+    },
+    "bad_token": {
+      "status": 401,
+      "agent": "service callers: wrong X-Service-Token"
+    },
+    "not_this_owner": {
+      "status": 409,
+      "agent": "Hub: that agent belongs to another account"
+    },
+    "too_many_tokens": {
+      "status": 429,
+      "agent": "revoke one first"
+    },
+    "too_many_new_tokens": {
+      "status": 429,
+      "agent": "try again within the hour"
+    },
+    "ei_too_low": {
+      "status": 403,
+      "agent": "pick another model or auto (not a stop)",
+      "planned": true
+    },
+    "ration_spent": {
+      "status": 429,
+      "agent": "not a stop: Retry-After to the 00:00 UTC reset; tell the owner once with x-mind-power-pack-url (D-G: past the free floor without a power pack)"
+    },
+    "budget_spent": {
+      "status": 402,
+      "agent": "free continues; paid stops until the owner raises the cap"
+    },
+    "agents_cannot_connect": {
+      "status": 403,
+      "agent": "only the signed-in owner connects a source"
+    },
+    "humans_only": {
+      "status": 403,
+      "agent": "owner-only route: sign in as the owner"
+    },
+    "no_identity": {
+      "status": 403,
+      "agent": "sign in with Windy (no identity on this token)"
+    },
+    "not_your_agent": {
+      "status": 404,
+      "agent": "that agent isn't on this account"
+    },
+    "chain_not_supported_yet": {
+      "status": 422,
+      "agent": "per-agent order not available yet; the owner's default order applies"
+    },
+    "invalid_value": {
+      "status": 422,
+      "agent": "fix the field named in the message"
+    },
+    "mind_unavailable": {
+      "status": 503,
+      "agent": "busy-retry (Retry-After)"
+    },
+    "oauth_state_invalid": {
+      "status": 400,
+      "agent": "start the provider sign-in again"
+    },
+    "oauth_exchange_failed": {
+      "status": 400,
+      "agent": "the provider refused the approval: try again"
+    },
+    "bad_id": {
+      "status": 400,
+      "agent": "send ids, not names"
+    },
+    "no_rows": {
+      "status": 400,
+      "agent": "ingest: body must be {rows:[...]}"
+    },
+    "too_many_rows": {
+      "status": 413,
+      "agent": "ingest: at most 100 rows per request"
+    },
+    "request_id_conflict": {
+      "status": 409,
+      "agent": "ingest/budget: that request_id belongs to another owner"
+    },
+    "unauthorized": {
+      "status": 401,
+      "agent": "service callers: a valid X-Service-Token is required"
+    },
+    "route_table_unavailable": {
+      "status": 503,
+      "agent": "busy-retry (Retry-After 60)"
+    },
+    "switched_off": {
+      "status": 503,
+      "agent": "the surface is switched off: retry later (Retry-After 60)"
+    },
+    "bad_input": {
+      "status": 400,
+      "agent": "speech: the voice engine could not read that text"
+    },
+    "too_long": {
+      "status": 400,
+      "agent": "speech: shorten the text"
+    },
+    "unknown_format": {
+      "status": 400,
+      "agent": "speech: use a listed response_format"
+    },
+    "unknown_voice": {
+      "status": 400,
+      "agent": "speech: GET /v1/audio/voices lists them"
+    },
+    "voice_busy": {
+      "status": 503,
+      "agent": "busy-retry (Retry-After 60)"
+    },
+    "not_authenticated": {
+      "status": 401,
+      "agent": "send a credential: Authorization: Bearer <token> (or DPoP <token> with a DPoP proof)"
+    },
+    "engine_switched_off": {
+      "status": 503,
+      "agent": "the house switched this engine off; do not call it"
+    },
+    "unknown_engine": {
+      "status": 422,
+      "agent": "Mind admits no such engine/surface pair (C12)"
+    },
+    "admit_required": {
+      "status": 401,
+      "agent": "engine: mint an admit from Mind first (C12)"
+    },
+    "admit_invalid": {
+      "status": 401,
+      "agent": "engine: the admit failed signature/claims; mint a new one"
+    },
+    "admit_expired": {
+      "status": 401,
+      "agent": "engine: the admit is past exp; mint a new one"
+    },
+    "admit_exhausted": {
+      "status": 429,
+      "agent": "engine: this admit's max_calls/max_units is used up; mint another (distinct from the engine's own rate limit)"
+    },
+    "admit_unverifiable": {
+      "status": 503,
+      "agent": "engine: no Mind keys yet; retry shortly"
+    },
+    "bad_month": {
+      "status": 422,
+      "agent": "statement month must be YYYY-MM"
+    },
+    "unknown_source": {
+      "status": 422,
+      "agent": "C4 order: use source ids from the registry (provider ids)"
+    },
+    "embeddings_unavailable": {
+      "status": 503,
+      "agent": "embeddings not configured on Mind; retry later"
+    },
+    "own_key_required": {
+      "status": 402,
+      "agent": "this model runs only on the owner's own connected key"
+    },
+    "quota_exhausted": {
+      "status": 429,
+      "agent": "the source's free quota is used up; retry later or use another source"
+    },
+    "upstream_error": {
+      "status": 502,
+      "agent": "the source didn't answer; retry shortly"
+    },
+    "stt_translation_unavailable": {
+      "status": 503,
+      "agent": "the GPU speech lane is busy and only it can translate into that language: retry after Retry-After, or ask for English (task translate)"
+    },
+    "agents_only": {
+      "status": 403,
+      "agent": "this route is for agents; people use /v1/agents/{passport}/power"
+    },
+    "not_allowed_for_agent": {
+      "status": 403,
+      "planned": true,
+      "agent": "pick one of `allowed` in the body, or ask your owner (not a stop)"
+    },
+    "switch_rate": {
+      "status": 429,
+      "planned": true,
+      "agent": "too many self-switches this hour: Retry-After"
+    },
+    "context_too_large": {
+      "status": 413,
+      "agent": "shorten or pick a larger model; not a stop",
+      "message": "This request is too long for the models available right now. Shorten it, or connect your own key to use a larger model.",
+      "note": "Mind only: a request that CARRIES TOOLS and does not fit the local GPU lane (MIND_VERON_CTX_TOKENS) skips that lane; when no lane in the chain fits, 413. Plain chat without tools is unchanged (Hub 10-06)."
+    }
+  },
+  "$defs": {
+    "Error": {
+      "type": "object",
+      "required": [
+        "error",
+        "code",
+        "message"
+      ],
+      "properties": {
+        "error": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "retry_after_s": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "power_pack_url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "WallBody": {
+      "type": "object",
+      "required": [
+        "detail"
+      ],
+      "properties": {
+        "detail": {
+          "type": "string"
+        }
+      },
+      "description": "Compute walls today (chat, speech); branch on the x-mind-error header."
+    }
+  }
+}
