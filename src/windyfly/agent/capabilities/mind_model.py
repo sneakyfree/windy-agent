@@ -62,12 +62,12 @@ def register_mind_model_capabilities(registry: CapabilityRegistry, config: dict[
         id="mind.switch_model",
         name="Switch my model",
         description=(
-            "Switch the model that powers this agent when the OWNER asks. Pass the owner's words; I match them against the models I may pick. If ambiguous ask which, if not allowed say so plainly. Never claim a switch unless the result says ok."
+            "Switch the model that powers this agent when the OWNER asks. Pass the exact model id from mind.list_models. If not allowed, say so plainly. Never claim a switch unless the result says ok."
         ),
         handler=switch_model,
         input_schema={
             "type": "object",
-            "properties": {"model": {"type": "string", "description": "The model name or the owner's words."}},
+            "properties": {"model": {"type": "string", "description": "Exact model id from mind.list_models."}},
             "required": ["model"],
             "additionalProperties": False,
         },

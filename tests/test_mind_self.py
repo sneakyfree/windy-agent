@@ -54,23 +54,6 @@ def _answer(monkeypatch, calls, *responses):
     monkeypatch.setattr("httpx.request", fake)
 
 
-class TestResolve:
-    def test_exact_id(self):
-        assert mind_self.resolve_words("grok-4", MODELS) == ("one", ["grok-4"])
-
-    def test_plain_words_one_match(self):
-        assert mind_self.resolve_words("Claude Haiku", MODELS) == ("one", ["claude-haiku-4-5"])
-        assert mind_self.resolve_words("switch to grok", MODELS) == ("one", ["grok-4"])
-
-    def test_ambiguous_asks(self):
-        kind, hits = mind_self.resolve_words("groq", MODELS)
-        assert kind == "ambiguous" and len(hits) == 2
-
-    def test_only_inside_the_allowed_list(self):
-        assert mind_self.resolve_words("gpt-5", MODELS) == ("none", [])
-        assert mind_self.resolve_words("", MODELS) == ("none", [])
-
-
 class TestReading:
     def test_picked_model_only_when_someone_picked(self, monkeypatch, _on):
         assert mind_self.picked_model() is None
@@ -121,17 +104,23 @@ class TestSwitching:
         assert out["ok"] is False and "Models my helpers may pick" in out["say"]
         assert not [c for c in _on if c[0] == "PUT"]
 
-    def test_ambiguous_word_asks_and_does_not_switch(self, _on):
-        out = mind_self.switch_model("groq")
-        assert out["ok"] is False and out["ambiguous"] and len(out["options"]) == 2
+    def test_words_that_are_not_an_exact_id_do_not_switch_and_list_the_choices(self, _on):
+        for words in ("groq", "Claude Haiku", "gpt-5", ""):
+            out = mind_self.switch_model(words)
+            assert out["ok"] is False and out["allowed"] == MODELS and "can pick from" in out["say"]
         assert not [c for c in _on if c[0] == "PUT"]
+
+    def test_exact_id_matches_case_insensitively(self, monkeypatch, _on):
+        _answer(monkeypatch, _on, _resp(body=_self()), _resp(body=_self(picked_by="agent"), etag='W/"5"'))
+        mind_self.switch_model("  GROK-4 ")
+        assert [c for c in _on if c[0] == "PUT"][0][2]["json"] == {"model": "grok-4"}
 
     def test_success_puts_the_exact_id_and_clears_channel_pins(self, monkeypatch, _on):
         cleared = []
         monkeypatch.setattr("windyfly.agent.session_reset.clear_all_models", lambda: cleared.append(1) or 1)
         _answer(monkeypatch, _on, _resp(body=_self()),
                 _resp(body=_self(picked_by="agent", effective={"model": "grok-4"}), etag='W/"5"'))
-        out = mind_self.switch_model("grok")
+        out = mind_self.switch_model("grok-4")
         assert out["ok"] and out["model"] == "grok-4"
         put = [c for c in _on if c[0] == "PUT"][0]
         assert put[1].endswith("/v1/agents/me/model") and put[2]["json"] == {"model": "grok-4"}
