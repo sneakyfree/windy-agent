@@ -153,9 +153,10 @@ class Ticket:
 
 @dataclass
 class TicketResult:
-    status: str                     # complete | partial | failed | expired | cancelled | timeout | interrupted
+    status: str                     # complete | partial | failed | expired | cancelled | lost | interrupted
     result: dict[str, Any] = field(default_factory=dict)
     detail: str = ""
+    cancelled: bool = False         # interrupted: the hub confirmed the cancel
 
 
 def _dict(value: Any) -> dict[str, Any]:
@@ -281,7 +282,10 @@ def wait_for_ticket(
                 data = _json(resp)
                 if resp.status_code != 200:
                     if resp.status_code in (401, 403, 404, 410):
-                        return TicketResult(status="failed",
+                        # We can no longer read the ticket; the hub did not say it ended. Try to
+                        # cancel it, but keep the key: the next `windy go` gets the same ceremony.
+                        cancel_ticket(ticket.ticket_id, token, transport=transport)
+                        return TicketResult(status="lost",
                                             detail=f"the hub answered HTTP {resp.status_code} "
                                                    f"{str(data.get('error') or '')}".strip())
                     continue
@@ -298,8 +302,8 @@ def wait_for_ticket(
                     logger.info("Hatch ticket %s: %s", ticket.ticket_id, status)
                     return TicketResult(status=status, result=result, detail=detail)
     except KeyboardInterrupt:
-        cancel_ticket(ticket.ticket_id, token, transport=transport)
-        return TicketResult(status="interrupted", detail="cancelled from the terminal")
+        done = cancel_ticket(ticket.ticket_id, token, transport=transport)
+        return TicketResult(status="interrupted", detail="cancelled from the terminal", cancelled=done)
 
 
 def cancel_ticket(ticket_id: str, token: str, *, transport: httpx.BaseTransport | None = None) -> bool:
@@ -417,7 +421,19 @@ def go(
         disclosure.after_hatch(lambda line: console.print(f"  [dim]{line}[/dim]"))
         return 0
 
-    next_attempt()
+    # A new key (a new ticket next time) only once this ticket is known to be over: the hub said
+    # failed/expired/cancelled, or our Ctrl-C cancel went through. A ticket we merely lost sight of
+    # keeps its key, so the next `windy go` gets the same ceremony back, never a second one.
+    ended = outcome.status in ("failed", "expired", "cancelled") or (
+        outcome.status == "interrupted" and outcome.cancelled)
+    if ended:
+        next_attempt()
+    if not ended and outcome.status in ("lost", "interrupted"):
+        why = ("Stopped waiting" if outcome.status == "interrupted"
+               else f"Couldn't check on the ceremony ({outcome.detail})")
+        console.print(f"  [yellow]{why}.[/yellow] If the ceremony is still open in your browser you "
+                      "can finish it. Run [bold]windy go[/bold] to pick the same ceremony back up.")
+        return 1
     messages = {
         "failed": "The hatch failed",
         "expired": "The ceremony link expired",

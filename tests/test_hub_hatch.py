@@ -189,6 +189,40 @@ def test_dead_tickets_are_said_plainly_and_rotate_the_key(status, words):
         assert "stage eternitas" in out and "code issuer_timeout" in out
 
 
+@pytest.mark.parametrize("code", [401, 403, 404, 410])
+def test_a_ticket_we_lose_sight_of_keeps_its_key_so_the_retry_is_the_same_ceremony(code):
+    hub = FakeHub(polls=[(code, {"error": "gone"})])
+    rc, out, _, _ = _go(hub)
+    assert rc == 1 and "Couldn't check on the ceremony" in out and "pick the same ceremony back up" in out
+    assert any(r.url.path.endswith("/cancel") for r in hub.requests)  # best effort
+    hub2 = FakeHub(polls=[(200, {"status": "pending"})])
+    _go(hub2)
+    keys = {r.headers["Idempotency-Key"] for h in (hub, hub2) for r in h.requests if r.method == "POST"
+            and r.url.path == "/api/v1/agent/hatch/tickets"}
+    assert len(keys) == 1  # the second `windy go` sent the SAME key
+
+
+@pytest.mark.parametrize("cancel, rotates", [((200, {"status": "cancelled"}), True), ((500, {}), False)])
+def test_ctrl_c_rotates_the_key_only_when_the_cancel_went_through(cancel, rotates):
+    key_before = hub_hatch.idempotency_key()
+    hub = FakeHub(polls=[(200, {"status": "pending"})], cancel=cancel)
+    clock = Clock()
+    calls = {"n": 0}
+
+    def sleep(s):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise KeyboardInterrupt
+        clock.sleep(s)
+
+    console, buf = _console()
+    rc = hub_hatch.go(console, transport=hub.transport(), sleep=sleep, now=clock.now, open_browser=lambda u: None)
+    assert rc == 1
+    assert (hub_hatch.idempotency_key() != key_before) is rotates
+    assert ("Nothing was created" in buf.getvalue()) is rotates
+    assert ("pick the same ceremony back up" in buf.getvalue()) is (not rotates)
+
+
 def test_pending_ticket_expires_at_expires_at():
     clock = Clock()
     hub = FakeHub(create=(201, ticket_body(expires_at=_iso(T0 + 10))), polls=[(200, {"status": "pending"})])
