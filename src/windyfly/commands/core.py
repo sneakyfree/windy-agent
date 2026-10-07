@@ -1186,7 +1186,7 @@ def _register_all():
            "03_chat", _make_model_alias_handler(_alias))
 
     # ── /memory ─ pick the context-window cap for this channel ───
-    async def cmd_memory(ctx):
+    async def cmd_contextcap(ctx):
         """Show or set the context-window cap on this channel.
 
         Conflict resolution (single matrix, four-way):
@@ -1203,16 +1203,6 @@ def _register_all():
         channel_id = (ctx or {}).get("channel_id")
         raw = (ctx or {}).get("_raw", "") or ""
         arg = raw.strip()
-        args_list = (ctx or {}).get("_args", []) or []
-
-        # ── Developer subcommands (search/nodes/export/clear/stats) ─
-        # Routed to the dispatcher merged from the old /memory; if it
-        # returns "" the input wasn't a recognized subcommand and we
-        # fall through to the new cap-setting behavior.
-        if args_list:
-            sub = await cmd_memory_subcommand(args_list)
-            if sub:
-                return sub
 
         # ── No arg: show current ─────────────────────────────────
         if not arg:
@@ -1228,21 +1218,21 @@ def _register_all():
             effective = pinned if pinned is not None else native
             origin = "your pick" if pinned is not None else "model default"
             lines = [
-                f"🧠 Current memory cap: {format_cap(effective)} "
+                f"🧠 Current context cap: {format_cap(effective)} "
                 f"({origin})",
                 "",
                 f"Model: {current_model} — native {format_cap(native)}"
                 + (f", extended up to {format_cap(ext)}" if ext else ""),
                 "",
-                "Set with: `/memory 1M` (or `/memory 500K`, `/memory "
-                "default`, `/memory 200K`).",
+                "Set with: `/contextcap 1M` (or `/contextcap 500K`, `/contextcap "
+                "default`, `/contextcap 200K`).",
             ]
             return "\n".join(lines)
 
         # ── With arg: parse + validate + persist ─────────────────
         if not platform or not channel_id:
             return (
-                "🪰 /memory received but I couldn't identify your "
+                "🪰 /contextcap received but I couldn't identify your "
                 "chat session — channel context missing."
             )
         from windyfly.agent.session_reset import (
@@ -1251,14 +1241,14 @@ def _register_all():
         if arg.lower() in ("default", "reset", "clear"):
             set_memory_cap(platform, channel_id, None)
             return (
-                "🧠 Memory cap cleared — using your model's native "
+                "🧠 Context cap cleared — using your model's native "
                 "default. Effective on your next message."
             )
         cap = parse_cap(arg)
         if cap is None:
             return (
-                f"🤔 I couldn't parse '{arg}' as a memory size. "
-                "Try `/memory 1M`, `/memory 500K`, or `/memory "
+                f"🤔 I couldn't parse '{arg}' as a context size. "
+                "Try `/contextcap 1M`, `/contextcap 500K`, or `/contextcap "
                 "default`."
             )
         current_model = _resolve_active_model(platform, channel_id)
@@ -1280,20 +1270,20 @@ def _register_all():
                 "flat rate)"
             )
         return (
-            f"🧠 Memory cap set to {format_cap(cap)}{note}. "
+            f"🧠 Context cap set to {format_cap(cap)}{note}. "
             "Effective on your next message."
         )
 
-    _r("memory", "Show or set this channel's context-window cap",
-       "03_chat", cmd_memory)
+    _r("contextcap", "Show or set this channel's context-window cap",
+       "03_chat", cmd_contextcap)
 
     async def cmd_reset_chat(ctx):
-        return "RESET_SESSION"
+        return await cmd_new(ctx)  # same thing /new does; it used to answer a bare sentinel nobody read
     _r("reset", "Reset conversation context completely", "03_chat", cmd_reset_chat)
 
     async def cmd_undo(ctx):
-        return "UNDO_LAST"
-    _r("undo", "Undo the last exchange", "03_chat", cmd_undo)
+        return "Nothing can be undone yet: I can't take back anything I've done for you."
+    _r("undo", "Undo the last change I made for you, where that can be undone", "03_chat", cmd_undo)
 
     async def cmd_retry(ctx):
         return "RETRY_LAST"
@@ -1643,6 +1633,41 @@ def _register_all():
                 return f"Error: {e}"
         return ""  # no matching subcommand
 
+    async def cmd_memory(ctx):
+        """What I remember about you (commands.v1 ``memory [search words]``): the facts and preferences
+        I have saved, or the ones matching the words. The context-window setting that used to live
+        here is /contextcap. The developer subcommands (search/nodes/export/clear/stats) still work."""
+        args_list = (ctx or {}).get("_args", []) or []
+        if args_list:
+            sub = await cmd_memory_subcommand(args_list)
+            if sub:
+                return sub
+            from windyfly.agent.models_catalog import parse_cap
+            if args_list[0].lower() in ("default", "reset") or parse_cap(" ".join(args_list)) is not None:
+                return ("The context-window setting moved: use /contextcap "
+                        f"(for example /contextcap {' '.join(args_list)}).")
+        if not _db:
+            return "I can't read my memory right now."
+        try:
+            from windyfly.memory.nodes import get_all_nodes, search_nodes
+            query = " ".join(args_list).strip()
+            if query:
+                nodes = search_nodes(_db, query, limit=10)
+                empty = f"I don't remember anything about \"{query}\"."
+                head = f"What I remember about \"{query}\":"
+            else:
+                nodes = get_all_nodes(_db, node_type="fact", limit=20)
+                nodes += get_all_nodes(_db, node_type="preference", limit=20)
+                empty = "I haven't saved any facts or preferences about you yet."
+                head = "What I remember about you:"
+            if not nodes:
+                return empty
+            return "\n".join([head] + [f"- {n.get('name', '?')}" for n in nodes[:30]])
+        except Exception as e:  # noqa: BLE001
+            logger.warning("/memory failed: %s", e)
+            return "I couldn't read my memory just now."
+    _r("memory", "What I remember about you", "06_memory", cmd_memory, usage="memory [search words]")
+
     async def cmd_intents(ctx):
         if not _db:
             return "Database not available."
@@ -1680,9 +1705,12 @@ def _register_all():
     _r("facts", "List known facts about the user", "06_memory", cmd_facts)
 
     async def cmd_forget(ctx):
-        return ("To forget something specific, tell me in chat: 'forget that I like pizza'\n"
-                "To clear all memory: /memory clear (terminal only, irreversible)")
-    _r("forget", "Remove specific knowledge", "06_memory", cmd_forget, dangerous=True)
+        what = ((ctx or {}).get("_raw") or "").strip()
+        about = f' "{what}"' if what else " anything"
+        return (f"I can't forget{about} yet: removing a memory isn't something I can do from a command today, "
+                "so nothing was removed and everything I remember is still here.")
+    _r("forget", "Make me forget something I remember", "06_memory", cmd_forget, dangerous=True,
+       usage="forget <what>")
 
     async def cmd_remember(ctx):
         fact = (ctx.get("_raw", "") or "").strip()
@@ -1896,7 +1924,17 @@ def _register_budget_through_help():
             return f"Error: {e}"
 
     _r("budget", "Show today's spend vs daily limit", "08_budget", cmd_budget,
-        aliases=["cost", "spend", "usage"], usage="budget [month | set <amount> | breakdown]")
+        aliases=["cost", "spend"], usage="budget [month | set <amount> | breakdown]")
+
+    async def cmd_usage(ctx):
+        """commands.v1 ``usage``. Says what it really shows: today's spend as counted on THIS machine,
+        not Windy Mind's numbers (Mind's usage route doesn't exist yet; switch to it then)."""
+        text = await cmd_budget({**(ctx or {}), "_args": [], "_raw": ""})
+        if text.startswith("Budget: "):
+            return ("Used today, counted on this machine (not Windy Mind's numbers; no token counts here): "
+                    + text[len("Budget: "):])
+        return text
+    _r("usage", "What I have used today (cost, counted on this machine)", "08_budget", cmd_usage)
 
     # ═══════════════════════════════════════════════════════════════
     # EVERYDAY TOOLS (87-96)
@@ -2405,7 +2443,6 @@ def _register_budget_through_help():
 
     async def cmd_help(ctx):
         args = ctx.get("_args", [])
-        plat = ctx.get("platform", "terminal")
         if args:
             cmd = registry.get(args[0])
             if cmd:
@@ -2414,6 +2451,13 @@ def _register_budget_through_help():
                 aliases = f"\nAliases: {', '.join(cmd.aliases)}" if cmd.aliases else ""
                 return f"/{cmd.name} — {cmd.description}{eco}{usage_str}{aliases}\nCategory: {cmd.category.split('_', 1)[-1]}"
             return f"Unknown command: {args[0]}"
-        return registry.format_help(plat)
-    _r("help", "Show all commands or help for a specific command", "13_help", cmd_help,
-       aliases=["commands", "?"], usage="help [command]")
+        # The owner's /help is the SHARED list (one set on every engine, commands.v1); every other
+        # command stays reachable through /commands.
+        from windyfly.commands import shared
+        # /pause and /resume are answered by the rescue layer before the registry, so they exist too.
+        return shared.help_text(lambda name: registry.get(name) is not None or name in ("pause", "resume"))
+    _r("help", "List what I understand", "13_help", cmd_help, aliases=["?"], usage="help [command]")
+
+    async def cmd_commands(ctx):
+        return registry.format_help((ctx or {}).get("platform", "terminal"))
+    _r("commands", "Every command I have", "13_help", cmd_commands)
