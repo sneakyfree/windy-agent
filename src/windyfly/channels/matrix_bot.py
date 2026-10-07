@@ -400,6 +400,9 @@ class WindyFlyMatrixBot(ChannelAdapter):
             if _teams.siblings_stale():  # who counts as the owner's own agent, refreshed off the loop
                 await asyncio.to_thread(_teams.refresh_siblings)
         turn_body = _silence.frame_agent_message(display_name, body) if agent_turn else body
+        from windyfly.tools import mail as _mail_tool
+
+        drafts_before = {d["draft_id"] for d in _mail_tool.pending_drafts()}
         try:
             from windyfly.agent.executor import run_turn
             from windyfly.channels.identity import resolve_band
@@ -439,6 +442,18 @@ class WindyFlyMatrixBot(ChannelAdapter):
             served = pop_served_model(session_id)
             if served:
                 content["uk.windypro.model"] = served
+            # A held email draft the OWNER's own message just caused: tappable [send, wait] under the
+            # question (quick-reply.v1, no authority: a tap is the same word typed).
+            if not agent_turn and _mail_tool.send_confirm_enabled():
+                from windyfly.channels.identity import resolve_band as _rb
+                from windyfly.agent.capabilities.descriptor import Band as _Band
+
+                if ({d["draft_id"] for d in _mail_tool.pending_drafts()} - drafts_before
+                        and _rb("matrix", sender, config=self.config) >= _Band.OWNER):
+                    import secrets as _secrets
+
+                    content["ai.windy.quick_reply"] = {"id": "qr_" + _secrets.token_hex(6),
+                                                       "options": ["send", "wait"]}
             await self.client.room_send(
                 room_id,
                 "m.room.message",
