@@ -675,13 +675,15 @@ _PROVIDER_NAMES = {
 
 def _refused_key_provider(resp: Any) -> str | None:
     """None unless Mind says the owner's OWN provider key was refused (502 + x-mind-error:
-    connection). Then the provider's plain name, or "" when Mind names none."""
+    connection, the provider in ``x-mind-connection`` per mind-refusal.v1 1.3.0). Then the
+    provider's plain name, or "" when Mind names none."""
     if getattr(resp, "status_code", 0) != 502:
         return None
     headers = getattr(resp, "headers", None) or {}
-    if str(headers.get("x-mind-error") or "").strip().lower() != "connection":
+    named = str(headers.get("x-mind-connection") or "").strip()
+    if not named and str(headers.get("x-mind-error") or "").strip().lower() != "connection":
         return None
-    name = str(headers.get("x-mind-provider") or "").strip()
+    name = named or str(headers.get("x-mind-provider") or "").strip()
     if not name:
         try:
             d = resp.json()

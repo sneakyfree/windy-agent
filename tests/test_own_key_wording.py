@@ -22,6 +22,21 @@ def _resp(status=502, error="connection", provider=None, body=None):
 
 
 class TestRefusedKeyDetection:
+    def test_x_mind_connection_header_names_the_provider(self):
+        r = _resp()
+        r.headers = {"x-mind-error": "connection", "x-mind-connection": "groq"}
+        assert models._refused_key_provider(r) == "Groq"
+
+    def test_x_mind_connection_alone_is_enough(self):
+        r = _resp()
+        r.headers = {"x-mind-connection": "anthropic"}
+        assert models._refused_key_provider(r) == "Anthropic"
+
+    def test_x_mind_connection_on_a_non_502_is_not_a_refusal(self):
+        r = _resp(status=200)
+        r.headers = {"x-mind-connection": "groq"}
+        assert models._refused_key_provider(r) is None
+
     def test_header_names_the_provider(self):
         assert models._refused_key_provider(_resp(provider="groq")) == "Groq"
 
