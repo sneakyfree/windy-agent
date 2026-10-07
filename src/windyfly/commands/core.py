@@ -1643,6 +1643,13 @@ def _register_all():
                 return f"Error: {e}"
         return ""  # no matching subcommand
 
+    async def cmd_agents(ctx):
+        """commands.v1 ``agents [on|off]``: whether OTHER agents (not the owner's own) may talk to me."""
+        from windyfly.channels import agent_peers
+        return agent_peers.reply((ctx or {}).get("_raw", ""))
+    _r("agents", "Show or change whether other agents (not yours) may talk to me", "09_identity",
+       cmd_agents, usage="agents [on|off]")
+
     async def cmd_intents(ctx):
         if not _db:
             return "Database not available."
