@@ -327,6 +327,16 @@ class WindyFlyMatrixBot(ChannelAdapter):
         if event_age > 120:
             return
 
+        # Agent teams: a message from another AGENT that arrived before this process started is never
+        # replayed (a restart inside the 120 s window re-answered a sibling's backlog and extended a
+        # live loop on 10-07). Humans keep the 120 s window.
+        from windyfly.channels import silence as _silence_boot
+
+        if (_silence_boot.enabled() and _silence_boot.sender_is_agent(event.sender)
+                and event.server_timestamp / 1000 < self._boot_time):
+            logger.info("silence: dropped a pre-start message from agent %s", event.sender)
+            return
+
         room_id = room.room_id
         body = event.body
         sender = event.sender

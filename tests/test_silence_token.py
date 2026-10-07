@@ -210,3 +210,15 @@ async def test_agent_sender_turn_text_is_framed_human_turn_text_is_not(monkeypat
         assert text.startswith("[Message from your fellow agent Windy 0 2, not your owner") is framed
         if not framed:
             assert text == "hi"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("sender,flag,answered", [(AGENT, "1", False), (HUMAN, "1", True), (AGENT, "0", True)])
+async def test_a_restart_never_replays_an_agent_backlog(monkeypatch, sender, flag, answered):
+    monkeypatch.setenv("WINDY_TEAMS", flag)
+    bot = _bot()
+    room, ev = _event(sender)
+    ev.server_timestamp = (bot._boot_time - 20) * 1000  # sent 20 s BEFORE this process started
+    with patch("windyfly.agent.executor.run_turn", new_callable=AsyncMock, return_value="ok") as rt:
+        await bot._on_message(room, ev)
+    assert (rt.await_count == 1) is answered
