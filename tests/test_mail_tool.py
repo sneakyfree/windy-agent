@@ -118,63 +118,39 @@ class TestSendEmailHappyPath:
 
 
 class TestSendEmailMultiRecipient:
+    """Boss's C-C (10-07): everybody goes on ONE email: one adapter call, one /send."""
+
     @patch("windyfly.tools.mail._adapter")
-    def test_all_succeed_returns_sent(self, mock_adapter: MagicMock) -> None:
+    def test_all_recipients_get_one_message(self, mock_adapter: MagicMock) -> None:
         adapter = MagicMock()
         adapter.send_email.return_value = {"status": "sent", "message_id": "m"}
         mock_adapter.return_value = adapter
 
-        result = send_email(
-            to="a@x.com, b@x.com, c@x.com",
-            subject="s",
-            body="b",
-        )
+        result = send_email(to="a@x.com, b@x.com, c@x.com", subject="s", body="b")
 
         assert result["status"] == "sent"
-        assert result["successes"] == 3
-        assert result["total"] == 3
-        assert len(result["per_recipient"]) == 3
-        assert adapter.send_email.call_count == 3
+        assert result["total"] == 3 and result["recipients"] == {"to": 3, "cc": 0, "bcc": 0}
+        adapter.send_email.assert_called_once()
+        assert adapter.send_email.call_args.args[0] == ["a@x.com", "b@x.com", "c@x.com"]
 
     @patch("windyfly.tools.mail._adapter")
-    def test_mixed_results_returns_partial(self, mock_adapter: MagicMock) -> None:
-        adapter = MagicMock()
-        adapter.send_email.side_effect = [
-            {"status": "sent", "message_id": "m1"},
-            {"status": "failed", "error": "spam suspected"},
-        ]
-        mock_adapter.return_value = adapter
-
-        result = send_email(to="a@x.com, b@x.com", subject="s", body="b")
-        assert result["status"] == "partial"
-        assert result["successes"] == 1
-        assert result["total"] == 2
-
-    @patch("windyfly.tools.mail._adapter")
-    def test_all_fail_returns_failed(self, mock_adapter: MagicMock) -> None:
+    def test_a_failed_send_fails_the_whole_email(self, mock_adapter: MagicMock) -> None:
         adapter = MagicMock()
         adapter.send_email.return_value = {"status": "failed", "error": "boom"}
         mock_adapter.return_value = adapter
 
         result = send_email(to="a@x.com, b@x.com", subject="s", body="b")
-        assert result["status"] == "failed"
-        assert result["successes"] == 0
+        assert result["status"] == "failed" and adapter.send_email.call_count == 1
 
     @patch("windyfly.tools.mail._adapter")
-    def test_adapter_exception_is_caught_per_recipient(self, mock_adapter: MagicMock) -> None:
-        # Trust gate / rate limiter raise; per-recipient capture means one
-        # failure doesn't abort the whole send.
+    def test_adapter_exception_is_caught(self, mock_adapter: MagicMock) -> None:
+        # Trust gate / rate limiter raise: the owner hears it in plain words, nothing is half-sent.
         adapter = MagicMock()
-        adapter.send_email.side_effect = [
-            {"status": "sent", "message_id": "m"},
-            RuntimeError("trust gate denied"),
-        ]
+        adapter.send_email.side_effect = RuntimeError("trust gate denied")
         mock_adapter.return_value = adapter
 
         result = send_email(to="a@x.com, b@x.com", subject="s", body="b")
-        assert result["status"] == "partial"
-        assert result["per_recipient"][1]["status"] == "failed"
-        assert "trust gate denied" in result["per_recipient"][1]["error"]
+        assert result["status"] == "failed" and "trust gate denied" in result["error"]
 
 
 class TestListInbox:

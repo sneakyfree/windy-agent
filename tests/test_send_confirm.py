@@ -15,7 +15,7 @@ def _clean(monkeypatch):
     mail._PENDING.clear()
     sent = []
 
-    def fake_now(to, subject, body, *, approved_by=None):
+    def fake_now(to, subject, body, *, cc=None, bcc=None, approved_by=None):
         sent.append({"to": to, "subject": subject, "body": body, "approved_by": approved_by})
         return {"status": "sent", "provider": "windymail"}
 

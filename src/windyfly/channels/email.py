@@ -35,6 +35,21 @@ class RateLimitedError(Exception):
 # ═══════════════════════════════════════════════════════════════════════
 
 
+def _mail_error_sentence(resp: Any) -> str:
+    """Mail's own sentence for a refused send (``detail``, or the top-level ``message``), never the
+    raw JSON. 4xx are final (do not retry); a 5xx may or may not have sent: check Sent first."""
+    try:
+        d = resp.json()
+        det = d.get("detail") or d.get("message") or d.get("error") if isinstance(d, dict) else None
+        if isinstance(det, str) and det.strip():
+            return det.strip()[:300]
+    except Exception:  # noqa: BLE001
+        pass
+    if resp.status_code >= 500:
+        return "The mail server had trouble, so I can't be sure it went. Check the Sent folder before sending again."
+    return (getattr(resp, "text", "") or "The mail server refused it.")[:300]
+
+
 class WindyMailAdapter:
     """Send and receive email via the Windy Mail API (Stalwart JMAP)."""
 
@@ -71,14 +86,17 @@ class WindyMailAdapter:
         ept = os.environ.get("ETERNITAS_PASSPORT_TOKEN", "").strip()
         return ept or self.jmap_token
 
-    def send_email(self, to: str, subject: str, body: str) -> dict[str, Any]:
-        """Send an email via Windy Mail API.
+    def send_email(self, to: "str | list[str]", subject: str, body: str, *,
+                   cc: "list[str] | None" = None, bcc: "list[str] | None" = None) -> dict[str, Any]:
+        """Send ONE email (one message, everybody on it) via Windy Mail API.
 
         POST /api/v1/send
         Auth: Authorization: Bearer <jmap_token>
 
         Args:
-            to: Recipient email address.
+            to: Recipient email address, or a list of them (one message with all of them).
+            cc: Optional carbon-copy addresses (visible to the others).
+            bcc: Optional blind-copy addresses (hidden from the others).
             subject: Email subject.
             body: Plain text body.
 
@@ -96,17 +114,21 @@ class WindyMailAdapter:
             logger.warning("Email send blocked by trust gate: %s", denied)
             return {"status": "denied", "error": str(denied)}
 
-        # Rate limit check (only if db is available)
+        to_list = [to] if isinstance(to, str) else list(to)
+        everyone = to_list + list(cc or []) + list(bcc or [])
+
+        # Rate limit check (only if db is available): every address on the message counts.
         if self.db is not None:
             try:
                 from windyfly.mail_rate_limiter import MailRateLimiter
 
                 limiter = MailRateLimiter(self.db)
-                check = limiter.check_send_allowed(self.email, to, subject, body)
-                if not check.allowed:
-                    raise RateLimitedError(
-                        f"Email to {to} blocked by rate limiter: {check.reason}"
-                    )
+                for addr in everyone:
+                    check = limiter.check_send_allowed(self.email, addr, subject, body)
+                    if not check.allowed:
+                        raise RateLimitedError(
+                            f"Email to {addr} blocked by rate limiter: {check.reason}"
+                        )
             except RateLimitedError:
                 raise
             except Exception as e:
@@ -114,32 +136,39 @@ class WindyMailAdapter:
 
         import httpx as _httpx
 
+        payload: dict[str, Any] = {
+            "to": to_list,
+            "subject": subject,
+            "body_text": body,
+            "mode": "independent",
+        }
+        if cc:
+            payload["cc"] = list(cc)
+        if bcc:
+            payload["bcc"] = list(bcc)
         try:
             resp = _httpx.post(
                 f"{self.api_url}/api/v1/send",
-                json={
-                    "to": [to],
-                    "subject": subject,
-                    "body_text": body,
-                    "mode": "independent",
-                },
+                json=payload,
                 headers={"Authorization": f"Bearer {self._send_bearer()}"},
                 timeout=10.0,
             )
             if resp.status_code in (200, 201, 202):
                 data = resp.json()
-                logger.info("Windy Mail sent to %s — %s", to, subject)
+                logger.info("Windy Mail sent to %d recipient(s) — %s", len(everyone), subject)
                 if self.db is not None:
                     try:
                         from windyfly.mail_rate_limiter import MailRateLimiter
 
-                        MailRateLimiter(self.db).record_send(self.email, to, body)
+                        rl = MailRateLimiter(self.db)
+                        for addr in everyone:
+                            rl.record_send(self.email, addr, body)
                     except Exception as e:
                         logger.warning("Rate limiter record_send failed: %s", e)
                 return {"status": "sent", "message_id": data.get("message_id")}
             else:
                 logger.warning("Windy Mail send failed: %s %s", resp.status_code, resp.text)
-                return {"status": "failed", "error": resp.text}
+                return {"status": "failed", "error": _mail_error_sentence(resp)}
         except Exception as e:
             logger.error("Windy Mail send error: %s", e)
             return {"status": "failed", "error": str(e)}

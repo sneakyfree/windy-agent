@@ -48,17 +48,18 @@ def test_windy_mail_sends_and_is_named(monkeypatch):
     assert r["status"] == "sent" and r["message_id"] == "wm-1" and r["provider"] == "windymail"
 
 
-def test_multi_recipient_entries_are_annotated(monkeypatch):
-    results = iter([{"status": "sent", "message_id": "a"}, {"status": "failed", "error": "bad addr"}])
+def test_multi_recipient_is_one_message_annotated(monkeypatch):
+    calls = []
 
     class FakeAdapter:
-        def send_email(self, to, subject, body):
-            return next(results)
+        def send_email(self, to, subject, body, **kw):
+            calls.append((to, kw))
+            return {"status": "sent", "message_id": "one"}
 
     with patch.object(mail_mod, "_adapter", return_value=FakeAdapter()):
-        r = send_email("ok@x.com, bad@x.com", "s", "b")
-    assert (r["status"], r["successes"], r["total"]) == ("partial", 1, 2)
-    assert all(p.get("provider") == "windymail" for p in r["per_recipient"])
+        r = send_email("ok@x.com, other@x.com", "s", "b")
+    assert (r["status"], r["total"], r["provider"]) == ("sent", 2, "windymail")
+    assert calls == [(["ok@x.com", "other@x.com"], {"cc": None, "bcc": None})]
 
 
 def test_bridge_email_send_uses_windy_mail(monkeypatch):
