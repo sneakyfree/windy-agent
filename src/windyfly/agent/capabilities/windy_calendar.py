@@ -91,11 +91,8 @@ def register_windy_calendar_capabilities(registry: CapabilityRegistry, config: d
     date = {"type": "string", "pattern": r"^\d{4}-\d{2}-\d{2}$"}
     s = {"type": "string"}
     registry.register(Capability(
-        id="windy_calendar.availability", name="My owner's open times",
-        description=(
-            "Open times on my owner's Windy Calendar between two dates (YYYY-MM-DD, inclusive), earliest first. "
-            "Use for 'find 10 open spots next week'. Pass count for how many. Times come back in UTC and "
-            "local; say them in my owner's words and zone."),
+        id="windy_calendar.availability", name="Open times",
+        description="Open times on my owner's calendar between two dates (YYYY-MM-DD), earliest first. count = how many.",
         handler=availability,
         input_schema={"type": "object", "properties": {
             "from_date": date, "to_date": date, "timezone": {"type": "string", "description": "IANA zone, optional"},
@@ -103,26 +100,21 @@ def register_windy_calendar_capabilities(registry: CapabilityRegistry, config: d
             "required": ["from_date", "to_date"], "additionalProperties": False},
         tier=Tier.READ_EXTERNAL, band_required=Band.OWNER))
     registry.register(Capability(
-        id="windy_calendar.appointments", name="My owner's booked appointments",
-        description="Booked appointments on my owner's Windy Calendar (optional date range). Contains other people's names; owner only.",
+        id="windy_calendar.appointments", name="Booked appointments",
+        description="Booked appointments on my owner's calendar, optional date range.",
         handler=appointments,
         input_schema={"type": "object", "properties": {"from_date": date, "to_date": date, "timezone": s},
                       "additionalProperties": False},
         tier=Tier.READ_EXTERNAL, band_required=Band.OWNER))
     registry.register(Capability(
-        id="windy_calendar.booking_link", name="My owner's booking link",
-        description=("The link where anyone can pick a time with my owner. ALWAYS get it from this tool; "
-                     "never type, guess or edit a booking link. "
-                     "If the answer says sharing_off, tell my owner plainly the link is off and do not send it."),
+        id="windy_calendar.booking_link", name="Booking link",
+        description="My owner's booking link. Only ever use the link this returns; never type one.",
         handler=booking_link,
         input_schema={"type": "object", "properties": {}, "additionalProperties": False},
         tier=Tier.READ_EXTERNAL, band_required=Band.OWNER))
     registry.register(Capability(
-        id="windy_calendar.book", name="Book a time on my owner's calendar",
-        description=(
-            "Book an appointment on my owner's calendar when my owner asks. Use a time from "
-            "windy_calendar.availability (starts_at_utc exactly as given). If the answer says the slot was "
-            "taken, offer the next_slots. Never claim it is booked unless the result says so."),
+        id="windy_calendar.book", name="Book a time",
+        description="Book a time on my owner's calendar (starts_at_utc as returned by open times).",
         handler=book,
         input_schema={"type": "object", "properties": {
             "starts_at_utc": s, "booker_name": s, "booker_email": s, "booker_phone": s,
@@ -130,8 +122,8 @@ def register_windy_calendar_capabilities(registry: CapabilityRegistry, config: d
             "required": ["starts_at_utc", "booker_name", "booker_email"], "additionalProperties": False},
         tier=Tier.EXTERNAL_EFFECT, band_required=Band.OWNER, audit_required=True))
     registry.register(Capability(
-        id="windy_calendar.block", name="Block time on my owner's calendar",
-        description="Block my owner's own time (up to seven days) when they ask, for example 'block Friday afternoon'.",
+        id="windy_calendar.block", name="Block time",
+        description="Block my owner's own time (up to seven days).",
         handler=block,
         input_schema={"type": "object", "properties": {"starts_at_utc": s, "ends_at_utc": s, "reason": s},
                       "required": ["starts_at_utc", "ends_at_utc"], "additionalProperties": False},
