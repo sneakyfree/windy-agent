@@ -127,71 +127,84 @@ def test_passport_present_uses_custom_mind_url(monkeypatch):
 # ─── Mind fallthrough cases ───────────────────────────────────────────
 
 
-def test_mind_500_falls_through_to_direct_chain(monkeypatch):
-    """Mind broker returns 5xx → direct-provider chain takes over.
-    Critical regression-safety: agent stays functional even if Mind dies."""
+def test_mind_500_with_a_passport_never_calls_a_provider_key(monkeypatch):
+    """A Windy agent (passport) gets compute ONLY through Mind, else the local lifeboat (Boss 10-07):
+    a Mind 5xx must not fall through to a provider key."""
     monkeypatch.setenv("OPENAI_API_KEY", "fake-openai")
     monkeypatch.setenv("ETERNITAS_PASSPORT_TOKEN", "ept_test_token")
 
-    with patch.object(models, "_call_openai") as mock_openai, patch(
-        "httpx.post"
-    ) as mock_post:
-        mock_post.return_value = MagicMock(
-            status_code=503,
-            text="Service Unavailable",
-        )
-        mock_openai.return_value = {"choices": [{"message": {"content": "direct"}}]}
+    with patch.object(models, "_call_openai") as mock_openai, patch("httpx.post") as mock_post:
+        mock_post.return_value = MagicMock(status_code=503, text="Service Unavailable")
+        with pytest.raises(RuntimeError, match="mind-only"):
+            models.call_llm([{"role": "user", "content": "hi"}], model="gpt-4o-mini")
+        mock_openai.assert_not_called()
 
-        result = models.call_llm(
-            [{"role": "user", "content": "hi"}],
-            model="gpt-4o-mini",
-        )
-        # Direct chain succeeded
+
+def test_mind_500_without_a_passport_still_uses_the_own_key_chain(monkeypatch):
+    """A standalone install (no passport) has no Mind: it keeps its own-key chain."""
+    monkeypatch.setenv("OPENAI_API_KEY", "fake-openai")
+    monkeypatch.delenv("ETERNITAS_PASSPORT_TOKEN", raising=False)
+    monkeypatch.delenv("ETERNITAS_PASSPORT", raising=False)
+
+    with patch.object(models, "_call_openai") as mock_openai, patch("httpx.post") as mock_post:
+        mock_openai.return_value = {"choices": [{"message": {"content": "direct"}}]}
+        result = models.call_llm([{"role": "user", "content": "hi"}], model="gpt-4o-mini")
         assert result["choices"] == [{"message": {"content": "direct"}}]
         mock_openai.assert_called_once()
+        mock_post.assert_not_called()
 
 
-def test_mind_network_error_falls_through(monkeypatch):
-    """httpx.post raises (network down, DNS fail, etc.) → direct chain wins."""
+def test_passport_agent_falls_to_the_local_lifeboat_and_says_so(monkeypatch, caplog):
+    monkeypatch.setenv("OPENAI_API_KEY", "fake-openai")
+    monkeypatch.setenv("ETERNITAS_PASSPORT_TOKEN", "ept_test_token")
+    local = {"provider_key": "ollama", "type": "openai", "api_key": "ollama",
+             "base_url": "http://localhost:11434/v1"}
+    with patch.object(models, "_call_openai") as mock_openai, patch("httpx.post") as mock_post, \
+            patch.object(models, "_build_chain", return_value=["gpt-4o-mini", "llama3.2:3b"]), \
+            patch.object(models, "get_provider_for_model",
+                         side_effect=lambda m, c=None: local if m.startswith("llama") else
+                         {"provider_key": "openai", "type": "openai", "api_key": "k",
+                          "base_url": "https://api.openai.com/v1"}):
+        mock_post.return_value = MagicMock(status_code=503, text="down")
+        mock_openai.return_value = {"content": "lifeboat", "input_tokens": 1, "output_tokens": 1,
+                                    "tool_calls": [], "citations": [], "server_tools_used": []}
+        with caplog.at_level("WARNING"):
+            result = models.call_llm([{"role": "user", "content": "hi"}])
+        assert result["content"] == "lifeboat"
+        assert mock_openai.call_args.args[5].startswith("http://localhost")
+        assert "served by the local lifeboat" in caplog.text
+
+
+def test_mind_network_error_with_a_passport_does_not_use_a_provider_key(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "fake-openai")
     monkeypatch.setenv("ETERNITAS_PASSPORT_TOKEN", "ept_test_token")
 
     with patch.object(models, "_call_openai") as mock_openai, patch(
         "httpx.post", side_effect=ConnectionError("network down")
     ):
-        mock_openai.return_value = {"choices": [{"message": {"content": "direct"}}]}
-        result = models.call_llm(
-            [{"role": "user", "content": "hi"}],
-            model="gpt-4o-mini",
-        )
-        assert result["choices"] == [{"message": {"content": "direct"}}]
-        mock_openai.assert_called_once()
+        with pytest.raises(RuntimeError, match="mind-only"):
+            models.call_llm([{"role": "user", "content": "hi"}], model="gpt-4o-mini")
+        mock_openai.assert_not_called()
 
 
 # ─── ADR-022 exception register: Max OAuth ────────────────────────────
 
 
-def test_max_oauth_active_skips_mind_entirely(monkeypatch):
-    """Per ADR-022 exception #1: when Anthropic Max OAuth is active,
-    Mind path is bypassed completely so Max sub billing is preserved.
-    All other LLM calls (when OAuth NOT active) MUST route through Mind."""
+def test_max_oauth_no_longer_bypasses_mind_for_a_passport_agent(monkeypatch):
+    """Boss 10-07 (retires ADR-022 exception #1 for Windy agents): Max is reached THROUGH Mind, so a
+    passport agent always tries Mind first even when a Max OAuth token is present."""
     monkeypatch.setenv("OPENAI_API_KEY", "fake-openai")
     monkeypatch.setenv("ETERNITAS_PASSPORT_TOKEN", "ept_test_token")
-
-    # Mock Max OAuth being active
     mock_oauth = MagicMock(access_token="oauth-token")
 
     with patch.object(models, "_call_openai") as mock_openai, patch(
         "httpx.post"
-    ) as mock_post, patch(
-        "windyfly.agent.oauth.get_oauth_manager", return_value=mock_oauth
-    ):
-        mock_openai.return_value = {"choices": [{"message": {"content": "direct"}}]}
-        models.call_llm([{"role": "user", "content": "hi"}], model="gpt-4o-mini")
-
-        # Mind was never called because Max OAuth is active
-        mock_post.assert_not_called()
-        mock_openai.assert_called_once()
+    ) as mock_post, patch("windyfly.agent.oauth.get_oauth_manager", return_value=mock_oauth):
+        mock_post.return_value = MagicMock(status_code=503, text="down")
+        with pytest.raises(RuntimeError):
+            models.call_llm([{"role": "user", "content": "hi"}], model="gpt-4o-mini")
+        mock_post.assert_called()  # Mind WAS tried
+        mock_openai.assert_not_called()
 
 
 def test_max_oauth_unavailable_falls_through_to_mind(monkeypatch):
@@ -252,24 +265,15 @@ def test_mind_422_on_model_retries_modelless(monkeypatch):
         assert retry_body["messages"] == first_body["messages"]
 
 
-def test_mind_422_retry_fails_falls_through(monkeypatch):
-    """If the model-less retry ALSO fails, fall through to the direct
-    chain exactly like any other Mind failure — no infinite retries."""
+def test_mind_422_retry_fails_with_a_passport_stops_at_the_lifeboat_rule(monkeypatch):
+    """The model-less retry also fails: no infinite retries and no provider key for a passport agent."""
     monkeypatch.setenv("OPENAI_API_KEY", "fake-openai")
     monkeypatch.setenv("ETERNITAS_PASSPORT_TOKEN", "ept_test_token")
 
     rejected = MagicMock(status_code=422, text="enum")
-    with patch.object(models, "_call_openai") as mock_openai, patch(
-        "httpx.post"
-    ) as mock_post:
+    with patch.object(models, "_call_openai") as mock_openai, patch("httpx.post") as mock_post:
         mock_post.side_effect = [rejected, MagicMock(status_code=422, text="enum")]
-        mock_openai.return_value = {
-            "content": "direct", "input_tokens": 1, "output_tokens": 1,
-            "tool_calls": [], "citations": [], "server_tools_used": [],
-        }
-        result = models.call_llm(
-            [{"role": "user", "content": "hi"}],
-            model="gpt-4o-mini",
-        )
-        assert result["content"] == "direct"
+        with pytest.raises(RuntimeError, match="mind-only"):
+            models.call_llm([{"role": "user", "content": "hi"}], model="gpt-4o-mini")
         assert mock_post.call_count == 2
+        mock_openai.assert_not_called()
