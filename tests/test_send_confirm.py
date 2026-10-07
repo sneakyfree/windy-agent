@@ -88,3 +88,48 @@ def test_the_model_has_no_approve_tool():
     names = {t["function"]["name"] for t in reg.get_schemas()}
     assert {"send_email", "list_inbox"} <= names  # not vacuous: the tools did register
     assert not any("approve" in n or "confirm" in n for n in names)
+
+
+def _approve(addr="a@b.com"):
+    mail.send_email(addr, "hi", "body")
+    return _incoming("send")
+
+
+def test_known_single_recipient_goes_straight_out(monkeypatch, _clean):
+    monkeypatch.setenv("WINDY_SEND_CONFIRM", "1")
+    _approve()                                  # first time: asks, owner approves
+    out = mail.send_email("A@B.com", "again", "body2")
+    assert out["status"] == "sent" and len(_clean) == 2 and not mail.pending_drafts()
+    assert _clean[1]["approved_by"] is None
+
+
+def test_new_recipient_always_asks(monkeypatch, _clean):
+    monkeypatch.setenv("WINDY_SEND_CONFIRM", "1")
+    _approve()
+    out = mail.send_email("new@b.com", "hi", "body")
+    assert out["status"] == "pending_owner_approval"
+
+
+def test_cc_bcc_or_several_recipients_always_ask_even_if_all_known(monkeypatch, _clean):
+    monkeypatch.setenv("WINDY_SEND_CONFIRM", "1")
+    _approve("a@b.com")
+    _approve("c@d.com")
+    assert mail.send_email(["a@b.com", "c@d.com"], "s", "b")["status"] == "pending_owner_approval"
+    mail._PENDING.clear()
+    assert mail.send_email("a@b.com", "s", "b", cc="c@d.com")["status"] == "pending_owner_approval"
+    mail._PENDING.clear()
+    assert mail.send_email("a@b.com", "s", "b", bcc="c@d.com")["status"] == "pending_owner_approval"
+
+
+def test_nothing_is_remembered_from_a_send_that_failed(monkeypatch, _clean):
+    monkeypatch.setenv("WINDY_SEND_CONFIRM", "1")
+    monkeypatch.setattr(mail, "_send_email_now", lambda *a, **k: {"status": "failed", "error": "x"})
+    mail.send_email("a@b.com", "hi", "body")
+    _incoming("send")
+    assert "a@b.com" not in mail._known_recipients()
+
+
+def test_the_known_list_is_private(monkeypatch, _clean):
+    monkeypatch.setenv("WINDY_SEND_CONFIRM", "1")
+    _approve()
+    assert oct(mail._known_path().stat().st_mode & 0o777) == "0o600"
