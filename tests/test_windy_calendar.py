@@ -165,3 +165,11 @@ def test_non_owner_band_does_not_see_the_tools(calls):
     register_windy_calendar_capabilities(r)
     assert not [c for c in r.list_for_band(Band.TRUSTED) if c.id.startswith("windy_calendar.")]
     assert len([c for c in r.list_for_band(Band.OWNER) if c.id.startswith("windy_calendar.")]) == 5
+
+
+@pytest.mark.parametrize("result", [{"url": "https://windycalendar.com/book/c-abc", "listed": False},
+                                    {"url": "https://windycalendar.com/book/c-abc", "state": "unlisted"}])
+def test_booking_link_off_is_said_plainly(calls, result):
+    _answer(calls, _resp(200, {"ok": True, "result": result}))
+    out = _cap("windy_calendar.booking_link").handler()
+    assert out["sharing_off"] is True and "turned off" in out["say"]

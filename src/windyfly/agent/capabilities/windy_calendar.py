@@ -67,6 +67,13 @@ def register_windy_calendar_capabilities(registry: CapabilityRegistry, config: d
         link = _link_from(out.get("result"))
         if not link:
             return {"ok": False, "say": "My owner's booking link isn't ready yet."}
+        res = out.get("result")
+        listed = res.get("listed") if isinstance(res, dict) else None
+        state = str(res.get("state") or "") if isinstance(res, dict) else ""
+        if listed is False or state == "unlisted":
+            return {"ok": True, "booking_link": link, "sharing_off": True,
+                    "say": "My owner's booking link is turned off right now, so anyone who opens it sees "
+                           "'Not taking bookings'. They can turn it on in their Calendar settings."}
         return {"ok": True, "booking_link": link}
 
     def book(**kw: Any) -> dict[str, Any]:
@@ -105,7 +112,8 @@ def register_windy_calendar_capabilities(registry: CapabilityRegistry, config: d
     registry.register(Capability(
         id="windy_calendar.booking_link", name="My owner's booking link",
         description=("The link where anyone can pick a time with my owner. ALWAYS get it from this tool; "
-                     "never type, guess or edit a booking link."),
+                     "never type, guess or edit a booking link. "
+                     "If the answer says sharing_off, tell my owner plainly the link is off and do not send it."),
         handler=booking_link,
         input_schema={"type": "object", "properties": {}, "additionalProperties": False},
         tier=Tier.READ_EXTERNAL, band_required=Band.OWNER))
