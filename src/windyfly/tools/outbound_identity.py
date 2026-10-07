@@ -38,6 +38,18 @@ def passport() -> str:
     return os.environ.get("ETERNITAS_PASSPORT", "").strip()
 
 
+def mailbox_address() -> str:
+    """The agent's own Windy Mail address. ONE read point: Windy Mail owns it (a hatch sets it;
+    an address change, such as the windyfly.ai move, reaches us through Mail), so nothing else
+    in the codebase may hard-code or cache a domain."""
+    return os.environ.get("WINDYMAIL_EMAIL", "").strip()
+
+
+def git_identity() -> tuple[str, str]:
+    """(name, email) for git commits the agent makes: its real mailbox address, never a made-up one."""
+    return agent_name(), mailbox_address() or "noreply@windyfly.ai"
+
+
 def email_footer() -> str:
     owner = owner_name()
     acting = f"acting for {owner}" if owner else "acting for its owner"

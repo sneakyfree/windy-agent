@@ -665,6 +665,41 @@ _mind_legacy_url_logged = False
 _MIND_REQUEST_ERRORS = frozenset({400, 404, 409, 413, 415, 422})
 
 
+_PROVIDER_NAMES = {
+    "groq": "Groq", "anthropic": "Anthropic", "openai": "OpenAI", "xai": "xAI", "google": "Google",
+    "gemini": "Google", "openrouter": "OpenRouter", "cerebras": "Cerebras", "sambanova": "SambaNova",
+    "moonshot": "Moonshot", "zai": "Z.ai", "nvidia": "NVIDIA", "cloudflare": "Cloudflare",
+    "mistral": "Mistral", "deepseek": "DeepSeek",
+}
+
+
+def _refused_key_provider(resp: Any) -> str | None:
+    """None unless Mind says the owner's OWN provider key was refused (502 + x-mind-error:
+    connection). Then the provider's plain name, or "" when Mind names none."""
+    if getattr(resp, "status_code", 0) != 502:
+        return None
+    headers = getattr(resp, "headers", None) or {}
+    if str(headers.get("x-mind-error") or "").strip().lower() != "connection":
+        return None
+    name = str(headers.get("x-mind-provider") or "").strip()
+    if not name:
+        try:
+            d = resp.json()
+            det = d.get("detail", d.get("error", d)) if isinstance(d, dict) else d
+            if isinstance(det, dict):
+                name = str(det.get("provider") or "")
+                text = str(det.get("message") or "")
+            else:
+                text = str(det)
+            if not name:
+                m = re.search(r"connected\s+([A-Za-z0-9._-]+)\s+key", text, re.IGNORECASE)
+                name = m.group(1) if m else ""
+        except Exception:  # noqa: BLE001
+            name = ""
+    name = name.strip()
+    return _PROVIDER_NAMES.get(name.lower(), name[:1].upper() + name[1:]) if name else ""
+
+
 def _mind_error_detail(resp: Any) -> str:
     """Mind's error code/message for logs; never the request content."""
     try:
@@ -998,6 +1033,13 @@ def _try_mind_broker(
             return None
         if resp.status_code != 200:
             _last_mind_failure = f"mind http {resp.status_code}"
+            refused = _refused_key_provider(resp)
+            if refused is not None:
+                # The OWNER'S key was refused upstream: not Mind's outage, so no cooldown for
+                # Mind; the owner is told once, in plain words (Hub's pinned sentence).
+                _last_mind_failure = f"mind key refused:{refused}"
+                logger.warning("Mind: the owner's %s key was refused upstream", refused or "provider")
+                return None
             if resp.status_code in _MIND_REQUEST_ERRORS:
                 # THIS request was refused (bad shape, unknown model, too
                 # large): Mind itself is fine. No circuit-breaker, or one bad
