@@ -389,6 +389,17 @@ def sum_costs(costs: list[float | None]) -> float | None:
     return total
 
 
+def _has_passport() -> bool:
+    """A passport-bearing agent (a Windy agent): its compute comes ONLY through Windy Mind, else the
+    local Ollama lifeboat, never a provider key (Boss 10-07). No passport = a standalone install
+    that keeps its own-key chain (it has no Mind to go through)."""
+    return bool(os.environ.get("ETERNITAS_PASSPORT_TOKEN") or os.environ.get("ETERNITAS_PASSPORT"))
+
+
+def _is_local(base_url: str) -> bool:
+    return "localhost" in (base_url or "") or "127.0.0.1" in (base_url or "")
+
+
 def _max_oauth_active() -> bool:
     """Per ADR-022 exception register: when Grant's Anthropic Max OAuth
     token is active, allow direct Anthropic SDK calls. Routing through
@@ -936,8 +947,8 @@ def _try_mind_broker(
     risk: when the agent has no EPT (e.g. pre-hatch boot or test rigs),
     this function is a no-op.
 
-    Skipped entirely when Anthropic Max OAuth is active (ADR-022
-    exception register #1).
+    A passport agent always goes through Mind (the old Anthropic Max-OAuth bypass, ADR-022
+    exception #1, is gone for Windy agents: Boss 10-07, Max is reachable through Mind).
     """
     global _last_mind_failure
     _last_mind_failure = None  # this call's outcome only; a no-op leaves it None
@@ -1229,7 +1240,7 @@ def mind_broker_status() -> dict[str, Any]:
     ept = _os.environ.get("ETERNITAS_PASSPORT_TOKEN") or _os.environ.get(
         "ETERNITAS_PASSPORT"
     )
-    configured = bool(ept) and not _max_oauth_active()
+    configured = bool(ept)
     entry = _provider_cooldowns.get("windy-mind")
     cooling = entry is not None and time.time() < entry[0]
     return {
@@ -1399,7 +1410,7 @@ def call_llm(
         # Stopped by the owner: no Mind call, no direct provider, no local model.
         raise AgentPausedByOwner(_paused.get("reason", ""))
     mind_note: str | None = None
-    if not _max_oauth_active():
+    if _has_passport() or not _max_oauth_active():
         _t0 = time.monotonic()
         mind_resp = _try_mind_broker(messages, model, temperature, max_tokens, tools)
         mind_note = _last_mind_failure if mind_resp is None else None
@@ -1431,6 +1442,13 @@ def call_llm(
         base_url = provider.get("base_url", "https://api.openai.com/v1")
 
         # Skip if no key (Ollama-style local providers don't need one)
+        if _has_passport() and not _is_local(base_url):
+            # A Windy agent never calls a provider with a key: Mind, else the local lifeboat.
+            skipped.append(f"{provider_key}({chain_model}):mind-only")
+            if primary_miss is None and chain_model == chain[0]:
+                primary_miss = (None, "mind-only", None)
+            continue
+
         if not api_key and "localhost" not in base_url:
             skipped.append(f"{provider_key}({chain_model}):no-key")
             if primary_miss is None and chain_model == chain[0]:
@@ -1469,6 +1487,8 @@ def call_llm(
             _record_provider_success(provider_key)
             fields = _cost_fields(result, chain_model, _billing_for(provider_type, base_url, api_key))
             _record("ok", chain_model, provider_key, _t0, fields)
+            if _has_passport():
+                logger.warning("Mind did not answer: this turn was served by the local lifeboat (%s)", chain_model)
             if model is None:  # an explicit model is a choice, not a demotion
                 _note_route(chain[0] if chain_model != chain[0] else None, chain_model,
                             primary_miss, provider_key)
