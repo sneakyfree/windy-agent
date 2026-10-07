@@ -1046,6 +1046,8 @@ def _try_mind_broker(
             return None
         if resp.status_code != 200:
             _last_mind_failure = f"mind http {resp.status_code}"
+            if str((getattr(resp, "headers", None) or {}).get("x-mind-error") or "").lower() == "vision_off":
+                _last_mind_failure = "mind vision_off"  # pictures are not switched on in Mind yet
             refused = _refused_key_provider(resp)
             if refused is not None:
                 # The OWNER'S key was refused upstream: not Mind's outage, so no cooldown for
@@ -1444,7 +1446,8 @@ def call_llm(
         base_url = provider.get("base_url", "https://api.openai.com/v1")
 
         # Skip if no key (Ollama-style local providers don't need one)
-        if _has_passport() and not _is_local(base_url):
+        if _has_passport() and (purpose == "vision" or not _is_local(base_url)):
+            # (a picture is never handed to the text-only local lifeboat: it would invent a description)
             # A Windy agent never calls a provider with a key: Mind, else the local lifeboat.
             skipped.append(f"{provider_key}({chain_model}):mind-only")
             if primary_miss is None and chain_model == chain[0]:

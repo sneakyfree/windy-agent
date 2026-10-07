@@ -131,7 +131,12 @@ def _call_vision_via_mind(image_block: dict[str, Any], system_prompt: str, user_
             {"type": "text", "text": user_question},
         ]},
     ]
-    result = _models.call_llm(messages, max_tokens=_DEFAULT_MAX_TOKENS, purpose="vision")
+    try:
+        result = _models.call_llm(messages, max_tokens=_DEFAULT_MAX_TOKENS, purpose="vision")
+    except RuntimeError as e:
+        if "vision_off" in str(e):
+            raise RuntimeError("I can't see pictures yet.") from e
+        raise
     return {
         "text": str(result.get("content") or "").strip(),
         "model": str(result.get("mind_model") or "windy-mind"),

@@ -419,3 +419,21 @@ class TestPassportAgentVisionGoesThroughMind:
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY"):
             _call_anthropic_vision({"type": "url", "url": "https://e.example/a.png"}, "s", "q", 10)
+
+
+class TestVisionOffAndLifeboat:
+    def test_mind_400_vision_off_is_a_plain_sentence_and_never_reaches_the_text_lifeboat(self, monkeypatch):
+        from unittest.mock import MagicMock
+
+        from windyfly.agent import models
+
+        monkeypatch.setenv("ETERNITAS_PASSPORT_TOKEN", "ept_test")
+        local = {"provider_key": "ollama", "type": "openai", "api_key": "ollama",
+                 "base_url": "http://localhost:11434/v1"}
+        resp = MagicMock(status_code=400, text="vision_off", headers={"x-mind-error": "vision_off"})
+        with patch("httpx.post", return_value=resp), patch.object(models, "_call_openai") as lifeboat, \
+                patch.object(models, "_build_chain", return_value=["llama3.2:3b"]), \
+                patch.object(models, "get_provider_for_model", return_value=local):
+            with pytest.raises(RuntimeError, match="can't see pictures yet"):
+                _call_anthropic_vision({"type": "url", "url": "https://e.example/a.png"}, "s", "q", 10)
+        lifeboat.assert_not_called()
