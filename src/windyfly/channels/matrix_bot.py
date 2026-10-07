@@ -493,17 +493,25 @@ class WindyFlyMatrixBot(ChannelAdapter):
             await self.client.join(room_id)
             logger.info("Joined room %s", room_id)
 
-            # Send welcome message
-            await self.client.room_send(
-                room_id,
-                "m.room.message",
-                {
-                    "msgtype": "m.text",
-                    "body": "Hey! I'm Windy Fly, your personal AI companion. 🪰",
-                    "windy_original": True,
-                    "windy_lang": "en",
-                },
-            )
+            # Send welcome message (not into a team room: another agent would read it as a message)
+            team_room = False
+            from windyfly.channels import silence as _silence
+
+            if _silence.enabled():
+                from windyfly.agent import teams as _teams
+
+                team_room = await asyncio.to_thread(_teams.room_has_other_agent, room_id, self.bot_user_id)
+            if not team_room:
+                await self.client.room_send(
+                    room_id,
+                    "m.room.message",
+                    {
+                        "msgtype": "m.text",
+                        "body": "Hey! I'm Windy Fly, your personal AI companion. 🪰",
+                        "windy_original": True,
+                        "windy_lang": "en",
+                    },
+                )
 
             # Trust all devices in the new room
             await self._auto_trust_devices()

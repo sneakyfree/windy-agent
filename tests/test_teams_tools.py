@@ -143,3 +143,29 @@ def test_descriptions_are_the_contract_words():
     assert r.get("list_my_agents").description == "List the agents that belong to your owner (including you)."
     assert r.get("message_agent").description == (
         "Send a message to another of your owner's agents. They answer in an ordinary message.")
+
+
+def _members(monkeypatch, members):
+    chunk = [{"state_key": u, "content": {"membership": m}} for u, m in members]
+    monkeypatch.setattr("httpx.get", lambda url, **kw: _resp(200, {"chunk": chunk}))
+
+
+def test_a_room_with_another_agent_is_a_team_room(monkeypatch):
+    _members(monkeypatch, [(ME, "join"), (SIB, "invite"), ("@owner:chat.example", "join")])
+    assert teams.room_has_other_agent("!r:x", ME) is True
+
+
+def test_a_room_with_only_humans_and_me_is_not(monkeypatch):
+    _members(monkeypatch, [(ME, "join"), ("@owner:chat.example", "join")])
+    assert teams.room_has_other_agent("!r:x", ME) is False
+    _members(monkeypatch, [(ME, "join"), (SIB, "leave")])
+    assert teams.room_has_other_agent("!r:x", ME) is False  # left
+
+
+def test_unknown_membership_keeps_the_old_welcome(monkeypatch):
+    monkeypatch.setattr("httpx.get", lambda url, **kw: _resp(500, {}))
+    assert teams.room_has_other_agent("!r:x", ME) is False
+    import httpx
+
+    monkeypatch.setattr("httpx.get", lambda url, **kw: (_ for _ in ()).throw(httpx.ConnectError("x")))
+    assert teams.room_has_other_agent("!r:x", ME) is False

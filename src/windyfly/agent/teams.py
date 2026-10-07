@@ -128,6 +128,29 @@ def message_agent(to: str, text: str) -> dict[str, Any]:
     return _unavailable(str(sent.get("error") or "the message was not sent"))
 
 
+def room_has_other_agent(room_id: str, me: str) -> bool:
+    """True when another AGENT account is joined or invited in the room (a team room): the welcome
+    line is not posted there. Blocking; callers run it in a thread. Unknown = False (welcome as before)."""
+    from windyfly.channels import parity
+
+    homeserver = os.environ.get("MATRIX_HOMESERVER", "").rstrip("/")
+    token = os.environ.get("MATRIX_BOT_TOKEN", "")
+    if not (homeserver and token):
+        return False
+    try:
+        resp = httpx.get(f"{homeserver}/_matrix/client/v3/rooms/{room_id}/members",
+                         headers={"Authorization": f"Bearer {token}"}, timeout=_TIMEOUT_S)
+        if resp.status_code != 200:
+            return False
+        for ev in resp.json().get("chunk", []):
+            uid = str(ev.get("state_key") or "")
+            if uid != me and parity.passport_of(uid) and (ev.get("content") or {}).get("membership") in ("join", "invite"):
+                return True
+    except (httpx.HTTPError, ValueError):
+        return False
+    return False
+
+
 # ── siblings (read by resolve_band; refreshed off the event loop) ────────────────────────
 
 def sibling_ids() -> frozenset[str]:
