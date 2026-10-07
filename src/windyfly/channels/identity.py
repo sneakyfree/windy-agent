@@ -195,6 +195,12 @@ def bind_owner(platform: str, sender_id: str) -> None:
     _tofu_bound_platforms.add(platform)
 
 
+def _teams_siblings() -> frozenset[str]:
+    from windyfly.agent import teams
+
+    return teams.sibling_ids()
+
+
 def resolve_band(
     platform: str,
     sender_id: str | None,
@@ -217,9 +223,14 @@ def resolve_band(
     from windyfly.channels import parity as _parity
 
     if _parity.passport_of(sender):
-        # An agent sender (@agent_<passport>): never the owner, never TOFU-bound. Same-owner
-        # siblings get a higher band from the agent-teams change; any other agent converses only.
+        # An agent sender (@agent_<passport>): never the owner, never TOFU-bound. A same-owner
+        # SIBLING (agent teams, dark WINDY_TEAMS=1) is TRUSTED: every normal tool, never the
+        # owner-only ones (Boss 10-07). Any other agent converses only.
         band = Band.SANDBOX
+        from windyfly.channels import silence as _silence
+
+        if _silence.enabled() and sender in _teams_siblings():
+            band = Band.TRUSTED
     elif platform_owners:
         # Strict mode: an owner is known for this platform (via env,
         # config, or a prior TOFU binding). Match → OWNER, else SANDBOX.
