@@ -1643,7 +1643,6 @@ def _register_all():
                 return f"Error: {e}"
         return ""  # no matching subcommand
 
-
     async def cmd_intents(ctx):
         if not _db:
             return "Database not available."
