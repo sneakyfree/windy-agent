@@ -29,6 +29,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -89,6 +90,15 @@ def _sender(message: dict[str, Any]) -> str:
     return str(v)
 
 
+_TEST_PREFIX_RE = re.compile(r"^(?:\s*(?:re|fwd?|aw)\s*:)*\s*\[test\]", re.IGNORECASE)
+
+
+def is_test_marked(message: dict[str, Any]) -> bool:
+    """A seed/test message ("[TEST] ...", also after Re:/Fwd:). It is remembered as seen but
+    never announced: the owner's own seed batches must not ping them (Boss, 10-07)."""
+    return bool(_TEST_PREFIX_RE.match(str(message.get("subject") or "")))
+
+
 def poll_new_messages(
     adapter: Any,
     *,
@@ -116,6 +126,8 @@ def poll_new_messages(
             continue
         seen_set.add(key)
         seen.append(key)
+        if is_test_marked(m):
+            continue          # seen, not announced
         fresh.append(m)
 
     state["seen"] = seen[-MAX_SEEN:]

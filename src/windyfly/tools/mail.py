@@ -24,6 +24,7 @@ without touching the other.
 from __future__ import annotations
 
 import logging
+import re
 import os
 from typing import Any
 
@@ -50,13 +51,50 @@ def _adapter() -> Any | None:
         return None
 
 
-def _split_recipients(to: str) -> list[str]:
-    """Accept a single address or a comma-separated list.
+def _split_recipients(to: Any) -> list[str]:
+    """Accept one address, a comma-separated string, or a list of either.
 
-    LLMs tend to emit either form depending on how the prompt was
-    phrased. Normalising in one place avoids litter at the call sites.
+    LLMs emit any of these depending on how the prompt was phrased. Normalising in one
+    place avoids litter at the call sites.
     """
-    return [r.strip() for r in to.split(",") if r.strip()]
+    if to is None:
+        return []
+    if isinstance(to, (list, tuple, set)):
+        out: list[str] = []
+        for item in to:
+            out.extend(_split_recipients(item))
+        return out
+    return [r.strip() for r in str(to).replace(";", ",").split(",") if r.strip()]
+
+
+_ANGLE_RE = re.compile(r"<\s*([^<>\s]+@[^<>\s]+)\s*>")
+_ADDR_RE = re.compile(r"^[^@\s,;<>\"']+@[^@\s,;<>\"']+\.[^@\s,;<>\"']+$")
+MAX_RECIPIENTS = 50      # Mail enforces the plan caps (free tier 10 per message); this is a sanity bound
+
+
+def normalize_recipients(to: Any, cc: Any = None, bcc: Any = None) -> tuple[list[str], list[str], list[str]]:
+    """(to, cc, bcc) as clean lists: "Name <a@b.c>" becomes "a@b.c", each address once (to wins
+    over cc wins over bcc), shape-checked (no header injection). Raises ValueError with a
+    plain sentence."""
+    seen: set[str] = set()
+    out: list[list[str]] = []
+    for group in (to, cc, bcc):
+        clean: list[str] = []
+        for raw in _split_recipients(group):
+            m = _ANGLE_RE.search(raw)
+            addr = (m.group(1) if m else raw).strip()
+            if not _ADDR_RE.match(addr):
+                raise ValueError(f"'{raw[:60]}' doesn't look like an email address, so nothing was sent.")
+            if addr.lower() in seen:
+                continue
+            seen.add(addr.lower())
+            clean.append(addr)
+        out.append(clean)
+    if not out[0]:
+        raise ValueError("No recipients provided")
+    if sum(len(g) for g in out) > MAX_RECIPIENTS:
+        raise ValueError(f"That is more than {MAX_RECIPIENTS} recipients on one email, so nothing was sent.")
+    return out[0], out[1], out[2]
 
 
 def with_ai_footer(body: str) -> str:
@@ -70,14 +108,14 @@ def with_ai_footer(body: str) -> str:
 
 
 def _send_email_now(
-    to: str, subject: str, body: str, *, approved_by: str | None = None,
+    to: Any, subject: str, body: str, *, cc: Any = None, bcc: Any = None,
+    approved_by: str | None = None,
 ) -> dict[str, Any]:
-    """Send an email via the agent's own mailbox.
+    """Send ONE email from the agent's own mailbox, with everybody on it.
 
-    ``to`` may be a single address or a comma-separated list. Returns
-    a dict the registry will JSON-encode for the LLM. On multi-
-    recipient sends, status is ``sent`` only if every recipient
-    succeeded; ``partial`` if some failed; ``failed`` if all failed.
+    ``to``/``cc``/``bcc`` may each be an address, a comma-separated string or a list. One
+    message goes out (one ``/send``), so every recipient sees the same mail and the owner
+    confirms once. Returns a dict the registry will JSON-encode for the LLM.
     """
     adapter = _adapter()
     if adapter is None:
@@ -89,12 +127,12 @@ def _send_email_now(
                 "so nothing was sent. Tell the owner."
             ),
         }
-    send_fn = adapter.send_email
     path = "windymail"
 
-    recipients = _split_recipients(to)
-    if not recipients:
-        return {"status": "failed", "error": "No recipients provided"}
+    try:
+        to_l, cc_l, bcc_l = normalize_recipients(to, cc, bcc)
+    except ValueError as exc:
+        return {"status": "failed", "error": str(exc)}
 
     # Mail to third parties says who is really writing (legal review,
     # 2026-09-23): one footer line on every path.
@@ -103,38 +141,19 @@ def _send_email_now(
         body = f"{body}\n\n(Sent with the approval of {approved_by}.)"
     body = with_ai_footer(body)
 
-    if len(recipients) == 1:
-        result = send_fn(recipients[0], subject, body)
-        # Annotate with the chosen path so downstream observability /
-        # the LLM can reason about which provider answered.
-        result.setdefault("provider", path)
-        return result
-
-    per_recipient: list[dict[str, Any]] = []
-    successes = 0
-    for recipient in recipients:
-        try:
-            result = send_fn(recipient, subject, body)
-        except Exception as exc:  # rate limiter / trust gate may raise
-            result = {"status": "failed", "error": str(exc)}
-        if result.get("status") == "sent":
-            successes += 1
-        result.setdefault("provider", path)
-        per_recipient.append({"to": recipient, **result})
-
-    if successes == len(recipients):
-        overall = "sent"
-    elif successes == 0:
-        overall = "failed"
-    else:
-        overall = "partial"
-
-    return {
-        "status": overall,
-        "successes": successes,
-        "total": len(recipients),
-        "per_recipient": per_recipient,
-    }
+    total = len(to_l) + len(cc_l) + len(bcc_l)
+    try:
+        if len(to_l) == 1 and not cc_l and not bcc_l:
+            result = adapter.send_email(to_l[0], subject, body)
+        else:
+            result = adapter.send_email(to_l, subject, body, cc=cc_l or None, bcc=bcc_l or None)
+    except Exception as exc:  # rate limiter / trust gate may raise
+        result = {"status": "failed", "error": str(exc)}
+    # Annotate with the chosen path so downstream observability / the LLM can reason about it.
+    result.setdefault("provider", path)
+    result.setdefault("recipients", {"to": len(to_l), "cc": len(cc_l), "bcc": len(bcc_l)})
+    result.setdefault("total", total)
+    return result
 
 
 # ── owner confirmation before outbound sends (dark: WINDY_SEND_CONFIRM=1) ────────
@@ -156,17 +175,25 @@ def _prune_pending() -> None:
         _PENDING.pop(k, None)
 
 
-def _queue_draft(to: str, subject: str, body: str) -> dict[str, Any]:
+def _queue_draft(to: Any, subject: str, body: str, cc: Any = None, bcc: Any = None) -> dict[str, Any]:
     import time as _t
     import uuid as _u
 
+    try:
+        to_l, cc_l, bcc_l = normalize_recipients(to, cc, bcc)
+    except ValueError as exc:
+        return {"status": "failed", "error": str(exc)}
     _prune_pending()
     draft_id = _u.uuid4().hex[:8]
-    _PENDING[draft_id] = {"to": to, "subject": subject, "body": body, "at": _t.time()}
+    # ONE draft for the whole batch: the owner confirms once and one message goes out.
+    _PENDING[draft_id] = {"to": ", ".join(to_l), "cc": ", ".join(cc_l), "bcc": ", ".join(bcc_l),
+                          "subject": subject, "body": body, "at": _t.time()}
     return {
         "status": "pending_owner_approval",
         "draft_id": draft_id,
-        "to": to,
+        "to": ", ".join(to_l),
+        "cc": ", ".join(cc_l),
+        "bcc": ", ".join(bcc_l),
         "subject": subject,
         "note": (
             "NOT SENT. This is a draft. Show the owner the recipient, subject and body "
@@ -188,7 +215,8 @@ def approve_latest(approved_by: str) -> dict[str, Any]:
         return {"status": "none", "error": "There is no draft waiting for approval."}
     draft_id = max(_PENDING, key=lambda k: _PENDING[k]["at"])
     d = _PENDING.pop(draft_id)
-    result = _send_email_now(d["to"], d["subject"], d["body"], approved_by=approved_by)
+    result = _send_email_now(d["to"], d["subject"], d["body"], cc=d.get("cc"), bcc=d.get("bcc"),
+                             approved_by=approved_by)
     result["draft_id"] = draft_id
     result.setdefault("to", d["to"])
     return result
@@ -200,11 +228,12 @@ def cancel_pending() -> int:
     return n
 
 
-def send_email(to: str, subject: str, body: str) -> dict[str, Any]:
-    """Model-facing send. With WINDY_SEND_CONFIRM=1 it only DRAFTS (owner approves)."""
+def send_email(to: Any, subject: str, body: str, cc: Any = None, bcc: Any = None) -> dict[str, Any]:
+    """Model-facing send: ONE email to everybody (to, cc, bcc).
+    With WINDY_SEND_CONFIRM=1 it only DRAFTS (owner approves once)."""
     if send_confirm_enabled():
-        return _queue_draft(to, subject, body)
-    return _send_email_now(to, subject, body)
+        return _queue_draft(to, subject, body, cc, bcc)
+    return _send_email_now(to, subject, body, cc=cc, bcc=bcc)
 
 
 def list_inbox(unread_only: bool = False, limit: int = 20) -> dict[str, Any]:
@@ -247,8 +276,11 @@ def register_mail_tools(registry: ToolRegistry) -> None:
             "the user asks you to email someone — e.g. 'email Bob the "
             "report' or 'send a thank-you note to alice@example.com'. The "
             "'from' address is your agent's mailbox automatically; you "
-            "don't need to specify it. Multiple recipients can be passed "
-            "as a single comma-separated string. Returns {status, "
+            "don't need to specify it. Put EVERYONE in ONE call: all "
+            "recipients in 'to' (comma-separated), carbon copies in 'cc', "
+            "blind copies in 'bcc'. That sends ONE email that all of them "
+            "receive; never call this once per person. The owner "
+            "confirms once for the whole email. Returns {status, "
             "message_id} on success, or {status: 'unavailable', error} "
             "if email isn't configured for this agent. Always verify the "
             "recipient address with the user before sending if it wasn't "
@@ -262,8 +294,16 @@ def register_mail_tools(registry: ToolRegistry) -> None:
                     "description": (
                         "Recipient email address. For multiple recipients, "
                         "pass a comma-separated string like "
-                        "'alice@example.com, bob@example.com'."
+                        "'alice@example.com, bob@example.com'. They all get ONE email."
                     ),
+                },
+                "cc": {
+                    "type": "string",
+                    "description": "Optional carbon-copy addresses, comma-separated (the others see them).",
+                },
+                "bcc": {
+                    "type": "string",
+                    "description": "Optional blind-copy addresses, comma-separated (hidden from the others).",
                 },
                 "subject": {
                     "type": "string",
