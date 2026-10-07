@@ -22,6 +22,7 @@ import platform
 import re
 import shutil
 import subprocess
+import sys
 import threading
 import uuid
 from pathlib import Path
@@ -80,9 +81,9 @@ def _machine_id() -> str:
     if system == "darwin":
         m = re.search(r'"IOPlatformUUID" = "([^"]+)"', _run("ioreg", "-rd1", "-c", "IOPlatformExpertDevice"))
         return m.group(1) if m else ""
-    if system == "windows":
+    if sys.platform == "win32":
         try:
-            import winreg  # type: ignore[import-not-found]
+            import winreg
             with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Cryptography") as k:
                 return str(winreg.QueryValueEx(k, "MachineGuid")[0])
         except Exception:  # noqa: BLE001
