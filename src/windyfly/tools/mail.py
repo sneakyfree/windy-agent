@@ -176,21 +176,28 @@ def _known_path() -> Any:
     return windy_state_dir() / "known_recipients.json"
 
 
+def _owner_addresses() -> set[str]:
+    """The owner's own addresses (WINDY_OWNER_EMAILS, comma-separated) always start as known."""
+    raw = os.environ.get("WINDY_OWNER_EMAILS", "")
+    return {a.strip().lower() for a in raw.split(",") if "@" in a}
+
+
 def _known_recipients() -> set[str]:
     import json as _j
 
     try:
         data = _j.loads(_known_path().read_text("utf-8"))
-        return {str(a).lower() for a in data} if isinstance(data, list) else set()
+        learned = {str(a).lower() for a in data} if isinstance(data, list) else set()
     except (OSError, ValueError):
-        return set()
+        learned = set()
+    return learned | _owner_addresses()
 
 
 def _remember_recipients(addresses: list[str]) -> None:
     import json as _j
     import tempfile as _tf
 
-    known = _known_recipients() | {a.lower() for a in addresses}
+    known = (_known_recipients() - _owner_addresses()) | {a.lower() for a in addresses}
     path = _known_path()
     try:
         path.parent.mkdir(parents=True, exist_ok=True)

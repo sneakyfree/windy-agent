@@ -133,3 +133,20 @@ def test_the_known_list_is_private(monkeypatch, _clean):
     monkeypatch.setenv("WINDY_SEND_CONFIRM", "1")
     _approve()
     assert oct(mail._known_path().stat().st_mode & 0o777) == "0o600"
+
+
+def test_owner_own_addresses_start_as_known(monkeypatch, _clean):
+    monkeypatch.setenv("WINDY_SEND_CONFIRM", "1")
+    monkeypatch.setenv("WINDY_OWNER_EMAILS", "Boss@Example.com, other@example.com")
+    out = mail.send_email("boss@example.com", "hi", "body")
+    assert out["status"] == "sent" and len(_clean) == 1
+    assert mail.send_email("stranger@example.com", "hi", "b")["status"] == "pending_owner_approval"
+
+
+def test_owner_addresses_are_not_copied_into_the_learned_file(monkeypatch, _clean):
+    monkeypatch.setenv("WINDY_SEND_CONFIRM", "1")
+    monkeypatch.setenv("WINDY_OWNER_EMAILS", "boss@example.com")
+    mail.send_email("boss@example.com", "hi", "b")
+    _approve("a@b.com")
+    import json
+    assert json.loads(mail._known_path().read_text()) == ["a@b.com"]
