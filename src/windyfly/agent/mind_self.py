@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 import threading
 import time
 from typing import Any
@@ -34,7 +33,6 @@ _TIMEOUT_S = 5.0
 _lock = threading.Lock()
 _state: dict[str, Any] = {"self": None, "etag": None, "at": 0.0, "off_until": 0.0}
 
-_STOPWORDS = frozenset({"a", "an", "the", "to", "use", "model", "models", "please", "switch", "my", "on", "with"})
 
 
 def enabled() -> bool:
@@ -123,27 +121,6 @@ def picked_model() -> str | None:
     return str(m) if m else None
 
 
-# ── matching the words people say ───────────────────────────────────────
-
-def _tokens(text: str) -> list[str]:
-    return [t for t in re.split(r"[^a-z0-9.]+", text.lower()) if t and t not in _STOPWORDS]
-
-
-def resolve_words(words: str, allowed: list[str]) -> tuple[str, list[str]]:
-    """('one', [id]) | ('ambiguous', [ids]) | ('none', []). Matches only inside ``allowed``."""
-    w = (words or "").strip()
-    for m in allowed:
-        if m.lower() == w.lower():
-            return "one", [m]
-    toks = _tokens(w)
-    if not toks:
-        return "none", []
-    hits = [m for m in allowed if all(t in m.lower() for t in toks)]
-    if len(hits) == 1:
-        return "one", hits
-    return ("ambiguous", hits) if hits else ("none", [])
-
-
 # ── plain words ─────────────────────────────────────────────────────────
 
 def _plain_refusal(status: int, err: dict[str, Any]) -> str:
@@ -202,14 +179,13 @@ def switch_model(model: str) -> dict[str, Any]:
     allowed = list(mp.get("models") or [])
     if mp.get("mode") == "none" or not allowed:
         return {"ok": False, "say": _plain_refusal(403, {"code": "not_allowed_for_agent", "allowed": []})}
-    kind, hits = resolve_words(model, allowed)
-    if kind == "none":
+    # The model passes the exact id from mind.list_models; the owner's words are its job, not ours.
+    want = (model or "").strip().lower()
+    exact = next((m for m in allowed if m.lower() == want), None)
+    if exact is None:
         return {"ok": False, "say": "I can't use that one. I can pick from: " + ", ".join(allowed[:8]) + ".",
                 "allowed": allowed}
-    if kind == "ambiguous":
-        return {"ok": False, "ambiguous": True, "options": hits[:8],
-                "say": "Which one do you mean? " + ", ".join(hits[:8]) + "."}
-    return _write("PUT", {"model": hits[0]})
+    return _write("PUT", {"model": exact})
 
 
 def reset_model() -> dict[str, Any]:
