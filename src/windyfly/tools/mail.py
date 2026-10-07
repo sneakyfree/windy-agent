@@ -330,19 +330,10 @@ def register_mail_tools(registry: ToolRegistry) -> None:
     registry.register(
         name="send_email",
         description=(
-            "Send an email from the agent's own mailbox. Use this whenever "
-            "the user asks you to email someone — e.g. 'email Bob the "
-            "report' or 'send a thank-you note to alice@example.com'. The "
-            "'from' address is your agent's mailbox automatically; you "
-            "don't need to specify it. Put EVERYONE in ONE call: all "
-            "recipients in 'to' (comma-separated), carbon copies in 'cc', "
-            "blind copies in 'bcc'. That sends ONE email that all of them "
-            "receive; never call this once per person. The owner "
-            "confirms once for the whole email. Returns {status, "
-            "message_id} on success, or {status: 'unavailable', error} "
-            "if email isn't configured for this agent. Always verify the "
-            "recipient address with the user before sending if it wasn't "
-            "explicit in the request."
+            "Send ONE email from the agent's own mailbox to everyone: recipients in 'to' "
+            "(comma-separated), copies in 'cc' and 'bcc'; never call this once per person. The owner "
+            "approves it once (the approval card or their 'send'), so do not ask for a yes in "
+            "text first. Ask only if an address is missing or unclear."
         ),
         parameters={
             "type": "object",
