@@ -436,6 +436,13 @@ def _step_agent_keys(ctx: BootContext) -> None:
     ensure_in_background()
 
 
+def _step_housing_report(ctx: BootContext) -> None:
+    """Tell Eternitas which machine the agent lives on (housing history; DARK until
+    WINDY_HOUSING_REPORT=1). Background thread; a no-op (no thread, no network) when off."""
+    from windyfly.eternitas.housing import report_in_background
+    report_in_background()
+
+
 def default_capability_registration_sequence() -> list[Step]:
     """The canonical post-DB-open registration order for both channels.
 
@@ -585,5 +592,10 @@ def default_capability_registration_sequence() -> list[Step]:
             "eternitas.agent_keys",
             _step_agent_keys,
             optional=True,  # background thread; must never block boot
+        ),
+        Step(
+            "eternitas.housing",
+            _step_housing_report,
+            optional=True,  # dark background thread; must never block boot
         ),
     ]

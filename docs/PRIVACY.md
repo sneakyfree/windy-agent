@@ -67,3 +67,18 @@ Windy's own probes set `WINDY_SYNTHETIC=1`. Their rows are marked
 `synthetic`, and their requests to Windy services (and only Windy services) carry the
 `X-Windy-Synthetic: 1` header so dashboards can separate test traffic from
 yours. It is never set on real use.
+
+## Housing history (Eternitas), off in this release
+
+Eternitas keeps a housing history per passport: which kinds of machine the agent has lived on and for how long.
+When `WINDY_HOUSING_REPORT=1` the agent tells Eternitas, once at start, which machine it is on:
+
+- a stable id for the machine, made by hashing the operating system's machine id (the raw id never leaves; Eternitas hashes it again);
+- the kind of machine (laptop, desktop, server, phone or unknown);
+- a snapshot: OS, CPU architecture, the windyfly version, CPU and GPU model, disk type and size, connection type
+  (ethernet, wifi, ...), whether it is a virtual machine, and the machine's serial number. The serial goes over TLS;
+  Eternitas keeps only a salted hash and the last four characters and never logs the raw value.
+
+Anything the agent cannot read is left out. Eternitas stores the snapshot only while its own collection setting is on
+(otherwise it answers `not_collected` and keeps nothing); the public view of a passport shows class durations only, and
+the owner sees the details. `WINDY_HOUSING_REPORT=0` turns it off. Contract: windy-contracts `schema/eternitas/housing.v1.json`.
