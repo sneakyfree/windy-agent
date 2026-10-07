@@ -173,3 +173,43 @@ def test_booking_link_off_is_said_plainly(calls, result):
     _answer(calls, _resp(200, {"ok": True, "result": result}))
     out = _cap("windy_calendar.booking_link").handler()
     assert out["sharing_off"] is True and "turned off" in out["say"] and "settings" not in out["say"]
+
+
+# ── Hub's hold on #473: nothing but a Chat-verified same-owner sibling may resolve to TRUSTED ──────
+
+def test_only_a_listed_same_owner_sibling_resolves_to_trusted(monkeypatch, tmp_path):
+    from windyfly.agent import teams
+    from windyfly.channels import identity
+
+    owner = "@owner:chat.example"
+    sib = "@agent_et26-sib0-0002:chat.windychat.ai"
+    monkeypatch.setenv("WINDY_OWNER_IDS", f"matrix:{owner}")
+    monkeypatch.setenv("WINDY_OWNER_BINDINGS_PATH", str(tmp_path / "o.json"))
+    monkeypatch.setenv("WINDY_TEAMS", "1")
+    teams._reset_for_tests()
+    teams._remember([{"name": "Sib", "passport": "ET26-SIB0-0002", "matrix_id": sib}])
+    outcomes = {
+        "owner": identity.resolve_band("matrix", owner),
+        "human_contact": identity.resolve_band("matrix", "@friend:chat.example"),
+        "trusted_looking_human": identity.resolve_band("matrix", "@trusted_friend:chat.example"),
+        "stranger_agent": identity.resolve_band("matrix", "@agent_et26-evil-0003:chat.windychat.ai"),
+        "unknown_platform_user": identity.resolve_band("telegram", "12345"),
+        "sibling": identity.resolve_band("matrix", sib),
+    }
+    assert [k for k, v in outcomes.items() if v == Band.TRUSTED] == ["sibling"]
+    assert outcomes["owner"] == Band.OWNER
+    teams._reset_for_tests()
+
+
+def test_no_other_module_issues_the_trusted_band():
+    """Hub: if anything else could return TRUSTED, calendar book/block would open to it. Today the only
+    place that ASSIGNS the band is channels/identity.py (the sibling branch)."""
+    import re
+    from pathlib import Path
+
+    src = Path(__file__).resolve().parent.parent / "src" / "windyfly"
+    # a band VALUE being produced for a sender: `band = Band.TRUSTED` or `return Band.TRUSTED`
+    pat = re.compile(r"\bband\s*=\s*Band\.TRUSTED\b|\breturn\s+Band\.TRUSTED\b")
+    offenders = sorted(str(p.relative_to(src)) for p in src.rglob("*.py")
+                       if pat.search(p.read_text("utf-8")) and p.name != "identity.py")
+    assert offenders == [], offenders
