@@ -1,11 +1,9 @@
 """windy_calendar.* : the owner's Windy Calendar, for windyfly agents (Agentic Calendar K1).
 
-Distinct from the Google-Calendar tools (get_today_events, create_event): these act on the
-owner's Windy Calendar through ``windyfly.agent.windy_calendar``. Every tool is owner-only (a
-calendar shows someone's life, and appointments carry other people's names and emails). Calendar
-itself enforces the band rules, the 20-writes/day cap and the owner's OK for cancel/move; a
-``pending_owner`` answer means WAIT, never ask again. The booking link comes ONLY from
-``windy_calendar.booking_link``: never type or guess one. Dark: needs WINDY_CALENDAR=1.
+Distinct from the Google-Calendar tools (get_today_events, create_event). Descriptions are Calendar's own
+factual one-liners (GET /tools, #9). TRUSTED band = the owner and the owner's own agents (siblings); a
+stranger agent has none of them. Calendar enforces its own rules (a per-agent daily write ceiling the owner can lower, owner tap for cancel).
+Dark: needs WINDY_CALENDAR=1.
 """
 
 from __future__ import annotations
@@ -72,8 +70,7 @@ def register_windy_calendar_capabilities(registry: CapabilityRegistry, config: d
         state = str(res.get("state") or "") if isinstance(res, dict) else ""
         if listed is False or state == "unlisted":
             return {"ok": True, "booking_link": link, "sharing_off": True,
-                    "say": "My owner's booking link is turned off right now, so anyone who opens it sees "
-                           "'Not taking bookings'. They can turn it on in their Calendar settings."}
+                    "say": "My owner's booking link is turned off: anyone who opens it sees 'Not taking bookings'."}
         return {"ok": True, "booking_link": link}
 
     def book(**kw: Any) -> dict[str, Any]:
@@ -92,39 +89,39 @@ def register_windy_calendar_capabilities(registry: CapabilityRegistry, config: d
     s = {"type": "string"}
     registry.register(Capability(
         id="windy_calendar.availability", name="Open times",
-        description="Open times on my owner's calendar between two dates (YYYY-MM-DD), earliest first. count = how many.",
+        description="Returns the open bookable slots for a date range in a timezone, earliest first; optional count limits to the first N. Slots are the owner's open hours minus what is booked, blocked or past.",
         handler=availability,
         input_schema={"type": "object", "properties": {
             "from_date": date, "to_date": date, "timezone": {"type": "string", "description": "IANA zone, optional"},
             "count": {"type": "integer", "minimum": 1, "maximum": MAX_SLOTS}},
             "required": ["from_date", "to_date"], "additionalProperties": False},
-        tier=Tier.READ_EXTERNAL, band_required=Band.OWNER))
+        tier=Tier.READ_EXTERNAL, band_required=Band.TRUSTED))
     registry.register(Capability(
         id="windy_calendar.appointments", name="Booked appointments",
-        description="Booked appointments on my owner's calendar, optional date range.",
+        description="Returns the owner's appointments in a date range (default next 7 days) in a timezone (default the owner's): time, booker name, location.",
         handler=appointments,
         input_schema={"type": "object", "properties": {"from_date": date, "to_date": date, "timezone": s},
                       "additionalProperties": False},
-        tier=Tier.READ_EXTERNAL, band_required=Band.OWNER))
+        tier=Tier.READ_EXTERNAL, band_required=Band.TRUSTED))
     registry.register(Capability(
         id="windy_calendar.booking_link", name="Booking link",
-        description="My owner's booking link. Only ever use the link this returns; never type one.",
+        description="Returns the public booking-page URL. Customers need no account.",
         handler=booking_link,
         input_schema={"type": "object", "properties": {}, "additionalProperties": False},
-        tier=Tier.READ_EXTERNAL, band_required=Band.OWNER))
+        tier=Tier.READ_EXTERNAL, band_required=Band.TRUSTED))
     registry.register(Capability(
         id="windy_calendar.book", name="Book a time",
-        description="Book a time on my owner's calendar (starts_at_utc as returned by open times).",
+        description="Books a slot on the owner's calendar. Atomic: a slot taken at the same instant returns 'just taken' with the next open times; a time that is not an open slot is refused.",
         handler=book,
         input_schema={"type": "object", "properties": {
             "starts_at_utc": s, "booker_name": s, "booker_email": s, "booker_phone": s,
             "booker_note": s, "booker_tz": s},
             "required": ["starts_at_utc", "booker_name", "booker_email"], "additionalProperties": False},
-        tier=Tier.EXTERNAL_EFFECT, band_required=Band.OWNER, audit_required=True))
+        tier=Tier.EXTERNAL_EFFECT, band_required=Band.TRUSTED, audit_required=True))
     registry.register(Capability(
         id="windy_calendar.block", name="Block time",
-        description="Block my owner's own time (up to seven days).",
+        description="Marks a time range unavailable. Overlapping slots are removed from availability until the range passes.",
         handler=block,
         input_schema={"type": "object", "properties": {"starts_at_utc": s, "ends_at_utc": s, "reason": s},
                       "required": ["starts_at_utc", "ends_at_utc"], "additionalProperties": False},
-        tier=Tier.EXTERNAL_EFFECT, band_required=Band.OWNER, audit_required=True))
+        tier=Tier.EXTERNAL_EFFECT, band_required=Band.TRUSTED, audit_required=True))

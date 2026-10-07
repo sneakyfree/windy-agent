@@ -61,9 +61,9 @@ def test_dark_by_default(monkeypatch):
     assert wc.invoke("get_booking_page")["ok"] is False
 
 
-def test_all_tools_are_owner_only_and_writes_audited(calls):
+def test_all_tools_are_trusted_band_and_writes_audited(calls):
     for cid in ("availability", "appointments", "booking_link", "book", "block"):
-        assert _cap(f"windy_calendar.{cid}").band_required == Band.OWNER
+        assert _cap(f"windy_calendar.{cid}").band_required == Band.TRUSTED
     for cid in ("book", "block"):
         c = _cap(f"windy_calendar.{cid}")
         assert c.tier == Tier.EXTERNAL_EFFECT and c.audit_required
@@ -111,7 +111,7 @@ def test_confirm_required_waits_and_is_not_retried(calls):
     _answer(calls, _resp(200, {"ok": False, "error": "confirm_required", "confirmation": {"id": "c1", "waiting_in": "inbox"}}))
     out = wc.invoke("cancel_appointment", {"appointment_id": "1"}, write=True)
     assert out["pending_owner"] is True and out["confirmation_id"] == "c1" and len(calls) == 1
-    assert "will not ask again" in out["say"]
+    assert out["say"] == "That needs my owner's OK. It is waiting in the Windy Inbox."
 
 
 @pytest.mark.parametrize("status,body,write,needle", [
@@ -119,7 +119,7 @@ def test_confirm_required_waits_and_is_not_retried(calls):
     (403, {"ok": False, "error": "denied", "reason": "no_calendar"}, False, "isn't a Windy Calendar"),
     (403, {"ok": False, "error": "denied", "reason": "insufficient_band"}, False, "can't see"),
     (403, {"ok": False, "error": "denied", "reason": "untrusted_write"}, True, "not trusted enough"),
-    (400, {"ok": False, "error": "rate_limited", "reason": "own_calendar_daily_cap"}, True, "today's limit"),
+    (400, {"ok": False, "error": "rate_limited", "reason": "own_calendar_daily_cap"}, True, "daily limit"),
     (400, {"ok": False, "error": "invalid_arguments", "reason": "impossible_time"}, True, "doesn't work"),
     (503, {"ok": False, "error": "auth_unavailable"}, False, "couldn't reach"),
     (404, {"ok": False, "error": "unknown_tool"}, False, "can't do that yet"),
@@ -163,8 +163,8 @@ def test_url_override(calls, monkeypatch):
 def test_non_owner_band_does_not_see_the_tools(calls):
     r = CapabilityRegistry()
     register_windy_calendar_capabilities(r)
-    assert not [c for c in r.list_for_band(Band.TRUSTED) if c.id.startswith("windy_calendar.")]
-    assert len([c for c in r.list_for_band(Band.OWNER) if c.id.startswith("windy_calendar.")]) == 5
+    assert not [c for c in r.list_for_band(Band.USER) if c.id.startswith("windy_calendar.")]
+    assert len([c for c in r.list_for_band(Band.TRUSTED) if c.id.startswith("windy_calendar.")]) == 5
 
 
 @pytest.mark.parametrize("result", [{"url": "https://windycalendar.com/book/c-abc", "listed": False},
@@ -172,4 +172,44 @@ def test_non_owner_band_does_not_see_the_tools(calls):
 def test_booking_link_off_is_said_plainly(calls, result):
     _answer(calls, _resp(200, {"ok": True, "result": result}))
     out = _cap("windy_calendar.booking_link").handler()
-    assert out["sharing_off"] is True and "turned off" in out["say"]
+    assert out["sharing_off"] is True and "turned off" in out["say"] and "settings" not in out["say"]
+
+
+# ── Hub's hold on #473: nothing but a Chat-verified same-owner sibling may resolve to TRUSTED ──────
+
+def test_only_a_listed_same_owner_sibling_resolves_to_trusted(monkeypatch, tmp_path):
+    from windyfly.agent import teams
+    from windyfly.channels import identity
+
+    owner = "@owner:chat.example"
+    sib = "@agent_et26-sib0-0002:chat.windychat.ai"
+    monkeypatch.setenv("WINDY_OWNER_IDS", f"matrix:{owner}")
+    monkeypatch.setenv("WINDY_OWNER_BINDINGS_PATH", str(tmp_path / "o.json"))
+    monkeypatch.setenv("WINDY_TEAMS", "1")
+    teams._reset_for_tests()
+    teams._remember([{"name": "Sib", "passport": "ET26-SIB0-0002", "matrix_id": sib}])
+    outcomes = {
+        "owner": identity.resolve_band("matrix", owner),
+        "human_contact": identity.resolve_band("matrix", "@friend:chat.example"),
+        "trusted_looking_human": identity.resolve_band("matrix", "@trusted_friend:chat.example"),
+        "stranger_agent": identity.resolve_band("matrix", "@agent_et26-evil-0003:chat.windychat.ai"),
+        "unknown_platform_user": identity.resolve_band("telegram", "12345"),
+        "sibling": identity.resolve_band("matrix", sib),
+    }
+    assert [k for k, v in outcomes.items() if v == Band.TRUSTED] == ["sibling"]
+    assert outcomes["owner"] == Band.OWNER
+    teams._reset_for_tests()
+
+
+def test_no_other_module_issues_the_trusted_band():
+    """Hub: if anything else could return TRUSTED, calendar book/block would open to it. Today the only
+    place that ASSIGNS the band is channels/identity.py (the sibling branch)."""
+    import re
+    from pathlib import Path
+
+    src = Path(__file__).resolve().parent.parent / "src" / "windyfly"
+    # a band VALUE being produced for a sender: `band = Band.TRUSTED` or `return Band.TRUSTED`
+    pat = re.compile(r"\bband\s*=\s*Band\.TRUSTED\b|\breturn\s+Band\.TRUSTED\b")
+    offenders = sorted(str(p.relative_to(src)) for p in src.rglob("*.py")
+                       if pat.search(p.read_text("utf-8")) and p.name != "identity.py")
+    assert offenders == [], offenders

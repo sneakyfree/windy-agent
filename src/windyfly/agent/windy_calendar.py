@@ -47,8 +47,7 @@ def _plain(status: int, body: dict[str, Any], *, write: bool) -> dict[str, Any]:
         raw = body.get("confirmation")
         conf: dict[str, Any] = raw if isinstance(raw, dict) else {}
         return {"ok": False, "pending_owner": True, "confirmation_id": conf.get("id"),
-                "say": "That needs my owner's OK first. I've asked in the Windy Inbox and I will not ask again; "
-                       "I'll wait for the answer."}
+                "say": "That needs my owner's OK. It is waiting in the Windy Inbox."}
     if err == "denied":
         if reason == "agent_blocked":
             say = "My owner has blocked me from their calendar."
@@ -60,10 +59,10 @@ def _plain(status: int, body: dict[str, Any], *, write: bool) -> dict[str, Any]:
             say = "I can't see my owner's calendar yet."
         return {"ok": False, "say": say}
     if err == "rate_limited":
-        return {"ok": False, "say": "I've reached today's limit for changing my owner's calendar. Tomorrow I can again."}
+        return {"ok": False, "say": "I've reached my daily limit for changing my owner's calendar."}
     if err == "conflict":
         return {"ok": False, "pending_owner": True,
-                "say": "That is already waiting for my owner's approval. I'll wait."}
+                "say": "That is already waiting for my owner's approval."}
     if err == "invalid_arguments":
         if reason == "impossible_time":
             return {"ok": False, "say": "That time doesn't work. Pick a real time in the future."}
