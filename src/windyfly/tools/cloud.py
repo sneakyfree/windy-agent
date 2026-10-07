@@ -199,13 +199,7 @@ def register_cloud_tools(registry: ToolRegistry) -> None:
     registry.register(
         name="upload_to_cloud",
         description=(
-            "Upload a local file to the user's Windy Cloud storage. Use "
-            "when the user says 'save this to cloud', 'upload <file> to "
-            "my cloud', or when an agent task generates a document the "
-            "user should keep. The file_path can be absolute or relative "
-            "to the agent's cwd. Returns {status: 'uploaded', name, "
-            "size_bytes, ...} on success or {status: 'unavailable' | "
-            "'failed', error} otherwise."
+            "Upload a local file (absolute or relative path) to the user's Windy Cloud. Returns {status: 'uploaded'|'unavailable'|'failed', ...}."
         ),
         parameters={
             "type": "object",

@@ -562,12 +562,7 @@ def register_windycodeweb_tools(registry: ToolRegistry) -> None:
     registry.register(
         name="windycodeweb_start",
         description=(
-            "FASTEST way to start a site for the user: give what they asked "
-            "for in plain words and your first words (fills). Windy Code "
-            "picks the closest finished example and puts the words in, so the "
-            "first preview already looks like theirs. Then use "
-            "windycodeweb_edit_text / windycodeweb_add_files to change it. "
-            "Returns {project, template, filled, editables, speak}."
+            "Start a site from what the user asked for in plain words plus your first words (fills); Windy Code picks the closest finished example. Then use windycodeweb_edit_text / windycodeweb_add_files. Returns {project, template, filled, editables, speak}."
         ),
         parameters={
             "type": "object",
@@ -641,13 +636,7 @@ def register_windycodeweb_tools(registry: ToolRegistry) -> None:
     registry.register(
         name="windycodeweb_create_project",
         description=(
-            "Start a new project in Windy Code, the user's BROWSER builder "
-            "(their private draft website). This is the DEFAULT way to build "
-            "a website or web page for the user: use it instead of "
-            "create_site, writing files, or shell commands, unless they are "
-            "at a desktop with Windy Code open (then use windycode_*). The "
-            "user sees the project, its preview and its Undo list at "
-            "cloud.windycloud.com/build/. Returns {project:{id,...}, speak}."
+            "Start a new project in Windy Code, the user's browser builder (private draft website). The default way to build a website for the user unless they are at a desktop with Windy Code open (then use windycode_*). Returns {project:{id,...}, speak}."
         ),
         parameters={
             "type": "object",
@@ -819,13 +808,7 @@ def _register_cabinet_tools(registry: ToolRegistry) -> None:
     registry.register(
         name="windycodeweb_file_project",
         description=(
-            "File a project that lives OUTSIDE the Windy Code builder (a code repo, a "
-            "mobile app, a database) in the owner's Windy Code cabinet, so they see one "
-            "tidy drawer for it. Only when the owner asked you to make, build or set up "
-            "something that has a URL, repo or store listing; never for answers or "
-            "research. Sites and apps you build with windycodeweb_start are filed for you. "
-            "Pass a stable ref (e.g. the repo URL): filing it again returns the same "
-            "drawer. Links must be https; never put passwords or tokens in them."
+            "File a project that lives OUTSIDE the builder (repo, app, database) in the owner's Windy Code cabinet, only when the owner asked you to build something with a URL, repo or store listing. Pass a stable ref; refiling returns the same drawer. https links only; never put passwords or tokens in them."
         ),
         parameters={
             "type": "object",

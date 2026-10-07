@@ -740,15 +740,7 @@ def register_cloudflare_capabilities(
     registry.register(Capability(
         id="cloudflare.set_dns_record",
         description=(
-            "Create or update a DNS record on a Cloudflare zone. "
-            "Idempotent (upsert by zone+type+name): if a record with "
-            "the same type and name exists, it's PATCHed with the new "
-            "content/ttl/proxied/comment; otherwise a new record is "
-            "POSTed. STRONG RECOMMENDATION: pass dry_run=true first to "
-            "preview the plan — DNS edits affect production traffic "
-            "and Cloudflare doesn't keep edit history. Refuses if "
-            "more than one record matches type+name (caller must "
-            "disambiguate). Tier EXTERNAL_EFFECT — TRUSTED+ band only."
+            "Create or update a Cloudflare DNS record (upsert by zone+type+name). Edits hit production and are not versioned: use dry_run=true first. Refuses if more than one record matches."
         ),
         handler=set_dns_record,
         input_schema={
@@ -821,12 +813,7 @@ def register_cloudflare_capabilities(
     registry.register(Capability(
         id="cloudflare.delete_dns_record",
         description=(
-            "Delete a DNS record. Resolves record_id by zone+type+name "
-            "if not provided. Refuses if more than one record matches "
-            "type+name. Cloudflare doesn't keep deleted-record history "
-            "— this is irreversible without manually re-creating the "
-            "record. Pass dry_run=true first. Tier EXTERNAL_EFFECT — "
-            "TRUSTED+ band only."
+            "Delete a Cloudflare DNS record (irreversible). Use dry_run=true first. Refuses if more than one record matches type+name."
         ),
         handler=delete_dns_record,
         input_schema={

@@ -328,12 +328,7 @@ def register_fleet_capabilities(
     registry.register(Capability(
         id="fleet.list_kits",
         description=(
-            "List the machines in the user's fleet (read from "
-            "~/.ssh/config). Use this when the user asks 'what kits do "
-            "I have', 'show me the fleet', 'who is online', or before "
-            "drafting a fleet-wide command so you can confirm the "
-            "target list. Returns ok/false if no fleet-shaped hosts "
-            "(wg-* or kit-*) are configured."
+            "List the machines in the user's fleet from ~/.ssh/config."
         ),
         handler=fleet_list_kits,
         tier=Tier.READ_EXTERNAL,
@@ -348,16 +343,7 @@ def register_fleet_capabilities(
     registry.register(Capability(
         id="fleet.prepare_command",
         description=(
-            "Draft a bash dispatch script for running a command on "
-            "one or more fleet kits. Saves the script to "
-            "~/.windy/fleet-dispatch/<timestamp>-<slug>.sh and returns "
-            "the path. DOES NOT EXECUTE — the user reviews and runs "
-            "manually. Use this when the user says 'update all the "
-            "kits', 'run X on every machine', 'reboot the fleet', or "
-            "any fleet-wide operation. Set dry_run=true (default) so "
-            "the drafted script will only print what it would do; "
-            "set dry_run=false only when the user explicitly "
-            "confirms they want the real version."
+            "Draft a bash script to run a command on fleet kits and save it. It does NOT execute: the user reviews and runs it. dry_run=true by default; set false only when the user explicitly confirms."
         ),
         handler=fleet_prepare_command,
         tier=Tier.WRITE_LOCAL_SAFE,

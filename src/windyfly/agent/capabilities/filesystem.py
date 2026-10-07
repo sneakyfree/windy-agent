@@ -783,14 +783,7 @@ def register_filesystem_capabilities(
     registry.register(Capability(
         id="fs.read_file",
         description=(
-            "Read the contents of a text file at the given path. "
-            "When the user mentions a local file, folder, repo, or "
-            "'my <name> repo', use the fs.* tools FIRST (they usually "
-            "mean a local clone in ~/) before web_search or asking "
-            "them to paste content. "
-            "Returns up to max_bytes (default 100KB) of UTF-8 content. "
-            "Binary files return a hint instead of contents. Path must "
-            "be inside the agent's allowed roots."
+            "Read a text file inside the allowed roots (up to max_bytes, default 100KB). For local files, folders and repos use the fs tools first."
         ),
         handler=read_file,
         input_schema={
@@ -999,12 +992,7 @@ def register_filesystem_capabilities(
     registry.register(Capability(
         id="fs.write_file",
         description=(
-            "Write text content to a file atomically (temp + rename). "
-            "Default refuses to overwrite existing files; pass "
-            "overwrite=true to replace (this elevates the call to a "
-            "higher band requirement automatically). Use dry_run=true "
-            "to preview the action without writing. Path must be inside "
-            "the agent's allowed roots."
+            "Write a text file atomically. Refuses to overwrite unless overwrite=true. dry_run=true previews."
         ),
         handler=fs_write_file,
         input_schema={
@@ -1040,13 +1028,7 @@ def register_filesystem_capabilities(
     registry.register(Capability(
         id="fs.edit_file",
         description=(
-            "Replace a string in an existing text file. Mirrors editor "
-            "find-and-replace: if old_string matches more than once and "
-            "replace_all=false, refuses (provide more context to make "
-            "old_string unique). Atomic write + undo journal — "
-            "fs.undo_last_action can revert. Preferred over fs.write_file "
-            "when modifying part of a file, since you don't have to send "
-            "the whole new content. dry_run=true returns the plan."
+            "Replace a string in a text file (replace_all for many; refuses if ambiguous). Undoable with fs.undo_last_action. dry_run=true previews."
         ),
         handler=fs_edit_file,
         input_schema={

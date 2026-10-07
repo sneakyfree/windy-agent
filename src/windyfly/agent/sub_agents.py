@@ -133,13 +133,7 @@ def register_sub_agent_tool(
     registry.register(
         name="delegate_to_specialist",
         description=(
-            "Delegate a focused task to an isolated specialist sub-agent. "
-            "The sub-agent has NO conversation history or memory — it only sees the task. "
-            "Costs 2x tokens vs shape_shift because context is duplicated. "
-            "KEY BENEFIT: the user can keep talking to you while the sub-agent works independently. "
-            "Use when: (1) the user wants a clean-slate, unbiased analysis, or "
-            "(2) the task is long-running and the user wants to keep chatting. "
-            "Check shape_shift_bias slider: if low (0-3), user prefers this approach."
+            "Delegate a focused task to an isolated sub-agent with no memory (it only sees the task); the user can keep chatting meanwhile. Costs about 2x tokens vs shape_shift."
         ),
         parameters={
             "type": "object",

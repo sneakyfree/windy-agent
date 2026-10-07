@@ -232,13 +232,7 @@ def register_skill_learning_capabilities(
     registry.register(Capability(
         id="skill.save",
         description=(
-            "Save (or update) a playbook skill so you remember how to "
-            "do a workflow forever — across restarts and new sessions. "
-            "Use after completing a non-trivial multi-step task, or "
-            "when the user teaches you a procedure. Write the body as "
-            "numbered steps a future you can follow, including exact "
-            "commands/values that worked. Saved skills appear as "
-            "editable files in the user's skills folder."
+            "Save (or update) a playbook skill as numbered steps with the exact commands and values that worked, so a future you can follow it."
         ),
         handler=skill_save,
         tier=Tier.WRITE_LOCAL_SAFE,

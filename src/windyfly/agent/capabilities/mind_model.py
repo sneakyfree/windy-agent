@@ -62,10 +62,7 @@ def register_mind_model_capabilities(registry: CapabilityRegistry, config: dict[
         id="mind.switch_model",
         name="Switch my model",
         description=(
-            "Switch the model that powers this agent, when the OWNER asks (for example 'switch to Groq' or "
-            "'use Claude Haiku'). Pass the words the owner used; I match them against the models I am "
-            "allowed to pick. If it is ambiguous, ask which one. If I am not allowed, say so in plain words "
-            "and where the owner can allow it. Never claim a switch happened unless the result says ok."
+            "Switch the model that powers this agent when the OWNER asks. Pass the owner's words; I match them against the models I may pick. If ambiguous ask which, if not allowed say so plainly. Never claim a switch unless the result says ok."
         ),
         handler=switch_model,
         input_schema={

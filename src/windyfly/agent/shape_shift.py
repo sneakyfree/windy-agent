@@ -219,11 +219,7 @@ def register_shape_shift_tool(
     registry.register(
         name="shape_shift",
         description=(
-            "Shape-shift into a specialist personality mode (e.g. 'coder', 'researcher', 'friend'). "
-            "Unlike delegate_to_specialist, shape-shifting keeps ALL memory and conversation context "
-            "while reconfiguring personality for the task. Uses HALF the tokens of spawning a sub-agent. "
-            "Check the shape_shift_bias slider first: if it's high (7-10), prefer shape-shifting. "
-            "If it's low (0-3), the user prefers sub-agents — use delegate_to_specialist instead."
+            "Shape-shift into a specialist personality mode (e.g. 'coder', 'researcher'), keeping all memory and context. Cheaper than delegate_to_specialist; the shape_shift_bias slider says which the user prefers."
         ),
         parameters={
             "type": "object",

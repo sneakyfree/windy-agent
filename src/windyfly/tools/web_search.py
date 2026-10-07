@@ -282,18 +282,7 @@ def register_web_search_tool(registry: ToolRegistry) -> None:
     registry.register(
         name="fetch_url",
         description=(
-            "READ a specific web page, live (plain text). Use it WHENEVER the "
-            "user gives you a URL (http/https), asks what a page says, wants a "
-            "page summarized or checked, or you need the full text of a "
-            "web_search result to answer correctly. Never answer about a page "
-            "from memory or a search snippet when you can read it. Leave "
-            "render on 'auto' (JavaScript-heavy pages are rendered in a real "
-            "browser only when needed). Default returns up to 20000 chars; pass "
-            "max_chars to change the slice size (LLM-context cost). For long "
-            "pages (Wikipedia, blog posts), the response includes total_length "
-            "and next_offset — call again with offset=next_offset to read the "
-            "next chunk. Returns {content, offset, returned_chars, "
-            "total_length, truncated, next_offset}."
+            "READ a specific web page live as plain text; use it whenever given a URL instead of answering from memory. Leave render on 'auto'. Long pages return next_offset: call again with offset=next_offset."
         ),
         parameters={
             "type": "object",
