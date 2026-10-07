@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://windyvault.invalid/contracts/lease-jwe-vector.v1.json",
+  "title": "Windy Vault lease JWE known-answer vector (plan C7, V7.6 c2d)",
+  "owner": "windy-vault",
+  "description": "TEST DATA ONLY: fixed test keys, no real secret. ECDH-ES+A256KW (X25519, RFC 8037 Concat KDF) + A256GCM compact JWE with a `kid` header naming the recipient lease key. Built by an independent Python implementation (cryptography) and decrypted by jwcrypto. A client (Windy Agent, Python jwcrypto) pins this: decrypting `expect_compact` with `recipient_pkcs8_b64` MUST yield `plaintext_utf8`; an unknown kid means re-lease. The TypeScript library reproduces `expect_compact` byte for byte from the fixed ephemeral key, CEK and IV. Frozen: any change is a new major file.",
+  "type": "object",
+  "x-vector": {
+    "recipient_pub_hex": "dc2cca31e8e43bbd91dff7e475cca3347eb478107d5bd765aba4ae4a30c35d44",
+    "recipient_pkcs8_b64": "MC4CAQAwBQYDK2VuBCIEIMDBwsPExcbHyMnKy8zNzs/Q0dLT1NXW19jZ2tvc3d7f",
+    "eph_priv_hex": "e0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff",
+    "cek_hex": "0708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20212223242526",
+    "iv_hex": "28292a2b2c2d2e2f30313233",
+    "plaintext_utf8": "lease-value-WVTEST",
+    "kid": "lk_test0001",
+    "expect_compact": "eyJhbGciOiJFQ0RILUVTK0EyNTZLVyIsImVuYyI6IkEyNTZHQ00iLCJraWQiOiJsa190ZXN0MDAwMSIsImVwayI6eyJrdHkiOiJPS1AiLCJjcnYiOiJYMjU1MTkiLCJ4IjoiYzJoRjFVNkgzZ25XdXhGS3B3UXNVS1NnRmIyWkFkR2dBbTlaVmxNNkZSayJ9fQ.2eH2UTqakkuSdRrR11_Ki35H2rJ0bybmLiGzQokXyXXOBYDacAs9hg.KCkqKywtLi8wMTIz.Y59LyAgHyntHlISizlxVyZ9d.U30jBsiJTjZ-AFiaZJ8ZGg",
+    "jwcrypto_decrypts": true
+  }
+}
