@@ -45,12 +45,24 @@ WINDYFLY_SHARED = [n for n, _a, _h in shared.mine()]
 RUNNABLE = [n for n in WINDYFLY_SHARED if n != "agents"]  # /agents lands with the peer gate (its own tests)
 
 
-def test_the_contract_mirror_is_well_formed():
-    names = [n for n, _a, _h, _w in shared.SHARED]
-    assert len(names) == len(set(names)) <= 20
-    for n, a, h, who in shared.SHARED:
-        assert re.fullmatch(r"[a-z]{2,16}", n) and len(a) <= 80 and len(h) <= 120
-        assert who and set(who) <= {"roster", "windyfly"}
+# sha256 of the vendored windy-contracts schema/chat/commands.v1.json (1.1.0, windy-contracts de745533).
+# A contract change = copy the new file into commands/contracts/ AND update this hash on purpose.
+COMMANDS_V1_SHA256 = "b4c2ee03d0e4861063722d7c95dfd1032a0dd28b29fe52f906095327ffa413ad"
+
+
+def test_the_vendored_contract_is_the_pinned_one():
+    import hashlib
+    assert hashlib.sha256(shared.CONTRACT.read_bytes()).hexdigest() == COMMANDS_V1_SHA256
+
+
+def test_the_contract_is_what_we_build_from_and_is_well_formed():
+    cmds = shared.commands()
+    names = [c["name"] for c in cmds]
+    assert len(names) == len(set(names)) <= 20 and "undo" not in names  # dropped in 1.1.0
+    for c in cmds:
+        assert re.fullmatch(r"[a-z]{2,16}", c["name"]) and len(c.get("args", "")) <= 80 and len(c["help"]) <= 120
+        assert c["supported_by"] and set(c["supported_by"]) <= {"roster", "windyfly"}
+    assert [n for n, _a, _h in shared.mine()] == [c["name"] for c in cmds if "windyfly" in c["supported_by"]]
 
 
 @pytest.mark.parametrize("name", RUNNABLE)

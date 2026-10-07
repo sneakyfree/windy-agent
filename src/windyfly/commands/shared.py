@@ -1,35 +1,33 @@
 """The shared owner command set (windy-contracts ``schema/chat/commands.v1.json``, owner: windy-chat).
 
 One ecosystem list of slash commands, the same names/args/help on every engine (Chat's roster and
-windyfly). This is a MIRROR of the contract's ``x-commands``: Chat owns the wording, so a change is a
-windy-contracts PR and then a copy here (the conformance test fails loudly if a name stops resolving).
-windyfly's other commands are not part of this set and stay as they are (``/commands`` lists them all).
+windyfly). The list is the contract's JSON ITSELF, vendored byte for byte in ``contracts/commands.v1.json``
+(windy-contracts de745533, version 1.1.0) and pinned by a test, so there is no second hand-typed copy.
+Chat owns the wording: a change is a windy-contracts PR, then a copy of the file here and the new hash in
+``tests/test_shared_commands.py``. windyfly's other commands are not part of this set and stay as they are
+(``/commands`` lists them all).
 """
 
 from __future__ import annotations
 
-ENGINE = "windyfly"
+import json
+from functools import lru_cache
+from pathlib import Path
+from typing import Any
 
-# (name, args, help, supported_by)
-SHARED: tuple[tuple[str, str, str, tuple[str, ...]], ...] = (
-    ("help", "", "List what I understand.", ("roster", "windyfly")),
-    ("status", "", "Am I healthy? My model, my mailbox, what I can use right now.", ("roster", "windyfly")),
-    ("whoami", "", "My name, passport, owner and email.", ("roster", "windyfly")),
-    ("model", "[sonnet|opus|default|<model id>]", "Show or change the model I use.", ("roster", "windyfly")),
-    ("usage", "", "What I have used lately (tokens and cost), from Windy Mind.", ("roster", "windyfly")),
-    ("pause", "", "Stop answering anything except your commands until /resume.", ("roster", "windyfly")),
-    ("resume", "", "Start answering again.", ("roster", "windyfly")),
-    ("new", "", "Start a fresh conversation (I forget what was said above this line).", ("roster", "windyfly")),
-    ("undo", "", "Undo the last change I made for you, where that can be undone.", ("windyfly",)),
-    ("memory", "[search words]", "What I remember about you.", ("windyfly",)),
-    ("forget", "<what>", "Make me forget something I remember.", ("windyfly",)),
-    ("agents", "[on|off]", "Show or change whether OTHER agents (not your own) may talk to me.", ("roster", "windyfly")),
-)
+ENGINE = "windyfly"
+CONTRACT = Path(__file__).parent / "contracts" / "commands.v1.json"
+
+
+@lru_cache(maxsize=1)
+def commands() -> tuple[dict[str, Any], ...]:
+    """The contract's ``x-commands``: name, args, help, supported_by."""
+    return tuple(json.loads(CONTRACT.read_text(encoding="utf-8"))["x-commands"])
 
 
 def mine() -> list[tuple[str, str, str]]:
     """(name, args, help) of the shared commands this engine implements."""
-    return [(n, a, h) for n, a, h, who in SHARED if ENGINE in who]
+    return [(c["name"], c.get("args", ""), c["help"]) for c in commands() if ENGINE in c["supported_by"]]
 
 
 def help_text(exists=lambda name: True) -> str:

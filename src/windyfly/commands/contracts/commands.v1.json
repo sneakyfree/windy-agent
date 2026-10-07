@@ -1,0 +1,174 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://chat.windychat.ai/contracts/commands.v1.json",
+  "title": "One shared owner command set for every Windy agent (Chat roster + windyfly)",
+  "owner": "windy-chat",
+  "description": "Grant 10-07: one ecosystem list of slash commands, not one per engine. ~11 commands, same names/args/help in both engines. Owner-only: an agent obeys a command only from its OWNER (a sibling or peer agent can never run one). A phone or desktop client fetches this list (GET /api/v1/onboarding/commands) for its suggestions and shows only what the target agent's engine supports. windyfly's other ~90 commands are NOT part of this set and stay as they are. A command an engine does not support answers honestly ('I don't keep memory yet'), never silently. /panic, rescue and reset are NOT in this set: they stay engine-local and OWNER-only (windyfly's), so a client must not expect them from this list.",
+  "x-rules": [
+    "Owner only. The command text is an ordinary owner m.text (leading slash); no special event.",
+    "A command is deterministic code in the runtime, not a model turn: it answers without a model call (except `usage` / `status`, which read Mind / the runner).",
+    "`supported_by` lists the engines that implement it today; a client hides a command whose engine it knows is not listed, an unknown engine shows all.",
+    "Answers are plain text, one short block, never a secret (no tokens, keys, internal ids beyond the passport).",
+    "`undo` was dropped in 1.1.0: no engine implements it, and a list offers only what an engine really runs. It returns when one does."
+  ],
+  "x-commands": [
+    {
+      "name": "help",
+      "args": "",
+      "help": "List what I understand.",
+      "supported_by": [
+        "roster",
+        "windyfly"
+      ]
+    },
+    {
+      "name": "status",
+      "args": "",
+      "help": "Am I healthy? My model, my mailbox.",
+      "supported_by": [
+        "roster",
+        "windyfly"
+      ]
+    },
+    {
+      "name": "whoami",
+      "args": "",
+      "help": "My name, passport, owner and email.",
+      "supported_by": [
+        "roster",
+        "windyfly"
+      ]
+    },
+    {
+      "name": "model",
+      "args": "[sonnet|opus|default|<model id>]",
+      "help": "Show or change the model I use.",
+      "supported_by": [
+        "roster",
+        "windyfly"
+      ]
+    },
+    {
+      "name": "usage",
+      "args": "",
+      "help": "What I have used lately.",
+      "supported_by": [
+        "roster",
+        "windyfly"
+      ]
+    },
+    {
+      "name": "pause",
+      "args": "",
+      "help": "Stop answering anything except your commands until /resume.",
+      "supported_by": [
+        "roster",
+        "windyfly"
+      ]
+    },
+    {
+      "name": "resume",
+      "args": "",
+      "help": "Start answering again.",
+      "supported_by": [
+        "roster",
+        "windyfly"
+      ]
+    },
+    {
+      "name": "new",
+      "args": "",
+      "help": "Start a fresh conversation (I forget what was said above this line).",
+      "supported_by": [
+        "roster",
+        "windyfly"
+      ]
+    },
+    {
+      "name": "memory",
+      "args": "[search words]",
+      "help": "What I remember about you.",
+      "supported_by": [
+        "windyfly"
+      ]
+    },
+    {
+      "name": "forget",
+      "args": "<what>",
+      "help": "Make me forget something I remember.",
+      "supported_by": [
+        "windyfly"
+      ]
+    },
+    {
+      "name": "agents",
+      "args": "[on|off]",
+      "help": "Show or change whether OTHER agents (not your own) may talk to me.",
+      "supported_by": [
+        "roster",
+        "windyfly"
+      ]
+    }
+  ],
+  "$defs": {
+    "Command": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "help",
+        "supported_by"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z]{2,16}$"
+        },
+        "args": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "help": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "supported_by": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "roster",
+              "windyfly"
+            ]
+          },
+          "minItems": 1
+        }
+      }
+    },
+    "ListResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "commands"
+      ],
+      "properties": {
+        "commands": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Command"
+          },
+          "maxItems": 20
+        },
+        "version": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "x-http": {
+    "GET /api/v1/onboarding/commands": {
+      "auth": "owner JWT (the same as the rest of the onboarding API)",
+      "200": "#/$defs/ListResult",
+      "cache": "private, max-age=300"
+    }
+  }
+}
