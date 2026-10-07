@@ -2,7 +2,7 @@
 
 Distinct from the Google-Calendar tools (get_today_events, create_event). Descriptions are Calendar's own
 factual one-liners (GET /tools, #9). TRUSTED band = the owner and the owner's own agents (siblings); a
-stranger agent has none of them. Calendar enforces its own rules (20 writes/day, owner tap for cancel).
+stranger agent has none of them. Calendar enforces its own rules (a per-agent daily write ceiling the owner can lower, owner tap for cancel).
 Dark: needs WINDY_CALENDAR=1.
 """
 

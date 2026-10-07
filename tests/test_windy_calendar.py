@@ -119,7 +119,7 @@ def test_confirm_required_waits_and_is_not_retried(calls):
     (403, {"ok": False, "error": "denied", "reason": "no_calendar"}, False, "isn't a Windy Calendar"),
     (403, {"ok": False, "error": "denied", "reason": "insufficient_band"}, False, "can't see"),
     (403, {"ok": False, "error": "denied", "reason": "untrusted_write"}, True, "not trusted enough"),
-    (400, {"ok": False, "error": "rate_limited", "reason": "own_calendar_daily_cap"}, True, "today's limit"),
+    (400, {"ok": False, "error": "rate_limited", "reason": "own_calendar_daily_cap"}, True, "daily limit"),
     (400, {"ok": False, "error": "invalid_arguments", "reason": "impossible_time"}, True, "doesn't work"),
     (503, {"ok": False, "error": "auth_unavailable"}, False, "couldn't reach"),
     (404, {"ok": False, "error": "unknown_tool"}, False, "can't do that yet"),

@@ -59,7 +59,7 @@ def _plain(status: int, body: dict[str, Any], *, write: bool) -> dict[str, Any]:
             say = "I can't see my owner's calendar yet."
         return {"ok": False, "say": say}
     if err == "rate_limited":
-        return {"ok": False, "say": "I've reached today's limit for changing my owner's calendar. Tomorrow I can again."}
+        return {"ok": False, "say": "I've reached my daily limit for changing my owner's calendar."}
     if err == "conflict":
         return {"ok": False, "pending_owner": True,
                 "say": "That is already waiting for my owner's approval."}
