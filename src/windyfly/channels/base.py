@@ -113,6 +113,8 @@ async def handle_incoming(text: str, context: dict | None = None) -> tuple[bool,
             if res.get("status") == "sent":
                 return True, f"Sent to {res.get('to', 'the recipient')}, with your approval."
             return True, f"Not sent: {res.get('error') or res.get('status')}"
+        if word == "wait":  # the quick-reply 'wait' tap: the draft stays held, no model call
+            return True, "Okay. The draft stays held until you say send or cancel."
         if word == "cancel":
             n = _mail.cancel_pending()
             return True, f"Cancelled {n} draft{'s' if n != 1 else ''}. Nothing was sent."
