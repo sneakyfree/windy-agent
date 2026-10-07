@@ -299,18 +299,6 @@ class WindyFlyMatrixBot(ChannelAdapter):
         except Exception as e:
             logger.debug("Auto-trust scan: %s", e)
 
-    def _loop_guard(self):
-        """The LoopGuard, or None while WINDY_LOOP_GUARD is off."""
-        from windyfly.channels import loop_guard as lg
-
-        if not lg.enabled():
-            return None
-        if getattr(self, "_guard", None) is None:
-            from windyfly.platform import windy_state_dir
-
-            self._guard = lg.LoopGuard(windy_state_dir() / "loop_guard.json")
-        return self._guard
-
     async def _on_message(
         self,
         room: nio.MatrixRoom,
@@ -344,7 +332,7 @@ class WindyFlyMatrixBot(ChannelAdapter):
         sender = event.sender
         display_name = room.user_name(sender) or sender
 
-        # Eternitas parity (dark: WINDY_PARITY_BANDS=1): a revoked or suspended
+        # Revoked passport (dark: WINDY_PARITY_BANDS=1): a revoked or suspended
         # agent is refused outright, once per message, with one honest line.
         from windyfly.channels import parity as _parity
         if _parity.enabled() and _parity.verdict(sender) == "refused":
@@ -354,34 +342,6 @@ class WindyFlyMatrixBot(ChannelAdapter):
             except Exception as e:
                 logger.error("parity refusal notice failed: %s", e)
             return
-
-        # Loop guard (dark: WINDY_LOOP_GUARD=1). Decide before any work is done.
-        guard = self._loop_guard()
-        is_owner = False
-        if guard is not None:
-            from windyfly.agent.capabilities.descriptor import Band
-            from windyfly.channels.identity import resolve_band
-            from windyfly.channels import loop_guard as lg
-
-            # An agent account is never "the owner" for the guard, even if Trust-On-First-Use
-            # happened to bind one (the first sender ever heard), or a loop could never trip.
-            is_owner = (
-                resolve_band("matrix", sender, config=self.config) == Band.OWNER
-                and not lg.is_agent_account(sender)
-            )
-            if is_owner and body.strip().lower() == lg.RESUME_COMMAND:
-                guard.clear()
-                try:
-                    await self.client.room_send(room_id, "m.room.message", {
-                        "msgtype": "m.text", "body": "Resumed. I'm answering everyone again.",
-                        "windy_original": True})
-                except Exception as e:
-                    logger.error("resume notice failed: %s", e)
-                return
-            verdict = guard.check(room_id, sender, is_owner=is_owner)
-            if verdict != lg.REPLY:
-                logger.info("loop guard: %s (room %s, sender %s)", verdict, room_id, sender)
-                return
 
         logger.info(
             "Message from %s in %s: %s",
@@ -456,13 +416,6 @@ class WindyFlyMatrixBot(ChannelAdapter):
         except Exception as e:
             logger.error("Failed to send response to %s: %s", room_id, e)
             self._pending_responses.append((room_id, response_text))
-
-        if guard is not None and guard.record_reply(owner_turn=is_owner):
-            try:
-                await self.client.room_send(room_id, "m.room.message", {
-                    "msgtype": "m.text", "body": guard.trip_notice(), "windy_original": True})
-            except Exception as e:
-                logger.error("loop guard notice failed: %s", e)
 
         # Turn off typing indicator
         try:

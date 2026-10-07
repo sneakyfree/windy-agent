@@ -1,18 +1,9 @@
-"""Eternitas parity for message senders (dark: WINDY_PARITY_BANDS=1, off by default).
+"""Refuse a revoked or suspended AGENT sender (dark: WINDY_PARITY_BANDS=1, off by default).
 
-Grant's rule (10-01): a valid Eternitas credential gets the same access a human has.
-For an AGENT sender (Matrix id ``@agent_<passport>:<server>``) the runtime asks
-Eternitas's public Trust API about that passport:
-
-- active, not a TEST passport  -> the USER band (read-only / safe tools, never the
-  owner's data or actions in the owner's name);
-- revoked or suspended         -> refused outright with a short honest line;
-- unknown, a TEST passport, or Eternitas unreachable -> no change (the stranger
-  band), i.e. it fails CLOSED.
-
-An agent account is never bound as the owner by Trust-On-First-Use while this is on.
-Verified HUMAN senders need Windy Chat to say who they are (pending); until then they
-keep today's behaviour.
+For an AGENT sender (Matrix id ``@agent_<passport>:<server>``) the runtime asks Eternitas's public
+Trust API about that passport: revoked or suspended -> refused outright with one honest line.
+Everything else (active, unknown, a TEST passport, Eternitas unreachable) is unchanged: this module
+grants no band and never blocks because Eternitas blinked.
 """
 
 from __future__ import annotations
@@ -53,24 +44,19 @@ def _trust(passport: str) -> dict[str, Any] | None:
         data = resp.json() if resp.status_code == 200 else None
     except (httpx.HTTPError, ValueError) as e:
         logger.warning("parity: trust lookup failed for %s: %s", passport, e)
-        return None  # not cached: try again next message; fails closed meanwhile
+        return None  # not cached: try again next message
     _CACHE[passport] = (time.time(), data if isinstance(data, dict) else None)
     return _CACHE[passport][1]
 
 
 def verdict(sender: str | None) -> str | None:
-    """'user' | 'refused' | None (no change)."""
+    """'refused' for a revoked or suspended agent sender, else None (no change)."""
     passport = passport_of(sender)
     if not passport:
         return None
     t = _trust(passport)
-    if not t:
-        return None
-    status = str(t.get("status") or "").lower()
-    if status in ("revoked", "suspended"):
+    if t and str(t.get("status") or "").lower() in ("revoked", "suspended"):
         return "refused"
-    if status == "active" and not t.get("test_identity") and not passport.startswith("ET26-TEST"):
-        return "user"
     return None
 
 
