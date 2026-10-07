@@ -71,6 +71,14 @@ def _socket_path() -> str:
     return "/tmp/windycode-agent.sock"
 
 
+def _git_identity_args() -> str:
+    """``-c user.name=... -c user.email=...`` from the agent's real identity (its own mailbox)."""
+    from windyfly.tools import outbound_identity
+
+    name, email = outbound_identity.git_identity()
+    return f"-c user.name={shlex.quote(name)} -c user.email={shlex.quote(email)}"
+
+
 def _projects_dir() -> Path:
     return Path(os.environ.get("WINDYCODE_PROJECTS_DIR", "")
                 or (Path.home() / "grandma-projects")).expanduser()
@@ -246,7 +254,7 @@ def windycode_create_project(name: str, description: str = "") -> dict[str, Any]
             script = (
                 f"mkdir -p {shlex.quote(str(proj))} && cd {shlex.quote(str(proj))} && "
                 "if [ ! -d .git ]; then git init -b main -q && "
-                "git -c user.name='Windy Fly' -c user.email='agent@windymail.ai' "
+                f"git {_git_identity_args()} "
                 "commit --allow-empty -qm 'start of project' ; fi && echo created"
             )
             res = _run_shell(conn, script, str(root))
@@ -344,7 +352,7 @@ def windycode_save_to_git(project: str, message: str) -> dict[str, Any]:
         with _BusConnection() as conn:
             script = (
                 "git add -A && "
-                f"git -c user.name='Windy Fly' -c user.email='agent@windymail.ai' "
+                f"git {_git_identity_args()} "
                 f"commit -m {shlex.quote(message)} 2>&1 | tail -1"
             )
             res = _run_shell(conn, script, str(proj))

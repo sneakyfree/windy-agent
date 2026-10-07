@@ -136,10 +136,13 @@ def test_banner_names_the_real_reason_not_a_rate_limit():
 
 def test_banner_names_busy_mind_not_a_missing_credential():
     """A Mind-routed agent has no direct key by design, so after Mind 503s
-    the direct chain says no-key. The banner must blame Mind being busy."""
+    the direct chain says no-key. The banner must blame the connection to the AI
+    (Hub's pinned wording, 10-06: "I could not reach my AI just now"), never a
+    missing credential, and never say "Mind"."""
     from windyfly.agent import loop as loop_mod
     err = ("LLM call failed across all providers in chain (attempted=[], "
            "skipped=['openai(windy-mind-auto):no-key'], mind http 503): None")
     txt = loop_mod._auto_resurrect_banner("llama3.2:3b", err).lower()
-    assert "busy" in txt
+    assert "could not reach my ai" in txt
     assert "credential" not in txt
+    assert "mind" not in txt
