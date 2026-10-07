@@ -167,6 +167,54 @@ def send_confirm_enabled() -> bool:
     return os.environ.get("WINDY_SEND_CONFIRM", "") == "1"
 
 
+# Boss ruling 10-07 (rule 4): ask the owner only for a NEW recipient or a bulk/cc send. One
+# plain recipient the owner has already approved (or that this agent already mailed) goes straight
+# out. The list is local, 0600, and only ever grows from a send that really went out.
+def _known_path() -> Any:
+    from windyfly.platform import windy_state_dir
+
+    return windy_state_dir() / "known_recipients.json"
+
+
+def _owner_addresses() -> set[str]:
+    """The owner's own addresses (WINDY_OWNER_EMAILS, comma-separated) always start as known."""
+    raw = os.environ.get("WINDY_OWNER_EMAILS", "")
+    return {a.strip().lower() for a in raw.split(",") if "@" in a}
+
+
+def _known_recipients() -> set[str]:
+    import json as _j
+
+    try:
+        data = _j.loads(_known_path().read_text("utf-8"))
+        learned = {str(a).lower() for a in data} if isinstance(data, list) else set()
+    except (OSError, ValueError):
+        learned = set()
+    return learned | _owner_addresses()
+
+
+def _remember_recipients(addresses: list[str]) -> None:
+    import json as _j
+    import tempfile as _tf
+
+    known = (_known_recipients() - _owner_addresses()) | {a.lower() for a in addresses}
+    path = _known_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp = _tf.mkstemp(dir=str(path.parent), prefix=".known_recipients.")
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            _j.dump(sorted(known), fh)
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, path)
+    except OSError:
+        pass  # a missing list only means we ask again
+
+
+def _note_sent(result: dict[str, Any], to_l: list[str], cc_l: list[str], bcc_l: list[str]) -> None:
+    if result.get("status") == "sent":
+        _remember_recipients(to_l + cc_l + bcc_l)
+
+
 def _prune_pending() -> None:
     import time as _t
 
@@ -217,6 +265,7 @@ def approve_latest(approved_by: str) -> dict[str, Any]:
     d = _PENDING.pop(draft_id)
     result = _send_email_now(d["to"], d["subject"], d["body"], cc=d.get("cc"), bcc=d.get("bcc"),
                              approved_by=approved_by)
+    _note_sent(result, *normalize_recipients(d["to"], d.get("cc"), d.get("bcc")))
     result["draft_id"] = draft_id
     result.setdefault("to", d["to"])
     return result
@@ -230,9 +279,18 @@ def cancel_pending() -> int:
 
 def send_email(to: Any, subject: str, body: str, cc: Any = None, bcc: Any = None) -> dict[str, Any]:
     """Model-facing send: ONE email to everybody (to, cc, bcc).
-    With WINDY_SEND_CONFIRM=1 it only DRAFTS (owner approves once)."""
+    With WINDY_SEND_CONFIRM=1 it DRAFTS (owner approves once) unless it is ONE plain recipient
+    the owner has already approved: a new recipient, or any bulk/cc/bcc send, always asks."""
     if send_confirm_enabled():
-        return _queue_draft(to, subject, body, cc, bcc)
+        try:
+            to_l, cc_l, bcc_l = normalize_recipients(to, cc, bcc)
+        except ValueError as exc:
+            return {"status": "failed", "error": str(exc)}
+        if not (len(to_l) == 1 and not cc_l and not bcc_l and to_l[0].lower() in _known_recipients()):
+            return _queue_draft(to, subject, body, cc, bcc)
+        result = _send_email_now(to_l, subject, body)
+        _note_sent(result, to_l, cc_l, bcc_l)
+        return result
     return _send_email_now(to, subject, body, cc=cc, bcc=bcc)
 
 
