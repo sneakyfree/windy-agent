@@ -230,7 +230,9 @@ class TestHelpFormatting:
 
     def test_matrix_prefix(self, loaded_registry):
         help_text = loaded_registry.format_help("matrix")
-        assert "!doctor" in help_text or "!version" in help_text
+        # "/" is what the shared command set and the phone use; "!" still works but is no longer advertised.
+        assert "/doctor" in help_text or "/version" in help_text
+        assert "!doctor" not in help_text and "!version" not in help_text
 
     def test_ecosystem_marker(self, loaded_registry):
         help_text = loaded_registry.format_help("terminal")

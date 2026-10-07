@@ -120,7 +120,7 @@ class CommandRegistry:
             self._aliases[alias] = cmd.name
 
     def get(self, name: str) -> Command | None:
-        name = name.lstrip("/!").split()[0]
+        name = name.lstrip("/!").split()[0].lower()  # a phone keyboard may capitalise: "/Status"
         if name in self._commands:
             return self._commands[name]
         canonical = self._aliases.get(name)
@@ -197,9 +197,10 @@ class CommandRegistry:
                 or "yes" in args_list
             )
             if not confirmed:
+                what = " ".join(args_list)
                 return (
                     f"⚠ /{cmd.name} is a dangerous command that may cause data loss.\n"
-                    f"To confirm, type: /{cmd.name} --confirm"
+                    f"To confirm, type: /{cmd.name}{' ' + what if what else ''} --confirm"
                 )
             # Remove confirmation tokens from args
             args_list = [a for a in args_list if a not in ("--confirm", "CONFIRM", "yes")]
@@ -277,7 +278,7 @@ class CommandRegistry:
             "telegram": "/",
             "discord": "/",
             "slack": "/",
-            "matrix": "!",
+            "matrix": "/",  # "!" still works, but "/" is what the shared command set and the phone use
             "terminal": "windy ",
         }.get(platform, "/")
 

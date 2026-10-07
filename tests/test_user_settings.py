@@ -269,22 +269,23 @@ class TestCmdModel:
             or "memory" in reply.lower()
 
 
-class TestCmdMemory:
+class TestCmdContextCap:
+    """The context-window cap used to be /memory; /memory now means "what I remember about you"."""
 
     @pytest.mark.asyncio
-    async def test_cmd_memory_no_arg_shows_current(self, tmp_state_path):
+    async def test_cmd_contextcap_no_arg_shows_current(self, tmp_state_path):
         from windyfly.commands.registry import registry
         from windyfly.commands import core
         core.init_core()
-        cmd = registry.get("memory")
+        cmd = registry.get("contextcap")
         reply = await cmd.handler({
             "platform": "telegram", "channel_id": "1", "_raw": "",
         })
-        assert "memory" in reply.lower()
-        assert "set with" in reply.lower() or "/memory" in reply.lower()
+        assert "context cap" in reply.lower()
+        assert "set with" in reply.lower() or "/contextcap" in reply.lower()
 
     @pytest.mark.asyncio
-    async def test_cmd_memory_set_within_native(self, tmp_state_path):
+    async def test_cmd_contextcap_set_within_native(self, tmp_state_path):
         from windyfly.agent.session_reset import (
             set_model, get_memory_cap,
         )
@@ -293,7 +294,7 @@ class TestCmdMemory:
         core.init_core()
         # On Opus (1M native) — 500K is well within native
         set_model("telegram", "1", "claude-opus-4-7")
-        cmd = registry.get("memory")
+        cmd = registry.get("contextcap")
         reply = await cmd.handler({
             "platform": "telegram", "channel_id": "1",
             "_raw": "500K",
@@ -302,7 +303,7 @@ class TestCmdMemory:
         assert get_memory_cap("telegram", "1") == 500_000
 
     @pytest.mark.asyncio
-    async def test_cmd_memory_set_engages_extended_tier(
+    async def test_cmd_contextcap_set_engages_extended_tier(
         self, tmp_state_path,
     ):
         """1M on Sonnet requires the extended beta — the bot must
@@ -314,7 +315,7 @@ class TestCmdMemory:
         from windyfly.commands import core
         core.init_core()
         set_model("telegram", "1", "claude-sonnet-4-6")
-        cmd = registry.get("memory")
+        cmd = registry.get("contextcap")
         reply = await cmd.handler({
             "platform": "telegram", "channel_id": "1",
             "_raw": "1M",
@@ -324,7 +325,7 @@ class TestCmdMemory:
         assert get_memory_cap("telegram", "1") == 1_000_000
 
     @pytest.mark.asyncio
-    async def test_cmd_memory_refuses_when_model_cant_deliver(
+    async def test_cmd_contextcap_refuses_when_model_cant_deliver(
         self, tmp_state_path,
     ):
         """5M is past everyone's max — must refuse and suggest /model."""
@@ -335,7 +336,7 @@ class TestCmdMemory:
         from windyfly.commands import core
         core.init_core()
         set_model("telegram", "1", "claude-sonnet-4-6")
-        cmd = registry.get("memory")
+        cmd = registry.get("contextcap")
         reply = await cmd.handler({
             "platform": "telegram", "channel_id": "1",
             "_raw": "5M",
@@ -345,7 +346,7 @@ class TestCmdMemory:
         assert get_memory_cap("telegram", "1") is None
 
     @pytest.mark.asyncio
-    async def test_cmd_memory_default_clears_pinned_cap(
+    async def test_cmd_contextcap_default_clears_pinned_cap(
         self, tmp_state_path,
     ):
         from windyfly.agent.session_reset import (
@@ -355,7 +356,7 @@ class TestCmdMemory:
         from windyfly.commands import core
         core.init_core()
         set_memory_cap("telegram", "1", 1_000_000)
-        cmd = registry.get("memory")
+        cmd = registry.get("contextcap")
         reply = await cmd.handler({
             "platform": "telegram", "channel_id": "1",
             "_raw": "default",
@@ -364,11 +365,11 @@ class TestCmdMemory:
         assert get_memory_cap("telegram", "1") is None
 
     @pytest.mark.asyncio
-    async def test_cmd_memory_rejects_garbage(self, tmp_state_path):
+    async def test_cmd_contextcap_rejects_garbage(self, tmp_state_path):
         from windyfly.commands.registry import registry
         from windyfly.commands import core
         core.init_core()
-        cmd = registry.get("memory")
+        cmd = registry.get("contextcap")
         reply = await cmd.handler({
             "platform": "telegram", "channel_id": "1",
             "_raw": "a lot",
