@@ -86,6 +86,14 @@ def test_the_notice_goes_once_per_sender_and_room_per_hour():
     assert agent_peers.should_notify(PEER, ROOM, now=t + 3600)          # an hour later
 
 
+def test_the_notice_record_is_bounded():
+    t = 1_000_000.0
+    for i in range(agent_peers.MAX_REMEMBERED + 500):
+        agent_peers.should_notify(f"@agent_et26-x{i}:s", ROOM, now=t + i * 0.001)
+    assert len(agent_peers._notified) <= agent_peers.MAX_REMEMBERED
+    assert not agent_peers.should_notify(f"@agent_et26-x{agent_peers.MAX_REMEMBERED + 499}:s", ROOM, now=t + 5)  # newest kept
+
+
 # ── the gate in the Matrix channel ───────────────────────────────────
 
 def _bot():

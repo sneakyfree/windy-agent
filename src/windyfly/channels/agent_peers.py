@@ -24,6 +24,7 @@ _ON = "Agent-to-agent chat is **on** — other agents can talk to me. Say **/age
 _OFF = ("Agent-to-agent chat is **off** — agents that aren't yours can't talk to me. "
         "Say **/agents on** to change that.")
 NOTICE_EVERY_S = 3600.0
+MAX_REMEMBERED = 1000  # the per-(sender, room) record is bounded
 
 _lock = threading.Lock()
 _notified: dict[tuple[str, str], float] = {}
@@ -76,6 +77,11 @@ def should_notify(sender: str, room_id: str, now: float | None = None) -> bool:
         if last is not None and t - last < NOTICE_EVERY_S:
             return False
         _notified[key] = t
+        if len(_notified) > MAX_REMEMBERED:  # drop what is already older than an hour, then the oldest
+            for k in [k for k, v in _notified.items() if t - v >= NOTICE_EVERY_S]:
+                del _notified[k]
+            for k in sorted(_notified, key=_notified.get)[:max(0, len(_notified) - MAX_REMEMBERED)]:
+                del _notified[k]
         return True
 
 
