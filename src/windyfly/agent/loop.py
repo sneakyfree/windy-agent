@@ -901,7 +901,7 @@ def _agent_respond_turn(
     # Agent teams (dark WINDY_TEAMS=1): a turn from another agent may end in silence.
     from windyfly.channels import silence as _silence
 
-    if _silence.enabled() and _silence.is_agent_turn(session_id):
+    if _silence.enabled() and _silence.is_agent_turn(session_id) and _silence.label_mode() == "rules":
         messages.insert(1, {"role": "system", "content": _silence.INSTRUCTION})
 
     # 1.6. Emotional awareness

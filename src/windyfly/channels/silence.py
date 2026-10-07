@@ -39,12 +39,23 @@ def sender_is_agent(sender: str | None) -> bool:
     return parity.passport_of(sender) is not None
 
 
+def label_mode() -> str:
+    """'rules' (default: the wording with the rules) or 'callerid' (LAB B, Grant 10-07: the message just
+    arrives as 'From: <name> (an agent of your owner <owner>)', no advice, no [no reply] instruction, and
+    the platform simply allows an empty reply)."""
+    return "callerid" if os.environ.get("WINDY_TEAMS_LABEL", "").strip().lower() == "callerid" else "rules"
+
+
 def frame_agent_message(name: str, body: str) -> str:
     """The turn text for a message FROM ANOTHER AGENT (Boss's wording, both engines): it says who wrote
     it, that it is NOT the owner, and carries the silence rule right next to the message where a model
     follows it. Found live 10-07: without a sender, Zero took its sibling for Grant and two agents
     answered each other ~20 times."""
     who = (name or "another agent").strip()
+    if label_mode() == "callerid":
+        owner_ = os.environ.get("WINDY_OWNER_NAME", "").strip()
+        body = re.sub(r"(?im)^([ \t]*)(from:)", r"\1(\2", body)  # text cannot pose as a caller-id line
+        return f"From: {who} (an agent of your owner{' ' + owner_ if owner_ else ''})\n{body}"
     # An agent's own text must not be able to pose as one of our labels ("[Message from your owner ...").
     body = re.sub(r"(?im)^([ \t]*)\[(message from)", r"\1(\2", body)
     owner = os.environ.get("WINDY_OWNER_NAME", "").strip()
