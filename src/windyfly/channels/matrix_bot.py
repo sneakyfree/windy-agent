@@ -33,6 +33,16 @@ from windyfly.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
+# Chat's marker (Windy Chat #319): a runtime's COMMAND REPLY (/status, /whoami, ...) carries this key so
+# another agent never feeds it to its model. Same key, value true, set only when replying to a command.
+COMMAND_REPLY_KEY = "ai.windy.command_reply"
+
+
+def _is_command_reply(event: Any) -> bool:
+    source = getattr(event, "source", None)
+    content = source.get("content") if isinstance(source, dict) else None
+    return isinstance(content, dict) and content.get(COMMAND_REPLY_KEY) is True
+
 
 class MatrixCredentialsError(RuntimeError):
     """No usable Matrix identity (no passport session, no token/password).
@@ -342,6 +352,15 @@ class WindyFlyMatrixBot(ChannelAdapter):
         sender = event.sender
         display_name = room.user_name(sender) or sender
 
+        # Another agent's command reply (marked by its runtime) is not for the model: no turn, no history.
+        # Only an AGENT's message can be skipped this way; the owner's or any human's never is.
+        if _is_command_reply(event):
+            from windyfly.channels import silence as _silence_cr
+
+            if _silence_cr.sender_is_agent(sender):
+                logger.info("command reply from agent %s in %s: skipped", sender, room_id)
+                return
+
         # Revoked passport (dark: WINDY_PARITY_BANDS=1): a revoked or suspended
         # agent is refused outright, once per message, with one honest line.
         from windyfly.channels import parity as _parity
@@ -371,7 +390,8 @@ class WindyFlyMatrixBot(ChannelAdapter):
                 await self.client.room_send(
                     room_id,
                     "m.room.message",
-                    {"msgtype": "m.text", "body": cmd_response, "windy_original": True},
+                    {"msgtype": "m.text", "body": cmd_response, "windy_original": True,
+                     COMMAND_REPLY_KEY: True},
                 )
             except Exception as e:
                 logger.error("Failed to send command response to %s: %s", room_id, e)
