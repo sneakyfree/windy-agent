@@ -382,3 +382,99 @@ class TestRegistration:
         register_vision_capabilities(reg, {})
         cap = next(c for c in reg.all() if c.id == "vision.ocr")
         assert "question" not in cap.input_schema["properties"]
+
+
+# ─── Boss 10-07: a passport agent's pictures go through Windy Mind, never a provider key ──
+
+
+class TestPassportAgentVisionGoesThroughMind:
+    def test_no_provider_call_and_the_image_goes_as_an_image_part(self, monkeypatch):
+        monkeypatch.setenv("ETERNITAS_PASSPORT_TOKEN", "ept_test")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api03-should-not-be-used")
+        with patch("httpx.post") as direct, patch(
+            "windyfly.agent.models.call_llm",
+            return_value={"content": " a cat ", "input_tokens": 7, "output_tokens": 3, "mind_model": "m1"},
+        ) as mind:
+            out = _call_anthropic_vision(
+                {"type": "base64", "media_type": "image/png", "data": "QUJD"}, "sys", "what is it?", 10,
+            )
+        direct.assert_not_called()
+        assert out == {"text": "a cat", "model": "m1", "input_tokens": 7, "output_tokens": 3}
+        msgs = mind.call_args.args[0]
+        assert msgs[0] == {"role": "system", "content": "sys"}
+        parts = msgs[1]["content"]
+        assert parts[0] == {"type": "image_url", "image_url": {"url": "data:image/png;base64,QUJD"}}
+        assert parts[1] == {"type": "text", "text": "what is it?"}
+        assert mind.call_args.kwargs["purpose"] == "vision"
+
+    def test_url_images_pass_the_url(self, monkeypatch):
+        monkeypatch.setenv("ETERNITAS_PASSPORT_TOKEN", "ept_test")
+        with patch("windyfly.agent.models.call_llm", return_value={"content": "x"}) as mind:
+            _call_anthropic_vision({"type": "url", "url": "https://e.example/a.png"}, "s", "q", 10)
+        assert mind.call_args.args[0][1]["content"][0]["image_url"]["url"] == "https://e.example/a.png"
+
+    def test_a_standalone_install_keeps_the_direct_call(self, monkeypatch):
+        monkeypatch.delenv("ETERNITAS_PASSPORT_TOKEN", raising=False)
+        monkeypatch.delenv("ETERNITAS_PASSPORT", raising=False)
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY"):
+            _call_anthropic_vision({"type": "url", "url": "https://e.example/a.png"}, "s", "q", 10)
+
+
+class TestVisionOffAndLifeboat:
+    def test_mind_400_vision_off_is_a_plain_sentence_and_never_reaches_the_text_lifeboat(self, monkeypatch):
+        from unittest.mock import MagicMock
+
+        from windyfly.agent import models
+
+        monkeypatch.setenv("ETERNITAS_PASSPORT_TOKEN", "ept_test")
+        local = {"provider_key": "ollama", "type": "openai", "api_key": "ollama",
+                 "base_url": "http://localhost:11434/v1"}
+        resp = MagicMock(status_code=400, text="vision_off", headers={"x-mind-error": "vision_off"})
+        with patch("httpx.post", return_value=resp), patch.object(models, "_call_openai") as lifeboat, \
+                patch.object(models, "_build_chain", return_value=["llama3.2:3b"]), \
+                patch.object(models, "get_provider_for_model", return_value=local):
+            with pytest.raises(RuntimeError, match="can't see pictures yet"):
+                _call_anthropic_vision({"type": "url", "url": "https://e.example/a.png"}, "s", "q", 10)
+        lifeboat.assert_not_called()
+
+
+def test_mind_other_4xx_on_a_picture_is_a_plain_sentence(monkeypatch):
+    from unittest.mock import MagicMock
+
+    from windyfly.agent import models
+
+    monkeypatch.setenv("ETERNITAS_PASSPORT_TOKEN", "ept_test")
+    resp = MagicMock(status_code=422, text="no vision lane", headers={})
+    with patch("httpx.post", return_value=resp), patch.object(models, "_call_openai") as lifeboat:
+        with pytest.raises(RuntimeError, match="can't see this picture right now"):
+            _call_anthropic_vision({"type": "url", "url": "https://e.example/a.png"}, "s", "q", 10)
+    lifeboat.assert_not_called()
+
+
+def test_mind_vision_consent_required_tells_the_owner_plainly(monkeypatch):
+    from unittest.mock import MagicMock
+
+    from windyfly.agent import models
+
+    monkeypatch.setenv("ETERNITAS_PASSPORT_TOKEN", "ept_test")
+    resp = MagicMock(status_code=403, text="consent",
+                     headers={"x-mind-error": "vision_consent_required", "x-mind-vision-notice": "2026-10-02.1"})
+    with patch("httpx.post", return_value=resp), patch.object(models, "_call_openai") as lifeboat:
+        with pytest.raises(RuntimeError, match="accepted the picture notice"):
+            _call_anthropic_vision({"type": "url", "url": "https://e.example/a.png"}, "s", "q", 10)
+    lifeboat.assert_not_called()
+
+
+def test_a_refused_picture_does_not_bench_mind_for_the_next_turn(monkeypatch):
+    from unittest.mock import MagicMock
+
+    from windyfly.agent import models
+
+    models._provider_cooldowns.pop("windy-mind", None)
+    monkeypatch.setenv("ETERNITAS_PASSPORT_TOKEN", "ept_test")
+    resp = MagicMock(status_code=403, text="consent", headers={"x-mind-error": "vision_consent_required"})
+    with patch("httpx.post", return_value=resp):
+        with pytest.raises(RuntimeError):
+            _call_anthropic_vision({"type": "url", "url": "https://e.example/a.png"}, "s", "q", 10)
+    assert not models._is_provider_in_cooldown("windy-mind")

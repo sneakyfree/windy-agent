@@ -115,6 +115,42 @@ def _image_source_from_url(url: str) -> dict[str, Any]:
     return {"type": "url", "url": url}
 
 
+def _call_vision_via_mind(image_block: dict[str, Any], system_prompt: str, user_question: str) -> dict[str, Any]:
+    """A Windy agent (passport) gets ALL compute through Windy Mind (Boss 10-07): the image goes as an
+    OpenAI-style image part to the same path as every other call, never to a provider with a key."""
+    from windyfly.agent import models as _models
+
+    if image_block.get("type") == "base64":
+        src = f"data:{image_block.get('media_type', 'image/jpeg')};base64,{image_block.get('data', '')}"
+    else:
+        src = str(image_block.get("url", ""))
+    messages: list[dict[str, Any]] = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": [
+            {"type": "image_url", "image_url": {"url": src}},
+            {"type": "text", "text": user_question},
+        ]},
+    ]
+    try:
+        result = _models.call_llm(messages, max_tokens=_DEFAULT_MAX_TOKENS, purpose="vision")
+    except RuntimeError as e:
+        if "vision_off" in str(e):
+            raise RuntimeError("I can't see pictures yet.") from e
+        if "vision_consent_required" in str(e):  # only the OWNER can accept the picture notice
+            raise RuntimeError(
+                "I can't look at pictures until you have read and accepted the picture notice in Windy."
+            ) from e
+        if "mind http 4" in str(e):  # Mind found no vision lane that fits this picture
+            raise RuntimeError("I can't see this picture right now.") from e
+        raise
+    return {
+        "text": str(result.get("content") or "").strip(),
+        "model": str(result.get("mind_model") or "windy-mind"),
+        "input_tokens": int(result.get("input_tokens") or 0),
+        "output_tokens": int(result.get("output_tokens") or 0),
+    }
+
+
 def _call_anthropic_vision(
     image_block: dict[str, Any],
     system_prompt: str,
@@ -129,6 +165,11 @@ def _call_anthropic_vision(
               "output_tokens": int}``. Raises ``RuntimeError`` on
     transport failure or non-2xx API response.
     """
+    from windyfly.agent import models as _models
+
+    if _models._has_passport():
+        return _call_vision_via_mind(image_block, system_prompt, user_question)
+
     key = api_key or os.environ.get("ANTHROPIC_API_KEY")
     if not key:
         raise RuntimeError(
