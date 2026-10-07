@@ -61,9 +61,9 @@ def test_dark_by_default(monkeypatch):
     assert wc.invoke("get_booking_page")["ok"] is False
 
 
-def test_all_tools_are_owner_only_and_writes_audited(calls):
+def test_all_tools_are_trusted_band_and_writes_audited(calls):
     for cid in ("availability", "appointments", "booking_link", "book", "block"):
-        assert _cap(f"windy_calendar.{cid}").band_required == Band.OWNER
+        assert _cap(f"windy_calendar.{cid}").band_required == Band.TRUSTED
     for cid in ("book", "block"):
         c = _cap(f"windy_calendar.{cid}")
         assert c.tier == Tier.EXTERNAL_EFFECT and c.audit_required
@@ -111,7 +111,7 @@ def test_confirm_required_waits_and_is_not_retried(calls):
     _answer(calls, _resp(200, {"ok": False, "error": "confirm_required", "confirmation": {"id": "c1", "waiting_in": "inbox"}}))
     out = wc.invoke("cancel_appointment", {"appointment_id": "1"}, write=True)
     assert out["pending_owner"] is True and out["confirmation_id"] == "c1" and len(calls) == 1
-    assert "will not ask again" in out["say"]
+    assert out["say"] == "That needs my owner's OK. It is waiting in the Windy Inbox."
 
 
 @pytest.mark.parametrize("status,body,write,needle", [
@@ -163,8 +163,8 @@ def test_url_override(calls, monkeypatch):
 def test_non_owner_band_does_not_see_the_tools(calls):
     r = CapabilityRegistry()
     register_windy_calendar_capabilities(r)
-    assert not [c for c in r.list_for_band(Band.TRUSTED) if c.id.startswith("windy_calendar.")]
-    assert len([c for c in r.list_for_band(Band.OWNER) if c.id.startswith("windy_calendar.")]) == 5
+    assert not [c for c in r.list_for_band(Band.USER) if c.id.startswith("windy_calendar.")]
+    assert len([c for c in r.list_for_band(Band.TRUSTED) if c.id.startswith("windy_calendar.")]) == 5
 
 
 @pytest.mark.parametrize("result", [{"url": "https://windycalendar.com/book/c-abc", "listed": False},
@@ -172,4 +172,4 @@ def test_non_owner_band_does_not_see_the_tools(calls):
 def test_booking_link_off_is_said_plainly(calls, result):
     _answer(calls, _resp(200, {"ok": True, "result": result}))
     out = _cap("windy_calendar.booking_link").handler()
-    assert out["sharing_off"] is True and "turned off" in out["say"]
+    assert out["sharing_off"] is True and "turned off" in out["say"] and "settings" not in out["say"]
