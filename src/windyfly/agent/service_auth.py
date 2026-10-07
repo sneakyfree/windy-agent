@@ -30,6 +30,10 @@ class ServiceAuthError(Exception):
         self.code = code
 
 
+# Services whose contract wants a DPoP proof on EVERY request, GET included (Mind and Vault: non-GET only).
+DPOP_ON_GET = frozenset({"windy-calendar", "windy-chat"})
+
+
 def agent_headers(aud: str, method: str, url: str) -> dict[str, str]:
     """Auth headers for ONE request. ``url`` is the absolute URL of that request (no query)."""
     try:
@@ -37,7 +41,7 @@ def agent_headers(aud: str, method: str, url: str) -> dict[str, str]:
 
         token = ak.request_agent_token(aud)["token"]
         out = {"Authorization": f"Bearer {token}"}
-        if method.upper() != "GET":
+        if method.upper() != "GET" or aud in DPOP_ON_GET:
             out["DPoP"] = ak.service_dpop(method.upper(), url)
         return out
     except Exception as exc:  # noqa: BLE001  (AgentTokenError, key IO, network)
