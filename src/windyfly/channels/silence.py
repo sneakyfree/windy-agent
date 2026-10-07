@@ -39,6 +39,21 @@ def sender_is_agent(sender: str | None) -> bool:
     return parity.passport_of(sender) is not None
 
 
+def frame_agent_message(name: str, body: str) -> str:
+    """The turn text for a message FROM ANOTHER AGENT (Boss's wording, both engines): it says who wrote
+    it, that it is NOT the owner, and carries the silence rule right next to the message where a model
+    follows it. Found live 10-07: without a sender, Zero took its sibling for Grant and two agents
+    answered each other ~20 times."""
+    who = (name or "another agent").strip()
+    owner = os.environ.get("WINDY_OWNER_NAME", "").strip()
+    not_owner = f"not your owner {owner}" if owner else "not your owner"
+    return (
+        f"[Message from your fellow agent {who}, {not_owner}] "
+        "If this needs no answer, reply exactly [no reply]. "
+        "Never reply to thanks, greetings or goodbyes from another agent.\n" + body
+    )
+
+
 def mark_agent_turn(session_id: str) -> None:
     with _lock:
         _agent_turns.add(session_id)

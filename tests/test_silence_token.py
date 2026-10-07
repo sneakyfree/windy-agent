@@ -180,3 +180,33 @@ async def test_welcome_is_not_posted_into_a_team_room(monkeypatch, flag, team_ro
     await bot._on_invite(room, ev)
     bot.client.join.assert_awaited_once()
     assert (bot.client.room_send.await_count == 1) is welcomed
+
+
+# ── the turn text says WHO wrote it (found live: two agents answered each other ~20 times) ──
+
+def test_frame_uses_boss_wording_names_sender_and_owner(monkeypatch):
+    monkeypatch.setenv("WINDY_OWNER_NAME", "Grant")
+    out = silence.frame_agent_message("Windy 0 2", "hello there")
+    assert out == (
+        "[Message from your fellow agent Windy 0 2, not your owner Grant] If this needs no answer, reply "
+        "exactly [no reply]. Never reply to thanks, greetings or goodbyes from another agent.\nhello there")
+
+
+def test_frame_without_an_owner_name_still_says_not_your_owner(monkeypatch):
+    monkeypatch.delenv("WINDY_OWNER_NAME", raising=False)
+    assert silence.frame_agent_message("", "x").startswith("[Message from your fellow agent another agent, not your owner] ")
+
+
+@pytest.mark.asyncio
+async def test_agent_sender_turn_text_is_framed_human_turn_text_is_not(monkeypatch):
+    monkeypatch.setenv("WINDY_TEAMS", "1")
+    for sender, framed in ((AGENT, True), (HUMAN, False)):
+        bot = _bot()
+        room, ev = _event(sender)
+        room.user_name.return_value = "Windy 0 2"
+        with patch("windyfly.agent.executor.run_turn", new_callable=AsyncMock, return_value="ok") as rt:
+            await bot._on_message(room, ev)
+        text = rt.await_args.args[4]
+        assert text.startswith("[Message from your fellow agent Windy 0 2, not your owner") is framed
+        if not framed:
+            assert text == "hi"
