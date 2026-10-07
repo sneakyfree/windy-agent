@@ -213,3 +213,21 @@ def test_no_other_module_issues_the_trusted_band():
     offenders = sorted(str(p.relative_to(src)) for p in src.rglob("*.py")
                        if pat.search(p.read_text("utf-8")) and p.name != "identity.py")
     assert offenders == [], offenders
+
+
+# ── Calendar's contract: mode B applies to GET /tools too (a DPoP proof on every request) ─────────
+
+@pytest.mark.parametrize("aud,method,dpop", [
+    ("windy-calendar", "GET", True), ("windy-calendar", "POST", True),
+    ("windy-chat", "GET", True), ("windy-mind", "GET", False), ("windy-mind", "POST", True),
+    ("windy-vault", "GET", False),
+])
+def test_dpop_proof_rules_per_service(monkeypatch, aud, method, dpop):
+    monkeypatch.setattr("windyfly.eternitas.agent_keys.request_agent_token", lambda a: {"token": "t"})
+    proofs = []
+    monkeypatch.setattr("windyfly.eternitas.agent_keys.service_dpop",
+                        lambda m, u: proofs.append((m, u)) or "proof")
+    url = "https://windycalendar.com/tools"
+    h = service_auth.agent_headers(aud, method, url)
+    assert ("DPoP" in h) is dpop
+    assert (proofs == [(method, url)]) is dpop
