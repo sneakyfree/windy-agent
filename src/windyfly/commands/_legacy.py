@@ -1253,6 +1253,15 @@ def _model_test() -> None:
         console.print("[yellow]No model configured. Run [bold]windy model set <model>[/bold] first.[/yellow]")
         return
 
+    from windyfly.agent.models import _has_passport
+
+    if _has_passport():
+        console.print(
+            "  [yellow]This agent's compute goes through Windy Mind, so a direct provider test "
+            "would use a key it should not hold. Ask the agent to say hello instead.[/yellow]"
+        )
+        return
+
     console.print(f"  [cyan]Testing model [bold]{model}[/bold]...[/cyan]")
 
     try:

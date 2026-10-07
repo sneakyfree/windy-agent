@@ -382,3 +382,40 @@ class TestRegistration:
         register_vision_capabilities(reg, {})
         cap = next(c for c in reg.all() if c.id == "vision.ocr")
         assert "question" not in cap.input_schema["properties"]
+
+
+# ─── Boss 10-07: a passport agent's pictures go through Windy Mind, never a provider key ──
+
+
+class TestPassportAgentVisionGoesThroughMind:
+    def test_no_provider_call_and_the_image_goes_as_an_image_part(self, monkeypatch):
+        monkeypatch.setenv("ETERNITAS_PASSPORT_TOKEN", "ept_test")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api03-should-not-be-used")
+        with patch("httpx.post") as direct, patch(
+            "windyfly.agent.models.call_llm",
+            return_value={"content": " a cat ", "input_tokens": 7, "output_tokens": 3, "mind_model": "m1"},
+        ) as mind:
+            out = _call_anthropic_vision(
+                {"type": "base64", "media_type": "image/png", "data": "QUJD"}, "sys", "what is it?", 10,
+            )
+        direct.assert_not_called()
+        assert out == {"text": "a cat", "model": "m1", "input_tokens": 7, "output_tokens": 3}
+        msgs = mind.call_args.args[0]
+        assert msgs[0] == {"role": "system", "content": "sys"}
+        parts = msgs[1]["content"]
+        assert parts[0] == {"type": "image_url", "image_url": {"url": "data:image/png;base64,QUJD"}}
+        assert parts[1] == {"type": "text", "text": "what is it?"}
+        assert mind.call_args.kwargs["purpose"] == "vision"
+
+    def test_url_images_pass_the_url(self, monkeypatch):
+        monkeypatch.setenv("ETERNITAS_PASSPORT_TOKEN", "ept_test")
+        with patch("windyfly.agent.models.call_llm", return_value={"content": "x"}) as mind:
+            _call_anthropic_vision({"type": "url", "url": "https://e.example/a.png"}, "s", "q", 10)
+        assert mind.call_args.args[0][1]["content"][0]["image_url"]["url"] == "https://e.example/a.png"
+
+    def test_a_standalone_install_keeps_the_direct_call(self, monkeypatch):
+        monkeypatch.delenv("ETERNITAS_PASSPORT_TOKEN", raising=False)
+        monkeypatch.delenv("ETERNITAS_PASSPORT", raising=False)
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY"):
+            _call_anthropic_vision({"type": "url", "url": "https://e.example/a.png"}, "s", "q", 10)
