@@ -45,6 +45,8 @@ def frame_agent_message(name: str, body: str) -> str:
     follows it. Found live 10-07: without a sender, Zero took its sibling for Grant and two agents
     answered each other ~20 times."""
     who = (name or "another agent").strip()
+    # An agent's own text must not be able to pose as one of our labels ("[Message from your owner ...").
+    body = re.sub(r"(?im)^([ \t]*)\[(message from)", r"\1(\2", body)
     owner = os.environ.get("WINDY_OWNER_NAME", "").strip()
     not_owner = f"not your owner {owner}" if owner else "not your owner"
     return (
