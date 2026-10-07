@@ -1252,7 +1252,14 @@ def _cmd_help(args: argparse.Namespace) -> None:
 
 
 def _cmd_commands(_args: argparse.Namespace) -> None:
-    """Show a compact table of all commands."""
+    """Show a compact table of all commands (--json: the chat command registry as data)."""
+    if getattr(_args, "json", False):
+        import json as _json
+
+        from windyfly.commands.export import commands_json
+
+        print(_json.dumps(commands_json(), indent=2, sort_keys=True))
+        return
     from rich.table import Table
 
     table = Table(
@@ -1766,7 +1773,10 @@ def main() -> None:
     help_parser.add_argument("command_name", nargs="?", default=None, help="Command to get help for")
 
     # windy commands
-    sub.add_parser("commands", help="List all commands in compact table")
+    commands_parser = sub.add_parser("commands", help="List all commands in compact table")
+    commands_parser.add_argument(
+        "--json", action="store_true",
+        help="Print the CHAT command registry (name, usage, help, remote_allowed) as JSON")
 
     # windy install-service (macOS launchd)
     sub.add_parser("install-service", help="Auto-start on login (macOS launchd)")
