@@ -140,6 +140,8 @@ def _call_vision_via_mind(image_block: dict[str, Any], system_prompt: str, user_
             raise RuntimeError(
                 "I can't look at pictures until you have read and accepted the picture notice in Windy."
             ) from e
+        if "mind http 503" in str(e):  # every free vision lane is busy: not a failure of the picture
+            raise RuntimeError("My picture helper is busy right now. Ask me again in a minute.") from e
         if "mind http 4" in str(e):  # Mind found no vision lane that fits this picture
             raise RuntimeError("I can't see this picture right now.") from e
         raise
