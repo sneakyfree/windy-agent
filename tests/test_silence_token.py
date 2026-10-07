@@ -159,3 +159,24 @@ def test_loop_flag_off_agent_turn_is_unchanged(monkeypatch):
     out, llm = _run(monkeypatch, "[no reply]", agent_turn=True, flag="0")
     assert out.strip()  # the old behaviour: the token is just text, nothing special
     assert silence.INSTRUCTION not in str(llm.call_args)
+
+
+# ── no welcome line in a team room ───────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("flag,team_room,welcomed", [("1", True, False), ("1", False, True), ("0", True, True)])
+async def test_welcome_is_not_posted_into_a_team_room(monkeypatch, flag, team_room, welcomed):
+    from windyfly.agent import teams
+
+    monkeypatch.setenv("WINDY_TEAMS", flag)
+    monkeypatch.setattr(teams, "room_has_other_agent", lambda room_id, me: team_room)
+    bot = _bot()
+    bot.client.join = AsyncMock()
+    bot._auto_trust_devices = AsyncMock()
+    room = MagicMock()
+    room.room_id = "!pair:chat.windychat.ai"
+    ev = MagicMock()
+    ev.state_key = bot.bot_user_id
+    await bot._on_invite(room, ev)
+    bot.client.join.assert_awaited_once()
+    assert (bot.client.room_send.await_count == 1) is welcomed
