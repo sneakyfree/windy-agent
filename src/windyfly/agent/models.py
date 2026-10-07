@@ -1046,8 +1046,14 @@ def _try_mind_broker(
             return None
         if resp.status_code != 200:
             _last_mind_failure = f"mind http {resp.status_code}"
-            if str((getattr(resp, "headers", None) or {}).get("x-mind-error") or "").lower() == "vision_off":
-                _last_mind_failure = "mind vision_off"  # pictures are not switched on in Mind yet
+            _vision_code = str((getattr(resp, "headers", None) or {}).get("x-mind-error") or "").lower()
+            if _vision_code in ("vision_off", "vision_consent_required"):
+                # pictures are not switched on yet / the OWNER has not accepted the picture notice
+                _last_mind_failure = f"mind {_vision_code}"
+                # THIS request was refused, Mind itself is fine: no cooldown (or one picture would
+                # bench Mind for every other turn of the agent).
+                logger.warning("Mind refused a picture (%s); not cooling Mind down", _vision_code)
+                return None
             refused = _refused_key_provider(resp)
             if refused is not None:
                 # The OWNER'S key was refused upstream: not Mind's outage, so no cooldown for

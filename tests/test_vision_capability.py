@@ -437,3 +437,44 @@ class TestVisionOffAndLifeboat:
             with pytest.raises(RuntimeError, match="can't see pictures yet"):
                 _call_anthropic_vision({"type": "url", "url": "https://e.example/a.png"}, "s", "q", 10)
         lifeboat.assert_not_called()
+
+
+def test_mind_other_4xx_on_a_picture_is_a_plain_sentence(monkeypatch):
+    from unittest.mock import MagicMock
+
+    from windyfly.agent import models
+
+    monkeypatch.setenv("ETERNITAS_PASSPORT_TOKEN", "ept_test")
+    resp = MagicMock(status_code=422, text="no vision lane", headers={})
+    with patch("httpx.post", return_value=resp), patch.object(models, "_call_openai") as lifeboat:
+        with pytest.raises(RuntimeError, match="can't see this picture right now"):
+            _call_anthropic_vision({"type": "url", "url": "https://e.example/a.png"}, "s", "q", 10)
+    lifeboat.assert_not_called()
+
+
+def test_mind_vision_consent_required_tells_the_owner_plainly(monkeypatch):
+    from unittest.mock import MagicMock
+
+    from windyfly.agent import models
+
+    monkeypatch.setenv("ETERNITAS_PASSPORT_TOKEN", "ept_test")
+    resp = MagicMock(status_code=403, text="consent",
+                     headers={"x-mind-error": "vision_consent_required", "x-mind-vision-notice": "2026-10-02.1"})
+    with patch("httpx.post", return_value=resp), patch.object(models, "_call_openai") as lifeboat:
+        with pytest.raises(RuntimeError, match="accepted the picture notice"):
+            _call_anthropic_vision({"type": "url", "url": "https://e.example/a.png"}, "s", "q", 10)
+    lifeboat.assert_not_called()
+
+
+def test_a_refused_picture_does_not_bench_mind_for_the_next_turn(monkeypatch):
+    from unittest.mock import MagicMock
+
+    from windyfly.agent import models
+
+    models._provider_cooldowns.pop("windy-mind", None)
+    monkeypatch.setenv("ETERNITAS_PASSPORT_TOKEN", "ept_test")
+    resp = MagicMock(status_code=403, text="consent", headers={"x-mind-error": "vision_consent_required"})
+    with patch("httpx.post", return_value=resp):
+        with pytest.raises(RuntimeError):
+            _call_anthropic_vision({"type": "url", "url": "https://e.example/a.png"}, "s", "q", 10)
+    assert not models._is_provider_in_cooldown("windy-mind")
