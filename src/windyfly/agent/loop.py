@@ -521,15 +521,6 @@ def _lifeboat_telemetry(
 
 
 def _dispatch_tool_call(*args: Any, **kwargs: Any) -> str:
-    """Route an LLM tool call and mask any Vault lease value in the result BEFORE the model
-    sees it (strand gene G6.1): git remote URLs, error bodies and echoed headers can carry a
-    token that no shape rule knows."""
-    from windyfly.vault.redactor import redact as _vault_redact
-
-    return _vault_redact(_dispatch_tool_call_raw(*args, **kwargs))
-
-
-def _dispatch_tool_call_raw(*args: Any, **kwargs: Any) -> str:
     """``_dispatch_tool_call_inner`` + the health row's tool counts + turn timing."""
     from windyfly.observability import turn_timing
 
