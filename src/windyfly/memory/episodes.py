@@ -49,12 +49,6 @@ def save_episode(
         request_id = get_request_id()
     episode_id = str(uuid.uuid4())
 
-    # A Vault lease value must never reach the episode store (strand gene G6.1).
-    from windyfly.vault.redactor import redact as _vault_redact
-    content = _vault_redact(content)
-    if summary:
-        summary = _vault_redact(summary)
-
     # Compute the semantic embedding when sentence-transformers is
     # installed. Returns None if not available — schema column stays
     # NULL and search falls back to FTS5-only. Best-effort: never
