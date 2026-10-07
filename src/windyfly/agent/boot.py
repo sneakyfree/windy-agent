@@ -348,6 +348,11 @@ def _step_register_windy_calendar(ctx: BootContext) -> None:
     register_windy_calendar_capabilities(ctx.capability_registry, ctx.config)
 
 
+def _step_register_teams(ctx: BootContext) -> None:
+    from windyfly.agent.capabilities.teams import register_teams_capabilities
+    register_teams_capabilities(ctx.capability_registry, ctx.config)
+
+
 def _step_register_cloudflare(ctx: BootContext) -> None:
     from windyfly.agent.capabilities.cloudflare import (
         register_cloudflare_capabilities,
@@ -519,6 +524,11 @@ def default_capability_registration_sequence() -> list[Step]:
         Step(
             "capabilities.windy_calendar",
             _step_register_windy_calendar,
+            requires=("capabilities.audit",),
+        ),
+        Step(
+            "capabilities.teams",
+            _step_register_teams,
             requires=("capabilities.audit",),
         ),
         Step(

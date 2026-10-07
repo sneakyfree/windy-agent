@@ -385,6 +385,10 @@ class WindyFlyMatrixBot(ChannelAdapter):
         agent_turn = _silence.enabled() and _silence.sender_is_agent(sender)
         if agent_turn:
             _silence.mark_agent_turn(session_id)
+            from windyfly.agent import teams as _teams
+
+            if _teams.siblings_stale():  # who counts as the owner's own agent, refreshed off the loop
+                await asyncio.to_thread(_teams.refresh_siblings)
         try:
             from windyfly.agent.executor import run_turn
             from windyfly.channels.identity import resolve_band
