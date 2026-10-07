@@ -343,6 +343,11 @@ def _step_register_mind_model(ctx: BootContext) -> None:
     register_mind_model_capabilities(ctx.capability_registry, ctx.config)
 
 
+def _step_register_windy_calendar(ctx: BootContext) -> None:
+    from windyfly.agent.capabilities.windy_calendar import register_windy_calendar_capabilities
+    register_windy_calendar_capabilities(ctx.capability_registry, ctx.config)
+
+
 def _step_register_cloudflare(ctx: BootContext) -> None:
     from windyfly.agent.capabilities.cloudflare import (
         register_cloudflare_capabilities,
@@ -509,6 +514,11 @@ def default_capability_registration_sequence() -> list[Step]:
         Step(
             "capabilities.mind_model",
             _step_register_mind_model,
+            requires=("capabilities.audit",),
+        ),
+        Step(
+            "capabilities.windy_calendar",
+            _step_register_windy_calendar,
             requires=("capabilities.audit",),
         ),
         Step(
