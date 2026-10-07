@@ -380,6 +380,11 @@ class WindyFlyMatrixBot(ChannelAdapter):
 
         # Generate response (off-loop so the client keeps syncing and
         # the typing indicator can refresh — see agent/executor.py)
+        from windyfly.channels import silence as _silence
+
+        agent_turn = _silence.enabled() and _silence.sender_is_agent(sender)
+        if agent_turn:
+            _silence.mark_agent_turn(session_id)
         try:
             from windyfly.agent.executor import run_turn
             from windyfly.channels.identity import resolve_band
@@ -394,6 +399,17 @@ class WindyFlyMatrixBot(ChannelAdapter):
             classified = classify(e)
             logger.error("Agent respond failed: %s", classified.log_message)
             response_text = classified.user_message
+        finally:
+            if agent_turn:
+                _silence.clear_agent_turn(session_id)
+
+        if agent_turn and _silence.is_silence(response_text):
+            logger.info("silence: no reply to agent %s in %s", sender, room_id)
+            try:
+                await self.client.room_typing(room_id, False)
+            except Exception as e:
+                logger.debug("Failed to clear typing indicator: %s", e)
+            return
 
         # Send response with Windy metadata
         try:
