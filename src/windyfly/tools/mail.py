@@ -325,16 +325,30 @@ def list_inbox(unread_only: bool = False, limit: int = 20) -> dict[str, Any]:
     return result
 
 
+def _send_email_description() -> str:
+    """Honest about who confirms: with WINDY_SEND_CONFIRM=1 the OWNER approves the held draft (card or
+    'send'), so the model must not ask in text first (that was a second confirmation, Grant's Build-116
+    note); with it OFF nothing else confirms, so the model confirms the draft in chat before sending."""
+    base = (
+        "Send ONE email from the agent's own mailbox to everyone: recipients in 'to' "
+        "(comma-separated), copies in 'cc' and 'bcc'; never call this once per person. "
+    )
+    if send_confirm_enabled():
+        return base + (
+            "The owner approves it once (the approval card or their 'send'), so do not ask for a "
+            "yes in text first. Ask only if an address is missing or unclear."
+        )
+    return base + (
+        "Nothing else confirms it: show the owner the recipients, subject and body and get a "
+        "yes in chat BEFORE you call this. Ask if an address is missing or unclear."
+    )
+
+
 def register_mail_tools(registry: ToolRegistry) -> None:
     """Register ``send_email`` and ``list_inbox`` with the tool registry."""
     registry.register(
         name="send_email",
-        description=(
-            "Send ONE email from the agent's own mailbox to everyone: recipients in 'to' "
-            "(comma-separated), copies in 'cc' and 'bcc'; never call this once per person. The owner "
-            "approves it once (the approval card or their 'send'), so do not ask for a yes in "
-            "text first. Ask only if an address is missing or unclear."
-        ),
+        description=_send_email_description(),
         parameters={
             "type": "object",
             "properties": {

@@ -191,3 +191,22 @@ def test_a_5xx_says_check_sent_before_resending(monkeypatch):
     monkeypatch.setattr("windyfly.trust.gate.require_trust_sync", lambda *a, **k: None)
     r = WindyMailAdapter().send_email("a@x.com", "s", "b")
     assert r["status"] == "failed" and "Check the Sent folder" in r["error"]
+
+
+@pytest.mark.parametrize("flag,must,must_not", [
+    ("1", "do not ask for a yes in text first", "BEFORE you call this"),
+    ("0", "get a yes in chat BEFORE you call this", "do not ask for a yes in text"),
+    ("", "get a yes in chat BEFORE you call this", "do not ask for a yes in text"),
+])
+def test_the_description_is_honest_about_who_confirms(monkeypatch, flag, must, must_not):
+    from windyfly.tools.registry import ToolRegistry
+
+    if flag:
+        monkeypatch.setenv("WINDY_SEND_CONFIRM", flag)
+    else:
+        monkeypatch.delenv("WINDY_SEND_CONFIRM", raising=False)
+    reg = ToolRegistry()
+    mail.register_mail_tools(reg)
+    desc = next(t["function"]["description"] for t in reg.get_schemas() if t["function"]["name"] == "send_email")
+    assert must in desc and must_not not in desc
+    assert "never call this once per person" in desc and "ONE" in desc
