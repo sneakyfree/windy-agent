@@ -907,6 +907,12 @@ def _agent_respond_turn(
         if extra_instruction:
             messages.insert(1, {"role": "system", "content": extra_instruction})
 
+    # Agent teams (dark WINDY_TEAMS=1): a turn from another agent may end in silence.
+    from windyfly.channels import silence as _silence
+
+    if _silence.enabled() and _silence.is_agent_turn(session_id):
+        messages.insert(1, {"role": "system", "content": _silence.INSTRUCTION})
+
     # 1.6. Emotional awareness
     emotional_context = detect_emotional_context(user_message)
 
@@ -1723,6 +1729,10 @@ def _agent_respond_turn(
     # the bot crashed. Reproduced 2026-04-26 via stress harness v2
     # G_naming case (LLM picked shape_shift on a brainstorm prompt
     # and never circled back to actually brainstorming).
+    if _silence.enabled() and _silence.is_silence(response_text):
+        if _silence.is_agent_turn(session_id):
+            return ""  # the agent chose silence for another agent: post nothing
+        response_text = ""  # an owner turn is always answered: the token is an empty answer
     if not (response_text or "").strip():
         recent_tool_names = [
             tc.get("function", {}).get("name", "?")
