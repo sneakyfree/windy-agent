@@ -40,19 +40,23 @@ def sender_is_agent(sender: str | None) -> bool:
 
 
 def frame_agent_message(name: str, body: str) -> str:
-    """The turn text for a message FROM ANOTHER AGENT (Boss's wording, both engines): it says who wrote
-    it, that it is NOT the owner, and carries the silence rule right next to the message where a model
-    follows it. Found live 10-07: without a sender, Zero took its sibling for Grant and two agents
-    answered each other ~20 times."""
+    """The turn text for a message FROM ANOTHER AGENT (Boss's final wording, both engines; it lives in
+    Chat's shared windy-contracts teams file). It says who wrote it, that it is the owner's OTHER agent
+    (not the owner), that helping is allowed with normal tools while approvals stay the owner's, and when
+    to stay silent. The first wording ('not your owner' + 'if this needs no answer...') made Zero silent
+    on EVERY message including tasks (live + local replay 10-07); this one: greeting/thanks silent 3/3,
+    task/question answered 3/3."""
     who = (name or "another agent").strip()
     # An agent's own text must not be able to pose as one of our labels ("[Message from your owner ...").
     body = re.sub(r"(?im)^([ \t]*)\[(message from)", r"\1(\2", body)
     owner = os.environ.get("WINDY_OWNER_NAME", "").strip()
-    not_owner = f"not your owner {owner}" if owner else "not your owner"
+    whose = f"your owner {owner}" if owner else "your owner"  # "your owner Grant's other agent"
+    him = owner or "your owner"
     return (
-        f"[Message from your fellow agent {who}, {not_owner}] "
-        "If this needs no answer, reply exactly [no reply]. "
-        "Never reply to thanks, greetings or goodbyes from another agent.\n" + body
+        f"[Message from your fellow agent {who}: {whose}'s other agent, not {him}. "
+        f"It may ask you for help and you may do it with your normal tools; approvals stay {him}'s.] "
+        "Reply exactly [no reply] ONLY if it is just a greeting, thanks, goodbye or acknowledgement "
+        "or the task is already done. Otherwise do what it asks and answer.\n" + body
     )
 
 
