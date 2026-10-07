@@ -778,7 +778,11 @@ def _agent_respond_turn(
         is_first_contact as _is_first_contact,
         mark_welcomed as _mark_welcomed,
     )
-    if _is_first_contact(db):
+    from windyfly.channels import silence as _silence_welcome
+
+    # A welcome is for a PERSON: never to an agent sender (teams flag or not). It is not latched by an
+    # agent's message; the agent's turn is answered normally.
+    if _is_first_contact(db) and not _silence_welcome.is_agent_sender(session_id):
         _mark_welcomed(db)  # latch BEFORE the async episode writes land
         welcome = _format_welcome(config)
         write_queue.enqueue(Priority.HIGH, save_episode, db, "user",
