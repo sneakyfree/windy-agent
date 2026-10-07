@@ -150,3 +150,20 @@ def test_owner_addresses_are_not_copied_into_the_learned_file(monkeypatch, _clea
     _approve("a@b.com")
     import json
     assert json.loads(mail._known_path().read_text()) == ["a@b.com"]
+
+
+def test_a_trusted_sibling_cannot_run_commands_or_recovery(monkeypatch):
+    sib = "@agent_et26-sib0-0002:chat.windychat.ai"
+    monkeypatch.setattr(identity, "resolve_band", lambda platform, sender, **kw: Band.TRUSTED)
+    for text in ("/panic", "!reset", "/model set x"):
+        was_cmd, reply = asyncio.run(base.handle_incoming(text, {"platform": "matrix", "sender_id": sib}))
+        assert was_cmd and ("owner-only" in reply or "Only my owner" in reply), text
+
+
+def test_a_trusted_sibling_cannot_confirm_a_held_draft(monkeypatch, _clean):
+    sib = "@agent_et26-sib0-0002:chat.windychat.ai"
+    monkeypatch.setenv("WINDY_SEND_CONFIRM", "1")
+    monkeypatch.setattr(identity, "resolve_band", lambda platform, sender, **kw: Band.TRUSTED)
+    mail.send_email("a@b.com", "hi", "body")
+    asyncio.run(base.handle_incoming("send", {"platform": "matrix", "sender_id": sib}))
+    assert _clean == [] and mail.pending_drafts()

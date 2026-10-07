@@ -87,13 +87,15 @@ async def handle_incoming(text: str, context: dict | None = None) -> tuple[bool,
     band = resolve_band(platform, ctx.get("sender_id"))
 
     from windyfly.channels.rescue import looks_like_rescue
-    if band < Band.TRUSTED and looks_like_rescue(text):
+    # Commands and recovery are the OWNER's own words. A same-owner sibling agent is TRUSTED (agent
+    # teams): every normal tool, never these (Hub 10-07).
+    if band < Band.OWNER and looks_like_rescue(text):
         return True, (
             "🔒 Only my owner can use recovery commands on this "
             "channel. If that's you, ask them to add your "
             f"{platform} ID to WINDY_OWNER_IDS."
         )
-    if band <= Band.SANDBOX and is_command(text):
+    if band < Band.OWNER and is_command(text):
         return True, (
             "🔒 Commands are owner-only on this channel — but you can "
             "just chat with me normally."
