@@ -199,14 +199,7 @@ def register_memory_search_capabilities(
     registry.register(Capability(
         id="memory.search",
         description=(
-            "Search EVERY conversation you and the user have ever had "
-            "(keyword + meaning, all sessions, all time). THE tool for "
-            "'we talked about this before', 'what did we decide about "
-            "X', 'find when we discussed the Christmas party', or any "
-            "moment you suspect the answer lives in your shared past "
-            "but isn't in your current context. Each hit comes with "
-            "the surrounding turns. Don't guess or say you don't "
-            "remember — search."
+            "Search every past conversation with the user (keyword + meaning, all time). Search before saying you don't remember."
         ),
         handler=memory_search,
         tier=Tier.READ_EXTERNAL,
@@ -252,13 +245,7 @@ def register_memory_search_capabilities(
     registry.register(Capability(
         id="journal.read",
         description=(
-            "Read your dated JOURNAL — the day-by-day index of your shared "
-            "history (each day: a short summary + key-point bullets + tagged "
-            "people/places/topics). THE fast way to find WHEN something "
-            "happened before diving into the raw record: scroll the journal "
-            "to the right day, then memory.read_range that day for the full "
-            "conversation. Great for 'what were we working on last week' or "
-            "'when did we first talk about X'."
+            "Read the dated journal: a short summary, key points and tags for each day. Find WHEN something happened, then memory.read_range that day."
         ),
         handler=journal_read,
         tier=Tier.READ_EXTERNAL,
@@ -277,13 +264,7 @@ def register_memory_search_capabilities(
     registry.register(Capability(
         id="memory.read_range",
         description=(
-            "Read the raw, verbatim conversation record for a time "
-            "window, in order. THE tool for catching up after a reset "
-            "or absence: 'go read our last three hours' → hours_back=3; "
-            "'read everything since Thursday afternoon' → start "
-            "timestamp. Returns the actual words, not summaries. Use "
-            "memory.search first when you don't know WHEN — use this "
-            "when you do."
+            "Read the raw verbatim conversation record for a time window (hours_back, or a start timestamp)."
         ),
         handler=memory_read_range,
         tier=Tier.READ_EXTERNAL,

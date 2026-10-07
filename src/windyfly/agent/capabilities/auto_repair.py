@@ -299,12 +299,7 @@ def register_auto_repair_capabilities(
     registry.register(Capability(
         id="health.apply_recommendation",
         description=(
-            "Propose a bounded auto-repair change (Ring 2 — opt-in). "
-            "Only available when WINDY_RING2_ENABLED=1. Whitelist of "
-            "personality sliders + memory window sizes only. Every "
-            "request is journaled to ~/.windy/auto-repair-journal.jsonl. "
-            "72-hour cooldown between applies. NEVER touches code, "
-            "credentials, or external resources."
+            "Propose a bounded auto-repair change (personality sliders and memory window sizes only). Opt-in (WINDY_RING2_ENABLED=1), journaled, never touches code, credentials or anything external."
         ),
         handler=apply_recommendation,
         tier=Tier.WRITE_DESTRUCTIVE,

@@ -464,12 +464,7 @@ def register_setup_capabilities(
     registry.register(Capability(
         id="setup.start",
         description=(
-            "Get the chat-driven setup walkthrough for an integration. "
-            "Returns the steps the user needs to take to obtain a "
-            "credential (e.g. how to create a Cloudflare API token), "
-            "what the result will look like, and instructions for you "
-            "(the LLM) about what to do next. After the user pastes "
-            "the credential in chat, call setup.save_credential."
+            "Get the steps for connecting an integration (for example how to create a Cloudflare API token). After the user pastes the credential, call setup.save_credential."
         ),
         handler=setup_start,
         tier=Tier.READ_EXTERNAL,
@@ -494,14 +489,7 @@ def register_setup_capabilities(
     registry.register(Capability(
         id="setup.save_credential",
         description=(
-            "Validate a credential pasted by the user in chat, then "
-            "persist it to the bot's environment AND hot-load it into "
-            "the running process. No restart needed. Currently "
-            "supports cloudflare and github (token-paste). Calendar "
-            "returns oauth_required (Tier 3 / magic-link "
-            "ships that). NEVER echo the token in your reply to the "
-            "user. On success, confirm with plain English what's now "
-            "possible (e.g. 'I can see all your zones now')."
+            "Validate a credential the user pasted, save it and hot-load it (cloudflare and github tokens). NEVER echo the token in your reply."
         ),
         handler=setup_save_credential,
         tier=Tier.WRITE_DESTRUCTIVE,

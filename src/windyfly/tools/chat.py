@@ -195,15 +195,7 @@ def register_chat_tools(registry: ToolRegistry) -> None:
     registry.register(
         name="send_chat_message",
         description=(
-            "Send a chat message from the agent to a Matrix room. Use "
-            "this when the user asks you to message someone in chat, or "
-            "when you want to ping the user mid-task with a status update "
-            "(e.g. 'sent the email — Bob's reply will land here when it "
-            "comes in'). If to_room isn't specified, sends to the "
-            "agent's owner DM by default. Returns {status: 'sent', "
-            "event_id, room} on success, {status: 'unavailable', error} "
-            "if chat isn't configured for this agent, or {status: "
-            "'failed', error, errcode?} on Matrix API errors."
+            "Send a chat message to a Matrix room (default: the owner's DM). Returns {status: 'sent'|'unavailable'|'failed', ...}."
         ),
         parameters={
             "type": "object",

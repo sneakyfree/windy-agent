@@ -537,12 +537,7 @@ def register_health_capabilities(
     registry.register(Capability(
         id="health.recent",
         description=(
-            "Read the agent's MOST RECENT organ-health scorecard and "
-            "any regressions since the previous run. Use this when "
-            "the user asks 'how have you been doing?', 'are you "
-            "healthy?', 'are any of your organs unhealthy?', or "
-            "anything similar. Returns ok/false if no scorecards "
-            "exist yet (run stress_v10_organ_harmony.py to create one)."
+            "The agent's most recent organ-health scorecard and any regressions since the previous run."
         ),
         handler=health_recent,
         tier=Tier.PURE_COMPUTE,
@@ -640,22 +635,7 @@ def register_health_capabilities(
     registry.register(Capability(
         id="health.weekly_brief",
         description=(
-            "Generate a weekly self-assessment with diagnoses and "
-            "self-improvement recommendations. Use this when:\n"
-            "  - The user asks 'how are you doing', 'how have you been', "
-            "    'do you need anything', 'are you OK', 'weekly checkup'\n"
-            "  - The user has been away for several days and you want "
-            "    to give them a 'welcome back, here's how I've been' "
-            "    status update\n"
-            "  - The user explicitly asks for a self-assessment or "
-            "    recommendations on how you could work better\n"
-            "Returns a structured report with: organ status, "
-            "diagnoses for non-green organs, specific recommendations "
-            "the user can apply, and a reset_hint reminding them /reset "
-            "is always available.\n"
-            "READ-ONLY — never mutates anything. Recommendations are "
-            "advisory only; the user must explicitly ask for any to "
-            "be applied."
+            "Generate a weekly self-assessment: organ status, diagnoses and advisory recommendations. Read-only; apply nothing unless the user asks."
         ),
         handler=health_weekly_brief,
         tier=Tier.PURE_COMPUTE,

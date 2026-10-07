@@ -597,12 +597,7 @@ def register_github_capabilities(
     registry.register(Capability(
         id="github.fetch_file",
         description=(
-            "Fetch the contents of a file from a GitHub repo. Defaults "
-            "to 'README.md' on the main branch — perfect for 'what does "
-            "the README of foo/bar say?'. Returns up to 256 KB of UTF-8 "
-            "text. Public repos work without auth; private repos need "
-            "GITHUB_PAT in the environment. Use github.list_repo first "
-            "if you don't know the file path."
+            "Fetch a file from a GitHub repo (default README.md on main, up to 256KB). Private repos need GITHUB_PAT."
         ),
         handler=fetch_file,
         tier=Tier.READ_EXTERNAL,
@@ -678,13 +673,7 @@ def register_github_capabilities(
     registry.register(Capability(
         id="github.put_file",
         description=(
-            "Create or update a file in a GitHub repo via the Contents "
-            "API. Defaults to the 'main' branch. For updates, you can "
-            "omit `sha` and the tool will auto-fetch the current sha "
-            "(one extra request, optimistic-concurrency safe). "
-            "Requires GITHUB_PAT with Contents:write scope. Use "
-            "dry_run=true to preview the commit plan without writing. "
-            "Tier EXTERNAL_EFFECT — TRUSTED+ band only."
+            "Create or update a file in a GitHub repo via the Contents API (default branch main, sha optional). Needs GITHUB_PAT with Contents:write. dry_run=true previews."
         ),
         handler=put_file,
         tier=Tier.EXTERNAL_EFFECT,

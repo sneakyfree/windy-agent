@@ -259,15 +259,7 @@ def register_ssh_capabilities(
     registry.register(Capability(
         id="ssh.exec",
         description=(
-            "Run a command on a remote host via SSH. Uses the system "
-            "'ssh' binary, so your ~/.ssh/config aliases and existing "
-            "keys Just Work. Default 30s timeout, 5-minute ceiling, "
-            "64KB output cap. Loopback (localhost/127.*) is rejected — "
-            "use shell.exec for local. Pre-authorized hosts (set via "
-            "WINDY_SSH_ALLOWED_HOSTS env, comma-separated) run at USER "
-            "band; unknown hosts require OWNER band. Output truncated "
-            "at 64KB; the same blocklist as shell.exec screens "
-            "obviously-catastrophic commands pre-flight."
+            "Run a command on a remote host via your ~/.ssh/config (30s default, 5 min max, 64KB output). Localhost is rejected (use shell.exec). Hosts in WINDY_SSH_ALLOWED_HOSTS run at USER band, others need OWNER band."
         ),
         handler=ssh_exec,
         input_schema={

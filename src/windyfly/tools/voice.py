@@ -164,25 +164,7 @@ def register_voice_tools(registry: ToolRegistry) -> None:
     registry.register(
         name="make_call",
         description=(
-            "Place a phone call from the agent to a phone number, with the "
-            "agent's `message` read aloud by text-to-speech when the "
-            "recipient answers. Use this when the user says 'call the "
-            "dentist and reschedule' / 'call Mom and tell her I'm running "
-            "late' / etc. The destination must be E.164 (`+1` + 10 digits "
-            "for US). Voice calls are PRICIER than SMS — prefer send_sms "
-            "for confirmations, status pings, and anything multi-line. "
-            "Reach for make_call when the use case genuinely needs voice "
-            "(reaching a person who doesn't text, leaving a voicemail, "
-            "etc.). Returns {status: 'sent', sid, to, from, "
-            "integrity_event_posted} on call-initiation success "
-            "(`sid` is Twilio's CallSid; whether the recipient ANSWERED "
-            "is a separate observation), {status: 'unavailable', error} "
-            "if voice isn't configured for this agent (no passport EPT), "
-            "or {status: 'failed', error, http_status?, error_code?} on "
-            "validation / rate-limit / Twilio errors. error_code 21219 "
-            "means Twilio's trial-account verified-destination check; "
-            "ask the user to verify their number in the Twilio console "
-            "or upgrade off the trial plan."
+            "Place a phone call; the agent's message is read aloud by text-to-speech. Destination E.164. Pricier than SMS: prefer send_sms unless voice is really needed. Returns {status: 'sent'|'unavailable'|'failed', sid?, error?}; error_code 21219 = the Twilio trial needs the number verified."
         ),
         parameters={
             "type": "object",
