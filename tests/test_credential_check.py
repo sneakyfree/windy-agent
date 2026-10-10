@@ -61,3 +61,23 @@ def test_cloudflare_with_a_refused_token_registers_nothing(monkeypatch):
     reg = CapabilityRegistry()
     register_cloudflare_capabilities(reg, {})
     assert reg.get("cloudflare.list_zones") is None
+
+
+def test_save_credential_says_plainly_when_the_tools_did_not_come_on(monkeypatch):
+    from windyfly.agent.capabilities import credential_check, setup
+    from windyfly.agent.capabilities.registry import CapabilityRegistry
+
+    monkeypatch.setattr(setup, "_save_credential_handler",
+                        lambda **kw: {"ok": True, "integration": kw["integration"], "hot_loaded": True})
+    monkeypatch.setenv("GITHUB_PAT", "s3cr3t-value")
+    reg = CapabilityRegistry()
+    setup.register_setup_capabilities(reg, {})
+    save = reg.get("setup.save_credential").handler
+
+    monkeypatch.setattr(credential_check, "answers", lambda *a, **k: False)  # refused at registration
+    out = save(integration="github", value="s3cr3t-value")
+    assert out["tools_registered"] is False and "NOT available" in out["note_to_llm"]
+
+    monkeypatch.setattr(credential_check, "answers", lambda *a, **k: True)
+    out = save(integration="github", value="s3cr3t-value")
+    assert out["tools_registered"] is True and reg.get("github.list_repo") is not None

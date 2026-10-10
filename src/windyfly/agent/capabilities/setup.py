@@ -459,6 +459,17 @@ def register_setup_capabilities(
         )
         if out.get("ok"):
             _register_now_configured(registry, config, integration)
+            probe = {"cloudflare": "cloudflare.list_zones", "github": "github.list_repo"}.get(integration)
+            if probe and registry.get(probe) is None:
+                # Saved, but its tools did not come on (the service refused the token at registration, or the
+                # registration failed): say that, never "it worked" (Hub 10-10).
+                out["tools_registered"] = False
+                out["note_to_llm"] = (
+                    f"The {integration} credential was saved, but its tools are NOT available: "
+                    f"{integration} did not accept it when the tools were set up. Tell the owner plainly."
+                )
+            elif probe:
+                out["tools_registered"] = True
         return out
 
     registry.register(Capability(
