@@ -31,7 +31,6 @@ Environment:
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
 import uuid
@@ -40,7 +39,7 @@ from typing import Any
 import httpx
 
 from windyfly.tools.registry import ToolRegistry
-from windyfly.trust.gate import TrustDenied, require_trust
+from windyfly.trust.gate import TrustDenied, require_trust_sync
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +116,7 @@ def send_chat_message(body: str, to_room: str | None = None) -> dict[str, Any]:
     # so the typical-case overhead is microseconds.
     if _trust_gate_enabled():
         try:
-            decision = asyncio.run(require_trust(_TRUST_ACTION))
+            decision = require_trust_sync(_TRUST_ACTION)  # safe inside a running loop (asyncio.run is not)
             logger.debug(
                 "Chat trust gate ALLOW: band=%s clearance=%s",
                 decision.snapshot.band, decision.snapshot.clearance_level,
@@ -150,7 +149,7 @@ def send_chat_message(body: str, to_room: str | None = None) -> dict[str, Any]:
     try:
         resp = httpx.put(
             url,
-            params={"access_token": bot_token},
+            headers={"Authorization": f"Bearer {bot_token}"},  # never in the URL: httpx logs URLs
             json={"msgtype": "m.text", "body": body},
             timeout=_TIMEOUT,
         )
