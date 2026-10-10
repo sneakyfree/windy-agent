@@ -97,7 +97,8 @@ class TestHappyPath:
         call_args = mock_put.call_args
         url = call_args.args[0] if call_args.args else call_args.kwargs.get("url", "")
         assert "/_matrix/client/v3/rooms/!room1:test/send/m.room.message/" in url
-        assert call_args.kwargs["params"] == {"access_token": "syt_test_token"}
+        assert call_args.kwargs["headers"] == {"Authorization": "Bearer syt_test_token"}
+        assert "params" not in call_args.kwargs  # the token is never in the URL (httpx logs URLs)
         assert call_args.kwargs["json"] == {"msgtype": "m.text", "body": "hello world"}
 
     @patch("windyfly.tools.chat.httpx.put")
@@ -183,10 +184,10 @@ class TestTrustGate:
 
         result = send_chat_message(body="hi", to_room="!a:test")
         assert result["status"] == "sent"
-        # asyncio.run was NOT invoked
+        # the gate did not run
         mock_put.assert_called_once()
 
-    @patch("windyfly.tools.chat.require_trust")
+    @patch("windyfly.tools.chat.require_trust_sync")
     @patch("windyfly.tools.chat.httpx.put")
     def test_passport_set_runs_trust_gate(
         self, mock_put: MagicMock, mock_require_trust: MagicMock,
@@ -194,7 +195,7 @@ class TestTrustGate:
     ) -> None:
         """With ETERNITAS_PASSPORT set, the gate runs before HTTP."""
         monkeypatch.setenv("ETERNITAS_PASSPORT", "ET26-WIND-Y123")
-        # require_trust is async; mock its coroutine to return a decision
+        # the sync gate (safe inside a running loop) returns a decision
         from windyfly.trust.check import TrustDecision, TrustSnapshot
 
         snapshot = TrustSnapshot(
@@ -204,7 +205,7 @@ class TestTrustGate:
             integrity_score=75.0, cache_ttl_seconds=300,
         )
 
-        async def fake_require_trust(action, passport=None, db=None):
+        def fake_require_trust(action, passport=None, db=None):
             return TrustDecision(allowed=True, snapshot=snapshot, reason="ok")
 
         mock_require_trust.side_effect = fake_require_trust
@@ -217,7 +218,7 @@ class TestTrustGate:
         assert result["status"] == "sent"
         mock_require_trust.assert_called_once_with("post_chat_message")
 
-    @patch("windyfly.tools.chat.require_trust")
+    @patch("windyfly.tools.chat.require_trust_sync")
     @patch("windyfly.tools.chat.httpx.put")
     def test_trust_denied_returns_denied_status(
         self, mock_put: MagicMock, mock_require_trust: MagicMock,
@@ -228,7 +229,7 @@ class TestTrustGate:
         monkeypatch.setenv("ETERNITAS_PASSPORT", "ET26-WIND-Y123")
         from windyfly.trust.gate import TrustDenied
 
-        async def fake_require_trust(action, passport=None, db=None):
+        def fake_require_trust(action, passport=None, db=None):
             raise TrustDenied(
                 action="post_chat_message", band="critical",
                 reason="band=critical, all actions denied",
@@ -244,7 +245,7 @@ class TestTrustGate:
         # HTTP was NOT called
         mock_put.assert_not_called()
 
-    @patch("windyfly.tools.chat.require_trust")
+    @patch("windyfly.tools.chat.require_trust_sync")
     @patch("windyfly.tools.chat.httpx.put")
     def test_trust_check_exception_fails_open(
         self, mock_put: MagicMock, mock_require_trust: MagicMock,
@@ -255,7 +256,7 @@ class TestTrustGate:
         chat for transient outages of the trust kernel."""
         monkeypatch.setenv("ETERNITAS_PASSPORT", "ET26-WIND-Y123")
 
-        async def fake_require_trust(action, passport=None, db=None):
+        def fake_require_trust(action, passport=None, db=None):
             raise RuntimeError("eternitas unreachable")
 
         mock_require_trust.side_effect = fake_require_trust
@@ -268,3 +269,29 @@ class TestTrustGate:
         # Fail-open: chat still sent despite trust-check error
         assert result["status"] == "sent"
         mock_put.assert_called_once()
+
+
+def test_trust_gate_still_runs_inside_a_running_event_loop(monkeypatch):
+    """The tool is called from the agent's event loop; the old asyncio.run() there raised and the gate FAILED OPEN
+    on every send (seen live in the 10-10 pair-room proof). The sync gate must decide there too."""
+    import asyncio
+
+    from windyfly.tools import chat as chat_mod
+    from windyfly.trust.gate import TrustDenied
+
+    monkeypatch.setenv("MATRIX_HOMESERVER", "https://hs.test")
+    monkeypatch.setenv("MATRIX_BOT_TOKEN", "syt_test_token")
+    monkeypatch.setenv("ETERNITAS_PASSPORT", "ET26-WIND-Y123")
+    puts = []
+    monkeypatch.setattr(chat_mod.httpx, "put", lambda *a, **k: puts.append(1))
+
+    def deny(action, passport=None, db=None):
+        raise TrustDenied(action=action, band="critical", reason="band=critical, all actions denied")
+
+    monkeypatch.setattr(chat_mod, "require_trust_sync", deny)
+
+    async def inside_loop():
+        return chat_mod.send_chat_message(body="hi", to_room="!a:test")
+
+    result = asyncio.run(inside_loop())
+    assert result["status"] == "denied" and puts == []
