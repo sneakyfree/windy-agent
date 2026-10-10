@@ -21,6 +21,9 @@ _get_encryption_key.
 
 from __future__ import annotations
 
+import asyncio
+from typing import Any
+
 import gzip
 import hashlib
 import json
@@ -157,6 +160,26 @@ def _decrypt_data(data: bytes, key: bytes) -> bytes:
     return AESGCM(key).decrypt(nonce, ct, None)
 
 
+
+async def _cloud_send(client: Any, method: str, url: str, fallback_header: dict, where: str, **kw: Any) -> Any:
+    """One Cloud request: the agent's EPT+agent (+ DPoP on writes) first; on no token, or a 401/403 to it, the old
+    credential (bot key / WINDY_CLOUD_TOKEN / WINDY_JWT) once. See windyfly.agent.cloud_auth (Cloud KE3)."""
+    from windyfly.agent import cloud_auth
+
+    send = getattr(client, method.lower())  # client.post / client.get, as the archive contract tests fake them
+    agent = await asyncio.to_thread(cloud_auth.agent_headers, method, url)
+    resp = await send(url, headers=agent or fallback_header, **kw)
+    if agent and fallback_header and cloud_auth.refused(resp.status_code):
+        cloud_auth.fallback_used(where, resp.status_code)
+        resp = await send(url, headers=fallback_header, **kw)
+    return resp
+
+
+def _no_credential(auth_header: dict) -> bool:
+    from windyfly.agent import cloud_auth
+
+    return not auth_header and not cloud_auth.enabled()
+
 async def backup_to_cloud(config: dict | None = None) -> dict:
     """Encrypt and upload the agent database to Windy Cloud.
 
@@ -174,7 +197,7 @@ async def backup_to_cloud(config: dict | None = None) -> dict:
     cloud_url = _get_cloud_url(config)
     auth_header = await ecosystem_auth_header(fallback_token=_get_cloud_token())
 
-    if not auth_header:
+    if _no_credential(auth_header):
         return {"success": False, "error": "No cloud token configured"}
 
     cred = await get_bot_key()
@@ -233,11 +256,10 @@ async def backup_to_cloud(config: dict | None = None) -> dict:
                 scope_used="cloud:upload",
                 target_url=target_url,
             ) as ctx:
-                resp = await client.post(
-                    target_url,
+                resp = await _cloud_send(
+                    client, "POST", target_url, auth_header, "backup upload",
                     files={"file": (backup_name, encrypted, "application/octet-stream")},
                     data={"metadata": metadata, "filename": backup_name},
-                    headers=auth_header,
                 )
                 ctx["response_status"] = resp.status_code
             resp.raise_for_status()
@@ -282,7 +304,7 @@ async def restore_from_cloud(
     cloud_url = _get_cloud_url(config)
     auth_header = await ecosystem_auth_header(fallback_token=_get_cloud_token())
 
-    if not auth_header:
+    if _no_credential(auth_header):
         return {"success": False, "error": "No cloud token configured"}
 
     cred = await get_bot_key()
@@ -310,7 +332,7 @@ async def restore_from_cloud(
                 scope_used="cloud:download",
                 target_url=target_url,
             ) as ctx:
-                resp = await client.get(target_url, headers=auth_header)
+                resp = await _cloud_send(client, "GET", target_url, auth_header, "backup read")
                 ctx["response_status"] = resp.status_code
             resp.raise_for_status()
             encrypted = resp.content
@@ -362,7 +384,7 @@ async def list_backups(config: dict | None = None) -> dict:
     cloud_url = _get_cloud_url(config)
     auth_header = await ecosystem_auth_header(fallback_token=_get_cloud_token())
 
-    if not auth_header:
+    if _no_credential(auth_header):
         return {"success": False, "backups": [], "error": "No cloud token configured"}
 
     cred = await get_bot_key()
@@ -379,7 +401,7 @@ async def list_backups(config: dict | None = None) -> dict:
                 scope_used="cloud:download",
                 target_url=target_url,
             ) as ctx:
-                resp = await client.get(target_url, headers=auth_header)
+                resp = await _cloud_send(client, "GET", target_url, auth_header, "backup read")
                 ctx["response_status"] = resp.status_code
             resp.raise_for_status()
             data = resp.json()
