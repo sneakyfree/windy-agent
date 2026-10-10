@@ -325,6 +325,31 @@ def list_inbox(unread_only: bool = False, limit: int = 20) -> dict[str, Any]:
     return result
 
 
+def my_mailbox() -> dict[str, Any]:
+    """The agent's own mailbox, as Windy Mail states it (mail/mailbox.v1): address, display name, status,
+    aliases and the plan's sending limits. Facts only; the bearer is the agent's own (never printed)."""
+    adapter = _adapter()
+    if adapter is None:
+        return {"status": "unavailable", "error": "Email is not configured for this agent."}
+    import httpx
+
+    try:
+        resp = httpx.get(f"{str(adapter.api_url).rstrip('/')}/api/v1/mailbox",
+                         headers={"Authorization": f"Bearer {adapter.jmap_token}"}, timeout=10.0)
+    except httpx.HTTPError:
+        return {"status": "error", "error": "Could not reach Windy Mail."}
+    try:
+        data = resp.json()
+    except ValueError:
+        data = {}
+    if resp.status_code == 200 and isinstance(data, dict) and data.get("address"):
+        keep = ("address", "domain", "display_name", "account_type", "status", "passport", "aliases", "limits")
+        return {k: data[k] for k in keep if k in data}
+    if resp.status_code == 404:
+        return {"status": "error", "error": "Windy Mail has no mailbox for this agent."}
+    return {"status": "error", "error": f"Windy Mail did not answer (HTTP {resp.status_code})."}
+
+
 def _send_email_description() -> str:
     """Honest about who confirms: with WINDY_SEND_CONFIRM=1 the OWNER approves the held draft (card or
     'send'), so the model must not ask in text first (that was a second confirmation, Grant's Build-116
@@ -345,7 +370,7 @@ def _send_email_description() -> str:
 
 
 def register_mail_tools(registry: ToolRegistry) -> None:
-    """Register ``send_email`` and ``list_inbox`` with the tool registry."""
+    """Register ``send_email``, ``my_mailbox`` and ``list_inbox`` with the tool registry."""
     registry.register(
         name="send_email",
         description=_send_email_description(),
@@ -380,6 +405,16 @@ def register_mail_tools(registry: ToolRegistry) -> None:
             "required": ["to", "subject", "body"],
         },
         fn=send_email,
+    )
+
+    registry.register(
+        name="my_mailbox",
+        description=(
+            "Your own mailbox as Windy Mail states it: address, domain, display name, status, aliases "
+            "and the plan's sending limits (daily, per minute, recipients per message)."
+        ),
+        parameters={"type": "object", "properties": {}, "required": []},
+        fn=my_mailbox,
     )
 
     registry.register(
