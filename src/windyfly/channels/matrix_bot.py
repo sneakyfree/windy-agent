@@ -149,6 +149,8 @@ class WindyFlyMatrixBot(ChannelAdapter):
         self._backoff = _INITIAL_BACKOFF_S
         # Consecutive failed /sync responses inside the current sync_forever.
         self._sync_failures = 0
+        # Invites the invite gate could not decide yet (Chat 5xx/unreachable): room_id -> (room, event, first seen).
+        self._invite_rechecks: dict[str, tuple[Any, Any, float]] = {}
         self._last_sync_error: str = ""
         # When the current outage began (first failed sync with no success
         # since). Survives the per-sync_forever reset of _sync_failures so
@@ -565,6 +567,19 @@ class WindyFlyMatrixBot(ChannelAdapter):
         room_id = room.room_id
         logger.info("Received invite to room %s", room_id)
 
+        from windyfly.channels import invite_gate as _gate
+
+        if _gate.enabled():
+            inviter = str(getattr(event, "sender", "") or "")
+            decision = await asyncio.to_thread(_gate.decide, inviter, room_id, self.config)
+            if decision == "retry":
+                self._invite_rechecks.setdefault(room_id, (room, event, time.time()))
+                return
+            self._invite_rechecks.pop(room_id, None)
+            if decision == "ignore":
+                logger.info("invite gate: ignored invite to %s from %s", room_id, inviter)
+                return
+
         try:
             await self.client.join(room_id)
             logger.info("Joined room %s", room_id)
@@ -719,6 +734,15 @@ class WindyFlyMatrixBot(ChannelAdapter):
         self._last_sync_success = time.time()
         self._connected = True
         self._backoff = _INITIAL_BACKOFF_S
+        if self._invite_rechecks:  # invites Chat could not answer yet: one more try per sync, 10 min max
+            from windyfly.channels import invite_gate as _gate
+
+            for rid, (room, event, first) in list(self._invite_rechecks.items()):
+                if time.time() - first > _gate.RECHECK_FOR_S:
+                    del self._invite_rechecks[rid]
+                    logger.info("invite gate: gave up re-checking invite to %s", rid)
+                else:
+                    await self._on_invite(room, event)
 
     async def _on_sync_error(self, response: Any) -> None:
         """A /sync failed. Sleep with exponential backoff so nio's internal

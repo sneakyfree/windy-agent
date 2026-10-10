@@ -42,15 +42,17 @@ def _unavailable(detail: str) -> dict[str, Any]:
     return {"ok": False, "error": "unavailable", "detail": detail[:200]}
 
 
-def _call(method: str, route: str, body: dict[str, Any] | None = None) -> tuple[int, dict[str, Any]]:
-    """One signed request to Chat. Raises RuntimeError(plain sentence) when we cannot even ask."""
+def _call(method: str, route: str, body: dict[str, Any] | None = None,
+          params: dict[str, str] | None = None) -> tuple[int, dict[str, Any]]:
+    """One signed request to Chat. Raises RuntimeError(plain sentence) when we cannot even ask.
+    ``params`` go in the query string; the DPoP proof signs the URL without it (RFC 9449)."""
     from windyfly.eternitas import agent_keys as ak
 
     url = f"{_base()}/api/v1/onboarding/agent/{route}"
     try:
         token = ak.request_agent_token(AUD)["token"]
         headers = {"Authorization": f"Bearer {token}", "DPoP": ak.service_dpop(method, url)}
-        resp = httpx.request(method, url, json=body, headers=headers, timeout=_TIMEOUT_S)
+        resp = httpx.request(method, url, json=body, params=params, headers=headers, timeout=_TIMEOUT_S)
     except httpx.HTTPError as exc:
         logger.info("teams: chat unreachable (%s)", type(exc).__name__)
         raise RuntimeError("I couldn't reach Windy Chat just now.") from exc
@@ -62,6 +64,9 @@ def _call(method: str, route: str, body: dict[str, Any] | None = None) -> tuple[
     except ValueError:
         data = {}
     return resp.status_code, data if isinstance(data, dict) else {}
+
+
+call = _call  # the invite gate (channels/invite_gate.py) asks Chat through the same signed door
 
 
 def _remember(agents: list[dict[str, Any]]) -> None:
