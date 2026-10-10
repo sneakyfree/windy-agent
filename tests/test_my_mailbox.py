@@ -60,10 +60,10 @@ def test_not_configured(monkeypatch):
     assert mail.my_mailbox()["status"] == "unavailable"
 
 
-def test_registered_with_no_arguments():
+def test_not_registered_until_the_tool_trim():
+    """With my_mailbox an owner turn carried 129 tools; Windy Mind refuses more than 128 (10-10)."""
     from windyfly.tools.registry import ToolRegistry
 
     reg = ToolRegistry()
     mail.register_mail_tools(reg)
-    schema = [s for s in reg.get_schemas() if "my_mailbox" in str(s)]
-    assert len(schema) == 1 and '"properties": {}' in str(schema[0]).replace("'", '"')
+    assert not [s for s in reg.get_schemas() if "my_mailbox" in str(s)]
