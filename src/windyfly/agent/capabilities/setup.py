@@ -466,7 +466,7 @@ def register_setup_capabilities(
                 out["tools_registered"] = False
                 out["note_to_llm"] = (
                     f"The {integration} credential was saved, but its tools are NOT available: "
-                    f"{integration} did not accept it when the tools were set up. Tell the owner plainly."
+                    f"{integration} did not accept it when the tools were set up."
                 )
             elif probe:
                 out["tools_registered"] = True
