@@ -372,6 +372,31 @@ class WindyFlyMatrixBot(ChannelAdapter):
                 logger.error("parity refusal notice failed: %s", e)
             return
 
+        # /agents off: a PEER agent (not one of the owner's own) is not heard. Never stored, never fed to
+        # the model; it gets one canned line per hour. Owner, humans and the owner's own agents never are.
+        from windyfly.channels import agent_peers as _peers
+
+        if _parity.passport_of(sender) and _peers.policy() == "off":
+            from windyfly.channels import silence as _silence_gate
+
+            if _silence_gate.enabled():
+                from windyfly.agent import teams as _teams_gate
+
+                if _teams_gate.siblings_stale():  # decide "your own agent" on fresh data
+                    await asyncio.to_thread(_teams_gate.refresh_siblings)
+            from windyfly.agent.capabilities.descriptor import Band as _GateBand
+            from windyfly.channels.identity import resolve_band as _gate_band
+
+            if _gate_band("matrix", sender, config=self.config) < _GateBand.TRUSTED:
+                logger.info("agents off: peer %s in %s not heard", sender, room_id)
+                if _peers.should_notify(sender, room_id):
+                    try:
+                        await self.client.room_send(room_id, "m.room.message", {
+                            "msgtype": "m.text", "body": _peers.NOTICE, "windy_original": True})
+                    except Exception as e:
+                        logger.error("agents-off notice failed: %s", e)
+                return
+
         logger.info(
             "Message from %s in %s: %s",
             display_name, room_id, body[:100],
