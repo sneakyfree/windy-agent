@@ -158,13 +158,12 @@ def list_cloud_files(
     from windyfly.agent import cloud_auth
 
     try:
+        old = {"Authorization": f"Bearer {token}"}
         agent = cloud_auth.agent_headers("GET", target)
-        resp = httpx.get(target, params=params, headers=agent or {"Authorization": f"Bearer {token}"},
-                         timeout=_LIST_TIMEOUT)
+        resp = httpx.get(target, params=params, headers=agent or old, timeout=_LIST_TIMEOUT)
         if agent and cloud_auth.refused(resp.status_code):
             cloud_auth.fallback_used("files list", resp.status_code)
-            resp = httpx.get(target, params=params, headers={"Authorization": f"Bearer {token}"},
-                             timeout=_LIST_TIMEOUT)
+            resp = httpx.get(target, params=params, headers=old, timeout=_LIST_TIMEOUT)
     except httpx.HTTPError as exc:
         return {
             "status": "failed",

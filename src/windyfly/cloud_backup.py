@@ -22,8 +22,6 @@ _get_encryption_key.
 from __future__ import annotations
 
 import asyncio
-from typing import Any
-
 import gzip
 import hashlib
 import json
@@ -33,6 +31,7 @@ import shutil
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 import httpx
 
@@ -161,12 +160,16 @@ def _decrypt_data(data: bytes, key: bytes) -> bytes:
 
 
 
-async def _cloud_send(client: Any, method: str, url: str, fallback_header: dict, where: str, **kw: Any) -> Any:
-    """One Cloud request: the agent's EPT+agent (+ DPoP on writes) first; on no token, or a 401/403 to it, the old
-    credential (bot key / WINDY_CLOUD_TOKEN / WINDY_JWT) once. See windyfly.agent.cloud_auth (Cloud KE3)."""
+async def _cloud_send(
+    client: Any, method: str, url: str, fallback_header: dict, where: str, **kw: Any,
+) -> Any:
+    """One Cloud request: the agent's EPT+agent (+ DPoP on writes) first; on no token, or a
+    401/403 to it, the old credential (bot key / WINDY_CLOUD_TOKEN / WINDY_JWT) once.
+    See windyfly.agent.cloud_auth (Cloud KE3)."""
     from windyfly.agent import cloud_auth
 
-    send = getattr(client, method.lower())  # client.post / client.get, as the archive contract tests fake them
+    # client.post / client.get, as the archive contract tests fake them
+    send = getattr(client, method.lower())
     agent = await asyncio.to_thread(cloud_auth.agent_headers, method, url)
     resp = await send(url, headers=agent or fallback_header, **kw)
     if agent and fallback_header and cloud_auth.refused(resp.status_code):
@@ -175,10 +178,16 @@ async def _cloud_send(client: Any, method: str, url: str, fallback_header: dict,
     return resp
 
 
-def _no_credential(auth_header: dict) -> bool:
+async def _no_credential(auth_header: dict, cloud_url: str) -> bool:
+    """True when there is neither an old credential nor a mintable EPT+agent: then nothing
+    is sent and the old 'No cloud token configured' result stands (Hub's #494 review).
+    The mint is cached, so this costs no extra call to Eternitas."""
+    if auth_header:
+        return False
     from windyfly.agent import cloud_auth
 
-    return not auth_header and not cloud_auth.enabled()
+    return await asyncio.to_thread(cloud_auth.agent_headers, "GET", cloud_url) is None
+
 
 async def backup_to_cloud(config: dict | None = None) -> dict:
     """Encrypt and upload the agent database to Windy Cloud.
@@ -197,7 +206,7 @@ async def backup_to_cloud(config: dict | None = None) -> dict:
     cloud_url = _get_cloud_url(config)
     auth_header = await ecosystem_auth_header(fallback_token=_get_cloud_token())
 
-    if _no_credential(auth_header):
+    if await _no_credential(auth_header, cloud_url):
         return {"success": False, "error": "No cloud token configured"}
 
     cred = await get_bot_key()
@@ -304,7 +313,7 @@ async def restore_from_cloud(
     cloud_url = _get_cloud_url(config)
     auth_header = await ecosystem_auth_header(fallback_token=_get_cloud_token())
 
-    if _no_credential(auth_header):
+    if await _no_credential(auth_header, cloud_url):
         return {"success": False, "error": "No cloud token configured"}
 
     cred = await get_bot_key()
@@ -384,7 +393,7 @@ async def list_backups(config: dict | None = None) -> dict:
     cloud_url = _get_cloud_url(config)
     auth_header = await ecosystem_auth_header(fallback_token=_get_cloud_token())
 
-    if _no_credential(auth_header):
+    if await _no_credential(auth_header, cloud_url):
         return {"success": False, "backups": [], "error": "No cloud token configured"}
 
     cred = await get_bot_key()

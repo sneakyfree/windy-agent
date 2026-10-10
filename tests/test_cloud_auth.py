@@ -150,3 +150,27 @@ def test_builder_rpc_agent_token_then_old_token_on_refusal(minted, monkeypatch):
     windycode_web._rpc("https://cloud.windycloud.com", "legacy-ept", "tools/call", {"name": "x", "arguments": {}})
     assert [h for _, h in sent] == [AGENT, {"Authorization": "Bearer legacy-ept"}]
     assert minted[0][1] == "POST" and minted[0][2].startswith("https://cloud.windycloud.com")
+
+
+def test_backup_with_no_old_credential_and_no_token_sends_nothing(monkeypatch):
+    """Hub's #494 review: never a request with empty headers; the old result stands."""
+    from windyfly import cloud_backup
+
+    monkeypatch.setenv("WINDY_CLOUD_EPT_AGENT", "1")
+
+    def boom(*a):
+        raise service_auth.ServiceAuthError("no_key")
+
+    monkeypatch.setattr(service_auth, "agent_headers", boom)
+
+    async def no_header(fallback_token=""):
+        return {}
+
+    monkeypatch.setattr("windyfly.auth.bot_credentials.ecosystem_auth_header", no_header)
+
+    def no_client(*a, **k):
+        raise AssertionError("nothing may be sent")
+
+    monkeypatch.setattr("httpx.AsyncClient", no_client)
+    out = asyncio.run(cloud_backup.list_backups())
+    assert out["success"] is False and "No cloud token configured" in out["error"]
