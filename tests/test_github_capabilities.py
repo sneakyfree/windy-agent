@@ -273,7 +273,8 @@ def test_token_absent_no_auth_header() -> None:
 # ── registration end-to-end ───────────────────────────────────────
 
 
-def test_register_github_capabilities_idempotent() -> None:
+def test_register_github_capabilities_idempotent(monkeypatch) -> None:
+    monkeypatch.setenv("GITHUB_PAT", "ghp_test")
     registry = CapabilityRegistry()
     register_github_capabilities(registry, config={})
     # Call twice — second call shouldn't raise (capability registry's
@@ -568,8 +569,8 @@ def test_github_hot_loads_token_added_after_boot(monkeypatch):
     sets the env var, then confirms the next capability call sends
     the new token in its Authorization header.
     """
-    monkeypatch.delenv("GITHUB_PAT", raising=False)
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.setenv("GITHUB_PAT", "ghp_at_boot")  # tool trim: registered only when configured
 
     registry = CapabilityRegistry()
     register_github_capabilities(registry, config={})
@@ -590,3 +591,12 @@ def test_github_hot_loads_token_added_after_boot(monkeypatch):
         "github capability must re-read GITHUB_PAT at call time, "
         f"not use boot-time value (got Authorization={sent_auth!r})"
     )
+
+
+def test_not_registered_without_a_token(monkeypatch):
+    """Tool trim (10-10): register only when configured."""
+    monkeypatch.delenv("GITHUB_PAT", raising=False)
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    registry = CapabilityRegistry()
+    register_github_capabilities(registry, config={})
+    assert registry.get("github.list_repo") is None

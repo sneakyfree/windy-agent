@@ -370,7 +370,7 @@ def _send_email_description() -> str:
 
 
 def register_mail_tools(registry: ToolRegistry) -> None:
-    """Register ``send_email`` and ``list_inbox`` with the tool registry (``my_mailbox`` waits for the tool trim)."""
+    """Register ``send_email``, ``my_mailbox`` and ``list_inbox`` with the tool registry."""
     registry.register(
         name="send_email",
         description=_send_email_description(),
@@ -407,9 +407,15 @@ def register_mail_tools(registry: ToolRegistry) -> None:
         fn=send_email,
     )
 
-    # my_mailbox() is NOT registered as a tool for now: with it an owner turn carried 129 tools and Windy Mind
-    # refuses more than 128 (422), so every owner turn fell to the local model (0.7.6 wheel proof, 10-10).
-    # It comes back once the tool list is trimmed well under Mind's cap.
+    registry.register(
+        name="my_mailbox",
+        description=(
+            "Your own mailbox as Windy Mail states it: address, domain, display name, status, aliases "
+            "and the plan's sending limits (daily, per minute, recipients per message)."
+        ),
+        parameters={"type": "object", "properties": {}, "required": []},
+        fn=my_mailbox,
+    )
 
     registry.register(
         name="list_inbox",

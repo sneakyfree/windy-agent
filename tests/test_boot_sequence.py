@@ -182,8 +182,7 @@ class TestDefaultSequence:
         steps = default_capability_registration_sequence()
         names = [s.name for s in steps]
         audit_idx = names.index("capabilities.audit")
-        for handler in ("capabilities.filesystem", "capabilities.shell",
-                        "capabilities.collaborators"):
+        for handler in ("capabilities.filesystem", "capabilities.shell"):
             assert names.index(handler) > audit_idx
 
     def test_reminder_checker_is_optional(self):

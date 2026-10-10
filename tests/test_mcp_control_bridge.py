@@ -10,6 +10,8 @@ No MCP SDK needed — the bridge is pure; server.py is the thin wrapper.
 
 from __future__ import annotations
 
+import pytest
+
 import json
 
 from windyfly.agent.capabilities.descriptor import Band
@@ -119,3 +121,12 @@ def test_build_registry_minimal_flag_forces_subset(monkeypatch):
     reg = build_registry()
     names = [t["name"] for t in registry_to_mcp_tools(reg, Band.OWNER)]
     assert names and all(n.startswith("windyword.") for n in names)
+
+
+@pytest.fixture(autouse=True)
+def _windy_word_and_health_present(monkeypatch, tmp_path):
+    """Tool trim (10-10): windyword.* / health.* register only when configured; these tests need them present
+    on every machine (CI has neither a Windy Word token nor health scorecards)."""
+    monkeypatch.setenv("WINDY_WORD_CONTROL_TOKEN", "test-token")
+    (tmp_path / "health").mkdir(exist_ok=True)
+    monkeypatch.setenv("WINDY_HEALTH_DIR", str(tmp_path / "health"))

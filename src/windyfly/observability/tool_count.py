@@ -20,6 +20,9 @@ logger = logging.getLogger(__name__)
 
 MIND_MAX_TOOLS = 128
 FILE_NAME = "owner-tools.json"
+# The legacy-tool count from the last start, so a capability added later (setup.save_credential) can
+# re-write the fact without the tool registry.
+_legacy_at_boot: int | None = None
 
 
 def owner_tool_count(tool_registry: Any, capability_registry: Any) -> int:
@@ -49,9 +52,27 @@ def write(count: int, state_dir: Path | None = None) -> Path:
 
 def record(tool_registry: Any, capability_registry: Any) -> int:
     """Boot step: count, log one line, write the fact. Never under pytest (no stray files in a real ~/.windy)."""
+    global _legacy_at_boot
+    _legacy_at_boot = len(tool_registry.get_schemas()) if tool_registry else 0
     count = owner_tool_count(tool_registry, capability_registry)
     level = logging.WARNING if count > MIND_MAX_TOOLS else logging.INFO
     logger.log(level, "[tools] an owner turn carries %d tools (Windy Mind's cap: %d)", count, MIND_MAX_TOOLS)
     if not os.environ.get("PYTEST_CURRENT_TEST"):
         write(count)
     return count
+
+
+def refresh(capability_registry: Any) -> int | None:
+    """Re-write the fact after capabilities were added to the RUNNING agent (setup.save_credential).
+    None when there was no recorded start to add to (then the next start writes it)."""
+    if _legacy_at_boot is None:
+        return None
+    return record(_LegacyCount(_legacy_at_boot), capability_registry)
+
+
+class _LegacyCount:
+    def __init__(self, n: int) -> None:
+        self.n = n
+
+    def get_schemas(self) -> list[dict[str, Any]]:
+        return [{}] * self.n

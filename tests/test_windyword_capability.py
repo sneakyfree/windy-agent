@@ -187,3 +187,12 @@ def test_401_body_passes_through_agent_readable(monkeypatch, tmp_path):
     assert out["ok"] is False
     assert out["error"] == "unauthorized"
     assert out["token_path"]  # remediation survives to the agent
+
+
+@pytest.fixture(autouse=True)
+def _windy_word_and_health_present(monkeypatch, tmp_path):
+    """Tool trim (10-10): windyword.* / health.* register only when configured; these tests need them present
+    on every machine (CI has neither a Windy Word token nor health scorecards)."""
+    monkeypatch.setenv("WINDY_WORD_CONTROL_TOKEN", "test-token")
+    (tmp_path / "health").mkdir(exist_ok=True)
+    monkeypatch.setenv("WINDY_HEALTH_DIR", str(tmp_path / "health"))

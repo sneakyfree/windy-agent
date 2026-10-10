@@ -242,6 +242,9 @@ def register_ssh_capabilities(
     instance-specific list.
     """
     allowed = sorted(_allowed_hosts())
+    if not allowed:
+        logger.info("ssh.exec not registered: no WINDY_SSH_ALLOWED_HOSTS (register only when configured)")
+        return
     logger.info(
         "Registering ssh.exec — pre-authorized hosts: %s",
         allowed or "(none — all SSH requires OWNER band)",

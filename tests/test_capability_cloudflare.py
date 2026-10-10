@@ -267,7 +267,8 @@ def test_list_dns_records_unauthorized_specific_message():
 # ── Registration smoke ─────────────────────────────────────────────
 
 
-def test_register_cloudflare_capabilities_adds_three_capabilities():
+def test_register_cloudflare_capabilities_adds_three_capabilities(monkeypatch):
+    monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "cf-test")
     registry = CapabilityRegistry()
     register_cloudflare_capabilities(registry, config={})
     for cap_id in (
@@ -280,19 +281,25 @@ def test_register_cloudflare_capabilities_adds_three_capabilities():
         assert cap.audit_required is True
 
 
-def test_register_uses_env_token_at_call_time(monkeypatch):
-    """Token added after boot still works on the next call."""
+def test_not_registered_without_a_token(monkeypatch):
+    """Tool trim (10-10): register only when configured."""
     monkeypatch.delenv("CLOUDFLARE_API_TOKEN", raising=False)
     registry = CapabilityRegistry()
     register_cloudflare_capabilities(registry, config={})
-    cap = registry.get("cloudflare.list_zones")
+    assert registry.get("cloudflare.list_zones") is None
 
-    # No token at call time → graceful refusal (grandma-mode nudge)
+
+def test_setup_saving_a_token_registers_the_tools_in_the_running_agent(monkeypatch):
+    from windyfly.agent.capabilities import setup
+
     monkeypatch.delenv("CLOUDFLARE_API_TOKEN", raising=False)
-    out = cap.handler()
-    assert out["ok"] is False
-    assert out["kind"] == "dormant_integration"
-    assert "set up cloudflare" in out["error"]
+    registry = CapabilityRegistry()
+    setup._register_now_configured(registry, {}, "cloudflare")
+    assert registry.get("cloudflare.list_zones") is None  # still no token
+    monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "cf-test")
+    setup._register_now_configured(registry, {}, "cloudflare")
+    setup._register_now_configured(registry, {}, "cloudflare")  # twice is harmless
+    assert registry.get("cloudflare.list_zones") is not None
 
 
 # ── Boot wiring ────────────────────────────────────────────────────

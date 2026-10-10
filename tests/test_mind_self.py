@@ -146,11 +146,22 @@ class TestCapabilities:
         reg = CapabilityRegistry()
         register_mind_model_capabilities(reg)
         caps = {c.id: c for c in reg.all()}
-        assert set(caps) == {"mind.status", "mind.list_models", "mind.my_usage", "mind.why_paused",
-                             "mind.switch_model", "mind.reset_model"}
+        assert set(caps) == {"mind.status", "mind.list_models", "mind.switch_model"}  # tool trim 10-10
         assert caps["mind.status"].band_required == Band.USER
         assert caps["mind.switch_model"].band_required == Band.OWNER
-        assert caps["mind.reset_model"].band_required == Band.OWNER
+
+    def test_status_carries_usage_and_pause_and_reset_is_a_switch(self, monkeypatch):
+        monkeypatch.setattr(mind_self, "status", lambda: {"model": "m"})
+        monkeypatch.setattr(mind_self, "my_usage", lambda: {"calls": 1})
+        monkeypatch.setattr(mind_self, "why_paused", lambda: {"paused": False})
+        monkeypatch.setattr(mind_self, "reset_model", lambda: {"ok": True, "reset": True})
+        monkeypatch.setattr(mind_self, "switch_model", lambda m: {"ok": True, "model": m})
+        reg = CapabilityRegistry()
+        register_mind_model_capabilities(reg)
+        caps = {c.id: c for c in reg.all()}
+        assert caps["mind.status"].handler() == {"model": "m", "usage": {"calls": 1}, "paused": {"paused": False}}
+        assert caps["mind.switch_model"].handler(model="reset") == {"ok": True, "reset": True}
+        assert caps["mind.switch_model"].handler(model="x-1") == {"ok": True, "model": "x-1"}
 
     def test_flag_off_registers_nothing(self, monkeypatch):
         monkeypatch.setenv(mind_self.ENV_FLAG, "0")
