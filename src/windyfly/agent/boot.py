@@ -443,6 +443,11 @@ def _step_housing_report(ctx: BootContext) -> None:
     report_in_background()
 
 
+def _step_record_tool_count(ctx: BootContext) -> None:
+    from windyfly.observability.tool_count import record
+    record(ctx.tool_registry, ctx.capability_registry)
+
+
 def default_capability_registration_sequence() -> list[Step]:
     """The canonical post-DB-open registration order for both channels.
 
@@ -597,5 +602,12 @@ def default_capability_registration_sequence() -> list[Step]:
             "eternitas.housing",
             _step_housing_report,
             optional=True,  # dark background thread; must never block boot
+        ),
+        # LAST, after every tool and capability is registered: the owner-turn tool count as a fact for the
+        # journey probe (Windy Mind refuses > 128 tools).
+        Step(
+            "observability.tool_count",
+            _step_record_tool_count,
+            optional=True,  # a fact file; never blocks boot
         ),
     ]
