@@ -438,6 +438,9 @@ class WindyFlyMatrixBot(ChannelAdapter):
         from windyfly.channels import silence as _silence
 
         agent_turn = _silence.enabled() and _silence.sender_is_agent(sender)
+        agent_sender = _parity.passport_of(sender) is not None  # independent of the teams flag
+        if agent_sender:
+            _silence.mark_agent_sender(session_id)
         if agent_turn:
             _silence.mark_agent_turn(session_id)
             from windyfly.agent import teams as _teams
@@ -465,6 +468,8 @@ class WindyFlyMatrixBot(ChannelAdapter):
         finally:
             if agent_turn:
                 _silence.clear_agent_turn(session_id)
+            if agent_sender:
+                _silence.clear_agent_sender(session_id)
 
         if agent_turn and _silence.is_silence(response_text):
             logger.info("silence: no reply to agent %s in %s", sender, room_id)

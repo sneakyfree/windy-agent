@@ -70,6 +70,26 @@ def clear_agent_turn(session_id: str) -> None:
         _agent_turns.discard(session_id)
 
 
+_agent_senders: set[str] = set()
+
+
+def mark_agent_sender(session_id: str) -> None:
+    """This turn's sender is an AGENT. Unlike mark_agent_turn it does not depend on WINDY_TEAMS: a welcome
+    is for a person, so the first-contact tour must never go to an agent, whatever the flag says."""
+    with _lock:
+        _agent_senders.add(session_id)
+
+
+def clear_agent_sender(session_id: str) -> None:
+    with _lock:
+        _agent_senders.discard(session_id)
+
+
+def is_agent_sender(session_id: str) -> bool:
+    with _lock:
+        return session_id in _agent_senders
+
+
 def is_agent_turn(session_id: str) -> bool:
     with _lock:
         return session_id in _agent_turns

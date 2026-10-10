@@ -391,3 +391,68 @@ def test_fresh_database_is_always_first_contact():
         db.close()
         del db
         gc.collect()
+
+
+# ── a welcome is for a person: never to an agent sender (found live 10-07, teams flag off) ──
+
+
+def test_agent_sender_on_a_virgin_db_gets_no_welcome_tour(stack):
+    from windyfly.channels import silence
+    from windyfly.tools.registry import ToolRegistry
+    from windyfly.agent.welcome import _already_welcomed
+
+    config, db, wq = stack
+    silence.mark_agent_sender("sess-agent")
+    try:
+        with patch("windyfly.agent.loop.call_llm",
+                   return_value={"content": "hi, fellow agent", "tool_calls": None,
+                                 "input_tokens": 5, "output_tokens": 3}) as llm:
+            out = agent_respond(config, db, wq, "hello there", "sess-agent", ToolRegistry())
+    finally:
+        silence.clear_agent_sender("sess-agent")
+    assert llm.called and "I just hatched" not in out
+    assert not _already_welcomed(db)  # the agent did not use up the tour
+
+
+def test_a_person_on_a_virgin_db_still_gets_the_tour(stack):
+    from windyfly.tools.registry import ToolRegistry
+
+    config, db, wq = stack
+    with patch("windyfly.agent.loop.call_llm") as llm:
+        out = agent_respond(config, db, wq, "hi", "sess-person", ToolRegistry())
+    assert not llm.called and "I just hatched" in out
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("sender, marked", [("@agent_et26-peer-0001:chat.windychat.ai", True),
+                                            ("@owner:chat.windychat.ai", False)])
+async def test_matrix_marks_an_agent_sender_for_the_turn_with_the_teams_flag_off(monkeypatch, sender, marked):
+    import time
+    from unittest.mock import AsyncMock, MagicMock
+
+    from tests.test_matrix_bot import _make_config as _matrix_config
+    from windyfly.channels import silence
+    from windyfly.channels.matrix_bot import WindyFlyMatrixBot
+    from windyfly.memory.write_queue import WriteQueue
+
+    monkeypatch.delenv("WINDY_TEAMS", raising=False)
+    bot = WindyFlyMatrixBot(_matrix_config(), Database(":memory:"), WriteQueue())
+    bot.client.room_typing = AsyncMock()
+    bot.client.room_send = AsyncMock()
+    room = MagicMock()
+    room.room_id = "!pair:chat.windychat.ai"
+    room.user_name.return_value = "x"
+    ev = MagicMock()
+    ev.sender, ev.body, ev.server_timestamp = sender, "hello", time.time() * 1000
+    ev.source = {"content": {"msgtype": "m.text", "body": "hello"}}
+    seen = []
+
+    async def run_turn(*args, **kw):
+        seen.append(silence.is_agent_sender(args[5]))  # (respond, config, db, wq, text, session_id, ...)
+        return "an answer"
+
+    with patch("windyfly.agent.executor.run_turn", run_turn), \
+         patch("windyfly.channels.base.handle_incoming", AsyncMock(return_value=(False, ""))):
+        await bot._on_message(room, ev)
+    assert seen == [marked]
+    assert not silence.is_agent_sender(next(iter(bot._room_sessions.values())))  # cleared after the turn
