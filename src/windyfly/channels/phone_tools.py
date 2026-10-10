@@ -157,6 +157,23 @@ def mark_turn(session_id: str, target: Target | None) -> None:
 
 def clear_turn(session_id: str) -> None:
     mark_turn(session_id, None)
+    with _lock:
+        _turn_data.pop(session_id, None)
+
+
+# A follow-up turn carrying the phone's answer: the model gets the data for THIS call only (quoted), with NO tools;
+# what is stored in the conversation is the short stub that is the turn's user text.
+_turn_data: dict[str, str] = {}
+
+
+def mark_data_turn(session_id: str, data: str) -> None:
+    with _lock:
+        _turn_data[session_id] = data
+
+
+def turn_data(session_id: str) -> str | None:
+    with _lock:
+        return _turn_data.get(session_id)
 
 
 def filter_tools(schemas: list[dict[str, Any]], session_id: str) -> list[dict[str, Any]]:
@@ -268,9 +285,9 @@ def _content(ev: dict[str, Any], key: str) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def poll_once() -> list[tuple[str, str, str]]:
-    """Check every request in flight. Returns (room_id, owner, follow-up turn text) for the bot to run."""
-    out: list[tuple[str, str, str]] = []
+def poll_once() -> list[tuple[str, str, str, str | None]]:
+    """Check every request in flight. Returns (room_id, owner, stored stub, data for the model or None)."""
+    out: list[tuple[str, str, str, str | None]] = []
     now = _now()
     for p in pending():
         try:
@@ -299,7 +316,7 @@ def poll_once() -> list[tuple[str, str, str]]:
                 _redact(p.room_id, eid)
             with _lock:
                 _pending.pop(p.request_id, None)
-            out.append((p.room_id, p.owner, _result_text(p, result)))
+            out.append((p.room_id, p.owner, *_result_turn(p, result)))
             continue
 
         never_started = p.started_event is None and now > p.expires_at + START_GRACE_S
@@ -308,21 +325,69 @@ def poll_once() -> list[tuple[str, str, str]]:
             _redact(p.room_id, p.started_event)
             _redact(p.room_id, p.event_id)
             p.timed_out_at = now
-            out.append((p.room_id, p.owner, _timeout_text(p, never_started)))
+            out.append((p.room_id, p.owner, _timeout_text(p, never_started), None))
     return out
 
 
-def _result_text(p: Pending, result: dict[str, Any]) -> str:
+def _summary(p: Pending, result: dict[str, Any]) -> str:
+    """Counts only: what is safe to store."""
+    if result.get("ok") is not True:
+        return f"error: {result.get('error') or 'unknown'}"
+    data = result.get("result") or {}
+    if p.tool == "contacts.search":
+        n = len(data.get("contacts") or [])
+        return f"{n} contact{'s' if n != 1 else ''}" + (" (more matched)" if data.get("truncated") else "")
+    statuses = [str(r.get("status")) for r in data.get("recipients") or []]
+    return ", ".join(f"{statuses.count(k)} {k}" for k in ("sent", "cancelled", "failed") if statuses.count(k)) or "no recipients"
+
+
+def _result_turn(p: Pending, result: dict[str, Any]) -> tuple[str, str | None]:
+    """(stored stub, data quoted for this model call only). An error carries no third-party data."""
     import json
 
-    if result.get("ok") is True:
-        body = json.dumps(result.get("result") or {}, ensure_ascii=False, separators=(",", ":"))
-        return f"[Phone result for request {p.request_id} ({p.tool})] {body}"
-    return f"[Phone result for request {p.request_id} ({p.tool})] error: {result.get('error') or 'unknown'}"
+    stub = f"[Phone result for request {p.request_id} ({p.tool}): {_summary(p, result)}]"
+    if result.get("ok") is not True:
+        return stub, None
+    body = json.dumps(result.get("result") or {}, ensure_ascii=False, indent=1)
+    return stub, f"Data returned by your owner's phone for {p.request_id}:\n```json\n{body}\n```"
 
 
 def _timeout_text(p: Pending, never_started: bool) -> str:
     if never_started:
-        return (f"[Phone result for request {p.request_id} ({p.tool})] timeout: the phone did not pick it up; "
-                "it will not run it now.")
-    return f"[Phone result for request {p.request_id} ({p.tool})] timeout: no answer from the phone; outcome unknown."
+        return (f"[Phone result for request {p.request_id} ({p.tool}): timeout: the phone did not pick it up; "
+                "it will not run it now]")
+    return f"[Phone result for request {p.request_id} ({p.tool}): timeout: no answer from the phone; outcome unknown]"
+
+
+# ── Restart sweep: phone events left in the room by a request this process no longer tracks ─────
+
+_PHONE_EVENT_TYPES = (REQUEST_TYPE, STARTED_TYPE, RESULT_TYPE)
+
+
+def sweep_room(room_id: str, owner: str, limit: int = 100) -> int:
+    """Redact unredacted phone events among the room's last ``limit`` events. Checks the event TYPE itself
+    (never trusts a server-side filter alone) and the sender: our requests, the owner's started/results."""
+    me = _me()
+    if not (enabled() and room_id and owner and me and all(_matrix())):
+        return 0
+    with _lock:
+        tracked = {p.event_id for p in _pending.values()}
+    try:
+        status, data = _mx("GET", f"rooms/{_q(room_id)}/messages?dir=b&limit={int(limit)}")
+    except httpx.HTTPError as exc:
+        logger.warning("phone tools: sweep read failed: %s", exc)
+        return 0
+    if status != 200 or not isinstance(data, dict):
+        return 0
+    count = 0
+    for ev in data.get("chunk") or []:
+        etype, sender, event_id = ev.get("type"), ev.get("sender"), ev.get("event_id")
+        if etype not in _PHONE_EVENT_TYPES or not ev.get("content") or event_id in tracked:
+            continue
+        if (etype == REQUEST_TYPE and sender != me) or (etype != REQUEST_TYPE and sender != owner):
+            continue
+        _redact(room_id, event_id)
+        count += 1
+    if count:
+        logger.info("phone tools: swept %d leftover phone event(s)", count)
+    return count

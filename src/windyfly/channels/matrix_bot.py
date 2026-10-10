@@ -929,18 +929,29 @@ class WindyFlyMatrixBot(ChannelAdapter):
         from windyfly.agent.executor import run_turn
         from windyfly.channels import phone_tools as _phone
 
+        # Restart sweep: phone events left in 2-member rooms by requests this process no longer tracks.
+        me = self.bot_user_id
+        for room in list((getattr(self.client, "rooms", {}) or {}).values()):
+            others = [u for u in getattr(room, "users", {}) if u != me]
+            if len(others) == 1:
+                try:
+                    await asyncio.to_thread(_phone.sweep_room, room.room_id, others[0])
+                except Exception as e:
+                    logger.warning("phone tools sweep failed: %s", e)
+
         while not self._shutting_down:
             try:
                 followups = await asyncio.to_thread(_phone.poll_once) if _phone.pending() else []
             except Exception as e:  # a poll failure must never take the bot down
                 logger.warning("phone tools poll failed: %s", e)
                 followups = []
-            for room_id, owner, text in followups:
+            for room_id, owner, stub, data in followups:
                 session_id = self._room_sessions.setdefault(room_id, str(uuid.uuid4()))
                 try:
-                    await self._mark_phone(session_id, room_id, owner, Band.OWNER)
+                    # The answer turn: no tools, the data quoted for this one model call, only the stub stored.
+                    _phone.mark_data_turn(session_id, data or "")
                     reply = await run_turn(agent_respond, self.config, self.db, self.write_queue,
-                                           text, session_id, self.tool_registry, band=Band.OWNER)
+                                           stub, session_id, self.tool_registry, band=Band.OWNER)
                     await self.client.room_send(room_id, "m.room.message", {
                         "msgtype": "m.text", "body": str(reply), "windy_original": True})
                 except Exception as e:

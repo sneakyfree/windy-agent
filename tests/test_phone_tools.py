@@ -213,12 +213,33 @@ def test_a_result_is_read_once_redacted_and_becomes_one_turn(mx: FakeMatrix) -> 
     ]
     out = pt.poll_once()
     assert len(out) == 1
-    room, owner, text = out[0]
+    room, owner, stub, data = out[0]
     assert (room, owner) == (ROOM, OWNER)
-    assert '"status":"sent"' in text and p.request_id in text
+    assert stub == f"[Phone result for request {p.request_id} (sms.compose): 1 sent]"
+    assert data is not None and '"status": "sent"' in data and "+15555550100" in data
+    assert "+15555550100" not in stub  # only counts are stored
     assert set(mx.redacted()) == {"$result", "$started", p.event_id}
     assert pt.pending() == []
     assert pt.poll_once() == []
+
+
+def test_a_contacts_stub_holds_a_count_never_names(mx: FakeMatrix) -> None:
+    _bind(mx)
+    pt.contacts_search(query="Whitmer")
+    p = pt.pending()[0]
+    mx.relations[p.event_id] = [_ev(pt.RESULT_TYPE, p.request_id, "$result", ok=True, result={
+        "contacts": [{"name": "Ann Whitmer", "phone": "+15555550101"},
+                     {"name": "Bo Whitmer", "phone": "+15555550102"}], "truncated": True})]
+    (_, _, stub, data), = pt.poll_once()
+    assert stub.endswith(": 2 contacts (more matched)]") and "Ann" not in stub
+    assert data is not None and "Ann Whitmer" in data and data.count("```") == 2
+
+
+def test_an_error_result_carries_no_data(mx: FakeMatrix) -> None:
+    p = _send(mx)
+    mx.relations[p.event_id] = [_ev(pt.RESULT_TYPE, p.request_id, "$r", ok=False, error="refused_by_user")]
+    (_, _, stub, data), = pt.poll_once()
+    assert stub.endswith(": error: refused_by_user]") and data is None
 
 
 def test_a_strangers_result_is_ignored(mx: FakeMatrix) -> None:
@@ -233,8 +254,8 @@ def test_a_strangers_result_is_ignored(mx: FakeMatrix) -> None:
 def test_never_picked_up_is_a_timeout_that_ran_nothing(mx: FakeMatrix, monkeypatch: pytest.MonkeyPatch) -> None:
     p = _send(mx)
     monkeypatch.setattr(pt, "_now", lambda: NOW + pt.REQUEST_START_S + pt.START_GRACE_S + 1)
-    (_, _, text), = pt.poll_once()
-    assert "did not pick it up" in text and "outcome unknown" not in text
+    (_, _, text, data), = pt.poll_once()
+    assert "did not pick it up" in text and "outcome unknown" not in text and data is None
     assert p.event_id in mx.redacted()
 
 
@@ -244,8 +265,8 @@ def test_started_but_silent_is_outcome_unknown(mx: FakeMatrix, monkeypatch: pyte
     monkeypatch.setattr(pt, "_now", lambda: NOW + pt.REQUEST_START_S + pt.START_GRACE_S + 1)
     assert pt.poll_once() == []  # started: keep waiting
     monkeypatch.setattr(pt, "_now", lambda: NOW + pt.RESULT_WAIT_S + 1)
-    (_, _, text), = pt.poll_once()
-    assert "outcome unknown" in text and "not sent" not in text
+    (_, _, text, data), = pt.poll_once()
+    assert "outcome unknown" in text and "not sent" not in text and data is None
     assert {"$started", p.event_id} <= set(mx.redacted())
 
 
@@ -256,3 +277,73 @@ def test_a_late_result_after_a_timeout_is_redacted_unread(mx: FakeMatrix, monkey
     mx.relations[p.event_id] = [_ev(pt.RESULT_TYPE, p.request_id, "$late", ok=True, result={"recipients": []})]
     assert pt.poll_once() == []  # no second turn
     assert "$late" in mx.redacted() and pt.pending() == []
+
+
+# ── restart sweep ───────────────────────────────────────────────────────────────────────────────
+
+def test_the_restart_sweep_redacts_only_phone_events(mx: FakeMatrix, monkeypatch: pytest.MonkeyPatch) -> None:
+    chunk = [
+        {"type": pt.REQUEST_TYPE, "sender": ME, "event_id": "$oldreq", "content": {"id": "tr_1"}},
+        {"type": pt.RESULT_TYPE, "sender": OWNER, "event_id": "$oldres", "content": {"id": "tr_1"}},
+        {"type": pt.STARTED_TYPE, "sender": OWNER, "event_id": "$oldst", "content": {"id": "tr_1"}},
+        {"type": pt.RESULT_TYPE, "sender": OWNER, "event_id": "$gone", "content": {}},  # already redacted
+        {"type": pt.RESULT_TYPE, "sender": "@other:chat.test", "event_id": "$stranger", "content": {"id": "x"}},
+        {"type": pt.REQUEST_TYPE, "sender": OWNER, "event_id": "$notours", "content": {"id": "x"}},
+        {"type": "m.room.message", "sender": OWNER, "event_id": "$chat", "content": {"body": "hi"}},
+    ]
+    real = mx.__call__
+
+    def with_messages(method: str, path: str, body: Any = None, *, version: str = "v3") -> tuple[int, Any]:
+        if method == "GET" and "/messages" in path:
+            mx.calls.append((method, path, body))
+            return 200, {"chunk": chunk}
+        return real(method, path, body, version=version)
+
+    monkeypatch.setattr(pt, "_mx", with_messages)
+    assert pt.sweep_room(ROOM, OWNER) == 3
+    assert set(mx.redacted()) == {"$oldreq", "$oldres", "$oldst"}
+
+
+# ── the answer turn: no tools, data only in the model call, the stub stored ─────────────────────
+
+def test_the_answer_turn_has_no_tools_and_stores_only_the_stub(monkeypatch: pytest.MonkeyPatch) -> None:
+    from unittest.mock import patch
+
+    from windyfly.agent.loop import agent_respond
+    from windyfly.memory.database import Database
+    from windyfly.memory.episodes import get_recent_episodes
+    from windyfly.memory.write_queue import WriteQueue
+
+    config = {
+        "agent": {"default_model": "claude-haiku-4-5-20251001", "max_context_tokens": 8000,
+                  "max_response_tokens": 500, "temperature": 0.2},
+        "memory": {"db_path": ":memory:", "max_episodes_per_context": 20, "max_nodes_per_context": 10},
+        "personality": {"soul_path": "SOUL.md"},
+        "costs": {"daily_budget_usd": 5.0, "warn_at_usd": 3.0},
+    }
+    db = Database(":memory:")
+    wq = WriteQueue()
+    wq.start()
+    seen: list[tuple[list[dict[str, Any]], Any]] = []
+
+    def fake_call_llm(messages: list[dict[str, Any]], **kwargs: Any) -> dict[str, Any]:
+        seen.append(([dict(m) for m in messages], kwargs.get("tools")))
+        return {"content": "Found 1: Ann.", "input_tokens": 5, "output_tokens": 5, "tool_calls": None,
+                "model": "claude-haiku-5-5", "citations": [], "server_tools_used": 0}
+
+    stub = "[Phone result for request tr_abcdef0123456789 (contacts.search): 1 contact]"
+    data = "Data returned by your owner's phone for tr_abcdef0123456789:\n```json\n{\"contacts\": [{\"name\": \"Ann Q\"}]}\n```"
+    try:
+        pt.mark_data_turn("s-phone", data)
+        with patch("windyfly.agent.loop.call_llm", side_effect=fake_call_llm), \
+             patch("windyfly.agent.loop.is_online", return_value=True):
+            agent_respond(config, db, wq, stub, "s-phone")
+    finally:
+        pt.clear_turn("s-phone")
+        wq.stop()
+    messages, tools = seen[0]
+    assert tools is None
+    assert any(m["role"] == "user" and stub in m["content"] and "Ann Q" in m["content"] for m in messages)
+    stored = " ".join(str(e.get("content", "")) for e in get_recent_episodes(db, limit=20, session_id="s-phone"))
+    db.close()
+    assert stub in stored and "Ann Q" not in stored
