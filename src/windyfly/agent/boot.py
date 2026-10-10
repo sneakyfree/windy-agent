@@ -327,6 +327,11 @@ def _step_register_teams(ctx: BootContext) -> None:
     register_teams_capabilities(ctx.capability_registry, ctx.config)
 
 
+def _step_register_phone_tools(ctx: BootContext) -> None:
+    from windyfly.agent.capabilities.phone import register_phone_capabilities
+    register_phone_capabilities(ctx.capability_registry, ctx.config)
+
+
 def _step_register_cloudflare(ctx: BootContext) -> None:
     from windyfly.agent.capabilities.cloudflare import (
         register_cloudflare_capabilities,
@@ -502,6 +507,11 @@ def default_capability_registration_sequence() -> list[Step]:
         Step(
             "capabilities.teams",
             _step_register_teams,
+            requires=("capabilities.audit",),
+        ),
+        Step(
+            "capabilities.phone_tools",
+            _step_register_phone_tools,
             requires=("capabilities.audit",),
         ),
         Step(

@@ -1,0 +1,551 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://chat.windychat.ai/contracts/phone-tools.v1.json",
+  "title": "Phone tools: the owner's phone as the agent's hands (ai.windy.phone_tools / tool_request / tool_started / tool_result)",
+  "owner": "windy-chat",
+  "description": "The agent runs server-side; the owner's phone runs a small set of phone-only actions (search contacts, draft texts) for it, under the phone OS's own permissions. Everything travels as Matrix events in the owner's 1:1 DM with their own agent: no push channel, no new server. One contract, two runtimes: Chat's agent roster builds it first (where phone-born agents run today), windyfly implements the same events for agents brought home. Server-side credentials stay the default; nothing here moves a Windy credential to the phone. Approved as direction by Boss 10-10 (Mobile 122-3); requirements from Windy Mobile.",
+  "x-events": [
+    {
+      "name": "phone_tools (phone -> room): the phone is online and offers these tools",
+      "event": "ai.windy.phone_tools (STATE event; state events are never encrypted)",
+      "state_key": "the device_id (one state entry per paired phone)",
+      "sender": "the OWNER's Matrix user (the Windy app is signed in as the owner), in the owner's 1:1 DM with their agent",
+      "content": "#/$defs/PhoneTools"
+    },
+    {
+      "name": "tool_request (agent -> room)",
+      "event": "ai.windy.tool_request (its own event type, NOT m.room.message: old clients do not render it and it never enters the model's chat history)",
+      "sender": "the agent's Matrix user, in its DM with its owner",
+      "content": "#/$defs/ToolRequest"
+    },
+    {
+      "name": "tool_started (phone -> room): the phone has picked the request up (sent when the confirm card shows, or when a read starts)",
+      "event": "ai.windy.tool_started (its own event type)",
+      "sender": "the OWNER's Matrix user (the app), in the same DM",
+      "content": {
+        "m.relates_to": {
+          "rel_type": "m.reference",
+          "event_id": "the tool_request's Matrix event_id (REQUIRED)"
+        },
+        "ai.windy.tool_started": "#/$defs/ToolStarted"
+      }
+    },
+    {
+      "name": "tool_result (phone -> room)",
+      "event": "ai.windy.tool_result (its own event type, NOT m.room.message)",
+      "sender": "the OWNER's Matrix user (the app), in the same DM",
+      "content": {
+        "m.relates_to": {
+          "rel_type": "m.reference",
+          "event_id": "the tool_request's Matrix event_id (REQUIRED)"
+        },
+        "ai.windy.tool_result": "#/$defs/ToolResult"
+      }
+    }
+  ],
+  "x-rules": [
+    "Room: only the owner's 1:1 DM with their own agent, and that DM is UNENCRYPTED (the roster has no E2EE; agent<->owner DMs are made by Chat onboarding with preset trusted_private_chat, owner and agent both at power 100, so the owner may send the state event). E2EE here would be a separate project. The phone acts on a tool_request only when its sender is that DM's agent user, the room is that DM and device_id is its own; anything else is logged on the phone and never run (no result is sent). The runtime counts a phone_tools state event only when its sender is the agent's OWNER and the room is that DM.",
+    "Online = registered: the runtime reads the room's ai.windy.phone_tools state ONCE at the start of an OWNER turn and offers phone tools only if one entry from the owner is unexpired (expires_at > now, tools non-empty). Several live entries: the newest expires_at wins and tool_request names that device_id. Offered tools = that entry's tools that this contract defines. The app refreshes its entry while open (every x-limits.phone_tools_refresh_s, expires_at = now + phone_tools_ttl_s) and clears it (tools: []) when it goes to the BACKGROUND or closes, where the OS allows (iOS suspends an app within seconds). An app suspended or killed without clearing simply expires within phone_tools_ttl_s (180 s).",
+    "No queue: with no unexpired phone_tools event the runtime registers no phone tools, so the agent can only tell the owner to open the Windy app on their phone. Requests are never stored to run later.",
+    "Freshness: every tool_request carries expires_at = issued_at + x-limits.request_start_s (120 s). The phone never STARTS a request after its expires_at (answers 'stale'), so a request replayed after a reconnect can never send anything. When it starts one (the confirm card shows, or a read begins) it first sends ai.windy.tool_started {id} with the same m.reference; at most once per id. expires_at bounds the START only: an outward action the person is still confirming (one composer per recipient) may finish later.",
+    "Single run: an id runs at most once on the phone, even if delivered twice (dedupe by id). A second request while one is running on that device = error 'busy'.",
+    "Runtime wait: the runtime does NOT wait through its sync loop (Chat's roster waits off it; other rooms keep flowing). It polls GET /_matrix/client/v1/rooms/{room}/relations/{request_event_id}/m.reference for events from the owner with the same id. (a) No tool_started and no tool_result by expires_at + 15 s grace: answer the model 'timeout' meaning 'the phone did not pick it up; it will not run it now' (the phone refuses after expires_at). (b) tool_started seen but no tool_result within x-limits.result_wait_s of issued_at: 'timeout' meaning 'no answer from the phone; outcome unknown' (never 'nothing was sent'). On EITHER 'timeout' the runtime also redacts its own tool_request and any tool_started it saw (else the args, numbers and text, stay in the room), and redacts a tool_result that arrives later for that id unread, BEST EFFORT (e.g. one relations check of its timed-out requests at the owner's next turn; no continuous watch). The phone, seeing its request already redacted, redacts a late result itself, so the room ends clean either way. While a turn waits, that owner's next message waits too: accepted for v1. 'timeout' and 'no_phone_online' are runtime-only codes and never on the wire.",
+    "Confirm cards (on the phone, drawn by the app): every outward action (sms.compose) always shows the exact recipients and text first, and on iOS the system composer's own Send tap is the final step. Reading is also sharing: contacts.search shows 'Share N contacts with <agent>?' with the list the first time per agent and whenever N is above the app's threshold (suggested 10). A 'no' = error 'refused_by_user'.",
+    "No silent sends on either OS. 'individual' mode = one composer per recipient in a row; the result reports sent/cancelled/failed per recipient. 'sent' means handed to the phone's messaging app (or its composer's Send tapped), NEVER 'delivered': the phone cannot see delivery, and the runtime must not tell the owner a text was delivered.",
+    "Small, short-lived results: contacts.search returns only the asked fields (name + the one channel asked for). The runtime reads a tool_result ONCE (via the relation) and never re-reads it from history. Right after reading, the RUNTIME redacts the tool_result, the tool_started and its own tool_request (the agent is at power 100 in the owner DM; a suspended phone cannot redact). The phone's own redaction is the BACKUP: it redacts its tool_started + tool_result when it sees the request redacted, after x-limits.result_redact_after_s, or on its next open, whichever comes first (Hub's deletion rule).",
+    "A tool_result is not an owner turn and not chat: it is its own event type, the runtime matches it to the waiting tool call by m.relates_to + id and never starts a model turn for it. A tool_result whose id matches no open request is ignored.",
+    "Privacy (for Hub's legal set): phone-tool results (e.g. contact names and numbers) pass through Windy Mind to the model provider as tool answers. Redaction removes them from the room for every client at once, but the homeserver (Synapse, redaction_retention_period default 7 days, not set on ours) keeps the redacted content for 7 days before purging it. The privacy text must say both before this ships.",
+    "Facts to the model, not advice: the runtime hands the model the result object (or the error code) as the tool's answer, e.g. 'sent 6, cancelled 1'.",
+    "Additive growth: new tools (call.dial, photos.search, settings.shortcut, secret.get) arrive as MINOR versions that add a ToolName + its args/result defs. A phone answers an unknown tool with 'unsupported_os'. secret.get (Boss 10-10, Grant's words: the person MAY keep their own credentials on the phone; server-side stays the default) MUST be: confirmed on the phone on EVERY use; its value never logged and never in telemetry (runtime and phone); its result never persisted by the runtime beyond the one tool call that needs it (not in memory, transcripts, backups or tool records); its tool_result redacted from the room as soon as the runtime has read it."
+  ],
+  "$defs": {
+    "ToolName": {
+      "type": "string",
+      "enum": [
+        "contacts.search",
+        "sms.compose"
+      ]
+    },
+    "ErrorCode": {
+      "description": "Closed set sent by the phone. 'invalid_args' = the args failed this schema on the phone (proposed by Windy Agent on top of Mobile's six). Runtime-only codes, never on the wire: 'timeout', 'no_phone_online'.",
+      "type": "string",
+      "enum": [
+        "permission_denied",
+        "refused_by_user",
+        "stale",
+        "unsupported_os",
+        "busy",
+        "not_found",
+        "invalid_args"
+      ]
+    },
+    "PhoneTools": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "device_id",
+        "platform",
+        "tools",
+        "expires_at"
+      ],
+      "properties": {
+        "device_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{8,64}$",
+          "description": "Opaque per-install id; equals the state_key."
+        },
+        "platform": {
+          "type": "string",
+          "enum": [
+            "ios",
+            "android"
+          ]
+        },
+        "app_version": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "tools": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 16,
+          "items": {
+            "$ref": "#/$defs/ToolName"
+          }
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "UTC. After this the phone is offline for the runtime."
+        }
+      }
+    },
+    "ToolRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "device_id",
+        "tool",
+        "args",
+        "issued_at",
+        "expires_at"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{8,64}$",
+          "description": "Opaque, unique per request, never reused."
+        },
+        "device_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{8,64}$",
+          "description": "The phone that should run it (the most recently refreshed one when several are online)."
+        },
+        "tool": {
+          "$ref": "#/$defs/ToolName"
+        },
+        "args": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ContactsSearchArgs"
+            },
+            {
+              "$ref": "#/$defs/SmsComposeArgs"
+            }
+          ]
+        },
+        "issued_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "UTC, when the runtime issued it."
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "UTC, EXACTLY issued_at + x-limits.request_start_s (120 s): the latest moment the phone may START it. The phone treats expires_at - issued_at > 120 s, or issued_at in the future by more than 30 s, as 'invalid_args'."
+        }
+      }
+    },
+    "ToolResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "ok"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{8,64}$"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "result": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ContactsSearchResult"
+            },
+            {
+              "$ref": "#/$defs/SmsComposeResult"
+            }
+          ]
+        },
+        "error": {
+          "$ref": "#/$defs/ErrorCode"
+        }
+      },
+      "description": "ok=true carries result; ok=false carries error.",
+      "if": {
+        "properties": {
+          "ok": {
+            "const": true
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "result"
+        ],
+        "not": {
+          "required": [
+            "error"
+          ]
+        }
+      },
+      "else": {
+        "required": [
+          "error"
+        ],
+        "not": {
+          "required": [
+            "result"
+          ]
+        }
+      }
+    },
+    "ContactsSearchArgs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "query",
+        "field"
+      ],
+      "properties": {
+        "query": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "Matched against contact names by the phone."
+        },
+        "field": {
+          "type": "string",
+          "enum": [
+            "phone",
+            "email"
+          ],
+          "description": "The ONE channel to return besides the name."
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50,
+          "default": 20
+        }
+      }
+    },
+    "ContactsSearchResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contacts",
+        "truncated"
+      ],
+      "properties": {
+        "contacts": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "phone": {
+                "type": "string",
+                "maxLength": 32,
+                "description": "E.164 where the phone can normalise it."
+              },
+              "email": {
+                "type": "string",
+                "maxLength": 254
+              },
+              "label": {
+                "type": "string",
+                "maxLength": 32,
+                "description": "Optional label of the returned phone/email as the phone stores it (e.g. mobile, home, work)."
+              }
+            }
+          }
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "true when more contacts matched than limit."
+        }
+      }
+    },
+    "SmsComposeArgs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "recipients",
+        "body",
+        "mode"
+      ],
+      "properties": {
+        "recipients": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "phone"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "phone": {
+                "type": "string",
+                "maxLength": 32
+              }
+            }
+          }
+        },
+        "body": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1600
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "individual",
+            "group"
+          ]
+        }
+      }
+    },
+    "SmsComposeResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "recipients"
+      ],
+      "properties": {
+        "recipients": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "phone",
+              "status"
+            ],
+            "properties": {
+              "phone": {
+                "type": "string",
+                "maxLength": 32
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "sent",
+                  "cancelled",
+                  "failed"
+                ],
+                "description": "sent = handed to the messaging app / Send tapped (not 'delivered'); cancelled = the person cancelled that one; failed = the phone could not hand it over."
+              }
+            }
+          }
+        }
+      },
+      "description": "Per recipient. 'group' mode = one composer for all, so every recipient carries the same status."
+    },
+    "ToolStarted": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{8,64}$"
+        }
+      }
+    }
+  },
+  "x-examples": {
+    "online": {
+      "device_id": "dev_3c9a71e2b4",
+      "platform": "ios",
+      "app_version": "123",
+      "tools": [
+        "contacts.search",
+        "sms.compose"
+      ],
+      "expires_at": "2026-10-10T19:03:00Z"
+    },
+    "search_request": {
+      "type": "ai.windy.tool_request",
+      "content": {
+        "id": "tr_51ab90c2e7d4",
+        "device_id": "dev_3c9a71e2b4",
+        "tool": "contacts.search",
+        "args": {
+          "query": "Whitmer",
+          "field": "phone",
+          "limit": 20
+        },
+        "issued_at": "2026-10-10T19:00:00Z",
+        "expires_at": "2026-10-10T19:02:00Z"
+      }
+    },
+    "search_result": {
+      "type": "ai.windy.tool_result",
+      "content": {
+        "m.relates_to": {
+          "rel_type": "m.reference",
+          "event_id": "$req_search_event_id"
+        },
+        "ai.windy.tool_result": {
+          "id": "tr_51ab90c2e7d4",
+          "ok": true,
+          "result": {
+            "contacts": [
+              {
+                "name": "Example Person",
+                "phone": "+15555550100",
+                "label": "mobile"
+              }
+            ],
+            "truncated": false
+          }
+        }
+      }
+    },
+    "sms_request": {
+      "type": "ai.windy.tool_request",
+      "content": {
+        "id": "tr_7d02f1aa93c5",
+        "device_id": "dev_3c9a71e2b4",
+        "tool": "sms.compose",
+        "args": {
+          "recipients": [
+            {
+              "name": "Example Person",
+              "phone": "+15555550100"
+            }
+          ],
+          "body": "You're invited to Grandma's birthday party on Saturday!",
+          "mode": "individual"
+        },
+        "issued_at": "2026-10-10T19:02:00Z",
+        "expires_at": "2026-10-10T19:04:00Z"
+      }
+    },
+    "sms_result": {
+      "type": "ai.windy.tool_result",
+      "content": {
+        "m.relates_to": {
+          "rel_type": "m.reference",
+          "event_id": "$req_sms_event_id"
+        },
+        "ai.windy.tool_result": {
+          "id": "tr_7d02f1aa93c5",
+          "ok": true,
+          "result": {
+            "recipients": [
+              {
+                "phone": "+15555550100",
+                "status": "sent"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "refused": {
+      "type": "ai.windy.tool_result",
+      "content": {
+        "m.relates_to": {
+          "rel_type": "m.reference",
+          "event_id": "$req_sms_event_id"
+        },
+        "ai.windy.tool_result": {
+          "id": "tr_7d02f1aa93c5",
+          "ok": false,
+          "error": "refused_by_user"
+        }
+      }
+    },
+    "started": {
+      "type": "ai.windy.tool_started",
+      "content": {
+        "m.relates_to": {
+          "rel_type": "m.reference",
+          "event_id": "$req_sms_event_id"
+        },
+        "ai.windy.tool_started": {
+          "id": "tr_7d02f1aa93c5"
+        }
+      }
+    }
+  },
+  "x-limits": {
+    "request_start_s": 120,
+    "result_wait_s": 600,
+    "phone_tools_refresh_s": 60,
+    "phone_tools_ttl_s": 180,
+    "share_confirm_threshold": 10,
+    "result_redact_after_s": 600,
+    "start_grace_s": 15
+  },
+  "x-runtime": {
+    "description": "Machine-readable rules every runtime (Chat roster, windyfly) MUST follow; conformance tests read these.",
+    "offer_tools_on": "owner_turn_only",
+    "requires_unexpired_phone_tools_from_owner": true,
+    "room": "owner_1to1_dm_unencrypted",
+    "dedupe_key": "id",
+    "max_runs_per_id": 1,
+    "max_concurrent_per_device": 1,
+    "request_start_s": 120,
+    "result_wait_s": 600,
+    "result_read": "once_via_m.reference_relation",
+    "result_starts_model_turn": false,
+    "queue_when_offline": false,
+    "redact_own_events_after_result": true,
+    "start_signal": "ai.windy.tool_started",
+    "read_signal": "runtime_redacts_its_tool_request",
+    "runtime_redacts_after_read": [
+      "ai.windy.tool_result",
+      "ai.windy.tool_started",
+      "ai.windy.tool_request"
+    ],
+    "redact_on_timeout": [
+      "ai.windy.tool_request",
+      "ai.windy.tool_started",
+      "late ai.windy.tool_result (unread, best effort)"
+    ]
+  }
+}

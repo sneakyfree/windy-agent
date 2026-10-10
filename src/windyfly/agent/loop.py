@@ -826,6 +826,17 @@ def _agent_respond_turn(
             band=band,
         )
 
+    # A phone-tools follow-up turn: the phone's data is quoted into THIS model call only (the stored user text
+    # stays the short stub), and the turn runs with NO tools (see the tools line before call_llm).
+    from windyfly.channels import phone_tools as _phone_turn
+
+    _phone_data = _phone_turn.turn_data(session_id)
+    if _phone_data:
+        for _m in reversed(messages):
+            if _m.get("role") == "user" and _m.get("content") == user_message:
+                _m["content"] = f"{user_message}\n\n{_phone_data}"
+                break
+
     # 1.0.5/1.0.6 (RETIRED 2026-07-18, steering→substrate migration):
     # the shell-exec and fs-tool keyword nudges moved into the
     # capabilities' own self-descriptions (agent/capabilities/shell.py,
@@ -1133,6 +1144,10 @@ def _agent_respond_turn(
     if band <= Band.SANDBOX:
         legacy_tools = []
     capability_tools = capability_registry.tool_schemas_for_band(band)
+    # Phone tools exist only on a turn whose owner's phone is online (phone-tools.v1).
+    from windyfly.channels import phone_tools as _phone_tools
+
+    capability_tools = _phone_tools.filter_tools(capability_tools, session_id)
     tools = (legacy_tools + capability_tools) if (legacy_tools or capability_tools) else None
 
     # 2.1. Tier 0 — Anthropic native web_search (PR #164).
@@ -1178,6 +1193,10 @@ def _agent_respond_turn(
             "model": model, "reason": _native_decision["reason"],
             "session_id": session_id,
         })
+
+    if _phone_data is not None:
+        tools = None  # a phone result is third-party data: no tool may run on its turn
+        _native_active = False
 
     # call_llm raises RuntimeError when every provider in the chain
     # fails (e.g., 401 burst from Anthropic during a rate-limit
