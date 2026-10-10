@@ -56,15 +56,17 @@ def _unavailable() -> dict[str, Any]:
 def _request(method: str, path: str, **kw: Any) -> dict[str, Any]:
     if not is_configured():
         return _unavailable()
+    from windyfly.agent import cloud_auth
+
+    url = f"{_base_url()}{path}"
+    legacy = {"Authorization": f"Bearer {_ept()}"}
+    agent = cloud_auth.agent_headers(method, url)
     try:
-        r = httpx.request(
-            method,
-            f"{_base_url()}{path}",
-            headers={"Authorization": f"Bearer {_ept()}"},
-            timeout=_TIMEOUT,
-            follow_redirects=True,
-            **kw,
-        )
+        opts: dict[str, Any] = {"timeout": _TIMEOUT, "follow_redirects": True, **kw}
+        r = httpx.request(method, url, headers=agent or legacy, **opts)
+        if agent and cloud_auth.refused(r.status_code):
+            cloud_auth.fallback_used("domains", r.status_code)
+            r = httpx.request(method, url, headers=legacy, **opts)
     except httpx.HTTPError as e:
         logger.warning("windy-domains %s %s failed: %s", method, path, e)
         return {"error": "Windy Cloud Domains isn't reachable right now.", "detail": str(e)}

@@ -150,12 +150,17 @@ def _unavailable() -> dict[str, Any]:
 
 
 def _rpc(base: str, token: str, method: str, params: dict[str, Any]) -> httpx.Response:
-    return httpx.post(
-        f"{base}{_MCP_PATH}",
-        json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params},
-        headers={"Authorization": f"Bearer {token}"},
-        timeout=_TIMEOUT,
-    )
+    from windyfly.agent import cloud_auth
+
+    url = f"{base}{_MCP_PATH}"
+    body = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
+    old = {"Authorization": f"Bearer {token}"}
+    agent = cloud_auth.agent_headers("POST", url)
+    resp = httpx.post(url, json=body, headers=agent or old, timeout=_TIMEOUT)
+    if agent and cloud_auth.refused(resp.status_code):
+        cloud_auth.fallback_used("sites builder", resp.status_code)
+        resp = httpx.post(url, json=body, headers=old, timeout=_TIMEOUT)
+    return resp
 
 
 def _call(fly_tool: str, args: dict[str, Any]) -> dict[str, Any]:

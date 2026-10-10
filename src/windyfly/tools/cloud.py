@@ -89,16 +89,19 @@ def upload_to_cloud(
     if description.strip():
         data["description"] = description.strip()
 
+    from windyfly.agent import cloud_auth
+
+    def _send(headers: dict[str, str]) -> httpx.Response:
+        with path.open("rb") as fh:  # re-opened per attempt: a retry sends the whole file again
+            return httpx.post(target, files={"file": (upload_name, fh)}, data=data, headers=headers,
+                              timeout=_UPLOAD_TIMEOUT)
+
     try:
-        with path.open("rb") as fh:
-            files = {"file": (upload_name, fh)}
-            resp = httpx.post(
-                target,
-                files=files,
-                data=data,
-                headers={"Authorization": f"Bearer {token}"},
-                timeout=_UPLOAD_TIMEOUT,
-            )
+        agent = cloud_auth.agent_headers("POST", target)
+        resp = _send(agent or {"Authorization": f"Bearer {token}"})
+        if agent and cloud_auth.refused(resp.status_code):
+            cloud_auth.fallback_used("files upload", resp.status_code)
+            resp = _send({"Authorization": f"Bearer {token}"})
     except httpx.ConnectError as exc:
         return {
             "status": "failed",
@@ -152,13 +155,15 @@ def list_cloud_files(
     if prefix.strip():
         params["prefix"] = prefix.strip()
 
+    from windyfly.agent import cloud_auth
+
     try:
-        resp = httpx.get(
-            target,
-            params=params,
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=_LIST_TIMEOUT,
-        )
+        old = {"Authorization": f"Bearer {token}"}
+        agent = cloud_auth.agent_headers("GET", target)
+        resp = httpx.get(target, params=params, headers=agent or old, timeout=_LIST_TIMEOUT)
+        if agent and cloud_auth.refused(resp.status_code):
+            cloud_auth.fallback_used("files list", resp.status_code)
+            resp = httpx.get(target, params=params, headers=old, timeout=_LIST_TIMEOUT)
     except httpx.HTTPError as exc:
         return {
             "status": "failed",
