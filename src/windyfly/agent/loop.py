@@ -1133,6 +1133,10 @@ def _agent_respond_turn(
     if band <= Band.SANDBOX:
         legacy_tools = []
     capability_tools = capability_registry.tool_schemas_for_band(band)
+    # Phone tools exist only on a turn whose owner's phone is online (phone-tools.v1).
+    from windyfly.channels import phone_tools as _phone_tools
+
+    capability_tools = _phone_tools.filter_tools(capability_tools, session_id)
     tools = (legacy_tools + capability_tools) if (legacy_tools or capability_tools) else None
 
     # 2.1. Tier 0 — Anthropic native web_search (PR #164).

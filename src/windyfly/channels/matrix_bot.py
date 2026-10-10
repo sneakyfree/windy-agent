@@ -453,14 +453,19 @@ class WindyFlyMatrixBot(ChannelAdapter):
         from windyfly.tools import mail as _mail_tool
 
         drafts_before = {d["draft_id"] for d in _mail_tool.pending_drafts()}
+        from windyfly.channels import phone_tools as _phone
+
         try:
             from windyfly.agent.executor import run_turn
             from windyfly.channels.identity import resolve_band
+            turn_band = resolve_band("matrix", sender, config=self.config)
+            if _phone.enabled() and not agent_turn:
+                await self._mark_phone(session_id, room_id, sender, turn_band)
             response_text = await run_turn(
                 agent_respond,
                 self.config, self.db, self.write_queue,
                 turn_body, session_id, self.tool_registry,
-                band=resolve_band("matrix", sender, config=self.config),
+                band=turn_band,
             )
         except Exception as e:
             from windyfly.channels.errors import classify
@@ -468,6 +473,7 @@ class WindyFlyMatrixBot(ChannelAdapter):
             logger.error("Agent respond failed: %s", classified.log_message)
             response_text = classified.user_message
         finally:
+            _phone.clear_turn(session_id)
             if agent_turn:
                 _silence.clear_agent_turn(session_id)
             if agent_sender:
@@ -907,6 +913,42 @@ class WindyFlyMatrixBot(ChannelAdapter):
                 logger.warning("sms inbox poll failed: %s", e)
             await asyncio.sleep(sms_inbox.POLL_S)
 
+    async def _mark_phone(self, session_id: str, room_id: str, sender: str, band: Any) -> None:
+        """An OWNER turn in the owner's DM sees phone tools only while the owner's phone is online there."""
+        from windyfly.agent.capabilities.descriptor import Band as _Band
+        from windyfly.channels import phone_tools as _phone
+
+        target = None
+        if band >= _Band.OWNER:
+            target = await asyncio.to_thread(_phone.pick_phone, room_id, sender)
+        _phone.mark_turn(session_id, target)
+
+    async def _phone_loop(self) -> None:
+        """phone-tools.v1: read the phone's answers off the sync loop; each answer or timeout = one owner turn."""
+        from windyfly.agent.capabilities import Band
+        from windyfly.agent.executor import run_turn
+        from windyfly.channels import phone_tools as _phone
+
+        while not self._shutting_down:
+            try:
+                followups = await asyncio.to_thread(_phone.poll_once) if _phone.pending() else []
+            except Exception as e:  # a poll failure must never take the bot down
+                logger.warning("phone tools poll failed: %s", e)
+                followups = []
+            for room_id, owner, text in followups:
+                session_id = self._room_sessions.setdefault(room_id, str(uuid.uuid4()))
+                try:
+                    await self._mark_phone(session_id, room_id, owner, Band.OWNER)
+                    reply = await run_turn(agent_respond, self.config, self.db, self.write_queue,
+                                           text, session_id, self.tool_registry, band=Band.OWNER)
+                    await self.client.room_send(room_id, "m.room.message", {
+                        "msgtype": "m.text", "body": str(reply), "windy_original": True})
+                except Exception as e:
+                    logger.error("phone tools follow-up turn failed: %s", e)
+                finally:
+                    _phone.clear_turn(session_id)
+            await asyncio.sleep(2 if _phone.pending() else 5)
+
     async def start(self) -> None:
         """Start the bot: login, register callbacks, sync forever with reconnection."""
         await self.login()
@@ -953,6 +995,10 @@ class WindyFlyMatrixBot(ChannelAdapter):
         from windyfly.tools import sms as _sms
         if _sms.byo_enabled() and self._hatch_dm_room_id:
             self._sms_task = asyncio.create_task(self._sms_inbox_loop())
+        # Phone tools (dark: WINDY_PHONE_TOOLS=1).
+        from windyfly.channels import phone_tools as _phone_flag
+        if _phone_flag.enabled():
+            self._phone_task = asyncio.create_task(self._phone_loop())
 
         # Sync with reconnection retry loop (exponential backoff)
         self._backoff = _INITIAL_BACKOFF_S
