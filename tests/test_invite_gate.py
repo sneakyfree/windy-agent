@@ -66,8 +66,8 @@ def test_ok_false_on_200_is_not_a_join(monkeypatch):
     assert invite_gate.decide(SIBLING, "!r:x") == "retry"
 
 
-@pytest.mark.parametrize("status", [500, 502, 503])
-def test_chat_5xx_is_retry(monkeypatch, status):
+@pytest.mark.parametrize("status", [429, 500, 502, 503])
+def test_chat_busy_or_5xx_is_retry(monkeypatch, status):
     _chat(monkeypatch, status, {})
     assert invite_gate.decide(SIBLING, "!r:x") == "retry"
 

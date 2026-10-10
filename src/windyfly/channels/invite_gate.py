@@ -4,7 +4,7 @@ owner's sibling agents, nobody else. Dark: WINDY_INVITE_GATE=1 (unset = the old 
 The answer is a runtime FACT, never a model sentence:
 - the inviter is the owner (``identity.owner_ids`` for matrix) -> join;
 - the inviter is an agent (@agent_<passport>) -> ask Chat ``GET /pair-room/invite-check`` (same owner per
-  Chat's onboarding data, revoked/retired refused): 200 ok -> join; 4xx -> ignore; 5xx/unreachable -> retry
+  Chat's onboarding data, revoked/retired refused): 200 ok -> join; 4xx -> ignore; 429/5xx/unreachable -> retry
   on a later sync (the caller keeps it at most ``RECHECK_FOR_S``);
 - anyone else -> ignore.
 No owner known on matrix yet (a fresh install, first contact) keeps today's behaviour: join.
@@ -50,7 +50,7 @@ def _ask_chat(inviter: str, room_id: str) -> Decision:
         return "retry"
     if status == 200 and data.get("ok") is True:
         return "join"
-    if 400 <= status < 500:
+    if 400 <= status < 500 and status != 429:  # 429 = Chat busy, not an answer: retry
         logger.info("invite gate: Chat refused agent invite to %s (%s)", room_id, data.get("error", status))
         return "ignore"
     return "retry"
