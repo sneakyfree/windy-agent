@@ -7,10 +7,12 @@ Eternitas decides what to keep: at most one snapshot per host per 30 days unless
 changed, nothing at all while its collection setting is off (it still answers 201
 ``snapshot: "not_collected"``). So there is no timer, no diffing and no retry here.
 
-DARK: ``DEFAULT_ON`` is False. The owner switch is ``WINDY_HOUSING_REPORT`` (``1`` on, ``0``
-off); the default flips to on only after Eternitas posts its collection-ON line and Hub's
-privacy v20 is live. Every fact is best effort and every field is optional; a failure of any
-kind is silent (debug log, never the serial). Nothing here raises into its caller.
+ON by default (Boss "flip housing", 10-07; Eternitas collection ON + Hub privacy v20 live since
+10-07). The owner switch is ``WINDY_HOUSING_REPORT`` (``0`` off, ``1`` on). FAIL-OPEN: one report
+per start on a daemon thread, so a slow, hanging or dead Eternitas never blocks or slows the agent
+(the caller returns at once; the call gives up after ``_TIMEOUT``). Every fact is best effort and
+every field is optional; a failure of any kind is silent (debug log, never the serial). Nothing
+here raises into its caller.
 """
 
 from __future__ import annotations
@@ -32,7 +34,7 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_ON = False
+DEFAULT_ON = True
 AUDIENCE = "windy-eternitas"
 _TIMEOUT = 15.0
 _PROBE_TIMEOUT = 5.0
