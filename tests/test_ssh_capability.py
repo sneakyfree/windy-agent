@@ -311,14 +311,16 @@ class TestMissingSshBinary:
 class TestRegistration:
     """The boot step actually registers ssh.exec in the capability registry."""
 
-    def test_register_adds_capability(self):
+    def test_register_adds_capability(self, monkeypatch):
+        monkeypatch.setenv("WINDY_SSH_ALLOWED_HOSTS", "kit-test")
         from windyfly.agent.capabilities.registry import CapabilityRegistry
         reg = CapabilityRegistry()
         register_ssh_capabilities(reg, {})
         ids = {cap.id for cap in reg.all()}
         assert "ssh.exec" in ids
 
-    def test_registered_cap_has_runtime_tier_check(self):
+    def test_registered_cap_has_runtime_tier_check(self, monkeypatch):
+        monkeypatch.setenv("WINDY_SSH_ALLOWED_HOSTS", "kit-test")
         from windyfly.agent.capabilities.registry import CapabilityRegistry
         reg = CapabilityRegistry()
         register_ssh_capabilities(reg, {})
@@ -327,3 +329,12 @@ class TestRegistration:
         assert cap.tier == Tier.EXTERNAL_EFFECT
         # And the runtime check is wired so unknown hosts escalate
         assert cap.runtime_tier_check is not None
+
+
+def test_not_registered_without_allowed_hosts(monkeypatch):
+    """Tool trim (10-10): register only when configured."""
+    from windyfly.agent.capabilities.registry import CapabilityRegistry
+    monkeypatch.delenv("WINDY_SSH_ALLOWED_HOSTS", raising=False)
+    reg = CapabilityRegistry()
+    register_ssh_capabilities(reg, {})
+    assert not [c for c in reg.all() if c.id == "ssh.exec"]

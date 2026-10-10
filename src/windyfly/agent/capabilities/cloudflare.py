@@ -557,6 +557,9 @@ def register_cloudflare_capabilities(
 ) -> None:
     """Register read-only Cloudflare capabilities."""
     token = os.environ.get("CLOUDFLARE_API_TOKEN", "")
+    if not token:
+        logger.info("cloudflare.* not registered: no CLOUDFLARE_API_TOKEN (register only when configured)")
+        return
     logger.info(
         "Registering cloudflare.* capabilities: configured=%s, base=%s",
         bool(token), _BASE_URL,

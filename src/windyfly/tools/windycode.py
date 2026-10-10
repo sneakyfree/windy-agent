@@ -372,8 +372,16 @@ def windycode_save_to_git(project: str, message: str) -> dict[str, Any]:
 # ─── Registration ────────────────────────────────────────────────────
 
 
+def available() -> bool:
+    """The IDE's Agent Bus is configured (WINDYCODE_AGENT_SOCK) or its socket exists at boot."""
+    return bool(os.environ.get("WINDYCODE_AGENT_SOCK")) or os.path.exists(_socket_path())
+
+
 def register_windycode_tools(registry: ToolRegistry) -> None:
-    """Register the Windy Code Agent Bus tools."""
+    """Register the Windy Code Agent Bus tools, only where the desktop IDE is (principle 4: register only
+    when configured). Started the IDE after the agent? The tools appear on the agent's next start."""
+    if not available():
+        return
     _project_arg = {
         "type": "string",
         "description": "The project name (a simple slug like 'bake-sale-website').",

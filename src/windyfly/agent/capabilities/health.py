@@ -486,6 +486,9 @@ def register_health_capabilities(
     mutation. Just file reads on the health snapshot directory.
     Safe under any band including USER.
     """
+    if not _health_dir().is_dir():
+        logger.info("health.* not registered: no health scorecards on this machine (register only when configured)")
+        return
     logger.info("Registering health.* capabilities (Ring 1 self-awareness)")
 
     def health_recent() -> dict[str, Any]:

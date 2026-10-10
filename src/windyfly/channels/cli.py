@@ -50,10 +50,6 @@ def run_cli(config: dict[str, Any]) -> None:
     register_windy_tools(tool_registry)
     register_web_search_tool(tool_registry)
 
-    # Register sub-agent tool (G11)
-    from windyfly.agent.sub_agents import register_sub_agent_tool
-    register_sub_agent_tool(tool_registry, config, db, write_queue)
-
     session_id = str(uuid.uuid4())
 
     console.print()

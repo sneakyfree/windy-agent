@@ -227,6 +227,10 @@ def register_windyword_capabilities(
     if os.environ.get("WINDY_WORD_CONTROL", "1") == "0":
         logger.info("windyword.* capabilities disabled (WINDY_WORD_CONTROL=0)")
         return
+    if not (os.environ.get("WINDY_WORD_CONTROL_TOKEN") or os.environ.get("WINDY_WORD_URL")
+            or os.path.exists(_token_path())):
+        logger.info("windyword.* not registered: no Windy Word on this machine (register only when configured)")
+        return
 
     registry.register(Capability(
         id="windyword.status",
