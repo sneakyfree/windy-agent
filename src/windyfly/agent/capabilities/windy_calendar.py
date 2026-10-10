@@ -166,4 +166,5 @@ def register_windy_calendar_capabilities(registry: CapabilityRegistry, config: d
                          "description": "A street address or an https link."}},
             "required": ["starts_at_utc", "duration_minutes", "invitees"], "additionalProperties": False},
         # The generic audit row stores the arguments (invitee addresses); this tool logs counts only instead.
-        tier=Tier.EXTERNAL_EFFECT, band_required=Band.TRUSTED, audit_required=False))
+        # OWNER only: a sibling must not park meeting requests (with invitee addresses) in the owner's Inbox.
+        tier=Tier.EXTERNAL_EFFECT, band_required=Band.OWNER, audit_required=False))

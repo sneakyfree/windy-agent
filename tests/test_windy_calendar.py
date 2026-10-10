@@ -173,7 +173,9 @@ def test_url_override(calls, monkeypatch):
 def test_non_owner_band_does_not_see_the_tools(calls):
     r = _registered()
     assert not [c for c in r.list_for_band(Band.USER) if c.id.startswith("windy_calendar.")]
-    assert len([c for c in r.list_for_band(Band.TRUSTED) if c.id.startswith("windy_calendar.")]) == 6
+    trusted = {c.id for c in r.list_for_band(Band.TRUSTED) if c.id.startswith("windy_calendar.")}
+    assert len(trusted) == 5 and "windy_calendar.create_meeting" not in trusted
+    assert r.get("windy_calendar.create_meeting") in r.list_for_band(Band.OWNER)
 
 
 @pytest.mark.parametrize("result", [{"url": "https://windycalendar.com/book/c-abc", "listed": False},
@@ -291,7 +293,7 @@ def test_create_meeting_only_asks_the_owner(calls, caplog):
 
 def test_create_meeting_is_not_in_the_args_audit(calls):
     cap = _cap("windy_calendar.create_meeting")
-    assert cap.tier == Tier.EXTERNAL_EFFECT and cap.band_required == Band.TRUSTED
+    assert cap.tier == Tier.EXTERNAL_EFFECT and cap.band_required == Band.OWNER
     assert cap.audit_required is False  # the generic audit row would store invitee addresses
 
 
