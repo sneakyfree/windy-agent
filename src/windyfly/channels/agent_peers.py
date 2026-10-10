@@ -80,7 +80,7 @@ def should_notify(sender: str, room_id: str, now: float | None = None) -> bool:
         if len(_notified) > MAX_REMEMBERED:  # drop what is already older than an hour, then the oldest
             for k in [k for k, v in _notified.items() if t - v >= NOTICE_EVERY_S]:
                 del _notified[k]
-            for k in sorted(_notified, key=_notified.get)[:max(0, len(_notified) - MAX_REMEMBERED)]:
+            for k in sorted(_notified, key=lambda k: _notified[k])[:max(0, len(_notified) - MAX_REMEMBERED)]:
                 del _notified[k]
         return True
 
