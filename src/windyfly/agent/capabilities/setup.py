@@ -430,6 +430,8 @@ def _register_now_configured(
         elif integration == "github" and registry.get("github.list_repo") is None:
             from windyfly.agent.capabilities.github import register_github_capabilities
             register_github_capabilities(registry, config)
+        from windyfly.observability import tool_count
+        tool_count.refresh(registry)  # the journey fact follows the tools the agent now has
     except Exception as exc:  # noqa: BLE001  (the credential is saved; the tools come on the next start)
         logger.warning("setup: could not register %s tools now: %s", integration, type(exc).__name__)
 

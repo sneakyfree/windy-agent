@@ -50,3 +50,14 @@ def test_record_never_writes_under_pytest(tmp_path, monkeypatch):
 def test_the_step_is_last_and_optional():
     steps = default_capability_registration_sequence()
     assert steps[-1].name == "observability.tool_count" and steps[-1].optional is True
+
+
+def test_refresh_rewrites_the_fact_with_the_boot_legacy_count(monkeypatch):
+    written = []
+    monkeypatch.setattr(tool_count, "write", lambda n, state_dir=None: written.append(n))
+    monkeypatch.delenv("PYTEST_CURRENT_TEST")  # record() writes outside pytest
+    monkeypatch.setattr(tool_count, "_legacy_at_boot", None)
+    assert tool_count.refresh(_Caps(5)) is None  # no start recorded yet
+    tool_count.record(_Tools(70), _Caps(20))
+    assert tool_count.refresh(_Caps(25)) == 95  # a credential added 5 capabilities after start
+    assert written == [90, 95]
