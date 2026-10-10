@@ -12,7 +12,7 @@ Auth is the agent's own EPT+agent for aud ``windy-chat`` PLUS a DPoP proof on EV
 (htm = method, htu = the exact URL without query). The pair room is created AS THE OWNER with both agents
 INVITED, so this agent joins it (idempotent) and then posts one ordinary m.text as itself. When Chat runs session-free
 pair rooms it answers a claim instead, and THIS agent creates the room under its own token (no session on anyone's
-account), confirms it, then posts. No wait tool: the
+account), steps down so the owner alone is in charge, invites the partner and the owner, confirms it, then posts. No wait tool: the
 reply is the other agent's next message. Same-owner only (v1); Chat decides, this module never invents owners.
 The same list also tells ``resolve_band`` which senders are SIBLINGS (TRUSTED band, Boss ruling 10-07).
 Dark: WINDY_TEAMS=1.
@@ -124,35 +124,66 @@ def _matrix() -> tuple[str, str]:
     return os.environ.get("MATRIX_HOMESERVER", "").rstrip("/"), os.environ.get("MATRIX_BOT_TOKEN", "")
 
 
-def _create_pair_room(answer: dict[str, Any]) -> tuple[str | None, str | None]:
-    """createRoom AS THIS AGENT, exactly the contract recipe. -> (room_id, None) | (None, plain reason)."""
+def _mx(method: str, path: str, body: dict[str, Any] | None = None) -> tuple[int, dict[str, Any]]:
+    """One Matrix client call AS THIS AGENT. Raises httpx.HTTPError when the server can't be reached."""
     homeserver, token = _matrix()
-    if not (homeserver and token):
-        return None, "chat is not configured for this agent"
-    owner = str(answer.get("owner_mxid") or "")
-    body: dict[str, Any] = {
-        "name": str(answer.get("name") or ""),
-        "preset": "private_chat",
-        "invite": [str(i) for i in (answer.get("invite") or [])],
-        "creation_content": {"ai.windy.pair_claim": str(answer["claim"])},
-    }
-    if owner:
-        body["power_level_content_override"] = {"users": {owner: 100}}
-    try:
-        resp = httpx.post(f"{homeserver}/_matrix/client/v3/createRoom", headers={"Authorization": f"Bearer {token}"},
-                          json=body, timeout=_TIMEOUT_S)
-    except httpx.HTTPError:
-        return None, "I couldn't reach the chat server"
+    resp = httpx.request(method, f"{homeserver}/_matrix/client/v3/{path}", headers={"Authorization": f"Bearer {token}"},
+                         json=body, timeout=_TIMEOUT_S)
     try:
         data = resp.json()
     except ValueError:
         data = {}
-    if resp.status_code == 200 and isinstance(data, dict) and data.get("room_id"):
+    return resp.status_code, data if isinstance(data, dict) else {}
+
+
+def _create_pair_room(answer: dict[str, Any]) -> tuple[str | None, str | None]:
+    """createRoom AS THIS AGENT with no invites; the owner AND I at 100 (Synapse needs the creator at 100 to build
+    the room). -> (room_id, None) | (None, plain reason). _settle_pair_room then hands the room to the owner."""
+    homeserver, token = _matrix()
+    me = os.environ.get("MATRIX_BOT_USER", "").strip()
+    owner = str(answer.get("owner_mxid") or "")
+    if not (homeserver and token and me):
+        return None, "chat is not configured for this agent"
+    body: dict[str, Any] = {
+        "name": str(answer.get("name") or ""),
+        "preset": "private_chat",
+        "creation_content": {"ai.windy.pair_claim": str(answer["claim"])},
+        "power_level_content_override": {"users": {owner: 100, me: 100} if owner else {me: 100}},
+    }
+    try:
+        status, data = _mx("POST", "createRoom", body)
+    except httpx.HTTPError:
+        return None, "I couldn't reach the chat server"
+    if status == 200 and data.get("room_id"):
         return str(data["room_id"]), None
-    if resp.status_code == 429:
-        wait = data.get("retry_after_ms") if isinstance(data, dict) else None
-        return None, f"the chat server is rate-limiting new rooms (retry after {int(wait or 0) // 1000} s)"
-    return None, f"I could not create the room (HTTP {resp.status_code})"
+    if status == 429:
+        return None, f"the chat server is rate-limiting new rooms (retry after {int(data.get('retry_after_ms') or 0) // 1000} s)"
+    return None, f"I could not create the room (HTTP {status})"
+
+
+def _settle_pair_room(room_id: str, answer: dict[str, Any]) -> str | None:
+    """Step down to level 0 (the owner alone is in charge, as in every pair room), THEN invite the partner and the
+    owner: nobody is invited to a room whose levels are wrong. Idempotent, so a retry can finish a half-made room.
+    None on success, else a plain reason."""
+    me = os.environ.get("MATRIX_BOT_USER", "").strip()
+    path = f"rooms/{room_id}/state/m.room.power_levels"
+    try:
+        status, levels = _mx("GET", path)
+        if status != 200:
+            return f"I could not read the new room's power levels (HTTP {status})"
+        users = dict(levels.get("users") or {})
+        if me in users:
+            del users[me]
+            status, _ = _mx("PUT", path, {**levels, "users": users})
+            if status != 200:
+                return f"I could not hand the new room to the owner (HTTP {status})"
+        for who in [str(i) for i in (answer.get("invite") or [])]:
+            status, data = _mx("POST", f"rooms/{room_id}/invite", {"user_id": who})
+            if status != 200 and "already" not in str(data.get("error") or "").lower():
+                return f"I could not invite {who} (HTTP {status})"
+    except httpx.HTTPError:
+        return "I couldn't reach the chat server"
+    return None
 
 
 def _confirm(claim: str, room_id: str) -> dict[str, Any]:
@@ -192,6 +223,9 @@ def message_agent(to: str, text: str) -> dict[str, Any]:
             if problem or not room_id:
                 return _unavailable(problem or "I could not create the room")
             _created_for_claim[claim] = room_id  # kept BEFORE confirm: a retry confirms this room, never a second one
+        problem = _settle_pair_room(room_id, data)
+        if problem:
+            return _unavailable(problem)  # the room is kept: the next try finishes it, never makes a second
         confirmed = _confirm(claim, room_id)
         if confirmed.get("error"):
             return confirmed
