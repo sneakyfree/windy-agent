@@ -418,6 +418,22 @@ def _save_credential_handler(
     }
 
 
+def _register_now_configured(
+    registry: CapabilityRegistry, config: dict[str, Any] | None, integration: str,
+) -> None:
+    """Integrations register their tools only when configured (tool trim, 10-10): a credential saved from
+    chat registers them in the RUNNING agent, so the next turn has them without a restart."""
+    try:
+        if integration == "cloudflare" and registry.get("cloudflare.list_zones") is None:
+            from windyfly.agent.capabilities.cloudflare import register_cloudflare_capabilities
+            register_cloudflare_capabilities(registry, config)
+        elif integration == "github" and registry.get("github.list_repo") is None:
+            from windyfly.agent.capabilities.github import register_github_capabilities
+            register_github_capabilities(registry, config)
+    except Exception as exc:  # noqa: BLE001  (the credential is saved; the tools come on the next start)
+        logger.warning("setup: could not register %s tools now: %s", integration, type(exc).__name__)
+
+
 def register_setup_capabilities(
     registry: CapabilityRegistry,
     config: dict[str, Any] | None = None,
@@ -436,9 +452,12 @@ def register_setup_capabilities(
     def setup_save_credential(
         *, integration: str, value: str,
     ) -> dict[str, Any]:
-        return _save_credential_handler(
+        out = _save_credential_handler(
             integration=integration, value=value,
         )
+        if out.get("ok"):
+            _register_now_configured(registry, config, integration)
+        return out
 
     registry.register(Capability(
         id="setup.status",

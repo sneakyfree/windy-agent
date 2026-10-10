@@ -219,11 +219,6 @@ def _step_register_windy_domains(ctx: BootContext) -> None:
     register_windy_domains_tools(ctx.tool_registry)
 
 
-def _step_register_windy_sites(ctx: BootContext) -> None:
-    from windyfly.tools.windy_sites import register_windy_sites_tools
-    register_windy_sites_tools(ctx.tool_registry)
-
-
 def _step_register_windycode(ctx: BootContext) -> None:
     from windyfly.tools.windycode import register_windycode_tools
     register_windycode_tools(ctx.tool_registry)
@@ -264,21 +259,9 @@ def _step_register_calendar(ctx: BootContext) -> None:
     register_calendar_tools(ctx.tool_registry)
 
 
-def _step_register_utilities(ctx: BootContext) -> None:
-    from windyfly.tools.utilities import register_utility_tools
-    register_utility_tools(ctx.tool_registry)
-
-
 def _step_start_reminder_checker(ctx: BootContext) -> None:
     from windyfly.tools.reminders import start_reminder_checker
     start_reminder_checker(ctx.db)
-
-
-def _step_register_sub_agents(ctx: BootContext) -> None:
-    from windyfly.agent.sub_agents import register_sub_agent_tool
-    register_sub_agent_tool(
-        ctx.tool_registry, ctx.config, ctx.db, ctx.write_queue,
-    )
 
 
 def _step_install_audit_hooks(ctx: BootContext) -> None:
@@ -306,15 +289,6 @@ def _step_register_ssh(ctx: BootContext) -> None:
 def _step_register_vision(ctx: BootContext) -> None:
     from windyfly.agent.capabilities.vision import register_vision_capabilities
     register_vision_capabilities(ctx.capability_registry, ctx.config)
-
-
-def _step_register_collaborators(ctx: BootContext) -> None:
-    from windyfly.agent.capabilities.collaborators import (
-        register_collaborator_capabilities,
-    )
-    register_collaborator_capabilities(
-        ctx.capability_registry, ctx.db, ctx.write_queue, ctx.config,
-    )
 
 
 def _step_register_github(ctx: BootContext) -> None:
@@ -375,11 +349,6 @@ def _step_register_auto_repair(ctx: BootContext) -> None:
         register_auto_repair_capabilities,
     )
     register_auto_repair_capabilities(ctx.capability_registry, ctx.config)
-
-
-def _step_register_fleet(ctx: BootContext) -> None:
-    from windyfly.agent.capabilities.fleet import register_fleet_capabilities
-    register_fleet_capabilities(ctx.capability_registry, ctx.config)
 
 
 def _step_register_skill_learning(ctx: BootContext) -> None:
@@ -462,7 +431,6 @@ def default_capability_registration_sequence() -> list[Step]:
         Step("tools.voice",          _step_register_voice),
         Step("tools.cloud",          _step_register_cloud),
         Step("tools.windy_domains",  _step_register_windy_domains),
-        Step("tools.windy_sites",    _step_register_windy_sites),
         Step("tools.windycode",      _step_register_windycode),
         Step("tools.windycode_web",  _step_register_windycode_web),
         Step("tools.web_search",     _step_register_web_search),
@@ -471,13 +439,11 @@ def default_capability_registration_sequence() -> list[Step]:
         Step("tools.weather",        _step_register_weather),
         Step("tools.news",           _step_register_news),
         Step("tools.calendar",       _step_register_calendar),
-        Step("tools.utilities",      _step_register_utilities),
         Step(
             "tools.reminder_checker",
             _step_start_reminder_checker,
             optional=True,  # background thread; failure is non-fatal
         ),
-        Step("tools.sub_agents",     _step_register_sub_agents),
 
         # Capability Plane: install audit hooks BEFORE registering caps
         # so every subsequent registration is auditable from the first
@@ -501,11 +467,6 @@ def default_capability_registration_sequence() -> list[Step]:
         Step(
             "capabilities.vision",
             _step_register_vision,
-            requires=("capabilities.audit",),
-        ),
-        Step(
-            "capabilities.collaborators",
-            _step_register_collaborators,
             requires=("capabilities.audit",),
         ),
         Step(
@@ -556,11 +517,6 @@ def default_capability_registration_sequence() -> list[Step]:
         Step(
             "capabilities.auto_repair",
             _step_register_auto_repair,
-            requires=("capabilities.audit",),
-        ),
-        Step(
-            "capabilities.fleet",
-            _step_register_fleet,
             requires=("capabilities.audit",),
         ),
         Step(

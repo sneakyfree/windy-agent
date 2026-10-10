@@ -510,6 +510,9 @@ def register_github_capabilities(
     ``GITHUB_TOKEN`` (the convention curl/gh use). No token is OK —
     public repos still work, just at the unauthenticated rate limit.
     """
+    if not (os.environ.get("GITHUB_PAT") or os.environ.get("GITHUB_TOKEN")):
+        logger.info("github.* not registered: no GITHUB_PAT/GITHUB_TOKEN (register only when configured)")
+        return
     gh_cfg = (config or {}).get("capabilities", {}).get("github", {})
     base_url: str = gh_cfg.get("base_url", _DEFAULT_BASE_URL)
     allowed_owners: list[str] | None = gh_cfg.get("allowed_owners") or None

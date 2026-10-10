@@ -1,7 +1,7 @@
 """mind.* : the agent reads and changes its own model in Windy Mind (plan v2.1 S18.4).
 
-Native twins of Windy Mind's six agent tools (status, list_models, switch_model, reset_model,
-my_usage, why_was_i_paused), calling Mind with the agent's own EPT+agent through
+Three verbs over Windy Mind's six agent routes (status also carries my_usage + why_was_i_paused;
+switch_model 'reset' is reset_model), calling Mind with the agent's own EPT+agent through
 ``windyfly.agent.mind_self``. Reading is for any verified user; CHANGING the model is the
 owner's word only (Mind also checks the owner's opt-in, ``may_pick``, and notifies the owner).
 No money in any answer. Disable with WINDY_MIND_SELF=0.
@@ -23,34 +23,26 @@ def register_mind_model_capabilities(registry: CapabilityRegistry, config: dict[
         return
 
     def status() -> dict[str, Any]:
-        return mind_self.status()
+        # One read verb (tool trim, 10-10): the model, backups and state, plus the last day's use and why paused.
+        out = dict(mind_self.status())
+        out["usage"] = mind_self.my_usage()
+        out["paused"] = mind_self.why_paused()
+        return out
 
     def list_models() -> dict[str, Any]:
         return mind_self.list_models()
 
     def switch_model(*, model: str) -> dict[str, Any]:
+        if (model or "").strip().lower() == "reset":
+            return mind_self.reset_model()
         return mind_self.switch_model(model)
-
-    def reset_model() -> dict[str, Any]:
-        return mind_self.reset_model()
-
-    def my_usage() -> dict[str, Any]:
-        return mind_self.my_usage()
-
-    def why_paused() -> dict[str, Any]:
-        return mind_self.why_paused()
 
     reads = [
         ("mind.status", "Which model powers me", status, _NONE,
-         "Which model is powering this agent right now, its backups, and whether it is on, off or paused. "
-         "Use when someone asks what model or brain you are using."),
+         "Which model is powering this agent right now, its backups, whether it is on, off or paused and why, "
+         "and its last day's calls and tokens (never money)."),
         ("mind.list_models", "Models I may switch to", list_models, _NONE,
-         "The models this agent is allowed to pick for itself. Use before switching, or when asked what "
-         "models are available."),
-        ("mind.my_usage", "My recent usage", my_usage, _NONE,
-         "How much this agent has used in the last day: calls and tokens. Never any money."),
-        ("mind.why_paused", "Why am I paused", why_paused, _NONE,
-         "Why this agent is off or paused, in plain words, or that it is not paused."),
+         "The models this agent is allowed to pick for itself."),
     ]
     for cid, name, fn, schema, desc in reads:
         registry.register(Capability(
@@ -62,25 +54,17 @@ def register_mind_model_capabilities(registry: CapabilityRegistry, config: dict[
         id="mind.switch_model",
         name="Switch my model",
         description=(
-            "Switch the model that powers this agent when the OWNER asks. Pass the exact model id from mind.list_models. If not allowed, say so plainly. Never claim a switch unless the result says ok."
+            "Switch the model that powers this agent, owner's word only: an exact model id from "
+            "mind.list_models, or 'reset' to go back to the model the owner set. The result says whether it worked."
         ),
         handler=switch_model,
         input_schema={
             "type": "object",
-            "properties": {"model": {"type": "string", "description": "Exact model id from mind.list_models."}},
+            "properties": {"model": {"type": "string",
+                                     "description": "Exact model id from mind.list_models, or 'reset'."}},
             "required": ["model"],
             "additionalProperties": False,
         },
-        tier=Tier.EXTERNAL_EFFECT,
-        band_required=Band.OWNER,
-        audit_required=True,
-    ))
-    registry.register(Capability(
-        id="mind.reset_model",
-        name="Go back to my owner's model",
-        description="Undo my own model switch and go back to the model my owner set. Owner only.",
-        handler=reset_model,
-        input_schema=_NONE,
         tier=Tier.EXTERNAL_EFFECT,
         band_required=Band.OWNER,
         audit_required=True,

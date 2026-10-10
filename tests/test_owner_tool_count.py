@@ -16,6 +16,9 @@ import sys
 import pytest
 
 MIND_MAX_TOOLS = 128
+# Boss (10-10, after the tool trim): today's count (78 for this env) + 10, so growth is a decision, not an
+# accident. Raising it needs a reason in the PR. Integrations add their tools only when configured.
+TOOL_BUDGET = 88
 
 _COUNT = r"""
 import json, os, sys
@@ -61,6 +64,10 @@ def owner_tools(tmp_path_factory):
 
 def test_an_owner_turn_fits_mind_s_tool_cap(owner_tools):
     assert len(owner_tools) <= MIND_MAX_TOOLS, f"{len(owner_tools)} tools > Mind's {MIND_MAX_TOOLS}"
+
+
+def test_an_owner_turn_stays_within_the_tool_budget(owner_tools):
+    assert len(owner_tools) <= TOOL_BUDGET, f"{len(owner_tools)} tools > budget {TOOL_BUDGET}: trim, or raise it on purpose"
 
 
 def test_no_tool_is_offered_twice(owner_tools):
