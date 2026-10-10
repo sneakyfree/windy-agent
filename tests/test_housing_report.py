@@ -44,13 +44,47 @@ def _server(*statuses, body=None):
     return httpx.MockTransport(handle), calls
 
 
-def test_dark_by_default_sends_nothing(monkeypatch):
+def test_on_by_default_and_the_owner_switch_turns_it_off(monkeypatch):
     monkeypatch.delenv("WINDY_HOUSING_REPORT")
+    assert housing.DEFAULT_ON is True and housing.enabled() is True
+    monkeypatch.setenv("WINDY_HOUSING_REPORT", "0")
     transport, calls = _server(201)
-    assert housing.DEFAULT_ON is False
     assert housing.report_once(transport=transport) == "off"
     assert housing.report_in_background() is None
     assert calls == []
+
+
+def test_a_hanging_eternitas_never_delays_the_caller(monkeypatch):
+    """Boss's fail-open term: the boot step returns at once on a daemon thread, whatever Eternitas does."""
+    import threading
+    import time
+
+    release = threading.Event()
+    monkeypatch.setattr("windyfly.eternitas.agent_keys.disabled", lambda: False)
+    monkeypatch.setattr(housing, "report_once", lambda **kw: release.wait(30))
+    t0 = time.monotonic()
+    t = housing.report_in_background()
+    assert time.monotonic() - t0 < 0.5
+    assert t is not None and t.daemon and t.is_alive()  # still "waiting on Eternitas"; the agent went on
+    release.set()
+    t.join(5)
+
+
+def test_a_server_that_never_answers_times_out_quietly(monkeypatch):
+    """One attempt that gives up after _TIMEOUT: a real socket that accepts and never replies."""
+    import socket
+    import time
+
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(1)
+    monkeypatch.setenv("ETERNITAS_URL", f"http://127.0.0.1:{srv.getsockname()[1]}")
+    monkeypatch.setattr(housing, "_TIMEOUT", 0.5)
+    monkeypatch.setattr("windyfly.agent.service_auth.agent_headers", lambda aud, m, u: {"Authorization": "x"})
+    t0 = time.monotonic()
+    assert housing.report_once() == "unreachable"
+    assert time.monotonic() - t0 < 3
+    srv.close()
 
 
 def test_owner_switch_off_beats_a_default_on(monkeypatch):
@@ -196,3 +230,21 @@ def test_apple_product_name_beats_an_unreliable_chassis_type(monkeypatch):
     assert housing._host_class() == "laptop"  # noqa: SLF001
     files["/sys/class/dmi/id/product_name"] = "ThinkPad X1"
     assert housing._host_class() == "laptop"  # noqa: SLF001  (chassis 9 = laptop elsewhere)
+
+
+def test_the_whole_report_is_capped_at_three_seconds(monkeypatch):
+    """Boss (0.7.6): one attempt, <= 3 s in all. A server that never answers: the report gives up by
+    _TIMEOUT even counting the one fresh-token POST, which only happens after a 401 anyway."""
+    import socket
+    import time
+
+    assert housing._TIMEOUT <= 3.0
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(2)
+    monkeypatch.setenv("ETERNITAS_URL", f"http://127.0.0.1:{srv.getsockname()[1]}")
+    monkeypatch.setattr("windyfly.agent.service_auth.agent_headers", lambda aud, m, u: {"Authorization": "x"})
+    t0 = time.monotonic()
+    assert housing.report_once() == "unreachable"
+    assert time.monotonic() - t0 < 3.5
+    srv.close()

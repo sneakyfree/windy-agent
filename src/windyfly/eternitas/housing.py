@@ -7,10 +7,12 @@ Eternitas decides what to keep: at most one snapshot per host per 30 days unless
 changed, nothing at all while its collection setting is off (it still answers 201
 ``snapshot: "not_collected"``). So there is no timer, no diffing and no retry here.
 
-DARK: ``DEFAULT_ON`` is False. The owner switch is ``WINDY_HOUSING_REPORT`` (``1`` on, ``0``
-off); the default flips to on only after Eternitas posts its collection-ON line and Hub's
-privacy v20 is live. Every fact is best effort and every field is optional; a failure of any
-kind is silent (debug log, never the serial). Nothing here raises into its caller.
+ON by default (Boss "flip housing", 10-07; Eternitas collection ON + Hub privacy v20 live since
+10-07). The owner switch is ``WINDY_HOUSING_REPORT`` (``0`` off, ``1`` on). FAIL-OPEN: one report
+per start on a daemon thread, so a slow, hanging or dead Eternitas never blocks or slows the agent
+(the caller returns at once; both POSTs together give up after ``_TIMEOUT`` = 3 s). Every fact is best effort and
+every field is optional; a failure of any kind is silent (debug log, never the serial). Nothing
+here raises into its caller.
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -32,9 +35,9 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_ON = False
+DEFAULT_ON = True
 AUDIENCE = "windy-eternitas"
-_TIMEOUT = 15.0
+_TIMEOUT = 3.0  # Boss: one attempt, <= 3 s in all (both POSTs share this budget)
 _PROBE_TIMEOUT = 5.0
 # Serial strings that firmware fills in when it has no real number.
 _JUNK_SERIALS = frozenset({
@@ -311,13 +314,17 @@ def report_once(*, transport: httpx.BaseTransport | None = None) -> str:
         url = f"{ak._base_url()}/api/v1/bots/{passport}/housing"  # noqa: SLF001
         body = build_report()
         resp = None
+        deadline = time.monotonic() + _TIMEOUT
         with httpx.Client(timeout=_TIMEOUT, transport=transport) as client:
             for attempt in (1, 2):
+                left = deadline - time.monotonic()
+                if left <= 0.05:
+                    break
                 try:
                     headers = service_auth.agent_headers(AUDIENCE, "POST", url)
                 except service_auth.ServiceAuthError:
                     return "no_token"
-                resp = client.post(url, json=body, headers=headers)
+                resp = client.post(url, json=body, headers=headers, timeout=left)
                 if resp.status_code != 401 or attempt == 2:
                     break
                 service_auth.forget_token()  # a stale cached mint: one fresh try
