@@ -1,6 +1,70 @@
 # Changelog
 
-## Unreleased (0.7.6)
+## 0.7.6
+
+- **The agent tells Eternitas which machine it lives on (housing report, ON).**
+  Once per start, on a background thread, the agent sends Eternitas
+  (`housing.v1`) a hashed machine id, the machine class (laptop, desktop, ...)
+  and a snapshot: OS, CPU, GPU, disk, connection type, virtual or not, and the
+  device serial (over TLS; Eternitas stores a hash). One attempt, 3 seconds in
+  all; it never slows or blocks the agent; the serial is
+  never written to a local log. Turn it off with `WINDY_HOUSING_REPORT=0`.
+
+- **A Windy agent (one with an Eternitas passport) gets its AI only through
+  Windy Mind**, or the local backup model when Mind is down; it no longer falls
+  back to provider keys or a Max login. The owner's stop in Windy Mind is a real
+  stop. The agent can read and switch its own Mind model, and vision and
+  `windy model test` go through Mind too. Installs without a passport keep
+  using their own keys.
+
+- **Email: one message to everyone.** `send_email` takes to/cc/bcc and sends
+  ONE email with one confirmation. With `WINDY_SEND_CONFIRM=1` an outbound email
+  is held as a draft until the owner says send, with tappable [send, wait]
+  buttons. New `my_mailbox` tool: the agent's own address, aliases and plan
+  limits, as Windy Mail states them.
+
+- **One shared set of owner commands** (`commands.v1`: /help, /status,
+  /whoami, /model, /usage, /pause, /resume, /new, /memory, /forget, /agents),
+  the same names as Windy Chat's agents, case-insensitive, honest when a
+  command can't do something; slash and recovery commands are owner-only.
+  `windy commands --json` exports the command list.
+
+- **Agent teams (off unless `WINDY_TEAMS=1`).** `list_my_agents` and
+  `message_agent` let an owner's agents message each other; another agent's
+  message is labelled with who sent it, and an agent may stay silent on a
+  greeting. With Windy Chat's session-free pair rooms, the calling agent makes
+  the room itself (nobody signs in to the owner's account). `/agents on|off`
+  lets the owner stop other agents' messages. No first-contact tour is sent to
+  an agent.
+
+- **Invite gate (off unless `WINDY_INVITE_GATE=1`).** The agent joins a Matrix
+  room only when invited by its owner or by one of the owner's own agents
+  (Windy Chat confirms); other invites get no answer.
+
+- **Fewer tools (128 -> about 80).** An owner turn had grown to 128 tools, and one
+  more pushed it past Windy Mind's hard limit (it refuses more than 128), so every
+  owner message fell to the local model. Now: one website builder (`windycodeweb_*`;
+  the old `create_site`/`publish_site` set is gone), no calculator/dice/unit tools
+  (the model does these), no fleet or in-process collaborator tools (real sibling
+  agents replace them), `set_timer` folded into `set_reminder`, and `mind.*` is three
+  tools (`mind.status` also carries usage and why paused; `mind.switch_model("reset")`).
+  GitHub, Cloudflare, SSH, Windy Word, health and the Windy Code IDE tools appear only
+  when they are set up AND their credential answers at start (one quick check; a
+  refused token keeps them off, a network blip does not). Saving a credential from
+  chat turns its tools on in the running agent, and says so plainly when it could not.
+  Each start writes the owner-turn tool count to `owner-tools.json` in the state
+  folder; tests fail the build above 88 tools (typical) or 118 (everything set up).
+
+- **Off unless switched on:** Windy Calendar tools (`WINDY_CALENDAR=1`), Windy
+  Code filing-cabinet tools (`WINDY_CODE_CABINET=1`).
+
+- **Fixes.** The Matrix token is sent in a header, never in a URL (URLs can be
+  logged), and the chat trust check now really runs (it used to be skipped).
+  DPoP proofs on GET for Windy Calendar and Windy Chat. The hatch key is kept
+  when a ticket is lost or a Ctrl-C cancel fails. Plain-word refusals and SMS
+  errors. `windy_plans` reads prices only from Windy's live plans page. Tool
+  descriptions shortened to one line each.
+
 
 - **Calls to Windy Mind use the agent's own short-lived token.** Every chat call
   carries an `EPT+agent` for `windy-mind` (bound to the agent's registered key)
