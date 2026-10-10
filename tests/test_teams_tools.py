@@ -169,3 +169,90 @@ def test_unknown_membership_keeps_the_old_welcome(monkeypatch):
 
     monkeypatch.setattr("httpx.get", lambda url, **kw: (_ for _ in ()).throw(httpx.ConnectError("x")))
     assert teams.room_has_other_agent("!r:x", ME) is False
+
+
+# ── session-free pair rooms (team-tools.v1 1.3.0): a claim, createRoom as myself, confirm ───────────
+
+CLAIM = {"create": True, "claim": "c-1", "expires_in": 60, "name": "Zero + Scout",
+         "invite": [SIB, "@owner:chat.example"], "owner_mxid": "@owner:chat.example"}
+
+
+def _matrix_post(monkeypatch, *responses):
+    calls, seq = [], list(responses)
+
+    def fake(url, **kw):
+        calls.append((url, kw))
+        return seq.pop(0) if len(seq) > 1 else seq[0]
+
+    monkeypatch.setattr("httpx.post", fake)
+    return calls
+
+
+def test_claim_creates_the_room_as_me_confirms_then_posts(monkeypatch, _env):
+    chat = _route(monkeypatch, _resp(200, CLAIM), _resp(200, {"room_id": "!new:x", "created": True, "partner_joined": True}))
+    mx = _matrix_post(monkeypatch, _resp(200, {"room_id": "!new:x"}))
+    out = teams.message_agent("Scout", "hello")
+    assert out == {"ok": True, "to": "Scout"}
+    url, kw = mx[0]
+    assert url == "https://chat.example/_matrix/client/v3/createRoom"
+    assert kw["headers"] == {"Authorization": "Bearer tok"}  # MY token, nobody's session
+    assert kw["json"] == {"name": "Zero + Scout", "preset": "private_chat", "invite": [SIB, "@owner:chat.example"],
+                          "creation_content": {"ai.windy.pair_claim": "c-1"},
+                          "power_level_content_override": {"users": {"@owner:chat.example": 100}}}
+    assert "initial_state" not in kw["json"]  # unencrypted: no m.room.encryption
+    assert chat[1][1].endswith("/pair-room/confirm") and chat[1][2]["json"] == {"claim": "c-1", "room_id": "!new:x"}
+    assert _env == [("hello", "!new:x")]
+
+
+def test_partner_not_joined_is_said_plainly(monkeypatch, _env):
+    _route(monkeypatch, _resp(200, CLAIM), _resp(200, {"room_id": "!new:x", "created": True, "partner_joined": False}))
+    _matrix_post(monkeypatch, _resp(200, {"room_id": "!new:x"}))
+    out = teams.message_agent("Scout", "hello")
+    assert out == {"ok": True, "to": "Scout", "note": "Scout has not joined the room yet; your message is there for them"}
+
+
+def test_existing_room_with_partner_not_joined_carries_the_note(monkeypatch, _env):
+    _route(monkeypatch, _resp(200, {"ok": True, "room_id": "!r:x", "created": False, "partner_joined": False}))
+    _matrix_post(monkeypatch, _resp(200, {}))
+    assert teams.message_agent("Scout", "hi")["note"].startswith("Scout has not joined")
+
+
+def test_confirm_5xx_then_retry_confirms_the_same_room_never_a_second(monkeypatch, _env):
+    _route(monkeypatch, _resp(200, CLAIM), _resp(503, {}))
+    mx = _matrix_post(monkeypatch, _resp(200, {"room_id": "!new:x"}))
+    first = teams.message_agent("Scout", "hello")
+    assert first["ok"] is False and first["error"] == "unavailable" and _env == []
+    _route(monkeypatch, _resp(200, CLAIM), _resp(200, {"room_id": "!new:x", "created": True, "partner_joined": True}))
+    assert teams.message_agent("Scout", "hello")["ok"] is True
+    assert len(mx) == 1  # createRoom ran once
+
+
+def test_confirm_refusal_drops_the_room_and_says_why(monkeypatch, _env):
+    _route(monkeypatch, _resp(200, CLAIM), _resp(403, {"error": "room_check_failed", "reason": "encrypted"}))
+    _matrix_post(monkeypatch, _resp(200, {"room_id": "!new:x"}))
+    out = teams.message_agent("Scout", "hello")
+    assert out["error"] == "unavailable" and "encrypted" in out["detail"] and _env == []
+    assert teams._created_for_claim == {}
+
+
+@pytest.mark.parametrize("err,words", [("not_siblings_yet", "isn't registered"), ("agent_revoked", "no longer active"),
+                                       ("claim_in_use", "being set up")])
+def test_claim_refusals_are_plain_facts(monkeypatch, _env, err, words):
+    _route(monkeypatch, _resp(403, {"error": err, "retry": False}))
+    out = teams.message_agent("Scout", "hi")
+    assert out["ok"] is False and words in out["detail"] and _env == []
+
+
+def test_create_room_rate_limited_is_said_plainly(monkeypatch, _env):
+    _route(monkeypatch, _resp(200, CLAIM))
+    _matrix_post(monkeypatch, _resp(429, {"errcode": "M_LIMIT_EXCEEDED", "retry_after_ms": 4200}))
+    out = teams.message_agent("Scout", "hi")
+    assert out["error"] == "unavailable" and "rate-limiting" in out["detail"] and "4 s" in out["detail"]
+    assert teams._created_for_claim == {} and _env == []
+
+
+def test_claim_without_matrix_config_cannot_pretend(monkeypatch, _env):
+    monkeypatch.delenv("MATRIX_BOT_TOKEN")
+    _route(monkeypatch, _resp(200, CLAIM))
+    out = teams.message_agent("Scout", "hi")
+    assert out["ok"] is False and "not configured" in out["detail"] and _env == []
