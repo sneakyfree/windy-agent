@@ -47,10 +47,20 @@ def _answer(calls, *responses):
     calls.box["seq"][:] = list(responses)
 
 
+def _registered() -> CapabilityRegistry:
+    """Register with the boot probe answered OK (the probe is tested on its own below)."""
+    real = wc.invoke
+    wc.invoke = lambda *a, **k: {"ok": True, "result": {}}  # type: ignore[assignment]
+    try:
+        r = CapabilityRegistry()
+        register_windy_calendar_capabilities(r)
+    finally:
+        wc.invoke = real  # type: ignore[assignment]
+    return r
+
+
 def _cap(cid):
-    r = CapabilityRegistry()
-    register_windy_calendar_capabilities(r)
-    return r.get(cid)
+    return _registered().get(cid)
 
 
 def test_dark_by_default(monkeypatch):
@@ -161,10 +171,9 @@ def test_url_override(calls, monkeypatch):
 
 
 def test_non_owner_band_does_not_see_the_tools(calls):
-    r = CapabilityRegistry()
-    register_windy_calendar_capabilities(r)
+    r = _registered()
     assert not [c for c in r.list_for_band(Band.USER) if c.id.startswith("windy_calendar.")]
-    assert len([c for c in r.list_for_band(Band.TRUSTED) if c.id.startswith("windy_calendar.")]) == 5
+    assert len([c for c in r.list_for_band(Band.TRUSTED) if c.id.startswith("windy_calendar.")]) == 6
 
 
 @pytest.mark.parametrize("result", [{"url": "https://windycalendar.com/book/c-abc", "listed": False},
@@ -231,3 +240,62 @@ def test_dpop_proof_rules_per_service(monkeypatch, aud, method, dpop):
     h = service_auth.agent_headers(aud, method, url)
     assert ("DPoP" in h) is dpop
     assert (proofs == [(method, url)]) is dpop
+
+
+# ── registration needs Calendar to answer (tool budget: no calendar, no tools) ──────────────────
+
+@pytest.mark.parametrize("probe", [
+    _resp(403, {"ok": False, "error": "denied", "reason": "no_calendar"}),
+    _resp(403, {"ok": False, "error": "denied", "reason": "not_linked"}),
+    _resp(503, {"ok": False, "error": "unavailable"}),
+])
+def test_no_tools_when_calendar_does_not_answer(calls, probe):
+    _answer(calls, probe)
+    r = CapabilityRegistry()
+    register_windy_calendar_capabilities(r)
+    assert not [c for c in r.all() if c.id.startswith("windy_calendar.")]
+    assert calls[0][1]["json"]["name"] == "get_booking_page"
+
+
+def test_tools_register_when_calendar_answers(calls):
+    _answer(calls, _resp(200, {"ok": True, "result": {"url": "https://windycalendar.com/book/c-abc"}}))
+    r = CapabilityRegistry()
+    register_windy_calendar_capabilities(r)
+    assert r.get("windy_calendar.create_meeting") is not None and len(calls) == 1
+
+
+# ── create_meeting: only asks; the owner approves in the Inbox; counts only in logs ─────────────
+
+def test_create_meeting_only_asks_the_owner(calls, caplog):
+    import logging
+
+    _answer(calls, _resp(200, {"ok": False, "error": "confirm_required", "reason": "invites_need_owner",
+                               "confirmation": {"id": "conf_1", "waiting_in": "inbox"}}))
+    cap = _cap("windy_calendar.create_meeting")
+    with caplog.at_level(logging.INFO):
+        out = cap.handler(starts_at_utc="2026-10-20T15:00:00Z", duration_minutes=30, title="Plan the party",
+                          location="https://meet.example/abc",
+                          invitees=[{"email": "ann@example.com", "name": "Ann"}, {"email": "bo@example.com"}])
+    sent = calls[0][1]["json"]
+    assert sent["name"] == "create_meeting"
+    assert sent["arguments"]["invitees"] == [{"email": "ann@example.com", "name": "Ann"}, {"email": "bo@example.com"}]
+    assert sent["arguments"]["duration_minutes"] == 30
+    assert out == {"ok": False, "pending_owner": True, "confirmation_id": "conf_1",
+                   "say": "That needs my owner's OK. It is waiting in the Windy Inbox."}
+    assert len(calls) == 1  # never retried, never approves itself
+    logged = " ".join(r.getMessage() for r in caplog.records)
+    assert "n_invitees=2 outcome=pending_owner" in logged
+    for private in ("ann@example.com", "bo@example.com", "Plan the party", "meet.example", "Ann"):
+        assert private not in logged
+
+
+def test_create_meeting_is_not_in_the_args_audit(calls):
+    cap = _cap("windy_calendar.create_meeting")
+    assert cap.tier == Tier.EXTERNAL_EFFECT and cap.band_required == Band.TRUSTED
+    assert cap.audit_required is False  # the generic audit row would store invitee addresses
+
+
+def test_create_meeting_schema_matches_the_contract_limits(calls):
+    props = _cap("windy_calendar.create_meeting").input_schema["properties"]
+    assert props["duration_minutes"]["minimum"] == 15 and props["duration_minutes"]["maximum"] == 240
+    assert props["invitees"]["minItems"] == 1 and props["invitees"]["maxItems"] == 10
