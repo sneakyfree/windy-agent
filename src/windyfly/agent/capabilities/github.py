@@ -514,6 +514,10 @@ def register_github_capabilities(
         logger.info("github.* not registered: no GITHUB_PAT/GITHUB_TOKEN (register only when configured)")
         return
     gh_cfg = (config or {}).get("capabilities", {}).get("github", {})
+    from windyfly.agent.capabilities.credential_check import answers
+    if not answers("github", f"{gh_cfg.get('base_url', _DEFAULT_BASE_URL).rstrip('/')}/user",
+                   os.environ.get("GITHUB_PAT") or os.environ.get("GITHUB_TOKEN") or ""):
+        return
     base_url: str = gh_cfg.get("base_url", _DEFAULT_BASE_URL)
     allowed_owners: list[str] | None = gh_cfg.get("allowed_owners") or None
     token: str | None = (

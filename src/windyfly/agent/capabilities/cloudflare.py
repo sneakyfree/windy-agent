@@ -560,6 +560,10 @@ def register_cloudflare_capabilities(
     if not token:
         logger.info("cloudflare.* not registered: no CLOUDFLARE_API_TOKEN (register only when configured)")
         return
+    from windyfly.agent.capabilities.credential_check import answers
+    # /zones (not /user/tokens/verify): account-owned tokens answer there too (10-10, Zero's token).
+    if not answers("cloudflare", f"{_BASE_URL}/zones?per_page=1", token):
+        return
     logger.info(
         "Registering cloudflare.* capabilities: configured=%s, base=%s",
         bool(token), _BASE_URL,
