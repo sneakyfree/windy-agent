@@ -20,6 +20,7 @@ ME = "@windyfly:chat.windychat.ai"
 def _owner(monkeypatch, tmp_path):
     monkeypatch.setenv("WINDY_OWNER_IDS", f"matrix:{OWNER}")
     monkeypatch.setenv("WINDY_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("WINDY_OWNER_BINDINGS_PATH", str(tmp_path / "owners.json"))  # never this machine's bindings
     monkeypatch.setenv("WINDY_INVITE_GATE", "1")
 
 
