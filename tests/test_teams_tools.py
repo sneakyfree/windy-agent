@@ -169,3 +169,132 @@ def test_unknown_membership_keeps_the_old_welcome(monkeypatch):
 
     monkeypatch.setattr("httpx.get", lambda url, **kw: (_ for _ in ()).throw(httpx.ConnectError("x")))
     assert teams.room_has_other_agent("!r:x", ME) is False
+
+
+# ── session-free pair rooms (team-tools.v1 1.3.0): a claim, createRoom as myself, step down, invite, confirm ──
+
+ME_MX = "@agent_et26-me00-0001:chat.example"
+OWNER_MX = "@owner:chat.example"
+CLAIM = {"create": True, "claim": "c-1", "expires_in": 60, "name": "Zero + Scout",
+         "invite": [SIB, OWNER_MX], "owner_mxid": OWNER_MX}
+LEVELS = {"users": {OWNER_MX: 100, ME_MX: 100}, "users_default": 0, "events_default": 0, "invite": 0}
+
+
+class _Server:
+    """Chat routes + the Matrix homeserver behind one fake httpx.request; records every call in order."""
+
+    def __init__(self, monkeypatch, chat, matrix=None):
+        self.calls, self.chat, self.matrix = [], list(chat), dict(matrix or {})
+        self.levels = {**LEVELS, "users": dict(LEVELS["users"])}
+        monkeypatch.setenv("MATRIX_BOT_USER", ME_MX)
+        monkeypatch.setattr("httpx.request", self)
+
+    def __call__(self, method, url, **kw):
+        self.calls.append((method, url, kw))
+        if "/_matrix/" not in url:
+            return self.chat.pop(0) if len(self.chat) > 1 else self.chat[0]
+        tail = url.split("/_matrix/client/v3/", 1)[1]
+        for key, resp in self.matrix.items():
+            if tail.endswith(key):
+                return resp
+        if tail == "createRoom":
+            return _resp(200, {"room_id": "!new:x"})
+        if tail.endswith("m.room.power_levels"):
+            if method == "PUT":
+                self.levels = kw["json"]
+            return _resp(200, self.levels if method == "GET" else {})
+        return _resp(200, {})
+
+    def matrix_calls(self):
+        return [(m, u.split("/_matrix/client/v3/", 1)[1], kw.get("json")) for m, u, kw in self.calls if "/_matrix/" in u]
+
+
+def test_claim_creates_steps_down_invites_confirms_then_posts(monkeypatch, _env):
+    srv = _Server(monkeypatch, [_resp(200, CLAIM), _resp(200, {"room_id": "!new:x", "created": True, "partner_joined": True})])
+    out = teams.message_agent("Scout", "hello")
+    assert out == {"ok": True, "to": "Scout"}
+    mx = srv.matrix_calls()
+    assert mx[0] == ("POST", "createRoom", {
+        "name": "Zero + Scout", "preset": "private_chat", "creation_content": {"ai.windy.pair_claim": "c-1"},
+        "power_level_content_override": {"users": {OWNER_MX: 100, ME_MX: 100}}})  # no invite list, no encryption
+    assert [c[:2] for c in mx[1:]] == [("GET", "rooms/!new:x/state/m.room.power_levels"),
+                                       ("PUT", "rooms/!new:x/state/m.room.power_levels"),
+                                       ("POST", "rooms/!new:x/invite"), ("POST", "rooms/!new:x/invite")]
+    assert srv.levels["users"] == {OWNER_MX: 100}  # I stepped down: the owner alone is in charge
+    assert [c[2] for c in mx[3:]] == [{"user_id": SIB}, {"user_id": OWNER_MX}]  # partner, then owner, AFTER the levels
+    auth = [kw["headers"]["Authorization"] for m, u, kw in srv.calls if "/_matrix/" in u]
+    assert set(auth) == {"Bearer tok"}  # MY token, nobody's session
+    confirm = [c for c in srv.calls if c[1].endswith("/pair-room/confirm")][0]
+    assert confirm[2]["json"] == {"claim": "c-1", "room_id": "!new:x"}
+    assert srv.calls.index(confirm) > max(i for i, c in enumerate(srv.calls) if "/invite" in c[1])  # confirm last
+    assert _env == [("hello", "!new:x")]
+
+
+def test_partner_not_joined_is_said_plainly(monkeypatch, _env):
+    _Server(monkeypatch, [_resp(200, CLAIM), _resp(200, {"room_id": "!new:x", "created": True, "partner_joined": False})])
+    out = teams.message_agent("Scout", "hello")
+    assert out == {"ok": True, "to": "Scout", "note": "Scout has not joined the room yet; your message is there for them"}
+
+
+def test_existing_room_with_partner_not_joined_carries_the_note(monkeypatch, _env):
+    _route(monkeypatch, _resp(200, {"ok": True, "room_id": "!r:x", "created": False, "partner_joined": False}))
+    monkeypatch.setattr("httpx.post", lambda url, **kw: _resp(200, {}))
+    assert teams.message_agent("Scout", "hi")["note"].startswith("Scout has not joined")
+
+
+def test_confirm_5xx_then_retry_confirms_the_same_room_never_a_second(monkeypatch, _env):
+    srv = _Server(monkeypatch, [_resp(200, CLAIM), _resp(503, {})])
+    first = teams.message_agent("Scout", "hello")
+    assert first["ok"] is False and first["error"] == "unavailable" and _env == []
+    srv.chat = [_resp(200, CLAIM), _resp(200, {"room_id": "!new:x", "created": True, "partner_joined": True})]
+    assert teams.message_agent("Scout", "hello")["ok"] is True
+    assert [c[1] for c in srv.matrix_calls()].count("createRoom") == 1  # createRoom ran once
+    assert srv.levels["users"] == {OWNER_MX: 100}
+
+
+def test_half_made_room_is_finished_on_retry_not_remade(monkeypatch, _env):
+    srv = _Server(monkeypatch, [_resp(200, CLAIM)], {"invite": _resp(502, {})})
+    out = teams.message_agent("Scout", "hello")
+    assert out["ok"] is False and "could not invite" in out["detail"] and _env == []
+    assert not any(c[1].endswith("/pair-room/confirm") for c in srv.calls)  # never confirmed a half-made room
+    srv.matrix = {}
+    srv.chat = [_resp(200, CLAIM), _resp(200, {"room_id": "!new:x", "created": True, "partner_joined": True})]
+    assert teams.message_agent("Scout", "hello")["ok"] is True
+    mx = srv.matrix_calls()
+    assert [c[1] for c in mx].count("createRoom") == 1
+    assert [c[0] for c in mx if c[1].endswith("power_levels")].count("PUT") == 1  # already stepped down: no second PUT
+
+
+def test_already_invited_counts_as_invited(monkeypatch, _env):
+    _Server(monkeypatch, [_resp(200, CLAIM), _resp(200, {"room_id": "!new:x", "created": True, "partner_joined": True})],
+            {"invite": _resp(403, {"errcode": "M_FORBIDDEN", "error": "User is already invited"})})
+    assert teams.message_agent("Scout", "hello")["ok"] is True
+
+
+def test_confirm_refusal_drops_the_room_and_says_why(monkeypatch, _env):
+    _Server(monkeypatch, [_resp(200, CLAIM), _resp(403, {"error": "room_check_failed", "reason": "power_levels"})])
+    out = teams.message_agent("Scout", "hello")
+    assert out["error"] == "unavailable" and "power_levels" in out["detail"] and _env == []
+    assert teams._created_for_claim == {}
+
+
+@pytest.mark.parametrize("err,words", [("not_siblings_yet", "isn't registered"), ("agent_revoked", "no longer active"),
+                                       ("claim_in_use", "being set up")])
+def test_claim_refusals_are_plain_facts(monkeypatch, _env, err, words):
+    _route(monkeypatch, _resp(403, {"error": err, "retry": False}))
+    out = teams.message_agent("Scout", "hi")
+    assert out["ok"] is False and words in out["detail"] and _env == []
+
+
+def test_create_room_rate_limited_is_said_plainly(monkeypatch, _env):
+    _Server(monkeypatch, [_resp(200, CLAIM)], {"createRoom": _resp(429, {"errcode": "M_LIMIT_EXCEEDED", "retry_after_ms": 4200})})
+    out = teams.message_agent("Scout", "hi")
+    assert out["error"] == "unavailable" and "rate-limiting" in out["detail"] and "4 s" in out["detail"]
+    assert teams._created_for_claim == {} and _env == []
+
+
+def test_claim_without_matrix_config_cannot_pretend(monkeypatch, _env):
+    _Server(monkeypatch, [_resp(200, CLAIM)])
+    monkeypatch.delenv("MATRIX_BOT_USER")
+    out = teams.message_agent("Scout", "hi")
+    assert out["ok"] is False and "not configured" in out["detail"] and _env == []
