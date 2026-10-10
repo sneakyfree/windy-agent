@@ -165,7 +165,7 @@ def _confirm(claim: str, room_id: str) -> dict[str, Any]:
         _created_for_claim.pop(claim, None)
         return {"room_id": str(data["room_id"]), "partner_joined": data.get("partner_joined") is not False}
     if status >= 500 or status == 429:
-        return _unavailable("Windy Chat could not check the new room; try again.")
+        return _unavailable("Windy Chat could not check the new room.")
     _created_for_claim.pop(claim, None)  # definitive: the next try gets a fresh claim
     reason = str(data.get("reason") or data.get("error") or status)[:60]
     return _unavailable(f"Windy Chat refused the new room ({reason}).")
