@@ -1833,26 +1833,16 @@ def _register_all():
     _r("skills", "List skills (promoted by default, 'skills all' for all)", "07_skills", cmd_skills,
         usage="skills [all]")
 
-    async def cmd_skills_run(ctx):
-        args = ctx.get("_args", [])
-        if not args:
-            return "Usage: /skills run <name>"
-        return f"SKILL_RUN:{args[0]}"
-    _r("skills-run", "Execute a skill manually", "07_skills", cmd_skills_run, usage="skills-run <name>")
-
-    async def cmd_skills_eval(ctx):
-        args = ctx.get("_args", [])
-        if not args:
-            return "Usage: /skills eval <name>"
-        return f"SKILL_EVAL:{args[0]}"
-    _r("skills-eval", "Run evaluation gates on a skill", "07_skills", cmd_skills_eval, usage="skills-eval <name>")
+    # skills-run / skills-eval / skills-test were removed 2026-10-10 with
+    # executable skills: skills are text playbooks the agent reads, and
+    # nothing runs or "evaluates" them.
 
     async def cmd_skills_promote(ctx):
         args = ctx.get("_args", [])
         if not args:
             return "Usage: /skills promote <name>"
         return f"SKILL_PROMOTE:{args[0]}"
-    _r("skills-promote", "Promote a skill after passing gates", "07_skills", cmd_skills_promote,
+    _r("skills-promote", "Promote a playbook skill into the agent's index", "07_skills", cmd_skills_promote,
        usage="skills-promote <name>")
 
     async def cmd_skills_rollback(ctx):
@@ -1862,10 +1852,6 @@ def _register_all():
         return f"SKILL_ROLLBACK:{args[0]}"
     _r("skills-rollback", "Rollback to previous skill version", "07_skills", cmd_skills_rollback,
        usage="skills-rollback <name>")
-
-    async def cmd_skills_test(ctx):
-        return "SKILL_REGRESSION_TEST"
-    _r("skills-test", "Run regression tests on all promoted skills", "07_skills", cmd_skills_test)
 
     async def cmd_skills_create(ctx):
         args = ctx.get("_args", [])

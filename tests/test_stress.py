@@ -219,7 +219,7 @@ class TestResilience:
             ("sliders.set", {}),          # Missing required params
             ("sliders.set", {"name": "", "value": 5}),  # Empty name
             ("memory.search", {}),         # Missing query
-            ("skills.evaluate", {}),       # Missing skill_id
+            ("skills.promote", {}),        # Missing skill_id
         ]
 
         for method, params in malformed_cases:
@@ -242,7 +242,6 @@ class TestResilience:
             "personality.snapshot",
             "personality.rollback",
             "skills.create",
-            "skills.regression",
             "decay.run",
         ]
 
@@ -276,16 +275,16 @@ class TestResilience:
 
 
 class TestSkillsPipelineStress:
-    def test_50_skills_create_evaluate(self):
-        """H4.5 (skills): 50 skill creates + evaluations — no DB corruption."""
+    def test_50_skills_create_promote(self):
+        """H4.5 (skills): 50 playbook creates + promotes — no DB corruption."""
         bridge, db, _ = _make_bridge()
         skill_ids = []
 
         for i in range(50):
             result = _run(bridge._dispatch("skills.create", {
                 "name": f"stress_skill_{i}",
-                "code": f"x = {i} + 1",
-                "language": "python",
+                "code": f"Step 1: say {i}. Step 2: stop.",
+                "language": "playbook",
             }))
             skill_ids.append(result["skill_id"])
 
@@ -293,9 +292,11 @@ class TestSkillsPipelineStress:
         list_result = _run(bridge._dispatch("skills.list", {"promoted_only": False}))
         assert len(list_result["skills"]) == 50
 
-        # Evaluate first 10
+        # Promote first 10
         for sid in skill_ids[:10]:
-            result = _run(bridge._dispatch("skills.evaluate", {"skill_id": sid}))
-            assert "evaluation" in result
+            result = _run(bridge._dispatch("skills.promote", {"skill_id": sid}))
+            assert result["promoted"] is True
+        promoted = _run(bridge._dispatch("skills.list", {"promoted_only": True}))
+        assert len(promoted["skills"]) == 10
 
         db.close()

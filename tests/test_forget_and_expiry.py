@@ -73,7 +73,7 @@ def db():
 
 
 def test_demote_skill_clears_promoted(db):
-    sid = save_skill(db, "correction-foo", "code", "python")
+    sid = save_skill(db, "correction-foo", "code", "playbook")
     promote_skill(db, sid)
     assert demote_skill(db, sid) is True
     row = db.fetchone("SELECT promoted FROM skills WHERE id = ?", (sid,))
@@ -85,9 +85,9 @@ def test_demote_skill_missing_returns_false(db):
 
 
 def test_demote_skill_by_name_substring(db):
-    s1 = save_skill(db, "correction-factual_error", "code", "python")
-    s2 = save_skill(db, "correction-factual_error", "code", "python")
-    s3 = save_skill(db, "other-skill", "code", "python")
+    s1 = save_skill(db, "correction-factual_error", "code", "playbook")
+    s2 = save_skill(db, "correction-factual_error", "code", "playbook")
+    s3 = save_skill(db, "other-skill", "code", "playbook")
     for s in (s1, s2, s3):
         promote_skill(db, s)
     # Substring match — should demote both factual_error skills
@@ -99,7 +99,7 @@ def test_demote_skill_by_name_substring(db):
 
 
 def test_demote_skill_by_name_case_insensitive(db):
-    sid = save_skill(db, "correction-PreferenceMiss", "code", "python")
+    sid = save_skill(db, "correction-PreferenceMiss", "code", "playbook")
     promote_skill(db, sid)
     demoted = demote_skill_by_name(db, "preferencemiss")
     assert len(demoted) == 1
@@ -112,7 +112,7 @@ def test_demote_skill_by_name_no_match(db):
 def test_demote_skill_by_name_empty_arg_no_op(db):
     """An empty substring would LIKE-match everything — defend
     against accidental wipe via empty user input."""
-    sid = save_skill(db, "correction-foo", "code", "python")
+    sid = save_skill(db, "correction-foo", "code", "playbook")
     promote_skill(db, sid)
     assert demote_skill_by_name(db, "") == []
     assert demote_skill_by_name(db, "   ") == []
@@ -125,7 +125,7 @@ def test_demote_skill_by_name_empty_arg_no_op(db):
 
 
 def test_expire_stale_correction_skills_demotes_old(db):
-    sid = save_skill(db, "correction-old", "code", "python")
+    sid = save_skill(db, "correction-old", "code", "playbook")
     promote_skill(db, sid)
     # Backdate last_used to 60 days ago
     db.execute(
@@ -140,7 +140,7 @@ def test_expire_stale_correction_skills_demotes_old(db):
 
 
 def test_expire_skips_recent_skills(db):
-    sid = save_skill(db, "correction-recent", "code", "python")
+    sid = save_skill(db, "correction-recent", "code", "playbook")
     promote_skill(db, sid)
     # last_used is now (just promoted)
     n = expire_stale_correction_skills(db, max_age_days=30)
@@ -152,7 +152,7 @@ def test_expire_skips_recent_skills(db):
 def test_expire_skips_non_correction_skills(db):
     """Other promoted skills should NOT be touched by the
     correction-only expiry pass."""
-    sid = save_skill(db, "my-other-skill", "code", "python")
+    sid = save_skill(db, "my-other-skill", "code", "playbook")
     promote_skill(db, sid)
     db.execute(
         "UPDATE skills SET last_used = datetime('now', '-60 days') WHERE id = ?",
@@ -169,7 +169,7 @@ def test_expire_handles_null_last_used(db):
     """A correction skill with NULL last_used (never used since
     promotion — shouldn't actually happen with the auto-promote
     pattern, but defensive) should fall back to created_at."""
-    sid = save_skill(db, "correction-null-last", "code", "python")
+    sid = save_skill(db, "correction-null-last", "code", "playbook")
     db.execute("UPDATE skills SET promoted = TRUE, last_used = NULL WHERE id = ?", (sid,))
     db.execute(
         "UPDATE skills SET created_at = datetime('now', '-60 days') WHERE id = ?",
@@ -183,13 +183,13 @@ def test_expire_handles_null_last_used(db):
 def test_get_active_correction_skills_triggers_expiry(db):
     """The read path calls expiry lazily — verify it actually
     happens on `get_active_correction_skills`."""
-    sid_old = save_skill(db, "correction-stale", "code", "python")
+    sid_old = save_skill(db, "correction-stale", "code", "playbook")
     promote_skill(db, sid_old)
     db.execute(
         "UPDATE skills SET last_used = datetime('now', '-60 days') WHERE id = ?",
         (sid_old,),
     )
-    sid_new = save_skill(db, "correction-fresh", "code", "python")
+    sid_new = save_skill(db, "correction-fresh", "code", "playbook")
     promote_skill(db, sid_new)
     db.commit()
 

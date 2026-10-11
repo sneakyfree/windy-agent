@@ -39,6 +39,15 @@
   not a secure erase: SSDs can keep old blocks. If you never start the
   gateway again, the file is safe to delete by hand.
 
+- **Executable skills removed; skills are text playbooks only.** Why: the
+  skill "sandbox" was a plain subprocess with full disk, network and (for JS)
+  the agent's secrets, and its safety check ran after the code. Now: skills are
+  text playbooks the agent reads; code runs only through the agent's tools
+  (e.g. `shell.exec` in its sandbox) under the owner's trust settings. Gone: the
+  evaluate / golden-test / regression runners and their bridge methods, API
+  routes, dashboard button and `skills-run/eval/test` commands; any skill
+  language other than `playbook` is refused; old code rows stay inert text.
+
 ## 0.7.6
 
 - **The agent tells Eternitas which machine it lives on (housing report, ON).**

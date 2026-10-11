@@ -8,6 +8,18 @@ from __future__ import annotations
 
 from typing import Any
 
+#: Imported skill formats that are prose a person or agent reads. These are
+#: stored as text playbooks; anything else (python, js, shell, unknown) is
+#: code and is skipped, because skills are never executed.
+TEXT_SKILL_FORMATS: frozenset[str] = frozenset(
+    {"playbook", "markdown", "md", "text", "txt"}
+)
+
+
+def is_text_skill(skill: dict[str, Any]) -> bool:
+    """True if an imported skill is prose we can keep as a text playbook."""
+    return str(skill.get("language") or "").lower() in TEXT_SKILL_FORMATS
+
 
 def format_soul_preview(parsed_data: dict[str, Any]) -> str:
     """Format a human-readable soul preview from parsed import data.
@@ -56,7 +68,17 @@ def format_soul_preview(parsed_data: dict[str, Any]) -> str:
     lines.append(f"  ✅ Safe (auto-import): {len(safe)} preferences, facts, topics")
     lines.append(f"  ⚠️  Sensitive (needs review): {len(sensitive)} beliefs, identity facts")
     if skills:
-        lines.append(f"  🔒 Executable (sandbox required): {len(skills)} skill(s)")
+        text_skills = [sk for sk in skills if is_text_skill(sk)]
+        code_skills = len(skills) - len(text_skills)
+        lines.append(
+            f"  📘 Skills: {len(text_skills)} text playbook(s) (imported "
+            "unpromoted; read, never run)"
+        )
+        if code_skills:
+            lines.append(
+                f"  ⛔ Code skills skipped: {code_skills} (Windy Fly never "
+                "runs skill code)"
+            )
     lines.append("")
 
     # Confidence notice

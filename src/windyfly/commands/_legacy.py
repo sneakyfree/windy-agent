@@ -1930,19 +1930,13 @@ def _memory_clear(confirm: bool) -> None:
 
 
 def cmd_skills(args: argparse.Namespace) -> None:
-    """Skill management — list promoted, all, run, eval."""
+    """Skill management: list promoted or all (text playbooks; never run)."""
     action = getattr(args, "action", None)
 
     if action is None:
         _skills_list(promoted_only=True)
     elif action == "all":
         _skills_list(promoted_only=False)
-    elif action == "run":
-        skill_name = getattr(args, "skill_name", "")
-        _skills_run(skill_name)
-    elif action == "eval":
-        skill_name = getattr(args, "skill_name", "")
-        _skills_eval(skill_name)
 
 
 def _skills_list(promoted_only: bool = True) -> None:
@@ -1986,26 +1980,6 @@ def _skills_list(promoted_only: bool = True) -> None:
         table.add_row(str(name), str(desc or ""), prom_icon, str(created or ""))
 
     console.print(table)
-
-
-def _skills_run(skill_name: str) -> None:
-    """Run a skill by name."""
-    if not skill_name:
-        console.print("[red]Usage: windy skills run <skill-name>[/red]")
-        return
-
-    console.print("  [yellow]Skill execution not yet implemented.[/yellow]")
-    console.print(f"  [dim]Skill: {skill_name}[/dim]")
-
-
-def _skills_eval(skill_name: str) -> None:
-    """Evaluate a skill through the 3-gate process."""
-    if not skill_name:
-        console.print("[red]Usage: windy skills eval <skill-name>[/red]")
-        return
-
-    console.print("  [yellow]Skill evaluation (3-gate) not yet implemented.[/yellow]")
-    console.print(f"  [dim]Skill: {skill_name}[/dim]")
 
 
 # ═══════════════════════════════════════════════════════════════════════

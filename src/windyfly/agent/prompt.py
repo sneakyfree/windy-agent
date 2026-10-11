@@ -663,12 +663,13 @@ def assemble_prompt(
         # skill.view. Never inline the library (the Hermes token-economy
         # lesson: a ~3k-token index beats a 100k-token dump).
         try:
-            from windyfly.memory.skills import list_skills
+            from windyfly.memory.skills import is_correction_row, list_skills
             from windyfly.skills import drops as _drops
             drops_on = _drops.enabled()
             playbooks = [
                 s for s in list_skills(db, promoted_only=True)
                 if s.get("language") == "playbook"
+                and not is_correction_row(s)  # injected separately as lessons
                 and (drops_on or not _drops.is_drop_row(s))
             ][:12]
             if playbooks:

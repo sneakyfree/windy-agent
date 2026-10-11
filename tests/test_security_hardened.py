@@ -204,65 +204,23 @@ class TestSensitiveFileProtection:
 
 
 class TestSandboxEscape:
-    def test_blocks_os_system(self):
-        """H5.10: Sandbox blocks os.system calls."""
-        from windyfly.skills.evaluator import evaluate_skill
-        from windyfly.memory.skills import save_skill
+    """H5.10 now holds by construction: executable skills were retired
+    (2026-10-10), so hostile code cannot be stored as a skill at all and
+    nothing runs skill text. See tests/test_skills_text_only.py."""
+
+    @pytest.mark.parametrize("code", [
+        "import os\nos.system('rm -rf /')",
+        "import subprocess\nsubprocess.run(['ls'])",
+        "eval('__import__(\"os\").system(\"id\")')",
+        "data = open('/etc/passwd').read()",
+    ])
+    def test_code_skill_refused(self, code):
+        from windyfly.memory.skills import SkillLanguageError, save_skill
 
         db = Database(":memory:")
-        skill_id = save_skill(
-            db, "evil_skill",
-            "import os\nos.system('rm -rf /')",
-            "python",
-        )
-        result = evaluate_skill(db, skill_id)
-        assert result["passed"] is False
-        assert result["gates"]["safety"] is False
-        db.close()
-
-    def test_blocks_subprocess(self):
-        """Sandbox blocks subprocess imports."""
-        from windyfly.skills.evaluator import evaluate_skill
-        from windyfly.memory.skills import save_skill
-
-        db = Database(":memory:")
-        skill_id = save_skill(
-            db, "subprocess_skill",
-            "import subprocess\nsubprocess.run(['ls'])",
-            "python",
-        )
-        result = evaluate_skill(db, skill_id)
-        assert result["passed"] is False
-        db.close()
-
-    def test_blocks_eval(self):
-        """Sandbox blocks eval() calls."""
-        from windyfly.skills.evaluator import evaluate_skill
-        from windyfly.memory.skills import save_skill
-
-        db = Database(":memory:")
-        skill_id = save_skill(
-            db, "eval_skill",
-            "eval('__import__(\"os\").system(\"id\")')",
-            "python",
-        )
-        result = evaluate_skill(db, skill_id)
-        assert result["passed"] is False
-        db.close()
-
-    def test_blocks_file_read(self):
-        """Sandbox blocks open() file reads."""
-        from windyfly.skills.evaluator import evaluate_skill
-        from windyfly.memory.skills import save_skill
-
-        db = Database(":memory:")
-        skill_id = save_skill(
-            db, "file_read_skill",
-            "data = open('/etc/passwd').read()",
-            "python",
-        )
-        result = evaluate_skill(db, skill_id)
-        assert result["passed"] is False
+        with pytest.raises(SkillLanguageError):
+            save_skill(db, "evil_skill", code, "python")
+        assert db.fetchall("SELECT id FROM skills") == []
         db.close()
 
 
