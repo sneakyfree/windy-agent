@@ -100,7 +100,6 @@ class TestMatrixBotLogin:
         whoami = MagicMock()
         whoami.user_id = "@agent_et26-t11v-npd1:chat.windychat.ai"
         bot.client.whoami = AsyncMock(return_value=whoami)
-        bot._setup_encryption = AsyncMock()
 
         await bot.login()
 
@@ -117,7 +116,6 @@ class TestMatrixBotLogin:
         wq = WriteQueue()
         bot = WindyFlyMatrixBot(_make_config(), db, wq)
         bot.client.whoami = AsyncMock(side_effect=RuntimeError("network down"))
-        bot._setup_encryption = AsyncMock()
         await bot.login()  # must not raise
         assert bot.bot_user_id == "@windyfly:chat.windychat.ai"  # unchanged
         db.close()
@@ -364,7 +362,6 @@ class TestMatrixBotGracefulShutdown:
         # Stub login + the reconnect-loop preamble so start() reaches sync.
         bot.login = AsyncMock()
         bot._flush_pending = AsyncMock()
-        bot._auto_trust_devices = AsyncMock()
         bot._replay_offline_queue = AsyncMock()
 
         # sync_forever blocks forever until cancelled — the real behavior.
@@ -427,4 +424,62 @@ class TestMatrixCredentialsError:
         os.environ.pop("MATRIX_BOT_PASSWORD", None)
         with pytest.raises(MatrixCredentialsError):
             await bot.login()
+        db.close()
+
+
+_NO_SESSION = "windyfly.chat_session.fetch_agent_chat_session"
+
+
+class TestNoEndToEndEncryption:
+    """Windy Fly has no Matrix end-to-end encryption (no olm in the build).
+    It must say so plainly instead of pretending to request keys."""
+
+    @pytest.mark.asyncio
+    async def test_encrypted_message_logs_one_honest_line(self, caplog):
+        db = Database(":memory:")
+        bot = WindyFlyMatrixBot(_make_config(), db, WriteQueue())
+        bot.client = MagicMock()
+        bot.client.room_send = AsyncMock()
+        room = MagicMock()
+        room.room_id = "!enc:chat.windychat.ai"
+        event = MagicMock()
+        event.sender = "@owner:chat.windychat.ai"
+        with caplog.at_level("WARNING", logger="windyfly.channels.matrix_bot"):
+            await bot._on_encrypted_event(room, event)
+        lines = [r.getMessage() for r in caplog.records]
+        assert len(lines) == 1
+        assert "message in an encrypted room cannot be read" in lines[0]
+        assert "no end-to-end encryption" in lines[0]
+        bot.client.request_room_key.assert_not_called()
+        bot.client.room_send.assert_not_awaited()
+        db.close()
+
+    def test_no_e2e_machinery_left(self):
+        for name in ("_setup_encryption", "_auto_trust_devices", "_on_key_verification"):
+            assert not hasattr(WindyFlyMatrixBot, name)
+
+    def test_old_config_with_store_path_and_bot_user_still_loads(self):
+        config = _make_config()
+        config["matrix"]["store_path"] = "data/matrix_store_old"
+        db = Database(":memory:")
+        bot = WindyFlyMatrixBot(config, db, WriteQueue())
+        assert bot.bot_user_id == "@windyfly:chat.windychat.ai"  # a hint until login
+        db.close()
+
+
+class TestPasswordLoginNeedsAUser:
+    @pytest.mark.asyncio
+    @patch.dict("os.environ", {"MATRIX_BOT_PASSWORD": "pw"}, clear=True)
+    @patch(_NO_SESSION, new_callable=AsyncMock, return_value=None)
+    async def test_password_without_user_is_a_clear_error(self, _sess):
+        from windyfly.channels.matrix_bot import MatrixCredentialsError
+
+        config = _make_config()
+        del config["matrix"]["bot_user"]
+        db = Database(":memory:")
+        bot = WindyFlyMatrixBot(config, db, WriteQueue())
+        bot.client.login = AsyncMock()
+        with pytest.raises(MatrixCredentialsError, match="MATRIX_BOT_USER"):
+            await bot.login()
+        bot.client.login.assert_not_awaited()
         db.close()

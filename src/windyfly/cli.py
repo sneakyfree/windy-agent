@@ -1083,7 +1083,7 @@ def _cmd_channels(_args: argparse.Namespace) -> None:
 
     channels = [
         ("CLI", None, None, "Always on"),
-        ("Matrix", "MATRIX_BOT_TOKEN", "MATRIX_BOT_PASSWORD", "@windyfly:chat.windychat.ai"),
+        ("Matrix", "MATRIX_BOT_TOKEN", "MATRIX_BOT_PASSWORD", "own @agent_<passport> id"),
         ("Telegram", "TELEGRAM_BOT_TOKEN", None, "@BotFather token"),
         ("Discord", "DISCORD_BOT_TOKEN", None, "discord.com/developers"),
         ("Slack", "SLACK_BOT_TOKEN", "SLACK_APP_TOKEN", "api.slack.com/apps"),

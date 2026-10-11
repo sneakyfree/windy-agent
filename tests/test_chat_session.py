@@ -83,7 +83,6 @@ class TestMatrixBotOneSoulLogin:
         bot.bot_user_id = "@windyfly:chat.windychat.ai"
         bot.client = MagicMock()
         bot._hatch_dm_room_id = None
-        bot._setup_encryption = AsyncMock()
         return bot
 
     def test_login_adopts_minted_identity_and_device(self):
@@ -103,7 +102,6 @@ class TestMatrixBotOneSoulLogin:
         assert bot.client.access_token == "syt_minted"
         assert bot.client.device_id == "FLYDEV9"  # not "WindyFlyAgent"
         assert bot._hatch_dm_room_id == "!dm:chat.windychat.ai"
-        bot._setup_encryption.assert_awaited()
 
     def test_login_falls_back_to_legacy_token(self, monkeypatch):
         bot = self._bot()

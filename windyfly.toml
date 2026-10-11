@@ -30,7 +30,9 @@ warn_at_percent = 80
 
 [matrix]
 homeserver = "https://chat.windychat.ai"
-bot_user = "@windyfly:chat.windychat.ai"
+# No bot_user: each agent's Matrix id is its own @agent_<passport>, minted at
+# hatch from its passport and confirmed at login. Set bot_user only for a
+# self-hosted password login.
 
 [windy_api]
 base_url = "http://localhost:8098"

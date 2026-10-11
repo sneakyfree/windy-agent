@@ -114,8 +114,12 @@ cycle; priority-batched write queue; emotional context per episode.
 - `src/windyfly/memory/decay.py` — cognitive decay daemon
 - `src/windyfly/memory/write_queue.py` — async batched writes
 
-**Future:** activate sqlite-vec for semantic retrieval; cross-instance
-memory sync; memory provenance UI.
+**Recall today:** keyword + full-text search (SQLite FTS5, bm25). The
+opt-in `[semantic]` extra (`pip install windyfly[semantic]`) stores
+embeddings and blends a cosine score computed in Python; without it,
+recall is FTS5 only. No SQLite vector extension is used.
+
+**Future:** cross-instance memory sync; memory provenance UI.
 
 ### 2.4 Judgment Plane
 

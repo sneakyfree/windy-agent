@@ -1,8 +1,13 @@
 """Matrix/Synapse bot channel for Windy Fly.
 
-Connects to the Synapse homeserver as @windyfly:chat.windychat.ai,
-handles DMs (including E2E encrypted rooms), auto-accepts invites,
+Connects to the Windy Chat homeserver as the agent's OWN Matrix id
+(``@agent_<passport>``, minted at hatch from its Eternitas passport and
+confirmed via whoami at login), handles DMs, auto-accepts invites,
 shows typing indicators and presence.
+
+Windy Fly does not do Matrix end-to-end encryption: the default build
+has no olm, so messages in an encrypted room cannot be read. Such a
+message is logged once per event with a plain explanation.
 
 Production hardening:
   - Exponential backoff on sync failures (1s → 60s max)
@@ -20,7 +25,6 @@ import os
 import signal
 import time
 import uuid
-from pathlib import Path
 from typing import Any
 
 import nio
@@ -102,20 +106,16 @@ class WindyFlyMatrixBot(ChannelAdapter):
         # (MATRIX_HOMESERVER / MATRIX_BOT_USER); env wins over config.
         homeserver = (os.environ.get("MATRIX_HOMESERVER", "").strip()
                       or matrix_config.get("homeserver", "https://chat.windychat.ai"))
+        # Each agent's Matrix id is its own @agent_<passport>, learned at login
+        # (passport session or whoami). A configured bot_user is only a starting
+        # hint (still read so an old windyfly.toml keeps working) and is required
+        # only for the self-hosted password login.
         bot_user = (os.environ.get("MATRIX_BOT_USER", "").strip()
-                    or matrix_config.get("bot_user", "@windyfly:chat.windychat.ai"))
+                    or str(matrix_config.get("bot_user", "") or "").strip())
 
         self.bot_user_id = bot_user
 
-        # E2E encryption key store (G14)
-        store_path = matrix_config.get("store_path", "data/matrix_store")
-        Path(store_path).mkdir(parents=True, exist_ok=True)
-
-        self.client = nio.AsyncClient(
-            homeserver,
-            bot_user,
-            store_path=store_path,
-        )
+        self.client = nio.AsyncClient(homeserver, bot_user)
         self.client.device_id = "WindyFlyAgent"
 
         # Map room_id → session_id for session continuity per room
@@ -180,8 +180,8 @@ class WindyFlyMatrixBot(ChannelAdapter):
             self.client.user = self.bot_user_id
             self.client.user_id = self.bot_user_id
             self.client.access_token = session["access_token"]
-            # Use the minted device — a hardcoded id would desync the
-            # E2E store from the token's device and corrupt crypto state.
+            # Use the minted device: the token belongs to it, and a
+            # hardcoded id would not match the session Chat issued.
             if session.get("device_id"):
                 self.client.device_id = session["device_id"]
             if session.get("dm_room_id"):
@@ -190,7 +190,6 @@ class WindyFlyMatrixBot(ChannelAdapter):
                 "Windy Fly logged in as its own identity %s (one-soul)",
                 self.bot_user_id,
             )
-            await self._setup_encryption()
             return
 
         token = os.environ.get("MATRIX_BOT_TOKEN")
@@ -205,6 +204,12 @@ class WindyFlyMatrixBot(ChannelAdapter):
                 self._hatch_dm_room_id = os.environ["MATRIX_DM_ROOM_ID"]
             logger.info("Windy Fly logged in via token as %s", self.bot_user_id)
         elif password:
+            if not self.bot_user_id:
+                raise MatrixCredentialsError(
+                    "MATRIX_BOT_PASSWORD is set but no Matrix user id is: set "
+                    "MATRIX_BOT_USER (or [matrix] bot_user) to the account it "
+                    "belongs to."
+                )
             response = await self.client.login(password)
             if isinstance(response, nio.LoginError):
                 raise RuntimeError(f"Matrix login failed: {response.message}")
@@ -224,9 +229,6 @@ class WindyFlyMatrixBot(ChannelAdapter):
         # and never replied on Windy Chat (2026-07-06). Resolve the true
         # user id from the token and realign self-identity to it.
         await self._resolve_identity_from_token()
-
-        # Upload E2E encryption keys (G14)
-        await self._setup_encryption()
 
     async def _resolve_identity_from_token(self) -> None:
         """Correct self.bot_user_id to the access token's real owner.
@@ -272,51 +274,17 @@ class WindyFlyMatrixBot(ChannelAdapter):
                 return False
 
             logger.info("Re-login successful. New token acquired.")
-            await self._setup_encryption()
             return True
         except Exception as exc:
             logger.error("Re-login attempt failed: %s", exc)
             return False
-
-    async def _setup_encryption(self) -> None:
-        """Initialize E2E encryption: upload keys and auto-trust devices."""
-        try:
-            # Upload device keys to the homeserver
-            if self.client.should_upload_keys:
-                response = await self.client.keys_upload()
-                if isinstance(response, nio.KeysUploadError):
-                    logger.warning("Failed to upload E2E keys: %s", response.message)
-                else:
-                    logger.info("E2E encryption keys uploaded successfully")
-
-            # Auto-trust all devices from users we share rooms with
-            # This is appropriate for a bot — it trusts all senders
-            await self._auto_trust_devices()
-
-        except Exception as e:
-            logger.warning("E2E setup failed (non-fatal): %s", e)
-
-    async def _auto_trust_devices(self) -> None:
-        """Auto-trust all known devices (bot policy: trust everyone).
-
-        For a bot, this is the right policy — we want to read messages
-        from all devices without manual verification prompts.
-        """
-        try:
-            for user_id in self.client.device_store.users:
-                for device_id, olm_device in self.client.device_store[user_id].items():
-                    if not self.client.is_device_verified(olm_device):
-                        self.client.verify_device(olm_device)
-                        logger.debug("Auto-trusted device %s/%s", user_id, device_id)
-        except Exception as e:
-            logger.debug("Auto-trust scan: %s", e)
 
     async def _on_message(
         self,
         room: nio.MatrixRoom,
         event: nio.RoomMessageText,
     ) -> None:
-        """Handle incoming text messages (encrypted and unencrypted)."""
+        """Handle incoming text messages (unencrypted rooms; see _on_encrypted_event)."""
         # Ignore our own messages
         if event.sender == self.bot_user_id:
             return
@@ -532,34 +500,16 @@ class WindyFlyMatrixBot(ChannelAdapter):
         room: nio.MatrixRoom,
         event: nio.MegolmEvent,
     ) -> None:
-        """Handle encrypted messages we couldn't decrypt.
+        """A message arrived in an end-to-end encrypted room.
 
-        This fires when we receive a MegolmEvent that nio couldn't
-        auto-decrypt. We attempt to request the missing keys.
+        This build has no end-to-end encryption (no olm), so the message
+        cannot be read. Say so plainly in the log rather than pretend.
         """
         logger.warning(
-            "Couldn't decrypt message from %s in %s (session: %s). "
-            "Requesting keys...",
-            event.sender, room.room_id, event.session_id,
+            "message in an encrypted room cannot be read: this build has no "
+            "end-to-end encryption (room %s, sender %s)",
+            room.room_id, event.sender,
         )
-
-        try:
-            # Request missing encryption keys from the sender's device
-            await self.client.request_room_key(event)
-        except Exception as e:
-            logger.error("Key request failed: %s", e)
-
-    async def _on_key_verification(
-        self,
-        event: nio.KeyVerificationStart,
-    ) -> None:
-        """Auto-accept key verification requests (bot policy)."""
-        logger.info("Key verification request from %s", event.sender)
-        try:
-            await self.client.accept_key_verification(event.transaction_id)
-            await self.client.confirm_short_auth_string(event.transaction_id)
-        except Exception as e:
-            logger.debug("Key verification handling: %s", e)
 
     async def _on_invite(
         self,
@@ -609,9 +559,6 @@ class WindyFlyMatrixBot(ChannelAdapter):
                         "windy_lang": "en",
                     },
                 )
-
-            # Trust all devices in the new room
-            await self._auto_trust_devices()
 
         except Exception as e:
             logger.error("Failed to join room %s: %s", room_id, e)
@@ -964,7 +911,7 @@ class WindyFlyMatrixBot(ChannelAdapter):
         """Start the bot: login, register callbacks, sync forever with reconnection."""
         await self.login()
 
-        # Register event callbacks (including E2E encrypted events)
+        # Register event callbacks (encrypted events only get an honest log line)
         self.client.add_event_callback(self._on_message, nio.RoomMessageText)
         self.client.add_event_callback(self._on_invite, nio.InviteMemberEvent)
         self.client.add_event_callback(self._on_encrypted_event, nio.MegolmEvent)
@@ -1023,9 +970,6 @@ class WindyFlyMatrixBot(ChannelAdapter):
                 try:
                     # Flush pending responses on reconnect
                     await self._flush_pending()
-
-                    # Re-trust devices on reconnect
-                    await self._auto_trust_devices()
 
                     # Replay offline-queued messages on reconnect
                     await self._replay_offline_queue()

@@ -30,7 +30,8 @@ if IS_WINDY_FLY:
     BRAND_TAGLINE = "Your AI. Your Rules. Your Ecosystem."
     BRAND_CLI = "windy"
     BRAND_URL = "windyfly.ai"
-    BRAND_BOT_USER = "@windyfly:chat.windychat.ai"
+    # No shared bot id: each agent is its own @agent_<passport> (minted at hatch).
+    BRAND_BOT_USER = ""
     BRAND_HOMESERVER = "https://chat.windychat.ai"
     HAS_ECOSYSTEM = True
     HAS_MATRIX_AUTOPROVISION = True

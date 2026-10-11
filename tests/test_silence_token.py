@@ -172,7 +172,6 @@ async def test_welcome_is_not_posted_into_a_team_room(monkeypatch, flag, team_ro
     monkeypatch.setattr(teams, "room_has_other_agent", lambda room_id, me: team_room)
     bot = _bot()
     bot.client.join = AsyncMock()
-    bot._auto_trust_devices = AsyncMock()
     room = MagicMock()
     room.room_id = "!pair:chat.windychat.ai"
     ev = MagicMock()

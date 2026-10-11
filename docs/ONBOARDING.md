@@ -79,7 +79,7 @@ windy-agent/
 |---|---|---|
 | Language | Python 3.12+ | ML ecosystem, LLM libraries |
 | Package manager | uv | Fast, modern, production-ready |
-| Database | SQLite + sqlite-vec + FTS5 | One file, zero deps, offline-first |
+| Database | SQLite + FTS5 (optional `[semantic]` extra for embeddings) | One file, zero deps, offline-first |
 | Config format | TOML | Human-readable, no ambiguity |
 | Matrix client | matrix-nio | Python-native, production-grade |
 | Gateway (Phase 4) | Bun + TypeScript | Best async I/O + chat SDKs |
