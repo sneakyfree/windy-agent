@@ -159,12 +159,34 @@ def translate_text(
         return {"error": str(e)}
 
 
+_PROBE_TIMEOUT = 3.0
+
+
+def windy_pro_answers() -> bool:
+    """True only when this agent has a Windy Pro credential AND Windy Pro answers it (one GET, 3 s).
+
+    Same rule as every other integration since 10-10 (#490/#492): a tool is offered only when it can work.
+    No credential, no answer, 401/403 or any error = the tools are not registered this run.
+    """
+    if not os.environ.get("WINDY_JWT", "").strip():
+        return False
+    try:
+        resp = httpx.get(f"{_get_api_url()}/api/v1/user/history", params={"limit": 1},
+                         headers=_get_auth_headers(), timeout=_PROBE_TIMEOUT)
+    except httpx.HTTPError:
+        return False
+    return resp.status_code == 200
+
+
 def register_windy_tools(registry: ToolRegistry) -> None:
-    """Register all Windy Pro API tools with the tool registry.
+    """Register the Windy Pro API tools, only when Windy Pro answers this agent's credential.
 
     Args:
         registry: ToolRegistry instance to register tools with.
     """
+    if not windy_pro_answers():
+        logger.info("windy pro: tools not registered (no WINDY_JWT, or Windy Pro did not answer it)")
+        return
     registry.register(
         name="get_translation_history",
         description=(

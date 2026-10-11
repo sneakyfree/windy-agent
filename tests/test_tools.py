@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from windyfly.tools.registry import ToolRegistry
 from windyfly.tools.windy_api import (
     get_clone_status,
@@ -112,6 +114,12 @@ class TestToolRegistry:
 
 
 class TestWindyToolRegistration:
+    @pytest.fixture(autouse=True)
+    def _pro_answers(self, monkeypatch):
+        from windyfly.tools import windy_api
+
+        monkeypatch.setattr(windy_api, "windy_pro_answers", lambda: True)
+
     def test_registers_four_tools(self):
         registry = ToolRegistry()
         register_windy_tools(registry)
@@ -258,12 +266,14 @@ class TestWindyApiTools:
     def test_register_adds_to_registry(self, mock_get):
         """Verify tools are callable through the registry."""
         mock_response = MagicMock()
+        mock_response.status_code = 200  # Windy Pro answers the boot probe
         mock_response.json.return_value = {"translations": []}
         mock_response.raise_for_status = MagicMock()
         mock_get.return_value = mock_response
 
         registry = ToolRegistry()
-        register_windy_tools(registry)
+        with patch.dict("os.environ", {"WINDY_JWT": "jwt-test"}):
+            register_windy_tools(registry)
         result = registry.execute("get_translation_history", {"limit": 5})
         assert "translations" in result
 
@@ -278,3 +288,68 @@ class TestWindyApiTools:
         call_kwargs = mock_get.call_args
         params = call_kwargs.kwargs.get("params", call_kwargs[1].get("params", {}))
         assert params["limit"] == 3
+
+
+# === Windy Pro tools are offered only when they can work (10-10 rule) ===
+
+
+class TestWindyToolsOnlyWhenConfigured:
+    def test_no_credential_no_tools_and_no_network(self, monkeypatch):
+        from windyfly.tools import windy_api
+
+        monkeypatch.delenv("WINDY_JWT", raising=False)
+        called = []
+        monkeypatch.setattr(windy_api.httpx, "get", lambda *a, **k: called.append(1))
+        registry = ToolRegistry()
+        register_windy_tools(registry)
+        assert registry.tool_count == 0 and called == []
+
+    @pytest.mark.parametrize("status", [401, 403, 404, 500])
+    def test_credential_refused_no_tools(self, monkeypatch, status):
+        from unittest.mock import MagicMock
+
+        from windyfly.tools import windy_api
+
+        monkeypatch.setenv("WINDY_JWT", "jwt-test")
+        resp = MagicMock()
+        resp.status_code = status
+        monkeypatch.setattr(windy_api.httpx, "get", lambda *a, **k: resp)
+        registry = ToolRegistry()
+        register_windy_tools(registry)
+        assert registry.tool_count == 0
+
+    def test_unreachable_no_tools(self, monkeypatch):
+        import httpx as _httpx
+
+        from windyfly.tools import windy_api
+
+        monkeypatch.setenv("WINDY_JWT", "jwt-test")
+
+        def boom(*a, **k):
+            raise _httpx.ConnectError("refused")
+
+        monkeypatch.setattr(windy_api.httpx, "get", boom)
+        registry = ToolRegistry()
+        register_windy_tools(registry)
+        assert registry.tool_count == 0
+
+    def test_answering_pro_registers_four(self, monkeypatch):
+        from unittest.mock import MagicMock
+
+        from windyfly.tools import windy_api
+
+        monkeypatch.setenv("WINDY_JWT", "jwt-test")
+        seen = {}
+        resp = MagicMock()
+        resp.status_code = 200
+
+        def fake_get(url, **k):
+            seen["url"], seen["headers"] = url, k.get("headers")
+            return resp
+
+        monkeypatch.setattr(windy_api.httpx, "get", fake_get)
+        registry = ToolRegistry()
+        register_windy_tools(registry)
+        assert registry.tool_count == 4
+        assert seen["url"].endswith("/api/v1/user/history")
+        assert seen["headers"]["Authorization"] == "Bearer jwt-test"

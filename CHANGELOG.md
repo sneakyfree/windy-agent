@@ -119,6 +119,8 @@
   failed restore says so. Rollback changes only the personality sliders and
   puts back the exact value from that time.
 
+- **Windy Pro tools appear only when they can work.** The four Windy Pro tools (translation history, recordings, clone status, translate) register only when the agent has a Windy Pro credential (`WINDY_JWT`) and Windy Pro answers it at start. Before, they were always offered, pointed at `localhost:8098`, and failed when Windy Pro wasn't there. To use them: set `WINDY_JWT` (and `WINDY_API_URL` if Windy Pro is not on this machine) and restart.
+
 ## 0.7.6
 
 - **The agent tells Eternitas which machine it lives on (housing report, ON).**
