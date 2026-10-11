@@ -287,7 +287,7 @@ on themselves. If any "organ" comes back yellow or red, she
 emails me.
 
 **Q: Is this open source?**
-A: [Whatever Grant's actual answer is here. Not for me to fill.]
+A: No. Windy Fly is proprietary: Copyright 2026 Windstorm Labs LLC, all rights reserved.
 
 ---
 

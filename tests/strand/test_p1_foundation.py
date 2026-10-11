@@ -38,6 +38,18 @@ def test_p1_1_part_of_the_windy_ecosystem():
     assert branding.BRAND_HOMESERVER == "https://chat.windychat.ai"
 
 
+NOTICE = "Copyright 2026 Windstorm Labs LLC, all rights reserved."
+
+
+def test_p1_1_licence_is_proprietary():
+    assert tracked("LICENSE") and (ROOT / "LICENSE").read_text(encoding="utf-8").strip() == NOTICE
+    assert NOTICE in PYPROJECT["project"]["license"]["text"]
+    assert "License :: Other/Proprietary License" in PYPROJECT["project"]["classifiers"]
+    assert not [c for c in PYPROJECT["project"]["classifiers"]
+                if c.startswith("License ::") and "Proprietary" not in c]
+    assert NOTICE in (ROOT / "README.md").read_text(encoding="utf-8")       # the PyPI page
+
+
 def test_p1_1_python_312_or_newer():
     spec = PYPROJECT["project"]["requires-python"]
     assert re.fullmatch(r">=\s*3\.(1[2-9]|[2-9]\d)", spec), spec

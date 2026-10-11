@@ -302,7 +302,7 @@ uv build
 
 ## License
 
-Proprietary — (C) 2026 WindyLabs. All rights reserved.
+Proprietary. Copyright 2026 Windstorm Labs LLC, all rights reserved. See [LICENSE](LICENSE).
 
 ---
 
