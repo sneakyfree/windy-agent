@@ -1840,18 +1840,16 @@ def _register_all():
         if not _db:
             return "Database not available."
         try:
-            from windyfly.memory.skills import get_promoted_skills, get_all_skills
-            if args and args[0] == "all":
-                skills = get_all_skills(_db)
-            else:
-                skills = get_promoted_skills(_db)
+            from windyfly.memory.skills import list_skills
+            show_all = bool(args and args[0] == "all")
+            skills = list_skills(_db, promoted_only=not show_all)
             if not skills:
                 return "No skills found."
-            label = "All" if args and args[0] == "all" else "Promoted"
+            label = "All" if show_all else "Promoted"
             lines = [f"{label} skills:\n"]
             for s in skills:
                 status = "✓" if s.get("promoted") else "○"
-                lines.append(f"  {status} {s.get('name','?')} v{s.get('version',1)} — {s.get('description','')[:60]}")
+                lines.append(f"  {status} {s.get('name') or '?'} v{s.get('version') or 1} — {(s.get('description') or '')[:60]}")
             return "\n".join(lines)
         except Exception as e:
             return f"Error: {e}"
