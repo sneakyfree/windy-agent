@@ -22,8 +22,6 @@ Everything needed for a standalone, fully functional AI agent:
 - Skills engine (sandbox, eval, promote, golden tests)
 - Cost tracking + budget enforcement
 - Offline mode (Ollama fallback)
-- Sub-agent orchestration
-- Shape-shifting (temporary personality reconfiguration)
 - Cognitive decay + personality drift detection
 - "Never Wrong Twice" failure detection + correction skills
 

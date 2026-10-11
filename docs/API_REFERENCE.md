@@ -19,7 +19,6 @@
 - [Events & Observability](#events--observability)
 - [Channels (SMS, Email)](#channels)
 - [Soul Passport (Import/Export)](#soul-passport)
-- [Shape-Shifting](#shape-shifting)
 - [Providers (LLM Configuration)](#providers)
 - [Mission Control (Machines)](#mission-control-machines)
 - [Setup Wizard](#setup-wizard)
@@ -90,7 +89,7 @@ Comprehensive dashboard summary including memory, costs, failures, skills, inten
 
 ### `GET /api/sliders`
 
-Get all current slider values (18 sliders, 0–10 scale).
+Get all current slider values (17 sliders, 0–10 scale).
 
 **Response:**
 ```json
@@ -112,8 +111,7 @@ Get all current slider values (18 sliders, 0–10 scale).
     "emotional_sensitivity": 6,
     "memory_retention": 6,
     "warmth": 7,
-    "adaptive_mode": 8,
-    "shape_shift_bias": 8
+    "adaptive_mode": 8
   }
 }
 ```
@@ -540,8 +538,7 @@ List recent events with optional type filter.
 **Known event types:**
 `agent.respond`, `memory.write`, `skill.evaluate`, `cost.log`, `failure.detect`,
 `intent.surface`, `conflict.detect`, `decay.run`, `matrix.message`, `matrix.reconnect`,
-`personality.change`, `personality_drift`, `offline.fallback`, `sub_agent.spawn`,
-`shape_shift.enter`, `shape_shift.exit`, `shape_shift.tool`, `shape_shift.restore`,
+`personality.change`, `personality_drift`, `offline.fallback`,
 `sms.inbound`, `sms.outbound`, `sms.optout`, `email.inbound`, `email.outbound`
 
 **Response:**
@@ -679,45 +676,6 @@ Import a Soul Passport — parse and write to the knowledge graph.
   "stats": { "facts": 42, "preferences": 15 },
   "preview": "..."
 }
-```
-
----
-
-## Shape-Shifting
-
-### `POST /api/shape-shift`
-
-Shape-shift the agent into a specialist preset (in-place personality reconfiguration).
-
-**Request:**
-```json
-{ "preset": "coder" }
-```
-
-**Response:**
-```json
-{
-  "shifted_to": "coder",
-  "announcement": "🔧 Switching to engineer mode...",
-  "saved_sliders": { "humor": 7, "warmth": 9 },
-  "applied": { "humor": 0, "warmth": 1 }
-}
-```
-
-### `POST /api/shape-shift/restore`
-
-Restore sliders to their pre-shift values.
-
-**Request:**
-```json
-{
-  "sliders": { "humor": 7, "warmth": 9 }
-}
-```
-
-**Response:**
-```json
-{ "restored": true }
 ```
 
 ---

@@ -299,7 +299,7 @@ class TestSystemRoutes:
 
 
 # =============================================================================
-# H2.25–H2.28: Providers, Machines, Shape-Shift
+# H2.25–H2.26: Providers, Machines (H2.27–H2.28 shape-shift retired 2026-10-10)
 # =============================================================================
 
 
@@ -319,25 +319,6 @@ class TestProviderMachineRoutes:
         r = httpx.get(f"{GATEWAY_URL}/api/machines", timeout=5)
         assert r.status_code == 200
         assert isinstance(r.json()["machines"], list)
-
-    def test_shape_shift(self):
-        """H2.27: POST /api/shape-shift → accepts valid request."""
-        r = httpx.post(
-            f"{GATEWAY_URL}/api/shape-shift",
-            content=json.dumps({
-                "target_sliders": {"humor": 10, "formality": 0},
-                "reason": "Smoke test",
-            }),
-            headers={"Content-Type": "application/json"},
-            timeout=5,
-        )
-        # May succeed or fail depending on state, but shouldn't 500
-        assert r.status_code in (200, 400)
-
-    def test_shape_shift_restore(self):
-        """H2.28: POST /api/shape-shift/restore → restore works."""
-        r = httpx.post(f"{GATEWAY_URL}/api/shape-shift/restore", timeout=5)
-        assert r.status_code in (200, 400)  # 400 if nothing to restore
 
 
 # =============================================================================

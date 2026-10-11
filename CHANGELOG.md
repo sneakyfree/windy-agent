@@ -13,6 +13,18 @@
   whose ledger rows are all unpriced (local / Mind rows store no cost) made
   the whole summary fail; it now shows 0.0 for that type.
 
+- **Shape-shift and the old sub-agent module are retired.** Removed the
+  `shape_shift` / `shape_shift_restore` tools (already unregistered since the
+  10-10 tool trim), the bridge methods `shape_shift.execute` /
+  `shape_shift.restore`, the gateway routes `/api/shape-shift` and
+  `/api/shape-shift/restore`, the `shape_shift_bias` slider (from every preset
+  and the cost table), and the unused `agent/sub_agents.py`. Why: a smart model
+  changes its approach without a tool; the slider was read by nothing and
+  restore said "restored" while doing nothing. Instead: ask the agent directly
+  to work as a coder, writer, researcher and so on; the model adapts on its
+  own (named long-running helpers are still the collaborators). An old
+  `slider_shape_shift_bias` setting in an existing database is ignored.
+
 ## 0.7.6
 
 - **The agent tells Eternitas which machine it lives on (housing report, ON).**

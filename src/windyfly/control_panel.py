@@ -127,12 +127,6 @@ SLIDER_INFO: dict[str, dict[str, str]] = {
         "impact_low": "Manual: the tone sliders below shape how your agent talks.",
         "impact_high": "Raw (default): native model + soul + memory, no tone injection.",
     },
-    "shape_shift_bias": {
-        "label": "Shape-Shift Bias",
-        "description": "When specialist work is needed, controls whether the agent reconfigures itself (shape-shift) or spawns an isolated sub-agent.",
-        "impact_low": "Always spawns a separate sub-agent. Clean slate, zero memory bleed, but costs 2x tokens.",
-        "impact_high": "Always shape-shifts in place. Keeps all memory and context, half the token cost. Your best friend becomes the specialist.",
-    },
 }
 
 # ---------------------------------------------------------------------------
@@ -156,7 +150,6 @@ PRESETS: dict[str, dict[str, int]] = {
         "emotional_sensitivity": 6,
         "memory_retention": 6,
         "adaptive_mode": 8,
-        "shape_shift_bias": 8,
     },
     "engineer": {
         "personality": 3,
@@ -175,7 +168,6 @@ PRESETS: dict[str, dict[str, int]] = {
         "emotional_sensitivity": 2,
         "memory_retention": 7,
         "adaptive_mode": 2,
-        "shape_shift_bias": 4,
     },
     "powerhouse": {
         "personality": 9,
@@ -194,7 +186,6 @@ PRESETS: dict[str, dict[str, int]] = {
         "emotional_sensitivity": 7,
         "memory_retention": 9,
         "adaptive_mode": 7,
-        "shape_shift_bias": 7,
     },
     "coder": {
         "personality": 1,
@@ -213,7 +204,6 @@ PRESETS: dict[str, dict[str, int]] = {
         "emotional_sensitivity": 0,
         "memory_retention": 8,
         "adaptive_mode": 0,
-        "shape_shift_bias": 3,
     },
     "friend": {
         "personality": 10,
@@ -232,7 +222,6 @@ PRESETS: dict[str, dict[str, int]] = {
         "emotional_sensitivity": 10,
         "memory_retention": 9,
         "adaptive_mode": 10,
-        "shape_shift_bias": 10,
     },
     "writer": {
         "personality": 7,
@@ -251,7 +240,6 @@ PRESETS: dict[str, dict[str, int]] = {
         "emotional_sensitivity": 5,
         "memory_retention": 5,
         "adaptive_mode": 5,
-        "shape_shift_bias": 7,
     },
     "researcher": {
         "personality": 2,
@@ -270,7 +258,6 @@ PRESETS: dict[str, dict[str, int]] = {
         "emotional_sensitivity": 1,
         "memory_retention": 9,
         "adaptive_mode": 1,
-        "shape_shift_bias": 3,
     },
     "silent": {
         "personality": 1,
@@ -289,7 +276,6 @@ PRESETS: dict[str, dict[str, int]] = {
         "emotional_sensitivity": 1,
         "memory_retention": 3,
         "adaptive_mode": 0,
-        "shape_shift_bias": 5,
     },
 }
 
@@ -313,7 +299,6 @@ _COST_PER_POINT: dict[str, float] = {
     "emotional_sensitivity": 0.10,
     "memory_retention": 0.50,
     "adaptive_mode": 0.05,
-    "shape_shift_bias": 0.00,  # Strategy, not cost — shifts are free vs sub-agents
     # raw_mode (2026-07-18): a 0/1 toggle, not a 0-10 dial. 1 = "raw
     # model" — the agent runs on its native intuition + its soul +
     # memory, with NO slider-tuned tone directives injected. The honest
@@ -438,6 +423,10 @@ def get_sliders(
     Caught by ``scripts/marathon/sliders.py``, which sweeps every slider
     and diffs the assembled prompt: 16 of 19 produced byte-identical
     payloads across 0→10.
+
+    Only names in ``VALID_SLIDERS`` are read, so a leftover row for a
+    retired slider (e.g. ``slider_shape_shift_bias``, retired
+    2026-10-10) is ignored quietly.
 
     Args:
         db: Database instance.

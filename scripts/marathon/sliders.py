@@ -160,7 +160,6 @@ def main() -> int:
         "tool_reloop_rounds": "loop.py — max tool rounds",
         "emotional_sensitivity": "loop.py — emotional context detection",
         "memory_retention": "memory/decay.py — background decay job",
-        "shape_shift_bias": "agent/shape_shift.py",
         "adaptive_mode": "deprecated; also env-gated by "
                          "WINDY_ADAPTIVE_MODE_ENABLED=1 (correctly inert)",
     }

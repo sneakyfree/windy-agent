@@ -1,6 +1,7 @@
 """Collaborator capabilities — Wave 6 #1.
 
-Replaces the legacy depth-1 sub_agent (one-shot, no memory) with
+Replaces the legacy depth-1 sub_agent (one-shot, no memory; module
+removed 2026-10-10) with
 long-running named entities that persist across sessions and
 optionally see filtered slices of the parent's memory.
 

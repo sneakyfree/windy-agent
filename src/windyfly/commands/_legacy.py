@@ -1473,6 +1473,10 @@ def _soul_sliders() -> None:
 
     conn.close()
 
+    # Skip rows left behind by retired sliders (e.g. slider_shape_shift_bias).
+    from windyfly.control_panel import VALID_SLIDERS
+    rows = [(k, v) for k, v in rows if k[len("slider_"):] in VALID_SLIDERS]
+
     if not rows:
         console.print("[dim]No personality sliders configured.[/dim]")
         return

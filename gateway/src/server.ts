@@ -704,7 +704,7 @@ async function handleRequest(req: Request, server: import("bun").Server<any>): P
           "creativity", "memory_depth", "context_window", "proactivity",
           "autonomy", "verbosity", "response_length", "epistemic_strictness",
           "tool_reloop_rounds", "emotional_sensitivity", "memory_retention",
-          "warmth", "adaptive_mode", "shape_shift_bias",
+          "warmth", "adaptive_mode",
         ];
         for (const n of names) defaults[n] = 5;
         return Response.json({ sliders: defaults, _offline: true }, { headers });
@@ -755,7 +755,6 @@ async function handleRequest(req: Request, server: import("bun").Server<any>): P
           memory_retention: { label: "Memory Retention", description: "How long the agent holds onto old memories before they fade.", impact_low: "Goldfish 🐠 — aggressive forgetting, old facts decay fast.", impact_high: "Elephant 🐘 — never forgets. Old memories maintained indefinitely.", cost_per_point: 1.0 },
           warmth: { label: "Warmth", description: "How emotionally warm and supportive the agent is.", impact_low: "Clinical, detached. Facts only.", impact_high: "Warm, caring, empathetic. Like a close friend.", cost_per_point: 0.1 },
           adaptive_mode: { label: "Adaptive Mode", description: "When ON, the agent reads your mood and temporarily adjusts its personality.", impact_low: "Sliders stay exactly where you set them.", impact_high: "Agent 'reads the room' — softens when you're stressed.", cost_per_point: 0.2 },
-          shape_shift_bias: { label: "Shape-Shift Bias", description: "Controls whether the agent reconfigures itself or spawns a sub-agent.", impact_low: "Always spawns a separate sub-agent. Clean slate, 2x tokens.", impact_high: "Always shape-shifts in place. Keeps all memory, half the cost.", cost_per_point: -2.0 },
         };
         return Response.json({ sliders: info, _offline: true }, { headers });
       }
@@ -1198,28 +1197,6 @@ async function handleRequest(req: Request, server: import("bun").Server<any>): P
     if (path === "/api/assessment" && req.method === "POST") {
       try {
         const result = await bridge.call("assessment.run");
-        return Response.json(result, { headers });
-      } catch {
-        return Response.json({ error: "Brain offline", _offline: true }, { status: 503, headers });
-      }
-    }
-
-    // Shape-shift execute
-    if (path === "/api/shape-shift" && req.method === "POST") {
-      const body = (await req.json()) as { preset: string };
-      try {
-        const result = await bridge.call("shape_shift.execute", body);
-        return Response.json(result, { headers });
-      } catch {
-        return Response.json({ error: "Brain offline", _offline: true }, { status: 503, headers });
-      }
-    }
-
-    // Shape-shift restore
-    if (path === "/api/shape-shift/restore" && req.method === "POST") {
-      const body = (await req.json()) as { sliders?: Record<string, number> };
-      try {
-        const result = await bridge.call("shape_shift.restore", body);
         return Response.json(result, { headers });
       } catch {
         return Response.json({ error: "Brain offline", _offline: true }, { status: 503, headers });
