@@ -1141,7 +1141,7 @@ async function handleRequest(req: Request, server: import("bun").Server<any>): P
 
     // Personality rollback (dry_run: true lists the changes first; the owner confirms that list)
     if (path === "/api/personality/rollback" && req.method === "POST") {
-      const body = (await req.json()) as { snapshot_date: string; dry_run?: boolean };
+      const body = (await req.json()) as { snapshot_date: string; dry_run?: boolean; expected?: unknown };
       try {
         const result = await bridge.call("personality.rollback", body);
         return Response.json(result, { headers });

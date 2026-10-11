@@ -102,10 +102,17 @@ export default function Personality() {
       }
       const lines = changes.map(c => `  ${sliderLabel(c.slider)}: ${c.current} → ${c.restore}`).join('\n')
       if (!confirm(`Restore to ${fmtUtc(when)}? Only these sliders change:\n\n${lines}`)) return
-      await api('/api/personality/rollback', {
+      // Send back exactly the list the owner confirmed: if a slider moved since,
+      // the brain refuses and nothing changes.
+      const done = await api<{ error?: string; changes?: RollbackChange[] }>('/api/personality/rollback', {
         method: 'POST',
-        body: JSON.stringify({ snapshot_date: when }),
+        body: JSON.stringify({ snapshot_date: when, expected: changes }),
       })
+      if (done.error === 'changed') {
+        const now = (Array.isArray(done.changes) ? done.changes : [])
+          .map(c => `  ${sliderLabel(c.slider)}: ${c.current} → ${c.restore}`).join('\n')
+        alert(`Nothing was restored: the sliders changed after you looked.${now ? `\n\nA restore now would change:\n\n${now}` : ''}\n\nClick Restore again to confirm the new list.`)
+      }
     } catch (e) {
       alert(`Restore failed: ${e instanceof Error ? e.message : String(e)}. The page now shows the current values.`)
     } finally {

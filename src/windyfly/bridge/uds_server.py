@@ -472,15 +472,30 @@ class UDSBridge:
         return {"drift": drift}
 
     async def _handle_personality_rollback(self, params: dict) -> dict:
-        """dry_run=true lists what would change (the owner confirms that list); otherwise apply it."""
-        from windyfly.personality.versioning import plan_personality_rollback, rollback_personality
+        """dry_run=true lists what would change (the owner confirms that list); otherwise apply it.
+
+        ``expected`` = the list the owner confirmed: if the plan changed since, nothing is restored and
+        the answer carries ``error: "changed"`` with the new list.
+        """
+        from windyfly.personality.versioning import (
+            RollbackPlanChanged,
+            plan_personality_rollback,
+            public_changes,
+            rollback_personality,
+        )
         snapshot_date = params.get("snapshot_date", "")
         user_id = params.get("user_id", "default")
-        plan = plan_personality_rollback(self.db, snapshot_date, user_id=user_id)
-        changes = [{k: c[k] for k in ("slider", "current", "restore")} for c in plan]
+        changes = public_changes(plan_personality_rollback(self.db, snapshot_date, user_id=user_id))
         if params.get("dry_run"):
             return {"dry_run": True, "changes": changes}
-        restored = rollback_personality(self.db, snapshot_date, user_id=user_id)
+        expected = params.get("expected")
+        try:
+            restored = rollback_personality(
+                self.db, snapshot_date, user_id=user_id,
+                expected=expected if isinstance(expected, list) else None,
+            )
+        except RollbackPlanChanged as e:
+            return {"error": "changed", "restored_count": 0, "changes": e.changes}
         return {"restored_count": restored, "changes": changes}
 
     # ------------------------------------------------------------------
