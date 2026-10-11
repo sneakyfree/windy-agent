@@ -703,7 +703,7 @@ async function handleRequest(req: Request, server: import("bun").Server<any>): P
           "creativity", "memory_depth", "context_window", "proactivity",
           "autonomy", "verbosity", "response_length", "epistemic_strictness",
           "tool_reloop_rounds", "emotional_sensitivity", "memory_retention",
-          "warmth", "adaptive_mode",
+          "adaptive_mode",
         ];
         for (const n of names) defaults[n] = 5;
         return Response.json({ sliders: defaults, _offline: true }, { headers });
@@ -752,7 +752,6 @@ async function handleRequest(req: Request, server: import("bun").Server<any>): P
           tool_reloop_rounds: { label: "Tool Use Depth", description: "Max rounds of tool execution per response.", impact_low: "1 round — one tool call, then answers. Fast.", impact_high: "10 rounds — deep research, chaining tool calls. Burns 2-10x tokens.", cost_per_point: 5.0 },
           emotional_sensitivity: { label: "Emotional Sensitivity", description: "How attuned the agent is to your emotional state.", impact_low: "Ignores your mood entirely. Pure information.", impact_high: "Detects frustration, adjusts tone, offers support.", cost_per_point: 0.1 },
           memory_retention: { label: "Memory Retention", description: "How long the agent holds onto old memories before they fade.", impact_low: "Goldfish 🐠 — aggressive forgetting, old facts decay fast.", impact_high: "Elephant 🐘 — never forgets. Old memories maintained indefinitely.", cost_per_point: 1.0 },
-          warmth: { label: "Warmth", description: "How emotionally warm and supportive the agent is.", impact_low: "Clinical, detached. Facts only.", impact_high: "Warm, caring, empathetic. Like a close friend.", cost_per_point: 0.1 },
           adaptive_mode: { label: "Adaptive Mode", description: "When ON, the agent reads your mood and temporarily adjusts its personality.", impact_low: "Sliders stay exactly where you set them.", impact_high: "Agent 'reads the room' — softens when you're stressed.", cost_per_point: 0.2 },
         };
         return Response.json({ sliders: info, _offline: true }, { headers });
@@ -1446,15 +1445,15 @@ async function handleRequest(req: Request, server: import("bun").Server<any>): P
         if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
         // Personality preset data
-        const presets: Record<string, { humor: number; warmth: number; formality: number }> = {
-          buddy:      { humor: 7, warmth: 9, formality: 3 },
-          engineer:   { humor: 2, warmth: 4, formality: 7 },
-          powerhouse: { humor: 5, warmth: 6, formality: 5 },
-          coder:      { humor: 2, warmth: 3, formality: 5 },
-          friend:     { humor: 5, warmth: 10, formality: 2 },
-          writer:     { humor: 6, warmth: 7, formality: 6 },
-          researcher: { humor: 1, warmth: 3, formality: 8 },
-          silent:     { humor: 0, warmth: 2, formality: 5 },
+        const presets: Record<string, { humor: number; formality: number }> = {
+          buddy:      { humor: 7, formality: 3 },
+          engineer:   { humor: 2, formality: 7 },
+          powerhouse: { humor: 5, formality: 5 },
+          coder:      { humor: 2, formality: 5 },
+          friend:     { humor: 5, formality: 2 },
+          writer:     { humor: 6, formality: 6 },
+          researcher: { humor: 1, formality: 8 },
+          silent:     { humor: 0, formality: 5 },
         };
         const p = presets[body.preset] || presets.buddy;
 
@@ -1522,7 +1521,6 @@ verbosity = 5
 reasoning_depth = 6
 autonomy = 3
 epistemic_strictness = 5
-warmth = ${p.warmth}
 
 [costs]
 daily_budget_usd = 5.0
