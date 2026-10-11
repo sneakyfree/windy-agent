@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from windyfly.channels.matrix_bot import WindyFlyMatrixBot
+from windyfly.channels.matrix_bot import MatrixIdentityError, WindyFlyMatrixBot
 from windyfly.memory.database import Database
 from windyfly.memory.write_queue import WriteQueue
 
@@ -132,6 +132,52 @@ class TestMatrixBotLogin:
 
         assert bot.bot_user_id == "@agent_et26-test-m0nf:chat.windychat.ai"
         assert bot.client.user_id == "@agent_et26-test-m0nf:chat.windychat.ai"
+        db.close()
+
+    @pytest.mark.asyncio
+    @patch("windyfly.channels.matrix_bot._WHOAMI_RETRY_DELAYS", (0, 0, 0))
+    @patch.dict("os.environ", {"MATRIX_BOT_TOKEN": "tok"})
+    async def test_no_bot_user_and_whoami_failing_does_not_start(self):
+        """Hub, #505: with no configured id and whoami down, an empty
+        bot_user_id would never match the agent's own messages and it would
+        answer itself in a loop. The channel must refuse to start: no
+        callbacks, no hatch-room join, no sync."""
+        os.environ.pop("MATRIX_BOT_USER", None)
+        config = _make_config()
+        config["matrix"].pop("bot_user", None)
+        db = Database(":memory:")
+        bot = WindyFlyMatrixBot(config, db, WriteQueue())
+        bot.client.whoami = AsyncMock(side_effect=RuntimeError("homeserver down"))
+        bot.client.sync_forever = AsyncMock()
+        bot.client.add_event_callback = MagicMock()
+        bot._join_hatch_dm_room = AsyncMock()
+
+        with pytest.raises(MatrixIdentityError):
+            await bot.start()
+
+        assert bot.client.whoami.await_count == 4  # first try + 3 retries
+        bot.client.add_event_callback.assert_not_called()
+        bot._join_hatch_dm_room.assert_not_awaited()
+        bot.client.sync_forever.assert_not_awaited()
+        db.close()
+
+    @pytest.mark.asyncio
+    @patch("windyfly.channels.matrix_bot._WHOAMI_RETRY_DELAYS", (0, 0, 0))
+    @patch.dict("os.environ", {"MATRIX_BOT_TOKEN": "tok"})
+    async def test_no_bot_user_whoami_recovers_on_retry(self):
+        os.environ.pop("MATRIX_BOT_USER", None)
+        config = _make_config()
+        config["matrix"].pop("bot_user", None)
+        db = Database(":memory:")
+        bot = WindyFlyMatrixBot(config, db, WriteQueue())
+        ok = MagicMock()
+        ok.user_id = "@agent_et26-test-m0nf:chat.windychat.ai"
+        bot.client.whoami = AsyncMock(side_effect=[RuntimeError("blip"), RuntimeError("blip"), ok])
+
+        await bot.login()
+
+        assert bot.bot_user_id == "@agent_et26-test-m0nf:chat.windychat.ai"
+        assert bot.client.whoami.await_count == 3
         db.close()
 
     @pytest.mark.asyncio

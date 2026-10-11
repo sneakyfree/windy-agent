@@ -56,6 +56,18 @@ class MatrixCredentialsError(RuntimeError):
     """
 
 
+class MatrixIdentityError(RuntimeError):
+    """Logged in, but this agent's own Matrix user id is still unknown.
+
+    Without it the agent cannot tell its own messages apart and would answer
+    itself, so the channel refuses to start (the supervisor retries).
+    """
+
+
+# Pauses between whoami retries when no user id is configured.
+_WHOAMI_RETRY_DELAYS: tuple[float, ...] = (1.0, 2.0, 4.0)
+
+
 class MatrixSyncDead(RuntimeError):
     """Raised from the SyncError callback after a run of consecutive
     failed /sync calls, to escape nio's sync_forever and hand control back
@@ -196,14 +208,15 @@ class WindyFlyMatrixBot(ChannelAdapter):
         password = os.environ.get("MATRIX_BOT_PASSWORD")
 
         if token:
+            how = "token"
             self.client.access_token = token
             self.client.user_id = self.bot_user_id
             if os.environ.get("MATRIX_DEVICE_ID"):
                 self.client.device_id = os.environ["MATRIX_DEVICE_ID"]
             if os.environ.get("MATRIX_DM_ROOM_ID"):
                 self._hatch_dm_room_id = os.environ["MATRIX_DM_ROOM_ID"]
-            logger.info("Windy Fly logged in via token as %s", self.bot_user_id)
         elif password:
+            how = "password"
             if not self.bot_user_id:
                 raise MatrixCredentialsError(
                     "MATRIX_BOT_PASSWORD is set but no Matrix user id is: set "
@@ -213,7 +226,6 @@ class WindyFlyMatrixBot(ChannelAdapter):
             response = await self.client.login(password)
             if isinstance(response, nio.LoginError):
                 raise RuntimeError(f"Matrix login failed: {response.message}")
-            logger.info("Windy Fly logged in via password as %s", self.bot_user_id)
         else:
             raise MatrixCredentialsError(
                 "No Matrix credentials found. Set MATRIX_BOT_TOKEN or "
@@ -228,30 +240,52 @@ class WindyFlyMatrixBot(ChannelAdapter):
         # real identity, so the agent silently never joined a grandma's room
         # and never replied on Windy Chat (2026-07-06). Resolve the true
         # user id from the token and realign self-identity to it.
-        await self._resolve_identity_from_token()
+        confirmed = await self._resolve_identity_from_token()
+        # With no configured id, whoami is the only source. Never run with an
+        # empty id: `event.sender == self.bot_user_id` would never match and
+        # the agent would answer its own messages in a loop.
+        for delay in _WHOAMI_RETRY_DELAYS:
+            if self.bot_user_id:
+                break
+            await asyncio.sleep(delay)
+            confirmed = await self._resolve_identity_from_token()
+        if not self.bot_user_id:
+            raise MatrixIdentityError(
+                "Logged in to Matrix, but the homeserver did not confirm this "
+                "agent's user id (whoami failed). Not starting the channel."
+            )
+        logger.info(
+            "Windy Fly logged in via %s as %s (%s)", how, self.bot_user_id,
+            "confirmed by the homeserver" if confirmed else "as configured; whoami unavailable",
+        )
 
-    async def _resolve_identity_from_token(self) -> None:
+    async def _resolve_identity_from_token(self) -> bool:
         """Correct self.bot_user_id to the access token's real owner.
 
-        No-op if whoami is unavailable or already agrees. Never raises —
-        an identity we can't verify is better left as configured than a
-        crashed channel.
+        Returns True when whoami answered with a user id. Never raises — an
+        identity we can't verify is left as configured (login() refuses to
+        go on only when there is none at all).
         """
         try:
             resp = await self.client.whoami()
             real_id = getattr(resp, "user_id", None)
-            if real_id and real_id != self.bot_user_id:
-                logger.warning(
-                    "Matrix identity mismatch: token is %s but config said "
-                    "%s — using the token's identity (invite-accept and "
-                    "self-filtering depend on it).",
-                    real_id, self.bot_user_id,
-                )
+            if not real_id:
+                return False
+            if real_id != self.bot_user_id:
+                if self.bot_user_id:
+                    logger.warning(
+                        "Matrix identity mismatch: token is %s but config said "
+                        "%s — using the token's identity (invite-accept and "
+                        "self-filtering depend on it).",
+                        real_id, self.bot_user_id,
+                    )
                 self.bot_user_id = real_id
                 self.client.user_id = real_id
                 self.client.user = real_id
+            return True
         except Exception as exc:
-            logger.debug("whoami identity resolution skipped: %s", exc)
+            logger.warning("whoami identity resolution failed: %s", exc)
+            return False
 
     async def _relogin_with_password(self) -> bool:
         """Attempt to re-login with password when the access token expires.
