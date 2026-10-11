@@ -1737,20 +1737,45 @@ def _register_all():
     _r("remember", "Manually add a fact to memory", "06_memory", cmd_remember, usage="remember <fact>")
 
     async def cmd_conflicts(ctx):
+        """List held memory conflicts, or record the owner's choice: /conflicts keep <id> new|old."""
         if not _db:
             return "Database not available."
+        args = [a for a in (ctx.get("_args") or []) if a]
         try:
-            from windyfly.memory.conflict_detector import get_unresolved_conflicts
+            from windyfly.memory.conflict_detector import (
+                get_unresolved_conflicts,
+                resolve_conflict,
+            )
+            if args and args[0].lower() == "keep":
+                if len(args) != 3 or args[2].lower() not in ("new", "old"):
+                    return "Usage: /conflicts keep <id> new|old"
+                keep_new = args[2].lower() == "new"
+                who = f"owner via /conflicts ({ctx.get('platform', 'unknown')})"
+                out = resolve_conflict(_db, args[1], keep_new=keep_new, resolved_by=who)
+                if not out.get("ok"):
+                    return f"Not changed: {out.get('error')}"
+                return (
+                    f"Conflict #{out['conflict_id'][:8]} ({out.get('node') or 'node'}): kept the "
+                    f"{out['kept']} value. Memory now holds: {out.get('value')}"
+                )
+            if args:
+                return "Usage: /conflicts, or /conflicts keep <id> new|old"
             conflicts = get_unresolved_conflicts(_db)
             if not conflicts:
                 return "No unresolved memory conflicts."
-            lines = ["Unresolved conflicts:\n"]
+            lines = ["Unresolved memory conflicts (memory keeps the 'before' value until you choose):\n"]
             for c in conflicts:
-                lines.append(f"  ⚠ {c.get('old_value','?')} vs {c.get('new_value','?')}")
+                applied = " (new value already applied by older code)" if c.get("resolution_status") == "unresolved" else ""
+                lines.append(
+                    f"  #{str(c.get('id', ''))[:8]} {c.get('node_name') or '?'}: "
+                    f"before {c.get('old_value', '?')}, new {c.get('new_value', '?')}{applied}"
+                )
+            lines.append("\nChoose with: /conflicts keep <id> new|old")
             return "\n".join(lines)
         except Exception as e:
             return f"Error: {e}"
-    _r("conflicts", "Show detected memory conflicts", "06_memory", cmd_conflicts)
+    _r("conflicts", "Show memory conflicts held for you; /conflicts keep <id> new|old chooses", "06_memory",
+       cmd_conflicts, usage="conflicts [keep <id> new|old]")
 
     async def cmd_failures(ctx):
         if not _db:

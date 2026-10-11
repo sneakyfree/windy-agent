@@ -57,6 +57,16 @@
   is its own `@agent_<passport>` from its passport, not a shared
   `@windyfly` bot user; an old config that still sets `bot_user` keeps working.
 
+- **Memory conflicts wait for the owner.** When something new contradicts
+  what the agent already remembers, the old value stays and the new one is
+  held until the owner chooses (before, the new value silently replaced the
+  old one, and "keep old" could not bring it back). On the owner's turns the
+  agent sees up to three held conflicts (before vs new) and can record the
+  owner's choice with one tool, `memory.resolve_conflict`; the owner can also
+  type `/conflicts keep <id> new|old`. Saying the same thing again is not a
+  conflict. The agent's own notes (turnover letters, journal days) are still
+  simply rewritten.
+
 ## 0.7.6
 
 - **The agent tells Eternitas which machine it lives on (housing report, ON).**

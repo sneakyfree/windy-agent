@@ -345,6 +345,11 @@ _MIGRATIONS: dict[int, tuple[str, str]] = {
         "version, bundle sha256, signer passport + kid, installed_at). Idempotent ADD COLUMNs.",
         "__callable__",
     ),
+    15: (
+        "conflicts: hold the proposed value until the owner chooses (proposed JSON, kept, "
+        "resolution, resolved_by). Idempotent ADD COLUMNs.",
+        "__callable__",
+    ),
     # NOTE — deliberately NOT adding an index on episodes(session_id,
     # created_at), though every turn filters on exactly that and it is
     # currently a full scan of a 29k-row table.
@@ -650,6 +655,35 @@ def _migration_14_skill_drop_provenance(conn) -> None:
     )
 
 
+def _migration_15_conflicts_hold(conn) -> None:
+    """Columns for held memory conflicts (idempotent).
+
+    ``proposed`` is the JSON of the update that was NOT applied (metadata, epistemic_status, confidence,
+    source, valid_from, valid_until); ``kept`` is 'new' or 'old' once the owner chooses; ``resolved_by``
+    says who chose. Rows written before this migration keep status 'unresolved' and a NULL ``proposed``:
+    the old code had already applied their new value. Statement-at-a-time (no executescript).
+    """
+    import sqlite3
+    for coldef in (
+        "proposed TEXT",
+        "kept TEXT",
+        "resolution TEXT",
+        "resolved_by TEXT",
+    ):
+        try:
+            conn.execute(f"ALTER TABLE conflicts ADD COLUMN {coldef}")
+        except sqlite3.OperationalError as e:
+            if "duplicate column" not in str(e).lower():
+                raise
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_conflicts_status ON conflicts(resolution_status, created_at)"
+    )
+    conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, description)"
+        " VALUES (15, 'conflicts: held proposed value + who resolved')"
+    )
+
+
 _CALLABLE_MIGRATIONS = {
     7: _migration_7_tracing,
     9: _migration_9_goal_pacing,
@@ -657,6 +691,7 @@ _CALLABLE_MIGRATIONS = {
     11: _migration_11_fts_porter_stemming,
     12: _migration_12_cost_ledger_per_call,
     14: _migration_14_skill_drop_provenance,
+    15: _migration_15_conflicts_hold,
 }
 
 

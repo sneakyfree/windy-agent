@@ -35,8 +35,11 @@ def upsert_node(
     If a node with the same (type, name, scope_id) exists, update it.
     Otherwise, create a new node with a UUID4 id.
 
-    Before updating an existing node, checks for conflicts and records
-    them in the conflicts table via conflict_detector.
+    Before updating an existing node, checks for a conflict. A contradicting
+    update is HELD, not applied: the node keeps its current value and the
+    proposed one waits in the conflicts table until the owner chooses
+    (``conflict_detector.resolve_conflict``). The agent's own records
+    (turnover letters, journal days, self-assessments) are rewritten as before.
 
     Returns:
         The node ID.
@@ -52,17 +55,32 @@ def upsert_node(
     if existing:
         node_id = existing["id"]
 
-        # Check for conflict before overwriting
-        from windyfly.memory.conflict_detector import check_for_conflict
-        conflict = check_for_conflict(db, type, name, metadata_json or "")
-        if conflict:
-            logger.info(
-                "Conflict detected on node %s/%s: old=%s new=%s (conflict_id=%s)",
-                type, name,
-                str(conflict["old_value"])[:50],
-                str(conflict["new_value"])[:50],
-                conflict["conflict_id"],
+        from windyfly.memory.conflict_detector import (
+            AGENT_RECORD_TYPES,
+            check_for_conflict,
+        )
+        conflict = None
+        if type not in AGENT_RECORD_TYPES:
+            conflict = check_for_conflict(
+                db, type, name, metadata_json or "",
+                scope_id=scope_id,
+                proposed={
+                    "metadata": metadata_json,
+                    "epistemic_status": epistemic_status,
+                    "confidence": confidence,
+                    "source": source,
+                    "valid_from": valid_from,
+                    "valid_until": valid_until,
+                },
             )
+        if conflict:
+            # Held for the owner: do NOT overwrite the current value.
+            logger.info(
+                "Conflict held on node %s/%s for the owner (conflict_id=%s)",
+                type, name, conflict["conflict_id"],
+            )
+            db.commit()
+            return node_id
 
         db.execute(
             """

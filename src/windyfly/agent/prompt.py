@@ -695,6 +695,14 @@ def assemble_prompt(
         except Exception:
             pass  # skills index is enrichment — never block prompt assembly
 
+    # 1.7. Held memory conflicts (strand C4.6/C4.7) — OWNER only (not a
+    # TRUSTED sibling: only the owner may choose). Facts, not advice
+    # (principle 5): what is held, both values, and how a choice is made.
+    if band_value is None or band_value >= 3:
+        conflicts_block = _pending_conflicts_block(db)
+        if conflicts_block:
+            messages.append({"role": "system", "content": conflicts_block})
+
     # 2. Memory context: relevant knowledge nodes
     max_nodes = config.get("memory", {}).get("max_nodes_per_context", 10)
 
@@ -918,6 +926,45 @@ def assemble_prompt(
     })
 
     return messages
+
+
+_CONFLICTS_IN_PROMPT = 3
+_CONFLICT_VALUE_CHARS = 120
+
+
+def _clip_value(value: Any) -> str:
+    text = " ".join(str(value if value is not None else "").split())
+    if len(text) > _CONFLICT_VALUE_CHARS:
+        text = text[:_CONFLICT_VALUE_CHARS] + "…"
+    return text.replace("'", "’")
+
+
+def _pending_conflicts_block(db: Database) -> str:
+    """Facts block: held memory conflicts, newest first, at most three. Empty when none."""
+    try:
+        from windyfly.memory.conflict_detector import get_pending_conflicts
+
+        rows = get_pending_conflicts(db)
+    except Exception:
+        return ""  # enrichment — never block prompt assembly
+    if not rows:
+        return ""
+    lines = ["## Unresolved memory conflicts (the owner has not chosen yet)"]
+    for row in rows[:_CONFLICTS_IN_PROMPT]:
+        name = row.get("node_name") or "(deleted node)"
+        lines.append(
+            f"- #{str(row['id'])[:8]} {name}: before '{_clip_value(row.get('old_value'))}', "
+            f"new '{_clip_value(row.get('new_value'))}'"
+        )
+    extra = len(rows) - _CONFLICTS_IN_PROMPT
+    if extra > 0:
+        lines.append(f"({extra} more held; /conflicts lists them all.)")
+    lines.append(
+        "Memory keeps the 'before' value until the owner chooses. A choice is recorded with "
+        "memory.resolve_conflict (conflict_id, keep new|old) or by the owner typing "
+        "/conflicts keep <id> new|old."
+    )
+    return "\n".join(lines)
 
 
 def _extract_keywords(message: str, min_length: int = 3) -> str:

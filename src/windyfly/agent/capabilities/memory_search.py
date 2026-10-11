@@ -27,6 +27,10 @@ OpenClaw gives the model this key unprompted.
 
 Band: Tier.READ_EXTERNAL default (USER+). A paired user may search the
 shared past; a SANDBOX stranger may not read the owner's life.
+
+``memory.resolve_conflict`` (OWNER only, audited) records the owner's
+choice on a held memory conflict (strand C4.6/C4.7): keep the new value
+or keep the old one. The owner's prompt lists the held conflicts as facts.
 """
 
 from __future__ import annotations
@@ -34,7 +38,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from windyfly.agent.capabilities.descriptor import Capability, Tier
+from windyfly.agent.capabilities.descriptor import Band, Capability, Tier
 from windyfly.agent.capabilities.registry import CapabilityRegistry
 
 logger = logging.getLogger(__name__)
@@ -59,7 +63,7 @@ def register_memory_search_capabilities(
     db: Any,
     config: dict[str, Any] | None = None,
 ) -> None:
-    """Register memory.search + memory.read_range."""
+    """Register memory.search, journal.read, memory.read_range + memory.resolve_conflict."""
     logger.info("Registering memory.* capabilities (chronicle retrieval)")
 
     def memory_search(*, query: str, limit: int = 8) -> dict[str, Any]:
@@ -290,5 +294,41 @@ def register_memory_search_capabilities(
                 },
             },
             "required": [],
+        },
+    ))
+
+    def memory_resolve_conflict(*, conflict_id: str, keep: str) -> dict[str, Any]:
+        from windyfly.memory.conflict_detector import resolve_conflict
+
+        choice = (keep or "").strip().lower()
+        if choice not in ("new", "old"):
+            return {"ok": False, "error": "keep must be 'new' or 'old'"}
+        return resolve_conflict(
+            db, conflict_id, keep_new=(choice == "new"),
+            resolved_by="owner via memory.resolve_conflict",
+        )
+
+    registry.register(Capability(
+        id="memory.resolve_conflict",
+        description=(
+            "Record the owner's choice on a held memory conflict: keep the new value or keep the old one."
+        ),
+        handler=memory_resolve_conflict,
+        tier=Tier.WRITE_LOCAL_SAFE,
+        band_required=Band.OWNER,
+        audit_required=True,
+        dry_run_supported=False,
+        scope="memory",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "conflict_id": {
+                    "type": "string", "maxLength": 64,
+                    "description": "The conflict id (the 8-character #id is enough).",
+                },
+                "keep": {"type": "string", "enum": ["new", "old"]},
+            },
+            "required": ["conflict_id", "keep"],
+            "additionalProperties": False,
         },
     ))

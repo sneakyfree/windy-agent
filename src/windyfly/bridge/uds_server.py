@@ -529,9 +529,10 @@ class UDSBridge:
         from windyfly.memory.conflict_detector import resolve_conflict
         conflict_id = params.get("conflict_id", "")
         resolution = params.get("resolution", "")
-        keep_new = params.get("keep_new", True)
-        resolve_conflict(self.db, conflict_id, resolution, keep_new)
-        return {"resolved": True, "conflict_id": conflict_id}
+        keep_new = bool(params.get("keep_new", True))
+        out = resolve_conflict(self.db, conflict_id, resolution, keep_new,
+                               resolved_by="owner via dashboard")
+        return {"resolved": bool(out.get("ok")), "conflict_id": conflict_id, **out}
 
     async def _handle_moments_list(self, params: dict) -> dict:
         from windyfly.memory.nodes import get_nodes_by_type
