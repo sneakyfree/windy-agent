@@ -452,7 +452,10 @@ class UDSBridge:
     async def _handle_personality_history(self, params: dict) -> dict:
         from windyfly.personality.versioning import get_personality_history
         limit = params.get("limit", 20)
-        history = get_personality_history(self.db, limit=limit)
+        sliders_only = bool(params.get("sliders_only", False))
+        history = get_personality_history(
+            self.db, limit=limit, sliders_only=sliders_only,
+        )
         return {"history": history}
 
     async def _handle_personality_snapshot(self, params: dict) -> dict:

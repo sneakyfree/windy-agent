@@ -142,6 +142,9 @@ class TestPersonalityVersioning:
         # Rollback to the snapshot (use future date to capture all history)
         restored = rollback_personality(db, "2099-01-01")
         assert restored >= 1
+        # The point of a rollback is the VALUE coming back, not a count.
+        row = db.fetchone("SELECT value FROM soul WHERE key = 'slider_personality'")
+        assert row["value"] == "5"
         db.close()
 
 

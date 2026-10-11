@@ -11,6 +11,36 @@ interface SliderInfo {
   impact_high?: string
 }
 
+interface DriftSlider {
+  name: string
+  old: number
+  new: number
+  source?: string
+}
+
+interface Drift {
+  detected: boolean
+  drifted_sliders: DriftSlider[]
+  drift_source?: string | null
+  baseline_at?: string | null
+}
+
+interface HistoryRow {
+  id: string
+  key?: string | null
+  old_value: string | null
+  new_value: string | null
+  changed_by: string | null
+  created_at: string
+}
+
+// soul_history timestamps are SQLite UTC "YYYY-MM-DD HH:MM:SS".
+const fmtUtc = (ts?: string | null) =>
+  ts ? new Date(ts.replace(' ', 'T') + 'Z').toLocaleString() : ''
+
+const sliderLabel = (key?: string | null) =>
+  (key || '').replace(/^slider_/, '').replace(/_/g, ' ')
+
 // Preset quick-sets. Every key MUST be a real slider name returned by
 // /api/sliders — "assertiveness" was previously listed but is not a
 // slider, so applying any preset fired a PUT /api/sliders/assertiveness
@@ -27,15 +57,46 @@ export default function Personality() {
   const [saving, setSaving] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [offline, setOffline] = useState(false)
+  const [drift, setDrift] = useState<Drift | null>(null)
+  const [history, setHistory] = useState<HistoryRow[]>([])
+  const [rollingBack, setRollingBack] = useState(false)
+
+  const loadDriftAndHistory = () => Promise.all([
+    api<{ dashboard?: { drift?: Drift } }>('/api/dashboard')
+      .then(d => setDrift(d.dashboard?.drift ?? null))
+      .catch(() => {}),
+    api<{ history: HistoryRow[] }>('/api/personality/history?limit=20&sliders_only=true')
+      .then(d => setHistory(Array.isArray(d.history) ? d.history : []))
+      .catch(() => {}),
+  ])
+
+  const loadSliders = () =>
+    api<{ sliders: Record<string, number> }>('/api/sliders')
+      .then(d => {
+        setSliders(d.sliders || d)
+        setOffline(!!(d as Record<string, unknown>)._offline)
+      })
+      .catch(() => setOffline(true))
+
+  // Restore every slider to its value as of `when` (owner action — the
+  // brain marks restored values as set by the owner and clears the alert).
+  const rollback = async (when: string) => {
+    if (!confirm(`Restore all personality sliders to how they were at ${fmtUtc(when)}?`)) return
+    setRollingBack(true)
+    try {
+      await api('/api/personality/rollback', {
+        method: 'POST',
+        body: JSON.stringify({ snapshot_date: when }),
+      })
+    } catch { /* ignore — reload shows the real state */ }
+    await Promise.all([loadSliders(), loadDriftAndHistory()])
+    setRollingBack(false)
+  }
 
   useEffect(() => {
     Promise.all([
-      api<{ sliders: Record<string, number> }>('/api/sliders')
-        .then(d => {
-          setSliders(d.sliders || d)
-          setOffline(!!(d as Record<string, unknown>)._offline)
-        })
-        .catch(() => setOffline(true)),
+      loadDriftAndHistory(),
+      loadSliders(),
       api<{ sliders: SliderInfo[] }>('/api/sliders/info')
         .then(d => {
           const map: Record<string, SliderInfo> = {}
@@ -90,6 +151,30 @@ export default function Personality() {
       {offline && (
         <div className="bg-[#eab308]/10 border border-[#eab308]/30 rounded-lg p-3 mb-4 text-sm text-[#eab308]">
           ⚠️ Agent offline — showing default values. Changes will apply when the agent reconnects.
+        </div>
+      )}
+
+      {drift?.detected && drift.drifted_sliders.length > 0 && (
+        <div className="bg-[#eab308]/10 border border-[#eab308]/30 rounded-lg p-4 mb-4 text-sm text-[#eab308]">
+          <div className="font-medium mb-1">Personality drift: these sliders moved without you</div>
+          <ul className="mb-2 space-y-0.5">
+            {drift.drifted_sliders.map(d => (
+              <li key={d.name}>
+                <span className="capitalize">{d.name.replace(/_/g, ' ')}</span>: {d.old} → {d.new}
+                {d.source && <span className="text-[#64748b]"> (by {d.source})</span>}
+              </li>
+            ))}
+          </ul>
+          {drift.baseline_at && (
+            <button
+              onClick={() => rollback(drift.baseline_at as string)}
+              disabled={rollingBack}
+              className="px-3 py-1.5 rounded-lg border border-[#eab308]/50 hover:bg-[#eab308]/10 disabled:opacity-50"
+            >
+              Restore values from {fmtUtc(drift.baseline_at)}
+            </button>
+          )}
+          <span className="ml-2 text-xs text-[#64748b]">Or keep them by moving the slider yourself.</span>
         </div>
       )}
 
@@ -152,6 +237,34 @@ export default function Personality() {
           )
         })}
       </div>
+
+      {/* History + rollback */}
+      <h2 className="text-lg font-semibold text-white mt-8 mb-2">History</h2>
+      {history.length === 0 ? (
+        <p className="text-[#64748b] text-sm">No personality changes recorded yet. Changes are recorded once a day.</p>
+      ) : (
+        <div className="bg-[#111827] rounded-xl border border-[#1e293b] divide-y divide-[#1e293b]">
+          {history.map(h => (
+            <div key={h.id} className="flex items-center gap-3 p-3 text-sm">
+              <span className="text-[#64748b] text-xs w-40 shrink-0">{fmtUtc(h.created_at)}</span>
+              <span className="text-white capitalize flex-1">
+                {sliderLabel(h.key)}
+                {h.old_value !== h.new_value
+                  ? <span className="font-mono text-[#00d4ff] ml-2">{h.old_value} → {h.new_value}</span>
+                  : <span className="font-mono text-[#00d4ff] ml-2">{h.new_value}</span>}
+                {h.changed_by && <span className="text-[#64748b] text-xs ml-2 normal-case">({h.changed_by})</span>}
+              </span>
+              <button
+                onClick={() => rollback(h.created_at)}
+                disabled={rollingBack}
+                className="px-3 py-1 rounded-lg border border-[#1e293b] text-xs hover:border-[#00d4ff] hover:text-[#00d4ff] disabled:opacity-50"
+              >
+                Restore to here
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

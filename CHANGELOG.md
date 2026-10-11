@@ -105,6 +105,19 @@
   paused and is never deleted. The agent's own prompt does not include
   intents, so nothing in its replies changes, with raw mode on or off.
 
+- **Personality drift detection now works, and the owner sees it.** Once a
+  day the agent compares every personality slider with what it was about 30
+  days ago (or the oldest record, on a newer install). If a slider moved more
+  than 2 points and the owner did not move it (for example, the agent
+  shape-shifted and never switched back), the dashboard's Personality page
+  shows a warning with the old and new values and a button to restore them.
+  The owner's own slider, preset and rollback changes never count as drift.
+  Before this, the daily check recorded today's values before comparing, so
+  it never found anything. The Personality page also lists the slider history
+  with a "Restore to here" button. Rollback now changes only the personality
+  sliders and puts back the exact value from that time. The agent's
+  `shape_shift_restore` tool now works.
+
 ## 0.7.6
 
 - **The agent tells Eternitas which machine it lives on (housing report, ON).**
