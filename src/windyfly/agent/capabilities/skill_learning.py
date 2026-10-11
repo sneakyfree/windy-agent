@@ -1,7 +1,7 @@
 """skill.* capabilities — the agent's runtime learning surface.
 
 Sprint 3 (2026-07-04 audit): the skills table had a full lifecycle
-(versioning, lineage, promote/rollback, golden tests) but NOTHING real
+(versioning, lineage, promote/rollback) but NOTHING real
 flowed through it — the only writer emitted canned boilerplate and no
 LLM-callable surface existed. These capabilities close the loop:
 
@@ -53,11 +53,12 @@ def register_skill_learning_capabilities(
         return drops_on or not _drops.is_drop_row(s)
 
     def skill_list() -> dict[str, Any]:
-        from windyfly.memory.skills import list_skills
+        from windyfly.memory.skills import is_correction_row, list_skills
 
         rows = [
             s for s in list_skills(db, promoted_only=True)
             if s.get("language") == "playbook" and _visible(s)
+            and not is_correction_row(s)
         ][:MAX_PLAYBOOK_SKILLS_LISTED]
         out: dict[str, Any] = {
             "count": len(rows),

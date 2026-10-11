@@ -1,8 +1,10 @@
-"""Tests for Phase 5: Dashboard, Personality Versioning, Golden Tests, Events."""
+"""Tests for Phase 5: Dashboard, Personality Versioning, Events.
+
+(Golden tests were removed with executable skills on 2026-10-10.)
+"""
 
 from __future__ import annotations
 
-import json
 import time
 
 from windyfly.control_panel import apply_preset, set_slider
@@ -22,7 +24,6 @@ from windyfly.personality.versioning import (
     rollback_personality,
     snapshot_personality,
 )
-from windyfly.skills.golden_tests import run_golden_tests, run_regression_suite
 
 
 # === Dashboard Tests ===
@@ -50,7 +51,7 @@ class TestDashboard:
         save_episode(db, "assistant", "Hi!", session_id="s1")
         log_cost(db, "gpt-4o-mini", 100, 50, 0.01)
         log_failure(db, "factual_error", "Wrong answer")
-        save_skill(db, "greet", "print('hi')", "python")
+        save_skill(db, "greet", "Say hi.", "playbook")
         create_intent(db, "Learn Python")
 
         summary = get_dashboard_summary(db)
@@ -141,68 +142,6 @@ class TestPersonalityVersioning:
         # Rollback to the snapshot (use future date to capture all history)
         restored = rollback_personality(db, "2099-01-01")
         assert restored >= 1
-        db.close()
-
-
-# === Golden Tests ===
-
-
-class TestGoldenTests:
-    def test_no_golden_tests(self):
-        db = Database(":memory:")
-        sid = save_skill(db, "greet", "print('hi')", "python")
-        result = run_golden_tests(db, sid)
-        assert result["total"] == 0
-        db.close()
-
-    def test_with_golden_tests(self):
-        db = Database(":memory:")
-        sid = save_skill(db, "add", "import sys; print(int(sys.argv[1]) + 1)", "python")
-        # Store golden tests
-        golden = {"golden_tests": [
-            {"input": "", "expected_output": "hi"},
-        ]}
-        db.execute(
-            "UPDATE skills SET eval_results = ? WHERE id = ?",
-            (json.dumps(golden), sid),
-        )
-        db.commit()
-
-        # This specific test won't pass since the skill code expects argv
-        # but it verifies the runner executes
-        result = run_golden_tests(db, sid)
-        assert result["total"] == 1
-        db.close()
-
-    def test_passing_golden_test(self):
-        db = Database(":memory:")
-        sid = save_skill(db, "hello", "print('hello world')", "python")
-        golden = {"golden_tests": [
-            {"input": "", "expected_output": "hello world"},
-        ]}
-        db.execute(
-            "UPDATE skills SET eval_results = ? WHERE id = ?",
-            (json.dumps(golden), sid),
-        )
-        db.commit()
-
-        result = run_golden_tests(db, sid)
-        assert result["passed"] == 1
-        assert result["failed"] == 0
-        db.close()
-
-    def test_regression_suite_empty(self):
-        db = Database(":memory:")
-        result = run_regression_suite(db)
-        assert result["total_skills_tested"] == 0
-        assert result["has_regressions"] is False
-        db.close()
-
-    def test_skill_not_found(self):
-        db = Database(":memory:")
-        result = run_golden_tests(db, "nonexistent")
-        assert result["total"] == 0
-        assert "not found" in result.get("error", "")
         db.close()
 
 

@@ -1,6 +1,9 @@
-"""Skills manager — create, evaluate, promote, rollback skills.
+"""Skills manager: create, promote, demote, rollback skills.
 
-Manages the lifecycle of self-improving code snippets.
+Manages the lifecycle of self-improving TEXT playbooks. Skills are
+never executed (executable skills, their subprocess sandbox and the
+evaluator / golden-test runners were retired 2026-10-10). Code runs only
+through the agent's own tools under the owner's trust settings.
 """
 
 from __future__ import annotations
@@ -8,7 +11,7 @@ from __future__ import annotations
 import logging
 
 from windyfly.memory.database import Database
-from windyfly.memory.skills import get_skill, save_skill
+from windyfly.memory.skills import get_skill, require_playbook_language, save_skill
 from windyfly.memory.write_queue import Priority, WriteQueue
 
 logger = logging.getLogger(__name__)
@@ -23,7 +26,13 @@ def create_skill(
     permissions_required: list[str] | None = None,
     risk_level: str = "low",
 ) -> str:
-    """Create a new unpromoted skill."""
+    """Create a new unpromoted text-playbook skill.
+
+    Raises:
+        SkillLanguageError: (a ValueError) if ``language`` is not
+            ``"playbook"``. Skills are text the agent reads; nothing runs them.
+    """
+    require_playbook_language(language)
     return save_skill(
         db, name, code, language,
         description=description,
@@ -33,7 +42,11 @@ def create_skill(
 
 
 def promote_skill(db: Database, skill_id: str) -> None:
-    """Promote a skill after it passes all evaluator gates.
+    """Promote a skill so the agent sees it in its playbook index.
+
+    This is an owner/agent decision, not a gate result: there is no
+    evaluator. Promoting changes what text the agent is offered to read;
+    it never makes anything executable.
 
     Args:
         db: Database instance.

@@ -245,6 +245,12 @@ List failure events with root cause analysis.
 
 ## Skills Management
 
+Skills are **text playbooks** the agent reads (numbered steps, exact
+commands that worked). Nothing ever executes skill text. Code runs only
+through the agent's own tools (e.g. `shell.exec` in its sandbox) under
+the owner's trust settings. The old `evaluate`, `golden-tests` and
+`regression` endpoints were removed on 2026-10-10 with executable skills.
+
 ### `GET /api/skills?promoted=<bool>`
 
 List all skills or only promoted ones.
@@ -259,27 +265,31 @@ List all skills or only promoted ones.
   "skills": [
     {
       "id": "uuid",
-      "name": "web_search",
+      "name": "deploy-website",
       "version": 3,
-      "language": "python",
+      "language": "playbook",
       "promoted": true,
-      "usage_count": 42,
-      "eval_score": 0.95
+      "usage_count": 42
     }
   ]
 }
 ```
 
+Rows created before 2026-10-10 may still show an older `language`
+value (e.g. `python`); they are inert text.
+
 ### `POST /api/skills`
 
-Create a new skill.
+Create a new (unpromoted) text playbook. `language` defaults to
+`"playbook"`; any other value is refused with HTTP 400.
 
 **Request:**
 ```json
 {
-  "name": "summarize_article",
-  "code": "def run(url):\n    ...",
-  "language": "python"
+  "name": "summarize-article",
+  "code": "1. Fetch the page.\n2. Pull the headline and three key points.",
+  "language": "playbook",
+  "description": "How I summarize an article"
 }
 ```
 
@@ -288,24 +298,10 @@ Create a new skill.
 { "skill_id": "uuid" }
 ```
 
-### `POST /api/skills/:id/evaluate`
-
-Run the evaluation suite on a skill.
-
-**Response:**
-```json
-{
-  "evaluation": {
-    "score": 0.92,
-    "passed": true,
-    "results": { "test_1": "pass", "test_2": "pass" }
-  }
-}
-```
-
 ### `POST /api/skills/:id/promote`
 
-Promote a skill to production status.
+Promote a playbook into the agent's skill index (an owner choice; there
+is no evaluator gate).
 
 **Response:**
 ```json
@@ -319,37 +315,6 @@ Rollback a skill to its parent version.
 **Response:**
 ```json
 { "rolled_back": true, "skill_id": "uuid" }
-```
-
-### `POST /api/skills/:id/golden-tests`
-
-Run golden tests for a specific skill.
-
-**Response:**
-```json
-{
-  "golden_tests": {
-    "passed": 5,
-    "failed": 0,
-    "results": []
-  }
-}
-```
-
-### `POST /api/skills/regression`
-
-Run the full regression suite across all promoted skills.
-
-**Response:**
-```json
-{
-  "regression": {
-    "total_skills": 3,
-    "total_tests": 15,
-    "passed": 15,
-    "failed": 0
-  }
-}
 ```
 
 ---

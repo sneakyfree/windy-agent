@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { api, useApi } from '../hooks/useApi'
+import { useApi } from '../hooks/useApi'
 
 interface Skill {
   name: string
@@ -14,8 +14,6 @@ export default function Skills() {
   const { data: skillsResp, loading, error, reload } = useApi<{ skills: Skill[] }>('/api/skills')
   const skills = skillsResp?.skills ?? null
   const [expanded, setExpanded] = useState<string | null>(null)
-  const [regressionRunning, setRegressionRunning] = useState(false)
-  const [regressionResult, setRegressionResult] = useState<string | null>(null)
 
   const stats = useMemo(() => {
     if (!skills) return { total: 0, promoted: 0 }
@@ -24,22 +22,6 @@ export default function Skills() {
       promoted: skills.filter(s => s.promoted).length,
     }
   }, [skills])
-
-  const handleRegression = async () => {
-    setRegressionRunning(true)
-    setRegressionResult(null)
-    try {
-      const res = await api<{ status: string; message?: string }>(
-        '/api/skills/regression',
-        { method: 'POST' }
-      )
-      setRegressionResult(res.message || res.status || 'Regression complete')
-    } catch (e) {
-      setRegressionResult(e instanceof Error ? e.message : 'Regression failed')
-    } finally {
-      setRegressionRunning(false)
-    }
-  }
 
   const riskColor = (level: string) => {
     switch (level.toLowerCase()) {
@@ -64,27 +46,10 @@ export default function Skills() {
             </p>
           )}
         </div>
-        <button
-          onClick={handleRegression}
-          disabled={regressionRunning}
-          className="px-5 py-2.5 bg-[#00d4ff] text-[#0a0e17] font-medium rounded-lg hover:bg-[#00bfe0] disabled:opacity-40 disabled:cursor-not-allowed transition-colors self-start sm:self-auto"
-        >
-          {regressionRunning ? 'Running...' : 'Run Regression'}
-        </button>
+        <p className="text-xs text-[#64748b] max-w-sm">
+          Skills are text playbooks your agent reads. They are never run as code.
+        </p>
       </div>
-
-      {/* Regression result banner */}
-      {regressionResult && (
-        <div className="bg-[#111827] border border-[#1e293b] rounded-lg px-4 py-3 text-sm text-[#e2e8f0] flex items-center justify-between">
-          <span>{regressionResult}</span>
-          <button
-            onClick={() => setRegressionResult(null)}
-            className="text-[#64748b] hover:text-white ml-3 transition-colors"
-          >
-            Dismiss
-          </button>
-        </div>
-      )}
 
       {/* Loading / Error */}
       {loading && <p className="text-[#64748b] text-sm">Loading skills...</p>}
@@ -148,7 +113,7 @@ export default function Skills() {
                         {skill.code}
                       </pre>
                     ) : (
-                      <p className="text-[#64748b] text-sm italic">No code available.</p>
+                      <p className="text-[#64748b] text-sm italic">No playbook text.</p>
                     )}
                   </div>
                 )}

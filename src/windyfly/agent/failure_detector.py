@@ -93,7 +93,9 @@ def handle_friction(
                 db,
                 name=f"correction-{fault_type}",
                 code=correction_code,
-                language="python",
+                # Text the prompt reads (extract_correction_text), never
+                # executed. Kept out of the playbook index by name.
+                language="playbook",
                 description=f"Auto-generated correction for recurring {fault_type}",
                 risk_level="low",
             )

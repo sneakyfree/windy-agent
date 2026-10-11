@@ -93,12 +93,12 @@ def db():
 
 def test_filters_to_promoted_correction_skills(db):
     # Promoted correction → included
-    sid1 = save_skill(db, "correction-factual_error", "code", "python")
+    sid1 = save_skill(db, "correction-factual_error", "code", "playbook")
     promote_skill(db, sid1)
     # Unpromoted correction → excluded
-    save_skill(db, "correction-preference_miss", "code", "python")
+    save_skill(db, "correction-preference_miss", "code", "playbook")
     # Non-correction promoted skill → excluded
-    sid3 = save_skill(db, "other-skill", "code", "python")
+    sid3 = save_skill(db, "other-skill", "code", "playbook")
     promote_skill(db, sid3)
 
     out = get_active_correction_skills(db, limit=10)
@@ -108,7 +108,7 @@ def test_filters_to_promoted_correction_skills(db):
 
 def test_limit_enforced(db):
     for i in range(10):
-        sid = save_skill(db, f"correction-type{i}", "code", "python")
+        sid = save_skill(db, f"correction-type{i}", "code", "playbook")
         promote_skill(db, sid)
     out = get_active_correction_skills(db, limit=3)
     assert len(out) == 3
@@ -200,7 +200,7 @@ def test_lessons_block_appears_when_skills_present(db):
         "    'Double-check facts before stating them.'\n"
         ")\n"
     )
-    sid = save_skill(db, "correction-factual_error", code, "python")
+    sid = save_skill(db, "correction-factual_error", code, "playbook")
     promote_skill(db, sid)
 
     sys_text = _capture_system_text(db, "hi", session_id="lesson-1")
@@ -219,7 +219,7 @@ def test_lessons_block_skips_unparseable_skills(db):
     """A correction skill with malformed CORRECTION text should be
     silently skipped, not produce a broken empty bullet."""
     save_episode(db, "user", "bootstrap", session_id="bootstrap")
-    sid = save_skill(db, "correction-garbage", "not python at all", "python")
+    sid = save_skill(db, "correction-garbage", "not python at all", "playbook")
     promote_skill(db, sid)
     sys_text = _capture_system_text(db, "hi", session_id="malformed")
     # Block should NOT appear at all (no parseable lessons)

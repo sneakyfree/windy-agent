@@ -19,7 +19,7 @@ Everything needed for a standalone, fully functional AI agent:
 - LLM provider abstraction (OpenAI, Anthropic, xAI, Google, DeepSeek, Mistral)
 - Memory system (SQLite + FTS5 + sqlite-vec)
 - Personality system (10 sliders, presets, SOUL.md)
-- Skills engine (sandbox, eval, promote, golden tests)
+- Skills engine (text playbooks: save, promote, rollback, curation; never executed)
 - Cost tracking + budget enforcement
 - Offline mode (Ollama fallback)
 - Cognitive decay + personality drift detection

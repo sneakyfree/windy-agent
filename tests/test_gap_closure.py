@@ -2,7 +2,7 @@
 
 Verifies all newly wired backend-to-gateway bridge methods work correctly:
 - Personality versioning (history/snapshot/drift/rollback)
-- Skills management (list/create/evaluate/promote/rollback/golden-tests/regression)
+- Skills management (list/create/promote/rollback; text playbooks only)
 - Decay, conflicts, moments, failures
 - Mode, offline, events
 """
@@ -106,7 +106,7 @@ class TestSkillsManagement:
         result = _run(bridge._dispatch("skills.create", {
             "name": "hello_world",
             "code": "print('hello')",
-            "language": "python",
+            "language": "playbook",
         }))
         assert "skill_id" in result
         assert isinstance(result["skill_id"], str)
@@ -117,32 +117,11 @@ class TestSkillsManagement:
         _run(bridge._dispatch("skills.create", {
             "name": "test_skill",
             "code": "x = 1 + 1",
-            "language": "python",
+            "language": "playbook",
         }))
         result = _run(bridge._dispatch("skills.list", {"promoted_only": False}))
         assert len(result["skills"]) == 1
         assert result["skills"][0]["name"] == "test_skill"
-        db.close()
-
-    def test_skills_evaluate_not_found(self):
-        bridge, db, _ = _make_bridge()
-        result = _run(bridge._dispatch("skills.evaluate", {
-            "skill_id": "nonexistent-id",
-        }))
-        assert result["evaluation"]["passed"] is False
-        db.close()
-
-    def test_skills_evaluate_passes_valid_code(self):
-        bridge, db, _ = _make_bridge()
-        create_result = _run(bridge._dispatch("skills.create", {
-            "name": "safe_skill",
-            "code": "result = 2 + 2",
-            "language": "python",
-        }))
-        eval_result = _run(bridge._dispatch("skills.evaluate", {
-            "skill_id": create_result["skill_id"],
-        }))
-        assert eval_result["evaluation"]["gates"]["syntax"] is True
         db.close()
 
     def test_skills_promote(self):
@@ -150,7 +129,7 @@ class TestSkillsManagement:
         create_result = _run(bridge._dispatch("skills.create", {
             "name": "promotable",
             "code": "x = 1",
-            "language": "python",
+            "language": "playbook",
         }))
         result = _run(bridge._dispatch("skills.promote", {
             "skill_id": create_result["skill_id"],
@@ -167,7 +146,7 @@ class TestSkillsManagement:
         create_result = _run(bridge._dispatch("skills.create", {
             "name": "orphan",
             "code": "x = 1",
-            "language": "python",
+            "language": "playbook",
         }))
         result = _run(bridge._dispatch("skills.rollback", {
             "skill_id": create_result["skill_id"],
@@ -175,24 +154,15 @@ class TestSkillsManagement:
         assert result["rolled_back"] is True  # Handler doesn't raise, just returns
         db.close()
 
-    def test_skills_golden_tests_no_tests(self):
+    def test_skills_create_rejects_code_language(self):
         bridge, db, _ = _make_bridge()
-        create_result = _run(bridge._dispatch("skills.create", {
-            "name": "no_tests",
-            "code": "x = 1",
-            "language": "python",
-        }))
-        result = _run(bridge._dispatch("skills.golden_tests", {
-            "skill_id": create_result["skill_id"],
-        }))
-        assert result["golden_tests"]["total"] == 0
-        db.close()
-
-    def test_skills_regression_empty(self):
-        bridge, db, _ = _make_bridge()
-        result = _run(bridge._dispatch("skills.regression", {}))
-        assert result["regression"]["total_skills_tested"] == 0
-        assert result["regression"]["has_regressions"] is False
+        with pytest.raises(ValueError, match="text playbooks only"):
+            _run(bridge._dispatch("skills.create", {
+                "name": "evil",
+                "code": "import os; os.system('id')",
+                "language": "python",
+            }))
+        assert db.fetchall("SELECT id FROM skills") == []
         db.close()
 
 
@@ -332,9 +302,8 @@ class TestDispatchRegistry:
         "cost.monthly", "config.reload",
         "personality.history", "personality.snapshot",
         "personality.drift", "personality.rollback",
-        "skills.list", "skills.create", "skills.evaluate",
+        "skills.list", "skills.create",
         "skills.promote", "skills.rollback",
-        "skills.golden_tests", "skills.regression",
         "decay.run",
         "conflicts.list", "conflicts.resolve",
         "moments.list", "failures.list",
@@ -362,11 +331,17 @@ class TestDispatchRegistry:
         db.close()
 
     def test_dispatch_count(self):
-        """Verify total dispatch method count matches expectations."""
+        """The real dispatch table: 35 methods. Retired 2026-10-10:
+        mode.get / mode.set, shape_shift.execute / shape_shift.restore,
+        skills.evaluate / skills.golden_tests / skills.regression.
+        REQUIRED_METHODS covers 33 of them (memory.delete and trust.webhook
+        are pinned by their own tests)."""
         bridge, db, _ = _make_bridge()
-        # The dispatch table is built in _dispatch(), we can count by inspecting
-        # 6 provider methods removed (handled gateway-side), 1 cost.monthly added,
-        # mode.get / mode.set retired 2026-10-10
-        # 2 shape_shift.* removed (shape-shift retired 2026-10-10)
-        assert len(self.REQUIRED_METHODS) == 36
+        table = bridge._handler_table()
+        assert len(table) == 35
+        assert len(self.REQUIRED_METHODS) == 33
+        assert set(self.REQUIRED_METHODS) <= set(table)
+        assert set(table) - set(self.REQUIRED_METHODS) == {
+            "memory.delete", "trust.webhook",
+        }
         db.close()

@@ -1716,10 +1716,7 @@ def main() -> None:
     skills_parser = sub.add_parser("skills", help="Skill management")
     skills_sub = skills_parser.add_subparsers(dest="action", help="Skills action")
     skills_sub.add_parser("all", help="List all skills")
-    skills_run = skills_sub.add_parser("run", help="Run a skill")
-    skills_run.add_argument("name", help="Skill name")
-    skills_eval = skills_sub.add_parser("eval", help="Evaluate a skill")
-    skills_eval.add_argument("name", help="Skill name")
+    # No "run"/"eval": skills are text playbooks, never executed (2026-10-10).
 
     # ── Maintenance ──────────────────────────────────────────────
 

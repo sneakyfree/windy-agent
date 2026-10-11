@@ -163,8 +163,10 @@ will eventually write to.
 
 **Key code:**
 - `src/windyfly/memory/agent_actions.py` — ledger writers + queries
-- `src/windyfly/skills/sandbox.py` — current Python/Node subprocess
-  sandbox (limited; Wave 5 expands this)
+- `src/windyfly/agent/capabilities/sandbox/` — the Docker sandbox
+  `shell.exec` runs in. (The old `skills/sandbox.py` subprocess runner
+  was removed 2026-10-10 with executable skills: skills are text
+  playbooks and never run.)
 
 ### 2.7 Learning Plane
 

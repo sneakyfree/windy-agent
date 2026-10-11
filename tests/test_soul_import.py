@@ -113,7 +113,7 @@ class TestSoulPreview:
         assert "openclaw" in preview
         assert "2" in preview  # 2 personality traits
         assert "Sensitive" in preview or "sensitive" in preview.lower()
-        assert "sandbox" in preview.lower()
+        assert "never run" in preview.lower()
 
     def test_classify_safe(self):
         assert classify_memory({"type": "preference"}) == "safe"

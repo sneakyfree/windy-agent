@@ -165,9 +165,15 @@ class UDSBridge:
         finally:
             writer.close()
 
-    async def _dispatch(self, method: str, params: dict) -> Any:
-        """Dispatch a method call to the appropriate handler."""
-        handlers = {
+    def _handler_table(self) -> dict[str, Any]:
+        """The UDS method table: method name -> bound async handler.
+
+        Skills methods are list/create/promote/rollback only. The old
+        skills.evaluate / skills.golden_tests / skills.regression methods
+        ran skill code in a subprocess and were removed with executable
+        skills (2026-10-10).
+        """
+        return {
             "agent.respond": self._handle_respond,
             "memory.search": self._handle_search,
             "memory.delete": self._handle_memory_delete,
@@ -196,11 +202,8 @@ class UDSBridge:
             # --- Group 2: Skills management ---
             "skills.list": self._handle_skills_list,
             "skills.create": self._handle_skills_create,
-            "skills.evaluate": self._handle_skills_evaluate,
             "skills.promote": self._handle_skills_promote,
             "skills.rollback": self._handle_skills_rollback,
-            "skills.golden_tests": self._handle_skills_golden_tests,
-            "skills.regression": self._handle_skills_regression,
             # --- Group 3: Decay, conflicts, moments, failures ---
             "decay.run": self._handle_decay_run,
             "conflicts.list": self._handle_conflicts_list,
@@ -212,7 +215,9 @@ class UDSBridge:
             "events.list": self._handle_events_list,
         }
 
-        handler = handlers.get(method)
+    async def _dispatch(self, method: str, params: dict) -> Any:
+        """Dispatch a method call to the appropriate handler."""
+        handler = self._handler_table().get(method)
         if not handler:
             raise ValueError(f"Unknown method: {method}")
 
@@ -481,20 +486,18 @@ class UDSBridge:
         return {"skills": skills}
 
     async def _handle_skills_create(self, params: dict) -> dict:
+        # Skills are text playbooks only; any other language raises a
+        # SkillLanguageError, which the dispatcher returns as the plain
+        # error string. Nothing on any path executes skill text.
         from windyfly.skills.manager import create_skill
         skill_id = create_skill(
             self.db,
             name=params.get("name", ""),
             code=params.get("code", ""),
-            language=params.get("language", "python"),
+            language=params.get("language", "playbook"),
+            description=params.get("description"),
         )
         return {"skill_id": skill_id}
-
-    async def _handle_skills_evaluate(self, params: dict) -> dict:
-        from windyfly.skills.evaluator import evaluate_skill
-        skill_id = params.get("skill_id", "")
-        result = evaluate_skill(self.db, skill_id)
-        return {"evaluation": result}
 
     async def _handle_skills_promote(self, params: dict) -> dict:
         from windyfly.skills.manager import promote_skill
@@ -507,17 +510,6 @@ class UDSBridge:
         skill_id = params.get("skill_id", "")
         rollback_skill(self.db, skill_id)
         return {"rolled_back": True, "skill_id": skill_id}
-
-    async def _handle_skills_golden_tests(self, params: dict) -> dict:
-        from windyfly.skills.golden_tests import run_golden_tests
-        skill_id = params.get("skill_id", "")
-        result = run_golden_tests(self.db, skill_id)
-        return {"golden_tests": result}
-
-    async def _handle_skills_regression(self, params: dict) -> dict:
-        from windyfly.skills.golden_tests import run_regression_suite
-        result = run_regression_suite(self.db)
-        return {"regression": result}
 
     # ------------------------------------------------------------------
     # Group 3: Decay, conflicts, moments, failures

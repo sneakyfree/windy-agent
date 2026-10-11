@@ -27,6 +27,7 @@ MIN_USES_BEFORE_JUDGING = 4
 
 def run_curation(db: Any) -> dict[str, int]:
     """One curation pass. Returns counters for the scheduler log."""
+    from windyfly.memory.skills import is_correction_row
     from windyfly.skills.manager import demote_skill
 
     stats = {"demoted_failing": 0, "demoted_over_cap": 0, "kept": 0}
@@ -56,7 +57,10 @@ def run_curation(db: Any) -> dict[str, int]:
             continue
 
         # Rule 2: cap the promoted playbook library, LRU eviction.
-        if row.get("language") == "playbook":
+        # Correction skills (also stored as playbook text) have their own
+        # 30-day expiry and never sit in the playbook index, so they do
+        # not count against the cap.
+        if row.get("language") == "playbook" and not is_correction_row(row):
             playbooks_kept += 1
             if playbooks_kept > MAX_PROMOTED_PLAYBOOKS:
                 demote_skill(db, row["id"])

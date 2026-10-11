@@ -16,12 +16,11 @@
  *   GET  /api/personality/drift        → proxy to UDS personality.drift
  *   POST /api/personality/rollback     → proxy to UDS personality.rollback
  *   GET  /api/skills                   → proxy to UDS skills.list
- *   POST /api/skills                   → proxy to UDS skills.create
- *   POST /api/skills/:id/evaluate      → proxy to UDS skills.evaluate
+ *   POST /api/skills                   → proxy to UDS skills.create (text playbooks only)
  *   POST /api/skills/:id/promote       → proxy to UDS skills.promote
  *   POST /api/skills/:id/rollback      → proxy to UDS skills.rollback
- *   POST /api/skills/:id/golden-tests  → proxy to UDS skills.golden_tests
- *   POST /api/skills/regression        → proxy to UDS skills.regression
+ *   (evaluate / golden-tests / regression removed 2026-10-10 with
+ *    executable skills: skills are text the agent reads, never run)
  *   POST /api/decay/run               → proxy to UDS decay.run
  *   GET  /api/conflicts               → proxy to UDS conflicts.list
  *   POST /api/conflicts/:id/resolve   → proxy to UDS conflicts.resolve
@@ -1166,19 +1165,16 @@ async function handleRequest(req: Request, server: import("bun").Server<any>): P
     // Skills create
     if (path === "/api/skills" && req.method === "POST") {
       const body = (await req.json()) as { name: string; code: string; language?: string };
-      try {
-        const result = await bridge.call("skills.create", body);
-        return Response.json(result, { headers });
-      } catch {
-        return Response.json({ error: "Brain offline", _offline: true }, { status: 503, headers });
+      // Skills are text playbooks only; executable skills were retired.
+      const language = body.language ?? "playbook";
+      if (language !== "playbook") {
+        return Response.json(
+          { error: `Skills are text playbooks only; language "${String(language)}" is not accepted (use "playbook").` },
+          { status: 400, headers },
+        );
       }
-    }
-
-    // Skills evaluate
-    const skillEvalMatch = path.match(/^\/api\/skills\/([^/]+)\/evaluate$/);
-    if (skillEvalMatch && req.method === "POST") {
       try {
-        const result = await bridge.call("skills.evaluate", { skill_id: skillEvalMatch[1] });
+        const result = await bridge.call("skills.create", { ...body, language });
         return Response.json(result, { headers });
       } catch {
         return Response.json({ error: "Brain offline", _offline: true }, { status: 503, headers });
@@ -1201,27 +1197,6 @@ async function handleRequest(req: Request, server: import("bun").Server<any>): P
     if (skillRollbackMatch && req.method === "POST") {
       try {
         const result = await bridge.call("skills.rollback", { skill_id: skillRollbackMatch[1] });
-        return Response.json(result, { headers });
-      } catch {
-        return Response.json({ error: "Brain offline", _offline: true }, { status: 503, headers });
-      }
-    }
-
-    // Skills golden tests
-    const skillGoldenMatch = path.match(/^\/api\/skills\/([^/]+)\/golden-tests$/);
-    if (skillGoldenMatch && req.method === "POST") {
-      try {
-        const result = await bridge.call("skills.golden_tests", { skill_id: skillGoldenMatch[1] });
-        return Response.json(result, { headers });
-      } catch {
-        return Response.json({ error: "Brain offline", _offline: true }, { status: 503, headers });
-      }
-    }
-
-    // Skills regression suite
-    if (path === "/api/skills/regression" && req.method === "POST") {
-      try {
-        const result = await bridge.call("skills.regression", {});
         return Response.json(result, { headers });
       } catch {
         return Response.json({ error: "Brain offline", _offline: true }, { status: 503, headers });

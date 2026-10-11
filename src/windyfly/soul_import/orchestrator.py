@@ -16,7 +16,11 @@ from windyfly.memory.skills import save_skill
 from windyfly.soul_import.chatgpt import parse_chatgpt
 from windyfly.soul_import.hermes import parse_hermes
 from windyfly.soul_import.openclaw import parse_openclaw
-from windyfly.soul_import.preview import classify_memory, format_soul_preview
+from windyfly.soul_import.preview import (
+    classify_memory,
+    format_soul_preview,
+    is_text_skill,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +72,8 @@ def import_soul(
     2. Parse the export with the appropriate parser
     3. Generate Soul Preview
     4. If not approved: return preview (don't write)
-    5. If approved: write safe items, flag sensitive items, sandbox skills
+    5. If approved: write safe items, flag sensitive items, store prose
+       skills as unpromoted text playbooks (code skills are skipped)
 
     Args:
         db: Database instance.
@@ -143,13 +148,22 @@ def import_soul(
         else:
             skipped += 1
 
-    # Import skills as unpromoted
+    # Import prose skills as unpromoted text playbooks. Code skills
+    # (python/js/shell/unknown) are skipped: skills are never executed.
     for skill in parsed_data.get("skills", []):
+        if not is_text_skill(skill):
+            logger.info(
+                "Soul import: skipped code skill %r (language %r); skills "
+                "are text playbooks only",
+                skill.get("name"), skill.get("language"),
+            )
+            skipped += 1
+            continue
         save_skill(
             db,
             name=skill["name"],
             code=skill["code"],
-            language=skill.get("language", "unknown"),
+            language="playbook",
             description=f"Imported from {source_type}",
             risk_level="medium",
         )
