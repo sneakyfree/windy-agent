@@ -138,14 +138,6 @@ class TestAssemblePrompt:
         assert messages[-1]["content"] == "Hello!"
         db.close()
 
-    def test_includes_mode_override(self):
-        config = _make_config()
-        db = _make_db()
-        messages = assemble_prompt(config, db, "Hello!", "test-session", mode="focused")
-        system_content = messages[0]["content"]
-        assert "focused" in system_content.lower()
-        db.close()
-
     def test_first_contact_guard_fires_on_virgin_db(self):
         """Stress harness v6 Notebook test 2026-04-27: the bot was
         opening with 'Welcome back!' on a truly virgin DB (episodes=0,

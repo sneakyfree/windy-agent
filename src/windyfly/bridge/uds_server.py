@@ -209,9 +209,7 @@ class UDSBridge:
             "conflicts.resolve": self._handle_conflicts_resolve,
             "moments.list": self._handle_moments_list,
             "failures.list": self._handle_failures_list,
-            # --- Group 4: Mode, offline, events ---
-            "mode.get": self._handle_mode_get,
-            "mode.set": self._handle_mode_set,
+            # --- Group 4: Offline, events ---
             "offline.status": self._handle_offline_status,
             "events.list": self._handle_events_list,
         }
@@ -597,23 +595,8 @@ class UDSBridge:
         return {"failures": rows}
 
     # ------------------------------------------------------------------
-    # Group 4: Mode, offline, events
+    # Group 4: Offline, events
     # ------------------------------------------------------------------
-
-    async def _handle_mode_get(self, params: dict) -> dict:
-        from windyfly.memory.soul import get_soul
-        user_id = params.get("user_id", "default")
-        row = get_soul(self.db, "agent_mode", user_id=user_id)
-        mode = row["value"] if row else "companion"
-        return {"mode": mode}
-
-    async def _handle_mode_set(self, params: dict) -> dict:
-        from windyfly.personality.mode import validate_mode
-        from windyfly.memory.soul import upsert_soul
-        user_id = params.get("user_id", "default")
-        mode = validate_mode(params.get("mode", "companion"))
-        upsert_soul(self.db, key="agent_mode", value=mode, source="control_panel", user_id=user_id)
-        return {"mode": mode}
 
     async def _handle_offline_status(self, params: dict) -> dict:
         from windyfly.agent.offline import is_online, is_ollama_available

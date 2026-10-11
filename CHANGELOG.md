@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- **Removed `/mode` (companion / focused / neutral).** Gone: the `/mode`
+  command, the `mode.get` / `mode.set` bridge methods, `GET`/`PUT /api/mode`,
+  `get_mode_override` and `personality/mode.py`. Why: `/mode` said "Mode
+  switched" but changed nothing (the saved value was never read), so it told
+  the owner something untrue. Tone now comes from the model plus your soul; to
+  tune it, use the personality sliders with raw mode off.
+
 ## 0.7.6
 
 - **The agent tells Eternitas which machine it lives on (housing report, ON).**

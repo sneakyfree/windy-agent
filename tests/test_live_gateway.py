@@ -281,32 +281,6 @@ class TestSystemRoutes:
         assert r.status_code == 200
         assert isinstance(r.json()["failures"], list)
 
-    def test_mode_get(self):
-        """H2.21: GET /api/mode → mode string."""
-        r = httpx.get(f"{GATEWAY_URL}/api/mode", timeout=5)
-        assert r.status_code == 200
-        assert r.json()["mode"] in ("companion", "focused", "neutral")
-
-    def test_mode_set_roundtrip(self):
-        """H2.22: PUT /api/mode → set focused, verify roundtrip."""
-        # Set
-        httpx.put(
-            f"{GATEWAY_URL}/api/mode",
-            content=json.dumps({"mode": "focused"}),
-            headers={"Content-Type": "application/json"},
-            timeout=5,
-        )
-        # Verify
-        r = httpx.get(f"{GATEWAY_URL}/api/mode", timeout=5)
-        assert r.json()["mode"] == "focused"
-        # Reset
-        httpx.put(
-            f"{GATEWAY_URL}/api/mode",
-            content=json.dumps({"mode": "companion"}),
-            headers={"Content-Type": "application/json"},
-            timeout=5,
-        )
-
     def test_offline_status(self):
         """H2.23: GET /api/offline/status → online + ollama booleans."""
         r = httpx.get(f"{GATEWAY_URL}/api/offline/status", timeout=5)

@@ -1570,16 +1570,6 @@ def _register_all():
         return "Current emotional context: neutral\n(Emotion detection runs on incoming messages)"
     _r("mood", "Show detected emotional context", "05_personality", cmd_mood, aliases=["emotion", "vibe"])
 
-    async def cmd_mode(ctx):
-        args = ctx.get("_args", [])
-        if args:
-            mode = args[0]
-            if mode in ("companion", "focused", "neutral"):
-                return f"Mode switched to: {mode}"
-            return "Available modes: companion, focused, neutral"
-        return "Current mode: companion\nAvailable: companion, focused, neutral\nSwitch: /mode <name>"
-    _r("mode", "Show or switch mode (companion/focused/neutral)", "05_personality", cmd_mode)
-
     # ═══════════════════════════════════════════════════════════════
     # MEMORY & KNOWLEDGE (51-62)
     # ═══════════════════════════════════════════════════════════════

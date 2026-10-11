@@ -8,7 +8,7 @@
   "baseline_mapping": {
     "$comment": "The 13-knob baseline mapped onto Fly's Capability Plane. 'implemented' = a real capability exists; 'gap' = Fly should grow this capability (punch list). These names are the DOCTRINE roles; Fly's real capability ids are in maps_to.",
     "get_health": { "status": "implemented", "maps_to": "health.recent", "note": "health.* capability family already reports agent health + repair knobs." },
-    "get_status": { "status": "implemented", "maps_to": "mode.get / offline.status (IPC)", "note": "mode + connectivity state." },
+    "get_status": { "status": "implemented", "maps_to": "offline.status (IPC)", "note": "connectivity state." },
     "get_config": { "status": "gap", "note": "config is edited via raw windyfly.toml + config.reload; no read-config capability yet." },
     "get_logs": { "status": "implemented", "maps_to": "journal.list / events.list / failures.list (IPC)", "note": "scrub content before exposing over MCP." },
     "run_selftest": { "status": "implemented", "maps_to": "assessment.run", "note": "verify against the selftest contract." },
@@ -17,7 +17,7 @@
     "restart_app": { "status": "gap", "note": "restart is out-of-band (systemd) — needs a supervisor beyond bare Restart=; §7." },
     "enter_safe_mode": { "status": "gap", "note": "no minimal known-good overlay yet." },
     "exit_safe_mode": { "status": "gap", "note": "pairs with enter_safe_mode." },
-    "set_setting": { "status": "implemented", "maps_to": "sliders.set / mode.set / config.reload (IPC)", "note": "typed sliders exist; wants a catalog + undo like Word's." },
+    "set_setting": { "status": "implemented", "maps_to": "sliders.set / config.reload (IPC)", "note": "typed sliders exist; wants a catalog + undo like Word's." },
     "check_for_update": { "status": "gap", "note": "wire to the Steamroller fleet version manifest (L2)." },
     "apply_update": { "status": "gap", "note": "attested self-update + last-known-good; agent updates itself is delicate — always_confirm, OWNER band." },
     "reset_to_defaults": { "status": "gap", "note": "personality.rollback / soul restore exist but no full factory reset." }

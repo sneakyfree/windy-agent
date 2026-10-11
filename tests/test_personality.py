@@ -1,15 +1,11 @@
 """Tests for the personality engine.
 
-Tests SOUL.md loading, personality block building with sliders,
-and mode overrides.
+Tests SOUL.md loading and personality block building with sliders.
 """
 
 from __future__ import annotations
 
-from windyfly.personality.engine import build_personality_block, get_mode_override, load_soul
-from windyfly.personality.mode import DEFAULT_MODE, VALID_MODES, validate_mode
-
-import pytest
+from windyfly.personality.engine import build_personality_block, load_soul
 
 
 class TestLoadSoul:
@@ -57,39 +53,3 @@ class TestBuildPersonalityBlock:
         soul = "# Soul"
         result = build_personality_block(soul, {"reasoning_depth": 8})
         assert "reasoning" in result.lower()
-
-
-class TestModeOverride:
-    def test_companion_returns_none(self):
-        assert get_mode_override("companion") is None
-
-    def test_focused_returns_override(self):
-        result = get_mode_override("focused")
-        assert result is not None
-        assert "focused" in result.lower()
-
-    def test_neutral_returns_override(self):
-        result = get_mode_override("neutral")
-        assert result is not None
-        assert "neutral" in result.lower()
-
-    def test_unknown_returns_none(self):
-        assert get_mode_override("unknown") is None
-
-
-class TestModeValidation:
-    def test_valid_modes(self):
-        assert validate_mode("companion") == "companion"
-        assert validate_mode("focused") == "focused"
-        assert validate_mode("neutral") == "neutral"
-
-    def test_case_insensitive(self):
-        assert validate_mode("FOCUSED") == "focused"
-        assert validate_mode("  Neutral  ") == "neutral"
-
-    def test_invalid_mode_raises(self):
-        with pytest.raises(ValueError):
-            validate_mode("chaos")
-
-    def test_default_mode(self):
-        assert DEFAULT_MODE in VALID_MODES
