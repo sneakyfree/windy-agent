@@ -5,6 +5,12 @@
 - **`/skills` works.** It imported two functions that never existed, so it always
   answered "Error". It now lists the promoted playbooks (`/skills all` for every one).
 
+- **Agent teams and phone tools know who the agent is without MATRIX_BOT_USER.**
+  They read the agent's own Matrix id from that setting alone, so an agent without
+  it (every quickstart install, and Windy 0) answered "chat is not configured" when
+  it had to create a pair room. They now use the id the chat server confirms for
+  the agent's token.
+
 - **Only your own words become facts and goals about you.** The agent used
   to pick up "my name is ..." or "I live in ..." from anyone who wrote to it
   (another person, a paired agent) and store it as a trusted fact about you,

@@ -28,6 +28,8 @@ from typing import Any
 
 import httpx
 
+from windyfly.channels.matrix_self import own_matrix_id
+
 logger = logging.getLogger(__name__)
 
 AUD = "windy-chat"
@@ -140,7 +142,7 @@ def _create_pair_room(answer: dict[str, Any]) -> tuple[str | None, str | None]:
     """createRoom AS THIS AGENT with no invites; the owner AND I at 100 (Synapse needs the creator at 100 to build
     the room). -> (room_id, None) | (None, plain reason). _settle_pair_room then hands the room to the owner."""
     homeserver, token = _matrix()
-    me = os.environ.get("MATRIX_BOT_USER", "").strip()
+    me = own_matrix_id()
     owner = str(answer.get("owner_mxid") or "")
     if not (homeserver and token and me):
         return None, "chat is not configured for this agent"
@@ -165,7 +167,7 @@ def _settle_pair_room(room_id: str, answer: dict[str, Any]) -> str | None:
     """Step down to level 0 (the owner alone is in charge, as in every pair room), THEN invite the partner and the
     owner: nobody is invited to a room whose levels are wrong. Idempotent, so a retry can finish a half-made room.
     None on success, else a plain reason."""
-    me = os.environ.get("MATRIX_BOT_USER", "").strip()
+    me = own_matrix_id()
     path = f"rooms/{room_id}/state/m.room.power_levels"
     try:
         status, levels = _mx("GET", path)
