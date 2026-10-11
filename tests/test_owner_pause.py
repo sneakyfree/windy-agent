@@ -124,3 +124,43 @@ def test_loop_says_one_plain_line_when_stopped(monkeypatch):
     monkeypatch.setattr(models, "check_owner_pause", lambda force=False: {"reason": "stopped by owner"})
     assert "stopped by my owner" in loop.owner_paused_reply()
     assert "🛟" not in loop.owner_paused_reply()
+
+
+# ── a stopped agent never answers another agent (sibling-loop guard, 10-11) ─────────────
+
+def _respond_while_stopped(monkeypatch, *, agent_sender: bool, session: str = "sess-paused"):
+    import tempfile
+    from pathlib import Path
+    from unittest.mock import patch
+
+    from windyfly.agent.loop import agent_respond
+    from windyfly.channels import silence
+    from windyfly.memory.database import Database
+    from windyfly.memory.write_queue import WriteQueue
+    from windyfly.tools.registry import ToolRegistry
+
+    monkeypatch.setattr(models, "check_owner_pause", lambda force=False: {"reason": "stopped by owner"})
+    cfg = {"agent": {"default_model": "claude-sonnet-4-6"}, "memory": {}, "personality": {"preset": "buddy"}}
+    with tempfile.TemporaryDirectory() as td:
+        db = Database(str(Path(td) / "p.db"))
+        wq = WriteQueue()
+        wq.start()
+        try:
+            if agent_sender:
+                silence.mark_agent_sender(session)
+            with patch("windyfly.agent.loop.call_llm", side_effect=AssertionError("no model call")):
+                return agent_respond(cfg, db, wq, "are you there?", session, ToolRegistry())
+        finally:
+            silence.clear_agent_sender(session)
+            wq.stop()
+            db.close()
+
+
+def test_stopped_agent_posts_nothing_to_another_agent(monkeypatch):
+    assert _respond_while_stopped(monkeypatch, agent_sender=True) == ""
+
+
+def test_stopped_agent_still_tells_a_person_plainly(monkeypatch):
+    from windyfly.agent import loop
+
+    assert _respond_while_stopped(monkeypatch, agent_sender=False) == loop.owner_paused_reply()

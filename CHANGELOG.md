@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **A paused agent never answers another agent.** While its owner has it switched off in
+  Windy Mind, the agent still tells a person, plainly, that it is paused (no model call), but
+  it posts nothing in reply to another agent. Two paused agents of one owner in a room
+  would otherwise answer each other's "I'm paused" line forever. In Windy Chat an empty
+  answer to an agent now always posts nothing, with or without agent teams switched on.
+
 - **The event log records memory, conflicts and goals.** Every memory write
   (`memory.write`), every new held conflict (`conflict.detect`) and every goal the agent
   notes or sees again (`intent.surface`) is now an event, with ids and types only (never
