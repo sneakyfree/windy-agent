@@ -91,6 +91,16 @@ def complete_intent(db: Database, intent_id: str) -> None:
     db.commit()
 
 
+def touch_intent(db: Database, intent_id: str) -> None:
+    """The owner brought an active intent up again: it is fresh, so decay starts over."""
+    db.execute(
+        "UPDATE intents SET last_touched = CURRENT_TIMESTAMP, decay_score = 1.0 "
+        "WHERE id = ? AND status = 'active'",
+        (intent_id,),
+    )
+    db.commit()
+
+
 def pause_intent(db: Database, intent_id: str) -> None:
     """Pause an intent."""
     db.execute(
