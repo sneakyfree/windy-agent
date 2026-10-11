@@ -16,7 +16,7 @@ tools, Vault). A row owned by another lane counts only after that lane confirms 
 
 Built in waves (strand-to-green plan, 2026-10-10): 5a set the frame plus Part 1 §4 and gene 0.3;
 5b1 added Part 1 §1-§3 and genes 0.1-0.2; 5b2 completes Part 1 (genes 0.4-0.9, checklist C0);
-5c completed Part 2; 5d fills in Part 3; 5e-5f Parts 4-5; 5g adds the new genes.
+5c completed Part 2; 5d completes Part 3; 5e-5f Parts 4-5; 5g adds the new genes.
 
 ## Part 1: Foundation and Phase 0
 
@@ -382,3 +382,63 @@ Built in waves (strand-to-green plan, 2026-10-10): 5a set the frame plus Part 1 
 | Codon | Promise | Status | Test |
 |---|---|---|---|
 | P3.35.1 | Phase 3 test files exist and pass; tag v0.4.0 | retired: properties of the suite and a one-time release step, not codons (#526) | — |
+
+### P3.41 Brain bridge and gateway (gene 4.1)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P3.41.1 | The brain opens its bridge socket and removes it on stop | live | `tests/test_bridge_integration.py::TestBridgeLifecycle::test_start_creates_socket_file` |
+| P3.41.2 | A malformed frame gets a structured error, not a crash | live | `tests/test_bridge_integration.py::TestFrameParsing::test_invalid_json_returns_structured_error` |
+| P3.41.3 | A chat turn round-trips through the bridge | live | `tests/test_bridge_integration.py::TestAgentRespondViaBridge::test_full_roundtrip` |
+| P3.41.4 | Sliders are read and set through the bridge | live | `tests/test_bridge_integration.py::TestDispatchRoundtrips::test_sliders_set_and_get_roundtrip` |
+| P3.41.5 | Today's spend is read through the bridge | live | `tests/test_bridge_integration.py::TestDispatchRoundtrips::test_cost_daily_returns_float` |
+| P3.41.6 | Goals are listed through the bridge | live | `tests/test_bridge_integration.py::TestDispatchRoundtrips::test_intents_list_returns_array` |
+| P3.41.7 | Memory is searched through the bridge (knowledge nodes) | live | `tests/test_bridge_integration.py::TestDispatchRoundtrips::test_memory_search_returns_list` |
+| P3.41.8 | Bridge memory search also searches past conversations | planned: Windy Agent: memory.search returns nodes only; episodes are not searched | — |
+| P3.41.9 | The gateway's health route reports whether the brain is connected | live | `tests/test_gateway_smoke.py::TestHealthRoute::test_bridge_reports_connected_state` |
+| P3.41.10 | Gateway HTTP and WebSocket chat are proven end to end without a live stack | planned: Windy Agent: only live-gated tests cover the gateway boot and the /ws/chat proxy; add a hermetic bun test gateway -> bridge | — |
+
+### P3.42 Cognitive decay (gene 4.2)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P3.42.1 | Old memories fade on each decay run | live | `tests/test_phase4.py::TestCognitiveDecay::test_decay_returns_counts` |
+| P3.42.2 | A faded memory (below 0.2) becomes speculative but is kept | live | `tests/strand/test_p3_memory.py::test_p3_42_faded_memories_become_speculative_but_are_kept` |
+| P3.42.3 | Decay never erases a memory (Chronicle Law 1) | live | `tests/test_decay_immediate.py::TestChronicleLaw1::test_low_score_nodes_survive_with_floored_weight` |
+| P3.42.4 | Old conversations are never rewritten or pruned | live | `tests/test_decay_immediate.py::TestChronicleLaw1::test_ancient_episode_content_never_touched` |
+| P3.42.5 | Memories below 0.05 are deleted; episodes over 90 days are summarised and deleted | retired: decay may dim, never erase (Doctrine Law 1) (#312) | — |
+| P3.42.6 | Decay runs on demand and reports what it did | live | `tests/test_decay_immediate.py::TestDecayImmediate::test_returns_nonzero_counts_when_nodes_exist` |
+
+### P3.43 Conflicts (gene 4.3)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P3.43.1 | A contradicting update is detected | live | `tests/test_phase4.py::TestConflictDetector::test_detects_conflict` |
+| P3.43.2 | A contradicting update is held, not applied over the old value | live | `tests/test_memory_conflict_hold.py::TestHold::test_contradicting_update_does_not_overwrite` |
+| P3.43.3 | "Keep old" keeps the old value | live | `tests/test_memory_conflict_hold.py::TestResolve::test_keep_old_keeps_the_old_value` |
+| P3.43.4 | "Keep new" applies the held value | live | `tests/test_memory_conflict_hold.py::TestResolve::test_keep_new_applies_the_held_value` |
+| P3.43.5 | The owner is shown a pending conflict and asked to choose | live | `tests/test_memory_conflict_hold.py::TestPromptFacts::test_owner_turn_carries_the_pending_conflict` |
+| P3.43.6 | Nobody but the owner sees the owner's conflicts | live | `tests/test_memory_conflict_hold.py::TestPromptFacts::test_non_owner_bands_never_see_it` |
+
+### P3.44 Sub-agents (gene 4.4)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P3.44.1 | Specialist sub-agents with their own context, cost tag, time budget and depth 1 | retired: unused; sub_agents.py and shape-shift removed (#501) | — |
+
+### P3.45 Offline fallback (gene 4.5)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P3.45.1 | When the online check itself fails, the agent assumes it is online | live | `tests/test_is_online_resilience.py::test_all_probes_fail_defaults_to_online` |
+| P3.45.2 | Offline, a local model answers | live | `tests/test_phase4.py::TestOfflineMode::test_offline_response_with_ollama` |
+| P3.45.3 | Offline with no local model, the owner gets a plain offline message | live | `tests/test_phase4.py::TestOfflineMode::test_offline_response_no_ollama` |
+| P3.45.4 | Messages are queued safely while offline (atomic write) | live | `tests/test_offline_queue_atomic.py::TestOfflineQueueAtomic::test_atomic_write_survives_crash` |
+| P3.45.5 | Back online, nothing queued goes through the model; the owner is told how many waited | live | `tests/test_offline_queue_no_replay.py::test_nothing_goes_through_the_model` |
+| P3.45.6 | Back online, the queue is replayed through the model | retired: a replay drove a spend auto-pause; never replay, tell the owner (#434) | — |
+
+### P3.46 Phase 4 tests and release (gene 4.6)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P3.46.1 | Phase 4 test files exist and pass; tag v0.5.0 | retired: properties of the suite and a one-time release step, not codons (#526) | — |
