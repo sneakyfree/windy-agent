@@ -37,6 +37,7 @@ import { bridge } from "./bridge";
 import { handleClose, handleMessage, handleWebSocket } from "./websocket";
 import * as providers from "./providers";
 import { handleHatchRemote } from "./hatch-remote";
+import { removeRetiredDataFiles } from "./retired-data";
 
 const PORT = Number(process.env.GATEWAY_PORT) || 3000;
 const PUBLIC_DIR = resolve(import.meta.dir, "../public");
@@ -1604,6 +1605,10 @@ base_url = "http://localhost:8098"
 
 // Start server
 async function main() {
+  for (const name of removeRetiredDataFiles()) {
+    console.log(`[gateway] removed retired data/${name}`);
+  }
+
   // Try to connect to Python brain
   try {
     await bridge.connect();

@@ -33,6 +33,12 @@
   `/ws/machine/:id` sockets. Manage each machine's agent on that machine
   (windy CLI / its own dashboard); fleet operations are not part of Windy Fly.
 
+- **The gateway deletes Mission Control's leftover `data/machines.json` at
+  start.** It held the tokens typed for remote machines. The gateway
+  overwrites it with zeros, deletes it, and logs one line. That is cleanup,
+  not a secure erase: SSDs can keep old blocks. If you never start the
+  gateway again, the file is safe to delete by hand.
+
 ## 0.7.6
 
 - **The agent tells Eternitas which machine it lives on (housing report, ON).**
