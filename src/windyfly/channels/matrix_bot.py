@@ -991,7 +991,10 @@ class WindyFlyMatrixBot(ChannelAdapter):
                     )
                 await asyncio.sleep(1)
 
-        logger.info("Windy Fly is online and listening for messages (E2E enabled)")
+        from nio.crypto import ENCRYPTION_ENABLED
+
+        logger.info("Windy Fly is online and listening for messages (end-to-end encryption %s)",
+                    "available" if ENCRYPTION_ENABLED else "NOT available: the olm library is not installed")
 
         # Set up graceful shutdown signal handlers
         try:

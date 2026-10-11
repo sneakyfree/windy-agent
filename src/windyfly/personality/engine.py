@@ -28,6 +28,11 @@ def load_soul(path: str = "SOUL.md") -> str:
     )
 
 
+# The sliders raw mode (the default) leaves out: only the tone of the personality block. Every other slider in a
+# preset (autonomy, creativity, response length, reasoning depth, memory, strictness, tool rounds) still applies.
+RAW_MODE_TONE_SLIDERS: tuple[str, ...] = ("personality", "humor", "formality", "verbosity")
+
+
 def build_personality_block(
     soul_text: str, sliders: dict, *, raw: bool = False,
 ) -> str:

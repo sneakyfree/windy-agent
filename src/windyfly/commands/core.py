@@ -1531,28 +1531,38 @@ def _register_all():
             # user_id="default"). Pre-fix code passed (_db, None,
             # args[0]) → preset_name=None → "Unknown preset 'None'"
             # on every invocation. Has never worked since launch.
-            from windyfly.control_panel import apply_preset
+            from windyfly.control_panel import apply_preset, get_sliders
             result = apply_preset(_db, args[0])
-            return f"✅ Preset `{args[0]}` applied — `/sliders` to see the new values" if result else f"Unknown preset: {args[0]}"
+            if not result:
+                return f"Unknown preset: {args[0]}"
+            if bool(get_sliders(_db).get("raw_mode", 0)):
+                from windyfly.personality.engine import RAW_MODE_TONE_SLIDERS
+
+                return (f"Preset `{args[0]}` saved. Raw mode is on, so its tone sliders "
+                        f"({', '.join(RAW_MODE_TONE_SLIDERS)}) are not used; the rest of the preset is in effect. "
+                        "`/slider raw_mode 0` hands tone back to the sliders. `/sliders` shows the values.")
+            return f"✅ Preset `{args[0]}` applied. `/sliders` shows the new values."
         except Exception as e:
             return f"Error: {e}"
     _r("preset", "Switch personality preset", "05_personality", cmd_preset, usage="preset <name>")
 
     async def cmd_presets(ctx):
-        presets = {
-            "buddy": "Friendly companion (personality 8, humor 7, proactivity 7)",
-            "engineer": "Technical precision (reasoning 8, humor 2, personality 3)",
-            "coder": "Programming expert (reasoning 9, personality 1)",
-            "friend": "Best friend (humor 8, personality 10, proactivity 8)",
-            "writer": "Wordsmith (creativity 8, verbosity 9)",
-            "researcher": "Scholar (reasoning 10, memory 9, personality 2)",
-            "powerhouse": "Go-getter (proactivity 10, autonomy 8)",
-            "silent": "Minimal (verbosity 2, humor 0, personality 3)",
-        }
-        lines = ["Available Presets:\n"]
-        for name, desc in presets.items():
-            lines.append(f"  {name:14s} {desc}")
+        from windyfly.control_panel import PRESETS
+
+        # Facts from the preset table itself, so the list can never disagree with what /preset applies.
+        shown = ("personality", "humor", "reasoning_depth", "autonomy", "verbosity")
+        lines = ["Available presets:\n"]
+        for name, values in PRESETS.items():
+            desc = ", ".join(f"{k.replace('_', ' ')} {values[k]}" for k in shown if k in values)
+            lines.append(f"  {name:12s} {desc}")
         lines.append("\nSwitch: /preset <name>")
+        if _db:
+            from windyfly.control_panel import get_sliders
+
+            if bool(get_sliders(_db).get("raw_mode", 0)):
+                from windyfly.personality.engine import RAW_MODE_TONE_SLIDERS
+
+                lines.append(f"Raw mode is on: the tone sliders ({', '.join(RAW_MODE_TONE_SLIDERS)}) are not used.")
         return "\n".join(lines)
     _r("presets", "List all available personality presets", "05_personality", cmd_presets)
 

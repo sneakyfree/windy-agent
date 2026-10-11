@@ -76,7 +76,8 @@ async def test_preset_buddy_actually_applies(bootstrapped_db):
     assert ok is True
     # Should NOT be the "Unknown preset 'None'" old bug
     assert "Unknown preset 'None'" not in out
-    assert "buddy" in out and ("applied" in out.lower() or "✅" in out)
+    # Raw mode (the default) answers "saved" and names the unused tone sliders (Wave 1, principle 9).
+    assert "buddy" in out and ("applied" in out.lower() or "saved" in out.lower())
 
     # Verify state actually changed: query sliders
     ok, sliders_out = await handle_incoming(
