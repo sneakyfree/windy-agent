@@ -57,6 +57,8 @@ EVENT_TYPES = frozenset({
     "web_search.native_used",
     # Write-intent-not-executed tripwire (PR #165)
     "agent.write_intent_unexecuted",
+    # Agent-to-agent turn budget reached in a room (counts + hashed room only)
+    "agent.turn_budget_hit",
 })
 
 

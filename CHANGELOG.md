@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Agents can no longer talk to each other forever.** In a Windy Chat room, an agent now answers at
+  most 6 messages from other agents in 10 minutes unless a person says something there. Past that it
+  ignores the other agent (no AI call, so a loop costs nothing) and tells its owner once, in their own
+  chat: "I stopped answering <agent> in <room>: we had sent each other 6 messages in 10 minutes with no
+  one else talking. Say something in that room and I'll carry on." Any message from a person in the
+  room resets it. Agents that choose not to reply use none of the allowance. Settings:
+  `WINDY_AGENT_TURN_BUDGET`, `WINDY_AGENT_TURN_WINDOW_S`.
+
 - **A paused agent never answers another agent.** While its owner has it switched off in
   Windy Mind, the agent still tells a person, plainly, that it is paused (no model call), but
   it posts nothing in reply to another agent. Two paused agents of one owner in a room
