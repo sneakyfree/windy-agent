@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **The event log records memory, conflicts and goals.** Every memory write
+  (`memory.write`), every new held conflict (`conflict.detect`) and every goal the agent
+  notes or sees again (`intent.surface`) is now an event, with ids and types only (never
+  what the memory or goal says). Five event types that nothing ever wrote are gone:
+  `cost.log` (cost lives in the cost ledger, the one record), `skill.evaluate`,
+  `matrix.message`, `personality.change`, `email.outbound`. A test now fails if a declared
+  type is never emitted.
+
 - **A token saved from chat survives a restart on every install.** Setting up Cloudflare or
   GitHub from chat wrote the token to `~/.windy/windy-0.env`, a file only Windy 0 loads, so
   on any other install it was gone at the next restart. It now goes to the env file the

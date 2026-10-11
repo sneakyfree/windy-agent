@@ -18,23 +18,18 @@ logger = logging.getLogger(__name__)
 EVENT_TYPES = frozenset({
     "agent.respond",
     "memory.write",
-    "skill.evaluate",
-    "cost.log",
     "failure.detect",
     "intent.surface",
     "conflict.detect",
     "decay.run",
-    "matrix.message",
     "matrix.reconnect",
     "telegram.reconnect",
-    "personality.change",
     "personality_drift",
     "offline.fallback",
     "sms.inbound",
     "sms.outbound",
     "sms.optout",
     "email.inbound",
-    "email.outbound",
     "agent.confabulation_detected",
     "agent.empty_after_tools",
     # Lifeboat / resurrection lifecycle (PRs #138, #145, #160, #161)
@@ -103,6 +98,23 @@ def log_event(
         db.commit()
 
     write_queue.enqueue(Priority.LOW, _write)
+
+
+def record_event(db: Database, event_type: str, data: dict[str, Any]) -> None:
+    """Write one event row now, in the caller's transaction (the caller commits).
+
+    For memory code that already runs on the write-queue thread (``upsert_node``,
+    ``create_intent``), where ``log_event`` would queue a second job. Ids, types and
+    counts only: never a node name or any text the owner wrote. Never raises: an
+    event must not break the write it describes.
+    """
+    try:
+        db.execute(
+            "INSERT INTO events (event_type, data) VALUES (?, ?)",
+            (event_type, json.dumps(data)),
+        )
+    except Exception as exc:  # noqa: BLE001 - observability is best effort
+        logger.debug("event %s not recorded: %s", event_type, exc)
 
 
 def get_recent_events(
