@@ -768,12 +768,14 @@ class TestEpistemicFiltering:
 
         messages = assemble_prompt(config, db, "test topic", "test-session")
 
-        # Find knowledge section in messages
+        # Find knowledge section in messages. It MUST be there: before 10-11 these asserts sat
+        # inside "if knowledge_msgs:", so the test passed even with no knowledge block at all.
         knowledge_msgs = [m for m in messages if "Relevant Knowledge" in m.get("content", "")]
-        if knowledge_msgs:
-            content = knowledge_msgs[0]["content"]
-            # Inferred and speculative should be filtered out at strictness > 7
-            assert "[INFERRED]" not in content
-            assert "[SPECULATIVE]" not in content
+        assert len(knowledge_msgs) == 1
+        content = knowledge_msgs[0]["content"]
+        # Inferred and speculative should be filtered out at strictness > 7
+        assert "[VERIFIED]" in content
+        assert "[INFERRED]" not in content
+        assert "[SPECULATIVE]" not in content
 
         db.close()
