@@ -25,6 +25,14 @@
   own (named long-running helpers are still the collaborators). An old
   `slider_shape_shift_bias` setting in an existing database is ignored.
 
+- **Mission Control (remote machine management) removed.** It dialed a
+  daemon on port 3100 that no repo ever shipped, so it never worked, and its
+  exec and provider-sync routes would have sent commands and plaintext
+  provider keys over unencrypted ws:// on a LAN. Gone: the Machines page,
+  every `/api/machines*` route, and the `/ws/terminal/:id` and
+  `/ws/machine/:id` sockets. Manage each machine's agent on that machine
+  (windy CLI / its own dashboard); fleet operations are not part of Windy Fly.
+
 ## 0.7.6
 
 - **The agent tells Eternitas which machine it lives on (housing report, ON).**

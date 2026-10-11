@@ -20,7 +20,6 @@
 - [Channels (SMS, Email)](#channels)
 - [Soul Passport (Import/Export)](#soul-passport)
 - [Providers (LLM Configuration)](#providers)
-- [Mission Control (Machines)](#mission-control-machines)
 - [Setup Wizard](#setup-wizard)
 - [WebSocket Endpoints](#websocket-endpoints)
 
@@ -813,67 +812,6 @@ Save notes for a provider.
 
 ---
 
-## Mission Control (Machines)
-
-### `GET /api/machines`
-
-List all registered remote machines with status.
-
-### `POST /api/machines`
-
-Register a new machine.
-
-**Request:**
-```json
-{
-  "name": "Production Server",
-  "host": "192.168.1.100",
-  "port": 3100,
-  "token": "secret",
-  "tags": ["production"],
-  "notes": "Main deployment"
-}
-```
-
-### `GET /api/machines/:id`
-
-Get a single machine's status.
-
-### `PUT /api/machines/:id`
-
-Update machine configuration.
-
-### `DELETE /api/machines/:id`
-
-Remove a machine.
-
-### `POST /api/machines/:id/restart-gateway`
-
-Restart the gateway on a remote machine.
-
-### `POST /api/machines/:id/restart-brain`
-
-Restart the brain on a remote machine.
-
-### `GET /api/machines/:id/health`
-
-Get health status of a remote machine.
-
-### `POST /api/machines/:id/exec`
-
-Execute a command on a remote machine.
-
-**Request:**
-```json
-{ "command": "uv run pytest tests/ -v" }
-```
-
-### `POST /api/machines/sync-providers`
-
-Sync provider configurations to remote machines.
-
----
-
 ## Setup Wizard
 
 > **Security:** All setup routes are restricted to localhost only (403 for remote requests).
@@ -958,14 +896,6 @@ Real-time chat with the agent over WebSocket.
   "session_id": "uuid"
 }
 ```
-
-### `WS /ws/terminal/:machineId`
-
-Terminal relay to a remote machine (PTY).
-
-### `WS /ws/machine/:machineId`
-
-Event stream from a remote machine.
 
 ---
 

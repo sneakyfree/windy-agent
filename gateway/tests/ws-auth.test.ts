@@ -1,18 +1,19 @@
 /**
  * Wave 14 — P0 fix: WebSocket upgrades accepted ANY peer unauthenticated.
  *
- * Pre-fix, the `fetch` handler short-circuited on `/ws/chat` /
- * `/ws/terminal/:id` / `/ws/machine/:id` by calling
- * `server.upgrade(req, …)` before `handleRequest` — so
- * `checkDashboardAuth` never ran. Worse, `/ws/terminal/:id` auto-
- * emits `pty:create` on open (server.ts:~1655), which means the
- * moment any real machineId leaks, anyone on the internet can
- * attach a PTY to a remote machine.
+ * Pre-fix, the `fetch` handler short-circuited on `/ws/chat` (and the
+ * Mission Control sockets `/ws/terminal/:id` / `/ws/machine/:id`) by
+ * calling `server.upgrade(req, …)` before `handleRequest` — so
+ * `checkDashboardAuth` never ran.
  *
- * The fix gates all three WS pathnames behind `isDashboardAuthValid`
+ * The fix gates the WS pathname behind `isDashboardAuthValid`
  * BEFORE `server.upgrade`, and consumes the `auth` rate-limit bucket
  * on each failure so a flood trips the same 5/min/IP throttle as a
  * brute-force login.
+ *
+ * Mission Control (remote machine management) was retired 2026-10-10:
+ * `/ws/terminal/:id` and `/ws/machine/:id` no longer exist, so
+ * `/ws/chat` is the only socket. A guard below keeps them gone.
  *
  * This test file covers two layers:
  *   1. Pure `isDashboardAuthValid` decision table.
@@ -116,10 +117,8 @@ describe("live WS upgrade — unauth is rejected before server.upgrade", () => {
       fetch(req, srv) {
         const pathname = new URL(req.url).pathname;
         const isWsChat = pathname === "/ws/chat";
-        const termMatch = pathname.match(/^\/ws\/terminal\/(.+)$/);
-        const machineWsMatch = pathname.match(/^\/ws\/machine\/(.+)$/);
 
-        if (isWsChat || termMatch || machineWsMatch) {
+        if (isWsChat) {
           if (!isDashboardAuthValid(req, srv)) {
             return new Response("Unauthorized", { status: 401 });
           }
@@ -156,32 +155,6 @@ describe("live WS upgrade — unauth is rejected before server.upgrade", () => {
     expect(resp.status).toBe(401);
     // Crucial: NOT 101 Switching Protocols.
     expect(resp.status).not.toBe(101);
-  });
-
-  test("/ws/terminal/unknown-machine with no auth → 401", async () => {
-    const resp = await fetch(`http://127.0.0.1:${port}/ws/terminal/unknown-machine-xyz`, {
-      headers: {
-        Upgrade: "websocket",
-        Connection: "Upgrade",
-        "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==",
-        "Sec-WebSocket-Version": "13",
-        "X-Forwarded-For": "203.0.113.7",
-      },
-    });
-    expect(resp.status).toBe(401);
-  });
-
-  test("/ws/machine/unknown-id with no auth → 401", async () => {
-    const resp = await fetch(`http://127.0.0.1:${port}/ws/machine/unknown-id`, {
-      headers: {
-        Upgrade: "websocket",
-        Connection: "Upgrade",
-        "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==",
-        "Sec-WebSocket-Version": "13",
-        "X-Forwarded-For": "203.0.113.7",
-      },
-    });
-    expect(resp.status).toBe(401);
   });
 
   test("wrong cookie also 401s", async () => {
@@ -227,5 +200,16 @@ describe("server.ts — regression guards for WS auth", () => {
       /isDashboardAuthValid\(req, server\)[\s\S]{0,400}?isRateLimited\([^)]+, "auth"\)/,
     );
     expect(snippet).not.toBeNull();
+  });
+
+  test("retired Mission Control sockets are gone (no /ws/terminal, /ws/machine, machines.ts)", async () => {
+    const text = await src.text();
+    // The old routing regexes were written as /^\/ws\/terminal\/(.+)$/.
+    expect(text).not.toContain("ws\\/terminal");
+    expect(text).not.toContain("ws\\/machine");
+    expect(text).not.toContain('type: "terminal"');
+    expect(text).not.toContain('from "./machines"');
+    expect(text).not.toContain("/api/machines");
+    expect(await Bun.file(import.meta.dir + "/../src/machines.ts").exists()).toBe(false);
   });
 });

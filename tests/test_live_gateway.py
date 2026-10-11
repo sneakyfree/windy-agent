@@ -299,7 +299,7 @@ class TestSystemRoutes:
 
 
 # =============================================================================
-# H2.25–H2.26: Providers, Machines (H2.27–H2.28 shape-shift retired 2026-10-10)
+# H2.25: Providers (H2.26 machines + H2.27–H2.28 shape-shift retired 2026-10-10)
 # =============================================================================
 
 
@@ -313,12 +313,6 @@ class TestProviderMachineRoutes:
         data = r.json()
         assert isinstance(data["providers"], list)
         assert len(data["providers"]) >= 10, "Expected 10+ built-in providers"
-
-    def test_machines(self):
-        """H2.26: GET /api/machines → machines array."""
-        r = httpx.get(f"{GATEWAY_URL}/api/machines", timeout=5)
-        assert r.status_code == 200
-        assert isinstance(r.json()["machines"], list)
 
 
 # =============================================================================

@@ -261,7 +261,8 @@ class TestErrorPageQuality:
         server_ts = GATEWAY_DIR / "src" / "server.ts"
         content = server_ts.read_text(encoding="utf-8")
         assert "404" in content, "Gateway has no 404 handling"
-        assert "Not Found" in content or "not found" in content, (
+        # Case-insensitive: the catch-all 404 says "Not found".
+        assert "not found" in content.lower(), (
             "Gateway 404 has no descriptive message"
         )
 
