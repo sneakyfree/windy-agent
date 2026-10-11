@@ -17,8 +17,9 @@ from windyfly.channels import matrix_self
 from windyfly.channels import phone_tools as pt
 
 CONTRACT = Path(pt.__file__).parent / "contracts" / "phone-tools.v1.json"
-# sha256 of the vendored windy-contracts schema/chat/phone-tools.v1.json (1.0.0, windy-contracts 746a2b2).
-PHONE_TOOLS_V1_SHA256 = "243b5b72470d2160bdf5809312d94cabe58597334670d7d50e4d9a7e9be6e0d0"
+# sha256 of the vendored windy-contracts schema/chat/phone-tools.v1.json (1.0.1, windy-contracts f8e2408;
+# equals that commit's MANIFEST.json entry).
+PHONE_TOOLS_V1_SHA256 = "0bff45412e78d277a4ed4b45543a2616de8eaa830741ee2ed1b5697049cf9cc0"
 
 OWNER = "@owner:chat.test"
 ME = "@agent_et26-test-aaaa:chat.test"
