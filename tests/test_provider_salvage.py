@@ -231,3 +231,44 @@ def test_main_runs_the_salvage_before_the_channel_starts():
     src = (Path(providers.__file__).parents[1] / "main.py").read_text(encoding="utf-8")
     salvage = src.index("salvage_provider_keys()")
     assert src.index("install_root_redaction()") < salvage < src.index("_start_decay_scheduler(config")
+
+
+def test_the_owners_notes_are_kept_with_key_shaped_text_replaced(box, caplog):
+    """Hub 10-11: the notes are the owner's own words. Keep them; only keys leave."""
+    caplog.set_level(logging.INFO)
+    write(box["gw"] / "provider_notes.json", {
+        "grok": f"my key is {K_NOTE} keep it safe",
+        "openai": "work account, billed to the shop",
+        "groq": f"old one {K_GWPROV}",
+        "mistral": "",
+    })
+    box["environ"]["GROQ_API_KEY"] = "sk-env-wins"   # groq's token is NOT moved
+
+    report = run(box)
+
+    assert report["moved"] == ["grok"]
+    kept_path = box["state"].parent / provider_salvage.NOTES_KEPT
+    kept = json.loads(kept_path.read_text())
+    assert kept == {
+        "grok": "my key is [moved to the env file] keep it safe",
+        "openai": "work account, billed to the shop",
+        "groq": "old one [key-shaped text removed]",
+    }
+    assert stat.S_IMODE(kept_path.stat().st_mode) == 0o600
+    assert not (box["gw"] / "provider_notes.json").exists()
+    for k in ALL_KEYS:
+        assert k not in kept_path.read_text()
+    assert_no_key_values(caplog, report)
+
+
+def test_notes_stay_put_if_they_cannot_be_kept(box, caplog):
+    write(box["gw"] / "provider_notes.json", {"openai": "just words"})
+    write(box["gw"] / "provider_keys.json", {"openai": [{"key_full": K_ACTIVE, "active": True}]})
+
+    with patch.object(provider_salvage, "_write_private_json", side_effect=OSError("disk full")):
+        report = run(box)
+
+    assert (box["gw"] / "provider_notes.json").exists()
+    assert "provider_notes.json" in report["left"]
+    assert not (box["gw"] / "provider_keys.json").exists()   # its key is safe in the env file
+    assert "could not keep the provider notes" in caplog.text

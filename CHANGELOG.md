@@ -12,8 +12,10 @@
   env file wins. Only after every key is saved does it remove the old dashboard files and
   strip keys from `~/.windy/providers.json`. If saving fails, it changes no file, uses those
   keys for that run, and tries again at the next start. Its log names providers, never keys.
-  Notes you wrote on that page are not kept. To add or change a key: put it in your env
-  file, or run the setup wizard. Windy agents with a passport choose their model in Windy
+  Notes you wrote on that page are kept in `~/.windy/retired-provider-notes.json` (0600),
+  with anything that looked like a key replaced by "[moved to the env file]" (or
+  "[key-shaped text removed]" when that key was not the one moved). To add or change a key:
+  put it in your env file, or run the setup wizard. Windy agents with a passport choose their model in Windy
   Mind. A key in `windyfly.toml` (`[providers.<name>] api_key`) is not touched.
 
 - **No more "warmth" slider leftovers.** The warmth slider was removed in July, but

@@ -14,8 +14,9 @@ else the project ``.env``). Salvage, then scrub:
 1. For each provider with a key in one of those files and NO key in the environment or the env
    file, write it into the env file (atomic, 0600) and hot-load it for this run. A provider that
    already has an env key keeps it: the file copy is just dropped (env wins).
-2. Only if every write worked: rewrite ``~/.windy/providers.json`` without keys (0600), then
-   overwrite the old dashboard files with zeros and delete them. If any write failed, NOTHING
+2. Only if every write worked: rewrite ``~/.windy/providers.json`` without keys (0600), keep the
+   owner's notes in ``~/.windy/retired-provider-notes.json`` (0600, key-shaped text replaced),
+   then overwrite the old dashboard files with zeros and delete them. If any write failed, NOTHING
    is rewritten or deleted: the keys are hot-loaded for this run and the salvage runs again at
    the next start.
 
@@ -39,6 +40,9 @@ from typing import Any, Iterator
 logger = logging.getLogger(__name__)
 
 GATEWAY_FILES = ("providers.json", "provider_keys.json", "provider_notes.json")
+NOTES_KEPT = "retired-provider-notes.json"
+MOVED = "[moved to the env file]"
+REMOVED = "[key-shaped text removed]"
 # Non-secret fields of a custom provider defined only in the old dashboard file.
 _DEFINITION_FIELDS = ("name", "type", "base_url", "models", "api_key_env")
 # A value safe to write as a bare KEY=VALUE line for both python-dotenv and systemd.
@@ -112,6 +116,38 @@ def _write_private_json(path: Path, data: dict[str, Any]) -> None:
         os.fsync(fh.fileno())
     os.chmod(tmp, 0o600)
     os.replace(tmp, path)
+
+
+def _keep_notes(path: Path, notes: dict[str, Any], used: dict[str, str], *, moved: set[str]) -> bool:
+    """Keep the owner's own words (Hub 10-11): every note, key-shaped text replaced. True if safe
+    to delete the original (nothing to keep, or written). Never overwrites a note kept earlier."""
+    kept = {}
+    for provider, note in notes.items():
+        if not isinstance(note, str) or not note.strip():
+            continue
+
+        def mask(m: re.Match[str], provider: str = provider) -> str:
+            moved_here = used.get(provider) == m.group(1) and provider in moved
+            return MOVED if moved_here else REMOVED
+
+        kept[provider] = _NOTE_TOKEN.sub(mask, note)
+    if not kept:
+        return True
+    try:
+        existing, problem = _read_json(path)
+        if problem:
+            raise OSError(problem)
+        merged = dict(existing) if isinstance(existing, dict) else {}
+        for provider, note in kept.items():
+            merged.setdefault(provider, note)
+        _write_private_json(path, merged)
+    except OSError as exc:
+        logger.warning("provider salvage: could not keep the provider notes in %s (%s); leaving "
+                       "data/provider_notes.json in place", path, type(exc).__name__)
+        return False
+    logger.info("provider salvage: kept %d provider note(s) in %s (key-shaped text replaced)",
+                len(kept), path)
+    return True
 
 
 @contextmanager
@@ -221,11 +257,13 @@ def _salvage(
     for provider, entry in gw["providers.json"].items():
         if isinstance(entry, dict) and provider != "_settings":
             offer(provider, entry.get("api_key"))
+    note_used: dict[str, str] = {}
     for provider, note in gw["provider_notes.json"].items():
         if isinstance(note, str) and provider not in candidates:
             tokens = _NOTE_TOKEN.findall(note)
             if tokens:
                 offer(provider, tokens[0])
+                note_used[provider] = tokens[0]
                 if len(tokens) > 1:
                     note_ambiguous.append(provider)
 
@@ -306,7 +344,12 @@ def _salvage(
                            "files as they are", state_file, type(exc).__name__)
             report["left"] = [p.name for p in gw_paths]
             return report
+    notes_ok = _keep_notes(state_file.parent / NOTES_KEPT, gw["provider_notes.json"], note_used,
+                           moved=set(report["moved"]))
     for path in gw_paths:
+        if path.name == "provider_notes.json" and not notes_ok:
+            report["left"].append(path.name)
+            continue
         try:
             _zero_and_delete(path)
             report["removed"].append(path.name)
