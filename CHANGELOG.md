@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **`/skills` works.** It imported two functions that never existed, so it always
+  answered "Error". It now lists the promoted playbooks (`/skills all` for every one).
+
 - **Only your own words become facts and goals about you.** The agent used
   to pick up "my name is ..." or "I live in ..." from anyone who wrote to it
   (another person, a paired agent) and store it as a trusted fact about you,
