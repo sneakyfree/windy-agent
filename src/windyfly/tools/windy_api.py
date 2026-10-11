@@ -185,7 +185,10 @@ def register_windy_tools(registry: ToolRegistry) -> None:
         registry: ToolRegistry instance to register tools with.
     """
     if not windy_pro_answers():
-        logger.info("windy pro: tools not registered (no WINDY_JWT, or Windy Pro did not answer it)")
+        logger.info(
+            "windy pro: tools not registered (no WINDY_JWT, or Windy Pro did not answer it at start); "
+            "this is checked once at start, so restart the agent to retry"
+        )
         return
     registry.register(
         name="get_translation_history",
