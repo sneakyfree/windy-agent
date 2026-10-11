@@ -372,6 +372,16 @@ def main() -> None:
     from windyfly.agent.tracing import install_log_filter
     install_log_filter()
 
+    # Wave 3: provider keys live only in the env file. Move any key the retired
+    # provider files still hold into it, once, before anything reads providers.
+    # Never fatal: a failed write keeps those keys working for this run and
+    # retries at the next start; an unexpected error is logged and deletes nothing.
+    from windyfly.agent.provider_salvage import salvage_provider_keys
+    try:
+        salvage_provider_keys()
+    except Exception as exc:  # noqa: BLE001 - startup must not die on cleanup
+        logger.warning("provider salvage skipped (%s); retrying at next start", type(exc).__name__)
+
     # Start background decay scheduler (G7)
     db_path = config.get("memory", {}).get("db_path", "data/windyfly.db")
     _start_decay_scheduler(config, db_path)

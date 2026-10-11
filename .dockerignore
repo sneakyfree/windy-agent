@@ -17,8 +17,6 @@ build/
 .env.local
 node_modules
 gateway/dashboard/node_modules
-gateway/public/index.legacy.html
-gateway/public/setup.legacy.html
 tests/
 docs/
 *.md

@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- **Provider keys live in one place: your agent's private env file.** The old dashboard's
+  hidden Providers page (`index.legacy.html`, linked from nowhere) and its own key files are
+  gone, with all 15 `/api/providers` routes and the OpenRouter sign-in. The agent never used
+  most keys saved there. **Nothing is lost:** at its next start the agent moves every key it
+  finds in `data/providers.json`, `data/provider_keys.json` (the active key),
+  `data/provider_notes.json` (a key pasted into a note) or `~/.windy/providers.json` into
+  its env file (`WINDY_ENV_FILE`, else the project `.env`; 0600). A key already in the
+  env file wins. Only after every key is saved does it remove the old dashboard files and
+  strip keys from `~/.windy/providers.json`. If saving fails, it changes no file, uses those
+  keys for that run, and tries again at the next start. Its log names providers, never keys.
+  Notes you wrote on that page are kept in `~/.windy/retired-provider-notes.json` (0600),
+  with anything that looked like a key replaced by "[moved to the env file]" (or
+  "[key-shaped text removed]" when that key was not the one moved). To add or change a key:
+  put it in your env file, or run the setup wizard. Windy agents with a passport choose their model in Windy
+  Mind. A key in `windyfly.toml` (`[providers.<name>] api_key`) is not touched.
+
 - **No more "warmth" slider leftovers.** The warmth slider was removed in July, but
   the dashboard's quick presets still set it (each click sent a change the agent
   refused), the gateway still listed it when the agent was offline, and the setup

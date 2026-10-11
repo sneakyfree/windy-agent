@@ -73,15 +73,11 @@ def test_no_cwd_relative_lifecycle_literals_remain():
     )
 
 
-# ``providers.py`` holds the ONE deliberate cwd-relative literal in the
-# tree: ``_LEGACY_OVERRIDES_PATH`` is the old location a running install
-# is migrated *away* from, so it must keep resolving the old way or the
-# self-heal reads the wrong file. The note above it records an earlier
-# "fix" that re-imported the contamination it was removing. Allowed by
-# name, so the guard below stays a guard rather than being switched off.
-_DELIBERATE_CWD_RELATIVE = {
-    "agent/providers.py": {'Path("data/providers.json")'},
-}
+# No deliberate cwd-relative literal is left: Wave 3 removed providers.py's old
+# ``data/providers.json`` migration (the start-up salvage finds the old file by the
+# project root and the cwd instead). Kept as a named allow-list so an exception has
+# to be argued here rather than the guard being switched off.
+_DELIBERATE_CWD_RELATIVE: dict[str, set[str]] = {}
 
 
 def test_no_cwd_relative_state_literals_remain():

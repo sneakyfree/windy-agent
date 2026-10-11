@@ -4,7 +4,7 @@
  * machines (retired 2026-10-10).
  */
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, lstatSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { RETIRED_DATA_FILES, removeRetiredDataFiles } from "../src/retired-data";
@@ -22,6 +22,24 @@ describe("retired data files", () => {
     expect(removeRetiredDataFiles(dir)).toEqual(["machines.json"]);
     expect(existsSync(join(dir, "machines.json"))).toBe(false);
     expect(readFileSync(join(dir, "providers.json"), "utf8")).toBe("{}");
+  });
+
+  test("a symlinked leftover is not followed: its target and the link stay", () => {
+    const dir = mkdtempSync(join(tmpdir(), "wf-retired-"));
+    const outside = mkdtempSync(join(tmpdir(), "wf-outside-"));
+    const target = join(outside, "precious.txt");
+    writeFileSync(target, "keep me");
+    symlinkSync(target, join(dir, "machines.json"));
+
+    expect(removeRetiredDataFiles(dir)).toEqual([]);
+    expect(readFileSync(target, "utf8")).toBe("keep me");
+    expect(lstatSync(join(dir, "machines.json")).isSymbolicLink()).toBe(true);
+  });
+
+  test("the old provider files are left for the brain's key salvage", () => {
+    for (const name of ["providers.json", "provider_keys.json", "provider_notes.json"]) {
+      expect(RETIRED_DATA_FILES).not.toContain(name);
+    }
   });
 
   test("nothing to remove: no error, nothing reported", () => {

@@ -5,14 +5,12 @@ default model" — quickstart's, setup_wizard's, and the gateway's
 TypeScript table — and they disagreed (the wizards recommended
 claude-3-5-sonnet-latest long after the catalog moved to the 4.x
 line). Python tables now derive from ``windyfly.provider_defaults``;
-these tests pin the derivations AND parse ``gateway/src/providers.ts``
-so TS drift fails the suite too.
+these tests pin the derivations. The gateway's TypeScript table went with
+its provider store in Wave 3 (2026-10): the gateway offers no models.
 """
 
 from __future__ import annotations
 
-import re
-from pathlib import Path
 
 from windyfly.provider_defaults import (
     PROVIDER_DEFAULTS,
@@ -20,8 +18,6 @@ from windyfly.provider_defaults import (
     key_detection_order,
 )
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-PROVIDERS_TS = REPO_ROOT / "gateway" / "src" / "providers.ts"
 
 
 class TestPythonDerivations:
@@ -70,56 +66,3 @@ class TestPythonDerivations:
         for p in PROVIDER_DEFAULTS:
             assert p["default_model"] not in stale
             assert p["budget_model"] not in stale
-
-
-class TestTypeScriptParity:
-    def _ts_builtins(self) -> dict[str, dict]:
-        """Parse BUILTIN_PROVIDERS from providers.ts (regex-level —
-        enough to compare names, env vars, and model lists)."""
-        src = PROVIDERS_TS.read_text(encoding="utf-8")
-        block = src[src.index("const BUILTIN_PROVIDERS"):]
-        block = block[: block.index("};") + 2]
-        entries: dict[str, dict] = {}
-        pattern = re.compile(
-            r"name:\s*\"(?P<name>[^\"]+)\",[^}]*?"
-            r"api_key_env:\s*\"(?P<env>[^\"]+)\",[^}]*?"
-            r"models:\s*\[(?P<models>[^\]]*)\]",
-            re.S,
-        )
-        for m in pattern.finditer(block):
-            models = [
-                s.strip().strip('"')
-                for s in m.group("models").split(",")
-                if s.strip().strip('"')
-            ]
-            entries[m.group("name")] = {
-                "env": m.group("env"),
-                "models": models,
-            }
-        assert entries, "failed to parse BUILTIN_PROVIDERS from providers.ts"
-        return entries
-
-    def test_env_vars_match_gateway(self):
-        ts = self._ts_builtins()
-        for p in PROVIDER_DEFAULTS:
-            assert p["name"] in ts, (
-                f"{p['name']} missing from gateway providers.ts"
-            )
-            assert ts[p["name"]]["env"] == p["env_var"], (
-                f"{p['name']}: env var drift — python "
-                f"{p['env_var']!r} vs gateway {ts[p['name']]['env']!r}"
-            )
-
-    def test_default_models_exist_in_gateway_lists(self):
-        """The model the Python wizards recommend must be one the
-        gateway actually offers — this exact drift shipped before."""
-        ts = self._ts_builtins()
-        for p in PROVIDER_DEFAULTS:
-            gateway_models = ts[p["name"]]["models"]
-            assert any(
-                gm == p["default_model"] or gm.startswith(p["default_model"])
-                for gm in gateway_models
-            ), (
-                f"{p['name']}: wizard default {p['default_model']!r} not "
-                f"offered by gateway ({gateway_models}) — update one side"
-            )
