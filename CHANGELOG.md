@@ -12,6 +12,10 @@
   memory decay; the daily maintenance run also decayed intents. All three now do the
   same thing.
 
+- **Phone tools contract updated to phone-tools.v1 1.0.1** (wording only: the privacy
+  line now says the chat server keeps a deleted phone-tool message up to 3 days, then
+  erases it). Phone tools stay off unless `WINDY_PHONE_TOOLS=1`.
+
 - **`/skills` works.** It imported two functions that never existed, so it always
   answered "Error". It now lists the promoted playbooks (`/skills all` for every one).
 
