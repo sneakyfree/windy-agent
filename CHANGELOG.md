@@ -57,6 +57,28 @@
   is its own `@agent_<passport>` from its passport, not a shared
   `@windyfly` bot user; an old config that still sets `bot_user` keeps working.
 
+- **Memory conflicts wait for the owner.** When something new contradicts
+  what the agent already remembers, the old value stays and the new one is
+  held until the owner chooses (before, the new value silently replaced the
+  old one, and "keep old" could not bring it back). On the owner's turns the
+  agent sees up to three held conflicts (before vs new) and can record the
+  owner's choice with one tool, `memory.resolve_conflict`; the owner can also
+  type `/conflicts keep <id> new|old`. Saying the same thing again is not a
+  conflict. The agent's own notes (turnover letters, journal days) are still
+  simply rewritten. Your own direct words are never held, because you are the
+  one who chooses: `/remember`, and facts read from your own messages, apply
+  at once. What is held: contradictions that come from anyone else's
+  messages, mail, SMS, imports or the agent's own guesses. The agent sees held
+  values as quoted data, not instructions, and records a choice only when you
+  said which one in your latest message.
+  **Database change (migration 15) at the first start after upgrading:** it
+  only adds four columns to the `conflicts` table and changes no existing
+  rows. Back up first anyway: send `/backup now`, or copy `windyfly.db` from
+  the agent's data folder while the agent is stopped. Going back to 0.7.6 is
+  safe: the old version ignores the new columns. A conflict still held at
+  that point stays unapplied (the old value remains); choosing "new" in the
+  old version does not apply it, so upgrade again and choose there.
+
 ## 0.7.6
 
 - **The agent tells Eternitas which machine it lives on (housing report, ON).**

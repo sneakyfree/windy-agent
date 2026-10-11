@@ -1838,7 +1838,7 @@ def _agent_respond_turn(
     #    helper calls and every failed call.
 
     # 5. Extract facts and upsert nodes (MEDIUM priority)
-    _extract_and_store_facts(db, write_queue, user_message)
+    _extract_and_store_facts(db, write_queue, user_message, owner=band >= Band.OWNER)
 
     # 6. Intent detection (MEDIUM priority) — regex fast-path + LLM fallback
     proactivity = loop_sliders.get("proactivity", 5)
@@ -2057,11 +2057,15 @@ def _extract_and_store_facts(
     db: Database,
     write_queue: WriteQueue,
     user_message: str,
+    *,
+    owner: bool = False,
 ) -> None:
     """Extract obvious facts from the user message and store as nodes.
 
     Simple pattern-based extraction for Phase 0. More sophisticated
-    LLM-based extraction will come in later phases.
+    LLM-based extraction will come in later phases. On an OWNER-band turn
+    the facts are the owner's own words (source ``owner_stated``) and apply
+    at once; from anyone else (``user_stated``) a contradiction is held.
 
     Patterns detected:
     - "My name is X"
@@ -2092,7 +2096,7 @@ def _extract_and_store_facts(
                     node_type,
                     f"{name_prefix}:{value}",
                     metadata={"raw_statement": user_message[:200]},
-                    source=source,
+                    source="owner_stated" if owner else source,
                     epistemic_status="user_stated",
                 )
 
