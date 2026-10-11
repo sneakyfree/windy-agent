@@ -16,6 +16,10 @@
   line now says the chat server keeps a deleted phone-tool message up to 3 days, then
   erases it). Phone tools stay off unless `WINDY_PHONE_TOOLS=1`.
 
+- **A personality restore applies only the list you confirmed.** If a slider moved
+  between showing you the list and your click, nothing is restored; the dashboard
+  shows the new list and asks you to confirm again.
+
 - **`/skills` works.** It imported two functions that never existed, so it always
   answered "Error". It now lists the promoted playbooks (`/skills all` for every one).
 

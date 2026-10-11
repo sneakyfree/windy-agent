@@ -403,15 +403,32 @@ def plan_personality_rollback(
     return sorted(changes, key=lambda c: c["slider"])
 
 
+class RollbackPlanChanged(Exception):
+    """The sliders changed after the owner saw the list; nothing was restored."""
+
+    def __init__(self, changes: list[dict[str, Any]]) -> None:
+        super().__init__("the personality changed since the restore list was shown")
+        self.changes = changes
+
+
+def public_changes(plan: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The owner-facing part of a plan: slider, current, restore (no internal ids)."""
+    return [{k: c[k] for k in ("slider", "current", "restore")} for c in plan]
+
+
 def rollback_personality(
     db: Database,
     snapshot_date: str,
     user_id: str = "default",
+    *,
+    expected: list[dict[str, Any]] | None = None,
 ) -> int:
     """Rollback the personality sliders to how they were at a point in time.
 
     Applies exactly ``plan_personality_rollback`` (the owner sees that list
-    before confirming). Identity/bookkeeping soul keys are never touched.
+    before confirming). With ``expected`` (the list the owner confirmed), it
+    refuses with RollbackPlanChanged and writes nothing if the plan is no
+    longer that list. Identity/bookkeeping soul keys are never touched.
     Restored rows are marked ``source="rollback"`` (an owner action) and any
     drift alert is cleared.
 
@@ -419,11 +436,14 @@ def rollback_personality(
         db: Database instance.
         snapshot_date: ISO date/datetime string to rollback to.
         user_id: User ID.
+        expected: The changes the owner confirmed (slider/current/restore).
 
     Returns:
         Number of slider values actually changed.
     """
     changes = plan_personality_rollback(db, snapshot_date, user_id)
+    if expected is not None and public_changes(changes) != expected:
+        raise RollbackPlanChanged(public_changes(changes))
     for change in changes:
         db.execute(
             """

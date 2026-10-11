@@ -264,6 +264,40 @@ class TestRollbackShowsExactlyWhatItRestores:
         db.close()
 
 
+
+class TestRollbackRefusesAChangedPlan:
+    """Hub (#509 note): the restore applies only the list the owner confirmed."""
+
+    def _setup(self):
+        from tests.test_gap_closure import _make_bridge, _run
+
+        bridge, db, _ = _make_bridge()
+        set_slider(db, "humor", 5)
+        snapshot_personality(db)
+        _backdate_history(db, 40)
+        when = db.fetchone("SELECT MAX(created_at) AS t FROM soul_history")["t"]
+        _agent_sets(db, "humor", 9)
+        dry = _run(bridge._dispatch("personality.rollback", {"snapshot_date": when, "dry_run": True}))
+        return bridge, db, when, dry, _run
+
+    def test_confirmed_list_is_applied(self):
+        bridge, db, when, dry, _run = self._setup()
+        done = _run(bridge._dispatch("personality.rollback",
+                                     {"snapshot_date": when, "expected": dry["changes"]}))
+        assert "error" not in done and done["restored_count"] == 1
+        assert get_soul(db, "slider_humor")["value"] == "5"
+        db.close()
+
+    def test_slider_moved_after_preview_restores_nothing(self):
+        bridge, db, when, dry, _run = self._setup()
+        _agent_sets(db, "humor", 7)  # moved after the owner looked
+        done = _run(bridge._dispatch("personality.rollback",
+                                     {"snapshot_date": when, "expected": dry["changes"]}))
+        assert done["error"] == "changed" and done["restored_count"] == 0
+        assert done["changes"] == [{"slider": "humor", "current": "7", "restore": "5"}]
+        assert get_soul(db, "slider_humor")["value"] == "7"
+        db.close()
+
 class TestHistory:
     def test_history_names_the_slider_and_can_filter(self):
         db = Database(":memory:")
