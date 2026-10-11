@@ -66,6 +66,13 @@
   type `/conflicts keep <id> new|old`. Saying the same thing again is not a
   conflict. The agent's own notes (turnover letters, journal days) are still
   simply rewritten.
+  **Database change (migration 15) at the first start after upgrading:** it
+  only adds four columns to the `conflicts` table and changes no existing
+  rows. Back up first anyway: send `/backup now`, or copy `windyfly.db` from
+  the agent's data folder while the agent is stopped. Going back to 0.7.6 is
+  safe: the old version ignores the new columns. A conflict still held at
+  that point stays unapplied (the old value remains); choosing "new" in the
+  old version does not apply it, so upgrade again and choose there.
 
 ## 0.7.6
 
