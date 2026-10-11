@@ -27,8 +27,6 @@
  *   POST /api/conflicts/:id/resolve   → proxy to UDS conflicts.resolve
  *   GET  /api/moments                 → proxy to UDS moments.list
  *   GET  /api/failures                → proxy to UDS failures.list
- *   GET  /api/mode                    → proxy to UDS mode.get
- *   PUT  /api/mode                    → proxy to UDS mode.set
  *   GET  /api/offline/status          → proxy to UDS offline.status
  *   GET  /api/events                  → proxy to UDS events.list
  *   WS   /ws/chat                     → WebSocket chat
@@ -1410,28 +1408,7 @@ async function handleRequest(req: Request, server: import("bun").Server<any>): P
       }
     }
 
-    // ===== MODE, OFFLINE, EVENTS =====
-
-    // Mode get
-    if (path === "/api/mode" && req.method === "GET") {
-      try {
-        const result = await bridge.call("mode.get", {});
-        return Response.json(result, { headers });
-      } catch {
-        return Response.json({ mode: "unknown", _offline: true }, { headers });
-      }
-    }
-
-    // Mode set
-    if (path === "/api/mode" && req.method === "PUT") {
-      const body = (await req.json()) as { mode: string };
-      try {
-        const result = await bridge.call("mode.set", body);
-        return Response.json(result, { headers });
-      } catch {
-        return Response.json({ error: "Brain offline", _offline: true }, { status: 503, headers });
-      }
-    }
+    // ===== OFFLINE, EVENTS =====
 
     // Offline status
     if (path === "/api/offline/status" && req.method === "GET") {

@@ -14,7 +14,6 @@ from windyfly.memory.database import Database
 from windyfly.personality.engine import (
     apply_adaptive_overrides,
     build_personality_block,
-    get_mode_override,
     load_soul,
 )
 
@@ -131,29 +130,6 @@ class TestPersonalityBlock:
         }
         result = build_personality_block("You are an AI.", sliders)
         assert isinstance(result, str)
-
-
-# --- Mode override ---
-
-
-class TestModeOverride:
-    def test_companion_mode_no_override(self):
-        assert get_mode_override("companion") is None
-
-    def test_focused_mode_has_override(self):
-        result = get_mode_override("focused")
-        assert result is not None
-        assert "concise" in result.lower()
-
-    def test_neutral_mode_has_override(self):
-        result = get_mode_override("neutral")
-        assert result is not None
-        assert "humor" in result.lower()
-
-    def test_invalid_mode_returns_none(self):
-        """Unknown mode should return None, not crash."""
-        result = get_mode_override("nonexistent")
-        assert result is None
 
 
 # --- Emotional detection on empty message ---

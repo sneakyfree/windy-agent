@@ -1,7 +1,7 @@
 """Prompt assembly for the Windy Fly agent.
 
 Assembles the full message list for an LLM call:
-system prompt (personality + mode), memory context (recent episodes),
+system prompt (personality), memory context (recent episodes),
 relevant knowledge nodes, and the user's current message.
 """
 
@@ -15,7 +15,7 @@ from windyfly.control_panel import get_sliders
 from windyfly.memory.database import Database
 from windyfly.memory.episodes import get_recent_episodes
 from windyfly.memory.nodes import get_nodes_by_type, search_nodes
-from windyfly.personality.engine import build_personality_block, get_mode_override, load_soul
+from windyfly.personality.engine import build_personality_block, load_soul
 
 
 # Characters of prior-conversation history injected per point of the
@@ -65,7 +65,6 @@ def assemble_prompt(
     user_message: str,
     session_id: str,
     *,
-    mode: str = "companion",
     pct_remaining: float | None = None,
     band: Any = None,
 ) -> list[dict[str, str]]:
@@ -76,7 +75,6 @@ def assemble_prompt(
         db: Database instance.
         user_message: The user's current message.
         session_id: Current session ID.
-        mode: Agent mode (companion/focused/neutral).
         pct_remaining: Optional context-window % remaining for the
             current session. When < 10, a grandma-mode hint is added
             so the bot proactively suggests /new instead of leaving
@@ -115,7 +113,7 @@ def assemble_prompt(
     # Owner context when band is unset (legacy callers) or TRUSTED+.
     owner_ctx = band_value is None or band_value >= 2
 
-    # 1. System message: personality + mode override
+    # 1. System message: personality
     personality_config = config.get("personality", {})
     soul_path = personality_config.get("soul_path", "SOUL.md")
     soul_text = load_soul(soul_path)
@@ -137,10 +135,6 @@ def assemble_prompt(
     )
 
     system_parts = [personality_block]
-
-    mode_override = get_mode_override(mode)
-    if mode_override:
-        system_parts.append(mode_override)
 
     # ── Active /goal block (Phase 1 of windy-agent /goal feature) ──
     # When the user has a /goal active for this session, surface it

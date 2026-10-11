@@ -271,36 +271,17 @@ class TestDecayConflictsMomentsFailures:
 
 
 # =============================================================================
-# Group 4: Mode, Offline, Events
+# Group 4: Offline, Events
 # =============================================================================
 
 
-class TestModeOfflineEvents:
-    def test_mode_get_default(self):
+class TestOfflineEvents:
+    def test_mode_methods_retired(self):
+        """/mode was retired 2026-10-10: it stored a value nothing read."""
         bridge, db, _ = _make_bridge()
-        result = _run(bridge._dispatch("mode.get", {}))
-        assert result["mode"] == "companion"
-        db.close()
-
-    def test_mode_set_and_get_roundtrip(self):
-        bridge, db, _ = _make_bridge()
-        _run(bridge._dispatch("mode.set", {"mode": "focused"}))
-        result = _run(bridge._dispatch("mode.get", {}))
-        assert result["mode"] == "focused"
-        db.close()
-
-    def test_mode_set_invalid(self):
-        bridge, db, _ = _make_bridge()
-        with pytest.raises(ValueError, match="Invalid mode"):
-            _run(bridge._dispatch("mode.set", {"mode": "turbo"}))
-        db.close()
-
-    def test_mode_set_all_valid_modes(self):
-        bridge, db, _ = _make_bridge()
-        for mode in ("companion", "focused", "neutral"):
-            _run(bridge._dispatch("mode.set", {"mode": mode}))
-            result = _run(bridge._dispatch("mode.get", {}))
-            assert result["mode"] == mode
+        for method in ("mode.get", "mode.set"):
+            with pytest.raises(ValueError, match="Unknown method"):
+                _run(bridge._dispatch(method, {"mode": "focused"}))
         db.close()
 
     @patch("windyfly.agent.offline.is_online", return_value=True)
@@ -358,7 +339,6 @@ class TestDispatchRegistry:
         "decay.run",
         "conflicts.list", "conflicts.resolve",
         "moments.list", "failures.list",
-        "mode.get", "mode.set",
         "offline.status", "events.list",
     ]
 
@@ -386,6 +366,7 @@ class TestDispatchRegistry:
         """Verify total dispatch method count matches expectations."""
         bridge, db, _ = _make_bridge()
         # The dispatch table is built in _dispatch(), we can count by inspecting
-        # 6 provider methods removed (handled gateway-side), 1 cost.monthly added
-        assert len(self.REQUIRED_METHODS) == 40
+        # 6 provider methods removed (handled gateway-side), 1 cost.monthly added,
+        # mode.get / mode.set retired 2026-10-10
+        assert len(self.REQUIRED_METHODS) == 38
         db.close()

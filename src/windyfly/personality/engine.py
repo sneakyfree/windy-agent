@@ -187,23 +187,6 @@ def build_personality_block(
     return result
 
 
-def get_mode_override(mode: str) -> str | None:
-    """Get personality override for the current mode.
-
-    Args:
-        mode: Agent mode ('companion', 'focused', 'neutral').
-
-    Returns:
-        Override instruction string, or None for default companion mode.
-    """
-    overrides = {
-        "companion": None,
-        "focused": "You are in focused mode. Be precise and concise. Skip pleasantries.",
-        "neutral": "You are in neutral mode. No humor, no personality flair. Pure information.",
-    }
-    return overrides.get(mode)
-
-
 def apply_adaptive_overrides(
     sliders: dict,
     emotional_context: str,

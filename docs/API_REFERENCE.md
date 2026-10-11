@@ -15,7 +15,7 @@
 - [Cost Tracking](#cost-tracking)
 - [Conflicts](#conflicts)
 - [Cognitive Decay](#cognitive-decay)
-- [Mode & Offline](#mode--offline)
+- [Offline](#offline)
 - [Events & Observability](#events--observability)
 - [Channels (SMS, Email)](#channels)
 - [Soul Passport (Import/Export)](#soul-passport)
@@ -510,32 +510,7 @@ Trigger a cognitive decay cycle (normally runs every 24 hours automatically).
 
 ---
 
-## Mode & Offline
-
-### `GET /api/mode`
-
-Get the current agent mode.
-
-**Response:**
-```json
-{ "mode": "companion" }
-```
-
-Valid modes: `companion`, `assistant`, `researcher`, `coder`, `creative`.
-
-### `PUT /api/mode`
-
-Set the agent mode.
-
-**Request:**
-```json
-{ "mode": "researcher" }
-```
-
-**Response:**
-```json
-{ "mode": "researcher" }
-```
+## Offline
 
 ### `GET /api/offline/status`
 
