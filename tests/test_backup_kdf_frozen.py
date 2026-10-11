@@ -19,7 +19,7 @@ def _key(monkeypatch, passport=None, name=None):
             monkeypatch.delenv(k, raising=False)
         else:
             monkeypatch.setenv(k, v)
-    return cb._get_encryption_key().hex()
+    return cb._legacy_passport_key().hex()
 
 
 def test_default_name_is_frozen():

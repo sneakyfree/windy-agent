@@ -14,9 +14,9 @@ Windy Cloud archive contract (canonical, 2026-07-04):
     GET  /api/v1/archive/list/windy_fly           — list backups (newest first)
     GET  /api/v1/archive/retrieve/windy_fly/{name} — download one by filename
 
-Encryption is AES-256-GCM, key from WINDY_BACKUP_KEY (zero-knowledge if
-set) or passport-derived (convenient, not zero-knowledge) — see
-_get_encryption_key.
+Encryption is AES-256-GCM with the owner-held WINDY_BACKUP_KEY only (zero-knowledge:
+Windy Cloud never has it). No key = no new backup. The old passport-derived key is
+read-only: restore still uses it for backups made before 2026-10 (AG4/D16).
 """
 
 from __future__ import annotations
@@ -93,25 +93,56 @@ def _get_cloud_token() -> str:
 _KDF_DEFAULT_AGENT_NAME = "Windy Fly"
 
 
-def _get_encryption_key() -> bytes:
-    """Derive the 32-byte backup key.
+class BackupKeyMissing(RuntimeError):
+    """No owner-held backup key: new backups are refused (D16: Cloud never holds the key)."""
 
-    Prefers a user-held secret ``WINDY_BACKUP_KEY`` — set it (e.g. from
-    the Eternitas recovery phrase) for a genuinely zero-knowledge backup
-    the cloud cannot decrypt. Otherwise falls back to a passport-derived
-    key: convenient (restore "just works" on a new device with the same
-    passport) but NOT zero-knowledge, since the passport + agent name are
-    semi-public. Either way the key feeds AES-256-GCM below.
-    """
+
+NO_BACKUP_KEY = (
+    "No backup key is set, so this backup was not made. Set WINDY_BACKUP_KEY (a long random secret you keep "
+    "somewhere safe) and restart. Windy no longer encrypts backups with a key derived from the agent's passport, "
+    "because the passport number is not private."
+)
+
+
+def _user_key() -> bytes | None:
+    """The owner-held key (WINDY_BACKUP_KEY), or None. Zero-knowledge: Windy Cloud never has it."""
     user_secret = os.environ.get("WINDY_BACKUP_KEY", "")
-    if user_secret:
-        return hashlib.pbkdf2_hmac(
-            "sha256", user_secret.encode(), b"windy-backup-kdf-v2", 200_000
-        )
+    if not user_secret:
+        return None
+    return hashlib.pbkdf2_hmac("sha256", user_secret.encode(), b"windy-backup-kdf-v2", 200_000)
+
+
+def _legacy_passport_key() -> bytes:
+    """The OLD passport-derived key. READ ONLY: it decrypts backups made before 2026-10, never encrypts new ones.
+
+    The passport number and agent name are semi-public, so anyone who can read the bucket could derive it
+    (Windy Cloud finding AG4/D16, 2026-10-10). Frozen by tests/test_backup_kdf_frozen.py.
+    """
     passport = os.environ.get("ETERNITAS_PASSPORT", "windyfly-local")
     agent_name = os.environ.get("WINDYFLY_AGENT_NAME", _KDF_DEFAULT_AGENT_NAME)
     material = f"{passport}:{agent_name}".encode()
     return hashlib.pbkdf2_hmac("sha256", material, b"windy-backup-kdf-v2", 200_000)
+
+
+def _get_encryption_key() -> bytes:
+    """The key NEW backups are encrypted with: the owner-held WINDY_BACKUP_KEY only.
+
+    Raises BackupKeyMissing when it is not set; there is no passport-derived fallback any more.
+    """
+    key = _user_key()
+    if key is None:
+        raise BackupKeyMissing(NO_BACKUP_KEY)
+    return key
+
+
+def _restore_keys() -> list[bytes]:
+    """Keys a restore tries, in order: the owner's key, then the legacy passport key (old backups only)."""
+    keys = []
+    user = _user_key()
+    if user is not None:
+        keys.append(user)
+    keys.append(_legacy_passport_key())
+    return keys
 
 
 _GZIP_MAGIC = b"\x1f\x8b"
@@ -203,6 +234,13 @@ async def backup_to_cloud(config: dict | None = None) -> dict:
     except TrustDenied as denied:
         return {"success": False, "error": _describe_error(denied) + " (action=upload_file)"}
 
+    # No owner-held key = no backup (checked before any network call).
+    try:
+        key = _get_encryption_key()
+    except BackupKeyMissing as missing:
+        logger.warning("backup refused: no WINDY_BACKUP_KEY")
+        return {"success": False, "error": str(missing)}
+
     cloud_url = _get_cloud_url(config)
     auth_header = await ecosystem_auth_header(fallback_token=_get_cloud_token())
 
@@ -234,7 +272,6 @@ async def backup_to_cloud(config: dict | None = None) -> dict:
     # backups — plus it's less R2 to store/transfer. Order matters:
     # encrypted bytes are incompressible, so gzip must come first.
     # Restore reverses via _maybe_decompress (gzip-magic detection).
-    key = _get_encryption_key()
     compressed = gzip.compress(raw_data)
     encrypted = _encrypt_data(compressed, key)
     checksum = hashlib.sha256(raw_data).hexdigest()  # of the ORIGINAL db
@@ -244,6 +281,7 @@ async def backup_to_cloud(config: dict | None = None) -> dict:
     backup_name = f"windyfly-{ts.strftime('%Y%m%dT%H%M%SZ')}.enc"
     metadata = json.dumps({
         "encrypted": True,
+        "key": "owner",  # WINDY_BACKUP_KEY; never passport-derived (AG4)
         "compressed": "gzip",
         "checksum_sha256": checksum,
         "size_bytes": len(raw_data),
@@ -346,10 +384,14 @@ async def restore_from_cloud(
             resp.raise_for_status()
             encrypted = resp.content
 
-            key = _get_encryption_key()
-            try:
-                decrypted = _maybe_decompress(_decrypt_data(encrypted, key))
-            except Exception:
+            decrypted = None
+            for key in _restore_keys():  # the owner's key, then the legacy passport key for old backups
+                try:
+                    decrypted = _maybe_decompress(_decrypt_data(encrypted, key))
+                    break
+                except Exception:
+                    continue
+            if decrypted is None:
                 return {
                     "success": False,
                     "error": "Could not decrypt backup — wrong key or "

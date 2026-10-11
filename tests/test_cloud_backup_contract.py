@@ -27,33 +27,33 @@ def _run(coro):
 def _env(monkeypatch, tmp_path):
     monkeypatch.setenv("ETERNITAS_PASSPORT", "ET26-TEST-0001")
     monkeypatch.setenv("WINDYFLY_AGENT_NAME", "Testy")
-    monkeypatch.delenv("WINDY_BACKUP_KEY", raising=False)
+    monkeypatch.setenv("WINDY_BACKUP_KEY", "owner-held-test-key")  # new backups need an owner key (AG4)
     monkeypatch.setattr(cb, "PROJECT_ROOT", tmp_path)
 
 
 class TestCrypto:
     def test_aes_gcm_round_trip(self):
-        key = cb._get_encryption_key()
+        key = cb._legacy_passport_key()
         pt = b"windyfly database bytes" * 100
         ct = cb._encrypt_data(pt, key)
         assert ct[: cb._GCM_NONCE_BYTES] != ct[cb._GCM_NONCE_BYTES:]  # nonce prefix
         assert cb._decrypt_data(ct, key) == pt
 
     def test_fresh_nonce_each_call(self):
-        key = cb._get_encryption_key()
+        key = cb._legacy_passport_key()
         a = cb._encrypt_data(b"same", key)
         b = cb._encrypt_data(b"same", key)
         assert a != b  # different nonce → different ciphertext
 
     def test_tamper_is_rejected(self):
-        key = cb._get_encryption_key()
+        key = cb._legacy_passport_key()
         ct = bytearray(cb._encrypt_data(b"secret", key))
         ct[-1] ^= 0x01  # flip a tag bit
         with pytest.raises(Exception):
             cb._decrypt_data(bytes(ct), key)
 
     def test_wrong_key_is_rejected(self, monkeypatch):
-        key = cb._get_encryption_key()
+        key = cb._legacy_passport_key()
         ct = cb._encrypt_data(b"secret", key)
         monkeypatch.setenv("WINDY_BACKUP_KEY", "a-different-user-secret")
         with pytest.raises(Exception):
@@ -268,3 +268,48 @@ class TestCompression:
         assert isinstance(cb._TIMEOUT, httpx.Timeout)
         assert cb._TIMEOUT.write >= 300
         assert cb._TIMEOUT.connect <= 60
+
+
+class TestOwnerKeyRequired:
+    """AG4 / D16 (2026-10-10): Windy Cloud never holds the key; the passport-derived key is read-only now."""
+
+    def test_no_owner_key_refuses_before_any_network_call(self, monkeypatch):
+        import asyncio
+
+        monkeypatch.delenv("WINDY_BACKUP_KEY", raising=False)
+        called = []
+
+        async def no_net(*a, **k):
+            called.append(1)
+            return {}
+
+        monkeypatch.setattr("windyfly.auth.bot_credentials.ecosystem_auth_header", no_net)
+        monkeypatch.setattr("windyfly.trust.gate.require_trust", lambda *a, **k: asyncio.sleep(0))
+        out = asyncio.run(cb.backup_to_cloud())
+        assert out["success"] is False and "WINDY_BACKUP_KEY" in out["error"]
+        assert "passport" in out["error"] and called == []
+
+    def test_new_backups_never_use_the_passport_key(self):
+        assert cb._get_encryption_key() != cb._legacy_passport_key()
+
+    def test_get_encryption_key_has_no_fallback(self, monkeypatch):
+        monkeypatch.delenv("WINDY_BACKUP_KEY", raising=False)
+        with pytest.raises(cb.BackupKeyMissing):
+            cb._get_encryption_key()
+
+    def test_restore_tries_owner_key_then_legacy_key(self, monkeypatch):
+        keys = cb._restore_keys()
+        assert keys == [cb._get_encryption_key(), cb._legacy_passport_key()]
+        monkeypatch.delenv("WINDY_BACKUP_KEY", raising=False)
+        assert cb._restore_keys() == [cb._legacy_passport_key()]
+
+    def test_an_old_passport_key_backup_still_decrypts_with_an_owner_key_set(self):
+        old = cb._encrypt_data(b"old backup bytes", cb._legacy_passport_key())
+        out = None
+        for key in cb._restore_keys():
+            try:
+                out = cb._decrypt_data(old, key)
+                break
+            except Exception:
+                continue
+        assert out == b"old backup bytes"
