@@ -150,4 +150,13 @@ def run_decay(
     # Execute synchronously when user-triggered (via API/dashboard)
     # so the returned counts reflect actual work done
     _do_decay()
+
+    # Intents decay in the same cycle, so the daily job, /decay and the
+    # dashboard's decay.run all do the same thing (queued, LOW priority).
+    try:
+        from windyfly.memory.intents import decay_intents
+
+        decay_intents(db, write_queue)
+    except Exception as e:
+        logger.error("Intent decay failed: %s", e)
     return counts
