@@ -188,8 +188,6 @@ class UDSBridge:
             "email.send": self._handle_email_send,
             "journal.list": self._handle_journal_list,
             "assessment.run": self._handle_assessment_run,
-            "shape_shift.execute": self._handle_shape_shift,
-            "shape_shift.restore": self._handle_shape_shift_restore,
             # --- Group 1: Personality versioning ---
             "personality.history": self._handle_personality_history,
             "personality.snapshot": self._handle_personality_snapshot,
@@ -441,28 +439,6 @@ class UDSBridge:
         from windyfly.agent.self_assessment import run_self_assessment
         report = run_self_assessment(self.db)
         return {"assessment": report}
-
-    async def _handle_shape_shift(self, params: dict) -> dict:
-        from windyfly.agent.shape_shift import get_shift_announcement
-        from windyfly.control_panel import apply_preset, get_sliders
-        preset = params.get("preset", "buddy")
-        autonomy = get_sliders(self.db).get("autonomy", 5)
-        announcement = get_shift_announcement(autonomy, preset)
-        saved = get_sliders(self.db)
-        applied = apply_preset(self.db, preset)
-        return {
-            "shifted_to": preset,
-            "announcement": announcement,
-            "saved_sliders": saved,
-            "applied": applied,
-        }
-
-    async def _handle_shape_shift_restore(self, params: dict) -> dict:
-        from windyfly.control_panel import set_slider
-        sliders = params.get("sliders", {})
-        for k, v in sliders.items():
-            set_slider(self.db, k, int(v))
-        return {"restored": True}
 
     # ------------------------------------------------------------------
     # Group 1: Personality versioning

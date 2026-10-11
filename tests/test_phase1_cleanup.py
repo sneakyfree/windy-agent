@@ -1,11 +1,9 @@
-"""Phase 1 cleanup regressions — _saved_sliders + _active_timers.
+"""Phase 1 cleanup regressions — _active_timers.
 
-Both were module-level globals with the same shape of bug as #93/#94:
+A module-level global with the same shape of bug as #93/#94:
 shared state polluting other "users" (sessions / restarts).
+(The shape_shift._saved_sliders case left with shape-shift, 2026-10-10.)
 
-  - shape_shift._saved_sliders was a single LIST; concurrent
-    shape_shift() calls from different sessions could pop each
-    other's saved sliders.
   - utilities._active_timers used ``len()+1`` as ID generator, so
     after a timer expired/was-removed, the next set_timer would
     reuse the same ID — confusing referenced timers. Plus expired
@@ -17,37 +15,6 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 import pytest
-
-
-# ── shape_shift._saved_sliders per-user ────────────────────────────
-
-
-class TestSavedSlidersPerUser:
-    def setup_method(self):
-        from windyfly.agent.shape_shift import _saved_sliders
-        _saved_sliders.clear()
-
-    def teardown_method(self):
-        from windyfly.agent.shape_shift import _saved_sliders
-        _saved_sliders.clear()
-
-    def test_initially_empty(self):
-        from windyfly.agent.shape_shift import _saved_sliders
-        assert _saved_sliders == {}
-
-    def test_per_user_stack_shape(self):
-        """Two users each push one saved snapshot — they must be on
-        separate stacks. Pre-fix the global LIST would have appended
-        both, and pop() in one user's restore would yank the other's."""
-        from windyfly.agent.shape_shift import _saved_sliders
-        _saved_sliders.setdefault("alice", []).append({"warmth": 9})
-        _saved_sliders.setdefault("bob", []).append({"warmth": 3})
-        assert _saved_sliders["alice"] == [{"warmth": 9}]
-        assert _saved_sliders["bob"] == [{"warmth": 3}]
-        # Bob's pop must NOT affect alice
-        bob_state = _saved_sliders["bob"].pop()
-        assert bob_state == {"warmth": 3}
-        assert _saved_sliders["alice"] == [{"warmth": 9}]
 
 
 # ── utilities._active_timers ID + cleanup ─────────────────────────

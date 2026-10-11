@@ -3,8 +3,8 @@
 Caught by stress harness v2 G_naming case 2026-04-26: prompting
 "Brainstorm 5 names for an open-source AI agent..." caused the LLM
 to call ``shape_shift(preset=writer)`` then ``shape_shift_restore``
-and never produce text content. The tool loop exited with
-``response_text=""`` and the user got 42 chars of context-header +
+(tools since retired) and never produce text content. The tool loop
+exited with ``response_text=""`` and the user got 42 chars of context-header +
 nothing else — looked like the bot was crashed.
 
 Defense lives in ``agent_respond`` (loop.py) immediately after the
@@ -59,8 +59,8 @@ def config():
 def _empty_text_with_tool_calls(*args, **kwargs):
     """Mock call_llm that returns 0-char content + a tool call.
 
-    Mirrors the shape_shift→restore pattern from the production
-    failure: LLM keeps calling tools, never writes assistant text.
+    Mirrors the tool-only pattern from the production failure:
+    LLM keeps calling tools, never writes assistant text.
     On the first call returns a tool_call; on subsequent calls
     returns empty content with no further tool_calls (loop exits
     without text).
@@ -75,7 +75,7 @@ def _empty_text_with_tool_calls(*args, **kwargs):
                 {
                     "id": "tc1",
                     "type": "function",
-                    "function": {"name": "shape_shift", "arguments": '{"preset": "writer"}'},
+                    "function": {"name": "web_search", "arguments": '{"query": "agent names"}'},
                 }
             ],
             "input_tokens": 100,

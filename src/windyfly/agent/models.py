@@ -281,7 +281,7 @@ def estimate_cost(
 # ── per-call cost records ────────────────────────────────────────────
 #
 # Every provider attempt in call_llm (success or failure, on every path:
-# the turn loop, the voice bridge, intent detection, sub-agents,
+# the turn loop, the voice bridge, intent detection, collaborators,
 # maintenance…) produces ONE record. The ledger used to be written once
 # per turn by the loop only, so tool rounds, retries and every helper
 # call were missing, and failed calls were never recorded.

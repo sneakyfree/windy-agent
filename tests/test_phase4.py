@@ -1,4 +1,4 @@
-"""Tests for UDS Bridge, Cognitive Decay, Conflict Detector, Sub-Agent, and Offline mode."""
+"""Tests for UDS Bridge, Cognitive Decay, Conflict Detector, and Offline mode."""
 
 from __future__ import annotations
 
@@ -110,40 +110,6 @@ class TestConflictDetector:
         check_for_conflict(db, "fact", "node1", '{"v": "b"}')
         unresolved = get_unresolved_conflicts(db)
         assert len(unresolved) == 1
-        db.close()
-
-
-# === Sub-Agent Tests ===
-
-
-class TestSubAgent:
-    @patch("windyfly.agent.sub_agents.call_llm")
-    def test_spawn_sub_agent(self, mock_llm):
-        mock_llm.return_value = {
-            "content": "Sub-agent result",
-            "input_tokens": 50,
-            "output_tokens": 30,
-        }
-
-        db = Database(":memory:")
-        wq = WriteQueue()
-        wq.start()
-
-        from windyfly.agent.sub_agents import spawn_sub_agent
-        result = spawn_sub_agent(
-            {"agent": {"default_model": "gpt-4o-mini"}},
-            db, wq, "Analyze this data",
-        )
-
-        assert result == "Sub-agent result"
-        # Verify isolated context (system prompt, not parent history)
-        call_args = mock_llm.call_args[0][0]
-        assert call_args[0]["role"] == "system"
-        assert "specialist sub-agent" in call_args[0]["content"]
-        assert len(call_args) == 2  # Only system + user (no history)
-
-        time.sleep(0.5)
-        wq.stop()
         db.close()
 
 

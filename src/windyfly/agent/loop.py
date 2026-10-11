@@ -1737,12 +1737,11 @@ def _agent_respond_turn(
 
     # 2.95. Empty-after-tool-loop defense. The tool loop can exit with
     # ``response_text = ""`` when the LLM only called tools and never
-    # produced text content (e.g., shape_shift → shape_shift_restore
-    # → no answer; or web_search → fs.glob → ran out of tool rounds).
-    # We never want to ship empty silence to the user — they'll think
-    # the bot crashed. Reproduced 2026-04-26 via stress harness v2
-    # G_naming case (LLM picked shape_shift on a brainstorm prompt
-    # and never circled back to actually brainstorming).
+    # produced text content (e.g., web_search → fs.glob → ran out of
+    # tool rounds). We never want to ship empty silence to the user —
+    # they'll think the bot crashed. Reproduced 2026-04-26 via stress
+    # harness v2 G_naming case (LLM picked a tool on a brainstorm
+    # prompt and never circled back to actually brainstorming).
     if _silence.enabled() and _silence.is_silence(response_text):
         if _silence.is_agent_turn(session_id):
             return ""  # the agent chose silence for another agent: post nothing

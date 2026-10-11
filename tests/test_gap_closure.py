@@ -328,7 +328,6 @@ class TestDispatchRegistry:
         "soul.preview", "soul.import",
         "sms.inbound", "sms.send", "email.inbound", "email.send",
         "journal.list", "assessment.run",
-        "shape_shift.execute", "shape_shift.restore",
         # Gap closure additions
         "cost.monthly", "config.reload",
         "personality.history", "personality.snapshot",
@@ -368,5 +367,6 @@ class TestDispatchRegistry:
         # The dispatch table is built in _dispatch(), we can count by inspecting
         # 6 provider methods removed (handled gateway-side), 1 cost.monthly added,
         # mode.get / mode.set retired 2026-10-10
-        assert len(self.REQUIRED_METHODS) == 38
+        # 2 shape_shift.* removed (shape-shift retired 2026-10-10)
+        assert len(self.REQUIRED_METHODS) == 36
         db.close()
