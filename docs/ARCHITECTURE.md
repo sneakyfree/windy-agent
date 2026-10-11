@@ -490,8 +490,7 @@ src/windyfly/
 │   ├── prompt.py          # prompt assembly
 │   ├── emotion_detector.py
 │   ├── intent_detector.py
-│   ├── failure_detector.py  # "Never Wrong Twice"
-│   └── sub_agents.py      # legacy depth-1; replaced by Wave 6
+│   └── failure_detector.py  # "Never Wrong Twice"
 ├── channels/              # Perception Plane
 │   ├── base.py            # ChannelAdapter interface
 │   ├── manager.py         # ChannelManager
