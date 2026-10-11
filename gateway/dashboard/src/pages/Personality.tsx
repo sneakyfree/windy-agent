@@ -52,9 +52,9 @@ const sliderLabel = (key?: string | null) =>
 // slider, so applying any preset fired a PUT /api/sliders/assertiveness
 // that the brain rejected (silent console noise + a no-op write).
 const PRESETS: Record<string, Record<string, number>> = {
-  companion: { humor: 8, formality: 2, proactivity: 7, verbosity: 6, reasoning_depth: 5, autonomy: 4, epistemic_strictness: 4, warmth: 9, creativity: 7 },
-  focused: { humor: 2, formality: 6, proactivity: 3, verbosity: 3, reasoning_depth: 9, autonomy: 5, epistemic_strictness: 8, warmth: 4, creativity: 4 },
-  neutral: { humor: 5, formality: 5, proactivity: 5, verbosity: 5, reasoning_depth: 5, autonomy: 5, epistemic_strictness: 5, warmth: 5, creativity: 5 },
+  companion: { humor: 8, formality: 2, proactivity: 7, verbosity: 6, reasoning_depth: 5, autonomy: 4, epistemic_strictness: 4, creativity: 7 },
+  focused: { humor: 2, formality: 6, proactivity: 3, verbosity: 3, reasoning_depth: 9, autonomy: 5, epistemic_strictness: 8, creativity: 4 },
+  neutral: { humor: 5, formality: 5, proactivity: 5, verbosity: 5, reasoning_depth: 5, autonomy: 5, epistemic_strictness: 5, creativity: 5 },
 }
 
 export default function Personality() {
@@ -154,7 +154,7 @@ export default function Personality() {
 
   const sliderNames = Object.keys(sliders).length > 0
     ? Object.keys(sliders)
-    : ['humor', 'formality', 'proactivity', 'verbosity', 'reasoning_depth', 'autonomy', 'epistemic_strictness', 'warmth', 'creativity', 'assertiveness']
+    : ['humor', 'formality', 'proactivity', 'verbosity', 'reasoning_depth', 'autonomy', 'epistemic_strictness', 'creativity']
 
   if (loading) {
     return (

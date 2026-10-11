@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **No more "warmth" slider leftovers.** The warmth slider was removed in July, but
+  the dashboard's quick presets still set it (each click sent a change the agent
+  refused), the gateway still listed it when the agent was offline, and the setup
+  page still wrote it into new config files. All gone; a test now checks that every
+  slider name the dashboard and gateway use is a real slider.
+
 - **`/skills` works.** It imported two functions that never existed, so it always
   answered "Error". It now lists the promoted playbooks (`/skills all` for every one).
 
