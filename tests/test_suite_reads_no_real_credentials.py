@@ -47,39 +47,19 @@ class TestProviderOverridesPath:
         assert path.is_absolute(), f"provider overrides path must be absolute: {path}"
         assert is_explicit is False
 
-    def test_explicit_path_ignores_legacy_file(self, tmp_path, monkeypatch):
-        """The bug that survived the first fix attempt.
-
-        When the path is pinned, the cwd-relative legacy file must not be
-        consulted *at all*. The first version migrated it into the pinned
-        location — faithfully re-importing the contamination it existed to
-        remove, leaving OC5's failures unchanged.
-        """
-        legacy = tmp_path / "data" / "providers.json"
-        legacy.parent.mkdir(parents=True)
-        legacy.write_text(json.dumps({"openai": {"api_key": "REAL-KEY"}}))
-        monkeypatch.setattr(providers, "_LEGACY_OVERRIDES_PATH", legacy)
-        monkeypatch.setenv(
-            "WINDYFLY_PROVIDERS_PATH", str(tmp_path / "pinned.json"),
-        )
-
-        assert providers._load_overrides() == {}
-        assert not (tmp_path / "pinned.json").exists(), \
-            "legacy file was migrated into a pinned path — contamination"
-
-    def test_legacy_file_still_migrates_when_not_pinned(self, tmp_path, monkeypatch):
-        """A real install must not lose its configured providers to the
-        path change (#8: stability over elegance)."""
-        legacy = tmp_path / "data" / "providers.json"
-        legacy.parent.mkdir(parents=True)
-        legacy.write_text(json.dumps({"openai": {"api_key": "k"}}))
-        monkeypatch.setattr(providers, "_LEGACY_OVERRIDES_PATH", legacy)
+    def test_cwd_data_file_is_never_read(self, tmp_path, monkeypatch):
+        """The old dashboard's cwd-relative data/providers.json is never read by
+        the brain (Wave 3). Once it was migrated into the state dir, key and all;
+        now the start-up salvage moves only its key into the env file."""
+        (tmp_path / "data").mkdir()
+        (tmp_path / "data" / "providers.json").write_text(
+            json.dumps({"openai": {"api_key": "REAL-KEY", "base_url": "https://x"}}))
+        monkeypatch.chdir(tmp_path)
         monkeypatch.delenv("WINDYFLY_PROVIDERS_PATH", raising=False)
         monkeypatch.setenv("WINDY_STATE_DIR", str(tmp_path / "state"))
 
-        assert providers._load_overrides() == {"openai": {"api_key": "k"}}
-        assert (tmp_path / "state" / "providers.json").exists(), \
-            "existing user's providers were not migrated — config loss"
+        assert providers._load_overrides() == {}
+        assert not (tmp_path / "state" / "providers.json").exists()
 
 
 class TestOAuthTokenReload:

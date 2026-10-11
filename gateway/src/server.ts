@@ -34,7 +34,6 @@
 import { resolve } from "path";
 import { bridge } from "./bridge";
 import { handleClose, handleMessage, handleWebSocket } from "./websocket";
-import * as providers from "./providers";
 import { handleHatchRemote } from "./hatch-remote";
 import { removeRetiredDataFiles } from "./retired-data";
 
@@ -80,7 +79,7 @@ const RATE_LIMITS: Record<RateLimitBucket, number> = {
   setup:    10, // setup/* writes config — strict
   auth:      5, // failed login attempts / minute / IP
   chat:     60, // /api/chat — looser; users legitimately chat often
-  upstream: 30, // /api/providers/validate + similar LLM fan-outs
+  upstream: 30, // calls that fan out to outside services
 };
 
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
@@ -941,147 +940,6 @@ async function handleRequest(req: Request, server: import("bun").Server<any>): P
       } catch {
         return Response.json({ error: "Brain offline", _offline: true }, { status: 503, headers });
       }
-    }
-
-    // Providers list — works locally, no brain needed
-    if (path === "/api/providers" && req.method === "GET") {
-      return Response.json(providers.listProviders(), { headers });
-    }
-
-    // Discover models from a provider's API
-    if (path === "/api/providers/discover" && req.method === "POST") {
-      const body = await req.json() as { provider: string };
-      const result = await providers.discoverModels(body.provider);
-      return Response.json(result, { headers });
-    }
-
-    // Discover models for ALL configured providers
-    if (path === "/api/providers/discover-all" && req.method === "POST") {
-      const { providers: list } = providers.listProviders();
-      const configured = list.filter(p => p.configured);
-      const results = await Promise.allSettled(
-        configured.map(p => providers.discoverModels(p.key))
-      );
-      const discoveries = results.map((r, i) =>
-        r.status === "fulfilled" ? r.value : { provider: configured[i].key, models: [], error: String(r.reason), fetched_at: new Date().toISOString() }
-      );
-      return Response.json({ discoveries }, { headers });
-    }
-
-    // Validate a provider key. This fans out to OpenAI/Anthropic/etc.
-    // under the caller's key — rate-limit so a misbehaving client
-    // can't burn through the real money quota.
-    if (path === "/api/providers/validate" && req.method === "POST") {
-      const clientIP = req.headers.get("x-forwarded-for")?.split(",")[0].trim() || "127.0.0.1";
-      if (isRateLimited(clientIP, "upstream")) {
-        return Response.json(
-          { error: "rate limited" },
-          { status: 429, headers: { ...headers, "Retry-After": "60" } }
-        );
-      }
-      const body = await req.json() as { provider: string };
-      const result = await providers.validateKey(body.provider);
-      return Response.json(result, { headers });
-    }
-
-    // OpenRouter OAuth: start
-    if (path === "/api/providers/oauth/openrouter/start" && req.method === "POST") {
-      const body = await req.json() as { callback_url: string };
-      const result = providers.startOpenRouterOAuth(body.callback_url);
-      return Response.json(result, { headers });
-    }
-
-    // OpenRouter OAuth: callback
-    if (path === "/api/providers/oauth/openrouter/callback" && req.method === "POST") {
-      const body = await req.json() as { code: string };
-      const result = await providers.completeOpenRouterOAuth(body.code);
-      return Response.json(result, { headers });
-    }
-
-    // OpenRouter OAuth: handle GET callback (redirect from OpenRouter)
-    if (path === "/oauth/callback" && req.method === "GET") {
-      const code = url.searchParams.get("code");
-      if (code) {
-        const result = await providers.completeOpenRouterOAuth(code);
-        // Redirect back to providers page with result
-        const status = result.success ? "success" : "error";
-        const msg = result.success ? "Connected to OpenRouter!" : (result.error || "Failed");
-        return new Response(null, {
-          status: 302,
-          headers: { ...headers, "Location": `/?page=providers&oauth=${status}&msg=${encodeURIComponent(msg)}` },
-        });
-      }
-      return new Response(null, {
-        status: 302,
-        headers: { ...headers, "Location": "/?page=providers&oauth=error&msg=No+code+received" },
-      });
-    }
-
-    // Set active model — must match before the generic /api/providers/:key
-    if (path === "/api/providers/active-model" && req.method === "PUT") {
-      const body = await req.json() as { model: string };
-      providers.setActiveModel(body.model);
-      return Response.json({ success: true, active_model: body.model }, { headers });
-    }
-
-    // Set provider API key (legacy single-key)
-    if (path === "/api/providers/set-key" && req.method === "PUT") {
-      const body = await req.json() as { key: string; api_key: string; api_key_env?: string };
-      providers.setProviderKey(body.key, body.api_key, body.api_key_env);
-      return Response.json({ success: true }, { headers });
-    }
-
-    // Multi-key: add key
-    if (path === "/api/providers/keys" && req.method === "POST") {
-      const body = await req.json() as { provider: string; label: string; key: string; type: "api" | "oauth" | "other" };
-      providers.addProviderKey(body.provider, body.label, body.key, body.type);
-      return Response.json({ success: true }, { headers });
-    }
-
-    // Multi-key: delete key
-    if (path === "/api/providers/keys" && req.method === "DELETE") {
-      const body = await req.json() as { provider: string; key_id: string };
-      providers.deleteProviderKey(body.provider, body.key_id);
-      return Response.json({ success: true }, { headers });
-    }
-
-    // Multi-key: activate key
-    if (path === "/api/providers/keys/activate" && req.method === "PUT") {
-      const body = await req.json() as { provider: string; key_id: string };
-      providers.activateProviderKey(body.provider, body.key_id);
-      return Response.json({ success: true }, { headers });
-    }
-
-    // Notes: save
-    if (path === "/api/providers/notes" && req.method === "PUT") {
-      const body = await req.json() as { provider: string; note: string };
-      providers.setProviderNote(body.provider, body.note);
-      return Response.json({ success: true }, { headers });
-    }
-
-    // Provider CRUD by key
-    const providerMatch = path.match(/^\/api\/providers\/(.+)$/);
-    if (providerMatch && req.method === "PUT") {
-      const key = providerMatch[1];
-      const body = await req.json() as Record<string, unknown>;
-      providers.updateProvider(key, body);
-      return Response.json({ success: true }, { headers });
-    }
-
-    // Add custom provider
-    if (path === "/api/providers" && req.method === "POST") {
-      const body = await req.json() as { key: string; [k: string]: unknown };
-      const key = body.key;
-      delete body.key;
-      providers.addProvider(key, body);
-      return Response.json({ success: true }, { headers });
-    }
-
-    // Remove custom provider
-    if (providerMatch && req.method === "DELETE") {
-      const key = providerMatch[1];
-      const removed = providers.removeProvider(key);
-      return Response.json({ success: removed }, { headers });
     }
 
     // Journal entries

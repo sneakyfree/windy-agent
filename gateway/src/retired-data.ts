@@ -7,8 +7,15 @@
  *
  * - machines.json: Mission Control (retired 2026-10-10) kept the tokens
  *   people typed for their remote machines here.
+ *
+ * A symlink is never followed: it is left alone with a warning, so this can
+ * never zero a file outside data/. The old provider files (providers.json,
+ * provider_keys.json, provider_notes.json) are NOT on this list on purpose:
+ * the brain moves any key they hold into the env file first, then deletes
+ * them (agent/provider_salvage.py). The gateway often starts first and must
+ * not destroy someone's only copy of a key.
  */
-import { closeSync, existsSync, fstatSync, openSync, unlinkSync, writeSync } from "fs";
+import { closeSync, fstatSync, lstatSync, openSync, unlinkSync, writeSync } from "fs";
 import { resolve } from "path";
 
 const DATA_DIR = resolve(import.meta.dir, "../../data");
@@ -22,7 +29,16 @@ export function removeRetiredDataFiles(
   const removed: string[] = [];
   for (const name of names) {
     const path = resolve(dir, name);
-    if (!existsSync(path)) continue;
+    let isLink: boolean;
+    try {
+      isLink = lstatSync(path).isSymbolicLink();
+    } catch {
+      continue; // not there
+    }
+    if (isLink) {
+      console.warn(`[gateway] retired data/${name} is a symlink: left alone (not followed)`);
+      continue;
+    }
     try {
       const fd = openSync(path, "r+");
       try {

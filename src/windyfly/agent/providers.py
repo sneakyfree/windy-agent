@@ -3,8 +3,8 @@
 Config-driven provider management. Add any OpenAI-compatible lab with just
 a base_url and api_key. Anthropic gets its own path (different API format).
 
-Providers are defined in windyfly.toml under [providers.*] and can be
-managed at runtime via the Trust Dashboard or REST API.
+Providers are defined in windyfly.toml under [providers.*]; non-secret runtime
+overrides live in the state dir's providers.json. Keys come from the environment.
 """
 
 from __future__ import annotations
@@ -14,6 +14,8 @@ import logging
 import os
 from pathlib import Path
 from typing import Any
+
+from windyfly.agent.provider_salvage import default_env_var
 
 logger = logging.getLogger(__name__)
 
@@ -120,39 +122,16 @@ BUILTIN_PROVIDERS: dict[str, dict[str, Any]] = {
     },
 }
 
-# Runtime overrides file — written by the dashboard / API.
-#
-# This used to be a module-level constant defaulting to the RELATIVE path
-# ``data/providers.json``, which meant three things at once:
-#
-#   1. **The agent's provider config depended on its working directory.**
-#      Launch it from anywhere but the repo root and the dashboard's saved
-#      providers silently vanished — or, worse, a different file loaded.
-#   2. **Resolved once at import**, so setting ``WINDYFLY_PROVIDERS_PATH``
-#      afterwards did nothing. Per-test isolation could not work.
-#   3. Consequently **the test suite read real operator state.** On the OC5
-#      iMac, `data/providers.json` held a live dashboard-saved OpenAI key,
-#      so `test_unconfigured_provider_is_skipped_silently` saw openai as
-#      configured and failed — along with two lifeboat tests — on that box
-#      and nowhere else. Three deterministic failures that looked like an
-#      Intel-specific bug and were really this line.
-#
-# Now resolved lazily, anchored to ``windy_state_dir()`` (the same base
-# ``models.py`` uses for provider cooldowns), so it is absolute, honours
-# ``WINDY_STATE_DIR``, and per-test isolation applies for free.
-_LEGACY_OVERRIDES_PATH = Path("data/providers.json")
+# Non-secret provider overrides (custom endpoints, model lists), anchored to
+# ``windy_state_dir()`` so the location never depends on the working directory and
+# ``WINDYFLY_PROVIDERS_PATH`` pins it per test. Keys never come from this file: they
+# live only in the environment (the private env file the runtime loads). An
+# ``api_key`` found here is moved there once at brain start by
+# ``provider_salvage.salvage_provider_keys`` (Wave 3); until then it is ignored.
 
 
 def _overrides_path() -> tuple[Path, bool]:
-    """Resolve the overrides file. Lazy on purpose — see the note above.
-
-    Returns ``(path, is_explicit)``. ``is_explicit`` matters: when a caller
-    has pinned the location via ``WINDYFLY_PROVIDERS_PATH`` — which the test
-    suite does — the cwd-relative legacy file must NOT be consulted at all.
-    A first attempt at this fix migrated the legacy file *into* the isolated
-    temp dir, faithfully re-importing the very contamination it was meant to
-    remove, and OC5's three failures survived unchanged.
-    """
+    """Resolve the overrides file lazily: ``(path, is_explicit)``."""
     explicit = os.environ.get("WINDYFLY_PROVIDERS_PATH")
     if explicit:
         return Path(explicit), True
@@ -160,42 +139,32 @@ def _overrides_path() -> tuple[Path, bool]:
     return windy_state_dir() / "providers.json", False
 
 
+_warned_file_keys: set[str] = set()
+
+
 def _load_overrides() -> dict[str, dict[str, Any]]:
-    """Load provider overrides from disk (set via dashboard)."""
-    path, is_explicit = _overrides_path()
-    if not is_explicit and not path.exists() and _LEGACY_OVERRIDES_PATH.exists():
-        # Self-heal, once: an existing install has its providers in the old
-        # cwd-relative location. Losing a user's configured providers to a
-        # path change is exactly the trade Principle #8 forbids, so migrate
-        # rather than ignore. Best-effort — a read must never fail because
-        # the copy failed.
-        try:
-            data = _LEGACY_OVERRIDES_PATH.read_text(encoding="utf-8")
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(data, encoding="utf-8")
-            logger.info(
-                "migrated provider overrides %s -> %s",
-                _LEGACY_OVERRIDES_PATH, path,
-            )
-        except OSError as exc:
-            logger.warning(
-                "could not migrate provider overrides from %s (%s) — "
-                "reading them in place", _LEGACY_OVERRIDES_PATH, exc,
-            )
-            path = _LEGACY_OVERRIDES_PATH
-    if path.exists():
-        try:
-            return json.loads(path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            pass
-    return {}
-
-
-def _save_overrides(overrides: dict[str, dict[str, Any]]) -> None:
-    """Persist provider overrides to disk."""
+    """Load the non-secret provider overrides. Any ``api_key`` in the file is ignored."""
     path, _ = _overrides_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(overrides, indent=2), encoding="utf-8")
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    out: dict[str, dict[str, Any]] = {}
+    for key, val in data.items():
+        if isinstance(val, dict) and "api_key" in val:
+            if key not in _warned_file_keys:
+                _warned_file_keys.add(key)
+                logger.warning(
+                    "provider %s: the api_key in %s is ignored (keys live in the env file); "
+                    "it is moved there at the next start", key, path,
+                )
+            val = {k: v for k, v in val.items() if k != "api_key"}
+        out[key] = val
+    return out
 
 
 def get_all_providers(config: dict[str, Any] | None = None) -> dict[str, dict[str, Any]]:
@@ -231,7 +200,9 @@ def get_all_providers(config: dict[str, Any] | None = None) -> dict[str, dict[st
 
     # Resolve API keys from environment
     for key, prov in providers.items():
-        env_var = prov.get("api_key_env", "")
+        # A custom provider without api_key_env reads WINDY_PROVIDER_<NAME>_API_KEY
+        # (where the Wave 3 salvage puts its key).
+        env_var = prov.get("api_key_env", "") or default_env_var(key)
         # Don't overwrite an explicit api_key with empty env
         if env_var and not prov.get("api_key"):
             prov["api_key"] = os.environ.get(env_var, "")
@@ -279,43 +250,6 @@ def get_provider_for_model(model: str, config: dict[str, Any] | None = None) -> 
 
     # 4. Fallback
     return {**providers.get("openai", {}), "provider_key": "openai"}
-
-
-def set_provider_override(key: str, data: dict[str, Any]) -> None:
-    """Update a single provider's runtime config (called from dashboard)."""
-    overrides = _load_overrides()
-    if key in overrides:
-        overrides[key] = {**overrides[key], **data}
-    else:
-        overrides[key] = data
-    _save_overrides(overrides)
-
-
-def add_custom_provider(key: str, data: dict[str, Any]) -> None:
-    """Add a completely new provider (called from dashboard)."""
-    data.setdefault("type", "openai")
-    data.setdefault("name", key.title())
-    data.setdefault("models", [])
-    overrides = _load_overrides()
-    overrides[key] = data
-    _save_overrides(overrides)
-
-
-def remove_custom_provider(key: str) -> bool:
-    """Remove a custom provider. Cannot remove builtins."""
-    if key in BUILTIN_PROVIDERS:
-        return False
-    overrides = _load_overrides()
-    if key in overrides:
-        del overrides[key]
-        _save_overrides(overrides)
-        return True
-    return False
-
-
-def set_active_model(config: dict[str, Any], model: str) -> None:
-    """Set the active model in config (runtime only)."""
-    config.setdefault("agent", {})["default_model"] = model
 
 
 def get_provider_summary(config: dict[str, Any] | None = None) -> list[dict[str, Any]]:

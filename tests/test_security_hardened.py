@@ -165,14 +165,14 @@ class TestPathTraversal:
 
 class TestProviderKeyMasking:
     def test_provider_key_masking_function(self):
-        """H5.7: Provider keys should be masked in API responses."""
-        providers_ts = GATEWAY_DIR / "providers.ts"
-        content = providers_ts.read_text(encoding="utf-8")
-        # Should have masking logic (slice, substring, replace with *)
-        has_masking = any(kw in content for kw in [
-            "slice", "substring", "mask", "****", "••••", "...",
-        ])
-        assert has_masking, "providers.ts has no key masking logic"
+        """H5.7: the gateway has no provider-key surface to mask any more.
+
+        Wave 3 (2026-10) retired its provider store: no providers.ts, no
+        /api/providers route, so no response can carry a provider key.
+        """
+        assert not (GATEWAY_DIR / "providers.ts").exists()
+        server = (GATEWAY_DIR / "server.ts").read_text(encoding="utf-8")
+        assert "/api/providers" not in server
 
 
 # =============================================================================
