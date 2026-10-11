@@ -172,11 +172,11 @@ class TestEventLogging:
         wq.start()
 
         log_event(db, wq, "agent.respond", {"msg": "1"})
-        log_event(db, wq, "cost.log", {"usd": 0.01})
+        log_event(db, wq, "decay.run", {"usd": 0.01})
         time.sleep(0.5)
 
         respond_events = get_recent_events(db, event_type="agent.respond")
-        cost_events = get_recent_events(db, event_type="cost.log")
+        cost_events = get_recent_events(db, event_type="decay.run")
         assert len(respond_events) >= 1
         assert len(cost_events) >= 1
         wq.stop()
@@ -189,12 +189,12 @@ class TestEventLogging:
 
         log_event(db, wq, "agent.respond", {})
         log_event(db, wq, "agent.respond", {})
-        log_event(db, wq, "cost.log", {})
+        log_event(db, wq, "decay.run", {})
         time.sleep(0.5)
 
         counts = get_event_counts(db)
         assert counts.get("agent.respond", 0) >= 2
-        assert counts.get("cost.log", 0) >= 1
+        assert counts.get("decay.run", 0) >= 1
         wq.stop()
         db.close()
 

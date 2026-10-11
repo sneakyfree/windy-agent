@@ -133,6 +133,10 @@ def check_for_conflict(
             (conflict_id, existing["id"], str(old_value), str(new_value), PENDING,
              json.dumps(held)),
         )
+        from windyfly.observability.events import record_event
+
+        record_event(db, "conflict.detect",
+                     {"conflict_id": conflict_id, "node_id": existing["id"], "node_type": node_type})
         db.commit()
 
         return {

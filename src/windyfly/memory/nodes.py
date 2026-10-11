@@ -96,6 +96,7 @@ def upsert_node(
             (metadata_json, epistemic_status, confidence,
              source, valid_from, valid_until, node_id),
         )
+        op = "update"
     else:
         node_id = str(uuid.uuid4())
         db.execute(
@@ -107,6 +108,11 @@ def upsert_node(
             (node_id, type, name, metadata_json, epistemic_status,
              confidence, source, scope_id, valid_from, valid_until),
         )
+        op = "insert"
+    from windyfly.observability.events import record_event
+
+    # Ids and types only: the node's name carries the owner's words.
+    record_event(db, "memory.write", {"node_id": node_id, "node_type": type, "op": op, "source": source})
 
     db.commit()
     return node_id

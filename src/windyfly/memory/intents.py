@@ -51,6 +51,9 @@ def create_intent(
         (intent_id, user_id, scope_id, description, origin,
          priority, autonomy_policy, nodes_json),
     )
+    from windyfly.observability.events import record_event
+
+    record_event(db, "intent.surface", {"intent_id": intent_id, "op": "create", "origin": origin})
     db.commit()
     return intent_id
 
@@ -98,6 +101,9 @@ def touch_intent(db: Database, intent_id: str) -> None:
         "WHERE id = ? AND status = 'active'",
         (intent_id,),
     )
+    from windyfly.observability.events import record_event
+
+    record_event(db, "intent.surface", {"intent_id": intent_id, "op": "touch"})
     db.commit()
 
 
