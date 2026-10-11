@@ -9,6 +9,10 @@
   the owner something untrue. Tone now comes from the model plus your soul; to
   tune it, use the personality sliders with raw mode off.
 
+- **Dashboard summary no longer crashes on unpriced usage.** A task type
+  whose ledger rows are all unpriced (local / Mind rows store no cost) made
+  the whole summary fail; it now shows 0.0 for that type.
+
 ## 0.7.6
 
 - **The agent tells Eternitas which machine it lives on (housing report, ON).**

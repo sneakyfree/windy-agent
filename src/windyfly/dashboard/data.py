@@ -231,7 +231,8 @@ def _get_cost_stats(db: Database) -> dict[str, Any]:
 
     # By task type
     task_rows = db.fetchall(
-        """SELECT COALESCE(task_type, 'chat') as tt, SUM(cost_usd) as total
+        """SELECT COALESCE(task_type, 'chat') as tt,
+                  COALESCE(SUM(cost_usd), 0.0) as total
            FROM cost_ledger GROUP BY tt"""
     )
     by_task = {row["tt"]: round(row["total"], 4) for row in task_rows}
