@@ -1,3 +1,5 @@
+> **History.** This is the original 2026 strand plan, kept as written. What Windy Fly promises today, codon by codon and tested, is [docs/strand/STRAND_V2.md](strand/STRAND_V2.md).
+
 # 🧬 WINDY FLY — DNA STRAND MASTER PLAN
 
 ## Part 3 of 4: Phases 3–4 (Skills + Intents + Gateway + Advanced)
