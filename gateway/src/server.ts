@@ -803,6 +803,7 @@ async function handleRequest(req: Request, server: import("bun").Server<any>): P
             skills: { total: 0, promoted: 0, top_5_by_usage: [] },
             intents: { active: 0, completed: 0, abandoned: 0 },
             personality: { sliders: {}, preset: "offline", estimated_monthly_cost: 0 },
+            drift: { detected: false, drifted_sliders: [] },
           },
           _offline: true,
         }, { headers });
@@ -1109,8 +1110,9 @@ async function handleRequest(req: Request, server: import("bun").Server<any>): P
     // Personality history
     if (path === "/api/personality/history" && req.method === "GET") {
       const limit = parseInt(url.searchParams.get("limit") || "20");
+      const sliders_only = url.searchParams.get("sliders_only") === "true";
       try {
-        const result = await bridge.call("personality.history", { limit });
+        const result = await bridge.call("personality.history", { limit, sliders_only });
         return Response.json(result, { headers });
       } catch {
         return Response.json({ history: [], _offline: true }, { headers });
@@ -1138,9 +1140,9 @@ async function handleRequest(req: Request, server: import("bun").Server<any>): P
       }
     }
 
-    // Personality rollback
+    // Personality rollback (dry_run: true lists the changes first; the owner confirms that list)
     if (path === "/api/personality/rollback" && req.method === "POST") {
-      const body = (await req.json()) as { snapshot_date: string };
+      const body = (await req.json()) as { snapshot_date: string; dry_run?: boolean };
       try {
         const result = await bridge.call("personality.rollback", body);
         return Response.json(result, { headers });

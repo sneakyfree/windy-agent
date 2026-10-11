@@ -452,7 +452,10 @@ class UDSBridge:
     async def _handle_personality_history(self, params: dict) -> dict:
         from windyfly.personality.versioning import get_personality_history
         limit = params.get("limit", 20)
-        history = get_personality_history(self.db, limit=limit)
+        sliders_only = bool(params.get("sliders_only", False))
+        history = get_personality_history(
+            self.db, limit=limit, sliders_only=sliders_only,
+        )
         return {"history": history}
 
     async def _handle_personality_snapshot(self, params: dict) -> dict:
@@ -469,11 +472,16 @@ class UDSBridge:
         return {"drift": drift}
 
     async def _handle_personality_rollback(self, params: dict) -> dict:
-        from windyfly.personality.versioning import rollback_personality
+        """dry_run=true lists what would change (the owner confirms that list); otherwise apply it."""
+        from windyfly.personality.versioning import plan_personality_rollback, rollback_personality
         snapshot_date = params.get("snapshot_date", "")
         user_id = params.get("user_id", "default")
+        plan = plan_personality_rollback(self.db, snapshot_date, user_id=user_id)
+        changes = [{k: c[k] for k in ("slider", "current", "restore")} for c in plan]
+        if params.get("dry_run"):
+            return {"dry_run": True, "changes": changes}
         restored = rollback_personality(self.db, snapshot_date, user_id=user_id)
-        return {"restored_count": restored}
+        return {"restored_count": restored, "changes": changes}
 
     # ------------------------------------------------------------------
     # Group 2: Skills management

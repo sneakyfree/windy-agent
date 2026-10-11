@@ -352,6 +352,8 @@ def apply_preset(
     db: Database,
     preset_name: str,
     user_id: str = "default",
+    *,
+    source: str = "control_panel",
 ) -> dict[str, int]:
     """Apply a preset to all sliders.
 
@@ -359,6 +361,9 @@ def apply_preset(
         db: Database instance.
         preset_name: One of the preset names (buddy, engineer, etc.).
         user_id: User ID.
+        source: Who is writing (``soul.source``). Owner surfaces keep the
+            default "control_panel"; any other writer must pass its own
+            name so drift detection can tell it apart from the owner.
 
     Returns:
         The applied slider values.
@@ -371,7 +376,7 @@ def apply_preset(
 
     values = PRESETS[preset_name]
     for slider_name, value in values.items():
-        upsert_soul(db, key=f"slider_{slider_name}", value=str(value), source="control_panel", user_id=user_id)
+        upsert_soul(db, key=f"slider_{slider_name}", value=str(value), source=source, user_id=user_id)
 
     return values
 
@@ -381,6 +386,8 @@ def set_slider(
     slider_name: str,
     value: int,
     user_id: str = "default",
+    *,
+    source: str = "control_panel",
 ) -> None:
     """Set an individual slider value.
 
@@ -389,6 +396,7 @@ def set_slider(
         slider_name: Slider name (must be a valid slider).
         value: Slider value (0–10).
         user_id: User ID.
+        source: Who is writing (``soul.source``); see apply_preset.
 
     Raises:
         ValueError: If slider name or value is invalid.
@@ -398,7 +406,7 @@ def set_slider(
     if not (0 <= value <= 10):
         raise ValueError(f"Slider value must be 0–10, got {value}")
 
-    upsert_soul(db, key=f"slider_{slider_name}", value=str(value), source="control_panel", user_id=user_id)
+    upsert_soul(db, key=f"slider_{slider_name}", value=str(value), source=source, user_id=user_id)
 
 
 def get_sliders(

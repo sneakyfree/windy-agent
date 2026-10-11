@@ -10,6 +10,7 @@ from typing import Any
 
 from windyfly.control_panel import PRESETS, estimate_monthly_cost, get_sliders
 from windyfly.memory.database import Database
+from windyfly.personality.versioning import get_drift_alert
 
 
 def get_dashboard_summary(
@@ -46,6 +47,11 @@ def get_dashboard_summary(
         "skills": _get_skill_stats(db),
         "intents": _get_intent_stats(db, user_id),
         "personality": _get_personality_stats(db, user_id),
+        # Latest personality-drift result from the 24h check (a slider the
+        # owner didn't move shifted > 2 points vs ~30 days ago). Always
+        # {"detected": bool, "drifted_sliders": [...]} (+ drift_source,
+        # baseline_at when detected). Personality page shows it.
+        "drift": get_drift_alert(db, user_id=user_id),
         "journal": _get_journal_entries(db, user_id),
         "self_assessment": _get_latest_assessment(db),
         "trust_banner": trust_banner,
