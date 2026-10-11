@@ -501,7 +501,7 @@ Built in waves (strand-to-green plan, 2026-10-10): 5a set the frame plus Part 1 
 | P4.54.8 | Events older than 30 days are pruned | live | `tests/test_retention.py::TestEventsPrune::test_prune_events_drops_old_keeps_recent` |
 | P4.54.9 | Events are read (and filtered by type) through the bridge | live | `tests/strand/test_p4_phase5.py::test_p4_54_events_are_read_through_the_bridge` |
 | P4.54.10 | cost.log, skill.evaluate and matrix.message events | retired: no emitter and no reader here or in 9 sister repos; the cost ledger is the one cost record (#524) | — |
-| P4.54.11 | Console logs are structured JSON | planned: Windy Agent: console logs are plain text (journald); emit JSON or retire this promise (Hub decides) | — |
+| P4.54.11 | Console logs are structured JSON | retired: the event log is the structured record; console output is for humans (#524) | — |
 
 ### P4.55 Phase 5 tests and release (gene 5.5)
 
@@ -521,3 +521,138 @@ Built in waves (strand-to-green plan, 2026-10-10): 5a set the frame plus Part 1 
 | P4.C5.6 | The regression suite catches broken skills | retired: skill code execution removed (#504) | — |
 | P4.C5.7 | The event log captures the system's events (every declared type is emitted) | live | `tests/test_event_log.py::test_every_declared_event_type_is_emitted_somewhere` |
 | P4.C5.8 | Events are pruned after 30 days | live | `tests/test_retention.py::TestEventsPrune::test_prune_events_drops_old_keeps_recent` |
+
+### P4.11 Windy ecosystem map (Part 4 §11)
+
+The map predates Windy Mind, Eternitas, Mail, Calendar, Search, teams and Admin telemetry; those
+are the new genes (Wave 5g).
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P4.11.1 | The brain's parts exist: loop, memory, skills, control panel, Matrix bot, bridge | live | `tests/strand/test_p4_map_index.py::test_p4_11_the_brain_parts_in_the_map_exist` |
+| P4.11.2 | The gateway serves the web UI on localhost:3000 | planned: Windy Agent: proven by bun tests in CI, not yet by a scorecard test (see P3.41.10) | — |
+| P4.11.3 | The gateway's WebSocket chat works end to end | planned: Windy Agent: live-gated only (see P3.41.10) | — |
+| P4.11.4 | Sliders are set through the gateway's REST route | live | `tests/test_gateway_smoke.py::TestSlidersSetRoute::test_set_valid_slider` |
+| P4.11.5 | Spend is read through the gateway's REST route | live | `tests/test_gateway_smoke.py::TestCostDailyRoute::test_reflects_logged_cost` |
+| P4.11.6 | The gateway talks to the brain over the UDS bridge (the brain's own process, not the Matrix bot's) | live | `tests/test_bridge_integration.py::TestAgentRespondViaBridge::test_full_roundtrip` |
+| P4.11.7 | The homeserver is Windy Chat (chat.windychat.ai) | live | `tests/test_contract_matrix.py::TestBotIdentityContract::test_default_homeserver` |
+| P4.11.8 | One shared @windyfly bot user | retired: every agent is its own @agent_<passport>, minted at hatch; the shared id was removed (#505) | — |
+| P4.11.9 | Rooms are end-to-end encrypted | retired: never active (no olm); dead E2E code removed, one honest line for encrypted events (#505) | — |
+| P4.11.10 | Presence shows the agent online | live | `tests/strand/test_p2_matrix.py::test_p2_12_presence_online_at_start` |
+| P4.11.11 | Typing shows while the agent works | live | `tests/strand/test_p2_matrix.py::test_p2_12_typing_on_before_the_turn_and_off_after_the_reply` |
+| P4.11.12 | Read receipts | planned: Windy Agent: the agent sends none; send them or drop the promise | — |
+| P4.11.13 | Onboarding (K2) gives the agent its chat account, using its passport | live | `tests/test_chat_session.py::TestFetchAgentChatSession::test_sends_ept_bearer_and_returns_session` |
+| P4.11.14 | The directory (K3) lists the agent as discoverable | planned: Windy Agent: no registration call (teams only reads the owner's roster); decide with Windy Chat whether agents are listed | — |
+| P4.11.15 | Push (K6) delivers the agent's replies to the phone | planned: Windy Agent: server-side, nothing in this repo; Windy Chat to confirm push covers agent replies | — |
+| P4.11.16 | The agent's conversations are backed up (its own encrypted database backup to Windy Cloud, in place of K8) | live | `tests/test_cloud_backup_contract.py::TestListAndRestoreRoundTrip::test_backup_list_restore` |
+| P4.11.17 | Translation history from the Windy Pro account server | live | `tests/test_contract_pro_api.py::TestTranslationHistoryContract::test_correct_path_and_auth` |
+| P4.11.18 | Recordings from the account server | live | `tests/test_tools.py::TestWindyApiTools::test_get_recordings` |
+| P4.11.19 | Clone training data from the account server | live | `tests/test_tools.py::TestWindyApiTools::test_get_clone_status` |
+| P4.11.20 | Translate text through the account server | live | `tests/test_contract_pro_api.py::TestTranslateContract::test_correct_path_method_and_body` |
+| P4.11.21 | The supported-languages list from the account server | planned: Windy Agent: not wrapped; wrap it or drop it | — |
+| P4.11.22 | The JWT is verified with /auth/me | planned: Windy Agent: identity is the passport (EPT/JWKS) now; record the retirement in a PR | — |
+| P4.11.23 | The account-server JWT comes from the environment, not windyfly.toml | live | `tests/test_contract_pro_api.py::TestTranslationHistoryContract::test_correct_path_and_auth` |
+| P4.11.24 | Shared contracts are vendored and pinned (JSON from windy-contracts) | live | `tests/test_shared_commands.py::test_the_vendored_contract_is_the_pinned_one` |
+| P4.11.25 | Voice notes are transcribed in the agent (its own faster-whisper, optional extra) and answered | live | `tests/test_voice_handler.py::test_voice_handler_dispatches_transcript_to_agent` |
+| P4.11.26 | The agent can query and tune WindySense | planned: Windy Agent: no integration; Hub decides whether it is still wanted | — |
+| P4.11.27 | The phone and the agent share Matrix under a pinned contract (phone tools off by default) | live | `tests/test_phone_tools.py::test_dark_by_default` |
+| P4.11.28 | Files are stored on Windy Cloud | live | `tests/test_cloud_tool.py::TestUploadHappyPath::test_uploads_with_correct_url_and_auth` |
+| P4.11.29 | Files on Windy Cloud are listed | live | `tests/test_cloud_tool.py::TestListInbox::test_normalises_files_array_in_envelope` |
+| P4.11.30 | Files on Windy Cloud are retrieved | planned: Windy Agent: download is not wrapped | — |
+
+### P4.12 Master file index (Part 4 §12)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P4.12.1 | Phase 0 files exist | live | `tests/strand/test_p4_map_index.py::test_p4_12_index[phase0]` |
+| P4.12.2 | Phase 1 files exist | live | `tests/strand/test_p4_map_index.py::test_p4_12_index[phase1]` |
+| P4.12.3 | Phase 2 files exist | live | `tests/strand/test_p4_map_index.py::test_p4_12_index[phase2]` |
+| P4.12.4 | Phase 3 files exist | live | `tests/strand/test_p4_map_index.py::test_p4_12_index[phase3]` |
+| P4.12.5 | Phase 4 files exist (brain and gateway) | live | `tests/strand/test_p4_map_index.py::test_p4_12_index[phase4]` |
+| P4.12.6 | Phase 5 files exist | live | `tests/strand/test_p4_map_index.py::test_p4_12_index[phase5]` |
+| P4.12.7 | personality/mode.py | retired: did nothing; removed (#499) | — |
+| P4.12.8 | skills/sandbox.py, skills/evaluator.py, skills/golden_tests.py | retired: executable skills, sandbox, evaluator and golden tests removed (#504) | — |
+| P4.12.9 | agent/sub_agents.py | retired: unused; sub_agents.py and shape-shift removed (#501) | — |
+| P4.12.10 | "About 47 source files" | retired: a count of the old plan, not a promise; this file is the record (#526) | — |
+
+### P4.13 Roadmap (Part 4 §13)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P4.13.1 | Tags v0.1.0 to v1.0.0, one per phase, over 18 weeks | retired: one-time release steps, not codons (#526) | — |
+| P4.13.2 | The version line is clear (the CHANGELOG has no 1.0.0 and reuses 0.1.0, 0.4.0 and 0.5.0 after the reset to 0.6/0.7) | planned: Windy Agent: one CHANGELOG note explaining the reset | — |
+
+### P4.C1 Phase 1 checklist (Part 4 §14)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P4.C1.1 | matrix-nio is installed and imports | live | `tests/strand/test_p1_foundation.py::test_p1_1_matrix_nio_is_the_chat_protocol` |
+| P4.C1.2 | The agent logs into the homeserver | live | `tests/test_matrix_bot.py::TestMatrixBotLogin::test_token_login` |
+| P4.C1.3 | It accepts room invites to itself | live | `tests/test_matrix_bot.py::TestMatrixBotInvite::test_accepts_invite` |
+| P4.C1.4 | It answers messages | live | `tests/test_matrix_bot.py::TestMatrixBotMessage::test_responds_to_fresh_message` |
+| P4.C1.5 | Typing shows while it works | live | `tests/strand/test_p2_matrix.py::test_p2_12_typing_on_before_the_turn_and_off_after_the_reply` |
+| P4.C1.6 | Presence shows it online | live | `tests/strand/test_p2_matrix.py::test_p2_12_presence_online_at_start` |
+| P4.C1.7 | Replies carry windy_lang | live | `tests/test_contract_matrix.py::TestMessageFormatContract::test_response_message_has_correct_schema` |
+| P4.C1.8 | It reconnects after a network drop | live | `tests/test_matrix_sync_backoff.py::TestSyncErrorBackoff::test_sleeps_exponentially_then_escapes` |
+| P4.C1.9 | The registry has the 4 Windy Pro tools (when Windy Pro answers) | live | `tests/test_tools.py::TestWindyToolsOnlyWhenConfigured::test_answering_pro_registers_four` |
+| P4.C1.10 | The model calls tools through function calling | live | `tests/test_tool_calling_e2e.py::TestAgentLoopToolCalling::test_agent_executes_weather_tool` |
+
+### P4.C2 Phase 2 checklist (Part 4 §14)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P4.C2.1 | An OpenClaw export is read | live | `tests/test_soul_import.py::TestOpenClawParser::test_parses_soul` |
+| P4.C2.2 | A Hermes export is read | live | `tests/test_soul_import.py::TestHermesParser::test_parses_memory_file` |
+| P4.C2.3 | A ChatGPT export is read | live | `tests/test_soul_import.py::TestChatGPTParser::test_parses_conversations` |
+| P4.C2.4 | The Soul Preview comes before any write | live | `tests/strand/test_p2_soul_truth.py::test_p2_21_preview_writes_nothing` |
+| P4.C2.5 | The owner can approve, reject or review the sensitive items | planned: Windy Agent: approve and reject work; reviewing flagged items has no surface (P2.21.11) | — |
+| P4.C2.6 | Imports carry the right confidence and source | live | `tests/strand/test_p2_soul_truth.py::test_p2_21_approved_items_are_stored_as_low_confidence_imports` |
+| P4.C2.7 | The presets (buddy, engineer, powerhouse, and the newer ones) apply all their values | live | `tests/strand/test_p4_map_index.py::test_p4_c2_7_each_preset_applies_all_its_values` |
+| P4.C2.8 | Each slider is written and read back | live | `tests/test_control_panel.py::TestSliders::test_set_and_get` |
+| P4.C2.9 | The cost estimate is broken down by slider and adds up | live | `tests/strand/test_p4_map_index.py::test_p4_c2_9_estimate_breaks_down_by_every_slider_and_adds_up` |
+| P4.C2.10 | Epistemic strictness filters the facts in the prompt | live | `tests/strand/test_p2_soul_truth.py::test_p2_23_strictness_above_7_drops_inferred_and_speculative` |
+| P4.C2.11 | A correction is detected as friction | live | `tests/test_control_panel.py::TestFrictionDetection::test_detects_factual_error` |
+| P4.C2.12 | Failures are logged with their fault type | live | `tests/test_memory.py::TestFailures::test_log_and_retrieve` |
+| P4.C2.13 | A recurring failure changes what the agent does | live | `tests/test_control_panel.py::TestFrictionHandling::test_recurring_gives_extra_warning` |
+
+### P4.C3 Phase 3 checklist (Part 4 §14)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P4.C3.1 | A skill is created and stored | live | `tests/test_skills_engine.py::TestSkillManager::test_create_skill` |
+| P4.C3.2 | Skills pass a syntax gate | retired: executable skills, sandbox and gates removed (#504) | — |
+| P4.C3.3 | Skills pass an execution gate | retired: executable skills, sandbox and gates removed (#504) | — |
+| P4.C3.4 | Skills pass a safety gate | retired: executable skills, sandbox and gates removed (#504) | — |
+| P4.C3.5 | A skill is promoted after passing all gates | retired: no gates; saving a playbook promotes it (P3.31.2) (#504) | — |
+| P4.C3.6 | A skill rolls back to its parent | live | `tests/test_hardening_skills.py::TestSkillRollback::test_rollback_to_parent` |
+| P4.C3.7 | Each model call logs its cost with model and tokens | live | `tests/test_cost_accounting.py::test_ledger_sink_writes_success_and_failure_rows` |
+| P4.C3.8 | The daily budget is enforced | live | `tests/test_agent_loop.py::TestBudgetEnforcement::test_blocks_when_over_budget` |
+| P4.C3.8b | The agent warns in chat before the budget runs out | retired: the warning leaked into user replies; it goes to the log instead (#72) | — |
+| P4.C3.9 | Migration 2 adds the 4 tables | live | `tests/test_intents.py::TestMigrationV2::test_intents_table_exists` |
+| P4.C3.10 | A goal is detected from the conversation | live | `tests/test_intents.py::TestIntentDetection::test_detect_want` |
+| P4.C3.11 | Inferred goals surface within 24 hours (when switched on) | live | `tests/test_intents.py::TestLLMIntentPath::test_llm_answer_becomes_inbox_intent` |
+| P4.C3.12 | Stale goals decay | live | `tests/test_intents.py::TestDecaySchedulerRunsIntentDecay::test_scheduler_decays_and_pauses_stale_intents` |
+| P4.C3.13 | Emotion is read from each message | live | `tests/test_emotion.py::TestEmotionDetection::test_detect_stress_frustrated` |
+| P4.C3.14 | Sustained stress changes the agent's behaviour | retired: prompt steering by emotion removed in favour of the substrate (#304) | — |
+
+### P4.C4 Phase 4 checklist (Part 4 §14)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P4.C4.1 | The UDS bridge carries JSON between brain and gateway | live | `tests/test_bridge_integration.py::TestAgentRespondViaBridge::test_full_roundtrip` |
+| P4.C4.2 | The Bun gateway serves HTTP on port 3000 | planned: Windy Agent: bun tests in CI only (see P3.41.10) | — |
+| P4.C4.3 | WebSocket chat works end to end | planned: Windy Agent: live-gated only (see P3.41.10) | — |
+| P4.C4.4 | Decay lowers old memories' scores | live | `tests/test_phase4.py::TestCognitiveDecay::test_decay_returns_counts` |
+| P4.C4.5 | Aged memories (below 0.05) are deleted | retired: decay may dim, never erase (Doctrine Law 1) (#312) | — |
+| P4.C4.6 | A contradicting update is detected | live | `tests/test_phase4.py::TestConflictDetector::test_detects_conflict` |
+| P4.C4.7 | The owner is asked to resolve it | live | `tests/test_memory_conflict_hold.py::TestPromptFacts::test_owner_turn_carries_the_pending_conflict` |
+| P4.C4.8 | A sub-agent runs within its token budget | retired: unused; sub_agents.py and shape-shift removed (#501) | — |
+| P4.C4.9 | Sub-agent depth is limited to 1 | retired: unused; sub_agents.py and shape-shift removed (#501) | — |
+| P4.C4.10 | Offline, a local model answers (or the owner is told) | live | `tests/test_phase4.py::TestOfflineMode::test_offline_response_with_ollama` |
+
+### P4.F Strand footer (Part 4)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P4.F.1 | "Total codons: 59" | retired: the old plan's count (its §14 lists 67); this file's script counts are the record (#526) | — |
+| P4.F.2 | Part 5 of the strand is kept | live | `tests/strand/test_p4_map_index.py::test_p4_f_part5_of_the_strand_is_kept` |
