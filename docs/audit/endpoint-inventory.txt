@@ -1,5 +1,5 @@
 # Windy Fly HTTP Endpoint Inventory
-# Source: gateway/src/server.ts (56 routes)
+# Source: gateway/src/server.ts (53 routes; the 3 /api/machines* entries were removed when Mission Control was retired 2026-10-10)
 # Authentication: Dashboard password (Bearer/Cookie/query) — bypassed if DASHBOARD_PASSWORD unset or request Host header is localhost
 
 Method  Path                                             server.ts
@@ -18,9 +18,6 @@ GET     /api/failures                                    :857
 ANY     /api/health                                      :173
 GET     /api/intents                                     :302
 GET     /api/journal                                     :644
-GET     /api/machines                                    :559
-POST    /api/machines                                    :568
-POST    /api/machines/sync-providers                     :548
 GET     /api/memory/search                               :332
 GET     /api/mode                                        :870
 PUT     /api/mode                                        :880

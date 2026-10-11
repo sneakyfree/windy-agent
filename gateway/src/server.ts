@@ -36,7 +36,6 @@ import { resolve } from "path";
 import { bridge } from "./bridge";
 import { handleClose, handleMessage, handleWebSocket } from "./websocket";
 import * as providers from "./providers";
-import * as machines from "./machines";
 import { handleHatchRemote } from "./hatch-remote";
 
 const PORT = Number(process.env.GATEWAY_PORT) || 3000;
@@ -1085,104 +1084,6 @@ async function handleRequest(req: Request, server: import("bun").Server<any>): P
       return Response.json({ success: removed }, { headers });
     }
 
-    // ===== MISSION CONTROL: Machines =====
-
-    // Sync providers to remote machines (must be before generic POST /api/machines)
-    if (path === "/api/machines/sync-providers" && req.method === "POST") {
-      const body = await req.json() as { machine_id?: string };
-      try {
-        const results = await machines.syncProviders(body.machine_id);
-        return Response.json(results, { headers });
-      } catch {
-        return Response.json({ error: "Sync failed", _offline: true }, { status: 503, headers });
-      }
-    }
-
-    // List all machines with status
-    if (path === "/api/machines" && req.method === "GET") {
-      try {
-        return Response.json(machines.listMachines(), { headers });
-      } catch (e) {
-        return Response.json([], { headers });
-      }
-    }
-
-    // Add a new machine
-    if (path === "/api/machines" && req.method === "POST") {
-      const body = await req.json() as { name: string; host: string; port?: number; token?: string; tags?: string[]; notes?: string };
-      const machine = machines.addMachine({
-        name: body.name,
-        host: body.host,
-        port: body.port || 3100,
-        token: body.token || "",
-        tags: body.tags || [],
-        notes: body.notes || "",
-      });
-      return Response.json(machine, { headers });
-    }
-
-    // Get single machine status
-    const machineMatch = path.match(/^\/api\/machines\/([^/]+)$/);
-    if (machineMatch && req.method === "GET") {
-      const status = machines.getMachine(machineMatch[1]);
-      if (!status) return Response.json({ error: "Machine not found" }, { status: 404, headers });
-      return Response.json(status, { headers });
-    }
-
-    // Update machine config
-    if (machineMatch && req.method === "PUT") {
-      const body = await req.json() as Partial<machines.MachineConfig>;
-      const updated = machines.updateMachine(machineMatch[1], body);
-      if (!updated) return Response.json({ error: "Machine not found" }, { status: 404, headers });
-      return Response.json(updated, { headers });
-    }
-
-    // Remove machine
-    if (machineMatch && req.method === "DELETE") {
-      const removed = machines.removeMachine(machineMatch[1]);
-      return Response.json({ success: removed }, { headers });
-    }
-
-    // Restart a service on a remote machine
-    const restartMatch = path.match(/^\/api\/machines\/([^/]+)\/restart-(gateway|brain)$/);
-    if (restartMatch && req.method === "POST") {
-      try {
-        const result = await machines.sendToMachine(restartMatch[1], {
-          type: "restart",
-          service: restartMatch[2],
-        });
-        return Response.json(result, { headers });
-      } catch (e) {
-        return Response.json({ error: e instanceof Error ? e.message : String(e) }, { status: 502, headers });
-      }
-    }
-
-    // Get remote machine health
-    const healthMatch = path.match(/^\/api\/machines\/([^/]+)\/health$/);
-    if (healthMatch && req.method === "GET") {
-      try {
-        const result = await machines.sendToMachine(healthMatch[1], { type: "health" });
-        return Response.json(result, { headers });
-      } catch (e) {
-        return Response.json({ error: e instanceof Error ? e.message : String(e) }, { status: 502, headers });
-      }
-    }
-
-    // Execute command on remote machine
-    const execMatch = path.match(/^\/api\/machines\/([^/]+)\/exec$/);
-    if (execMatch && req.method === "POST") {
-      const body = await req.json() as { command: string };
-      try {
-        const result = await machines.sendToMachine(execMatch[1], {
-          type: "exec",
-          command: body.command,
-        });
-        return Response.json(result, { headers });
-      } catch (e) {
-        return Response.json({ error: e instanceof Error ? e.message : String(e) }, { status: 502, headers });
-      }
-    }
-
     // Journal entries
     if (path === "/api/journal" && req.method === "GET") {
       try {
@@ -1713,26 +1614,22 @@ async function main() {
     );
   }
 
-  // Initialize Mission Control machine connections
-  machines.initMachines();
-
   const server = Bun.serve({
     port: PORT,
     fetch(req, server) {
       const pathname = new URL(req.url).pathname;
       const isWsChat = pathname === "/ws/chat";
-      const termMatch = pathname.match(/^\/ws\/terminal\/(.+)$/);
-      const machineWsMatch = pathname.match(/^\/ws\/machine\/(.+)$/);
 
       // Wave 14 P0: all WebSocket upgrades require dashboard auth
       // BEFORE server.upgrade(). The pre-fix handler short-circuited
-      // on pathname match and accepted unauthenticated upgrades —
-      // critical for /ws/terminal/:id which auto-emits pty:create.
+      // on pathname match and accepted unauthenticated upgrades.
+      // (/ws/chat is the only socket since Mission Control's
+      // /ws/terminal/:id and /ws/machine/:id were retired 2026-10-10.)
       //
       // We also consume the auth rate-limit bucket on failed checks
       // so a mass WS-upgrade flood trips the same 5/min/IP throttle
       // as a brute-force login.
-      if (isWsChat || termMatch || machineWsMatch) {
+      if (isWsChat) {
         if (!isDashboardAuthValid(req, server)) {
           const ip = clientIp(req);
           // Intentionally touch the bucket AFTER the auth miss so we
@@ -1752,61 +1649,21 @@ async function main() {
           });
         }
 
-        if (isWsChat) {
-          if (server.upgrade(req, { data: { type: "chat" } })) return;
-          return new Response("WebSocket upgrade failed", { status: 400 });
-        }
-        if (termMatch) {
-          if (server.upgrade(req, { data: { type: "terminal", machineId: termMatch[1] } })) return;
-          return new Response("WebSocket upgrade failed", { status: 400 });
-        }
-        if (machineWsMatch) {
-          if (server.upgrade(req, { data: { type: "machine", machineId: machineWsMatch[1] } })) return;
-          return new Response("WebSocket upgrade failed", { status: 400 });
-        }
+        if (server.upgrade(req, { data: { type: "chat" } })) return;
+        return new Response("WebSocket upgrade failed", { status: 400 });
       }
 
       return handleRequest(req, server);
     },
     websocket: {
       open(ws) {
-        const data = (ws as any).data as { type: string; machineId?: string };
-        if (data?.type === "terminal" || data?.type === "machine") {
-          console.log(`[ws] ${data.type} client connected for machine ${data.machineId}`);
-          if (data.machineId) {
-            // Subscribe to machine events
-            const unsub = machines.subscribeTo(data.machineId, {
-              send: (msg: string) => ws.send(msg),
-            });
-            (ws as any)._unsub = unsub;
-
-            // For terminal: auto-create a PTY session on the remote
-            if (data.type === "terminal") {
-              machines.relayToMachine(data.machineId, JSON.stringify({ type: "pty:create" }));
-            }
-          }
-        } else {
-          handleWebSocket(ws);
-        }
+        handleWebSocket(ws);
       },
       message(ws, message) {
-        const data = (ws as any).data as { type: string; machineId?: string };
-        if ((data?.type === "terminal" || data?.type === "machine") && data.machineId) {
-          // Relay to remote machine
-          const raw = typeof message === "string" ? message : message.toString();
-          machines.relayToMachine(data.machineId, raw);
-        } else {
-          handleMessage(ws, message as string);
-        }
+        handleMessage(ws, message as string);
       },
       close(ws) {
-        const data = (ws as any).data as { type: string; machineId?: string };
-        if (data?.type === "terminal" || data?.type === "machine") {
-          const unsub = (ws as any)._unsub;
-          if (typeof unsub === "function") unsub();
-        } else {
-          handleClose(ws);
-        }
+        handleClose(ws);
       },
     },
   });

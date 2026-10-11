@@ -140,6 +140,16 @@ Manages Anthropic OAuth access tokens with automatic refresh:
 
 ## Phase 8: Mission Control — Machine Management
 
+> **RETIRED 2026-10-10** (strand-to-green plan). The gateway dialed
+> ws(s)://host:3100 on each registered machine, but no daemon in any repo
+> ever listened there, so every C8 codon failed; the exec and
+> provider-sync routes would also have sent arbitrary commands and
+> plaintext provider keys over ws:// on a LAN. `gateway/src/machines.ts`,
+> every `/api/machines*` route and the `/ws/terminal/:id` +
+> `/ws/machine/:id` sockets were removed. Manage each machine's agent on
+> that machine (windy CLI / its own dashboard); fleet operations are not
+> part of Windy Fly. The text below is kept as history only.
+
 ### C8.1 — Machine Registry
 
 **Files:** `gateway/src/machines.ts`
