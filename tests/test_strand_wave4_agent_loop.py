@@ -189,7 +189,10 @@ def test_C1_10_translation_history_tool_runs_through_agent_respond(stack):
     from windyfly.tools.windy_api import register_windy_tools
 
     registry = ToolRegistry()
-    register_windy_tools(registry)
+    # The Windy Pro tools register only when Windy Pro answers this agent's
+    # credential at start (#510); here it does.
+    with patch("windyfly.tools.windy_api.windy_pro_answers", return_value=True):
+        register_windy_tools(registry)
 
     history_payload = {
         "translations": [

@@ -84,16 +84,7 @@ def test_Gene_5_1_costs_week_month_and_by_task_type(db):
     assert costs["by_task_type"] == {"chat": 5.0, "journal": 2.0}
 
 
-@pytest.mark.xfail(
-    strict=True, raises=TypeError,
-    reason=(
-        "REAL BUG found by Wave 4 (not fixed here): a task type whose ledger "
-        "rows are all unpriced (cost_usd NULL, which log_cost/log_llm_call "
-        "write on purpose) makes SUM() return NULL and "
-        "dashboard/data.py:_get_cost_stats crashes on round(None, 4), so the "
-        "WHOLE dashboard summary raises TypeError."
-    ),
-)
+# Was a strict xfail: the REAL BUG Wave 4 found (round(None) on unpriced-only rows); fixed in #500.
 def test_Gene_5_1_unpriced_only_task_type_does_not_crash_summary(db):
     log_cost(db, "m", 10, 10, 1.00, task_type="chat")
     log_cost(db, "local-model", 10, 10, None, task_type="intent")
@@ -108,12 +99,12 @@ def test_Gene_5_1_skills_top_5_by_usage(db):
         "s5": (7, 7), "s6": (20, 10), "s7": (1, 0),
     }
     for name, (used, ok) in usage.items():
-        sid = save_skill(db, name, "print('x')", "python")
+        sid = save_skill(db, name, "When asked, do x.", "playbook")
         db.execute(
             "UPDATE skills SET promoted = TRUE, usage_count = ?, success_count = ? "
             "WHERE id = ?", (used, ok, sid))
     # The most-used skill of all is NOT promoted: it must not appear.
-    hidden = save_skill(db, "unpromoted", "print('y')", "python")
+    hidden = save_skill(db, "unpromoted", "When asked, do y.", "playbook")
     db.execute("UPDATE skills SET usage_count = 999 WHERE id = ?", (hidden,))
     db.commit()
 

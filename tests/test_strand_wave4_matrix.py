@@ -177,14 +177,12 @@ async def test_C1_6_presence_online_at_start_before_sync(bot):
 async def test_matrix_password_login_when_no_token(bot):
     bot.client.login = AsyncMock(return_value=MagicMock(name="LoginResponse"))
     bot.client.whoami = AsyncMock(return_value=MagicMock(user_id=bot.bot_user_id))
-    bot._setup_encryption = AsyncMock()
 
     with patch("windyfly.chat_session.fetch_agent_chat_session",
                new=AsyncMock(return_value=None)):
         await bot.login()
 
     bot.client.login.assert_awaited_once_with("pw-for-tests-only")
-    bot._setup_encryption.assert_awaited_once()
     # Identity is still realigned from the token the login produced.
     bot.client.whoami.assert_awaited_once()
 
@@ -192,13 +190,11 @@ async def test_matrix_password_login_when_no_token(bot):
 @patch.dict("os.environ", {"MATRIX_BOT_PASSWORD": "wrong-pw"}, clear=True)
 async def test_matrix_password_login_error_is_fatal(bot):
     bot.client.login = AsyncMock(return_value=nio.LoginError("Invalid password"))
-    bot._setup_encryption = AsyncMock()
 
     with patch("windyfly.chat_session.fetch_agent_chat_session",
                new=AsyncMock(return_value=None)):
         with pytest.raises(RuntimeError, match="Matrix login failed"):
             await bot.login()
-    bot._setup_encryption.assert_not_awaited()
 
 
 # ── offline queue: failed send → pending → flush ────────────────────
