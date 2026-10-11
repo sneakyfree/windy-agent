@@ -15,7 +15,8 @@ original plan did not have (Wave 5g: Windy Mind, Eternitas, teams, Mail, Calenda
 tools, Vault). A row owned by another lane counts only after that lane confirms it (Hub).
 
 Built in waves (strand-to-green plan, 2026-10-10): 5a set the frame plus Part 1 §4 and gene 0.3;
-5b1 adds Part 1 §1-§3 and genes 0.1-0.2; 5b2-5f fill in the rest; 5g adds the new genes.
+5b1 added Part 1 §1-§3 and genes 0.1-0.2; 5b2 completes Part 1 (genes 0.4-0.9, checklist C0);
+5c-5f fill in Parts 2-5; 5g adds the new genes.
 
 ## Part 1: Foundation and Phase 0
 
@@ -127,3 +128,72 @@ Built in waves (strand-to-green plan, 2026-10-10): 5a set the frame plus Part 1 
 | P1.03.20 | stop() finishes the writes already queued | live | `tests/test_chaos.py::TestWriteQueueCrashRecovery::test_stop_flushes_pending_items` |
 | P1.03.21 | MEDIUM writes run as one transaction per batch of up to 50 | planned: Windy Agent: the queue batches up to 50 but each write commits itself; share one transaction, or restate the promise as "batched for fairness" | — |
 | P1.03.22 | Timestamps keep parsing on future Python versions | planned: Windy Agent: P1.03.2 relies on sqlite3's default timestamp converter, deprecated since Python 3.12 (warning in the strand run); register explicit adapters/converters | — |
+
+### P1.04 Personality engine (gene 0.4)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P1.04.1 | SOUL.md is the personality and reaches the system message | live | `tests/strand/test_p1_loop.py::test_p1_04_soul_md_reaches_the_system_message` |
+| P1.04.2 | A missing SOUL.md falls back to a default | live | `tests/test_personality.py::TestLoadSoul::test_returns_default_on_missing` |
+| P1.04.3 | Humour below 3 strips the witty lines | live | `tests/test_personality.py::TestBuildPersonalityBlock::test_low_humor_strips_witty` |
+| P1.04.4 | Formality above 7 adds the formal instruction | live | `tests/test_personality.py::TestBuildPersonalityBlock::test_high_formality_adds_instruction` |
+| P1.04.5 | Sliders shape the personality block (e.g. autonomy) | live | `tests/test_autonomy_slider_wired.py::test_high_autonomy_emits_action_bias_modifier` |
+| P1.04.6 | The personality block stays under 600 tokens | planned: Windy Agent: not enforced; about 474 tokens with the default SOUL.md at maximum sliders, but a custom SOUL.md has no cap | — |
+| P1.04.7 | Modes (companion / focused / neutral) override the personality | retired: switching modes did nothing; modes removed (#499) | — |
+
+### P1.05 Model calls (gene 0.5)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P1.05.1 | One call returns content, model, tokens and tool calls, and is costed once | live | `tests/test_cost_accounting.py::test_success_is_recorded_once_with_cost_and_billing` |
+| P1.05.2 | An agent with a passport asks Windy Mind first | live | `tests/test_mind_broker_routing.py::test_passport_present_calls_mind_first` |
+| P1.05.3 | Model names route to their provider (gpt/o to OpenAI, claude to Anthropic, ...) | live | `tests/strand/test_p1_loop.py::test_p1_05_model_names_route_to_their_provider` |
+| P1.05.4 | Three retries with exponential backoff | retired: replaced by a failover chain with a per-provider cooldown (#46) | — |
+| P1.05.5 | Every call, failed ones too, lands in the cost ledger | live | `tests/test_cost_accounting.py::test_ledger_sink_writes_success_and_failure_rows` |
+
+### P1.06 Prompt and agent loop (gene 0.6)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P1.06.1 | The prompt starts with the system message | live | `tests/test_agent_loop.py::TestAssemblePrompt::test_has_system_message` |
+| P1.06.2 | The user's message comes last | live | `tests/test_agent_loop.py::TestAssemblePrompt::test_has_user_message_at_end` |
+| P1.06.3 | The last turns of this session are in the prompt; other sessions' are not | live | `tests/strand/test_p1_loop.py::test_p1_06_remembers_the_last_turn_in_the_session` |
+| P1.06.4 | Relevant memory is added; high strictness drops inferred facts | live | `tests/test_agent_loop.py::TestEpistemicFiltering::test_high_strictness_filters_inferred` |
+| P1.06.5 | The whole prompt stays under max_context_tokens | planned: Windy Agent: no overall cap (each block has its own budget; the system message alone is about 8.2k characters on an empty database); see P1.02.2 | — |
+| P1.06.6 | The config reaches the model call | live | `tests/test_agent_loop.py::TestAgentRespond::test_passes_config_to_llm` |
+| P1.06.7 | Each turn is saved as episodes (with its emotional context) | live | `tests/test_agent_loop.py::TestEmotionalContextIntegration::test_emotional_context_passed_to_episode` |
+| P1.06.8 | Facts are learned only from the owner's own untainted words | live | `tests/test_facts_owner_only.py::TestTurns::test_owner_turn_stores_the_facts` |
+| P1.06.9 | Nobody else's words become facts about the owner | live | `tests/test_facts_owner_only.py::TestTurns::test_non_owner_turns_store_no_fact_and_no_conflict` |
+| P1.06.10 | The reply text is returned | live | `tests/test_agent_loop.py::TestAgentRespond::test_returns_response` |
+
+### P1.07 Terminal chat and entry point (gene 0.7)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P1.07.1 | A typed line goes through the agent in one UUID session and the reply is printed | live | `tests/strand/test_p1_loop.py::test_p1_07_cli_turn_goes_through_the_agent_and_is_printed` |
+| P1.07.2 | quit / exit leave the chat | live | `tests/test_chat_after_hatch.py::test_slash_quit_and_exit_leave_the_chat` |
+| P1.07.3 | main loads the .env files before the config | live | `tests/strand/test_p1_loop.py::test_p1_07_main_loads_env_files_before_the_config` |
+
+### P1.08 Tests and release (genes 0.8, 0.9)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P1.08.1 | Phase 0 tests exist and pass | retired: a property of the suite, not a codon; the scorecard and the required CI test jobs carry it (#526) | — |
+| P1.08.2 | Phase 0 commit and tag v0.1.0 | retired: a one-time build step, not a runtime promise (#526) | — |
+
+### P1.C0 Phase 0 checklist (Part 4 §14)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P1.C0.1 | Repo and directories | live | `tests/strand/test_p1_foundation.py::test_p1_3_layout[root]` |
+| P1.C0.2 | windyfly.toml is parsed | live | `tests/test_config_resilience.py::test_valid_config_loads_normally` |
+| P1.C0.3 | The six tables exist | live | `tests/test_memory.py::TestDatabaseCreation::test_creates_all_tables` |
+| P1.C0.4 | Episodes are saved and read | live | `tests/test_memory.py::TestEpisodes::test_save_and_retrieve` |
+| P1.C0.5 | Nodes are upserted and searched | live | `tests/test_memory.py::TestNodes::test_search_by_name` |
+| P1.C0.6 | SOUL.md is in the system prompt | live | `tests/strand/test_p1_loop.py::test_p1_04_soul_md_reaches_the_system_message` |
+| P1.C0.7 | A model answers through at least one provider | live | `tests/test_mind_broker_routing.py::test_passport_present_calls_mind_first` |
+| P1.C0.8 | It answers in the terminal | live | `tests/strand/test_p1_loop.py::test_p1_07_cli_turn_goes_through_the_agent_and_is_printed` |
+| P1.C0.9 | It remembers within a session | live | `tests/strand/test_p1_loop.py::test_p1_06_remembers_the_last_turn_in_the_session` |
+| P1.C0.10 | Cost is recorded | live | `tests/test_cost_accounting.py::test_ledger_sink_writes_success_and_failure_rows` |
+| P1.C0.11 | The write queue runs HIGH, then MEDIUM, then LOW | live | `tests/test_strand_wave4_write_queue.py::test_C0_11_strict_priority_order_with_several_items_each` |
+| P1.C0.12 | All tests pass | retired: a property of the suite, not a codon; the required CI test jobs carry it (#526) | — |
