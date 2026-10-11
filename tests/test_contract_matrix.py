@@ -191,7 +191,9 @@ class TestBotIdentityContract:
         del config["matrix"]["bot_user"]
 
         bot = WindyFlyMatrixBot(config, db, wq)
-        assert bot.bot_user_id == "@windyfly:chat.windychat.ai"
+        # No hard-coded shared bot id: each agent's own @agent_<passport> id
+        # is learned at login (passport session or whoami).
+        assert bot.bot_user_id == ""
         db.close()
 
     def test_custom_homeserver(self):

@@ -17,7 +17,7 @@ Everything needed for a standalone, fully functional AI agent:
 ### Core Agent
 - Agent loop (ReAct cycle with tool calling)
 - LLM provider abstraction (OpenAI, Anthropic, xAI, Google, DeepSeek, Mistral)
-- Memory system (SQLite + FTS5 + sqlite-vec)
+- Memory system (SQLite + FTS5 keyword search; optional `[semantic]` embeddings)
 - Personality system (10 sliders, presets, SOUL.md)
 - Skills engine (text playbooks: save, promote, rollback, curation; never executed)
 - Cost tracking + budget enforcement

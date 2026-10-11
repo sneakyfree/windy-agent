@@ -152,7 +152,8 @@ def write_quick_config(
         "",
         "# Matrix / Windy Chat (optional)",
         "MATRIX_HOMESERVER=https://chat.windychat.ai",
-        "MATRIX_BOT_USER=@windyfly:chat.windychat.ai",
+        "# MATRIX_BOT_USER: leave empty; the agent's own @agent_<passport> id comes from its passport",
+        "MATRIX_BOT_USER=",
         "MATRIX_BOT_TOKEN=",
         "MATRIX_BOT_PASSWORD=",
         "",
@@ -197,7 +198,9 @@ warn_at_usd = 0.50
 
 [matrix]
 homeserver = "https://chat.windychat.ai"
-bot_user = "@windyfly:chat.windychat.ai"
+# No bot_user: each agent's Matrix id is its own @agent_<passport>, minted at
+# hatch from its passport and confirmed at login. Set bot_user only for a
+# self-hosted password login.
 
 [windy_api]
 base_url = "http://localhost:8098"
@@ -252,7 +255,8 @@ def write_keyless_config(preset: str = "buddy") -> None:
         "",
         "# Matrix / Windy Chat (provisioned at hatch)",
         "MATRIX_HOMESERVER=https://chat.windychat.ai",
-        "MATRIX_BOT_USER=@windyfly:chat.windychat.ai",
+        "# MATRIX_BOT_USER: leave empty; the agent's own @agent_<passport> id comes from its passport",
+        "MATRIX_BOT_USER=",
         "MATRIX_BOT_TOKEN=",
         "MATRIX_BOT_PASSWORD=",
     ]
@@ -288,7 +292,9 @@ warn_at_usd = 0.50
 
 [matrix]
 homeserver = "https://chat.windychat.ai"
-bot_user = "@windyfly:chat.windychat.ai"
+# No bot_user: each agent's Matrix id is its own @agent_<passport>, minted at
+# hatch from its passport and confirmed at login. Set bot_user only for a
+# self-hosted password login.
 
 [windy_api]
 base_url = "http://localhost:8098"

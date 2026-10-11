@@ -127,7 +127,7 @@ docs/DISTRIBUTION.md.
 ├─────────────────────────────────────────────────────────────┤
 │  Brain (Python 3.12+)  ← LLM orchestration, tools, memory  │
 ├─────────────────────────────────────────────────────────────┤
-│  Memory (SQLite + FTS5 + sqlite-vec)  ← one file, zero ops  │
+│  Memory (SQLite + FTS5 keyword search) ← one file, zero ops │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -136,7 +136,7 @@ docs/DISTRIBUTION.md.
 | **Dashboard** | React 19 + Vite + Tailwind | 8-page web UI for managing your agent |
 | **Gateway** | Bun / TypeScript | API server, WebSocket chat, static files |
 | **Brain** | Python 3.12+ | Agent loop, LLM calls, tools, personality |
-| **Memory** | SQLite | Episodes, knowledge graph, skills, costs, reminders, todos |
+| **Memory** | SQLite + FTS5 | Episodes, knowledge graph, skills, costs, reminders, todos. Recall is keyword + full-text (FTS5); the optional `[semantic]` extra adds embedding similarity |
 
 ---
 

@@ -48,6 +48,15 @@
   routes, dashboard button and `skills-run/eval/test` commands; any skill
   language other than `playbook` is refused; old code rows stay inert text.
 
+- **Three claims that were not true are retired.** Memory search is keyword +
+  full-text (SQLite FTS5); the optional `[semantic]` extra adds embedding
+  similarity. The unused `sqlite-vec` dependency is gone. Matrix messages are
+  not end-to-end encrypted by Windy Fly: the dead encryption code (key upload,
+  device auto-trust, key requests) is removed, and a message in an encrypted
+  room now logs one plain line saying it cannot be read. Each agent's Matrix id
+  is its own `@agent_<passport>` from its passport, not a shared
+  `@windyfly` bot user; an old config that still sets `bot_user` keeps working.
+
 ## 0.7.6
 
 - **The agent tells Eternitas which machine it lives on (housing report, ON).**

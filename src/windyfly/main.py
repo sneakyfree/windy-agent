@@ -456,7 +456,7 @@ def main() -> None:
         from windyfly.commands.core import wire_runtime
         wire_runtime(db=db)
 
-        from windyfly.channels.matrix_bot import MatrixCredentialsError
+        from windyfly.channels.matrix_bot import MatrixCredentialsError, MatrixIdentityError
 
         bot = WindyFlyMatrixBot(config, db, write_queue, tool_registry)
         try:
@@ -473,6 +473,11 @@ def main() -> None:
                 "  This channel needs your agent's passport (run `windy go` to "
                 "hatch it) or a Matrix token in .env (MATRIX_BOT_TOKEN).\n"
             )
+            sys.exit(1)
+        except MatrixIdentityError as e:
+            # Transient (the homeserver did not answer whoami): exit non-zero
+            # so the supervisor starts the channel again shortly.
+            sys.stderr.write(f"\n  💬  Windy Chat did not start: {e}\n")
             sys.exit(1)
         finally:
             write_queue.stop()
