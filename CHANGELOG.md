@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Cloud backups need your own backup key.** New backups are encrypted only with `WINDY_BACKUP_KEY`, a secret you hold; Windy Cloud never has it. Without it the agent makes no new backup and says why. Before, it fell back to a key derived from the agent's passport number, which is not private, so anyone who could read the storage could decrypt those backups. To keep backing up: set `WINDY_BACKUP_KEY` to a long random secret, keep a copy somewhere safe (losing it means those backups cannot be restored), and restart. Restoring older backups still works.
+
 ## 0.7.6
 
 - **The agent tells Eternitas which machine it lives on (housing report, ON).**
