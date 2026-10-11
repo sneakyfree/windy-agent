@@ -485,7 +485,11 @@ class WindyFlyMatrixBot(ChannelAdapter):
             if agent_sender:
                 _silence.clear_agent_sender(session_id)
 
-        if agent_turn and _silence.is_silence(response_text):
+        # An agent turn may choose silence (teams); an empty answer to ANY agent sender posts
+        # nothing, whatever the teams flag (e.g. a stopped agent never answers another agent).
+        if (agent_turn and _silence.is_silence(response_text)) or (
+            agent_sender and not (response_text or "").strip()
+        ):
             logger.info("silence: no reply to agent %s in %s", sender, room_id)
             try:
                 await self.client.room_typing(room_id, False)

@@ -501,6 +501,19 @@ def owner_paused_reply() -> str:
     return OWNER_PAUSED_REPLY
 
 
+def _paused_answer(session_id: str) -> str:
+    """While the owner has this agent stopped: the plain line for a person, NOTHING for
+    another agent. Two stopped agents of one owner in a room would otherwise answer each
+    other's paused line forever (a sibling loop: on 10-11 two agents of one owner on another
+    runtime looped like this against Mind for 9 minutes). "" = post nothing."""
+    from windyfly.channels import silence as _silence
+
+    if _silence.is_agent_sender(session_id):
+        logger.info("[req:%s] stopped by owner: no reply to another agent", request_id_short())
+        return ""
+    return owner_paused_reply()
+
+
 def _lifeboat_telemetry(
     model: str, code: str, reason: str, channel: str | None, write_queue: Any,
     *, lifeboat: bool = True,
@@ -764,7 +777,7 @@ def _agent_respond_turn(
     from windyfly.agent import models as _models
     if _models.check_owner_pause():
         logger.info("[req:%s] stopped by owner in Windy Mind — not answering", request_id_short())
-        return owner_paused_reply()
+        return _paused_answer(session_id)
 
     # 0.7. First-contact welcome (PR #142). Brand-new bots — episodes
     # and nodes tables both empty — get a deterministic 5-bullet tour
@@ -1259,7 +1272,7 @@ def _agent_respond_turn(
         # Mind said the owner switched this agent off mid-turn: same plain stop,
         # never the lifeboat below.
         logger.info("[req:%s] stopped by owner in Windy Mind mid-turn", request_id_short())
-        return owner_paused_reply()
+        return _paused_answer(session_id)
     except RuntimeError as e:
         msg = str(e)
         if "providers in chain" in msg or "providers" in msg.lower():

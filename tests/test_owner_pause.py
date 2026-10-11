@@ -124,3 +124,73 @@ def test_loop_says_one_plain_line_when_stopped(monkeypatch):
     monkeypatch.setattr(models, "check_owner_pause", lambda force=False: {"reason": "stopped by owner"})
     assert "stopped by my owner" in loop.owner_paused_reply()
     assert "🛟" not in loop.owner_paused_reply()
+
+
+# ── a stopped agent never answers another agent (sibling-loop guard, 10-11) ─────────────
+
+def _respond_while_stopped(monkeypatch, *, agent_sender: bool, session: str = "sess-paused"):
+    import tempfile
+    from pathlib import Path
+    from unittest.mock import patch
+
+    from windyfly.agent.loop import agent_respond
+    from windyfly.channels import silence
+    from windyfly.memory.database import Database
+    from windyfly.memory.write_queue import WriteQueue
+    from windyfly.tools.registry import ToolRegistry
+
+    monkeypatch.setattr(models, "check_owner_pause", lambda force=False: {"reason": "stopped by owner"})
+    cfg = {"agent": {"default_model": "claude-sonnet-4-6"}, "memory": {}, "personality": {"preset": "buddy"}}
+    with tempfile.TemporaryDirectory() as td:
+        db = Database(str(Path(td) / "p.db"))
+        wq = WriteQueue()
+        wq.start()
+        try:
+            if agent_sender:
+                silence.mark_agent_sender(session)
+            with patch("windyfly.agent.loop.call_llm", side_effect=AssertionError("no model call")):
+                return agent_respond(cfg, db, wq, "are you there?", session, ToolRegistry())
+        finally:
+            silence.clear_agent_sender(session)
+            wq.stop()
+            db.close()
+
+
+def test_stopped_agent_posts_nothing_to_another_agent(monkeypatch):
+    assert _respond_while_stopped(monkeypatch, agent_sender=True) == ""
+
+
+def test_stopped_agent_still_tells_a_person_plainly(monkeypatch):
+    from windyfly.agent import loop
+
+    assert _respond_while_stopped(monkeypatch, agent_sender=False) == loop.owner_paused_reply()
+
+
+@pytest.mark.parametrize("grants_state,max_chat", [("off", 1), ("on", 20)])
+def test_grant_off_stub_at_most_one_chat_request_per_recheck_window(monkeypatch, grants_state, max_chat):
+    """Hub 10-11 (after a sibling loop on another runtime hit Mind 4.5/s): against a 403
+    grant_off stub, 10 simulated minutes of turns every 0.2 s send at most ONE /v1/chat per
+    30 s recheck window. With grants/me saying off it stays at the first one; with grants/me
+    disagreeing ("on") each window may try once and is stopped again."""
+    monkeypatch.setattr(models, "check_owner_pause", _REAL)
+    models.clear_owner_pause()
+    models._pause_checked["at"] = 0.0
+    clock = [1_000_000.0]
+    monkeypatch.setattr(models.time, "time", lambda: clock[0])
+    chat, grants = [], []
+
+    def fake_post(url, **kw):
+        chat.append(clock[0])
+        return _resp(403, {"x-mind-error": "grant_off", "x-mind-grant": "off"}, {"detail": "paused"})
+
+    monkeypatch.setattr("httpx.post", fake_post)
+    monkeypatch.setattr("httpx.get", lambda *a, **k: grants.append(1) or _resp(200, body={"state": grants_state}))
+    monkeypatch.setattr(models, "_build_chain", lambda *a, **k: pytest.fail("no fallback while stopped"))
+    for _ in range(3000):                                  # 3000 turns x 0.2 s = 10 minutes
+        with pytest.raises(models.AgentPausedByOwner):
+            models.call_llm([{"role": "user", "content": "hi"}])
+        clock[0] += 0.2
+    assert len(chat) <= max_chat
+    windows = {int((t - 1_000_000.0) // models.PAUSE_RECHECK_S) for t in chat}
+    assert len(windows) == len(chat)                       # never two in one window
+    assert len(grants) <= 21                               # the slow recheck, not a hot loop
