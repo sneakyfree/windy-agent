@@ -31,6 +31,7 @@ import nio
 
 from windyfly.agent.loop import agent_respond
 from windyfly.channels.base import ChannelAdapter, OutgoingMessage
+from windyfly.channels.matrix_self import set_confirmed
 from windyfly.memory.database import Database
 from windyfly.memory.write_queue import WriteQueue
 from windyfly.tools.registry import ToolRegistry
@@ -202,6 +203,7 @@ class WindyFlyMatrixBot(ChannelAdapter):
                 "Windy Fly logged in as its own identity %s (one-soul)",
                 self.bot_user_id,
             )
+            set_confirmed(self.bot_user_id)
             return
 
         token = os.environ.get("MATRIX_BOT_TOKEN")
@@ -258,6 +260,8 @@ class WindyFlyMatrixBot(ChannelAdapter):
             "Windy Fly logged in via %s as %s (%s)", how, self.bot_user_id,
             "confirmed by the homeserver" if confirmed else "as configured; whoami unavailable",
         )
+        # Teams (pair rooms) and phone tools read this instead of MATRIX_BOT_USER.
+        set_confirmed(self.bot_user_id)
 
     async def _resolve_identity_from_token(self) -> bool:
         """Correct self.bot_user_id to the access token's real owner.

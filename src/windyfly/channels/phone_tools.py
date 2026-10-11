@@ -28,6 +28,8 @@ from typing import Any
 
 import httpx
 
+from windyfly.channels.matrix_self import own_matrix_id
+
 logger = logging.getLogger(__name__)
 
 STATE_TYPE = "ai.windy.phone_tools"
@@ -57,7 +59,7 @@ def _matrix() -> tuple[str, str]:
 
 
 def _me() -> str:
-    return os.environ.get("MATRIX_BOT_USER", "").strip()
+    return own_matrix_id()
 
 
 def _q(part: str) -> str:
