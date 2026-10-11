@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Only your own words become facts and goals about you.** The agent used
+  to pick up "my name is ..." or "I live in ..." from anyone who wrote to it
+  (another person, a paired agent) and store it as a trusted fact about you,
+  and to turn anyone's "I need to ..." into one of your goals. Now it learns
+  facts and goals only from your own messages, and not from a turn where it
+  also read mail or the web. Messages from others store nothing of this kind
+  and do not refresh your existing goals.
+
 - **Removed `/mode` (companion / focused / neutral).** Gone: the `/mode`
   command, the `mode.get` / `mode.set` bridge methods, `GET`/`PUT /api/mode`,
   `get_mode_override` and `personality/mode.py`. Why: `/mode` said "Mode
