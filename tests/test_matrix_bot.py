@@ -7,6 +7,7 @@ and bot initialization with mocked nio client.
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -105,6 +106,32 @@ class TestMatrixBotLogin:
 
         assert bot.bot_user_id == "@agent_et26-t11v-npd1:chat.windychat.ai"
         assert bot.client.user_id == "@agent_et26-t11v-npd1:chat.windychat.ai"
+        db.close()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("bot_user", [None, ""])
+    @patch.dict("os.environ", {"MATRIX_BOT_TOKEN": "tok"})
+    async def test_token_login_without_bot_user_takes_id_from_token(self, bot_user):
+        """No shared @windyfly default any more: an agent whose config sets no
+        bot_user (Windy 0's own setup) logs in with its token and gets its
+        identity from whoami."""
+        os.environ.pop("MATRIX_BOT_USER", None)
+        config = _make_config()
+        if bot_user is None:
+            config["matrix"].pop("bot_user", None)
+        else:
+            config["matrix"]["bot_user"] = bot_user
+        db = Database(":memory:")
+        bot = WindyFlyMatrixBot(config, db, WriteQueue())
+        assert not bot.bot_user_id
+
+        whoami = MagicMock()
+        whoami.user_id = "@agent_et26-test-m0nf:chat.windychat.ai"
+        bot.client.whoami = AsyncMock(return_value=whoami)
+        await bot.login()
+
+        assert bot.bot_user_id == "@agent_et26-test-m0nf:chat.windychat.ai"
+        assert bot.client.user_id == "@agent_et26-test-m0nf:chat.windychat.ai"
         db.close()
 
     @pytest.mark.asyncio
