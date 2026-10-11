@@ -16,7 +16,7 @@ tools, Vault). A row owned by another lane counts only after that lane confirms 
 
 Built in waves (strand-to-green plan, 2026-10-10): 5a set the frame plus Part 1 §4 and gene 0.3;
 5b1 added Part 1 §1-§3 and genes 0.1-0.2; 5b2 completes Part 1 (genes 0.4-0.9, checklist C0);
-5c-5f fill in Parts 2-5; 5g adds the new genes.
+5c1 starts Part 2 (genes 1.1-1.5); 5c2-5f fill in the rest; 5g adds the new genes.
 
 ## Part 1: Foundation and Phase 0
 
@@ -197,3 +197,66 @@ Built in waves (strand-to-green plan, 2026-10-10): 5a set the frame plus Part 1 
 | P1.C0.10 | Cost is recorded | live | `tests/test_cost_accounting.py::test_ledger_sink_writes_success_and_failure_rows` |
 | P1.C0.11 | The write queue runs HIGH, then MEDIUM, then LOW | live | `tests/test_strand_wave4_write_queue.py::test_C0_11_strict_priority_order_with_several_items_each` |
 | P1.C0.12 | All tests pass | retired: a property of the suite, not a codon; the required CI test jobs carry it (#526) | — |
+
+## Part 2: Matrix, Windy Pro tools, soul, cockpit, truth layer
+
+### P2.11 Matrix channel (gene 1.1)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P2.11.1 | The Matrix client is built from the config (homeserver; env overrides) | live | `tests/test_contract_matrix.py::TestBotIdentityContract::test_custom_homeserver` |
+| P2.11.2 | The default homeserver is Windy Chat | live | `tests/test_contract_matrix.py::TestBotIdentityContract::test_default_homeserver` |
+| P2.11.3 | Token login | live | `tests/test_matrix_bot.py::TestMatrixBotLogin::test_token_login` |
+| P2.11.4 | The token's real owner is the agent's identity (never a stale configured id) | live | `tests/test_matrix_bot.py::TestMatrixBotLogin::test_identity_realigned_to_token_owner` |
+| P2.11.5 | Password login when a user is configured | live | `tests/strand/test_p2_matrix.py::test_p2_11_password_login_with_a_user` |
+| P2.11.6 | No credentials is a clear error, not a crash | live | `tests/test_matrix_bot.py::TestMatrixBotLogin::test_no_credentials_raises` |
+| P2.11.7 | The agent ignores its own messages | live | `tests/test_matrix_bot.py::TestMatrixBotMessage::test_ignores_own_messages` |
+| P2.11.8 | A reconnect backlog is not replayed (messages older than 120 s) | live | `tests/test_matrix_bot.py::TestMatrixBotMessage::test_ignores_backlog_messages` |
+| P2.11.9 | One session per room | live | `tests/test_matrix_bot.py::TestMatrixBotMessage::test_creates_session_per_room` |
+| P2.11.10 | A message gets an answer in the same room | live | `tests/test_matrix_bot.py::TestMatrixBotMessage::test_responds_to_fresh_message` |
+| P2.11.11 | Replies carry windy_original and windy_lang | live | `tests/test_contract_matrix.py::TestMessageFormatContract::test_response_message_has_correct_schema` |
+| P2.11.12 | windy_lang is detected from the reply text | live | `tests/test_contract_matrix.py::TestMessageFormatContract::test_windy_lang_detects_non_latin` |
+| P2.11.13 | The sender's windy_lang is read from the incoming event | planned: Windy Agent: never read (only outbound sets it); use it to answer in the sender's language, or retire the promise | — |
+| P2.11.14 | Invites to this agent are accepted | live | `tests/test_matrix_bot.py::TestMatrixBotInvite::test_accepts_invite` |
+| P2.11.15 | Invites for someone else are ignored | live | `tests/test_matrix_bot.py::TestMatrixBotInvite::test_ignores_invite_for_others` |
+| P2.11.16 | The welcome message has the agreed shape | live | `tests/test_contract_matrix.py::TestMessageFormatContract::test_welcome_message_has_correct_schema` |
+| P2.11.17 | A shutdown signal stops the sync loop and shuts down cleanly | live | `tests/test_matrix_bot.py::TestMatrixBotGracefulShutdown::test_sigterm_cancels_sync_and_runs_graceful` |
+| P2.11.18 | `--channel matrix` wires the full runtime | live | `tests/test_matrix_db_wired.py::test_matrix_branch_wires_runtime` |
+| P2.11.19 | End-to-end encryption via matrix-nio[e2e] | retired: never active (no olm); dead E2E code removed, one honest line for encrypted events (#505) | — |
+
+### P2.12 Typing and presence (gene 1.2)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P2.12.1 | Typing shows before the turn and stops after the reply | live | `tests/strand/test_p2_matrix.py::test_p2_12_typing_on_before_the_turn_and_off_after_the_reply` |
+| P2.12.2 | Presence is online at start and offline at shutdown | live | `tests/strand/test_p2_matrix.py::test_p2_12_presence_online_at_start` |
+
+### P2.13 Offline queue and reconnection (gene 1.3)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P2.13.1 | A failing sync backs off exponentially, then reconnects | live | `tests/test_matrix_sync_backoff.py::TestSyncErrorBackoff::test_sleeps_exponentially_then_escapes` |
+| P2.13.2 | A reply that fails to send is kept for later | live | `tests/strand/test_p2_matrix.py::test_p2_13_a_failed_reply_is_kept_for_later` |
+| P2.13.3 | Kept replies are sent once the connection is back | live | `tests/test_matrix_bot.py::TestPendingResponseQueue::test_flush_pending` |
+| P2.13.4 | Kept replies go out on the next successful sync (not only after a reconnect) | planned: Windy Agent: the queue flushes only at reconnect and shutdown, so while sync stays healthy a failed reply waits; flush from the sync-success callback | — |
+
+### P2.14 Tool registry and Windy Pro tools (gene 1.4)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P2.14.1 | Tools register with a name, description, parameters and function | live | `tests/test_tools.py::TestToolRegistry::test_register_and_count` |
+| P2.14.2 | Schemas come out in the function-calling format | live | `tests/test_tools.py::TestToolRegistry::test_get_schemas` |
+| P2.14.3 | execute() runs a tool and returns a string | live | `tests/test_tools.py::TestToolRegistry::test_execute_with_dict` |
+| P2.14.4 | An unknown tool or a failing tool returns an error, never raises | live | `tests/test_tools.py::TestToolRegistry::test_execute_error_returns_error_json` |
+| P2.14.5 | The model's tool calls are executed inside the turn | live | `tests/test_tool_calling_e2e.py::TestAgentLoopToolCalling::test_agent_executes_weather_tool` |
+| P2.14.6 | Translation history from Windy Pro (path + auth) | live | `tests/test_contract_pro_api.py::TestTranslationHistoryContract::test_correct_path_and_auth` |
+| P2.14.7 | Recordings from Windy Pro | live | `tests/test_tools.py::TestWindyApiTools::test_get_recordings` |
+| P2.14.8 | Clone training status from Windy Pro | live | `tests/test_tools.py::TestWindyApiTools::test_get_clone_status` |
+| P2.14.9 | Translate text through Windy Pro (path, method, body) | live | `tests/test_contract_pro_api.py::TestTranslateContract::test_correct_path_method_and_body` |
+| P2.14.10 | The four Windy Pro tools register when Windy Pro is configured and answers | live | `tests/test_tools.py::TestWindyToolsOnlyWhenConfigured::test_answering_pro_registers_four` |
+
+### P2.15 Phase 1 tests and release (gene 1.5)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P2.15.1 | Phase 1 test files exist and pass; tag v0.2.0 | retired: properties of the suite and a one-time release step, not codons (#526) | — |
