@@ -3,7 +3,10 @@
 The token is the identity; MATRIX_BOT_USER is optional (quickstart leaves it empty and Windy 0
 has none). Reading the env alone made pair rooms ("chat is not configured") and phone tools
 fail for an agent without it. Order: the id the Matrix channel confirmed at login, else one
-whoami for the token (cached; works in any process, e.g. the Talk bridge), else the env.
+whoami for the token (cached; works in any process, e.g. the Talk bridge). Never the env: a
+configured id can be stale (Windy 0 once said @windyfly while its token was @agent_<passport>).
+When neither answers this returns "" and every caller refuses (fail closed). Nothing runs at
+import: the whoami happens on the first call.
 """
 
 from __future__ import annotations
@@ -41,4 +44,4 @@ def own_matrix_id() -> str:
         if isinstance(user_id, str) and user_id.strip():
             set_confirmed(user_id)
             return user_id.strip()
-    return os.environ.get("MATRIX_BOT_USER", "").strip()
+    return ""

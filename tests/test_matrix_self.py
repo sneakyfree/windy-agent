@@ -53,17 +53,38 @@ def test_whoami_answers_and_is_cached(monkeypatch):
 
 
 @pytest.mark.parametrize("failure", [httpx.ConnectError("down"), _whoami(401, None)])
-def test_whoami_failing_falls_back_to_env(monkeypatch, failure):
+def test_whoami_failing_is_empty_even_with_env_set(monkeypatch, failure):
+    """Never the configured env id: it can be stale (Hub: fail closed)."""
     monkeypatch.setenv("MATRIX_HOMESERVER", "https://chat.example.test")
     monkeypatch.setenv("MATRIX_BOT_TOKEN", "tok")
     monkeypatch.setenv("MATRIX_BOT_USER", "@configured:chat.example.test")
     kwargs = {"side_effect": failure} if isinstance(failure, Exception) else {"return_value": failure}
     with patch.object(matrix_self.httpx, "get", **kwargs):
-        assert own_matrix_id() == "@configured:chat.example.test"
+        assert own_matrix_id() == ""
 
 
-def test_nothing_known_is_empty():
+def test_import_makes_no_network_call():
+    import importlib
+
+    with patch("httpx.get", side_effect=AssertionError("network at import")):
+        importlib.reload(matrix_self)
+    matrix_self.set_confirmed(None)
+
+
+def test_nothing_known_is_empty(monkeypatch):
+    monkeypatch.setenv("MATRIX_BOT_USER", "@configured:chat.example.test")
     assert own_matrix_id() == ""
+
+
+def test_settle_pair_room_refuses_without_own_id(monkeypatch):
+    from windyfly.agent import teams
+
+    monkeypatch.setenv("MATRIX_HOMESERVER", "https://chat.example.test")
+    monkeypatch.setenv("MATRIX_BOT_TOKEN", "tok")
+    with patch.object(matrix_self.httpx, "get", side_effect=httpx.ConnectError("down")), \
+         patch.object(teams, "_mx", side_effect=AssertionError("no Matrix call")):
+        reason = teams._settle_pair_room("!r:chat.example.test", {"invite": ["@partner:x"]})
+    assert reason == "chat is not configured for this agent"
 
 
 def test_pair_room_without_matrix_bot_user_uses_the_token_identity(monkeypatch):

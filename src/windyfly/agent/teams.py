@@ -168,6 +168,10 @@ def _settle_pair_room(room_id: str, answer: dict[str, Any]) -> str | None:
     owner: nobody is invited to a room whose levels are wrong. Idempotent, so a retry can finish a half-made room.
     None on success, else a plain reason."""
     me = own_matrix_id()
+    if not me:
+        # Fail closed: without our own id we cannot step down, and inviting into a room whose
+        # levels are wrong would hand the partner a room the owner does not control.
+        return "chat is not configured for this agent"
     path = f"rooms/{room_id}/state/m.room.power_levels"
     try:
         status, levels = _mx("GET", path)

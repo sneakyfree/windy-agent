@@ -12,6 +12,8 @@ from typing import Any
 
 import pytest
 
+
+from windyfly.channels import matrix_self
 from windyfly.channels import phone_tools as pt
 
 CONTRACT = Path(pt.__file__).parent / "contracts" / "phone-tools.v1.json"
@@ -60,7 +62,7 @@ def mx(monkeypatch: pytest.MonkeyPatch) -> FakeMatrix:
     monkeypatch.setenv("WINDY_PHONE_TOOLS", "1")
     monkeypatch.setenv("MATRIX_HOMESERVER", "https://chat.test")
     monkeypatch.setenv("MATRIX_BOT_TOKEN", "t")
-    monkeypatch.setenv("MATRIX_BOT_USER", ME)
+    monkeypatch.setattr(matrix_self, "_confirmed", ME)  # the login-confirmed own id
     monkeypatch.setattr(pt, "_mx", fake)
     monkeypatch.setattr(pt, "_now", lambda: NOW)
     pt._pending.clear()

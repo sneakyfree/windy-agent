@@ -4,13 +4,16 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
+
 
 from windyfly.agent import teams
 from windyfly.agent.capabilities.descriptor import Band
 from windyfly.agent.capabilities.registry import CapabilityRegistry
 from windyfly.agent.capabilities.teams import register_teams_capabilities
 from windyfly.channels import identity
+from windyfly.channels import matrix_self
 
 ME = "@agent_et26-me00-0001:chat.windychat.ai"
 SIB = "@agent_et26-sib0-0002:chat.windychat.ai"
@@ -186,7 +189,7 @@ class _Server:
     def __init__(self, monkeypatch, chat, matrix=None):
         self.calls, self.chat, self.matrix = [], list(chat), dict(matrix or {})
         self.levels = {**LEVELS, "users": dict(LEVELS["users"])}
-        monkeypatch.setenv("MATRIX_BOT_USER", ME_MX)
+        monkeypatch.setattr(matrix_self, "_confirmed", ME_MX)  # the login-confirmed own id
         monkeypatch.setattr("httpx.request", self)
 
     def __call__(self, method, url, **kw):
@@ -295,6 +298,7 @@ def test_create_room_rate_limited_is_said_plainly(monkeypatch, _env):
 
 def test_claim_without_matrix_config_cannot_pretend(monkeypatch, _env):
     _Server(monkeypatch, [_resp(200, CLAIM)])
-    monkeypatch.delenv("MATRIX_BOT_USER")
+    monkeypatch.setattr(matrix_self, "_confirmed", None)  # no confirmed id and whoami fails
+    monkeypatch.setattr(matrix_self.httpx, "get", lambda *a, **k: (_ for _ in ()).throw(httpx.ConnectError("down")))
     out = teams.message_agent("Scout", "hi")
     assert out["ok"] is False and "not configured" in out["detail"] and _env == []
