@@ -5,6 +5,10 @@ description = "Windy Fly — AI agent brain of the Windy ecosystem"
 # Without this the PyPI project page renders empty (twine: "long_description
 # missing") — 0.6.0 and 0.6.1 both shipped with a blank page.
 readme = "README.md"
+# Proprietary (Grant, 2026-10-11): Copyright 2026 Windstorm Labs LLC, all rights reserved.
+# The table form ships the notice as the License field; the classifier says the same.
+license = { text = "Proprietary. Copyright 2026 Windstorm Labs LLC, all rights reserved." }
+classifiers = ["License :: Other/Proprietary License"]
 requires-python = ">=3.12"
 dependencies = [
     "openai>=1.0",
