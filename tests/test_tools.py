@@ -333,6 +333,14 @@ class TestWindyToolsOnlyWhenConfigured:
         register_windy_tools(registry)
         assert registry.tool_count == 0
 
+    def test_log_says_restart_to_retry(self, monkeypatch, caplog):
+        import logging
+
+        monkeypatch.delenv("WINDY_JWT", raising=False)
+        with caplog.at_level(logging.INFO, logger="windyfly.tools.windy_api"):
+            register_windy_tools(ToolRegistry())
+        assert any("restart the agent to retry" in r.getMessage() for r in caplog.records)
+
     def test_answering_pro_registers_four(self, monkeypatch):
         from unittest.mock import MagicMock
 
