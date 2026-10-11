@@ -1838,11 +1838,18 @@ def _agent_respond_turn(
     #    helper calls and every failed call.
 
     # 5. Extract facts and upsert nodes (MEDIUM priority)
-    _extract_and_store_facts(db, write_queue, user_message, owner=band >= Band.OWNER)
+    #    Only the owner's own words, and only on a turn that read no untrusted
+    #    content: anyone else's "my name is X" is not a fact about the owner,
+    #    and anyone else's "I need to ..." is not the owner's goal (6.).
+    owner_words = band >= Band.OWNER and not turn_tainted
+    _extract_and_store_facts(db, write_queue, user_message, owner=owner_words)
 
     # 6. Intent detection (MEDIUM priority) — regex fast-path + LLM fallback
     proactivity = loop_sliders.get("proactivity", 5)
-    intent = detect_intent(user_message, config=config, proactivity=proactivity)
+    intent = (
+        detect_intent(user_message, config=config, proactivity=proactivity)
+        if owner_words else None
+    )
     if intent and intent.get("has_intent"):
         # Dedup: don't create if a similar active intent already exists;
         # mentioning it again keeps it fresh so daily decay never pauses it.
@@ -2063,12 +2070,14 @@ def _extract_and_store_facts(
     *,
     owner: bool = False,
 ) -> None:
-    """Extract obvious facts from the user message and store as nodes.
+    """Extract obvious facts from the OWNER's message and store them as nodes.
 
     Simple pattern-based extraction for Phase 0. More sophisticated
-    LLM-based extraction will come in later phases. On an OWNER-band turn
-    the facts are the owner's own words (source ``owner_stated``) and apply
-    at once; from anyone else (``user_stated``) a contradiction is held.
+    LLM-based extraction will come in later phases. Fail closed: unless the
+    caller says this is an untainted owner turn (``owner=True``), nothing is
+    stored. Anyone else's "my name is X" is not a fact about the owner (Hub
+    ruling, 2026-10-11). The facts are the owner's own words (source
+    ``owner_stated``) and apply at once.
 
     Patterns detected:
     - "My name is X"
@@ -2077,17 +2086,20 @@ def _extract_and_store_facts(
     - "I like X" / "I love X"
     - "I work at X" / "I work as X"
     """
+    if not owner:
+        return
+
     import re
 
     patterns = [
-        (r"(?i)my name is (.+?)(?:\.|,|!|\?|$)", "person", "user_name", "user_stated"),
-        (r"(?i)i(?:'m| am) (.+?)(?:\.|,|!|\?|$)", "trait", "user_trait", "user_stated"),
-        (r"(?i)i live in (.+?)(?:\.|,|!|\?|$)", "location", "user_location", "user_stated"),
-        (r"(?i)i (?:like|love) (.+?)(?:\.|,|!|\?|$)", "preference", "user_preference", "user_stated"),
-        (r"(?i)i work (?:at|as|for) (.+?)(?:\.|,|!|\?|$)", "work", "user_work", "user_stated"),
+        (r"(?i)my name is (.+?)(?:\.|,|!|\?|$)", "person", "user_name"),
+        (r"(?i)i(?:'m| am) (.+?)(?:\.|,|!|\?|$)", "trait", "user_trait"),
+        (r"(?i)i live in (.+?)(?:\.|,|!|\?|$)", "location", "user_location"),
+        (r"(?i)i (?:like|love) (.+?)(?:\.|,|!|\?|$)", "preference", "user_preference"),
+        (r"(?i)i work (?:at|as|for) (.+?)(?:\.|,|!|\?|$)", "work", "user_work"),
     ]
 
-    for pattern, node_type, name_prefix, source in patterns:
+    for pattern, node_type, name_prefix in patterns:
         match = re.search(pattern, user_message)
         if match:
             value = match.group(1).strip()
@@ -2099,7 +2111,7 @@ def _extract_and_store_facts(
                     node_type,
                     f"{name_prefix}:{value}",
                     metadata={"raw_statement": user_message[:200]},
-                    source="owner_stated" if owner else source,
+                    source="owner_stated",
                     epistemic_status="user_stated",
                 )
 

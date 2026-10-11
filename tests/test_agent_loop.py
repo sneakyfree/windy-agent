@@ -405,7 +405,7 @@ class TestFactExtraction:
         wq = WriteQueue()
         wq.start()
 
-        _extract_and_store_facts(db, wq, "My name is Grant")
+        _extract_and_store_facts(db, wq, "My name is Grant", owner=True)
 
         time.sleep(0.5)
         wq.stop()
@@ -419,7 +419,7 @@ class TestFactExtraction:
         wq = WriteQueue()
         wq.start()
 
-        _extract_and_store_facts(db, wq, "I live in San Francisco")
+        _extract_and_store_facts(db, wq, "I live in San Francisco", owner=True)
 
         time.sleep(0.5)
         wq.stop()
@@ -433,7 +433,7 @@ class TestFactExtraction:
         wq = WriteQueue()
         wq.start()
 
-        _extract_and_store_facts(db, wq, "I love dark mode")
+        _extract_and_store_facts(db, wq, "I love dark mode", owner=True)
 
         time.sleep(0.5)
         wq.stop()

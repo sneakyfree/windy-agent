@@ -252,7 +252,7 @@ class TestOwnerWordsApplyAtOnce:
         _extract_and_store_facts(db, owner_q, "I live in Boston.", owner=True)
         _extract_and_store_facts(db, other_q, "I live in Boston.")
         assert [c["source"] for c in owner_q.calls] == ["owner_stated"]
-        assert [c["source"] for c in other_q.calls] == ["user_stated"]
+        assert other_q.calls == []  # not an owner turn: nothing is stored (Hub ruling 10-11)
 
 
 class TestPromptBlockIsData:
