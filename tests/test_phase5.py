@@ -87,6 +87,17 @@ class TestDashboard:
         assert summary["failures"]["improvement_rate"] == 0.5
         db.close()
 
+    def test_unpriced_only_task_type_does_not_crash(self):
+        # Local / Mind rows store cost_usd NULL on purpose; a task type
+        # with only those rows must not break the whole summary.
+        db = Database(":memory:")
+        log_cost(db, "gpt-4o-mini", 100, 50, 0.01, task_type="chat")
+        log_cost(db, "local-model", 10, 10, None, task_type="intent")
+        costs = get_dashboard_summary(db)["costs"]
+        assert costs["by_task_type"] == {"chat": 0.01, "intent": 0.0}
+        assert costs["today_usd"] == 0.01
+        db.close()
+
 
 # === Personality Versioning Tests ===
 
