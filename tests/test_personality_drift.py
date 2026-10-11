@@ -13,7 +13,6 @@ owner action. Each test below reproduced a real bug before the fix:
 
 from __future__ import annotations
 
-from windyfly.agent.shape_shift import _saved_sliders, _saved_sources, shape_shift
 from windyfly.control_panel import set_slider
 from windyfly.dashboard.data import get_dashboard_summary
 from windyfly.memory.database import Database
@@ -23,6 +22,7 @@ from windyfly.personality.versioning import (
     OWNER_SOURCES,
     detect_drift,
     get_personality_history,
+    plan_personality_rollback,
     rollback_personality,
     run_periodic_drift_check,
     snapshot_personality,
@@ -40,7 +40,7 @@ def _backdate_history(db: Database, days: int) -> None:
 
 def _agent_sets(db: Database, slider: str, value: int) -> None:
     """A slider write that did NOT come from the owner."""
-    upsert_soul(db, key=f"slider_{slider}", value=str(value), source="shape_shift")
+    upsert_soul(db, key=f"slider_{slider}", value=str(value), source="agent")
 
 
 class TestDetectDrift:
@@ -63,9 +63,9 @@ class TestDetectDrift:
         assert drift is not None
         assert drift["drifted_sliders"] == [
             {"name": "humor", "old": 5, "new": 9, "delta": 4,
-             "source": "shape_shift", "since": drift["baseline_at"]},
+             "source": "agent", "since": drift["baseline_at"]},
         ]
-        assert drift["drift_source"] == "shape_shift"
+        assert drift["drift_source"] == "agent"
         assert drift["baseline_at"] <= db.fetchone(
             "SELECT datetime('now', '-30 days') AS c")["c"]
         db.close()
@@ -151,7 +151,7 @@ class TestPeriodicCheck:
         assert drift["drifted_sliders"][0]["name"] == "humor"
         assert drift["drifted_sliders"][0]["old"] == 5
         assert drift["drifted_sliders"][0]["new"] == 9
-        assert drift["drift_source"] == "shape_shift"
+        assert drift["drift_source"] == "agent"
         assert drift["baseline_at"]
         db.close()
 
@@ -211,6 +211,59 @@ class TestRollback:
         db.close()
 
 
+class TestRollbackShowsExactlyWhatItRestores:
+    """Hub, 2b: the owner sees the exact slider changes before a restore, and the
+    restore applies exactly that list (no silent personality overwrite)."""
+
+    def _drifted(self) -> tuple[Database, str]:
+        db = Database(":memory:")
+        set_slider(db, "humor", 5)
+        set_slider(db, "formality", 4)
+        snapshot_personality(db)
+        _backdate_history(db, 40)
+        when = db.fetchone("SELECT MAX(created_at) AS t FROM soul_history")["t"]
+        _agent_sets(db, "humor", 9)
+        return db, when
+
+    def test_plan_lists_only_what_changes_and_writes_nothing(self):
+        db, when = self._drifted()
+        versions = db.fetchone("SELECT SUM(version) AS v FROM soul")["v"]
+        plan = plan_personality_rollback(db, when)
+        assert [(c["slider"], c["current"], c["restore"]) for c in plan] == [("humor", "9", "5")]
+        assert db.fetchone("SELECT SUM(version) AS v FROM soul")["v"] == versions
+        assert get_soul(db, "slider_humor")["value"] == "9"
+        db.close()
+
+    def test_rollback_applies_exactly_the_plan(self):
+        db, when = self._drifted()
+        plan = plan_personality_rollback(db, when)
+        assert rollback_personality(db, when) == len(plan) == 1
+        assert get_soul(db, "slider_humor")["value"] == "5"
+        assert get_soul(db, "slider_formality")["value"] == "4"
+        assert plan_personality_rollback(db, when) == []
+        db.close()
+
+    def test_bridge_dry_run_returns_changes_and_changes_nothing(self):
+        from tests.test_gap_closure import _make_bridge, _run
+
+        bridge, db, _ = _make_bridge()
+        set_slider(db, "humor", 5)
+        snapshot_personality(db)
+        _backdate_history(db, 40)
+        when = db.fetchone("SELECT MAX(created_at) AS t FROM soul_history")["t"]
+        _agent_sets(db, "humor", 9)
+
+        dry = _run(bridge._dispatch("personality.rollback", {"snapshot_date": when, "dry_run": True}))
+        assert dry == {"dry_run": True, "changes": [{"slider": "humor", "current": "9", "restore": "5"}]}
+        assert get_soul(db, "slider_humor")["value"] == "9"
+
+        done = _run(bridge._dispatch("personality.rollback", {"snapshot_date": when}))
+        assert done["restored_count"] == 1
+        assert done["changes"] == dry["changes"]
+        assert get_soul(db, "slider_humor")["value"] == "5"
+        db.close()
+
+
 class TestHistory:
     def test_history_names_the_slider_and_can_filter(self):
         db = Database(":memory:")
@@ -221,29 +274,3 @@ class TestHistory:
         assert [r["key"] for r in rows] == ["slider_humor"]
         assert len(get_personality_history(db, limit=10)) == 2
         db.close()
-
-
-class TestShapeShiftIsAgentSource:
-    def setup_method(self):
-        _saved_sliders.clear()
-        _saved_sources.clear()
-
-    def test_shift_is_drift_and_restore_is_not(self):
-        db = Database(":memory:")
-        wq = WriteQueue()
-        wq.start()
-        try:
-            set_slider(db, "humor", 2)
-            snapshot_personality(db)
-            _backdate_history(db, 40)
-            with shape_shift(db, wq, {"humor": 9}):
-                drift = detect_drift(db)
-                assert drift is not None
-                assert drift["drift_source"] == "shape_shift"
-            row = get_soul(db, "slider_humor")
-            assert row["value"] == "2"
-            assert row["source"] == "control_panel"  # owner's source restored
-            assert detect_drift(db) is None
-        finally:
-            wq.stop()
-            db.close()

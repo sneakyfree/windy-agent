@@ -362,8 +362,8 @@ def apply_preset(
         preset_name: One of the preset names (buddy, engineer, etc.).
         user_id: User ID.
         source: Who is writing (``soul.source``). Owner surfaces keep the
-            default "control_panel"; the agent's own shape_shift passes
-            "shape_shift" so drift detection can tell them apart.
+            default "control_panel"; any other writer must pass its own
+            name so drift detection can tell it apart from the owner.
 
     Returns:
         The applied slider values.

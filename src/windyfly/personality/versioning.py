@@ -31,11 +31,12 @@ DRIFT_BASELINE_DAYS = 30
 # ``soul.source`` values that mean "the owner set this value". Every
 # owner-facing write path funnels through control_panel.set_slider /
 # apply_preset, which write "control_panel": the dashboard slider PUT
-# and presets (UDS sliders.set), the /slider and /preset chat commands,
-# the UDS shape_shift.execute/restore owner API. A personality rollback
-# (the owner's undo button) writes "rollback". Anything else — notably
-# "shape_shift" from the agent's own shape_shift tool — is not an owner
-# action, so a large move under it is drift.
+# and presets (UDS sliders.set), and the /slider and /preset chat
+# commands. A personality rollback (the owner's undo button) writes
+# "rollback". Anything else is not an owner action, so a large move under
+# it is drift. Since shape-shift was retired (2026-10-10) no code path
+# writes sliders under another source; this catches a direct database
+# edit or any future non-owner writer.
 OWNER_SOURCES: frozenset[str] = frozenset({"control_panel", "rollback"})
 
 # Soul key the latest drift result is persisted under (dashboard reads it).
@@ -356,31 +357,25 @@ def run_periodic_drift_check(
     }
 
 
-def rollback_personality(
+def plan_personality_rollback(
     db: Database,
     snapshot_date: str,
     user_id: str = "default",
-) -> int:
-    """Rollback the personality sliders to how they were at a point in time.
+) -> list[dict[str, Any]]:
+    """What a rollback to ``snapshot_date`` would change, without changing it.
 
-    For each slider, restores the value recorded by the newest
+    For each slider, the target is the value recorded by the newest
     soul_history row at or before ``snapshot_date`` (its ``new_value`` —
     the value the slider held from then on). Only ``slider_*`` rows are
-    touched; identity/bookkeeping soul keys are left alone. Restored rows
-    are marked ``source="rollback"`` (an owner action) and any drift
-    alert is cleared.
-
-    Args:
-        db: Database instance.
-        snapshot_date: ISO date/datetime string to rollback to.
-        user_id: User ID.
+    considered; sliders that already hold their target are left out.
 
     Returns:
-        Number of slider values actually changed.
+        One entry per slider that would change, sorted by name:
+        ``{"slider", "current", "restore", "soul_id"}``.
     """
     entries = db.fetchall(
         """
-        SELECT h.soul_id, h.new_value, s.value AS current_value
+        SELECT h.soul_id, h.new_value, s.key, s.value AS current_value
         FROM soul_history h JOIN soul s ON s.id = h.soul_id
         WHERE h.created_at <= ? AND s.user_id = ?
           AND substr(s.key, 1, 7) = 'slider_'
@@ -390,23 +385,52 @@ def rollback_personality(
     )
 
     seen_souls: set[str] = set()
-    restored = 0
-
+    changes: list[dict[str, Any]] = []
     for entry in entries:
         soul_id = entry["soul_id"]
         if soul_id in seen_souls:
             continue
         seen_souls.add(soul_id)
-
         target = entry["new_value"]
         if target is None or target == entry["current_value"]:
             continue
+        changes.append({
+            "slider": entry["key"][len(_SLIDER_PREFIX):],
+            "current": entry["current_value"],
+            "restore": target,
+            "soul_id": soul_id,
+        })
+    return sorted(changes, key=lambda c: c["slider"])
+
+
+def rollback_personality(
+    db: Database,
+    snapshot_date: str,
+    user_id: str = "default",
+) -> int:
+    """Rollback the personality sliders to how they were at a point in time.
+
+    Applies exactly ``plan_personality_rollback`` (the owner sees that list
+    before confirming). Identity/bookkeeping soul keys are never touched.
+    Restored rows are marked ``source="rollback"`` (an owner action) and any
+    drift alert is cleared.
+
+    Args:
+        db: Database instance.
+        snapshot_date: ISO date/datetime string to rollback to.
+        user_id: User ID.
+
+    Returns:
+        Number of slider values actually changed.
+    """
+    changes = plan_personality_rollback(db, snapshot_date, user_id)
+    for change in changes:
         db.execute(
             """
             INSERT INTO soul_history (id, soul_id, old_value, new_value, changed_by)
             VALUES (?, ?, ?, ?, ?)
             """,
-            (str(uuid.uuid4()), soul_id, entry["current_value"], target, "rollback"),
+            (str(uuid.uuid4()), change["soul_id"], change["current"], change["restore"], "rollback"),
         )
         db.execute(
             """
@@ -414,9 +438,8 @@ def rollback_personality(
                 version = version + 1, updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
             """,
-            (target, soul_id),
+            (change["restore"], change["soul_id"]),
         )
-        restored += 1
 
     try:
         _clear_drift_alert(db, "rollback", user_id)
@@ -424,4 +447,4 @@ def rollback_personality(
         logger.debug("Could not clear drift alert on rollback: %s", e)
 
     db.commit()
-    return restored
+    return len(changes)

@@ -25,6 +25,12 @@ interface Drift {
   baseline_at?: string | null
 }
 
+interface RollbackChange {
+  slider: string
+  current: string | null
+  restore: string
+}
+
 interface HistoryRow {
   id: string
   key?: string | null
@@ -78,19 +84,34 @@ export default function Personality() {
       })
       .catch(() => setOffline(true))
 
-  // Restore every slider to its value as of `when` (owner action — the
-  // brain marks restored values as set by the owner and clears the alert).
+  // Restore sliders to their values as of `when` (owner action — the brain
+  // marks restored values as set by the owner and clears the alert). The
+  // brain lists exactly what would change first; nothing changes unless the
+  // owner confirms that list.
   const rollback = async (when: string) => {
-    if (!confirm(`Restore all personality sliders to how they were at ${fmtUtc(when)}?`)) return
     setRollingBack(true)
     try {
+      const plan = await api<{ changes?: RollbackChange[] }>('/api/personality/rollback', {
+        method: 'POST',
+        body: JSON.stringify({ snapshot_date: when, dry_run: true }),
+      })
+      const changes = Array.isArray(plan.changes) ? plan.changes : []
+      if (changes.length === 0) {
+        alert(`Nothing to restore: every slider already has its value from ${fmtUtc(when)}.`)
+        return
+      }
+      const lines = changes.map(c => `  ${sliderLabel(c.slider)}: ${c.current} → ${c.restore}`).join('\n')
+      if (!confirm(`Restore to ${fmtUtc(when)}? Only these sliders change:\n\n${lines}`)) return
       await api('/api/personality/rollback', {
         method: 'POST',
         body: JSON.stringify({ snapshot_date: when }),
       })
-    } catch { /* ignore — reload shows the real state */ }
-    await Promise.all([loadSliders(), loadDriftAndHistory()])
-    setRollingBack(false)
+    } catch (e) {
+      alert(`Restore failed: ${e instanceof Error ? e.message : String(e)}. The page now shows the current values.`)
+    } finally {
+      await Promise.all([loadSliders(), loadDriftAndHistory()])
+      setRollingBack(false)
+    }
   }
 
   useEffect(() => {
