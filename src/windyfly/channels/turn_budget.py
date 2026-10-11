@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import threading
 import time
 from collections import deque
@@ -91,7 +92,25 @@ def room_ref(room: str) -> str:
     return hashlib.sha256(room.encode()).hexdigest()[:12]
 
 
-def owner_notice(other: str, room_name: str) -> str:
+_NAME_MAX = 60
+_MATRIX_ID = re.compile(r"[!#@+$][^\s:]*:[^\s]+")
+
+
+def safe_name(text: str | None, fallback: str) -> str:
+    """A name fit for the owner's line: one line, no control characters, at most 60 characters,
+    and never a raw Matrix id (room !id, #alias, @user...) or anything shaped like one."""
+    name = re.sub(r"[\x00-\x1f\x7f-\x9f]+", " ", str(text or ""))
+    name = " ".join(name.split())
+    if not name or _MATRIX_ID.search(name):
+        return fallback
+    if len(name) > _NAME_MAX:
+        name = name[: _NAME_MAX - 1].rstrip() + "…"
+    return name
+
+
+def owner_notice(other: str | None, room_name: str | None) -> str:
+    other = safe_name(other, "another agent")
+    room_name = safe_name(room_name, "a shared room")
     return (f"I stopped answering {other} in {room_name}: we had sent each other {limit()} messages in "
             f"{round(window_s() / 60)} minutes with no one else talking. Say something in that room "
             "and I'll carry on.")

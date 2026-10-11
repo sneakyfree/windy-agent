@@ -149,3 +149,27 @@ async def test_humans_are_never_budgeted(monkeypatch):
         for _ in range(12):
             await bot._on_message(*_event(HUMAN))
     assert turns.await_count == 12
+
+
+# ── the names in the owner's line (Hub: never a raw id, nothing Chat/Inbox would refuse) ────────
+
+@pytest.mark.parametrize("raw,expected", [
+    ("Email helpers", "Email helpers"),
+    ("  Email\n\thelpers\x00 ", "Email helpers"),                               # whitespace/control collapsed
+    ("x" * 80, "x" * 59 + "…"),                                                 # capped at 60
+    ("!edXNwBuzZLRCXWFmii:chat.windychat.ai", "a shared room"),                  # raw room id
+    ("#ops:chat.windychat.ai", "a shared room"),                                  # alias
+    ("@agent_et26-ab12-cd34:chat.windychat.ai and Grant", "a shared room"),     # member id fallback
+    ("", "a shared room"),
+    (None, "a shared room"),
+])
+def test_room_names_are_safe(raw, expected):
+    assert tb.safe_name(raw, "a shared room") == expected
+
+
+def test_agent_names_are_safe_too():
+    line = tb.owner_notice("@agent_et26-ab12-cd34:chat.windychat.ai", "Email helpers")
+    assert line.startswith("I stopped answering another agent in Email helpers:")
+    line = tb.owner_notice("Fly\nTwo", "!room:server")
+    assert line.startswith("I stopped answering Fly Two in a shared room:")
+    assert "\n" not in line and ":server" not in line

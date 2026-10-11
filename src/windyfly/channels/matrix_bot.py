@@ -333,8 +333,7 @@ class WindyFlyMatrixBot(ChannelAdapter):
         try:
             await self.client.room_send(owner_room, "m.room.message", {
                 "msgtype": "m.text", "windy_original": True,
-                "body": _budget.owner_notice(other_name or "another agent",
-                                             getattr(room, "display_name", None) or "a shared room")})
+                "body": _budget.owner_notice(other_name, getattr(room, "display_name", None))})
         except Exception as e:
             logger.error("turn budget owner notice failed: %s", e)
 
