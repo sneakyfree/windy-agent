@@ -16,7 +16,7 @@ tools, Vault). A row owned by another lane counts only after that lane confirms 
 
 Built in waves (strand-to-green plan, 2026-10-10): 5a set the frame plus Part 1 §4 and gene 0.3;
 5b1 added Part 1 §1-§3 and genes 0.1-0.2; 5b2 completes Part 1 (genes 0.4-0.9, checklist C0);
-5c completes Part 2; 5d-5f fill in Parts 3-5; 5g adds the new genes.
+5c completed Part 2; 5d fills in Part 3; 5e-5f Parts 4-5; 5g adds the new genes.
 
 ## Part 1: Foundation and Phase 0
 
@@ -322,3 +322,63 @@ Built in waves (strand-to-green plan, 2026-10-10): 5a set the frame plus Part 1 
 | Codon | Promise | Status | Test |
 |---|---|---|---|
 | P2.25.1 | Phase 2 test files exist and pass; tag v0.3.0 | retired: properties of the suite and a one-time release step, not codons (#526) | — |
+
+## Part 3: skills, cost, intents, emotion, gateway, decay, conflicts, offline
+
+### P3.31 Skills (gene 3.1)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P3.31.1 | A skill is created and stored (unpromoted by default) | live | `tests/test_skills_engine.py::TestSkillManager::test_create_skill` |
+| P3.31.2 | Saving a skill promotes it and mirrors it to a file | live | `tests/test_skill_engine.py::TestSaveViewList::test_save_promotes_and_mirrors_to_file` |
+| P3.31.3 | Viewing a skill returns its text and counts the use | live | `tests/test_skill_engine.py::TestSaveViewList::test_view_returns_body_and_counts_usage` |
+| P3.31.4 | Re-saving bumps the version and keeps the lineage | live | `tests/test_skill_engine.py::TestSaveViewList::test_resave_bumps_version_with_lineage` |
+| P3.31.5 | A skill rolls back to its parent | live | `tests/test_hardening_skills.py::TestSkillRollback::test_rollback_to_parent` |
+| P3.31.6 | Skill files dropped in the skills folder become skills | live | `tests/test_skill_engine.py::TestFileSync::test_dropped_file_becomes_promoted_skill` |
+| P3.31.7 | Skills are text playbooks only: no skill text can ever run as code | live | `tests/test_skills_text_only.py::test_skills_module_cannot_execute_code` |
+| P3.31.8 | Only the playbook language is accepted | live | `tests/test_skills_text_only.py::test_only_playbook_is_accepted` |
+| P3.31.9 | Skills run in a sandbox, promoted only after syntax, execution and safety gates | retired: the sandbox did not isolate and the safety gate was bypassable; executable skills, sandbox, evaluator and golden tests removed (#504) | — |
+| P3.31.10 | Success and failure uses are counted separately | planned: Windy Agent: increment_usage has no callers; viewing counts a use without success or failure | — |
+
+### P3.32 Cost ledger and budget (gene 3.2)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P3.32.1 | Every model call writes one cost row (failed calls too) | live | `tests/test_cost_accounting.py::test_ledger_sink_writes_success_and_failure_rows` |
+| P3.32.2 | Prices come from a rate card; an unknown model costs nothing and warns once | live | `tests/test_cost_accounting.py::test_unknown_model_has_no_cost_and_warns_once` |
+| P3.32.3 | Monthly spend is summed | live | `tests/test_cost_tracker.py::TestCostTracker::test_monthly_spend_with_entries` |
+| P3.32.4 | The budget check allows spending under budget | live | `tests/test_cost_tracker.py::TestBudgetCheck::test_within_budget` |
+| P3.32.5 | Over budget, the turn is blocked before the model is called | live | `tests/test_agent_loop.py::TestBudgetEnforcement::test_blocks_when_over_budget` |
+| P3.32.6 | Over budget, the owner can choose to go on anyway | planned: Windy Agent: a hard block today; the only way past is raising the budget in settings | — |
+| P3.32.7 | The user is warned in chat as spending nears the budget | retired: the warning leaked into user replies; it goes to the log instead (#72) | — |
+
+### P3.33 Intents (gene 3.3)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P3.33.1 | Migration 2 adds the intents, edges, conflicts and soul-history tables | live | `tests/test_intents.py::TestMigrationV2::test_intents_table_exists` |
+| P3.33.2 | Intents are created, read, completed and paused | live | `tests/test_intents.py::TestIntentCRUD::test_create_and_get` |
+| P3.33.3 | Goals ("I want / need / remind me") are detected from the owner's words | live | `tests/test_intents.py::TestIntentDetection::test_detect_want` |
+| P3.33.4 | A plain question is not a goal | live | `tests/test_intents.py::TestIntentDetection::test_no_intent_in_question` |
+| P3.33.5 | The model-based goal detector builds its prompt without error | live | `tests/test_intents.py::TestLLMIntentPath::test_prompt_formats_without_error` |
+| P3.33.6 | Model-based goal detection is off by default (cost; Boss) | live | `tests/test_intents.py::TestLLMIntentPath::test_llm_off_by_default` |
+| P3.33.7 | When switched on, an inferred goal reaches the 24-hour inbox | live | `tests/test_intents.py::TestLLMIntentPath::test_llm_answer_becomes_inbox_intent` |
+| P3.33.8 | Mentioning a goal again keeps it fresh | live | `tests/test_intents.py::TestTouchIntent::test_touch_resets_score_and_clock` |
+| P3.33.9 | Stale goals decay and pause on the daily schedule | live | `tests/test_intents.py::TestDecaySchedulerRunsIntentDecay::test_scheduler_decays_and_pauses_stale_intents` |
+| P3.33.10 | /decay also decays goals | live | `tests/test_decay_runs_intents.py::test_slash_decay_pauses_stale_intents` |
+| P3.33.11 | Edges link memories into a graph | planned: Windy Agent: the edges table exists but nothing writes to it; build the graph or drop the table | — |
+
+### P3.34 Emotional awareness (gene 3.4)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P3.34.1 | Stress is detected in a message | live | `tests/test_emotion.py::TestEmotionDetection::test_detect_stress_frustrated` |
+| P3.34.2 | Excitement is detected in a message | live | `tests/test_emotion.py::TestEmotionDetection::test_detect_excitement` |
+| P3.34.3 | Sustained stress is read from the owner's own turns only | live | `tests/test_emotion.py::TestEmotionalTrend::test_sustained_stress_with_interleaved_assistant_turns` |
+| P3.34.4 | Sustained stress adds a supportive note; excitement matches energy | retired: prompt steering by emotion removed in favour of the substrate (#304) | — |
+
+### P3.35 Phase 3 tests and release (gene 3.5)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P3.35.1 | Phase 3 test files exist and pass; tag v0.4.0 | retired: properties of the suite and a one-time release step, not codons (#526) | — |
