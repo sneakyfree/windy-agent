@@ -16,7 +16,8 @@ tools, Vault). A row owned by another lane counts only after that lane confirms 
 
 Built in waves (strand-to-green plan, 2026-10-10): 5a set the frame plus Part 1 §4 and gene 0.3;
 5b1 added Part 1 §1-§3 and genes 0.1-0.2; 5b2 completes Part 1 (genes 0.4-0.9, checklist C0);
-5c completed Part 2; 5d completes Part 3; 5e-5f Parts 4-5; 5g adds the new genes.
+5c completed Part 2; 5d completes Part 3; 5e1 adds Part 4 Phase 5 (genes 5.1-5.5, checklist C5);
+5e2 the rest of Part 4 (map, file index, roadmap, checklists C1-C4); 5f Part 5; 5g adds the new genes.
 
 ## Part 1: Foundation and Phase 0
 
@@ -442,3 +443,81 @@ Built in waves (strand-to-green plan, 2026-10-10): 5a set the frame plus Part 1 
 | Codon | Promise | Status | Test |
 |---|---|---|---|
 | P3.46.1 | Phase 4 test files exist and pass; tag v0.5.0 | retired: properties of the suite and a one-time release step, not codons (#526) | — |
+
+## Part 4: Phase 5 (dashboard, personality versioning, observability), ecosystem map, file index
+
+### P4.51 Trust dashboard data (gene 5.1)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P4.51.1 | The dashboard summary has every section, even on an empty agent | live | `tests/test_phase5.py::TestDashboard::test_empty_dashboard` |
+| P4.51.2 | It counts memories and conversations | live | `tests/test_phase5.py::TestDashboard::test_populated_dashboard` |
+| P4.51.3 | Memories are broken down by how sure the agent is and by scope | live | `tests/strand/test_p4_phase5.py::test_p4_51_memory_is_broken_down_by_status_and_scope` |
+| P4.51.4 | Spend today, this week, this month and by kind of task | live | `tests/strand/test_p4_phase5.py::test_p4_51_costs_today_week_month_and_by_task_type` |
+| P4.51.5 | Unpriced (local or Mind) cost rows never break the summary | live | `tests/test_phase5.py::TestDashboard::test_unpriced_only_task_type_does_not_crash` |
+| P4.51.6 | Failures: total, resolved and the improvement rate | live | `tests/test_phase5.py::TestDashboard::test_failure_improvement_rate` |
+| P4.51.7 | The five most used promoted skills, with their success rate | live | `tests/strand/test_p4_phase5.py::test_p4_51_top_five_promoted_skills_by_use` |
+| P4.51.8 | Goals counted as active, completed and paused ("abandoned") | live | `tests/strand/test_p4_phase5.py::test_p4_51_goals_counted_by_state` |
+| P4.51.9 | The personality preset is named, or "custom" | live | `tests/test_phase5.py::TestDashboard::test_preset_detection` |
+| P4.51.10 | The summary is served through the bridge to the gateway | live | `tests/strand/test_p4_phase5.py::test_p4_51_the_summary_is_served_through_the_bridge` |
+
+### P4.52 Personality versioning, drift and rollback (gene 5.2)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P4.52.1 | A snapshot records the sliders that changed (and only those) | live | `tests/test_retention.py::TestSnapshotDedup::test_changed_slider_records_exactly_one_new_row` |
+| P4.52.2 | The personality history names each slider and can be filtered | live | `tests/test_personality_drift.py::TestHistory::test_history_names_the_slider_and_can_filter` |
+| P4.52.3 | Drift compares against the values from 30 days ago | live | `tests/test_personality_drift.py::TestDetectDrift::test_agent_change_against_30_day_baseline_is_drift` |
+| P4.52.4 | The owner's own slider changes are never called drift | live | `tests/test_personality_drift.py::TestDetectDrift::test_owner_change_is_not_drift` |
+| P4.52.5 | A move of 2 points or less is not drift | live | `tests/test_personality_drift.py::TestDetectDrift::test_small_agent_change_is_not_drift` |
+| P4.52.6 | The daily check detects before it snapshots, so drift can fire | live | `tests/test_personality_drift.py::TestPeriodicCheck::test_scheduler_detects_before_snapshotting` |
+| P4.52.7 | Drift reaches the owner's dashboard summary | live | `tests/test_personality_drift.py::TestPeriodicCheck::test_dashboard_summary_includes_drift` |
+| P4.52.8 | The drift alert clears once the drift is gone | live | `tests/test_personality_drift.py::TestPeriodicCheck::test_alert_clears_when_drift_resolves` |
+| P4.52.9 | A rollback restores the earlier value and clears the drift | live | `tests/test_personality_drift.py::TestRollback::test_rollback_restores_value_and_clears_drift` |
+| P4.52.10 | A rollback is recorded in the history as a rollback | live | `tests/strand/test_p4_phase5.py::test_p4_52_a_rollback_is_recorded_as_a_rollback` |
+| P4.52.11 | A rollback touches personality sliders only | live | `tests/test_personality_drift.py::TestRollback::test_rollback_only_touches_personality_sliders` |
+| P4.52.12 | Before a rollback the owner sees exactly what will change (the diff), and nothing is written | live | `tests/test_personality_drift.py::TestRollbackShowsExactlyWhatItRestores::test_plan_lists_only_what_changes_and_writes_nothing` |
+| P4.52.13 | If a slider moved after the preview, the rollback restores nothing | live | `tests/test_personality_drift.py::TestRollbackRefusesAChangedPlan::test_slider_moved_after_preview_restores_nothing` |
+| P4.52.14 | The preview works through the bridge | live | `tests/test_personality_drift.py::TestRollbackShowsExactlyWhatItRestores::test_bridge_dry_run_returns_changes_and_changes_nothing` |
+
+### P4.53 Automated skill evaluation v2 (gene 5.3)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P4.53.1 | Golden tests per skill, run in a sandbox | retired: skills are text playbooks; skill code execution and golden_tests.py removed (#504) | — |
+| P4.53.2 | A regression suite over promoted skills alerts the owner | retired: nothing to execute once skills are text only (#504) | — |
+
+### P4.54 Observability: the event log (gene 5.4)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P4.54.1 | Events are written to the events table and read back | live | `tests/test_phase5.py::TestEventLogging::test_log_and_retrieve` |
+| P4.54.2 | Event writes are LOW priority | live | `tests/strand/test_p4_phase5.py::test_p4_54_events_are_written_at_low_priority` |
+| P4.54.3 | Every declared event type is emitted somewhere in the code | live | `tests/test_event_log.py::test_every_declared_event_type_is_emitted_somewhere` |
+| P4.54.4 | Memory writes are recorded without the owner's words | live | `tests/test_event_log.py::test_memory_write_records_insert_and_update_without_the_owners_words` |
+| P4.54.5 | A held conflict is recorded once | live | `tests/test_event_log.py::test_a_held_conflict_is_recorded_once_and_is_not_a_memory_write` |
+| P4.54.6 | A surfaced goal is recorded without its description | live | `tests/test_event_log.py::test_intent_surface_on_create_and_touch_without_the_description` |
+| P4.54.7 | Recording an event never breaks the write it describes | live | `tests/test_event_log.py::test_record_event_never_breaks_the_write_it_describes` |
+| P4.54.8 | Events older than 30 days are pruned | live | `tests/test_retention.py::TestEventsPrune::test_prune_events_drops_old_keeps_recent` |
+| P4.54.9 | Events are read (and filtered by type) through the bridge | live | `tests/strand/test_p4_phase5.py::test_p4_54_events_are_read_through_the_bridge` |
+| P4.54.10 | cost.log, skill.evaluate and matrix.message events | retired: no emitter and no reader here or in 9 sister repos; the cost ledger is the one cost record (#524) | — |
+| P4.54.11 | Console logs are structured JSON | planned: Windy Agent: console logs are plain text (journald); emit JSON or retire this promise (Hub decides) | — |
+
+### P4.55 Phase 5 tests and release (gene 5.5)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P4.55.1 | Phase 5 test files exist and pass; tag v1.0.0 | retired: properties of the suite and a one-time release step, not codons (#526) | — |
+
+### P4.C5 Phase 5 checklist (Part 4 §14)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P4.C5.1 | The dashboard returns the full summary | live | `tests/test_phase5.py::TestDashboard::test_empty_dashboard` |
+| P4.C5.2 | A snapshot is saved to soul_history | live | `tests/test_retention.py::TestSnapshotDedup::test_changed_slider_records_exactly_one_new_row` |
+| P4.C5.3 | Drift detection flags changes the owner did not make | live | `tests/test_personality_drift.py::TestDetectDrift::test_owner_change_is_not_drift` |
+| P4.C5.4 | A rollback restores the earlier state | live | `tests/test_personality_drift.py::TestRollback::test_rollback_restores_value_and_clears_drift` |
+| P4.C5.5 | Golden tests run against promoted skills | retired: skill code execution removed (#504) | — |
+| P4.C5.6 | The regression suite catches broken skills | retired: skill code execution removed (#504) | — |
+| P4.C5.7 | The event log captures the system's events (every declared type is emitted) | live | `tests/test_event_log.py::test_every_declared_event_type_is_emitted_somewhere` |
+| P4.C5.8 | Events are pruned after 30 days | live | `tests/test_retention.py::TestEventsPrune::test_prune_events_drops_old_keeps_recent` |
