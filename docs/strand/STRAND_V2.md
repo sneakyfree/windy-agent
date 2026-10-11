@@ -16,7 +16,7 @@ tools, Vault). A row owned by another lane counts only after that lane confirms 
 
 Built in waves (strand-to-green plan, 2026-10-10): 5a set the frame plus Part 1 §4 and gene 0.3;
 5b1 added Part 1 §1-§3 and genes 0.1-0.2; 5b2 completes Part 1 (genes 0.4-0.9, checklist C0);
-5c1 starts Part 2 (genes 1.1-1.5); 5c2-5f fill in the rest; 5g adds the new genes.
+5c completes Part 2; 5d-5f fill in Parts 3-5; 5g adds the new genes.
 
 ## Part 1: Foundation and Phase 0
 
@@ -260,3 +260,65 @@ Built in waves (strand-to-green plan, 2026-10-10): 5a set the frame plus Part 1 
 | Codon | Promise | Status | Test |
 |---|---|---|---|
 | P2.15.1 | Phase 1 test files exist and pass; tag v0.2.0 | retired: properties of the suite and a one-time release step, not codons (#526) | — |
+
+### P2.21 Soul import (gene 2.1)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P2.21.1 | An OpenClaw export is read (soul, memories, skills) | live | `tests/test_soul_import.py::TestOpenClawParser::test_parses_soul` |
+| P2.21.2 | A Hermes export is read (MEMORY.md, skills) | live | `tests/test_soul_import.py::TestHermesParser::test_parses_memory_file` |
+| P2.21.3 | Hermes's SQLite store is read | planned: Windy Agent: the reader guesses table names and no test drives it; prove it on a real-shaped Hermes database or drop it | — |
+| P2.21.4 | A ChatGPT export is read for preferences and topics | live | `tests/test_soul_import.py::TestChatGPTParser::test_parses_conversations` |
+| P2.21.5 | ChatGPT's communication style is extracted | planned: Windy Agent: personality is always empty for ChatGPT exports | — |
+| P2.21.6 | The source is detected automatically | live | `tests/test_soul_import.py::TestSourceDetection::test_detects_openclaw` |
+| P2.21.7 | The Soul Preview shows what would be imported | live | `tests/test_soul_import.py::TestSoulPreview::test_format_preview` |
+| P2.21.8 | Without approval nothing is written | live | `tests/strand/test_p2_soul_truth.py::test_p2_21_preview_writes_nothing` |
+| P2.21.9 | Approved items are stored as low-confidence imports (0.5, imported_<source>, inferred) | live | `tests/strand/test_p2_soul_truth.py::test_p2_21_approved_items_are_stored_as_low_confidence_imports` |
+| P2.21.10 | Sensitive items are stored at 0.3, flagged for review; code skills are skipped, prose skills become unpromoted playbooks | live | `tests/strand/test_p2_soul_truth.py::test_p2_21_sensitive_items_are_flagged_and_code_skills_skipped` |
+| P2.21.11 | The owner can review flagged items | planned: Windy Agent: needs_review is stored but nothing reads it; the preview offers "review sensitive" with no flow behind it | — |
+| P2.21.12 | Imported personality (traits, humour, formality) is applied on approval | planned: Windy Agent: shown in the preview, then dropped by the importer | — |
+| P2.21.13 | The owner can start an import without a terminal | planned: Windy Agent: reachable only through the bridge and the gateway API; no command or dashboard page calls it | — |
+
+### P2.22 The cockpit: presets and sliders (gene 2.2)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P2.22.1 | Preset buddy sets its slider values | live | `tests/test_control_panel.py::TestPresets::test_apply_buddy` |
+| P2.22.2 | Preset engineer sets its slider values | live | `tests/test_control_panel.py::TestPresets::test_apply_engineer` |
+| P2.22.3 | Preset powerhouse sets its slider values | live | `tests/test_control_panel.py::TestPresets::test_apply_powerhouse` |
+| P2.22.4 | A preset persists | live | `tests/test_control_panel.py::TestPresets::test_preset_persists` |
+| P2.22.5 | /preset really applies | live | `tests/test_slider_preset_slash.py::test_preset_buddy_actually_applies` |
+| P2.22.6 | Sliders are range-checked | live | `tests/test_control_panel.py::TestSliders::test_value_too_low` |
+| P2.22.7 | Unknown slider names are refused | live | `tests/test_control_panel.py::TestSliders::test_invalid_slider_name` |
+| P2.22.8 | Sliders read back, with config defaults | live | `tests/test_control_panel.py::TestSliders::test_config_defaults` |
+| P2.22.9 | Monthly cost is estimated from the sliders | live | `tests/test_control_panel.py::TestCostEstimation::test_powerhouse_more_than_engineer` |
+| P2.22.10 | With raw mode off, the sliders shape the agent's tone | live | `tests/test_control_panel.py::test_turning_raw_off_hands_tone_back_to_the_sliders` |
+| P2.22.11 | /preset says when raw mode means the preset won't change the tone | planned: Windy Agent: raw mode is the default (Grant 07-25), so buddy and engineer give the same prompt while /preset still answers "applied" | — |
+
+### P2.23 Truth layer (gene 2.3)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P2.23.1 | Every remembered fact carries its label ([VERIFIED], [USER_STATED], [INFERRED], ...) | live | `tests/strand/test_p2_soul_truth.py::test_p2_23_every_fact_carries_its_label_at_low_strictness` |
+| P2.23.2 | Strictness above 7 drops inferred and speculative facts | live | `tests/strand/test_p2_soul_truth.py::test_p2_23_strictness_above_7_drops_inferred_and_speculative` |
+| P2.23.3 | Strictness above 9 keeps only verified and owner-stated facts | live | `tests/strand/test_p2_soul_truth.py::test_p2_23_strictness_above_9_keeps_only_verified_and_user_stated` |
+| P2.23.4 | The model is told to say how sure it is and to flag inferred facts | live | `tests/strand/test_p2_soul_truth.py::test_p2_23_the_model_is_told_to_say_how_sure_it_is` |
+
+### P2.24 "Never Wrong Twice" (gene 2.4)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P2.24.1 | A factual correction is detected | live | `tests/test_control_panel.py::TestFrictionDetection::test_detects_factual_error` |
+| P2.24.2 | Agreement is never mistaken for a correction | live | `tests/test_failure_detector_precision.py::TestFrictionPrecision::test_no_false_positive_on_agreement` |
+| P2.24.3 | Common corrections ("That is wrong", "Incorrect, it was ...", "Actually ...") are detected | planned: Windy Agent: the patterns were tuned for precision and miss these; widen them without breaking P2.24.2 | — |
+| P2.24.4 | Failures are logged and read back | live | `tests/test_memory.py::TestFailures::test_log_and_retrieve` |
+| P2.24.5 | Recurring failures are found over 7 days | live | `tests/test_memory.py::TestFailures::test_recurring_check` |
+| P2.24.6 | A correction reaches the model as a correction | live | `tests/strand/test_p2_soul_truth.py::test_p2_24_a_correction_reaches_the_model_as_a_correction` |
+| P2.24.7 | A recurring failure adds a stronger warning | live | `tests/test_control_panel.py::TestFrictionHandling::test_recurring_gives_extra_warning` |
+| P2.24.8 | Recurring corrections become lessons in the prompt | live | `tests/test_correction_skill_application.py::test_lessons_block_appears_when_skills_present` |
+
+### P2.25 Phase 2 tests and release (gene 2.5)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P2.25.1 | Phase 2 test files exist and pass; tag v0.3.0 | retired: properties of the suite and a one-time release step, not codons (#526) | — |
