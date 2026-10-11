@@ -8,6 +8,10 @@
   page still wrote it into new config files. All gone; a test now checks that every
   slider name the dashboard and gateway use is a real slider.
 
+- **`/decay` and the dashboard's decay button also fade old goals.** They ran only the
+  memory decay; the daily maintenance run also decayed intents. All three now do the
+  same thing.
+
 - **`/skills` works.** It imported two functions that never existed, so it always
   answered "Error". It now lists the promoted playbooks (`/skills all` for every one).
 

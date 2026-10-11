@@ -42,7 +42,6 @@ def _start_decay_scheduler(
 
     from windyfly.memory.database import Database
     from windyfly.memory.decay import run_decay
-    from windyfly.memory.intents import decay_intents
     from windyfly.memory.write_queue import WriteQueue
     from windyfly.personality.versioning import run_periodic_drift_check
 
@@ -58,12 +57,7 @@ def _start_decay_scheduler(
                 logger.info("Decay cycle complete: %s", counts)
             except Exception as e:
                 logger.error("Decay cycle failed: %s", e)
-            # Intents: stale ones (untouched 7+ days) lose decay score and
-            # get auto-paused below 0.3. Had no caller before 2026-10-10.
-            try:
-                decay_intents(decay_db, decay_wq)
-            except Exception as e:
-                logger.error("Intent decay failed: %s", e)
+            # (run_decay also decays intents: one cycle for the job, /decay and decay.run)
             try:
                 drift = run_periodic_drift_check(decay_db, decay_wq)
                 if drift.get("drift_detected"):
