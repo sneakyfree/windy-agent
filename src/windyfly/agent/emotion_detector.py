@@ -9,7 +9,6 @@ from __future__ import annotations
 import re
 
 from windyfly.memory.database import Database
-from windyfly.memory.episodes import get_recent_episodes
 
 STRESS_SIGNALS: list[str] = [
     r"(?i)(ugh|frustrated|annoying|this is (broken|stupid)|wtf|ffs)",
@@ -49,17 +48,29 @@ def get_emotional_trend(
     session_id: str,
     window: int = 5,
 ) -> str:
-    """Get the emotional trend over the last N episodes in a session.
+    """Get the emotional trend over the user's last N turns in a session.
+
+    Only the USER's episodes count: assistant episodes carry no emotion
+    (they read as neutral), so mixing them in broke every 3-in-a-row
+    stress run in a real, alternating session.
 
     Args:
         db: Database instance.
         session_id: Current session ID.
-        window: Number of recent episodes to analyze.
+        window: Number of recent user episodes to analyze.
 
     Returns:
         'sustained_stress', 'excited', or 'neutral'.
     """
-    recent = get_recent_episodes(db, limit=window, session_id=session_id)
+    recent = db.fetchall(
+        """
+        SELECT * FROM episodes
+        WHERE session_id = ? AND role = 'user'
+        ORDER BY created_at DESC, rowid DESC
+        LIMIT ?
+        """,
+        (session_id, window),
+    )
 
     emotional_counts: dict[str, int] = {"stressed": 0, "excited": 0, "neutral": 0}
     consecutive_stressed = 0

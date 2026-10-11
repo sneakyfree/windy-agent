@@ -55,3 +55,30 @@ class TestEmotionalTrend:
         trend = get_emotional_trend(db, "s1")
         assert trend == "neutral"  # Not consecutive enough
         db.close()
+
+    def test_sustained_stress_with_interleaved_assistant_turns(self):
+        """A real session alternates user and assistant episodes; the
+        assistant's (no emotion -> neutral) must not break the user's
+        stress run."""
+        db = Database(":memory:")
+        for i in range(3):
+            save_episode(db, "user", f"UGH broken {i}", session_id="s1",
+                         emotional_context="stressed")
+            save_episode(db, "assistant", f"Sorry about that {i}", session_id="s1")
+        assert get_emotional_trend(db, "s1", window=5) == "sustained_stress"
+        db.close()
+
+    def test_trend_window_counts_user_turns_only(self):
+        """Older stressed user turns beyond the window of USER turns do
+        not count, even with assistant turns in between."""
+        db = Database(":memory:")
+        for i in range(3):
+            save_episode(db, "user", f"stressed {i}", session_id="s1",
+                         emotional_context="stressed")
+            save_episode(db, "assistant", f"reply {i}", session_id="s1")
+        for i in range(3):
+            save_episode(db, "user", f"calm {i}", session_id="s1",
+                         emotional_context="neutral")
+            save_episode(db, "assistant", f"reply calm {i}", session_id="s1")
+        assert get_emotional_trend(db, "s1", window=3) == "neutral"
+        db.close()

@@ -79,6 +79,15 @@
   that point stays unapplied (the old value remains); choosing "new" in the
   old version does not apply it, so upgrade again and choose there.
 
+- **Intents now infer, decay, and stress trends are seen.** The model-based
+  intent guess (which fills the Intent Inbox, `/intents`) crashed silently on
+  every try because of a prompt formatting bug; it is fixed, but it adds one
+  small model call on most turns, so it stays off unless you set
+  `WINDY_INTENT_LLM=1`. Stale intents now lose weight and get paused by the
+  daily maintenance run (that step was never called before). The mood trend
+  now looks only at your own messages, so three stressed messages in a row
+  count as sustained stress even with the agent's replies in between.
+
 ## 0.7.6
 
 - **The agent tells Eternitas which machine it lives on (housing report, ON).**
