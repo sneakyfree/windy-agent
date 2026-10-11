@@ -56,15 +56,14 @@ from windyfly.agent.setup_status import get_setup_status
 logger = logging.getLogger(__name__)
 
 
-# Where the bot's runtime env vars live. Default works for the Windy 0
-# systemd-user deployment; override with WINDY_ENV_FILE for other
-# layouts (macOS launchd, dev shell, tests).
-_DEFAULT_ENV_FILE = Path(
-    os.environ.get(
-        "WINDY_ENV_FILE",
-        str(Path.home() / ".windy" / "windy-0.env"),
-    )
-)
+# Where a saved credential goes: the env file the runtime LOADS (WINDY_ENV_FILE,
+# else the project .env; see bring_home.env_file_path). Resolved per call, not at
+# import. This used to default to ~/.windy/windy-0.env, which an install without
+# WINDY_ENV_FILE never loads: a token saved from chat was gone at the next restart.
+def _default_env_file() -> Path:
+    from windyfly.bring_home import env_file_path
+
+    return env_file_path()
 
 
 # Per-integration walkthroughs. Returned to the LLM as structured
@@ -388,7 +387,7 @@ def _save_credential_handler(
         }
 
     # Persist to env file + hot-load into running process.
-    target = env_file or _DEFAULT_ENV_FILE
+    target = env_file or _default_env_file()
     try:
         _atomic_upsert_env_var(target, saver["env_var"], value)
     except OSError as e:
