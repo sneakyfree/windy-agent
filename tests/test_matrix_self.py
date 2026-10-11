@@ -125,3 +125,29 @@ async def test_matrix_login_publishes_the_confirmed_id(monkeypatch):
     with patch.object(matrix_self.httpx, "get", side_effect=AssertionError("no network")):
         assert own_matrix_id() == _ME
     db.close()
+
+
+def test_failed_whoami_is_not_retried_for_30_seconds(monkeypatch):
+    """Hub (#513 note): a down homeserver costs one 5 s wait per 30 s, not one per call."""
+    monkeypatch.setenv("MATRIX_HOMESERVER", "https://chat.example.test")
+    monkeypatch.setenv("MATRIX_BOT_TOKEN", "tok")
+    clock = [1000.0]
+    monkeypatch.setattr(matrix_self.time, "monotonic", lambda: clock[0])
+    with patch.object(matrix_self.httpx, "get", side_effect=httpx.ConnectError("down")) as get:
+        assert own_matrix_id() == ""
+        clock[0] += 29.0
+        assert own_matrix_id() == ""
+        assert get.call_count == 1
+        clock[0] += 2.0
+        assert own_matrix_id() == ""
+        assert get.call_count == 2
+
+
+def test_login_clears_a_cached_failure(monkeypatch):
+    monkeypatch.setenv("MATRIX_HOMESERVER", "https://chat.example.test")
+    monkeypatch.setenv("MATRIX_BOT_TOKEN", "tok")
+    with patch.object(matrix_self.httpx, "get", side_effect=httpx.ConnectError("down")):
+        assert own_matrix_id() == ""
+    set_confirmed(_ME)
+    with patch.object(matrix_self.httpx, "get", side_effect=AssertionError("no network")):
+        assert own_matrix_id() == _ME

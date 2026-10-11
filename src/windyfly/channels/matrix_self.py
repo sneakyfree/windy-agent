@@ -12,23 +12,32 @@ import: the whoami happens on the first call.
 from __future__ import annotations
 
 import os
+import time
 
 import httpx
 
 _WHOAMI_TIMEOUT = 5.0
+# After a failed whoami, answer "" without asking again for this long, so a
+# down homeserver costs at most one 5 s wait per 30 s instead of one per call.
+_FAILED_WHOAMI_TTL = 30.0
 _confirmed: str | None = None
+_failed_until = 0.0
 
 
 def set_confirmed(user_id: str | None) -> None:
     """The Matrix channel calls this after login with the id the homeserver confirmed."""
-    global _confirmed
+    global _confirmed, _failed_until
     _confirmed = (user_id or "").strip() or None
+    _failed_until = 0.0
 
 
 def own_matrix_id() -> str:
     """This agent's own Matrix user id, or "" when there is no way to know it."""
+    global _failed_until
     if _confirmed:
         return _confirmed
+    if time.monotonic() < _failed_until:
+        return ""
     homeserver = os.environ.get("MATRIX_HOMESERVER", "").rstrip("/")
     token = os.environ.get("MATRIX_BOT_TOKEN", "")
     if homeserver and token:
@@ -44,4 +53,5 @@ def own_matrix_id() -> str:
         if isinstance(user_id, str) and user_id.strip():
             set_confirmed(user_id)
             return user_id.strip()
+        _failed_until = time.monotonic() + _FAILED_WHOAMI_TTL
     return ""
