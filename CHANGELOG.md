@@ -83,10 +83,19 @@
   intent guess (which fills the Intent Inbox, `/intents`) crashed silently on
   every try because of a prompt formatting bug; it is fixed, but it adds one
   small model call on most turns, so it stays off unless you set
-  `WINDY_INTENT_LLM=1`. Stale intents now lose weight and get paused by the
-  daily maintenance run (that step was never called before). The mood trend
-  now looks only at your own messages, so three stressed messages in a row
-  count as sustained stress even with the agent's replies in between.
+  `WINDY_INTENT_LLM=1`. The mood trend now looks only at your own messages,
+  so three stressed messages in a row count as sustained stress even with the
+  agent's replies in between.
+- **Old goals fade on their own (daily maintenance; that step was never
+  called before).** Once a day, an active intent nobody has mentioned for 7
+  days loses 5% of its weight; below 0.3 it is paused, so roughly a month
+  after it was last mentioned. Mentioning it again resets it to full weight.
+  What changes: a paused intent no longer shows in the dashboard's active
+  list or the active counts (dashboard, `windy status`), and it is no longer
+  passed to a collaborator you allowed to see your goals. `/intents` (the
+  last 24 hours of new guesses) is not affected. It stays in the database as
+  paused and is never deleted. The agent's own prompt does not include
+  intents, so nothing in its replies changes, with raw mode on or off.
 
 ## 0.7.6
 

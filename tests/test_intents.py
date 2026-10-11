@@ -17,6 +17,7 @@ from windyfly.memory.intents import (
     get_intent,
     pause_intent,
     surface_pending_intents,
+    touch_intent,
 )
 
 
@@ -161,6 +162,73 @@ class TestLLMIntentPath:
 
         monkeypatch.setattr("windyfly.agent.models.call_llm", _boom)
         assert detect_intent(self._MSG, proactivity=4) is None
+
+
+class TestTouchIntent:
+    """Mentioning an active intent again keeps it fresh, so decay never
+    pauses a goal the owner keeps bringing up."""
+
+    def _age(self, db, intent_id, days, score):
+        db.execute(
+            "UPDATE intents SET decay_score = ?, "
+            "last_touched = datetime('now', ?) WHERE id = ?",
+            (score, f"-{days} days", intent_id),
+        )
+        db.commit()
+
+    def test_touch_resets_score_and_clock(self):
+        db = Database(":memory:")
+        iid = create_intent(db, "Learn to bake bread")
+        self._age(db, iid, 20, 0.4)
+        touch_intent(db, iid)
+        row = get_intent(db, iid)
+        assert row is not None and row["decay_score"] == 1.0
+        recent = db.fetchone(
+            "SELECT last_touched > datetime('now', '-1 minute') AS fresh FROM intents WHERE id = ?",
+            (iid,),
+        )
+        assert recent is not None and recent["fresh"] == 1
+        db.close()
+
+    def test_touch_does_not_revive_a_paused_intent(self):
+        db = Database(":memory:")
+        iid = create_intent(db, "Old plan")
+        pause_intent(db, iid)
+        self._age(db, iid, 40, 0.2)
+        touch_intent(db, iid)
+        row = get_intent(db, iid)
+        assert row is not None and row["status"] == "paused" and row["decay_score"] == 0.2
+        db.close()
+
+    def test_touched_intent_survives_the_decay_run(self):
+        from windyfly.memory.intents import decay_intents
+        from windyfly.memory.write_queue import WriteQueue
+
+        db = Database(":memory:")
+        kept = create_intent(db, "Goal mentioned again")
+        stale = create_intent(db, "Goal never mentioned")
+        self._age(db, kept, 30, 0.31)
+        self._age(db, stale, 30, 0.31)
+        touch_intent(db, kept)
+
+        wq = WriteQueue()
+        wq.start()
+        try:
+            decay_intents(db, wq)
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                row = get_intent(db, stale)
+                if row is not None and row["status"] == "paused":
+                    break
+                time.sleep(0.05)
+        finally:
+            wq.stop()
+
+        stale_row, kept_row = get_intent(db, stale), get_intent(db, kept)
+        assert stale_row is not None and stale_row["status"] == "paused"
+        assert kept_row is not None and kept_row["status"] == "active"
+        assert kept_row["decay_score"] == 1.0
+        db.close()
 
 
 class _StopLoop(BaseException):

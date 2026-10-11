@@ -1844,10 +1844,13 @@ def _agent_respond_turn(
     proactivity = loop_sliders.get("proactivity", 5)
     intent = detect_intent(user_message, config=config, proactivity=proactivity)
     if intent and intent.get("has_intent"):
-        # Dedup: don't create if a similar active intent already exists
-        from windyfly.memory.intents import find_similar_intent
+        # Dedup: don't create if a similar active intent already exists;
+        # mentioning it again keeps it fresh so daily decay never pauses it.
+        from windyfly.memory.intents import find_similar_intent, touch_intent
         existing = find_similar_intent(db, intent["description"])
-        if not existing:
+        if existing:
+            write_queue.enqueue(Priority.MEDIUM, touch_intent, db, existing["id"])
+        else:
             write_queue.enqueue(
                 Priority.MEDIUM,
                 create_intent,
