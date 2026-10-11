@@ -1535,6 +1535,7 @@ def _agent_respond_turn(
                 messages, model=model, temperature=temperature,
                 max_tokens=max_tokens, tools=tools, config=config,
                 reasoning_depth=loop_sliders.get("reasoning_depth", 5),
+                session_id=session_id,
             )
             response_text = result["content"]
             input_tokens += result["input_tokens"]
@@ -1630,6 +1631,7 @@ def _agent_respond_turn(
             followup = call_llm(
                 messages, model=model, temperature=temperature,
                 max_tokens=max_tokens, tools=tools, config=config,
+                session_id=session_id,
             )
             response_text = followup["content"]
             input_tokens += followup["input_tokens"]
@@ -1690,6 +1692,7 @@ def _agent_respond_turn(
             retry = call_llm(
                 messages, model=model, temperature=temperature,
                 max_tokens=max_tokens, tools=tools, config=config,
+                session_id=session_id,
             )
             retry_text = retry["content"]
             input_tokens += retry["input_tokens"]
