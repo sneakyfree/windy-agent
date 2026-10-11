@@ -14,17 +14,14 @@ around nio just to send one event is a lot of moving parts. The
 Matrix REST API (``PUT /_matrix/client/v3/rooms/{id}/send/...``) is
 sync-callable via httpx and uses the same access token the bot does.
 
-E2E encryption note: messages sent via REST are NOT encrypted. For
-the ballroom-demo tier and the agent's "I just emailed Bob, also
-sending you a chat note" pattern, that's acceptable — these messages
-are status updates, not secrets. v1 should add encrypted-room
-detection and either route through the daemon or refuse encrypted
-sends with a clear error.
+Encryption note: Windy Fly does not do Matrix end-to-end encryption
+(no olm in this build), so messages sent here are unencrypted, like
+every message the agent sends.
 
 Environment:
     MATRIX_HOMESERVER     — e.g. https://chat.windychat.ai
-    MATRIX_BOT_USER       — e.g. @grant-fly:windyword.ai
-    MATRIX_BOT_TOKEN      — Matrix access token
+    MATRIX_BOT_TOKEN      — Matrix access token (it IS the agent's
+                            identity; MATRIX_BOT_USER is not needed)
     MATRIX_DM_ROOM        — (optional) default room for the agent's
                             owner DM. If unset, ``to_room`` is required.
 """
