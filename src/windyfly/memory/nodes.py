@@ -38,7 +38,9 @@ def upsert_node(
     Before updating an existing node, checks for a conflict. A contradicting
     update is HELD, not applied: the node keeps its current value and the
     proposed one waits in the conflicts table until the owner chooses
-    (``conflict_detector.resolve_conflict``). The agent's own records
+    (``conflict_detector.resolve_conflict``). The owner's own direct words
+    (``OWNER_DIRECT_SOURCES``: /remember, facts from an owner turn) apply at
+    once; the owner is the chooser. The agent's own records
     (turnover letters, journal days, self-assessments) are rewritten as before.
 
     Returns:
@@ -57,10 +59,11 @@ def upsert_node(
 
         from windyfly.memory.conflict_detector import (
             AGENT_RECORD_TYPES,
+            OWNER_DIRECT_SOURCES,
             check_for_conflict,
         )
         conflict = None
-        if type not in AGENT_RECORD_TYPES:
+        if type not in AGENT_RECORD_TYPES and source not in OWNER_DIRECT_SOURCES:
             conflict = check_for_conflict(
                 db, type, name, metadata_json or "",
                 scope_id=scope_id,

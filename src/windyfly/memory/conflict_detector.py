@@ -26,6 +26,13 @@ from windyfly.memory.database import Database
 # A turnover letter or a re-composed journal day is not a contradiction.
 AGENT_RECORD_TYPES = frozenset({"turnover_letter", "chronicle_journal", "self_assessment"})
 
+# The owner's own direct words: the owner IS the chooser, so these apply at once and are never
+# held. user_explicit = /remember (commands are owner-only); owner_stated = facts read from an
+# OWNER-band turn. Everything else (other senders' messages, mail, SMS, imports, the agent's
+# inferences) is held when it contradicts. Sources are code constants: no tool lets the model
+# set one.
+OWNER_DIRECT_SOURCES = frozenset({"user_explicit", "owner_stated"})
+
 PENDING = "pending"          # held: the node still has the old value
 LEGACY_UNRESOLVED = "unresolved"  # pre-migration-15 row: the new value was already applied
 _OPEN_STATUSES = (PENDING, LEGACY_UNRESOLVED)
