@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **A token saved from chat survives a restart on every install.** Setting up Cloudflare or
+  GitHub from chat wrote the token to `~/.windy/windy-0.env`, a file only Windy 0 loads, so
+  on any other install it was gone at the next restart. It now goes to the env file the
+  agent actually loads (`WINDY_ENV_FILE`, else the project `.env`). Windy 0 is unchanged
+  (it sets `WINDY_ENV_FILE`).
+
 - **Provider keys live in one place: your agent's private env file.** The old dashboard's
   hidden Providers page (`index.legacy.html`, linked from nowhere) and its own key files are
   gone, with all 15 `/api/providers` routes and the OpenRouter sign-in. The agent never used

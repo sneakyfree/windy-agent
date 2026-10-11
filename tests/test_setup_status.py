@@ -568,3 +568,51 @@ def test_setup_module_registers_three_capabilities():
     # OWNER since 2026-07-30 — saving a credential changes WHOSE
     # accounts the agent acts on, which is ownership, not work.
     assert registry.get("setup.save_credential").band_required == Band.OWNER
+
+
+def _fake_cloudflare_savers(setup_mod):
+    return {
+        **setup_mod._SAVERS,
+        "cloudflare": {**setup_mod._SAVERS["cloudflare"], "validator": lambda v: (True, None, {})},
+    }
+
+
+def test_save_credential_writes_the_env_file_the_runtime_loads(tmp_path, monkeypatch):
+    """Without WINDY_ENV_FILE the runtime loads the project .env (main.py). A token saved
+    from chat used to go to ~/.windy/windy-0.env, which such an install never loads:
+    gone at the next restart."""
+    from unittest.mock import patch
+    from windyfly.agent.capabilities import setup as setup_mod
+
+    project = tmp_path / "project"
+    project.mkdir()
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("WINDY_ENV_FILE", raising=False)
+    monkeypatch.delenv("CLOUDFLARE_API_TOKEN", raising=False)
+    monkeypatch.setattr("windyfly.platform.get_project_root", lambda: project)
+
+    with patch.object(setup_mod, "_SAVERS", _fake_cloudflare_savers(setup_mod)):
+        out = setup_mod._save_credential_handler(
+            integration="cloudflare", value="cfat_TESTtokenABCDEFGHIJKLMNOPQRSTU")
+
+    assert out["ok"] is True
+    assert out["env_file"] == str(project / ".env")
+    assert "CLOUDFLARE_API_TOKEN=cfat_TESTtokenABCDEFGHIJKLMNOPQRSTU" in (project / ".env").read_text()
+    assert not (tmp_path / "home" / ".windy" / "windy-0.env").exists()
+
+
+def test_save_credential_honours_windy_env_file_set_after_import(tmp_path, monkeypatch):
+    """The path is resolved per call, not once at import."""
+    from unittest.mock import patch
+    from windyfly.agent.capabilities import setup as setup_mod
+
+    target = tmp_path / "agent.env"
+    monkeypatch.setenv("WINDY_ENV_FILE", str(target))
+    monkeypatch.delenv("CLOUDFLARE_API_TOKEN", raising=False)
+
+    with patch.object(setup_mod, "_SAVERS", _fake_cloudflare_savers(setup_mod)):
+        out = setup_mod._save_credential_handler(
+            integration="cloudflare", value="cfat_TESTtokenABCDEFGHIJKLMNOPQRSTU")
+
+    assert out["env_file"] == str(target)
+    assert "CLOUDFLARE_API_TOKEN=" in target.read_text()
