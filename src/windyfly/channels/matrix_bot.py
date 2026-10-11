@@ -317,6 +317,27 @@ class WindyFlyMatrixBot(ChannelAdapter):
             logger.error("Re-login attempt failed: %s", exc)
             return False
 
+    async def _turn_budget_hit(self, room: nio.MatrixRoom, other_name: str) -> None:
+        """Once per budget episode: one event, and one plain line to the owner in their own room
+        (never in the looping room, where it would be one more message for the other agent)."""
+        from windyfly.channels import turn_budget as _budget
+        from windyfly.observability.events import log_event
+
+        ref = _budget.room_ref(room.room_id)
+        log_event(self.db, self.write_queue, "agent.turn_budget_hit",
+                  {"room": ref, "limit": _budget.limit(), "window_s": int(_budget.window_s())})
+        owner_room = self._hatch_dm_room_id
+        if not owner_room or owner_room == room.room_id:
+            logger.warning("turn budget reached in room %s; no separate owner room to tell", ref)
+            return
+        try:
+            await self.client.room_send(owner_room, "m.room.message", {
+                "msgtype": "m.text", "windy_original": True,
+                "body": _budget.owner_notice(other_name or "another agent",
+                                             getattr(room, "display_name", None) or "a shared room")})
+        except Exception as e:
+            logger.error("turn budget owner notice failed: %s", e)
+
     async def _on_message(
         self,
         room: nio.MatrixRoom,
@@ -405,6 +426,20 @@ class WindyFlyMatrixBot(ChannelAdapter):
                         logger.error("agents-off notice failed: %s", e)
                 return
 
+        # Agent-to-agent turn budget (10-11 loop incident): a human message resets it; past it, an
+        # agent's message is dropped BEFORE any command or model work, and the owner is told once.
+        from windyfly.channels import turn_budget as _budget
+
+        from_agent = _parity.passport_of(sender) is not None
+        if not from_agent:
+            _budget.human_spoke(room_id)
+        elif not _budget.allow(room_id):
+            logger.info("turn budget: no reply to agent %s in room %s (%d per %ds, no human since)",
+                        sender, _budget.room_ref(room_id), _budget.limit(), int(_budget.window_s()))
+            if _budget.first_block(room_id):
+                await self._turn_budget_hit(room, display_name)
+            return
+
         logger.info(
             "Message from %s in %s: %s",
             display_name, room_id, body[:100],
@@ -426,6 +461,8 @@ class WindyFlyMatrixBot(ChannelAdapter):
                     {"msgtype": "m.text", "body": cmd_response, "windy_original": True,
                      COMMAND_REPLY_KEY: True},
                 )
+                if from_agent:
+                    _budget.record(room_id)
             except Exception as e:
                 logger.error("Failed to send command response to %s: %s", room_id, e)
             return
@@ -527,6 +564,8 @@ class WindyFlyMatrixBot(ChannelAdapter):
                 "m.room.message",
                 content,
             )
+            if agent_sender:
+                _budget.record(room_id)
         except Exception as e:
             logger.error("Failed to send response to %s: %s", room_id, e)
             self._pending_responses.append((room_id, response_text))
