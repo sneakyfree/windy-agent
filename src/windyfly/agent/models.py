@@ -792,6 +792,18 @@ PAUSE_RECHECK_S = 30.0
 _paused: dict[str, Any] = {}          # {"reason": str, "since": float} while stopped
 _pause_checked: dict[str, float] = {"at": 0.0}
 _last_mind_stop: str | None = None    # set by the Mind call; raised by call_llm
+# Mind could not READ the owner's pause switch (503 grant_unavailable, Mind #401). The stop may
+# be in force, so this FAILS CLOSED (Hub 10-12): no lifeboat, no resurrect, no provider key.
+_last_mind_unreadable = False         # set by the Mind call; raised by call_llm
+_PAUSE_UNREADABLE_WAIT_MAX_S = 30.0
+
+
+class MindPauseUnreadable(RuntimeError):
+    """Mind could not read whether the owner has this agent switched off. Never fall back:
+    the loop says one plain line and answers nothing (Hub 10-12)."""
+
+    def __init__(self) -> None:
+        super().__init__("Windy Mind could not read this agent's pause switch")
 
 
 class AgentPausedByOwner(RuntimeError):
@@ -813,6 +825,13 @@ def _mind_stop_reason(status: int, headers: Any) -> str | None:
     if err == "grant_off" or (get("x-mind-breaker-owner") or "").strip().lower() == "self":
         return (get("x-mind-grant-reason") or "").strip() or "paused by its owner"
     return None
+
+
+def _pause_unreadable(resp: Any) -> bool:
+    """True if Mind answered 503 grant_unavailable: it could not read the owner's pause switch."""
+    return (getattr(resp, "status_code", 0) == 503
+            and str((getattr(resp, "headers", None) or {}).get("x-mind-error") or "").strip().lower()
+            == "grant_unavailable")
 
 
 def _latch_pause(reason: str) -> None:
@@ -952,8 +971,9 @@ def _try_mind_broker(
     A passport agent always goes through Mind (the old Anthropic Max-OAuth bypass, ADR-022
     exception #1, is gone for Windy agents: Boss 10-07, Max is reachable through Mind).
     """
-    global _last_mind_failure
+    global _last_mind_failure, _last_mind_unreadable
     _last_mind_failure = None  # this call's outcome only; a no-op leaves it None
+    _last_mind_unreadable = False
     import os
 
     ept = os.environ.get("ETERNITAS_PASSPORT_TOKEN") or os.environ.get(
@@ -1017,6 +1037,23 @@ def _try_mind_broker(
             resp = mind_auth.post(
                 f"{mind_url}/v1/chat", ept, retry_body, 30.0,
             )
+        if _pause_unreadable(resp):
+            # Mind could not read the owner's pause switch and spent nothing. The contract says
+            # wait Retry-After and try once more; still unreadable = stop here: no cool-down
+            # (Mind is not broken) and no fallback of any kind (the owner's stop may be on).
+            try:
+                wait = float(resp.headers.get("retry-after") or _PAUSE_UNREADABLE_WAIT_MAX_S)
+            except (TypeError, ValueError):
+                wait = _PAUSE_UNREADABLE_WAIT_MAX_S
+            wait = max(1.0, min(wait, _PAUSE_UNREADABLE_WAIT_MAX_S))
+            logger.warning("Windy Mind could not read the pause switch; trying once more in %.0fs", wait)
+            time.sleep(wait)
+            resp = mind_auth.post(f"{mind_url}/v1/chat", ept, body, 30.0)
+            if _pause_unreadable(resp):
+                _last_mind_failure = "mind grant_unavailable"
+                _last_mind_unreadable = True
+                logger.warning("Windy Mind still cannot read the pause switch; holding off (no fallback)")
+                return None
         if resp.status_code in _MIND_BUSY:
             # Busy, not broken (Mind 2026-09-24: free quotas spent, a lane
             # down). One retry after a short wait usually lands, and beats a
@@ -1426,6 +1463,8 @@ def call_llm(
         mind_note = _last_mind_failure if mind_resp is None else None
         if mind_resp is None and _last_mind_stop:
             raise AgentPausedByOwner(_last_mind_stop)
+        if mind_resp is None and _last_mind_unreadable:
+            raise MindPauseUnreadable()
         if mind_resp is not None:
             mind_model = mind_resp.get("mind_model") or model or ""
             fields = _cost_fields(mind_resp, mind_model, "metered")
