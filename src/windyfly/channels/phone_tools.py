@@ -9,6 +9,8 @@ A tool call sends ``ai.windy.tool_request`` and returns at once: nio runs sync c
 that waited for the phone would freeze every room. A poller reads ``/relations/{request}/m.reference`` for
 ``ai.windy.tool_started`` / ``ai.windy.tool_result`` from the owner, then runs ONE follow-up owner turn carrying
 the result (facts only) or the timeout. After reading, it redacts the result, the started event and its own request.
+That is phone-tools 1.1.0 (windy-contracts #142): the result turn has no tools, and while the agent is stopped or
+Mind's switch cannot be read it posts nothing (loop._phone_result_turn).
 
 Dark: needs WINDY_PHONE_TOOLS=1. Not live for anyone until privacy v24 + Grant's word + a lab-phone proof (Boss).
 """
