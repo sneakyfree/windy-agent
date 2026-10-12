@@ -579,24 +579,6 @@ SendGrid inbound email webhook. Parses email and generates a response.
 { "response": "Of course! Here's what I'd suggest..." }
 ```
 
-### `POST /api/email/send`
-
-Send an outbound email.
-
-**Request:**
-```json
-{
-  "to": "user@example.com",
-  "subject": "Follow-up on your project",
-  "body": "Here are the details we discussed..."
-}
-```
-
-**Response:**
-```json
-{ "status": "sent" }
-```
-
 ---
 
 ## Soul Passport

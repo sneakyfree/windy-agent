@@ -931,17 +931,6 @@ async function handleRequest(req: Request, server: import("bun").Server<any>): P
       }
     }
 
-    // Email send (outbound)
-    if (path === "/api/email/send" && req.method === "POST") {
-      const body = (await req.json()) as { to: string; subject: string; body: string };
-      try {
-        const result = await bridge.call("email.send", body);
-        return Response.json(result, { headers });
-      } catch {
-        return Response.json({ error: "Brain offline", _offline: true }, { status: 503, headers });
-      }
-    }
-
     // Journal entries
     if (path === "/api/journal" && req.method === "GET") {
       try {

@@ -191,7 +191,6 @@ class UDSBridge:
             "sms.inbound": self._handle_sms_inbound,
             "sms.send": self._handle_sms_send,
             "email.inbound": self._handle_email_inbound,
-            "email.send": self._handle_email_send,
             "journal.list": self._handle_journal_list,
             "assessment.run": self._handle_assessment_run,
             # --- Group 1: Personality versioning ---
@@ -410,17 +409,6 @@ class UDSBridge:
             params.get("text", params.get("plain", params.get("body", ""))),
         )
         return {"response": response}
-
-    async def _handle_email_send(self, params: dict) -> dict:
-        # The one send path (Hub, 10-02): the agent's own Windy Mail mailbox through
-        # Mail's /send, with the AI footer, the trust gate and the rate limiter.
-        # Was a SendGrid sender with its own From address.
-        from windyfly.tools.mail import _send_email_now
-        return _send_email_now(
-            params.get("to", ""),
-            params.get("subject", ""),
-            params.get("body", ""),
-        )
 
     async def _handle_journal_list(self, params: dict) -> dict:
         from windyfly.memory.nodes import get_nodes_by_type
