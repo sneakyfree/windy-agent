@@ -952,8 +952,6 @@ class WindyFlyMatrixBot(ChannelAdapter):
 
     async def _phone_loop(self) -> None:
         """phone-tools.v1: read the phone's answers off the sync loop; each answer or timeout = one owner turn."""
-        from windyfly.agent.capabilities import Band
-        from windyfly.agent.executor import run_turn
         from windyfly.channels import phone_tools as _phone
 
         # Restart sweep: phone events left in 2-member rooms by requests this process no longer tracks.
@@ -972,20 +970,29 @@ class WindyFlyMatrixBot(ChannelAdapter):
             except Exception as e:  # a poll failure must never take the bot down
                 logger.warning("phone tools poll failed: %s", e)
                 followups = []
-            for room_id, owner, stub, data in followups:
-                session_id = self._room_sessions.setdefault(room_id, str(uuid.uuid4()))
-                try:
-                    # The answer turn: no tools, the data quoted for this one model call, only the stub stored.
-                    _phone.mark_data_turn(session_id, data or "")
-                    reply = await run_turn(agent_respond, self.config, self.db, self.write_queue,
-                                           stub, session_id, self.tool_registry, band=Band.OWNER)
-                    await self.client.room_send(room_id, "m.room.message", {
-                        "msgtype": "m.text", "body": str(reply), "windy_original": True})
-                except Exception as e:
-                    logger.error("phone tools follow-up turn failed: %s", e)
-                finally:
-                    _phone.clear_turn(session_id)
+            for room_id, _owner, stub, data in followups:
+                await self._run_result_turn(room_id, stub, data)
             await asyncio.sleep(2 if _phone.pending() else 5)
+
+    async def _run_result_turn(self, room_id: str, stub: str, data: str | None) -> None:
+        """One phone result turn (phone-tools 1.1.0): no tools, the data quoted for this one model call,
+        only the stub stored; an empty answer (stopped, or Mind's switch unreadable) posts NOTHING."""
+        from windyfly.agent.capabilities import Band
+        from windyfly.agent.executor import run_turn
+        from windyfly.channels import phone_tools as _phone
+
+        session_id = self._room_sessions.setdefault(room_id, str(uuid.uuid4()))
+        try:
+            _phone.mark_data_turn(session_id, data or "")
+            reply = await run_turn(agent_respond, self.config, self.db, self.write_queue,
+                                   stub, session_id, self.tool_registry, band=Band.OWNER)
+            if reply:
+                await self.client.room_send(room_id, "m.room.message", {
+                    "msgtype": "m.text", "body": str(reply), "windy_original": True})
+        except Exception as e:
+            logger.error("phone tools follow-up turn failed: %s", e)
+        finally:
+            _phone.clear_turn(session_id)
 
     async def start(self) -> None:
         """Start the bot: login, register callbacks, sync forever with reconnection."""

@@ -517,12 +517,23 @@ def _reset_pause_unreadable_for_tests() -> None:
         _pause_unreadable_said.clear()
 
 
+def _phone_result_turn(session_id: str) -> bool:
+    """True while this turn carries a phone tool_result (phone-tools 1.1.0): nobody just spoke."""
+    from windyfly.channels import phone_tools as _phone
+
+    return _phone.turn_data(session_id) is not None
+
+
 def _pause_unreadable_answer(session_id: str) -> str:
     """No model, no tools, no lifeboat: the pinned line once per window, "" otherwise."""
     from windyfly.channels import silence as _silence
 
     if _silence.is_agent_sender(session_id):
         logger.info("[req:%s] pause switch unreadable: no reply to another agent", request_id_short())
+        return ""
+    if _phone_result_turn(session_id):
+        # phone-tools 1.1.0 clause 4: a result turn posts nothing while the switch is unreadable.
+        logger.info("[req:%s] pause switch unreadable: phone result turn posts nothing", request_id_short())
         return ""
     now = time.time()
     with _pause_unreadable_lock:
@@ -542,6 +553,10 @@ def _paused_answer(session_id: str) -> str:
 
     if _silence.is_agent_sender(session_id):
         logger.info("[req:%s] stopped by owner: no reply to another agent", request_id_short())
+        return ""
+    if _phone_result_turn(session_id):
+        # phone-tools 1.1.0 clause 4: a result turn posts nothing while the agent is stopped.
+        logger.info("[req:%s] stopped by owner: phone result turn posts nothing", request_id_short())
         return ""
     return owner_paused_reply()
 
