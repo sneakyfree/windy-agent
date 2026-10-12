@@ -46,13 +46,13 @@ def _unb64(s: str) -> bytes:
         raise LeaseDecryptError("malformed lease") from exc
 
 
-def _field(header: dict[str, object], name: str) -> bytes:
-    v = header.get(name)
-    return _unb64(v) if isinstance(v, str) else b""
+def decrypt_lease(compact: str, key_for_kid: Callable[[str], X25519PrivateKey | None],
+                  lease_kid: str | None = None) -> str:
+    """Return the lease value. ``key_for_kid`` is ``lease_key.private_for`` (None if not held).
+    ``lease_kid`` is the Lease.kid Vault sends beside the JWE: it must equal the header's kid.
 
-
-def decrypt_lease(compact: str, key_for_kid: Callable[[str], X25519PrivateKey | None]) -> str:
-    """Return the lease value. ``key_for_kid`` is ``lease_key.private_for`` (None if not held)."""
+    Refused like Vault's reference decrypt: any alg/enc but ECDH-ES+A256KW/A256GCM, zip or crit,
+    apu or apv, an epk that is not OKP/X25519 with 32 bytes, an all-zero shared secret."""
     parts = compact.strip().split(".")
     if len(parts) != 5 or not all(parts[i] for i in (0, 1, 2, 3)):
         raise LeaseDecryptError("malformed lease")
@@ -63,23 +63,29 @@ def decrypt_lease(compact: str, key_for_kid: Callable[[str], X25519PrivateKey | 
         raise LeaseDecryptError("malformed lease") from exc
     if not isinstance(header, dict) or header.get("alg") != ALG or header.get("enc") != ENC:
         raise LeaseDecryptError("unsupported lease algorithm")
+    if any(name in header for name in ("zip", "crit", "apu", "apv")):
+        raise LeaseDecryptError("unsupported lease header")
     kid = header.get("kid")
     if not isinstance(kid, str) or not kid:
         raise LeaseDecryptError("malformed lease")
+    if lease_kid is not None and lease_kid != kid:
+        raise LeaseDecryptError("the lease's kid does not match its header")
     priv = key_for_kid(kid)
     if priv is None:
         raise UnknownLeaseKey(kid)
     epk = header.get("epk")
     if (not isinstance(epk, dict) or epk.get("kty") != "OKP" or epk.get("crv") != "X25519"
-            or not isinstance(epk.get("x"), str)):
+            or not isinstance(epk.get("x"), str) or len(_unb64(epk["x"])) != 32):
         raise LeaseDecryptError("malformed lease")
     try:
         shared = priv.exchange(X25519PublicKey.from_public_bytes(_unb64(epk["x"])))
+        if shared == bytes(32):                      # a low-order point: refuse, never use it
+            raise LeaseDecryptError("lease could not be opened")
         # RFC 7518 4.6.2 Concat KDF: AlgorithmID = alg (the key wrap), 256-bit KEK.
         def lv(b: bytes) -> bytes:
             return len(b).to_bytes(4, "big") + b
 
-        other = lv(ALG.encode("ascii")) + lv(_field(header, "apu")) + lv(_field(header, "apv"))
+        other = lv(ALG.encode("ascii")) + lv(b"") + lv(b"")     # apu/apv are refused above
         other += (256).to_bytes(4, "big")
         kdf = ConcatKDFHash(algorithm=hashes.SHA256(), length=32, otherinfo=other)
         kek = kdf.derive(shared)
