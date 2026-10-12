@@ -137,8 +137,12 @@ def _send_email_now(
     # Mail to third parties says who is really writing (legal review,
     # 2026-09-23): one footer line on every path.
     if approved_by:
-        # Who authorised this send, stated in the message itself.
-        body = f"{body}\n\n(Sent with the approval of {approved_by}.)"
+        # The mail says a person approved it, never who: the approver's chat id told every
+        # outside recipient the owner's handle and homeserver (Hub 10-12). The id stays in our
+        # own log, with counts only, never the mail's text.
+        body = f"{body}\n\n(Sent with the owner's approval.)"
+        logger.info("mail: send approved by %s (%d recipient(s))", approved_by,
+                    len(to_l) + len(cc_l) + len(bcc_l))
     body = with_ai_footer(body)
 
     total = len(to_l) + len(cc_l) + len(bcc_l)
