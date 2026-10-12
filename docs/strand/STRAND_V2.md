@@ -1065,14 +1065,17 @@ own behaviour.
 | N7.2 | Phone tools work only in an unencrypted 1:1 room with the owner while the owner's phone says it is online | live | `tests/test_phone_tools.py::test_no_phone_unless_every_room_check_passes` |
 | N7.3 | The agent follows a pinned, unchanged copy of the phone contract | live | `tests/test_phone_tools.py::test_the_vendored_contract_is_the_pinned_one` |
 | N7.4 | The model sees only the tools the phone offers, and only on a turn with a live phone | live | `tests/test_phone_tools.py::test_only_the_tools_the_phone_offers` |
-| N7.5 | A phone answer is read once, redacted from the chat, and becomes exactly one follow-up turn | planned: Windy Mobile: phone-tools 1.1.0 (windy-contracts #142) and its runtime (#548) are both merged; awaiting Windy Mobile's written confirmation (test: tests/test_phone_tools.py::test_a_result_is_read_once_redacted_and_becomes_one_turn) | — |
-| N7.6 | Memory keeps only a short note of a phone answer, never the contact details | planned: Windy Mobile: phone-tools 1.1.0 (windy-contracts #142) and its runtime (#548) are both merged; awaiting Windy Mobile's written confirmation (test: tests/test_phone_tools.py::test_the_answer_turn_has_no_tools_and_stores_only_the_stub) | — |
+| N7.5 | A phone answer is read once, redacted from the chat, and becomes exactly one follow-up turn | live | `tests/test_phone_tools.py::test_a_result_is_read_once_redacted_and_becomes_one_turn` |
+| N7.6 | Memory keeps only a short note of a phone answer, never the contact details | live | `tests/test_phone_tools.py::test_the_answer_turn_has_no_tools_and_stores_only_the_stub` |
 | N7.7 | Answers from anyone but the owner are ignored | live | `tests/test_phone_tools.py::test_a_strangers_result_is_ignored` |
 | N7.8 | If the phone never starts the request, the agent says it timed out and nothing ran | live | `tests/test_phone_tools.py::test_never_picked_up_is_a_timeout_that_ran_nothing` |
 | N7.9 | On restart, leftover phone events are cleaned up and nothing else is touched | live | `tests/test_phone_tools.py::test_the_restart_sweep_redacts_only_phone_events` |
 | N7.12 | When the phone started a request but no answer came within 600 s, the agent says the outcome is unknown, never that nothing was sent | live | `tests/test_phone_tools.py::test_started_but_silent_is_outcome_unknown` |
 | N7.13 | A result that arrives after a timeout is redacted unread | live | `tests/test_phone_tools.py::test_a_late_result_after_a_timeout_is_redacted_unread` |
-| N7.14 | While the agent is stopped at Windy Mind, or Mind's switch cannot be read, a phone result turn posts nothing; a person who writes still hears the plain line | planned: Windy Mobile: phone-tools 1.1.0 (windy-contracts #142) and its runtime (#548) are both merged; awaiting Windy Mobile's written confirmation (tests: tests/test_phone_result_turn_silent.py) | — |
+| N7.14 | While the agent is stopped at Windy Mind, a phone result turn reaches no model and gives an empty answer | live | `tests/test_phone_result_turn_silent.py::test_a_result_turn_posts_nothing_while_paused` |
+| N7.15 | When Mind's stop switch cannot be read, a phone result turn gives an empty answer | live | `tests/test_phone_result_turn_silent.py::test_a_result_turn_posts_nothing_when_the_switch_is_unreadable` |
+| N7.16 | A person who writes while the agent is stopped, or while the switch cannot be read, still hears the plain line | live | `tests/test_phone_result_turn_silent.py::test_a_person_still_hears_the_plain_lines` |
+| N7.17 | The phone loop posts nothing to the room for an empty answer, and posts a non-empty one | live | `tests/test_phone_result_turn_silent.py::test_the_phone_loop_posts_nothing_for_an_empty_answer` |
 | N7.10 | (ours) Only an owner turn is offered the phone; other turns never are | live | `tests/strand/test_n4_n8_mail_calendar_cloud_phone_vault.py::test_n7_only_an_owner_turn_is_offered_the_phone` |
 | N7.11 | (ours) With phone tools off, none are registered | live | `tests/strand/test_n4_n8_mail_calendar_cloud_phone_vault.py::test_n7_the_phone_tools_are_not_registered_when_off` |
 
