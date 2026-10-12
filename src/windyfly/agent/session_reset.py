@@ -269,12 +269,14 @@ def parse_session_id(session_id: str) -> tuple[str, str, int]:
     """
     if not session_id or ":" not in session_id:
         return (session_id or "", "", 0)
-    parts = session_id.rsplit(":", 2)
-    if len(parts) == 3 and parts[2].startswith("v") and parts[2][1:].isdigit():
-        return (parts[0], parts[1], int(parts[2][1:]))
+    # The platform is before the FIRST colon and the version after the LAST, so a channel id that
+    # holds colons itself (a Matrix room id, "!abc:chat.windychat.ai") stays whole.
+    platform, _, rest = session_id.partition(":")
+    channel_id, sep, version = rest.rpartition(":")
+    if sep and version.startswith("v") and version[1:].isdigit():
+        return (platform, channel_id, int(version[1:]))
     # Legacy "platform:channel_id" pre-PR-193
-    platform, _, channel_id = session_id.partition(":")
-    return (platform, channel_id, 0)
+    return (platform, rest, 0)
 
 
 # Test-only: reset the module's in-memory state. Used by fixtures so

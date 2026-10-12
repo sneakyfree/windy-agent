@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Windy Chat no longer forgets the conversation when the agent restarts.** Each room's thread now
+  has a stable id (`matrix:<room>:v<N>`, the shape Telegram already uses) instead of a random one
+  made fresh by every process, so what you said before a restart or an update is still in the
+  conversation afterwards, on every device. `/new` and the wake-up catch-up now work in Windy Chat
+  too. Session ids whose channel holds colons (every Matrix room id) are now read correctly.
+
 - **The weekly fire drill no longer fails a lifeboat that worked.** The lifeboat step now passes when
   the reply carries either lifeboat marker (🛟, or the 🚨 "free local model" notice) and the answer
   to 2+2, read after the notice. It prints the whole reply instead of the first 200 characters. The

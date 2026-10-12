@@ -24,7 +24,6 @@ import logging
 import os
 import signal
 import time
-import uuid
 from typing import Any
 
 import nio
@@ -47,6 +46,19 @@ def _is_command_reply(event: Any) -> bool:
     source = getattr(event, "source", None)
     content = source.get("content") if isinstance(source, dict) else None
     return isinstance(content, dict) and content.get(COMMAND_REPLY_KEY) is True
+
+
+def _room_session(bot: Any, room_id: str) -> str:
+    """The room's rolling session id, ``matrix:<room_id>:v<N>`` (the shape Telegram and the catch-up use).
+
+    It is read from the reset counter on every call, so it survives a restart and a ``/new`` moves it on.
+    The thread itself lives in this agent's own database, so two agents (two owners) never share one.
+    """
+    from windyfly.agent.session_reset import next_session_id
+
+    sid = next_session_id("matrix", room_id)
+    bot._room_sessions[room_id] = sid
+    return sid
 
 
 class MatrixCredentialsError(RuntimeError):
@@ -466,10 +478,8 @@ class WindyFlyMatrixBot(ChannelAdapter):
                 logger.error("Failed to send command response to %s: %s", room_id, e)
             return
 
-        # Get or create session for this room
-        if room_id not in self._room_sessions:
-            self._room_sessions[room_id] = str(uuid.uuid4())
-        session_id = self._room_sessions[room_id]
+        # The room's rolling session (same shape as Telegram's): survives restarts, honours /new.
+        session_id = _room_session(self, room_id)
 
         # Show typing indicator
         try:
@@ -915,7 +925,7 @@ class WindyFlyMatrixBot(ChannelAdapter):
 
         seen = sms_inbox.SeenStore(windy_state_dir() / "sms_inbox_seen.json")
         room_id = self._hatch_dm_room_id or ""
-        session_id = self._room_sessions.setdefault(room_id, str(uuid.uuid4()))
+        session_id = _room_session(self, room_id)
 
         async def send_dm(text: str) -> None:
             await self.client.room_send(room_id, "m.room.message", {
@@ -981,7 +991,7 @@ class WindyFlyMatrixBot(ChannelAdapter):
         from windyfly.agent.executor import run_turn
         from windyfly.channels import phone_tools as _phone
 
-        session_id = self._room_sessions.setdefault(room_id, str(uuid.uuid4()))
+        session_id = _room_session(self, room_id)
         try:
             _phone.mark_data_turn(session_id, data or "")
             reply = await run_turn(agent_respond, self.config, self.db, self.write_queue,
