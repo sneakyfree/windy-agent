@@ -818,7 +818,7 @@ are the new genes (Wave 5g).
 | P5.94.1 | A six-score report with a grade | live | `tests/test_self_assessment.py::TestSelfAssessment::test_generates_report` |
 | P5.94.2 | The report is kept as a memory | live | `tests/test_self_assessment.py::TestSelfAssessment::test_assessment_stored_as_node` |
 | P5.94.3 | It runs through the bridge | live | `tests/strand/test_p5_extended.py::test_p5_94_the_report_card_runs_through_the_bridge` |
-| P5.94.4 | The six scores are the strand's (memory accuracy, response quality, cost, satisfaction, skill health, uptime) | planned: Windy Agent (Hub decides): the six are retention, failure rate, soul currency, relationship depth, "consistency" (which is average cost again) and cost efficiency | — |
+| P5.94.4 | The six scores are the strand's (memory accuracy, response quality, cost, satisfaction, skill health, uptime) | retired: the report card keeps its own six (retention, failure rate, soul currency, relationship depth, consistency, cost efficiency); the six scores in src/windyfly/agent/self_assessment.py are the record (#542) | — |
 | P5.94.5 | It runs weekly | planned: Windy Agent: on demand only; nothing schedules it | — |
 
 ### P5.C9 Phase 9 checklist
@@ -894,3 +894,84 @@ are the new genes (Wave 5g).
 |---|---|---|---|
 | P5.CNT.1 | Every bridge method the gateway calls exists in the brain | live | `tests/strand/test_p5_extended.py::test_p5_cnt_every_bridge_method_the_gateway_calls_exists` |
 | P5.CNT.2 | 93 codons, ~52 files, 11 phases, ~61 routes, 39 bridge methods | retired: the old plan's counts; this file's script counts are the record (#526) | — |
+
+## New genes (Wave 5g): what the original strand did not have
+
+A row about another lane's service counts only after that lane confirms it in writing (Hub 10-11);
+until then it stays `planned` with that lane as owner. Rows marked "(ours)" test only Windy Fly's
+own behaviour.
+
+### N1 Windy Mind: the agent's brain path
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| N1.1 | An agent with a passport sends every model call to Windy Mind first, and uses Mind's answer without calling any other provider | live | `tests/test_mind_broker_routing.py::test_passport_present_calls_mind_first` |
+| N1.2 | An agent with a passport never falls back to a provider key of its own when Mind fails | live | `tests/test_mind_broker_routing.py::test_mind_500_with_a_passport_never_calls_a_provider_key` |
+| N1.3 | When Mind has a real failure (mind_unavailable, other 5xx, timeouts), a passport agent uses its small local model (the lifeboat) and logs that it did | live | `tests/test_mind_broker_routing.py::test_passport_agent_falls_to_the_local_lifeboat_and_says_so` |
+| N1.4 | A standalone install with no passport skips Mind and uses its own keys | live | `tests/test_mind_broker_routing.py::test_no_passport_no_mind_call` |
+| N1.5 | A chat call goes to Mind as a short-lived agent token (Bearer) with a DPoP proof for that request | live | `tests/test_mind_auth.py::TestWiredIntoTheBrokerPath::test_chat_goes_out_as_ept_agent_with_dpop` |
+| N1.6 | If the short-lived token can't be minted, the agent uses its long-lived passport token, so it never goes silent | live | `tests/test_mind_auth.py::TestHeaders::test_mint_failure_falls_back_to_the_legacy_ept` |
+| N1.7 | When the owner switches the agent off in Mind (403 grant_off), it stops at once: one request, no retry, no other model, no lifeboat | live | `tests/test_owner_pause.py::test_grant_off_raises_and_never_falls_back` |
+| N1.8 | When Mind is busy (503 mind_unavailable with Retry-After), the agent retries once and does not mark Mind as broken | live | `tests/test_mind_brain_path.py::TestBrokerResilience::test_busy_503_retries_once_then_answers` |
+| N1.9 | When Mind fails, the agent cools Mind down and makes no call to it during the cool-down | live | `tests/test_mind_brain_path.py::TestBrokerResilience::test_http_failure_records_cooldown_and_skips_next` |
+| N1.10 | When the owner has switched off the model asked for (403 model_disabled), the agent asks once more with no model and lets Mind choose | live | `tests/test_owner_pause.py::test_model_disabled_retries_once_with_minds_choice` |
+| N1.11 | With the model set to "auto", the agent names no model and the owner's Mind settings decide | live | `tests/test_auto_model.py::test_mind_gets_no_model_when_auto` |
+| N1.12 | A model switch through Mind sends the exact model id, clears the per-channel pins and caches the new choice | live | `tests/test_mind_self.py::TestSwitching::test_success_puts_the_exact_id_and_clears_channel_pins` |
+| N1.13 | Words that are not an exact model id (such as "groq") never switch the model; the agent lists the allowed choices | live | `tests/test_mind_self.py::TestSwitching::test_words_that_are_not_an_exact_id_do_not_switch_and_list_the_choices` |
+| N1.14 | (ours) Only the owner can switch the model; other people can only read the status | live | `tests/test_mind_self.py::TestCapabilities::test_bands_reads_user_changes_owner` |
+| N1.15 | The Mind address comes from MIND_API_URL, then the older MIND_BASE_URL, then the production default | live | `tests/test_mind_url_resolution.py::test_runtime_claim_follows_the_canonical_override` |
+| N1.16 | The Mind client kept in this repo requires the same keys as Mind's published contract | live | `tests/test_mind_client_vendored.py::test_required_keys_match_contract` |
+| N1.17 | The agent's usage view from Mind shows no cost | live | `tests/test_mind_self.py::TestReading::test_usage_has_no_money` |
+| N1.18 | When Mind is busy, the person hears "I could not reach my AI", with no blame on credentials and no mention of Mind | live | `tests/test_anthropic_oauth_env_race.py::test_banner_names_busy_mind_not_a_missing_credential` |
+| N1.19 | When Mind says the owner's own provider key was refused (502 connection, the provider named in x-mind-connection), that is recorded and Mind is not cooled down | live | `tests/strand/test_n1_n3_mind_eternitas_teams.py::test_n1_a_refused_own_key_named_in_x_mind_connection_does_not_cool_mind_down` |
+| N1.20 | (ours) The Mind helper path is off unless WINDY_MIND_HELPER=1 | live | `tests/strand/test_n1_n3_mind_eternitas_teams.py::test_n1_the_mind_helper_is_off_unless_switched_on` |
+| N1.21 | (ours) A read that Mind refuses with the short-lived token is retried once with the long-lived passport token | live | `tests/strand/test_n1_n3_mind_eternitas_teams.py::test_n1_a_refused_read_retries_once_with_the_long_lived_token` |
+| N1.22 | (ours) A refused picture (vision_off, vision_consent_required) does not cool Mind down | live | `tests/strand/test_n1_n3_mind_eternitas_teams.py::test_n1_a_refused_picture_does_not_cool_mind_down` |
+| N1.23 | When Mind cannot read the owner's pause switch (503 grant_unavailable), the agent waits Retry-After (at most 30 s), tries once, then holds off: no lifeboat, no provider key, no cool-down | live | `tests/test_mind_grant_unavailable.py::test_unreadable_switch_waits_retries_once_then_stops_without_the_lifeboat` |
+| N1.24 | Behind an unreadable pause switch the loop never resurrects to the local model; a person hears one pinned line per 10 minutes and another agent hears nothing | live | `tests/test_mind_grant_unavailable.py::test_the_loop_never_resurrects_behind_an_unreadable_switch` |
+| N1.25 | An unknown model (404 model_not_available) or one not offered to this agent (403 model_not_offered) is asked again once with no model | planned: Windy Agent: the retry keys on 422, which Mind never sends for this; key it on Mind's codes (runtime batch) | — |
+| N1.26 | Refusals about the caller (grant_off, model_*, vision_*, connection, not_allowed_for_agent, any 4xx, 429) never cool Mind down | planned: Windy Agent: 429 and a 502 that is not a refused key still start a cool-down (runtime batch) | — |
+
+### N2 Eternitas: passports, hatching and trust
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| N2.1 | Every agent gets its passport at hatch, on this machine | retired: hatching moved to the one hub ceremony; the passport is made there and no local passport token is written (#386, #430) | — |
+| N2.2 | (ours) `windy go` asks the hub for a hatch ceremony and creates nothing on this machine until it finishes | live | `tests/test_hub_hatch.py::test_ticket_request_matches_the_contract_and_mints_nothing_locally` |
+| N2.3 | (ours) A finished ceremony leaves the agent in the cloud; this machine keeps only a private (0600) record and writes no passport token | live | `tests/test_hub_hatch.py::test_complete_stays_in_the_cloud` |
+| N2.4 | (ours) The ceremony runs once: a second `windy go` says the agent is already in the cloud and does not call the hub | live | `tests/test_hub_hatch.py::test_second_go_says_you_already_have_it_in_the_cloud` |
+| N2.5 | (ours) If the account already has an agent, Windy Fly never takes it over without asking | live | `tests/test_hub_hatch.py::test_owner_has_agent_never_adopts_silently` |
+| N2.6 | (ours) A failed ceremony is reported plainly and the next try starts with a fresh key | live | `tests/test_hub_hatch.py::test_dead_tickets_are_said_plainly_and_rotate_the_key[failed-The hatch failed]` |
+| N2.7 | (ours) Rewriting the config keeps the agent's passport and token, so it never gets a second passport | live | `tests/test_hatch_once.py::test_rewriting_config_keeps_the_identity` |
+| N2.8 | (ours) The file holding the passport token is readable only by its owner | live | `tests/test_hatch_once.py::test_env_file_is_private` |
+| N2.9 | A fresh install uses the real Eternitas issuer (https://api.eternitas.ai) unless told otherwise | live | `tests/test_eternitas_issuer_default.py::test_default_is_the_production_issuer` |
+| N2.10 | (ours) The hatch summary labels a mock passport as a local mock, never as a real passport | live | `tests/test_honest_hatch_summary.py::test_mock_issuer_passport_is_labelled` |
+| N2.11 | (ours) A renewed passport token is written to the environment and the file atomically, keeping the other lines and one backup | live | `tests/test_ept_refresh.py::test_updates_env_and_file_atomically` |
+| N2.12 | A refused renewal (401 bad credentials, 403 suspended or revoked) never crashes the agent | live | `tests/test_ept_refresh.py::test_refusals_do_not_raise` |
+| N2.13 | The agent signs in to Windy Chat as its own @agent_<passport> account, made with its passport | live | `tests/test_chat_session.py::TestMatrixBotOneSoulLogin::test_login_adopts_minted_identity_and_device` |
+| N2.14 | (ours) Revoking the passport also disables the local token (that one line is commented out, with a backup) | live | `tests/test_deregister.py::test_mark_local_revoked_comments_out_only_the_ept_line_atomically` |
+| N2.15 | A revoked passport blocks a trust-gated action (send_email) | live | `tests/contract/test_trust_check.py::TestGate::test_revoked_status_blocks_everything` |
+| N2.16 | A known revocation still blocks when Eternitas cannot be reached | live | `tests/contract/test_trust_check.py::TestRevocationSurvivesOutage::test_known_revocation_denies_when_service_unreachable[revoked]` |
+| N2.17 | A revocation webhook clears the cached trust verdict | live | `tests/contract/test_trust_check.py::TestWebhookInvalidation::test_revoked_webhook_invalidates_cache` |
+| N2.18 | A trust webhook whose body was changed fails its HMAC check | live | `tests/contract/test_trust_webhook_verify.py::TestHmac::test_rejects_tampered_body` |
+| N2.19 | (ours) A trust webhook with a bad signature is refused through the bridge and changes nothing | live | `tests/strand/test_n1_n3_mind_eternitas_teams.py::test_n2_a_trust_webhook_with_a_bad_signature_is_refused_through_the_bridge` |
+| N2.20 | (ours) The dashboard's trust banner says "unknown" until a verdict is cached, then shows the cached band | live | `tests/strand/test_n1_n3_mind_eternitas_teams.py::test_n2_the_trust_banner_says_unknown_until_a_verdict_is_cached` |
+| N2.21 | The hatch summary says when a passport is suspended or revoked | planned: Windy Agent: dead code; nothing sets _WINDYFLY_PASSPORT_DEAD (hatching.py), so wire it or remove it | — |
+| N2.22 | A refused renewal tells the person what will actually help (a revoked or suspended passport is not fixed by signing in again) | planned: Windy Agent: a 403 still says to run `windy login`; word the suspended/revoked case plainly (runtime batch) | — |
+
+### N3 Teams: the owner's agents in one room
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| N3.1 | Two agents stop replying to each other after 6 replies in 10 minutes, with no model calls after that, and the owner is told once | live | `tests/test_turn_budget.py::test_two_agents_stop_at_the_budget_and_the_model_is_not_called` |
+| N3.2 | When a person speaks in the room, the agents may carry on | live | `tests/test_turn_budget.py::test_a_person_in_the_room_lets_the_agents_carry_on` |
+| N3.3 | People are never limited by the agent budget | live | `tests/test_turn_budget.py::test_humans_are_never_budgeted` |
+| N3.4 | The owner's notice never shows raw room or agent ids | live | `tests/test_turn_budget.py::test_agent_names_are_safe_too` |
+| N3.5 | Messaging a sibling agent makes a pair room where the owner alone is in charge, then posts | live | `tests/test_teams_tools.py::test_claim_creates_steps_down_invites_confirms_then_posts` |
+| N3.6 | A retried room setup never makes a second room while the claim lives (60 s); after 410 claim_expired a new claim may make a new room | live | `tests/test_teams_tools.py::test_confirm_5xx_then_retry_confirms_the_same_room_never_a_second` |
+| N3.7 | The owner's other agents are trusted; unknown agents are sandboxed | live | `tests/test_teams_tools.py::test_siblings_are_trusted_strangers_are_sandbox` |
+| N3.8 | The team tools are off without the flag and need the trusted band | live | `tests/test_teams_tools.py::test_tools_are_trusted_band_and_dark_without_the_flag` |
+| N3.9 | When Windy Chat refuses, the agent passes the refusal back as it is and posts nothing | live | `tests/test_teams_tools.py::test_chat_refusals_pass_through_in_the_contract_shape` |
+| N3.10 | A "[no reply]" answer to another agent posts nothing | live | `tests/test_silence_token.py::test_agent_sender_silence_posts_nothing` |
+| N3.11 | (ours) The list of the owner's other agents goes stale after 5 minutes | live | `tests/strand/test_n1_n3_mind_eternitas_teams.py::test_n3_the_sibling_list_goes_stale_after_five_minutes` |
+| N3.12 | (ours) A failed refresh of that list keeps the last good list | live | `tests/strand/test_n1_n3_mind_eternitas_teams.py::test_n3_a_failed_sibling_refresh_keeps_the_last_good_list` |
