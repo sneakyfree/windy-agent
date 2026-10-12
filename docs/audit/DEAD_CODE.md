@@ -12,7 +12,7 @@ Never imported by any other source file in `src/windyfly/`:
 
 | File | Purpose | Notes |
 |------|---------|-------|
-| `src/windyfly/mail_rate_limiter.py` | Mail spam-prevention rate limiter | Has a test file but no production consumer |
+| `src/windyfly/mail_rate_limiter.py` | Mail spam-prevention rate limiter | Has a test file but no production consumer (removed in #546, 10-12: it never ran; Windy Mail enforces the limits) |
 | `src/windyfly/birth_certificate_mailer.py` | Physical mail via Lob.com API | Never imported |
 | `src/windyfly/integrations/windy_word.py` | Voice recording search | Stub, never wired in |
 | `src/windyfly/integrations/windy_cloud.py` | Backup/sync client | Stub, never wired in |
@@ -27,7 +27,7 @@ Never imported by any other source file in `src/windyfly/`:
 
 | File | Tests orphaned module |
 |------|----------------------|
-| `tests/test_mail_rate_limiter.py` | Tests `mail_rate_limiter.py` (orphan) |
+| `tests/test_mail_rate_limiter.py` | Tests `mail_rate_limiter.py` (orphan; removed in #546) |
 
 ## Orphaned Python-side IPC Handlers (6)
 

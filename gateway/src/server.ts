@@ -84,6 +84,9 @@ const RATE_LIMITS: Record<RateLimitBucket, number> = {
 
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
 
+/** GET /api/journal while the brain is down: the bridge's own key ("journal"), empty (P5.93.5). */
+export const JOURNAL_OFFLINE = { journal: [] as unknown[], _offline: true };
+
 export function isRateLimited(ip: string, bucket: RateLimitBucket = "setup"): boolean {
   const key = `${bucket}:${ip}`;
   const now = Date.now();
@@ -937,7 +940,7 @@ async function handleRequest(req: Request, server: import("bun").Server<any>): P
         const result = await bridge.call("journal.list");
         return Response.json(result, { headers });
       } catch {
-        return Response.json({ entries: [], _offline: true }, { headers });
+        return Response.json(JOURNAL_OFFLINE, { headers });
       }
     }
 
