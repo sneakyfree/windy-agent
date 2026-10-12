@@ -671,9 +671,9 @@ _mind_legacy_url_logged = False
 
 
 
-# 4xx that describe THIS request, not Mind's health (401/403 = auth and 408/429 =
-# busy keep the circuit-breaker).
-_MIND_REQUEST_ERRORS = frozenset({400, 404, 409, 413, 415, 422})
+# Mind's "send auto or another model" answers (mind-refusal 1.9.0): retry once with no model.
+_MIND_PICK_ANOTHER_MODEL = frozenset({(403, "model_disabled"), (403, "model_not_offered"),
+                                      (404, "model_not_available")})
 
 
 _PROVIDER_NAMES = {
@@ -1069,10 +1069,11 @@ def _try_mind_broker(
             resp = mind_auth.post(
                 f"{mind_url}/v1/chat", ept, body, 30.0,
             )
-        if (resp.status_code == 403 and "model" in body
-                and (resp.headers.get("x-mind-error") or "").lower() == "model_disabled"):
-            # Only that model is switched off: let Mind pick another, once.
-            logger.warning("Mind: model %r is switched off; retrying with Mind's choice", body.get("model"))
+        if ("model" in body and (resp.status_code, (resp.headers.get("x-mind-error") or "").lower())
+                in _MIND_PICK_ANOTHER_MODEL):
+            # That model is switched off, not offered to this agent, or unknown: let Mind pick, once.
+            logger.warning("Mind: model %r is not available here (%s); retrying with Mind's choice",
+                           body.get("model"), resp.headers.get("x-mind-error"))
             resp = mind_auth.post(
                 f"{mind_url}/v1/chat", ept, {k: v for k, v in body.items() if k != "model"}, 30.0,
             )
@@ -1098,11 +1099,11 @@ def _try_mind_broker(
                 _last_mind_failure = f"mind key refused:{refused}"
                 logger.warning("Mind: the owner's %s key was refused upstream", refused or "provider")
                 return None
-            if resp.status_code in _MIND_REQUEST_ERRORS:
-                # THIS request was refused (bad shape, unknown model, too
-                # large): Mind itself is fine. No circuit-breaker, or one bad
-                # helper call (the journal writer, 2026-09-24) benches Mind for
-                # 30 s and the next real turn drops into lifeboat.
+            if 400 <= resp.status_code < 500:
+                # THIS request or THIS caller was refused (bad shape, unknown model, too large,
+                # not allowed, a rate limit): Mind itself is fine. No circuit-breaker, or one bad
+                # helper call (the journal writer, 2026-09-24) benches Mind for 30 s and the next
+                # real turn drops into lifeboat. Mind 10-12: any 4xx, 429 included.
                 logger.warning(
                     "Mind refused this request (%s): %s; not cooling Mind down",
                     resp.status_code, _mind_error_detail(resp),

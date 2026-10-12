@@ -929,8 +929,8 @@ own behaviour.
 | N1.22 | (ours) A refused picture (vision_off, vision_consent_required) does not cool Mind down | live | `tests/strand/test_n1_n3_mind_eternitas_teams.py::test_n1_a_refused_picture_does_not_cool_mind_down` |
 | N1.23 | When Mind cannot read the owner's pause switch (503 grant_unavailable), the agent waits Retry-After (at most 30 s), tries once, then holds off: no lifeboat, no provider key, no cool-down | live | `tests/test_mind_grant_unavailable.py::test_unreadable_switch_waits_retries_once_then_stops_without_the_lifeboat` |
 | N1.24 | Behind an unreadable pause switch the loop never resurrects to the local model; a person hears one pinned line per 10 minutes and another agent hears nothing | live | `tests/test_mind_grant_unavailable.py::test_the_loop_never_resurrects_behind_an_unreadable_switch` |
-| N1.25 | An unknown model (404 model_not_available) or one not offered to this agent (403 model_not_offered) is asked again once with no model | planned: Windy Agent: the retry keys on 422, which Mind never sends for this; key it on Mind's codes (runtime batch) | — |
-| N1.26 | Refusals about the caller (grant_off, model_*, vision_*, connection, not_allowed_for_agent, any 4xx, 429) never cool Mind down | planned: Windy Agent: 429 and a 502 that is not a refused key still start a cool-down (runtime batch) | — |
+| N1.25 | An unknown model (404 model_not_available) or one not offered to this agent (403 model_not_offered) is asked again once with no model | live | `tests/test_mind_caller_refusals.py::test_pick_another_model_codes_retry_once_with_no_model` |
+| N1.26 | Refusals about the caller (grant_off, model_*, vision_*, connection, not_allowed_for_agent, any 4xx, 429) never cool Mind down | live | `tests/test_mind_caller_refusals.py::test_4xx_refusal_does_not_cool_mind_down` |
 
 ### N2 Eternitas: passports, hatching and trust
 
