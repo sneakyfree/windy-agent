@@ -60,17 +60,3 @@ def test_multi_recipient_is_one_message_annotated(monkeypatch):
         r = send_email("ok@x.com, other@x.com", "s", "b")
     assert (r["status"], r["total"], r["provider"]) == ("sent", 2, "windymail")
     assert calls == [(["ok@x.com", "other@x.com"], {"cc": None, "bcc": None})]
-
-
-def test_bridge_email_send_uses_windy_mail(monkeypatch):
-    """The local bridge's email.send used SendGrid with its own From; now the one path."""
-    import asyncio
-
-    from windyfly.bridge import uds_server
-
-    seen = {}
-    monkeypatch.setattr(mail_mod, "_send_email_now",
-                        lambda to, subject, body, **kw: seen.update(to=to) or {"status": "sent"})
-    out = asyncio.run(uds_server.UDSBridge._handle_email_send(
-        object.__new__(uds_server.UDSBridge), {"to": "a@b.com", "subject": "s", "body": "b"}))
-    assert out == {"status": "sent"} and seen["to"] == "a@b.com"

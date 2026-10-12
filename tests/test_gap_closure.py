@@ -296,7 +296,7 @@ class TestDispatchRegistry:
         "agent.respond", "memory.search", "sliders.get", "sliders.set",
         "sliders.info", "cost.daily", "intents.list", "dashboard.summary",
         "soul.preview", "soul.import",
-        "sms.inbound", "sms.send", "email.inbound", "email.send",
+        "sms.inbound", "sms.send", "email.inbound",
         "journal.list", "assessment.run",
         # Gap closure additions
         "cost.monthly", "config.reload",
@@ -331,15 +331,16 @@ class TestDispatchRegistry:
         db.close()
 
     def test_dispatch_count(self):
-        """The real dispatch table: 35 methods. Retired 2026-10-10:
+        """The real dispatch table: 34 methods. Retired 2026-10-10:
         mode.get / mode.set, shape_shift.execute / shape_shift.restore,
-        skills.evaluate / skills.golden_tests / skills.regression.
-        REQUIRED_METHODS covers 33 of them (memory.delete and trust.webhook
+        skills.evaluate / skills.golden_tests / skills.regression; 2026-10-12:
+        email.send (an unused door around the owner's send confirmation).
+        REQUIRED_METHODS covers 32 of them (memory.delete and trust.webhook
         are pinned by their own tests)."""
         bridge, db, _ = _make_bridge()
         table = bridge._handler_table()
-        assert len(table) == 35
-        assert len(self.REQUIRED_METHODS) == 33
+        assert len(table) == 34
+        assert len(self.REQUIRED_METHODS) == 32
         assert set(self.REQUIRED_METHODS) <= set(table)
         assert set(table) - set(self.REQUIRED_METHODS) == {
             "memory.delete", "trust.webhook",
