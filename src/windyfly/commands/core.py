@@ -1095,7 +1095,21 @@ def _register_all():
         raw = (ctx or {}).get("_raw", "") or ""
         arg = raw.strip()
 
+        # Windy Mind's catalog for this agent is the menu when it can be read; the hand list is the fallback.
+        from windyfly.agent import mind_catalog
+        catalog = mind_catalog.my_catalog()
+
         # ── No arg: render the picker UI ─────────────────────────
+        if not arg and catalog:
+            current_model = _resolve_active_model(platform, channel_id)
+            lines = [f"🤖 Current model: {current_model}", "", "Models Windy Mind lets me use:"]
+            for m in catalog:
+                name = m.get("display_name") or m["id"]
+                down = "" if m.get("available_now", True) else " (not available right now)"
+                marker = " ← current" if m["id"] == current_model else ""
+                lines.append(f"  • `{m['id']}` — {name}{down}{marker}")
+            lines += ["", "Switch with: /model <name>  (opus, sonnet or haiku picks the newest of each)"]
+            return "\n".join(lines)
         if not arg:
             current_model = _resolve_active_model(platform, channel_id)
             current_info = resolve(current_model)
@@ -1126,8 +1140,26 @@ def _register_all():
             return "\n".join(lines)
 
         # ── With arg: resolve + persist ──────────────────────────
+        picked = mind_catalog.resolve(arg, catalog) if catalog else None
+        if picked is not None:
+            if not platform or not channel_id:
+                return (
+                    "🪰 /model received but I couldn't identify your "
+                    "chat session — channel context missing. The change "
+                    "wasn't saved."
+                )
+            from windyfly.agent.session_reset import set_model as _set_model
+            _set_model(platform, channel_id, picked["id"])
+            down = "" if picked.get("available_now", True) else " It isn't available right now, so Windy Mind may answer on another model until it is."
+            return (
+                f"🤖 Switched to {picked.get('display_name') or picked['id']} ({picked['id']}). "
+                f"Effective on your next message; current conversation carries over. Use /new for a clean break.{down}"
+            )
         target = resolve(arg)
         if target is None:
+            if catalog:
+                return (f"🤔 Windy Mind doesn't offer me '{arg}'. Try one of: "
+                        + ", ".join(m["id"] for m in catalog[:8]) + ".")
             return (
                 f"🤔 I don't know the model '{arg}'. Try one of: "
                 "opus, sonnet, haiku (or smartest, balanced, fastest)."

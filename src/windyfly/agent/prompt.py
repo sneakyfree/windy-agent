@@ -278,12 +278,17 @@ def assemble_prompt(
     # Tripwire (PR #190/191) catches (b); this block fixes (a).
     runtime_context_parts = ["RUNTIME CONTEXT (true facts, not guesses — quote these instead of inventing):"]
 
-    # Active model (from config — chain failover can swap at request
-    # time, but the configured default is what the user is asking
-    # about when they say "which model are you?")
-    active_model = config.get("agent", {}).get("default_model") or \
-        config.get("default_model", "unknown")
-    runtime_context_parts.append(f"- Model: {active_model}")
+    # The model that actually answered this session's last reply (Mind picks per reply, and a /model
+    # pick or a failover can differ from the config default). Before any reply, no model is claimed.
+    try:
+        from windyfly.agent.loop import served_model_for_prompt
+        served = served_model_for_prompt(session_id)
+    except Exception:  # noqa: BLE001
+        served = None
+    if served:
+        runtime_context_parts.append(f"- Model: {served} (it answered your last reply in this conversation)")
+    else:
+        runtime_context_parts.append("- Model: not known yet in this conversation (Windy Mind picks it for each reply)")
 
     # Anthropic auth path — answers "am I on Max plan?" without
     # introspection or env access.

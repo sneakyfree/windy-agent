@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **The model menu comes from Windy Mind, so new models show up by themselves.** `/model` now lists
+  the models Windy Mind lets this agent use (`GET /v1/catalog/me`, read with the agent's own token
+  and cached for a minute), and `opus`, `sonnet` or `haiku` picks the newest of that family that is
+  up right now, so "haiku" means Haiku 5.5 once Mind offers it. If Mind can't be read, `/model`
+  falls back to the old list. The agent's "Model:" line now names the model that actually answered
+  this conversation's last reply, and claims no model before the first one, instead of quoting the
+  configured default.
+
 - **An agent on a Claude model keeps its web search.** When a Claude model (Opus 5.5, for example)
   was reached through Windy Mind, the agent swapped its own web search for Anthropic's built-in one,
   which Mind cannot run, so the agent had no search at all. On the Mind route it now keeps its own

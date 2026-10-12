@@ -483,14 +483,21 @@ class TestRuntimeContextInPrompt:
         sys_text = msgs[0]["content"]
         assert "RUNTIME CONTEXT" in sys_text
 
-    def test_runtime_context_includes_model(self, db, monkeypatch):
+    def test_runtime_context_names_only_the_served_model(self, db, monkeypatch):
+        # Hub 10-12 (reverses the old "configured model" assertion): the config default is not
+        # necessarily what answers (Mind picks per reply, /model and failover can differ), so the
+        # prompt names the model that SERVED this conversation's last reply, else claims none.
         monkeypatch.delenv("ANTHROPIC_OAUTH_ACCESS_TOKEN", raising=False)
+        from windyfly.agent import loop
         from windyfly.agent.prompt import assemble_prompt
-        msgs = assemble_prompt(self._make_config(), db, "hi", "s-2")
-        sys_text = msgs[0]["content"]
-        # Configured model must appear in RUNTIME CONTEXT so the bot
-        # can quote it instead of confabulating "I can't tell you".
-        assert "claude-sonnet-4-6" in sys_text
+        monkeypatch.setattr(loop, "_SERVED_FOR_PROMPT", {})
+        sys_text = assemble_prompt(self._make_config(), db, "hi", "s-2")[0]["content"]
+        assert "claude-sonnet-4-6" not in sys_text
+        assert "- Model: not known yet in this conversation" in sys_text
+        loop._SERVED_FOR_PROMPT["s-2"] = "claude-haiku-5-5"
+        sys_text = assemble_prompt(self._make_config(), db, "hi", "s-2")[0]["content"]
+        assert "- Model: claude-haiku-5-5 (it answered your last reply" in sys_text
+        assert "claude-sonnet-4-6" not in sys_text
 
     def test_runtime_context_includes_oauth_when_active(self, db, monkeypatch):
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-oat01-X")
