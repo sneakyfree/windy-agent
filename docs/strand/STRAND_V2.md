@@ -17,7 +17,8 @@ tools, Vault). A row owned by another lane counts only after that lane confirms 
 Built in waves (strand-to-green plan, 2026-10-10): 5a set the frame plus Part 1 §4 and gene 0.3;
 5b1 added Part 1 §1-§3 and genes 0.1-0.2; 5b2 completes Part 1 (genes 0.4-0.9, checklist C0);
 5c completed Part 2; 5d completes Part 3; 5e1 adds Part 4 Phase 5 (genes 5.1-5.5, checklist C5);
-5e2 the rest of Part 4 (map, file index, roadmap, checklists C1-C4); 5f Part 5; 5g adds the new genes.
+5e2 the rest of Part 4 (map, file index, roadmap, checklists C1-C4); 5f1 Part 5 Phases 6-8; 5f2 Phases
+9-10; 5g adds the new genes.
 
 ## Part 1: Foundation and Phase 0
 
@@ -656,3 +657,124 @@ are the new genes (Wave 5g).
 |---|---|---|---|
 | P4.F.1 | "Total codons: 59" | retired: the old plan's count (its §14 lists 67); this file's script counts are the record (#526) | — |
 | P4.F.2 | Part 5 of the strand is kept | live | `tests/strand/test_p4_map_index.py::test_p4_f_part5_of_the_strand_is_kept` |
+
+## Part 5: the beyond-blueprint amendment (Phases 6-10)
+
+### P5.61 Shape-shift context manager (gene C6.1)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P5.61.1 | A context manager saves the sliders, reconfigures, and restores them | retired: shape-shift was unreachable (its tools lost their boot step) and its restore was a no-op; removed (#501) | — |
+
+### P5.62 Shape-shift autonomy gating (gene C6.2)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P5.62.1 | Autonomy decides whether a shift asks, announces or stays silent | retired: shape-shift removed (#501) | — |
+
+### P5.63 Shape-shift bias slider (gene C6.3)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P5.63.1 | shape_shift_bias picks a shift or a sub-agent, set in all 8 presets | retired: the slider had no consumer; slider and sub-agents removed (#501) | — |
+
+### P5.C6 Phase 6 checklist
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P5.C6.1 | The context manager saves and restores sliders | retired: shape-shift removed (#501) | — |
+| P5.C6.2 | Autonomy gating gives the right announcement | retired: shape-shift removed (#501) | — |
+| P5.C6.3 | The bias slider is in the control panel and all 8 presets | retired: slider removed (#501) | — |
+| P5.C6.4 | shape_shift / shape_shift_restore are registered tools | retired: shape-shift removed (#501) | — |
+| P5.C6.5 | The gateway's /api/shape-shift routes work | retired: shape-shift removed (#501) | — |
+
+### P5.71 Provider registry (gene C7.1)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P5.71.1 | The strand's built-in providers are registered (it says 11, lists 12; kimi and zai since) with no key in the table | live | `tests/strand/test_p5_providers.py::test_p5_71_the_strands_built_in_providers_are_registered` |
+| P5.71.2 | A failing provider hands the call to the next one | live | `tests/test_provider_failover.py::test_failover_walks_to_next_provider_on_failure` |
+| P5.71.3 | Keys are read from the environment on every call (a rotated key is picked up) | live | `tests/test_provider_failover.py::test_api_key_re_read_from_env_on_every_call` |
+| P5.71.4 | One provider table shared by the gateway (TypeScript) and the brain | retired: providers.ts and every /api/providers route removed; the brain's table is the only one (#522) | — |
+
+### P5.72 Model discovery (gene C7.2)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P5.72.1 | Live model lists per provider, cached 5 minutes, discovered in a batch | retired: gateway provider management removed (#522) | — |
+
+### P5.73 Keys (gene C7.3)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P5.73.1 | A multi-key vault per provider (add, delete, activate, masked) | retired: one key store, the env file the runtime loads (#522) | — |
+| P5.73.2 | Keys left in the old provider files move to the env file, then the files are scrubbed | live | `tests/test_provider_salvage.py::test_keys_from_every_source_move_into_the_env_file_then_files_are_scrubbed` |
+| P5.73.3 | A key in the provider overrides file is never used | live | `tests/test_provider_salvage.py::test_the_overrides_file_never_supplies_a_key` |
+
+### P5.74 OpenRouter OAuth PKCE (gene C7.4)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P5.74.1 | Connect OpenRouter by OAuth PKCE; the key is stored and models discovered | retired: gateway provider management removed (#522) | — |
+
+### P5.75 Key validation (gene C7.5)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P5.75.1 | A route validates a key and reports models and balance | retired: gateway provider management removed (#522) | — |
+
+### P5.76 Active model (gene C7.6)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P5.76.1 | The dashboard switches the active model | retired: the brain never read the gateway's setting; the route is removed (#522) | — |
+| P5.76.2 | A model chosen with /model survives a restart | live | `tests/strand/test_p5_providers.py::test_p5_76_a_model_chosen_with_slash_model_survives_a_restart` |
+
+### P5.77 Custom providers (gene C7.7)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P5.77.1 | Custom providers are added, updated and removed through REST | retired: REST-added providers never reached the brain; routes removed (#522) | — |
+| P5.77.2 | A custom provider in windyfly.toml is used for its models (key from WINDY_PROVIDER_<NAME>_API_KEY) | live | `tests/strand/test_p5_providers.py::test_p5_77_a_custom_provider_from_windyfly_toml_is_used_for_its_models` |
+
+### P5.78 Anthropic OAuth tokens (gene C7.8)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P5.78.1 | A token within 5 minutes of expiry is refreshed, and the new tokens are cached privately (0600) | live | `tests/strand/test_p5_providers.py::test_p5_78_a_token_near_expiry_is_refreshed_and_cached_privately` |
+| P5.78.2 | A token far from expiry is used as is | live | `tests/strand/test_p5_providers.py::test_p5_78_a_token_far_from_expiry_is_used_as_is` |
+| P5.78.3 | Without an OAuth token the manager steps aside and the API key is used | live | `tests/strand/test_p5_providers.py::test_p5_78_without_an_oauth_token_the_manager_steps_aside_for_the_api_key` |
+| P5.78.4 | The token cache lives in the agent's state directory | planned: Windy Agent: the default (data/.anthropic_oauth.json) is relative to the working directory, and the file is chmod-ed after it is written; use the state dir and create it 0600 | — |
+
+### P5.C7 Phase 7 checklist
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P5.C7.1 | All built-in providers are registered | live | `tests/strand/test_p5_providers.py::test_p5_71_the_strands_built_in_providers_are_registered` |
+| P5.C7.2 | Model discovery returns a live list | retired: gateway provider management removed (#522) | — |
+| P5.C7.3 | Multi-key add/delete/activate | retired: one key store (#522) | — |
+| P5.C7.4 | The OpenRouter OAuth flow completes | retired: gateway provider management removed (#522) | — |
+| P5.C7.5 | Key validation returns the right status | retired: gateway provider management removed (#522) | — |
+| P5.C7.6 | A model switch persists across restarts (/model) | live | `tests/strand/test_p5_providers.py::test_p5_76_a_model_chosen_with_slash_model_survives_a_restart` |
+| P5.C7.7 | A custom provider is usable for model calls (windyfly.toml) | live | `tests/strand/test_p5_providers.py::test_p5_77_a_custom_provider_from_windyfly_toml_is_used_for_its_models` |
+| P5.C7.8 | Anthropic OAuth refreshes expiring tokens | live | `tests/strand/test_p5_providers.py::test_p5_78_a_token_near_expiry_is_refreshed_and_cached_privately` |
+
+### P5.81-P5.85 Mission Control: remote machines (genes C8.1-C8.5)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P5.81.1 | A machine registry with live links and health polling | retired: no daemon in any repo ever answered on :3100; Mission Control removed (#502) | — |
+| P5.82.1 | Remote machines are listed, added, read, updated and removed | retired: Mission Control removed (#502) | — |
+| P5.83.1 | A terminal relay to a remote PTY | retired: Mission Control removed (#502) | — |
+| P5.84.1 | Remote service restart, exec and health | retired: would have sent arbitrary commands over ws:// on a LAN; removed (#502) | — |
+| P5.85.1 | Provider config is synced to remote machines | retired: would have sent plaintext keys over ws://; removed (#502) | — |
+
+### P5.C8 Phase 8 checklist
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P5.C8.1 | A machine is added and its link comes up | retired: Mission Control removed (#502) | — |
+| P5.C8.2 | Machine health polling returns data | retired: Mission Control removed (#502) | — |
+| P5.C8.3 | The terminal relay carries PTY I/O | retired: Mission Control removed (#502) | — |
+| P5.C8.4 | A service restart reaches the remote | retired: Mission Control removed (#502) | — |
+| P5.C8.5 | Provider sync reaches the remote | retired: Mission Control removed (#502) | — |
