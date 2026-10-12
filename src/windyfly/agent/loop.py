@@ -11,6 +11,8 @@ import json
 import re
 import logging
 import os
+import threading
+import time
 from typing import Any
 
 # capability_registry is re-exported as a module attribute on this
@@ -23,7 +25,7 @@ from windyfly.agent.capabilities import capability_registry  # noqa: F401
 from windyfly.agent.context_header import maybe_prepend_header
 from windyfly.agent.emotion_detector import detect_emotional_context, get_emotional_trend
 from windyfly.agent.intent_detector import detect_intent
-from windyfly.agent.models import AgentPausedByOwner, call_llm, estimate_cost, llm_purpose, sum_costs
+from windyfly.agent.models import AgentPausedByOwner, MindPauseUnreadable, call_llm, estimate_cost, llm_purpose, sum_costs
 from windyfly.agent.offline import get_offline_response, is_online
 from windyfly.agent.prompt import assemble_prompt
 from windyfly.agent.tracing import set_request_id, request_id_short
@@ -499,6 +501,36 @@ OWNER_PAUSED_REPLY = (
 def owner_paused_reply() -> str:
     """The one plain line a stopped agent says: no model call, no backup brain."""
     return OWNER_PAUSED_REPLY
+
+
+# Mind could not read the owner's pause switch (Hub 10-12, the contract hint in windy-contracts
+# #141): one pinned line to a person per window per conversation, nothing to another agent, so an
+# unreadable switch can never become a chatter loop in a room.
+PAUSE_UNREADABLE_REPLY = "I can't check my pause switch right now, so I'm holding off. I'll try again shortly."
+PAUSE_UNREADABLE_WINDOW_S = 600.0
+_pause_unreadable_said: dict[str, float] = {}
+_pause_unreadable_lock = threading.Lock()
+
+
+def _reset_pause_unreadable_for_tests() -> None:
+    with _pause_unreadable_lock:
+        _pause_unreadable_said.clear()
+
+
+def _pause_unreadable_answer(session_id: str) -> str:
+    """No model, no tools, no lifeboat: the pinned line once per window, "" otherwise."""
+    from windyfly.channels import silence as _silence
+
+    if _silence.is_agent_sender(session_id):
+        logger.info("[req:%s] pause switch unreadable: no reply to another agent", request_id_short())
+        return ""
+    now = time.time()
+    with _pause_unreadable_lock:
+        last = _pause_unreadable_said.get(session_id)
+        if last is not None and now - last < PAUSE_UNREADABLE_WINDOW_S:
+            return ""
+        _pause_unreadable_said[session_id] = now
+    return PAUSE_UNREADABLE_REPLY
 
 
 def _paused_answer(session_id: str) -> str:
@@ -1268,6 +1300,11 @@ def _agent_respond_turn(
                 )
             else:
                 raise
+    except MindPauseUnreadable:
+        # Mind could not read the owner's pause switch: fail closed, never the lifeboat or
+        # the auto-resurrect below (the owner's stop may be in force).
+        logger.warning("[req:%s] Windy Mind could not read the pause switch; holding off", request_id_short())
+        return _pause_unreadable_answer(session_id)
     except AgentPausedByOwner:
         # Mind said the owner switched this agent off mid-turn: same plain stop,
         # never the lifeboat below.
