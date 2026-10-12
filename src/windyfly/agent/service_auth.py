@@ -10,7 +10,6 @@ fallback on top until Mind's 11-03 sunset).
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -66,12 +65,3 @@ def refused_code(resp: Any, error_header: str) -> str | None:
     return code if code in REMINT_CODES else None
 
 
-def call_with_remint(aud: str, method: str, url: str, send: Callable[[dict[str, str]], Any],
-                     error_header: str) -> Any:
-    """Send once; on a refusable 401 re-mint ONCE with a fresh proof and send again. Raises
-    ServiceAuthError if no token can be minted."""
-    resp = send(agent_headers(aud, method, url))
-    if refused_code(resp, error_header):
-        forget_token()
-        resp = send(agent_headers(aud, method, url))
-    return resp

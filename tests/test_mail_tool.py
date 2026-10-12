@@ -144,7 +144,7 @@ class TestSendEmailMultiRecipient:
 
     @patch("windyfly.tools.mail._adapter")
     def test_adapter_exception_is_caught(self, mock_adapter: MagicMock) -> None:
-        # Trust gate / rate limiter raise: the owner hears it in plain words, nothing is half-sent.
+        # The trust gate raises: the owner hears it in plain words, nothing is half-sent.
         adapter = MagicMock()
         adapter.send_email.side_effect = RuntimeError("trust gate denied")
         mock_adapter.return_value = adapter

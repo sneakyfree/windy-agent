@@ -26,10 +26,6 @@ from windyfly.tools.registry import ToolRegistry
 logger = logging.getLogger(__name__)
 
 
-class RateLimitedError(Exception):
-    """Raised when an outbound email is blocked by the rate limiter."""
-
-
 # ═══════════════════════════════════════════════════════════════════════
 # Windy Mail adapter — JMAP-backed inboxes via Windy Mail API
 # ═══════════════════════════════════════════════════════════════════════
@@ -103,9 +99,8 @@ class WindyMailAdapter:
         Returns:
             Dict with status and message_id on success.
 
-        Raises:
-            RateLimitedError: If the rate limiter blocks the send.
-            TrustDenied: If the agent's integrity band doesn't allow send_email.
+        Sending limits are Windy Mail's: its refusal (429 "Daily send limit reached" and the
+        like) comes back in Mail's own words. A trust-gate denial returns status "denied".
         """
         from windyfly.trust.gate import TrustDenied, require_trust_sync
         try:
@@ -116,23 +111,6 @@ class WindyMailAdapter:
 
         to_list = [to] if isinstance(to, str) else list(to)
         everyone = to_list + list(cc or []) + list(bcc or [])
-
-        # Rate limit check (only if db is available): every address on the message counts.
-        if self.db is not None:
-            try:
-                from windyfly.mail_rate_limiter import MailRateLimiter
-
-                limiter = MailRateLimiter(self.db)
-                for addr in everyone:
-                    check = limiter.check_send_allowed(self.email, addr, subject, body)
-                    if not check.allowed:
-                        raise RateLimitedError(
-                            f"Email to {addr} blocked by rate limiter: {check.reason}"
-                        )
-            except RateLimitedError:
-                raise
-            except Exception as e:
-                logger.warning("Rate limiter check failed (sending anyway): %s", e)
 
         import httpx as _httpx
 
@@ -156,15 +134,6 @@ class WindyMailAdapter:
             if resp.status_code in (200, 201, 202):
                 data = resp.json()
                 logger.info("Windy Mail sent to %d recipient(s) — %s", len(everyone), subject)
-                if self.db is not None:
-                    try:
-                        from windyfly.mail_rate_limiter import MailRateLimiter
-
-                        rl = MailRateLimiter(self.db)
-                        for addr in everyone:
-                            rl.record_send(self.email, addr, body)
-                    except Exception as e:
-                        logger.warning("Rate limiter record_send failed: %s", e)
                 return {"status": "sent", "message_id": data.get("message_id")}
             else:
                 logger.warning("Windy Mail send failed: %s %s", resp.status_code, resp.text)

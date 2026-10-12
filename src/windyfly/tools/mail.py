@@ -151,7 +151,7 @@ def _send_email_now(
             result = adapter.send_email(to_l[0], subject, body)
         else:
             result = adapter.send_email(to_l, subject, body, cc=cc_l or None, bcc=bcc_l or None)
-    except Exception as exc:  # rate limiter / trust gate may raise
+    except Exception as exc:  # the trust gate may raise
         result = {"status": "failed", "error": str(exc)}
     # Annotate with the chosen path so downstream observability / the LLM can reason about it.
     result.setdefault("provider", path)
