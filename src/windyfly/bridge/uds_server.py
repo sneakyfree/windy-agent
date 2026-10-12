@@ -517,10 +517,17 @@ class UDSBridge:
         return {"promoted": True, "skill_id": skill_id}
 
     async def _handle_skills_rollback(self, params: dict) -> dict:
-        from windyfly.skills.manager import rollback_skill
+        # rolled_back is true only when a parent version was restored (P5.102.4, Hub 10-12):
+        # it used to say true for every call, even when nothing changed.
+        from windyfly.skills.manager import get_skill, rollback_skill
         skill_id = params.get("skill_id", "")
-        rollback_skill(self.db, skill_id)
-        return {"rolled_back": True, "skill_id": skill_id}
+        if not get_skill(self.db, skill_id):
+            return {"rolled_back": False, "skill_id": skill_id, "reason": "There is no skill with that id."}
+        parent_id = rollback_skill(self.db, skill_id)
+        if not parent_id:
+            return {"rolled_back": False, "skill_id": skill_id,
+                    "reason": "This skill has no earlier version to go back to."}
+        return {"rolled_back": True, "skill_id": skill_id, "restored_skill_id": parent_id}
 
     # ------------------------------------------------------------------
     # Group 3: Decay, conflicts, moments, failures
