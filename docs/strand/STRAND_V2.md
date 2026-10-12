@@ -809,7 +809,7 @@ are the new genes (Wave 5g).
 | P5.93.2 | Sessions do not share the turn count | live | `tests/strand/test_p5_extended.py::test_p5_93_sessions_do_not_share_the_count` |
 | P5.93.3 | An emotional turn is journaled at once | live | `tests/strand/test_p5_extended.py::test_p5_93_an_emotional_turn_is_journaled_at_once` |
 | P5.93.4 | Journal entries are read through the bridge | live | `tests/strand/test_p5_extended.py::test_p5_93_journal_entries_are_read_through_the_bridge` |
-| P5.93.5 | The gateway answers with the same key when the brain is down | planned: Windy Agent: the bridge returns "journal", the gateway's offline fallback "entries"; use one key | — |
+| P5.93.5 | The gateway answers with the same key when the brain is down | live | `tests/test_journal_key_and_dead_branch.py::test_the_journal_has_one_key_whether_the_brain_is_up_or_down` |
 
 ### P5.94 Self-assessment report card (gene C9.4)
 
@@ -956,8 +956,8 @@ own behaviour.
 | N2.18 | A trust webhook whose body was changed fails its HMAC check | live | `tests/contract/test_trust_webhook_verify.py::TestHmac::test_rejects_tampered_body` |
 | N2.19 | (ours) A trust webhook with a bad signature is refused through the bridge and changes nothing | live | `tests/strand/test_n1_n3_mind_eternitas_teams.py::test_n2_a_trust_webhook_with_a_bad_signature_is_refused_through_the_bridge` |
 | N2.20 | (ours) The dashboard's trust banner says "unknown" until a verdict is cached, then shows the cached band | live | `tests/strand/test_n1_n3_mind_eternitas_teams.py::test_n2_the_trust_banner_says_unknown_until_a_verdict_is_cached` |
-| N2.21 | The hatch summary says when a passport is suspended or revoked | planned: Windy Agent: dead code; nothing sets _WINDYFLY_PASSPORT_DEAD (hatching.py), so wire it or remove it | — |
-| N2.22 | A refused renewal tells the person what will actually help (a revoked or suspended passport is not fixed by signing in again) | planned: Windy Agent: a 403 still says to run `windy login`; word the suspended/revoked case plainly (runtime batch) | — |
+| N2.21 | The hatch summary says when a passport is suspended or revoked | retired: the line read _WINDYFLY_PASSPORT_DEAD, which nothing ever set; the dead branch is removed (#547) | — |
+| N2.22 | A refused renewal tells the person what will actually help (a revoked or suspended passport is not fixed by signing in again) | live | `tests/test_ept_refresh.py::test_a_revoked_refresh_does_not_say_sign_in` |
 
 ### N3 Teams: the owner's agents in one room
 

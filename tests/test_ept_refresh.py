@@ -129,8 +129,21 @@ def test_no_passport_means_no_call():
 def test_refusals_do_not_raise(monkeypatch, code):
     monkeypatch.setenv(er.ENV_KEY, make_ept(exp_in=10 * DAY))
     r = er.refresh_ept(transport=transport([], status=code))
-    assert r["status"] == "failed" and r["http"] == code
-    assert "windy login" in r.get("hint", "")
+    assert r["status"] == "failed" and r["http"] == code and r.get("hint")
+
+
+def test_a_refused_credential_says_to_sign_in_again(monkeypatch):
+    monkeypatch.setenv(er.ENV_KEY, make_ept(exp_in=10 * DAY))
+    assert "windy login" in er.refresh_ept(transport=transport([], status=401))["hint"]
+
+
+def test_a_revoked_refresh_does_not_say_sign_in(monkeypatch):
+    # Eternitas answers 403 for a SUSPENDED or REVOKED passport (10-12): signing in again
+    # cannot fix that, so the hint says what is true (Hub's pinned line).
+    monkeypatch.setenv(er.ENV_KEY, make_ept(exp_in=10 * DAY))
+    hint = er.refresh_ept(transport=transport([], status=403))["hint"]
+    assert hint == "My passport is suspended or revoked, so I can't renew it. My owner can check it in Windy."
+    assert "windy login" not in hint
 
 
 def test_network_error_does_not_raise(monkeypatch):

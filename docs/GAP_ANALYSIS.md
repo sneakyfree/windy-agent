@@ -281,7 +281,7 @@ both Pro and Cloud
 #### P1-E4 — Hatch step `_step_cloud_quota` uses the user's JWT, not
 the wk_ bot key
 - **What:** At hatch time the wk_ key hasn't been minted yet, so
-  `allocate_cloud_quota` falls back to `WINDY_JWT`. That's correct
+  `allocate_cloud_quota` (removed in #546: never called) falls back to `WINDY_JWT`. That's correct
   for the first call, but the hatch-orchestrator trace now uses the
   owner JWT for ecosystem calls that future calls make with a wk_
   key — inconsistent.

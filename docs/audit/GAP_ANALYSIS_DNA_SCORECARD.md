@@ -97,7 +97,7 @@ Subprocess sandbox restricts PATH and cwd to `/tmp`. Evaluator has BANNED_PATTER
 
 | # | Finding | Original Status | Current Status | Notes |
 |---|---------|----------------|----------------|-------|
-| 1 | `mail_rate_limiter.py` — no production consumer | ORPHAN | **FIXED** | Now wired into `channels/email.py` via `check_send_allowed()` and `record_send()` |
+| 1 | `mail_rate_limiter.py` — no production consumer | ORPHAN | **FIXED** | Now wired into `channels/email.py` via `check_send_allowed()` and `record_send()` (correction 10-12: it only ran with a database and no adapter had one, so it never ran; removed in #546) |
 | 2 | `birth_certificate_mailer.py` — never imported | ORPHAN | **FIXED** | File deleted |
 | 3 | `integrations/windy_word.py` | DEAD | **FIXED** | Deleted |
 | 4 | `integrations/windy_cloud.py` | DEAD | **FIXED** | Deleted |

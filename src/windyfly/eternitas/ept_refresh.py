@@ -44,6 +44,8 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+REVOKED_REFRESH_HINT = "My passport is suspended or revoked, so I can't renew it. My owner can check it in Windy."
+
 ENV_KEY = "ETERNITAS_PASSPORT_TOKEN"
 PASSPORT_KEY = "ETERNITAS_PASSPORT"
 REFRESH_WINDOW_S = 30 * 24 * 3600   # ask Eternitas when <30 days remain
@@ -301,7 +303,11 @@ def _refresh(force: bool, transport, now) -> dict[str, Any]:
         code, detail = error_code(resp)
         logger.warning("EPT refresh for %s via %s: HTTP %s %s %s",
                        _passport_prefix(passport), path_used, resp.status_code, code, detail)
-        if resp.status_code in (401, 403) and path_used == "own_ept":
+        if resp.status_code == 403 and path_used == "own_ept":
+            # Eternitas: 403 on the agent's own token = the passport is SUSPENDED or REVOKED. Signing in again cannot fix
+            # that, so never suggest it (Hub's pinned line, 10-12).
+            return {"status": "failed", "http": 403, "hint": REVOKED_REFRESH_HINT}
+        if resp.status_code == 401 and path_used == "own_ept":
             return {"status": "failed", "http": resp.status_code,
                     "hint": "run `windy login`, then `windy ept refresh --force`"}
         return {"status": "failed", "http": resp.status_code}

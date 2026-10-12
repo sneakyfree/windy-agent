@@ -21,7 +21,7 @@ def home(tmp_path, monkeypatch):
     monkeypatch.setenv("WINDYFLY_HOME", str(root))
     monkeypatch.delenv("WINDY_ENV_FILE", raising=False)
     for var in ("ETERNITAS_PASSPORT", "ETERNITAS_PASSPORT_TOKEN", "WINDY_JWT",
-                "_WINDYFLY_FORCE_HATCH", "_WINDYFLY_PASSPORT_DEAD"):
+                "_WINDYFLY_FORCE_HATCH"):
         monkeypatch.setenv(var, "")
         monkeypatch.delenv(var)
     return root
