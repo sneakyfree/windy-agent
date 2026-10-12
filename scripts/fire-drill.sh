@@ -10,7 +10,9 @@
 #   1 probe-heal   — stop the matrix channel, let the probe detect and
 #                    heal it (proves the watchdog watches REAL units)
 #   2 lifeboat     — scratch-env agent turn with dead paid creds + dead
-#                    Mind → must still ANSWER via the local floor (🛟)
+#                    Mind → must still ANSWER via the local floor (🛟, or
+#                    the 🚨 free-local-model notice; see
+#                    scripts/fire-drill-lifeboat-check.py)
 #   3 engine-swap  — scratch session: codeword on the local model, then
 #                    recall after a brain swap (proves Principle #2)
 #   4 turnover     — scratch session: shutdown-turnover writer produces
@@ -141,8 +143,17 @@ time.sleep(2.5)  # absorb the first-contact welcome (async write race)
 out = agent_respond(cfg, db, wq, "Fire drill: are you alive? What is 2+2?",
                     "drill:fire:v1", band=Band.SANDBOX)
 time.sleep(1)
-ok = ("🛟" in out) and any(tok in out for tok in ("4", "four", "Four"))
-print("LIFEBOAT_REPLY:", out[:200])
+# The pass rule lives in scripts/fire-drill-lifeboat-check.py (tested):
+# a lifeboat marker (🛟, or the 🚨 free-local-model notice) AND the answer.
+import importlib.util
+_spec = importlib.util.spec_from_file_location(
+    "lifeboat_check", os.path.join(os.getcwd(), "scripts", "fire-drill-lifeboat-check.py"))
+_check = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(_check)
+ok, why = _check.check(out)
+print("LIFEBOAT_REPLY_BEGIN")
+print(out)
+print("LIFEBOAT_REPLY_END")
+print(f"LIFEBOAT_CHECK: {'PASS' if ok else 'FAIL'} ({why})")
 sys.exit(0 if ok else 1)
 PY
     )
