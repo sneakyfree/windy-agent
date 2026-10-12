@@ -249,10 +249,12 @@ class TestRequestErrorsDoNotBenchMind:
             assert self._call()["content"] == "Hello from Mind!"
         post.assert_called_once()
 
-    def test_auth_error_still_cools_mind(self):
+    def test_auth_error_does_not_cool_mind_either(self):
+        # Was "401 still cools Mind". Mind 10-12 (mind-refusal 1.9.0): a 4xx is about this caller,
+        # never Mind's health, so no 4xx starts a cool-down (tests/test_mind_caller_refusals.py).
         with patch("httpx.post", return_value=_resp({"detail": "no"}, 401)):
             assert self._call() is None
-        assert "windy-mind" in models._provider_cooldowns
+        assert "windy-mind" not in models._provider_cooldowns
 
 
 class TestThinkingBudgetTruncation:
