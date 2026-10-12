@@ -126,3 +126,4 @@ def test_p4_54_events_are_read_through_the_bridge():
     finally:
         db.close()
     assert [e["event_type"] for e in result["events"]] == ["decay.run"]
+    assert result["counts_24h"] == {"decay.run": 1, "agent.respond": 1}
