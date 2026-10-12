@@ -150,7 +150,25 @@ def test_chaos_provider_503_routes_to_typed_error():
     assert classified.category == ErrorCategory.LLM_FAILURE
     assert "AI service" in classified.user_message
     assert "Traceback" not in classified.user_message
-    assert "503" not in classified.user_message  # don't leak HTTP codes
+    assert "503" not in _without_report_id(classified.user_message)  # don't leak HTTP codes
+
+
+def _without_report_id(text: str) -> str:
+    # The message ends with a random 6-hex report id ("err:5038bd" on CI 10-12): that is not an
+    # HTTP code, so it is removed before the leak check, or the check fails ~1 run in 1,000.
+    import re
+
+    return re.sub(r"err:[0-9a-f]{6}", "err:<id>", text)
+
+
+def test_chaos_503_check_ignores_a_report_id_that_happens_to_contain_503(monkeypatch):
+    from windyfly.agent import tracing
+
+    # The id is the in-flight request id (or a fresh hex token when there is none): pin it.
+    monkeypatch.setattr(tracing, "request_id_for_user", lambda: "5038bd")
+    classified = classify(RuntimeError("LLM call failed across all providers in chain: 503 Service Unavailable"))
+    assert "err:5038bd" in classified.user_message                 # the id is still shown to the person
+    assert "503" not in _without_report_id(classified.user_message)
 
 
 def test_chaos_provider_429_routes_to_rate_limit_message():
