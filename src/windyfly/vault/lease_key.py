@@ -4,25 +4,44 @@ Vault leases are JWEs (ECDH-ES+A256KW, X25519, A256GCM) to a key the agent regis
 SEPARATE key from the agent's ES256 signing key (never reuse a signing key for ECDH). The
 private half lives in ``lease_keys.json`` (0600) in the same directory as credentials.json
 (``WINDY_LEASE_KEYS_FILE`` overrides). A rotation keeps the previous key for a 24 h overlap so a
-lease issued just before the rotation still decrypts. Nothing here talks to the Vault: the
-registration route (``PUT /v1/agent/lease-key``) is wired later, after Hub's gate.
+lease issued just before the rotation still decrypts.
+
+A key's ``kid`` is Vault's own id for it, hex(sha256(utf8("wv-keyid|") || raw32)[:8]) (Vault
+agent-routes.v1): Vault stamps that kid on every lease, so the agent must use the same one. The
+registration body is exactly {"public_key": <standard padded base64 of the 32 raw bytes>}, never a
+JWK. ``register`` takes the transport as a function: nothing here opens a connection, and the
+route is still wired later, after Hub's gate (dark).
 """
 
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
-import secrets
+import re
 import tempfile
 import time
 from pathlib import Path
 from typing import Any
+from collections.abc import Callable
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 
 OVERLAP_S = 24 * 3600
+_KID_RE = re.compile(r"^[0-9a-f]{16}$")
+
+
+class LeaseKeyRegistrationError(Exception):
+    """Vault did not register the key as ours (wrong kid, bad reply, or a refusal). Nothing is stored."""
+
+
+def vault_kid(pub_raw: bytes) -> str:
+    """Vault's kid for a 32-byte X25519 public key."""
+    if len(pub_raw) != 32:
+        raise ValueError("an X25519 public key is 32 bytes")
+    return hashlib.sha256(b"wv-keyid|" + pub_raw).digest()[:8].hex()
 
 
 def _b64(b: bytes) -> str:
@@ -45,9 +64,17 @@ def keys_path() -> Path:
 def _load(path: Path) -> dict[str, Any]:
     try:
         d = json.loads(path.read_text("utf-8"))
-        return d if isinstance(d, dict) and isinstance(d.get("keys"), list) else {"keys": []}
     except (OSError, ValueError):
         return {"keys": []}
+    if not (isinstance(d, dict) and isinstance(d.get("keys"), list)):
+        return {"keys": []}
+    for k in d["keys"]:
+        # A file written before Vault's kid (lk_<random>): the kid is a pure function of the key.
+        try:
+            k["kid"] = vault_kid(_unb64(k["public"]))
+        except (KeyError, TypeError, ValueError):
+            pass
+    return d
 
 
 def _save(path: Path, data: dict[str, Any]) -> None:
@@ -68,7 +95,7 @@ def _new_entry(now: float) -> dict[str, Any]:
     raw = priv.private_bytes(serialization.Encoding.Raw, serialization.PrivateFormat.Raw,
                              serialization.NoEncryption())
     pub = priv.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
-    return {"kid": "lk_" + secrets.token_hex(6), "private": _b64(raw), "public": _b64(pub),
+    return {"kid": vault_kid(pub), "private": _b64(raw), "public": _b64(pub),
             "created_at": now, "status": "active", "retire_after": None}
 
 
@@ -111,8 +138,40 @@ def rotate(*, now: float | None = None, path: Path | None = None) -> dict[str, A
     return new
 
 
+def registration_body(entry: dict[str, Any]) -> dict[str, str]:
+    """The body of PUT /v1/agent/lease-key: the 32 raw public bytes, standard padded base64."""
+    return {"public_key": base64.b64encode(_unb64(entry["public"])).decode("ascii")}
+
+
+def register(put: Callable[[dict[str, str]], tuple[int, Any]], *, now: float | None = None,
+             path: Path | None = None) -> str:
+    """Register the active key with Vault through ``put(body) -> (status, json)``.
+
+    Vault answers {"kid": <its 16-hex id>}. A non-2xx reply, a kid that is not 16 lowercase hex, or
+    a kid that is not this key's own is refused loudly and nothing is stored (Windy Vault 10-12:
+    a different kid means a wrong server, a proxy or a bug).
+    """
+    now = time.time() if now is None else now
+    p = path or keys_path()
+    active = ensure_active(now=now, path=p)
+    status, reply = put(registration_body(active))
+    if not 200 <= int(status) < 300:
+        raise LeaseKeyRegistrationError(f"Vault refused the lease key (HTTP {status})")
+    kid = reply.get("kid") if isinstance(reply, dict) else None
+    if not isinstance(kid, str) or not _KID_RE.match(kid):
+        raise LeaseKeyRegistrationError("Vault answered without a valid kid")
+    if kid != active["kid"]:
+        raise LeaseKeyRegistrationError("Vault's kid is not this key's kid")
+    data = _load(p)
+    for k in data["keys"]:
+        if k["kid"] == kid:
+            k["registered_at"] = now
+    _save(p, data)
+    return kid
+
+
 def public_jwk(entry: dict[str, Any]) -> dict[str, str]:
-    """The public half as a JWK for registration: contains no private material."""
+    """The public half as a JWK (local use only; Vault takes ``registration_body``): no private material."""
     return {"kty": "OKP", "crv": "X25519", "x": entry["public"], "kid": entry["kid"], "use": "enc"}
 
 
