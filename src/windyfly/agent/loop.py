@@ -665,6 +665,15 @@ def pop_served_model(session_id: str) -> str | None:
     return _LAST_SERVED_MODEL.pop(session_id, None)
 
 
+# What actually answered this session's last model reply (Mind's served model, else the direct provider's),
+# kept for the prompt's "Model:" line. Unlike _LAST_SERVED_MODEL it is not consumed by a channel label.
+_SERVED_FOR_PROMPT: dict[str, str] = {}
+
+
+def served_model_for_prompt(session_id: str) -> str | None:
+    return _SERVED_FOR_PROMPT.get(session_id)
+
+
 _MIND_FALLBACK_NOTICES = {
     "mind_slow": "\U0001f6df Mind is slow right now, so this answer came from a backup route. ",
     "mind_down": "\U0001f6df Mind is unreachable right now, so this answer came from a backup route. ",
@@ -2000,6 +2009,9 @@ def _agent_respond_turn(
     _mind_fb = result.get("mind_fallback")  # set by the Mind helper path (MD14)
     # A fallback reply is not "the model Mind served": no uk.windypro.model on it.
     _note_served_model(session_id, None if _mind_fb else result.get("mind_model"))
+    _served_now = result.get("mind_model") or result.get("model")
+    if _served_now:
+        _SERVED_FOR_PROMPT[session_id] = str(_served_now)
     response_text = maybe_prepend_header(
         response_text, session_total, max_tokens=_max_ctx,
         # Engine transparency: what actually served this reply —
