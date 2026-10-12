@@ -744,7 +744,7 @@ are the new genes (Wave 5g).
 | P5.78.1 | A token within 5 minutes of expiry is refreshed, and the new tokens are cached privately (0600) | live | `tests/strand/test_p5_providers.py::test_p5_78_a_token_near_expiry_is_refreshed_and_cached_privately` |
 | P5.78.2 | A token far from expiry is used as is | live | `tests/strand/test_p5_providers.py::test_p5_78_a_token_far_from_expiry_is_used_as_is` |
 | P5.78.3 | Without an OAuth token the manager steps aside and the API key is used | live | `tests/strand/test_p5_providers.py::test_p5_78_without_an_oauth_token_the_manager_steps_aside_for_the_api_key` |
-| P5.78.4 | The token cache lives in the agent's state directory | planned: Windy Agent: the default (data/.anthropic_oauth.json) is relative to the working directory, and the file is chmod-ed after it is written; use the state dir and create it 0600 | — |
+| P5.78.4 | The token cache lives in the agent's state directory | live | `tests/test_state_dir_private_files.py::test_the_oauth_cache_lives_in_the_state_dir_and_is_0600` |
 
 ### P5.C7 Phase 7 checklist
 
@@ -869,7 +869,7 @@ are the new genes (Wave 5g).
 | P5.104.2 | A message is queued when the lifeboat times out | live | `tests/test_lifeboat_actually_queues.py::TestLifeboatTimeoutQueuesMessage::test_lifeboat_timeout_actually_queues` |
 | P5.104.3 | Back online, nothing queued goes through the model | live | `tests/test_offline_queue_no_replay.py::test_nothing_goes_through_the_model` |
 | P5.104.4 | Back online, the queue is replayed | retired: a replay drove a spend auto-pause; never replay, tell the owner (#434) | — |
-| P5.104.5 | The queue lives in the agent's state directory | planned: Windy Agent: the default (data/offline_queue.json) is relative to the working directory | — |
+| P5.104.5 | The queue lives in the agent's state directory | live | `tests/test_state_dir_private_files.py::test_the_offline_queue_lives_in_the_state_dir_and_is_0600` |
 
 ### P5.C10 Phase 10 checklist
 

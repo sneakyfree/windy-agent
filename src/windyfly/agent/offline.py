@@ -365,10 +365,20 @@ def should_escape_lifeboat() -> bool:
 # Persistent offline message queue
 # ---------------------------------------------------------------------------
 
-_QUEUE_PATH = Path(os.environ.get(
-    "WINDYFLY_OFFLINE_QUEUE",
-    "data/offline_queue.json",
-))
+# WINDYFLY_OFFLINE_QUEUE, else the state dir, private from creation (Hub 10-12, P5.104.5): the
+# queue holds the person's own words. Tests may pin a path here; None = resolve at use.
+_QUEUE_PATH: Path | None = None
+
+
+def _queue_path() -> Path:
+    if _QUEUE_PATH is not None:
+        return _QUEUE_PATH
+    from windyfly.state_files import move_legacy, state_path
+
+    path = state_path("WINDYFLY_OFFLINE_QUEUE", "offline_queue.json")
+    if not os.environ.get("WINDYFLY_OFFLINE_QUEUE", "").strip():
+        move_legacy("offline_queue.json", path, "offline queue")   # was data/, cwd-relative
+    return path
 
 
 def queue_message(user_message: str, session_id: str = "") -> None:
@@ -380,22 +390,17 @@ def queue_message(user_message: str, session_id: str = "") -> None:
         user_message: The user's message.
         session_id: Session ID for continuity.
     """
-    _QUEUE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    from windyfly.state_files import write_private
+
     queue = _load_queue()
     queue.append({
         "message": user_message,
         "session_id": session_id,
         "queued_at": __import__("datetime").datetime.now().isoformat(),
     })
-    # Atomic write: write to temp file then replace. os.replace (not
-    # Path.rename) so it overwrites an existing queue file on EVERY
-    # platform — Path.rename raises FileExistsError on Windows (WinError
-    # 183) the second time the queue is written, which crashed the
-    # offline fallback mid-outage (Windows stress, 2026-07-18). No-op
-    # change on POSIX, where rename already replaced.
-    tmp = _QUEUE_PATH.with_suffix(".tmp")
-    tmp.write_text(json.dumps(queue, indent=2), encoding="utf-8")
-    os.replace(tmp, _QUEUE_PATH)
+    # Atomic write through a temp file created 0600, then os.replace (not Path.rename, which
+    # raises FileExistsError on Windows the second time: Windows stress, 2026-07-18).
+    write_private(_queue_path(), json.dumps(queue, indent=2).encode("utf-8"))
     logger.info("Queued offline message (%d in queue)", len(queue))
 
 
@@ -407,8 +412,9 @@ def get_queued_messages() -> list[dict[str, str]]:
 def clear_queue() -> int:
     """Clear the queue and return how many were cleared."""
     count = len(_load_queue())
-    if _QUEUE_PATH.exists():
-        _QUEUE_PATH.unlink()
+    path = _queue_path()
+    if path.exists():
+        path.unlink()
     return count
 
 
@@ -448,9 +454,10 @@ def offline_notice(count: int) -> str:
 
 def _load_queue() -> list[dict[str, str]]:
     """Load the queue from disk."""
-    if _QUEUE_PATH.exists():
+    path = _queue_path()
+    if path.exists():
         try:
-            return json.loads(_QUEUE_PATH.read_text(encoding="utf-8"))
+            return json.loads(path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             pass
     return []

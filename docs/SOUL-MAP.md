@@ -19,13 +19,18 @@ The rule of thumb: **`SOUL.md` + `config.yaml` + `data/` is the agent.** Copy th
 |---|---|---|
 | `data/windyfly.db` | **The memory itself.** SQLite, ~25 tables: `episodes` (lived experience), `nodes`/`edges` (semantic graph), `goals`, `intents`, `reminders`, `journal`, `agent_actions`, `failures`, `collaborators`, `cost_ledger`, `eternitas_registry`, `analytics_events`, `schema_version` | **Everything the agent remembers.** This is the file that must never be lost |
 | `data/matrix_store/` | Matrix/chat client state + encryption keys | Chat identity continuity; re-pairing required |
-| `data/offline_queue.json` | Work queued while offline | In-flight actions |
 | `data/provision_recovery.json` | Half-finished hatch/provisioning state for resume | Ability to resume an interrupted hatch |
 | `data/providers.json` | Model-provider selection state | Routing preferences |
 
+## In the state dir (`WINDY_STATE_DIR`, default `~/.windy`), private (0600) from creation
+
+`offline_queue.json` (messages that arrived while offline; in-flight only) and `.anthropic_oauth.json`
+(the refreshed Anthropic OAuth tokens: a live credential, same rules as Tier 3). Both used to sit in
+`data/` relative to the working directory; a file left there is moved here once (10-12).
+
 ## Tier 3 — credentials living in `data/` (secret; back up encrypted or re-auth)
 
-`data/.anthropic_oauth.json`, `data/gmail_token.json`, `data/google_oauth_creds.json`, `data/google_calendar_creds.json`, `data/google_calendar_token.json`.
+`data/gmail_token.json`, `data/google_oauth_creds.json`, `data/google_calendar_creds.json`, `data/google_calendar_token.json`.
 
 > ⚠️ These are live credentials. Back them up **encrypted**, never to a public repo, and prefer re-authenticating on a new machine over copying them. Everything else in this map is safe to copy in the clear.
 
