@@ -150,6 +150,23 @@ def test_expired_token_remints_once(calls, monkeypatch):
     assert len(calls) == 2 and forgot == [1]
 
 
+def test_an_invalid_token_remints_once_too(calls, monkeypatch):
+    forgot = []
+    monkeypatch.setattr(service_auth, "forget_token", lambda: forgot.append(1))
+    _answer(calls, _resp(401, {"error": "unauthorized", "reason": "invalid"}),
+            _resp(200, {"ok": True, "result": "https://x/book/c"}))
+    assert wc.invoke("get_booking_page")["ok"] is True
+    assert len(calls) == 2 and forgot == [1]
+
+
+def test_any_other_401_reason_is_not_reminted(calls, monkeypatch):
+    forgot = []
+    monkeypatch.setattr(service_auth, "forget_token", lambda: forgot.append(1))
+    _answer(calls, _resp(401, {"error": "unauthorized", "reason": "revoked"}))
+    assert wc.invoke("get_booking_page")["ok"] is False
+    assert len(calls) == 1 and forgot == []
+
+
 def test_persistent_401_stops_after_one_retry(calls):
     _answer(calls, _resp(401, {"error": "unauthorized", "reason": "expired"}))
     out = wc.invoke("get_booking_page")

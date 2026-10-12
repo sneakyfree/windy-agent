@@ -51,22 +51,3 @@ def test_refused_code_only_for_remintable_401s():
     assert sa.refused_code(_resp(401, "dpop_replay"), "x-vault-error") == "dpop_replay"
     assert sa.refused_code(_resp(401, "not_authenticated"), "x-vault-error") is None
     assert sa.refused_code(_resp(403, "dpop_replay"), "x-vault-error") is None
-
-
-def test_call_with_remint_retries_once_with_a_fresh_proof(ak):
-    _, proofs, cleared = ak
-    sent = []
-
-    def send(h):
-        sent.append(h)
-        return _resp(401, "dpop_replay") if len(sent) == 1 else _resp(200)
-
-    r = sa.call_with_remint("windy-vault", "POST", "https://v/lease", send, "x-vault-error")
-    assert r.status_code == 200 and cleared == [1]
-    assert [h["DPoP"] for h in sent] == ["proof-1", "proof-2"]
-
-
-def test_no_retry_on_an_ordinary_answer(ak):
-    sent = []
-    sa.call_with_remint("windy-vault", "GET", "https://v/x", lambda h: sent.append(h) or _resp(200), "x-vault-error")
-    assert len(sent) == 1

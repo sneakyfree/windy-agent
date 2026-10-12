@@ -819,7 +819,7 @@ are the new genes (Wave 5g).
 | P5.94.2 | The report is kept as a memory | live | `tests/test_self_assessment.py::TestSelfAssessment::test_assessment_stored_as_node` |
 | P5.94.3 | It runs through the bridge | live | `tests/strand/test_p5_extended.py::test_p5_94_the_report_card_runs_through_the_bridge` |
 | P5.94.4 | The six scores are the strand's (memory accuracy, response quality, cost, satisfaction, skill health, uptime) | retired: the report card keeps its own six (retention, failure rate, soul currency, relationship depth, consistency, cost efficiency); the six scores in src/windyfly/agent/self_assessment.py are the record (#542) | — |
-| P5.94.5 | It runs weekly | planned: Windy Agent: on demand only; nothing schedules it | — |
+| P5.94.5 | It runs weekly | retired: the report card runs on demand (assessment.run); nothing schedules it and none is wanted (#546) | — |
 
 ### P5.C9 Phase 9 checklist
 
