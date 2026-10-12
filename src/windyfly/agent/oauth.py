@@ -20,11 +20,20 @@ logger = logging.getLogger(__name__)
 # Refresh the token 5 minutes before it actually expires
 _EXPIRY_BUFFER_MS = 5 * 60 * 1000
 
-# Where to persist refreshed tokens so they survive restarts
-_TOKEN_CACHE_PATH = Path(os.environ.get(
-    "WINDYFLY_OAUTH_CACHE",
-    "data/.anthropic_oauth.json",
-))
+# Where refreshed tokens persist across restarts: WINDYFLY_OAUTH_CACHE, else the state dir, private
+# from creation (Hub 10-12, P5.78.4). Tests may pin a path here; None = resolve at use.
+_TOKEN_CACHE_PATH: Path | None = None
+
+
+def _cache_path() -> Path:
+    if _TOKEN_CACHE_PATH is not None:
+        return _TOKEN_CACHE_PATH
+    from windyfly.state_files import move_legacy, state_path
+
+    path = state_path("WINDYFLY_OAUTH_CACHE", ".anthropic_oauth.json")
+    if not os.environ.get("WINDYFLY_OAUTH_CACHE", "").strip():
+        move_legacy(".anthropic_oauth.json", path, "OAuth token cache")   # was data/, cwd-relative
+    return path
 
 ANTHROPIC_TOKEN_ENDPOINT = "https://console.anthropic.com/v1/oauth/token"
 
@@ -99,16 +108,17 @@ class OAuthManager:
 
     def _save_cache(self) -> None:
         """Persist current tokens to disk so they survive restarts."""
+        from windyfly.state_files import write_private
+
+        path = _cache_path()
         try:
-            _TOKEN_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-            _TOKEN_CACHE_PATH.write_text(json.dumps({
+            write_private(path, json.dumps({
                 "access_token": self._access_token,
                 "refresh_token": self._refresh_token,
                 "expires_at": self._expires_at,
-            }), encoding="utf-8")
-            _TOKEN_CACHE_PATH.chmod(0o600)
+            }).encode("utf-8"))
         except OSError:
-            logger.warning("Could not persist refreshed OAuth tokens to %s", _TOKEN_CACHE_PATH)
+            logger.warning("Could not persist refreshed OAuth tokens to %s", path)
 
 
 # ------------------------------------------------------------------
@@ -136,9 +146,10 @@ def get_oauth_manager(config: dict[str, Any] | None = None) -> OAuthManager | No
     expires_at = int(os.environ.get("ANTHROPIC_OAUTH_EXPIRES_AT", "0") or "0")
 
     # Try loading from cache if env vars are missing
-    if not access_token and _TOKEN_CACHE_PATH.exists():
+    cache = _cache_path()
+    if not access_token and cache.exists():
         try:
-            cached = json.loads(_TOKEN_CACHE_PATH.read_text(encoding="utf-8"))
+            cached = json.loads(cache.read_text(encoding="utf-8"))
             access_token = cached.get("access_token", "")
             refresh_token = refresh_token or cached.get("refresh_token", "")
             expires_at = expires_at or cached.get("expires_at", 0)
