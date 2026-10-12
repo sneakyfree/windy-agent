@@ -846,7 +846,7 @@ are the new genes (Wave 5g).
 | P5.102.1 | Skills are created and listed through the bridge | live | `tests/test_gap_closure.py::TestSkillsManagement::test_skills_create_then_list` |
 | P5.102.2 | A skill is promoted through the bridge | live | `tests/test_gap_closure.py::TestSkillsManagement::test_skills_promote` |
 | P5.102.3 | A skill in a code language is refused | live | `tests/test_gap_closure.py::TestSkillsManagement::test_skills_create_rejects_code_language` |
-| P5.102.4 | A skill rolls back through the bridge, and says so only when it did | planned: Windy Agent: skills.rollback answers rolled_back: true for a skill with no parent | — |
+| P5.102.4 | A skill rolls back through the bridge, and says so only when it did | live | `tests/test_skills_rollback_honest.py::test_a_skill_with_no_earlier_version_is_not_rolled_back` |
 | P5.102.5 | Evaluate, golden tests and regression through the bridge | retired: executable skills removed (#504) | — |
 
 ### P5.103 System internals API (gene C10.3)

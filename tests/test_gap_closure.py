@@ -151,7 +151,8 @@ class TestSkillsManagement:
         result = _run(bridge._dispatch("skills.rollback", {
             "skill_id": create_result["skill_id"],
         }))
-        assert result["rolled_back"] is True  # Handler doesn't raise, just returns
+        # No parent = nothing rolled back, said plainly (was True: P5.102.4, fixed 10-12).
+        assert result["rolled_back"] is False and result["reason"]
         db.close()
 
     def test_skills_create_rejects_code_language(self):
