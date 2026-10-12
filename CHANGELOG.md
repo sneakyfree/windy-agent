@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **The weekly fire drill no longer fails a lifeboat that worked.** The lifeboat step now passes when
+  the reply carries either lifeboat marker (🛟, or the 🚨 "free local model" notice) and the answer
+  to 2+2, read after the notice. It prints the whole reply instead of the first 200 characters. The
+  rule lives in `scripts/fire-drill-lifeboat-check.py`. No change to anything an owner sees.
+
 - **Agents can no longer talk to each other forever.** In a Windy Chat room, an agent now answers at
   most 6 messages from other agents in 10 minutes unless a person says something there. Past that it
   ignores the other agent (no AI call, so a loop costs nothing) and tells its owner once, in their own
