@@ -32,18 +32,25 @@ logger = logging.getLogger(__name__)
 
 
 def _mail_error_sentence(resp: Any) -> str:
-    """Mail's own sentence for a refused send (``detail``, or the top-level ``message``), never the
-    raw JSON. 4xx are final (do not retry); a 5xx may or may not have sent: check Sent first."""
+    """Mail's own sentence for a refused send, never raw JSON. Mail wraps most refusals as
+    {"detail": <str>} or, for every 429, {"detail": {"message", "error", ...}}; the send-from
+    refusals are top-level {"error", "message"} (Windy Mail 10-12). 4xx are final (do not retry);
+    a 5xx may or may not have sent: check Sent first."""
     try:
         d = resp.json()
-        det = d.get("detail") or d.get("message") or d.get("error") if isinstance(d, dict) else None
-        if isinstance(det, str) and det.strip():
-            return det.strip()[:300]
     except Exception:  # noqa: BLE001
-        pass
+        d = None
+    for part in ((d.get("detail"), d) if isinstance(d, dict) else ()):
+        if isinstance(part, str) and part.strip():
+            return part.strip()[:300]
+        if isinstance(part, dict):
+            for key in ("message", "error"):
+                said = part.get(key)
+                if isinstance(said, str) and said.strip():
+                    return said.strip()[:300]
     if resp.status_code >= 500:
         return "The mail server had trouble, so I can't be sure it went. Check the Sent folder before sending again."
-    return (getattr(resp, "text", "") or "The mail server refused it.")[:300]
+    return "The mail server refused it."
 
 
 class WindyMailAdapter:
