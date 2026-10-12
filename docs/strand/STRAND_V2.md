@@ -778,3 +778,119 @@ are the new genes (Wave 5g).
 | P5.C8.3 | The terminal relay carries PTY I/O | retired: Mission Control removed (#502) | — |
 | P5.C8.4 | A service restart reaches the remote | retired: Mission Control removed (#502) | — |
 | P5.C8.5 | Provider sync reaches the remote | retired: Mission Control removed (#502) | — |
+
+### P5.91 Context gas-tank header (gene C9.1)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P5.91.1 | The header shows the agent, the time and how much context is left | live | `tests/test_context_header.py::TestContextTracker::test_format_header_green` |
+| P5.91.2 | It shows again after an hour | live | `tests/test_context_header.py::TestContextTracker::test_header_after_one_hour` |
+| P5.91.3 | It shows again after a 10% change | live | `tests/test_context_header.py::TestContextTracker::test_should_show_header_after_10pct_delta` |
+| P5.91.4 | It does not repeat on rapid replies | live | `tests/test_context_header.py::TestContextTracker::test_no_header_rapid_fire` |
+| P5.91.5 | Yellow when context runs low | live | `tests/test_context_header.py::TestContextTracker::test_format_header_yellow` |
+| P5.91.6 | Red when it is nearly gone | live | `tests/test_context_header.py::TestContextTracker::test_format_header_red` |
+| P5.91.7 | The header goes on the reply | live | `tests/test_context_header.py::TestMaybePrependHeader::test_prepends_on_first_call` |
+| P5.91.8 | It reads against the channel's real context cap | live | `tests/test_context_header.py::TestEffectiveCapHonored::test_1M_cap_at_30K_used_shows_healthy` |
+
+### P5.92 Relationship moments (gene C9.2)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P5.92.1 | After an emotional turn a one-line moment is saved | live | `tests/strand/test_p5_extended.py::test_p5_92_a_moment_is_saved_after_an_emotional_turn` |
+| P5.92.2 | Saved moments reach the prompt | live | `tests/test_relationship_moments.py::TestRelationshipMomentsInPrompt::test_moments_appear_in_assembled_prompt` |
+| P5.92.3 | Moments are listed through the bridge | live | `tests/test_gap_closure.py::TestDecayConflictsMomentsFailures::test_moments_list_with_data` |
+| P5.92.4 | Moments are captured only when emotional sensitivity is 3 or more (the old warmth gate) | planned: Windy Agent: the gate in the turn is untested | — |
+
+### P5.93 Agent journal (gene C9.3)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P5.93.1 | A journal entry is written on the 10th turn of a session | live | `tests/strand/test_p5_extended.py::test_p5_93_a_journal_entry_is_written_on_the_tenth_turn_of_a_session` |
+| P5.93.2 | Sessions do not share the turn count | live | `tests/strand/test_p5_extended.py::test_p5_93_sessions_do_not_share_the_count` |
+| P5.93.3 | An emotional turn is journaled at once | live | `tests/strand/test_p5_extended.py::test_p5_93_an_emotional_turn_is_journaled_at_once` |
+| P5.93.4 | Journal entries are read through the bridge | live | `tests/strand/test_p5_extended.py::test_p5_93_journal_entries_are_read_through_the_bridge` |
+| P5.93.5 | The gateway answers with the same key when the brain is down | planned: Windy Agent: the bridge returns "journal", the gateway's offline fallback "entries"; use one key | — |
+
+### P5.94 Self-assessment report card (gene C9.4)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P5.94.1 | A six-score report with a grade | live | `tests/test_self_assessment.py::TestSelfAssessment::test_generates_report` |
+| P5.94.2 | The report is kept as a memory | live | `tests/test_self_assessment.py::TestSelfAssessment::test_assessment_stored_as_node` |
+| P5.94.3 | It runs through the bridge | live | `tests/strand/test_p5_extended.py::test_p5_94_the_report_card_runs_through_the_bridge` |
+| P5.94.4 | The six scores are the strand's (memory accuracy, response quality, cost, satisfaction, skill health, uptime) | planned: Windy Agent (Hub decides): the six are retention, failure rate, soul currency, relationship depth, "consistency" (which is average cost again) and cost efficiency | — |
+| P5.94.5 | It runs weekly | planned: Windy Agent: on demand only; nothing schedules it | — |
+
+### P5.C9 Phase 9 checklist
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P5.C9.1 | The context header shows the time and the percentage | live | `tests/test_context_header.py::TestContextTracker::test_format_header_green` |
+| P5.C9.2 | A relationship moment is saved after an emotional turn | live | `tests/strand/test_p5_extended.py::test_p5_92_a_moment_is_saved_after_an_emotional_turn` |
+| P5.C9.3 | A journal entry is written on the 10th turn | live | `tests/strand/test_p5_extended.py::test_p5_93_a_journal_entry_is_written_on_the_tenth_turn_of_a_session` |
+| P5.C9.4 | Self-assessment returns a six-score report | live | `tests/test_self_assessment.py::TestSelfAssessment::test_generates_report` |
+
+### P5.101 Personality versioning API (gene C10.1)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P5.101.1 | The history comes back through the bridge | live | `tests/test_gap_closure.py::TestPersonalityVersioning::test_snapshot_then_history` |
+| P5.101.2 | A snapshot is made through the bridge | live | `tests/test_gap_closure.py::TestPersonalityVersioning::test_snapshot_returns_batch_id` |
+| P5.101.3 | Drift is found through the bridge | live | `tests/strand/test_p5_extended.py::test_p5_101_drift_is_found_through_the_bridge` |
+| P5.101.4 | A confirmed rollback through the bridge restores the value | live | `tests/strand/test_p5_extended.py::test_p5_101_a_confirmed_rollback_through_the_bridge_restores_the_value` |
+
+### P5.102 Skills API (gene C10.2)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P5.102.1 | Skills are created and listed through the bridge | live | `tests/test_gap_closure.py::TestSkillsManagement::test_skills_create_then_list` |
+| P5.102.2 | A skill is promoted through the bridge | live | `tests/test_gap_closure.py::TestSkillsManagement::test_skills_promote` |
+| P5.102.3 | A skill in a code language is refused | live | `tests/test_gap_closure.py::TestSkillsManagement::test_skills_create_rejects_code_language` |
+| P5.102.4 | A skill rolls back through the bridge, and says so only when it did | planned: Windy Agent: skills.rollback answers rolled_back: true for a skill with no parent | — |
+| P5.102.5 | Evaluate, golden tests and regression through the bridge | retired: executable skills removed (#504) | — |
+
+### P5.103 System internals API (gene C10.3)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P5.103.1 | Decay runs through the bridge and reports counts | live | `tests/test_gap_closure.py::TestDecayConflictsMomentsFailures::test_decay_run_returns_counts` |
+| P5.103.2 | Unresolved conflicts are listed | live | `tests/test_gap_closure.py::TestDecayConflictsMomentsFailures::test_conflicts_list_after_creation` |
+| P5.103.3 | A conflict is resolved | live | `tests/test_gap_closure.py::TestDecayConflictsMomentsFailures::test_conflicts_resolve` |
+| P5.103.4 | Failures are listed | live | `tests/strand/test_p5_extended.py::test_p5_103_failures_are_listed_through_the_bridge` |
+| P5.103.5 | The mode is read and set | retired: modes did nothing; removed (#499) | — |
+| P5.103.6 | Offline status reports the connection and the local model | live | `tests/test_gap_closure.py::TestOfflineEvents::test_offline_status` |
+| P5.103.7 | Events are listed and filtered | live | `tests/strand/test_p4_phase5.py::test_p4_54_events_are_read_through_the_bridge` |
+
+### P5.104 Offline message queue (gene C10.4)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P5.104.1 | Queued messages survive a crash (atomic write) | live | `tests/test_offline_queue_atomic.py::TestOfflineQueueAtomic::test_atomic_write_survives_crash` |
+| P5.104.2 | A message is queued when the lifeboat times out | live | `tests/test_lifeboat_actually_queues.py::TestLifeboatTimeoutQueuesMessage::test_lifeboat_timeout_actually_queues` |
+| P5.104.3 | Back online, nothing queued goes through the model | live | `tests/test_offline_queue_no_replay.py::test_nothing_goes_through_the_model` |
+| P5.104.4 | Back online, the queue is replayed | retired: a replay drove a spend auto-pause; never replay, tell the owner (#434) | — |
+| P5.104.5 | The queue lives in the agent's state directory | planned: Windy Agent: the default (data/offline_queue.json) is relative to the working directory | — |
+
+### P5.C10 Phase 10 checklist
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P5.C10.1 | Personality history returns the soul_history rows | live | `tests/test_gap_closure.py::TestPersonalityVersioning::test_snapshot_then_history` |
+| P5.C10.2 | A personality snapshot creates a checkpoint | live | `tests/test_gap_closure.py::TestPersonalityVersioning::test_snapshot_returns_batch_id` |
+| P5.C10.3 | Drift detection flags changed sliders | live | `tests/strand/test_p5_extended.py::test_p5_101_drift_is_found_through_the_bridge` |
+| P5.C10.4 | The skills list returns the skills | live | `tests/test_gap_closure.py::TestSkillsManagement::test_skills_create_then_list` |
+| P5.C10.5 | Skill evaluation runs the 3-gate pipeline | retired: executable skills, sandbox and gates removed (#504) | — |
+| P5.C10.6 | The decay endpoint runs and returns counts | live | `tests/test_gap_closure.py::TestDecayConflictsMomentsFailures::test_decay_run_returns_counts` |
+| P5.C10.7 | The conflicts list returns unresolved entries | live | `tests/test_gap_closure.py::TestDecayConflictsMomentsFailures::test_conflicts_list_after_creation` |
+| P5.C10.8 | Resolving a conflict updates the database | live | `tests/test_gap_closure.py::TestDecayConflictsMomentsFailures::test_conflicts_resolve` |
+| P5.C10.9 | Setting the mode validates and persists it | retired: modes removed (#499) | — |
+| P5.C10.10 | Offline status reports connectivity and the local model | live | `tests/test_gap_closure.py::TestOfflineEvents::test_offline_status` |
+| P5.C10.11 | Events come back with 24-hour counts | live | `tests/strand/test_p4_phase5.py::test_p4_54_events_are_read_through_the_bridge` |
+| P5.C10.12 | The offline queue persists messages to disk | live | `tests/test_offline_queue_atomic.py::TestOfflineQueueAtomic::test_atomic_write_survives_crash` |
+
+### P5.CNT Updated master counts (Part 5)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| P5.CNT.1 | Every bridge method the gateway calls exists in the brain | live | `tests/strand/test_p5_extended.py::test_p5_cnt_every_bridge_method_the_gateway_calls_exists` |
+| P5.CNT.2 | 93 codons, ~52 files, 11 phases, ~61 routes, 39 bridge methods | retired: the old plan's counts; this file's script counts are the record (#526) | — |
