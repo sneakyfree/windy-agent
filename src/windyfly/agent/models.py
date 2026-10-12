@@ -396,6 +396,15 @@ def _has_passport() -> bool:
     return bool(os.environ.get("ETERNITAS_PASSPORT_TOKEN") or os.environ.get("ETERNITAS_PASSPORT"))
 
 
+def mind_route_first() -> bool:
+    """True when ``call_llm`` sends this turn to Windy Mind first (a passport agent, or no Max OAuth).
+
+    Mind fans out to providers that can't run Anthropic's server-side tools, so on this route the
+    tool list must stay function tools only (``_mind_safe_request`` drops anything else).
+    """
+    return _has_passport() or not _max_oauth_active()
+
+
 def _is_local(base_url: str) -> bool:
     return "localhost" in (base_url or "") or "127.0.0.1" in (base_url or "")
 
@@ -1458,7 +1467,7 @@ def call_llm(
         # Stopped by the owner: no Mind call, no direct provider, no local model.
         raise AgentPausedByOwner(_paused.get("reason", ""))
     mind_note: str | None = None
-    if _has_passport() or not _max_oauth_active():
+    if mind_route_first():
         _t0 = time.monotonic()
         mind_resp = _try_mind_broker(messages, model, temperature, max_tokens, tools)
         mind_note = _last_mind_failure if mind_resp is None else None

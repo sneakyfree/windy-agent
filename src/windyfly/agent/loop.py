@@ -1227,6 +1227,12 @@ def _agent_respond_turn(
         should_inject_native_tool as _should_inject_native,
     )
     _native_decision = _should_inject_native(model)
+    if _native_decision["inject"]:
+        from windyfly.agent.models import mind_route_first as _mind_route_first
+        if _mind_route_first():
+            # Through Mind the server-side tool is dropped (no provider behind Mind runs it), so keep
+            # the client-side web_search: on this route it is the only search the model can have.
+            _native_decision = {"inject": False, "reason": "mind_route"}
     _native_active = _native_decision["inject"]
     if _native_active:
         # Drop client-side web_search (model picks one tool, not two).
@@ -1244,7 +1250,7 @@ def _agent_respond_turn(
         log_event(db, write_queue, "web_search.native_enabled", {
             "model": model, "session_id": session_id,
         })
-    elif _native_decision["reason"] != "model_unsupported":
+    elif _native_decision["reason"] not in ("model_unsupported", "mind_route"):
         # Log the cases where we WOULD HAVE enabled it but didn't —
         # killswitched / cap_reached. Skip the noise of "you're not
         # on a supported model" since that's the steady state for
