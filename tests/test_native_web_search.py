@@ -422,6 +422,9 @@ def _make_config():
 @pytest.fixture
 def stack(monkeypatch):
     monkeypatch.setenv("DEFAULT_MODEL", "claude-sonnet-4-6")
+    # These tests are about the DIRECT Anthropic route (Max OAuth, no passport), where the
+    # server-side tool can run. The Mind route keeps the client tool: test_web_search_on_mind_route.py.
+    monkeypatch.setattr("windyfly.agent.models.mind_route_first", lambda: False)
     from windyfly.memory.database import Database
     from windyfly.memory.episodes import save_episode
     from windyfly.memory.write_queue import WriteQueue

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **An agent on a Claude model keeps its web search.** When a Claude model (Opus 5.5, for example)
+  was reached through Windy Mind, the agent swapped its own web search for Anthropic's built-in one,
+  which Mind cannot run, so the agent had no search at all. On the Mind route it now keeps its own
+  web search; the built-in one is used only when the agent talks to Anthropic directly. One rule
+  (`mind_route_first`) now decides both where the turn goes and which search it gets.
+
 - **Windy Chat no longer forgets the conversation when the agent restarts.** Each room's thread now
   has a stable id (`matrix:<room>:v<N>`, the shape Telegram already uses) instead of a random one
   made fresh by every process, so what you said before a restart or an update is still in the
