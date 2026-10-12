@@ -975,3 +975,120 @@ own behaviour.
 | N3.10 | A "[no reply]" answer to another agent posts nothing | live | `tests/test_silence_token.py::test_agent_sender_silence_posts_nothing` |
 | N3.11 | (ours) The list of the owner's other agents goes stale after 5 minutes | live | `tests/strand/test_n1_n3_mind_eternitas_teams.py::test_n3_the_sibling_list_goes_stale_after_five_minutes` |
 | N3.12 | (ours) A failed refresh of that list keeps the last good list | live | `tests/strand/test_n1_n3_mind_eternitas_teams.py::test_n3_a_failed_sibling_refresh_keeps_the_last_good_list` |
+
+### N4 Windy Mail: the agent's own mailbox
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| N4.1 | (ours) With no mailbox, nothing is sent anywhere, even when other mail-service keys are set | live | `tests/test_mail_single_send_path.py::test_no_mailbox_never_sends_anywhere` |
+| N4.2 | A send goes to Windy Mail's /api/v1/send with the agent's own passport token as the bearer | live | `tests/test_mail_send_bearer.py::test_send_request_uses_the_ept_bearer` |
+| N4.3 | Everyone on a message goes on ONE request to Mail (to, cc and bcc as lists; more than one recipient needs Mail's broadcast permission) | live | `tests/test_mail_one_message.py::test_the_adapter_posts_one_request_with_the_lists` |
+| N4.4 | Mail's refusals reach the owner in Mail's own words (the detail or message text Mail sends) | live | `tests/test_mail_one_message.py::test_the_adapter_returns_mails_own_sentence` |
+| N4.31 | A Mail refusal wrapped as a dict in detail (every 429) reaches the owner as Mail's message, never raw JSON | live | `tests/test_mail_refusal_shapes.py::test_every_shape_mail_sends_reaches_the_owner_as_mails_sentence` |
+| N4.5 | A 5xx from Mail says to check Sent before sending again | live | `tests/test_mail_one_message.py::test_a_5xx_says_check_sent_before_resending` |
+| N4.6 | (ours) The inbox read reports "Mail did not answer" instead of an empty inbox | live | `tests/test_inbox_watch.py::TestListInboxSurfacesErrors::test_list_inbox_reports_timeout_instead_of_empty` |
+| N4.7 | my_mailbox reads GET /api/v1/mailbox (mail/mailbox.v1) with the agent's own bearer and keeps only the contract's fields | live | `tests/test_my_mailbox.py::test_returns_the_contract_facts_with_my_own_bearer` |
+| N4.8 | (ours) An agent brought home gets its mailbox address and Mail credentials installed | live | `tests/test_bring_home.py::test_happy_path_brings_the_agent_home` |
+| N4.9 | (ours) The mail tool hands to, cc and bcc to the adapter in one call | live | `tests/test_mail_one_message.py::test_cc_and_bcc_travel_on_the_same_single_call` |
+| N4.10 | (ours) A bad address means nothing is sent and no draft is made | live | `tests/test_mail_one_message.py::test_a_bad_address_sends_nothing` |
+| N4.11 | (ours) Recipients are cleaned: names stripped, each address once across to/cc/bcc | live | `tests/test_mail_one_message.py::test_strings_lists_names_and_duplicates` |
+| N4.12 | (ours) A message needs a "to" and carries at most 50 recipients | live | `tests/test_mail_one_message.py::test_needs_a_to_and_has_a_sanity_cap` |
+| N4.13 | (ours) An address carrying a real newline (header injection) is refused | live | `tests/strand/test_n4_n8_mail_calendar_cloud_phone_vault.py::test_n4_an_address_carrying_a_real_newline_header_is_refused` |
+| N4.14 | (ours) Every outgoing mail carries the "an AI agent acting for" footer | live | `tests/test_outbound_consent.py::test_windy_mail_path_gets_the_footer` |
+| N4.15 | (ours) With WINDY_SEND_CONFIRM=1 the model can only draft; nothing goes out | live | `tests/test_send_confirm.py::test_on_only_drafts_and_says_not_sent` |
+| N4.16 | (ours) A stranger cannot approve a held draft | live | `tests/test_send_confirm.py::test_stranger_cannot_approve` |
+| N4.17 | (ours) A trusted sibling agent cannot approve a held draft | live | `tests/test_send_confirm.py::test_a_trusted_sibling_cannot_confirm_a_held_draft` |
+| N4.18 | (ours) A new recipient always asks first | live | `tests/test_send_confirm.py::test_new_recipient_always_asks` |
+| N4.19 | (ours) A send with cc, bcc or several recipients always asks, even if all are known | live | `tests/test_send_confirm.py::test_cc_bcc_or_several_recipients_always_ask_even_if_all_known` |
+| N4.20 | (ours) A known single recipient goes straight out | live | `tests/test_send_confirm.py::test_known_single_recipient_goes_straight_out` |
+| N4.21 | (ours) One draft for the whole batch; one approval sends one message | live | `tests/test_mail_one_message.py::test_one_draft_for_the_whole_batch_and_one_approval_sends_one_message` |
+| N4.22 | (ours) A held draft expires after 30 minutes | live | `tests/strand/test_n4_n8_mail_calendar_cloud_phone_vault.py::test_n4_a_held_draft_expires_after_30_minutes` |
+| N4.23 | (ours) The model has no tool to approve its own drafts | live | `tests/test_send_confirm.py::test_the_model_has_no_approve_tool` |
+| N4.24 | (ours) send_email is refused on a turn that read untrusted mail or web content | live | `tests/test_taint_model.py::test_taint_gate_denies_external_effect_tools_when_tainted` |
+| N4.25 | (ours) A trust-gate denial in the mail adapter sends nothing | live | `tests/strand/test_n4_n8_mail_calendar_cloud_phone_vault.py::test_n4_a_trust_gate_denial_sends_nothing` |
+| N4.26 | (ours) The inbox watch is silent on its first run, then announces only new mail | live | `tests/test_inbox_watch.py::TestJob::test_job_notifies_only_on_new_mail` |
+| N4.27 | (ours) A "[TEST]" mail is marked seen but never announced | live | `tests/test_mail_one_message.py::test_test_mail_is_seen_but_never_announced` |
+| N4.28 | (ours) Inbound email runs at the sender's resolved band, not as the owner | live | `tests/test_channel_inbound_band.py::test_email_inbound_threads_resolved_band` |
+| N4.29 | The local mail rate limiter limits sends | retired: it never ran (no adapter had a database); Windy Mail enforces the limits and says them plainly (#546) | — |
+| N4.30 | The inbox watch runs on Matrix as well as Telegram | planned: Windy Agent: only the Telegram runtime starts the job (telegram_bot.py); start it on Matrix or correct the docstring | — |
+
+### N5 Windy Calendar
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| N5.1 | The calendar is off unless WINDY_CALENDAR=1 | live | `tests/test_windy_calendar.py::test_dark_by_default` |
+| N5.2 | The calendar tools register only when Windy Calendar answers at boot | live | `tests/test_windy_calendar.py::test_no_tools_when_calendar_does_not_answer` |
+| N5.3 | A call is POST {base}/invoke with the tool name and arguments and a DPoP proof (availability asks for 20 by default: ours) | live | `tests/test_windy_calendar.py::test_availability_wire_and_count_default` |
+| N5.4 | (ours) Fly caps the slots it asks for at 50 and marks the list truncated | live | `tests/test_windy_calendar.py::test_availability_caps_slots` |
+| N5.5 | A booking carries an idempotency key, and a slot already taken is reported with the next ones | live | `tests/test_windy_calendar.py::test_book_sends_idempotency_key_and_reports_slot_taken` |
+| N5.6 | confirm_required waits for the owner and is never retried | live | `tests/test_windy_calendar.py::test_confirm_required_waits_and_is_not_retried` |
+| N5.7 | Every refusal becomes one plain sentence, naming no internal service or token | live | `tests/test_windy_calendar.py::test_refusals_in_plain_words` |
+| N5.8 | An expired token is re-minted once | live | `tests/test_windy_calendar.py::test_expired_token_remints_once` |
+| N5.9 | A 401 that persists stops after one retry | live | `tests/test_windy_calendar.py::test_persistent_401_stops_after_one_retry` |
+| N5.10 | The calendar token (EPT+agent for windy-calendar) is bound to the agent's key and cached | live | `tests/test_agent_token_mode_b.py::test_mode_b_happy_path_is_key_bound_and_cached` |
+| N5.11 | A token bound to another key is rejected | live | `tests/test_agent_token_mode_b.py::test_token_bound_to_another_key_is_rejected` |
+| N5.12 | A DPoP proof goes on every calendar request, GET included | live | `tests/test_windy_calendar.py::test_dpop_proof_rules_per_service[windy-calendar-GET-True]` |
+| N5.13 | create_meeting only asks the owner, and logs counts only | live | `tests/test_windy_calendar.py::test_create_meeting_only_asks_the_owner` |
+| N5.14 | (ours) When the owner's booking link is turned off, Fly says so plainly (its own sharing_off mapping) | live | `tests/test_windy_calendar.py::test_booking_link_off_is_said_plainly` |
+| N5.15 | (ours) People who are not trusted see no calendar tools; create_meeting is the owner's alone | live | `tests/test_windy_calendar.py::test_non_owner_band_does_not_see_the_tools` |
+| N5.16 | (ours) Only a listed agent of the same owner counts as trusted | live | `tests/test_windy_calendar.py::test_only_a_listed_same_owner_sibling_resolves_to_trusted` |
+| N5.17 | (ours) With no token the reply is a plain "I couldn't sign in" | live | `tests/test_windy_calendar.py::test_no_token_and_network_errors_are_plain` |
+| N5.18 | (ours) When Windy Calendar cannot be reached the reply says so plainly | live | `tests/strand/test_n4_n8_mail_calendar_cloud_phone_vault.py::test_n5_a_network_error_is_said_plainly` |
+| N5.19 | The appointments and block tools work end to end | planned: Windy Agent: their handlers have no test (capabilities/windy_calendar.py) | — |
+
+### N6 Windy Cloud: backups
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| N6.1 | A backup restored as "latest" brings back exactly the original database | live | `tests/test_cloud_backup_contract.py::TestListAndRestoreRoundTrip::test_backup_list_restore` |
+| N6.2 | Backups are encrypted (AES-256-GCM) before they leave the machine | live | `tests/test_cloud_backup_contract.py::TestCrypto::test_aes_gcm_round_trip` |
+| N6.3 | A backup changed in storage is refused | live | `tests/test_cloud_backup_contract.py::TestCrypto::test_tamper_is_rejected` |
+| N6.4 | With the owner's own backup secret, the key no longer comes from the passport | live | `tests/test_cloud_backup_contract.py::TestCrypto::test_user_key_is_zero_knowledge` |
+| N6.5 | The passport-based backup key never changes, so old backups still open | live | `tests/test_backup_kdf_frozen.py::test_known_answers_unchanged` |
+| N6.6 | Backups go to Cloud's /archive/agent as a multipart upload with encryption metadata and a checksum | live | `tests/test_cloud_backup_contract.py::TestUploadContract::test_upload_is_multipart_not_json` |
+| N6.7 | A failed backup always says why | live | `tests/test_cloud_backup_contract.py::TestErrorSurfacing::test_backup_upload_returns_typed_error_on_blank_exception` |
+| N6.8 | Cloud calls use the agent's own token first and the old credential only after a 401 or 403 | live | `tests/test_cloud_auth.py::test_backup_send_prefers_the_agent_token_and_falls_back_on_refusal` |
+| N6.9 | With no credential at all, nothing is sent to the cloud | live | `tests/test_cloud_auth.py::test_backup_with_no_old_credential_and_no_token_sends_nothing` |
+| N6.10 | A retried upload sends the whole file again | live | `tests/test_cloud_auth.py::test_upload_retry_sends_the_whole_file_again` |
+| N6.11 | The cloud file tool says "unavailable" when the cloud is not configured | live | `tests/test_cloud_tool.py::TestUploadUnavailable::test_returns_unavailable_when_env_unset` |
+| N6.12 | (ours) A restore first keeps the current database as .db.pre-restore | live | `tests/strand/test_n4_n8_mail_calendar_cloud_phone_vault.py::test_n6_a_restore_keeps_the_current_database_as_pre_restore` |
+| N6.13 | (ours) A backup is due 24 hours after the last one by default | live | `tests/strand/test_n4_n8_mail_calendar_cloud_phone_vault.py::test_n6_a_backup_is_due_after_24_hours_by_default` |
+| N6.14 | (ours) auto_backup = false means no scheduled backup | live | `tests/strand/test_n4_n8_mail_calendar_cloud_phone_vault.py::test_n6_auto_backup_off_means_never_due` |
+| N6.15 | (ours) With no cloud credential the scheduled backup does not run | live | `tests/strand/test_n4_n8_mail_calendar_cloud_phone_vault.py::test_n6_no_cloud_credential_means_no_scheduled_backup` |
+| N6.16 | Each agent gets a free-tier storage plan from Windy Cloud at hatch | retired: an identity with no plan gets Cloud's free default and an agent's writes count against its owner's plan; the never-called allocate_cloud_quota is removed (#546) | — |
+
+### N7 Phone tools (the owner's phone, through Windy Chat)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| N7.1 | Phone tools are off unless switched on | live | `tests/test_phone_tools.py::test_dark_by_default` |
+| N7.2 | Phone tools work only in an unencrypted 1:1 room with the owner while the owner's phone says it is online | live | `tests/test_phone_tools.py::test_no_phone_unless_every_room_check_passes` |
+| N7.3 | The agent follows a pinned, unchanged copy of the phone contract | live | `tests/test_phone_tools.py::test_the_vendored_contract_is_the_pinned_one` |
+| N7.4 | The model sees only the tools the phone offers, and only on a turn with a live phone | live | `tests/test_phone_tools.py::test_only_the_tools_the_phone_offers` |
+| N7.5 | A phone answer is read once, redacted from the chat, and becomes exactly one follow-up turn | planned: Windy Mobile: phone-tools 1.1.0 (windy-contracts #142) and its runtime (#548) are both merged; awaiting Windy Mobile's written confirmation (test: tests/test_phone_tools.py::test_a_result_is_read_once_redacted_and_becomes_one_turn) | — |
+| N7.6 | Memory keeps only a short note of a phone answer, never the contact details | planned: Windy Mobile: phone-tools 1.1.0 (windy-contracts #142) and its runtime (#548) are both merged; awaiting Windy Mobile's written confirmation (test: tests/test_phone_tools.py::test_the_answer_turn_has_no_tools_and_stores_only_the_stub) | — |
+| N7.7 | Answers from anyone but the owner are ignored | live | `tests/test_phone_tools.py::test_a_strangers_result_is_ignored` |
+| N7.8 | If the phone never starts the request, the agent says it timed out and nothing ran | live | `tests/test_phone_tools.py::test_never_picked_up_is_a_timeout_that_ran_nothing` |
+| N7.9 | On restart, leftover phone events are cleaned up and nothing else is touched | live | `tests/test_phone_tools.py::test_the_restart_sweep_redacts_only_phone_events` |
+| N7.12 | When the phone started a request but no answer came within 600 s, the agent says the outcome is unknown, never that nothing was sent | live | `tests/test_phone_tools.py::test_started_but_silent_is_outcome_unknown` |
+| N7.13 | A result that arrives after a timeout is redacted unread | live | `tests/test_phone_tools.py::test_a_late_result_after_a_timeout_is_redacted_unread` |
+| N7.14 | While the agent is stopped at Windy Mind, or Mind's switch cannot be read, a phone result turn posts nothing; a person who writes still hears the plain line | planned: Windy Mobile: phone-tools 1.1.0 (windy-contracts #142) and its runtime (#548) are both merged; awaiting Windy Mobile's written confirmation (tests: tests/test_phone_result_turn_silent.py) | — |
+| N7.10 | (ours) Only an owner turn is offered the phone; other turns never are | live | `tests/strand/test_n4_n8_mail_calendar_cloud_phone_vault.py::test_n7_only_an_owner_turn_is_offered_the_phone` |
+| N7.11 | (ours) With phone tools off, none are registered | live | `tests/strand/test_n4_n8_mail_calendar_cloud_phone_vault.py::test_n7_the_phone_tools_are_not_registered_when_off` |
+
+### N8 Windy Vault (agent side, dark)
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| N8.1 | The agent decrypts a Vault lease exactly as Vault's frozen reference example says | live | `tests/test_vault_lease_jwe.py::test_vector_decrypts` |
+| N8.2 | A lease sent to a key the agent no longer holds means "ask for one new lease", not a crash | live | `tests/test_vault_lease_jwe.py::test_unknown_kid_is_the_relase_signal` |
+| N8.3 | A tampered lease is refused | live | `tests/test_vault_lease_jwe.py::test_tampered_ciphertext_and_header_fail` |
+| N8.4 | Errors never reveal the lease's contents | live | `tests/test_vault_lease_jwe.py::test_wrong_private_key_fails_without_leaking` |
+| N8.5 | Only the agreed encryption algorithm is accepted | live | `tests/test_vault_lease_jwe.py::test_wrong_algorithm_refused` |
+| N8.6 | The lease key is created on first use, private to the owner (0600), named by Vault's own kid (a sha256 of the public key with the wv-keyid prefix), and stays the same until rotated | live | `tests/test_vault_kid_and_wire.py::test_the_kid_is_vaults_own_hash` |
+| N8.7 | After a rotation the old key works for 24 hours, then is deleted | live | `tests/test_vault_lease_key.py::test_rotation_keeps_the_old_key_for_24h_then_drops_it` |
+| N8.8 | No private material in what the agent stores or sends: the wire body is only {public_key: base64 of the 32 raw bytes} | live | `tests/test_vault_kid_and_wire.py::test_registration_body_is_only_the_raw_public_key` |
+| N8.8b | Vault's reply must carry this key's own kid, or the registration is refused and nothing is stored | live | `tests/test_vault_kid_and_wire.py::test_the_kid_vault_returns_is_stored_and_a_mismatch_is_refused` |
+| N8.8c | A lease sealed to the 16-hex kid decrypts, and a Lease.kid that differs from the header is refused | live | `tests/test_vault_kid_and_wire.py::test_a_lease_sealed_to_the_16_hex_kid_decrypts` |
+| N8.9 | (ours) Nothing outside the vault package imports it: no tool, no loop call | live | `tests/strand/test_n4_n8_mail_calendar_cloud_phone_vault.py::test_n8_nothing_outside_the_vault_package_imports_it` |
+| N8.10 | A corrupt or unreadable lease key file is not replaced silently | planned: Windy Agent: _load treats it as empty and a new key is minted over it (safe: old leases re-lease); log it or keep the bad file aside (Windy Vault note, 10-12) | — |
