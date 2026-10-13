@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **The agent's own background calls name Haiku 5.5.** The daily journal, failure lessons, goal
+  checks and the vision fallback named Haiku 4.5 in code. Windy Mind quietly served 5.5 instead,
+  but once Mind serves every pick exactly as named they would have moved to the older, pricier
+  model without anyone choosing it. They now share one setting, `SMALL_CLAUDE_MODEL`
+  (`claude-haiku-5-5`). An owner's `journal_model`, `goal.evaluator_model`, `WINDY_DISTILL_MODEL`
+  or `WINDY_VISION_MODEL` still wins.
+
 - **The model menu comes from Windy Mind, so new models show up by themselves.** `/model` now lists
   the models Windy Mind lets this agent use (`GET /v1/catalog/me`, read with the agent's own token
   and cached for a minute), and `opus`, `sonnet` or `haiku` picks the newest of that family that is

@@ -44,6 +44,11 @@ COST_MAP: dict[str, dict[str, float]] = {
     "glm-4-flash": {"input": 0.0, "output": 0.0},
 }
 
+# The small Claude model the agent's own background calls name (journal, failure lessons,
+# goal checks, vision fallback). ONE place: Windy Mind serves explicit picks as named, so an
+# old id here would quietly buy an older, pricier model (Boss, 10-13).
+SMALL_CLAUDE_MODEL = "claude-haiku-5-5"
+
 # Anthropic list prices, USD per MILLION tokens (Anthropic's rate card,
 # relayed by Windy Mind 2026-09-23). ``None`` = not published/confirmed:
 # a call that needs that price gets NO cost rather than a guess.

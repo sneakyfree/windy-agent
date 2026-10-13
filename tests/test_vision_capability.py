@@ -341,10 +341,10 @@ class TestModelSelection:
         monkeypatch.setenv("DEFAULT_MODEL", "claude-sonnet-4-6")
         assert _model_for_vision() == "claude-sonnet-4-6"
 
-    def test_falls_back_to_hardcoded_haiku(self, monkeypatch):
+    def test_falls_back_to_the_small_claude_model(self, monkeypatch):
         monkeypatch.delenv("WINDY_VISION_MODEL", raising=False)
         monkeypatch.delenv("DEFAULT_MODEL", raising=False)
-        assert _model_for_vision() == "claude-haiku-4-5-20251001"
+        assert _model_for_vision() == "claude-haiku-5-5"
 
 
 # ─── Registration ─────────────────────────────────────────────────

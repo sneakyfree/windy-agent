@@ -46,7 +46,6 @@ from windyfly.agent.capabilities.registry import CapabilityRegistry
 logger = logging.getLogger(__name__)
 
 _ANTHROPIC_VISION_URL = "https://api.anthropic.com/v1/messages"
-_DEFAULT_MODEL = "claude-haiku-4-5-20251001"  # fast + vision-capable
 _DEFAULT_TIMEOUT_S = 30
 _DEFAULT_MAX_TOKENS = 1024
 
@@ -73,12 +72,14 @@ def _model_for_vision() -> str:
 
     Reads ``WINDY_VISION_MODEL`` first (lets the operator override), then
     ``DEFAULT_MODEL`` (the bot's primary model — also vision-capable on
-    the Claude 4 family), then the hardcoded haiku default.
+    the Claude 4 family), then the small Claude model (models.SMALL_CLAUDE_MODEL).
     """
+    from windyfly.agent.models import SMALL_CLAUDE_MODEL
+
     return (
         os.environ.get("WINDY_VISION_MODEL")
         or os.environ.get("DEFAULT_MODEL")
-        or _DEFAULT_MODEL
+        or SMALL_CLAUDE_MODEL
     )
 
 
