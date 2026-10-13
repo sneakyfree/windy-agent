@@ -171,7 +171,7 @@ def _distill_correction_code(
     if _os.environ.get("WINDY_LLM_CORRECTIONS", "1") == "0":
         return None
     try:
-        from windyfly.agent.models import call_llm, llm_purpose
+        from windyfly.agent.models import SMALL_CLAUDE_MODEL, call_llm, llm_purpose
 
         user_msg = friction.get("user_message", "")[:300]
         agent_msg = friction.get("agent_message", "")[:300]
@@ -196,7 +196,7 @@ def _distill_correction_code(
                         ),
                     },
                 ],
-                model=_os.environ.get("WINDY_DISTILL_MODEL", "claude-haiku-4-5"),
+                model=_os.environ.get("WINDY_DISTILL_MODEL", SMALL_CLAUDE_MODEL),
                 temperature=None,
                 max_tokens=120,
             )

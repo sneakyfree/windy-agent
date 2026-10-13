@@ -40,13 +40,13 @@ import logging
 import re
 from typing import Any
 
-from windyfly.agent.models import call_llm, llm_purpose
+from windyfly.agent.models import SMALL_CLAUDE_MODEL, call_llm, llm_purpose
 from windyfly.memory import goals as goals_mod
 
 logger = logging.getLogger(__name__)
 
 
-DEFAULT_EVALUATOR_MODEL = "claude-haiku-4-5-20251001"
+DEFAULT_EVALUATOR_MODEL = SMALL_CLAUDE_MODEL
 
 # How many recent turns of conversation to show the evaluator. More
 # context = better judgment but more tokens. 4 exchanges (8 messages)
