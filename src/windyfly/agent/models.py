@@ -839,6 +839,35 @@ def _mind_error_code(resp: Any) -> str:
     return str((getattr(resp, "headers", None) or {}).get("x-mind-error") or "").strip().lower()
 
 
+def _mind_body_error_code(resp: Any) -> str:
+    """The error code a 200 reply with no answer carries in its BODY. A Mind stream that fails past
+    its commit point has already sent 200, so the code comes only as `data: {"error": {"code": ...}}`
+    then [DONE]: no header, no Retry-After (Mind 10-15). A plain JSON error body reads the same."""
+    text = getattr(resp, "text", "")
+    if not isinstance(text, str) or not text:
+        return ""
+    for chunk in [text, *text.splitlines()]:
+        chunk = chunk.strip()
+        if chunk.startswith("data:"):
+            chunk = chunk[5:].strip()
+        if not chunk.startswith("{"):
+            continue
+        try:
+            data = json.loads(chunk)
+        except ValueError:
+            continue
+        err = data.get("error") if isinstance(data, dict) else None
+        if isinstance(err, dict) and err.get("code"):
+            return str(err["code"]).strip().lower()
+    return ""
+
+
+def _no_third_party_busy(resp: Any) -> bool:
+    status = getattr(resp, "status_code", 0)
+    return ((status == 503 and _mind_error_code(resp) == _NO_THIRD_PARTY_BUSY)
+            or (status == 200 and _mind_body_error_code(resp) == _NO_THIRD_PARTY_BUSY))
+
+
 class MindPauseUnreadable(RuntimeError):
     """Mind could not read whether the owner has this agent switched off. Never fall back:
     the loop says one plain line and answers nothing (Hub 10-12)."""
@@ -1111,7 +1140,7 @@ def _try_mind_broker(
             resp = mind_auth.post(
                 f"{mind_url}/v1/chat", ept, body, 30.0,
             )
-            if resp.status_code == 503 and _mind_error_code(resp) == _NO_THIRD_PARTY_BUSY:
+            if _no_third_party_busy(resp):
                 # Still busy after the one wait: busy, not broken, so no cool-down (the next
                 # turn asks Mind again) and the caller never treats it as an outage.
                 _last_mind_failure = f"mind {_NO_THIRD_PARTY_BUSY}"
@@ -1174,6 +1203,19 @@ def _try_mind_broker(
             )
             return None
         translated = _translate_mind_response(resp)
+        if translated is None and _no_third_party_busy(resp):
+            # A stream that waited past Mind's commit point: busy came only in the 200 body, with no
+            # Retry-After, so the no-header wait, once (Mind 10-15). Still busy = the same as a 503.
+            logger.warning("Windy's own computers are busy (said in the reply body); retrying once in %.0fs",
+                           _MIND_BUSY_WAIT_S)
+            time.sleep(_MIND_BUSY_WAIT_S)
+            resp = mind_auth.post(f"{mind_url}/v1/chat", ept, body, 30.0)
+            if _no_third_party_busy(resp):
+                _last_mind_failure = f"mind {_NO_THIRD_PARTY_BUSY}"
+                _last_mind_no_third_party = "busy"
+                logger.warning("Windy's own computers are still busy (no third parties); not cooling Mind down")
+                return None
+            translated = _translate_mind_response(resp) if resp.status_code == 200 else None
         if _truncated_before_answering(translated) and body.get("max_tokens", 0) < _MIND_MAX_TOKENS:
             # Thinking models (Opus 5.5) spend the budget reasoning first; an
             # ambiguous prompt used all 2,125 tokens and Windy Zero sent "I"
@@ -1275,6 +1317,12 @@ def _try_mind_via_helper(
         logger.warning("Mind helper failed (%s); falling through", e)
         return None
     if translated is None:
+        _err = (res.response or {}).get("error") if isinstance(res.response, dict) else None
+        if isinstance(_err, dict) and str(_err.get("code") or "").strip().lower() == _NO_THIRD_PARTY_BUSY:
+            # Busy said only in the body; the helper owns the retries, so no wait here.
+            _last_mind_failure = f"mind {_NO_THIRD_PARTY_BUSY}"
+            _last_mind_no_third_party = "busy"
+            return None
         _last_mind_failure = "mind response shape invalid"
         return None
     _last_mind_failure = None

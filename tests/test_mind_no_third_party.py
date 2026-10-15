@@ -39,6 +39,19 @@ def _resp(status: int, error: str = "", retry_after: str | None = None, body: di
 BUSY = _resp(503, "no_third_party_unavailable", retry_after="10")
 
 
+def _streamed_busy() -> MagicMock:
+    """Mind's stream past its commit point: 200, no header, no Retry-After, the code in the SSE body."""
+    r = MagicMock()
+    r.status_code = 200
+    r.headers = {"content-type": "text/event-stream"}
+    r.json.side_effect = ValueError("not JSON: an event stream")
+    r.text = (': keepalive\n\n'
+              'data: {"error":{"code":"no_third_party_unavailable",'
+              '"message":"Windy\'s AI is busy right now. Please try again in a moment."}}\n\n'
+              'data: [DONE]\n\n')
+    return r
+
+
 @pytest.fixture(autouse=True)
 def _env(monkeypatch):
     for k in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "MIND_API_URL", "ETERNITAS_PASSPORT"):
@@ -102,6 +115,65 @@ def test_an_outside_model_is_refused_with_no_swap_and_no_fall_through(monkeypatc
     assert isinstance(out, models.MindNoThirdPartyModel) and out.model == "claude-opus-5-5"
     assert (mind_calls, direct_calls) == (1, 0)
     assert not models._is_provider_in_cooldown("windy-mind")
+
+
+def test_an_outside_model_is_never_retried_even_when_a_retry_would_answer(monkeypatch):
+    refused = _resp(403, "no_third_party_model")
+    out, mind_calls, direct_calls, sleeps = _call_with_mind(
+        monkeypatch, [refused, _resp(200, body=MIND_OK)], model="claude-opus-5-5")
+    assert isinstance(out, models.MindNoThirdPartyModel)
+    assert (mind_calls, direct_calls, sleeps) == (1, 0, [])
+
+
+def test_a_streamed_busy_in_the_body_waits_once_then_the_local_model_answers_marked(monkeypatch):
+    out, mind_calls, local_calls, sleeps = _call_with_mind(monkeypatch, [_streamed_busy(), _streamed_busy()])
+    assert out["content"] == "from the local model" and out["mind_busy_local"] is True
+    assert (mind_calls, local_calls) == (2, 1)
+    assert sleeps == [models._MIND_BUSY_WAIT_S]  # no Retry-After in a stream: the no-header wait
+    assert not models._is_provider_in_cooldown("windy-mind")
+
+
+def test_a_streamed_busy_with_no_local_model_never_calls_an_outside_provider(monkeypatch):
+    out, mind_calls, direct_calls, _ = _call_with_mind(
+        monkeypatch, [_streamed_busy(), _streamed_busy()], provider=OUTSIDE)
+    assert isinstance(out, models.MindNoThirdPartyBusy)
+    assert (mind_calls, direct_calls) == (2, 0)
+    assert not models._is_provider_in_cooldown("windy-mind")
+
+
+def test_a_streamed_busy_then_free_answers_from_mind(monkeypatch):
+    out, mind_calls, local_calls, _ = _call_with_mind(monkeypatch, [_streamed_busy(), _resp(200, body=MIND_OK)])
+    assert out["content"] == "from mind" and "mind_busy_local" not in out
+    assert (mind_calls, local_calls) == (2, 0)
+
+
+def test_a_503_busy_then_a_streamed_busy_is_still_one_retry(monkeypatch):
+    out, mind_calls, _, sleeps = _call_with_mind(monkeypatch, [BUSY, _streamed_busy(), _resp(200, body=MIND_OK)])
+    assert out["mind_busy_local"] is True
+    assert mind_calls == 2 and sleeps == [10.0]
+
+
+def test_a_json_error_body_reads_the_same_as_the_stream():
+    r = _resp(200)
+    r.text = '{"error": {"code": "no_third_party_unavailable", "message": "busy"}}'
+    assert models._no_third_party_busy(r)
+    other = _resp(200)
+    other.text = '{"error": {"code": "upstream_failed"}}'
+    assert not models._no_third_party_busy(other)
+
+
+def test_the_helper_path_reads_a_busy_in_the_body(monkeypatch):
+    from windyfly._vendor.mind_client import MindResult
+
+    monkeypatch.setattr(models, "_mind_helper_enabled", lambda: True)
+    res = MindResult(response={"error": {"code": "no_third_party_unavailable"}}, served_model=None)
+    with patch("windyfly.agent.mind_helper.chat", return_value=res), \
+            patch.object(models, "_call_openai", return_value=dict(LOCAL_REPLY)) as direct, \
+            patch.object(models, "_build_chain", return_value=["chain-model"]), \
+            patch.object(models, "get_provider_for_model", side_effect=lambda m, c=None: OUTSIDE):
+        with pytest.raises(models.MindNoThirdPartyBusy):
+            models.call_llm([{"role": "user", "content": "hi"}])
+    assert direct.call_count == 0
 
 
 def test_the_helper_path_refuses_an_outside_model_the_same_way(monkeypatch):
