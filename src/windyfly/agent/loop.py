@@ -25,7 +25,10 @@ from windyfly.agent.capabilities import capability_registry  # noqa: F401
 from windyfly.agent.context_header import maybe_prepend_header
 from windyfly.agent.emotion_detector import detect_emotional_context, get_emotional_trend
 from windyfly.agent.intent_detector import detect_intent
-from windyfly.agent.models import AgentPausedByOwner, MindPauseUnreadable, call_llm, estimate_cost, llm_purpose, sum_costs
+from windyfly.agent.models import (
+    AgentPausedByOwner, MindNoThirdPartyBusy, MindNoThirdPartyModel, MindPauseUnreadable, call_llm, estimate_cost,
+    llm_purpose, sum_costs,
+)
 from windyfly.agent.offline import get_offline_response, is_online
 from windyfly.agent.prompt import assemble_prompt
 from windyfly.agent.tracing import set_request_id, request_id_short
@@ -510,6 +513,28 @@ PAUSE_UNREADABLE_REPLY = "I can't check my pause switch right now, so I'm holdin
 PAUSE_UNREADABLE_WINDOW_S = 600.0
 _pause_unreadable_said: dict[str, float] = {}
 _pause_unreadable_lock = threading.Lock()
+
+
+# An owner whose account uses only Windy's own computers (Mind's no-third-party gate, 10-16). Plain
+# lines, no 🚨 and no backup brain: busy is a few seconds, not an outage (Hub + Mind 10-15; the
+# wording is Boss's call).
+NO_THIRD_PARTY_BUSY_REPLY = "My helper is waiting for a free Windy computer. Please try again in a minute."
+NO_THIRD_PARTY_LOCAL_PREFIX = "Windy's AI is busy right now; this answer came from your local model. "
+NO_THIRD_PARTY_MODEL_REPLY = (
+    "That model runs outside Windy, and this account uses only Windy's own AI. "
+    "Pick another model with /model, or ask again and Windy will choose one."
+)
+
+
+def _no_third_party_answer(session_id: str, line: str) -> str:
+    """The plain line for a person; NOTHING for another agent or a phone result turn, so a busy
+    spell can never become a chatter loop in a room."""
+    from windyfly.channels import silence as _silence
+
+    if _silence.is_agent_sender(session_id) or _phone_result_turn(session_id):
+        logger.info("[req:%s] no-third-party answer: posting nothing here", request_id_short())
+        return ""
+    return line
 
 
 def _reset_pause_unreadable_for_tests() -> None:
@@ -1335,6 +1360,14 @@ def _agent_respond_turn(
         # the auto-resurrect below (the owner's stop may be in force).
         logger.warning("[req:%s] Windy Mind could not read the pause switch; holding off", request_id_short())
         return _pause_unreadable_answer(session_id)
+    except MindNoThirdPartyBusy:
+        # Windy's own computers are busy for a few seconds: never the lifeboat or the
+        # auto-resurrect below (that would latch the backup brain for later turns too).
+        logger.warning("[req:%s] Windy's own computers are busy; one plain line", request_id_short())
+        return _no_third_party_answer(session_id, NO_THIRD_PARTY_BUSY_REPLY)
+    except MindNoThirdPartyModel:
+        logger.info("[req:%s] the named model runs outside Windy; one plain line", request_id_short())
+        return _no_third_party_answer(session_id, NO_THIRD_PARTY_MODEL_REPLY)
     except AgentPausedByOwner:
         # Mind said the owner switched this agent off mid-turn: same plain stop,
         # never the lifeboat below.
@@ -2022,6 +2055,8 @@ def _agent_respond_turn(
     )
     if _mind_fb:
         response_text = _mind_fallback_notice(_mind_fb) + response_text
+    elif result.get("mind_busy_local"):
+        response_text = NO_THIRD_PARTY_LOCAL_PREFIX + response_text
 
     # 8.5. Recovery notice — when step 1.7 detected paid LLM is
     # healthy again and dropped the resurrect flag, surface the

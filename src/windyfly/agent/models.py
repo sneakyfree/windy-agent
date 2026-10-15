@@ -810,6 +810,33 @@ _last_mind_stop: str | None = None    # set by the Mind call; raised by call_llm
 # be in force, so this FAILS CLOSED (Hub 10-12): no lifeboat, no resurrect, no provider key.
 _last_mind_unreadable = False         # set by the Mind call; raised by call_llm
 _PAUSE_UNREADABLE_WAIT_MAX_S = 30.0
+# An owner whose account uses only Windy's own computers (Mind's no-third-party gate, 10-16):
+# 503 no_third_party_unavailable = those computers are busy for a few seconds, NOT an outage, so
+# no Mind cool-down and no auto-resurrect; 403 no_third_party_model = the named model runs outside
+# Windy, so no model swap and no fall-through. Mind 10-15.
+_NO_THIRD_PARTY_BUSY = "no_third_party_unavailable"
+_NO_THIRD_PARTY_MODEL = "no_third_party_model"
+_last_mind_no_third_party: str | None = None   # "busy" | "model", set by the Mind call
+
+
+class MindNoThirdPartyBusy(RuntimeError):
+    """Windy's own computers stayed busy after one Retry-After wait and no local model on the
+    owner's machine answered. Not an outage: the loop says one plain line, no lifeboat."""
+
+    def __init__(self) -> None:
+        super().__init__("Windy's own computers are busy for this account")
+
+
+class MindNoThirdPartyModel(RuntimeError):
+    """The named model runs outside Windy and this account uses only Windy's own computers."""
+
+    def __init__(self, model: str | None = None) -> None:
+        self.model = model or ""
+        super().__init__(f"model {self.model or '(named)'} runs outside Windy; this account uses only Windy's own")
+
+
+def _mind_error_code(resp: Any) -> str:
+    return str((getattr(resp, "headers", None) or {}).get("x-mind-error") or "").strip().lower()
 
 
 class MindPauseUnreadable(RuntimeError):
@@ -985,9 +1012,10 @@ def _try_mind_broker(
     A passport agent always goes through Mind (the old Anthropic Max-OAuth bypass, ADR-022
     exception #1, is gone for Windy agents: Boss 10-07, Max is reachable through Mind).
     """
-    global _last_mind_failure, _last_mind_unreadable
+    global _last_mind_failure, _last_mind_unreadable, _last_mind_no_third_party
     _last_mind_failure = None  # this call's outcome only; a no-op leaves it None
     _last_mind_unreadable = False
+    _last_mind_no_third_party = None
     import os
 
     ept = os.environ.get("ETERNITAS_PASSPORT_TOKEN") or os.environ.get(
@@ -1083,6 +1111,13 @@ def _try_mind_broker(
             resp = mind_auth.post(
                 f"{mind_url}/v1/chat", ept, body, 30.0,
             )
+            if resp.status_code == 503 and _mind_error_code(resp) == _NO_THIRD_PARTY_BUSY:
+                # Still busy after the one wait: busy, not broken, so no cool-down (the next
+                # turn asks Mind again) and the caller never treats it as an outage.
+                _last_mind_failure = f"mind {_NO_THIRD_PARTY_BUSY}"
+                _last_mind_no_third_party = "busy"
+                logger.warning("Windy's own computers are still busy (no third parties); not cooling Mind down")
+                return None
         if ("model" in body and (resp.status_code, (resp.headers.get("x-mind-error") or "").lower())
                 in _MIND_PICK_ANOTHER_MODEL):
             # That model is switched off, not offered to this agent, or unknown: let Mind pick, once.
@@ -1095,6 +1130,13 @@ def _try_mind_broker(
         if stop:
             _last_mind_failure = "mind stopped by owner"
             _latch_pause(stop)
+            return None
+        if resp.status_code == 403 and _mind_error_code(resp) == _NO_THIRD_PARTY_MODEL:
+            # The named model runs outside Windy: no model swap, no direct chain (Mind 10-15).
+            _last_mind_failure = f"mind {_NO_THIRD_PARTY_MODEL}"
+            _last_mind_no_third_party = "model"
+            logger.warning("Mind: model %r runs outside Windy and this account uses only Windy's own",
+                           body.get("model"))
             return None
         if resp.status_code != 200:
             _last_mind_failure = f"mind http {resp.status_code}"
@@ -1177,7 +1219,7 @@ def _try_mind_via_helper(
     """The WINDY_MIND_HELPER=1 path: the vendored Mind helper owns timeouts, the ONE
     transient retry and the floors, so none of that is retried here. Kept here:
     the request-shape fixes (422 model-less, 8192 truncation) and 429 pacing."""
-    global _last_mind_failure
+    global _last_mind_failure, _last_mind_no_third_party
     from windyfly.agent import mind_helper as mh
 
     def _call(b: dict[str, Any]) -> Any:
@@ -1212,6 +1254,10 @@ def _try_mind_via_helper(
         if stop:
             _last_mind_failure = "mind stopped by owner"
             _latch_pause(stop)
+            return None
+        if e.status == 403 and (e.error_code or "").strip().lower() == _NO_THIRD_PARTY_MODEL:
+            _last_mind_failure = f"mind {_NO_THIRD_PARTY_MODEL}"
+            _last_mind_no_third_party = "model"
             return None
         if e.status == 403 and (e.error_code or "").lower() == "model_disabled" and "model" in body:
             try:
@@ -1480,6 +1526,8 @@ def call_llm(
             raise AgentPausedByOwner(_last_mind_stop)
         if mind_resp is None and _last_mind_unreadable:
             raise MindPauseUnreadable()
+        if mind_resp is None and _last_mind_no_third_party == "model":
+            raise MindNoThirdPartyModel(model)
         if mind_resp is not None:
             mind_model = mind_resp.get("mind_model") or model or ""
             fields = _cost_fields(mind_resp, mind_model, "metered")
@@ -1489,6 +1537,9 @@ def call_llm(
             return mind_resp
 
     chain = _build_chain(model, config)
+    # Windy's own computers are busy for an owner who uses only them: a model on the owner's own
+    # machine may answer (the passport gate below allows nothing else), marked so the loop says so.
+    mind_busy = mind_note is not None and _last_mind_no_third_party == "busy"
 
     last_error: Exception | None = None
     attempted: list[str] = []
@@ -1554,6 +1605,8 @@ def call_llm(
             _record("ok", chain_model, provider_key, _t0, fields)
             if _has_passport():
                 logger.warning("Mind did not answer: this turn was served by the local lifeboat (%s)", chain_model)
+            if mind_busy:
+                result["mind_busy_local"] = True
             if model is None:  # an explicit model is a choice, not a demotion
                 _note_route(chain[0] if chain_model != chain[0] else None, chain_model,
                             primary_miss, provider_key)
@@ -1628,6 +1681,10 @@ def call_llm(
         # failed call from the user's point of view, so it gets a row.
         _record("failed", chain[0] if chain else (model or ""), "none", time.monotonic(),
                 {"error_code": "no_provider"})
+    if mind_busy:
+        # Not an outage: never the chain-exhausted path (auto-resurrect latches the lifeboat).
+        logger.warning("Windy's own computers are busy and no local model answered (%s)", summary)
+        raise MindNoThirdPartyBusy()
     raise RuntimeError(
         f"LLM call failed across all providers in chain ({summary}): {last_error}"
     )
