@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **"Windy's computers are busy" is a short wait, not an outage.** For an owner whose account uses
+  only Windy's own computers, Windy Mind may answer "busy" (503 `no_third_party_unavailable`). The
+  agent now waits the time Mind asks for once and tries again. If they are still busy, it does not
+  mark Mind as broken and never switches to the backup brain for later turns. A model on the
+  owner's own machine may answer, with one plain line saying so; otherwise the owner gets "My helper
+  is waiting for a free Windy computer. Please try again in a minute." If the owner picked a model
+  that runs outside Windy (403 `no_third_party_model`), the agent says so plainly instead of
+  quietly using another model or falling back. Another agent gets no reply in either case.
+
 - **The agent's own background calls name Haiku 5.5.** The daily journal, failure lessons, goal
   checks and the vision fallback named Haiku 4.5 in code. Windy Mind quietly served 5.5 instead,
   but once Mind serves every pick exactly as named they would have moved to the older, pricier
