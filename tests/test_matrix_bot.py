@@ -436,6 +436,64 @@ class TestPendingResponseQueue:
         db.close()
 
     @pytest.mark.asyncio
+    async def test_one_sync_pass_sends_at_most_three_and_keeps_the_rest(self):
+        """Hub 10-16: a hung send in the sync callback holds the next sync, so cap each pass."""
+        db = Database(":memory:")
+        bot = WindyFlyMatrixBot(_make_config(), db, WriteQueue())
+        bot.client.room_send = AsyncMock()
+        kept = [("!room:test", f"reply {i}") for i in range(5)]
+        bot._pending_responses.extend(kept)
+        await bot._on_sync_response(MagicMock())
+        assert [c.args[2]["body"] for c in bot.client.room_send.await_args_list] == ["reply 0", "reply 1", "reply 2"]
+        assert bot._pending_responses == kept[3:]
+        bot._last_pending_retry -= 31
+        await bot._on_sync_response(MagicMock())
+        assert bot.client.room_send.await_count == 5
+        assert bot._pending_responses == [] and bot._pending_kept_at == {}
+        db.close()
+
+    @pytest.mark.asyncio
+    async def test_a_reconnect_flush_sends_everything_kept(self):
+        db = Database(":memory:")
+        bot = WindyFlyMatrixBot(_make_config(), db, WriteQueue())
+        bot.client.room_send = AsyncMock()
+        bot._pending_responses.extend(("!room:test", f"reply {i}") for i in range(5))
+        await bot._flush_pending()
+        assert bot.client.room_send.await_count == 5
+        assert bot._pending_responses == []
+        db.close()
+
+    @pytest.mark.asyncio
+    async def test_a_reply_kept_for_24_hours_is_dropped_and_counted(self, caplog):
+        db = Database(":memory:")
+        bot = WindyFlyMatrixBot(_make_config(), db, WriteQueue())
+        bot.client.room_send = AsyncMock()
+        old, new = ("!left:test", "old reply"), ("!room:test", "new reply")
+        bot._pending_responses.extend([old, new])
+        bot._pending_kept_at[old] = time.time() - 24 * 3600 - 1
+        with caplog.at_level("WARNING", logger="windyfly.channels.matrix_bot"):
+            await bot._flush_pending()
+        assert [c.args[0] for c in bot.client.room_send.await_args_list] == ["!room:test"]
+        assert bot._pending_dropped == 1
+        assert bot._pending_responses == [] and bot._pending_kept_at == {}
+        assert any("Dropped a reply to !left:test" in r.getMessage() for r in caplog.records)
+        db.close()
+
+    @pytest.mark.asyncio
+    async def test_a_failed_retry_keeps_the_first_kept_time(self):
+        db = Database(":memory:")
+        bot = WindyFlyMatrixBot(_make_config(), db, WriteQueue())
+        bot.client.room_send = AsyncMock(side_effect=RuntimeError("M_FORBIDDEN"))
+        item = ("!room:test", "Delayed response")
+        bot._pending_responses.append(item)
+        first = time.time() - 3600
+        bot._pending_kept_at[item] = first
+        await bot._flush_pending()
+        assert bot._pending_responses == [item]
+        assert bot._pending_kept_at[item] == first
+        db.close()
+
+    @pytest.mark.asyncio
     async def test_a_good_sync_with_nothing_kept_sends_nothing(self):
         db = Database(":memory:")
         bot = WindyFlyMatrixBot(_make_config(), db, WriteQueue())
