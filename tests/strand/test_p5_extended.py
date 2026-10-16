@@ -149,3 +149,31 @@ def test_p5_cnt_every_bridge_method_the_gateway_calls_exists():
     db.close()
     assert len(calls) >= 30
     assert calls <= set(bridge._handler_table()), sorted(calls - set(bridge._handler_table()))
+
+
+def _moment_calls_at(sensitivity: int) -> int:
+    """One full emotional turn through agent_respond with the slider at `sensitivity`; how many
+    times the moment extractor ran."""
+    from tests.test_strand_wave4_agent_loop import _llm_result, _make_config
+    from windyfly.memory.episodes import save_episode
+
+    db = Database(":memory:")
+    save_episode(db, "user", "bootstrap", session_id="bootstrap")  # no brand-new-bot welcome
+    wq = WriteQueue()
+    wq.start()
+    set_slider(db, "emotional_sensitivity", sensitivity)
+    try:
+        with patch.object(loop, "call_llm", return_value=_llm_result("That sounds hard. I'm here.")), \
+             patch.object(loop, "is_online", return_value=True), \
+             patch.object(loop, "detect_emotional_context", return_value="stressed"), \
+             patch.object(loop, "_extract_relationship_moment") as extract:
+            loop.agent_respond(_make_config(), db, wq, "Everything is going wrong today", f"m-{uuid.uuid4()}")
+        return extract.call_count
+    finally:
+        wq.stop()
+        db.close()
+
+
+def test_p5_92_moments_are_captured_only_at_emotional_sensitivity_3_or_more():
+    assert _moment_calls_at(2) == 0
+    assert _moment_calls_at(3) == 1
