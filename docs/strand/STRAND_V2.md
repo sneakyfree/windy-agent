@@ -240,7 +240,7 @@ Built in waves (strand-to-green plan, 2026-10-10): 5a set the frame plus Part 1 
 | P2.13.1 | A failing sync backs off exponentially, then reconnects | live | `tests/test_matrix_sync_backoff.py::TestSyncErrorBackoff::test_sleeps_exponentially_then_escapes` |
 | P2.13.2 | A reply that fails to send is kept for later | live | `tests/strand/test_p2_matrix.py::test_p2_13_a_failed_reply_is_kept_for_later` |
 | P2.13.3 | Kept replies are sent once the connection is back | live | `tests/test_matrix_bot.py::TestPendingResponseQueue::test_flush_pending` |
-| P2.13.4 | Kept replies go out on the next successful sync (not only after a reconnect) | planned: Windy Agent: the queue flushes only at reconnect and shutdown, so while sync stays healthy a failed reply waits; flush from the sync-success callback | — |
+| P2.13.4 | Kept replies go out on the next successful sync (not only after a reconnect), at most once every 30 s | live | `tests/strand/test_p2_matrix.py::test_p2_13_kept_replies_go_out_on_the_next_good_sync` |
 
 ### P2.14 Tool registry and Windy Pro tools (gene 1.4)
 

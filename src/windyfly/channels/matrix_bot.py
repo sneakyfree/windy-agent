@@ -107,6 +107,9 @@ _SYNC_STALE_S = 600.0
 # An outage older than this is reported as sync_ok=false even though the
 # per-run failure counter resets on every reconnect cycle.
 _SYNC_OUTAGE_S = 120.0
+# Kept replies are retried on a good /sync at most this often, so a reply the
+# homeserver keeps refusing is not re-sent on every sync.
+_PENDING_RETRY_EVERY_S = 30.0
 
 
 class WindyFlyMatrixBot(ChannelAdapter):
@@ -151,6 +154,7 @@ class WindyFlyMatrixBot(ChannelAdapter):
 
         # Pending responses for offline queue
         self._pending_responses: list[tuple[str, str]] = []
+        self._last_pending_retry = 0.0
 
         # Track boot time to ignore old messages
         self._boot_time = time.time()
@@ -777,6 +781,11 @@ class WindyFlyMatrixBot(ChannelAdapter):
         self._last_sync_success = time.time()
         self._connected = True
         self._backoff = _INITIAL_BACKOFF_S
+        # Replies that failed to send go out now that the homeserver answers,
+        # not only after a reconnect (strand P2.13.4).
+        if self._pending_responses and time.time() - self._last_pending_retry >= _PENDING_RETRY_EVERY_S:
+            self._last_pending_retry = time.time()
+            await self._flush_pending()
         if self._invite_rechecks:  # invites Chat could not answer yet: one more try per sync, 10 min max
             from windyfly.channels import invite_gate as _gate
 

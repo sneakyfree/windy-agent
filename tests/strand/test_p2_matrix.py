@@ -97,3 +97,16 @@ async def test_p2_13_a_failed_reply_is_kept_for_later():
     with patch("windyfly.channels.matrix_bot.agent_respond", return_value="hi Grant"):
         await bot._on_message(*_event())
     assert bot._pending_responses == [(ROOM, "hi Grant")]
+
+
+@pytest.mark.asyncio
+async def test_p2_13_kept_replies_go_out_on_the_next_good_sync():
+    bot = _bot()
+    bot.client.room_send = AsyncMock()
+    bot._pending_responses.append((ROOM, "hi Grant"))
+    await bot._on_sync_response(MagicMock())
+    bot.client.room_send.assert_awaited_once()
+    assert bot.client.room_send.await_args.args[0] == ROOM
+    assert bot.client.room_send.await_args.args[2]["body"] == "hi Grant"
+    assert bot._pending_responses == []
+

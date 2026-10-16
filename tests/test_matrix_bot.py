@@ -419,6 +419,31 @@ class TestPendingResponseQueue:
         bot.client.room_send.assert_not_called()
         db.close()
 
+    @pytest.mark.asyncio
+    async def test_a_refused_reply_is_not_resent_on_every_sync(self):
+        """P2.13.4: a good sync retries kept replies at most once every 30 s."""
+        db = Database(":memory:")
+        bot = WindyFlyMatrixBot(_make_config(), db, WriteQueue())
+        bot.client.room_send = AsyncMock(side_effect=RuntimeError("M_FORBIDDEN"))
+        bot._pending_responses.append(("!room:test", "Delayed response"))
+        await bot._on_sync_response(MagicMock())
+        await bot._on_sync_response(MagicMock())
+        assert bot.client.room_send.await_count == 1
+        assert bot._pending_responses == [("!room:test", "Delayed response")]
+        bot._last_pending_retry -= 31
+        await bot._on_sync_response(MagicMock())
+        assert bot.client.room_send.await_count == 2
+        db.close()
+
+    @pytest.mark.asyncio
+    async def test_a_good_sync_with_nothing_kept_sends_nothing(self):
+        db = Database(":memory:")
+        bot = WindyFlyMatrixBot(_make_config(), db, WriteQueue())
+        bot.client.room_send = AsyncMock()
+        await bot._on_sync_response(MagicMock())
+        bot.client.room_send.assert_not_awaited()
+        db.close()
+
 
 class TestMatrixBotGracefulShutdown:
     """Regression for the 2026-07-04 prod SIGKILL: nio's sync_forever has its
