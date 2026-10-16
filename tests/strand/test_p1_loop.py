@@ -109,3 +109,29 @@ def test_p1_07_main_loads_env_files_before_the_config():
     order = [n.func.id for n in ast.walk(fn)
              if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id in ("load_dotenv", "load_config")]
     assert order[:1] == ["load_dotenv"] and "load_config" in order
+
+
+def test_p1_06_the_whole_prompt_stays_under_the_effective_limit(tmp_path):
+    """A model window of 6,000 tokens and ~10,000 tokens of history: the call keeps the soul, the
+    current message and the newest history, drops the oldest, and fits the window less the reply reserve."""
+    from types import SimpleNamespace
+
+    from windyfly.agent.prompt import estimate_tokens, reply_reserve
+    from windyfly.memory.episodes import save_episode
+
+    cfg = _config(tmp_path)
+    db = Database(cfg["memory"]["db_path"])
+    for n in range(20):
+        save_episode(db, "user" if n % 2 == 0 else "assistant", f"old-{n:02d} " + "x" * 2000, session_id="big")
+    seen: list[list[str]] = []
+    try:
+        with patch("windyfly.agent.models_catalog.resolve", return_value=SimpleNamespace(native_cap=6000)):
+            _turn(cfg, db, "and now?", "big", seen)
+    finally:
+        db.close()
+    main = next(call for call in seen if MARK in call[0])
+    assert main[-1] == "and now?"
+    assert estimate_tokens([{"content": c} for c in main]) <= 6000 - reply_reserve(6000)
+    kept = [c[:6] for c in main if c.startswith("old-")]
+    assert kept and "old-19" in kept and "old-00" not in kept
+    assert kept == sorted(kept)                       # what is left is the newest, still in order

@@ -8,6 +8,7 @@ relevant knowledge nodes, and the user's current message.
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import Any
 
@@ -26,6 +27,51 @@ from windyfly.personality.engine import build_personality_block, load_soul
 # badger claim is that the prompt is bounded by construction, and this
 # block must not be the thing that breaks it.
 _WAKE_CHARS_PER_POINT = 1500
+
+logger = logging.getLogger(__name__)
+
+# Optional recall blocks fit_to_limit may drop after the history (they repeat older conversation).
+_DROPPABLE_BLOCKS = ("## Relevant earlier context", "## Catching up")
+
+
+def estimate_tokens(messages: list[dict[str, Any]]) -> int:
+    """A cheap upper-side estimate: about 4 characters a token, plus a few per message."""
+    return sum(len(str(m.get("content") or "")) // 4 + 4 for m in messages)
+
+
+def reply_reserve(limit: int) -> int:
+    """Room kept for the model's answer: a tenth of the limit, at most 8,192 tokens."""
+    return min(8192, max(0, limit) // 10)
+
+
+def fit_to_limit(messages: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
+    """Keep the whole prompt under ``limit`` tokens (strand P1.06.5).
+
+    Drops the oldest conversation history first, then the optional recall blocks. Never drops the
+    first message (the personality block, built from the owner's SOUL.md), the other system
+    blocks, or the last message (the current one). If the prompt is still over after that, it is
+    sent as it is, with one WARNING: cutting the soul or the question would be worse.
+    """
+    total = estimate_tokens(messages)
+    if limit <= 0 or total <= limit or len(messages) < 3:
+        return messages
+    out = list(messages)
+    middle = range(1, len(out) - 1)
+    history = [i for i in middle if out[i].get("role") in ("user", "assistant")]
+    blocks = [i for i in middle if out[i].get("role") == "system"
+              and str(out[i].get("content") or "").startswith(_DROPPABLE_BLOCKS)]
+    dropped: set[int] = set()
+    for i in history + blocks:
+        if total <= limit:
+            break
+        total -= estimate_tokens([out[i]])
+        dropped.add(i)
+    kept = [m for i, m in enumerate(out) if i not in dropped]
+    logger.info("prompt over its limit: dropped %d history and %d recall message(s); ~%d of %d tokens",
+                len(dropped & set(history)), len(dropped & set(blocks)), total, limit)
+    if total > limit:
+        logger.warning("prompt still over its limit after trimming history: ~%d of %d tokens", total, limit)
+    return kept
 
 
 def _is_first_contact(db: Database) -> bool:

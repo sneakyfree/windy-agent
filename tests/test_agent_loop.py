@@ -779,3 +779,32 @@ class TestEpistemicFiltering:
         assert "[SPECULATIVE]" not in content
 
         db.close()
+
+
+class TestFitToLimit:
+    def test_under_the_limit_nothing_changes(self):
+        from windyfly.agent.prompt import fit_to_limit
+
+        msgs = [{"role": "system", "content": "soul"}, {"role": "user", "content": "hi"}]
+        assert fit_to_limit(msgs, 1000) is msgs
+
+    def test_never_drops_the_soul_other_system_blocks_or_the_current_message(self):
+        from windyfly.agent.prompt import fit_to_limit
+
+        msgs = [{"role": "system", "content": "S" * 4000},
+                {"role": "system", "content": "## Memory\n" + "m" * 400},
+                {"role": "user", "content": "h" * 4000},
+                {"role": "assistant", "content": "a" * 4000},
+                {"role": "user", "content": "now"}]
+        out = fit_to_limit(msgs, 100)
+        assert out == [msgs[0], msgs[1], msgs[4]]
+
+    def test_recall_blocks_go_after_the_history(self):
+        from windyfly.agent.prompt import estimate_tokens, fit_to_limit
+
+        recall = {"role": "system", "content": "## Relevant earlier context (this conversation):\n" + "r" * 2000}
+        msgs = [{"role": "system", "content": "soul"}, recall,
+                {"role": "user", "content": "h" * 2000}, {"role": "user", "content": "now"}]
+        limit = estimate_tokens(msgs) - 100
+        out = fit_to_limit(msgs, limit)
+        assert recall in out and msgs[2] not in out
