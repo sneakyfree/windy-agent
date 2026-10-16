@@ -295,7 +295,7 @@ Built in waves (strand-to-green plan, 2026-10-10): 5a set the frame plus Part 1 
 | P2.22.8 | Sliders read back, with config defaults | live | `tests/test_control_panel.py::TestSliders::test_config_defaults` |
 | P2.22.9 | Monthly cost is estimated from the sliders | live | `tests/test_control_panel.py::TestCostEstimation::test_powerhouse_more_than_engineer` |
 | P2.22.10 | With raw mode off, the sliders shape the agent's tone | live | `tests/test_control_panel.py::test_turning_raw_off_hands_tone_back_to_the_sliders` |
-| P2.22.11 | /preset says when raw mode means the preset won't change the tone | planned: Windy Agent: raw mode is the default (Grant 07-25), so buddy and engineer give the same prompt while /preset still answers "applied" | — |
+| P2.22.11 | /preset says when raw mode means the preset won't change the tone | live | `tests/test_truthful_commands.py::test_preset_in_raw_mode_says_which_sliders_are_not_used` |
 
 ### P2.23 Truth layer (gene 2.3)
 
