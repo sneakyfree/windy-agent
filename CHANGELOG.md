@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **Memory can no longer split between the agent and other programs.** Opening the agent's memory
+  file to check its header, and copying it for the daily backup, quietly released the agent's
+  locks on it. The next other program to close the memory (the WindyTalk bridge on a restart)
+  then thought it was the last user and removed the agent's recent-writes file. From then on the
+  agent and that program each kept writing memories the other could not see (Windy 0, 2026-10-15).
+  The header is now checked through SQLite itself. Backups, `/export`, `windyfly backup` and the
+  copy made before a restore all take a consistent snapshot through SQLite, so they also include
+  writes not yet folded into the main file (backups used to leave those out). On Linux the agent
+  now checks every 15 minutes for this split and logs an ERROR "memory split" if it ever happens
+  again. `/export` also saves the configured memory file rather than always `data/windyfly.db`.
+
 - **The agent's own background calls name Haiku 5.5.** The daily journal, failure lessons, goal
   checks and the vision fallback named Haiku 4.5 in code. Windy Mind quietly served 5.5 instead,
   but once Mind serves every pick exactly as named they would have moved to the older, pricier
