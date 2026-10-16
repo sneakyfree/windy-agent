@@ -398,7 +398,7 @@ Built in waves (strand-to-green plan, 2026-10-10): 5a set the frame plus Part 1 
 | P3.41.7 | Memory is searched through the bridge (knowledge nodes) | live | `tests/test_bridge_integration.py::TestDispatchRoundtrips::test_memory_search_returns_list` |
 | P3.41.8 | Bridge memory search also searches past conversations | planned: Windy Agent: memory.search returns nodes only; episodes are not searched | — |
 | P3.41.9 | The gateway's health route reports whether the brain is connected | live | `tests/test_gateway_smoke.py::TestHealthRoute::test_bridge_reports_connected_state` |
-| P3.41.10 | Gateway HTTP and WebSocket chat are proven end to end without a live stack | planned: Windy Agent: only live-gated tests cover the gateway boot and the /ws/chat proxy; add a hermetic bun test gateway -> bridge | — |
+| P3.41.10 | Gateway HTTP and WebSocket chat are proven end to end without a live stack (gateway/tests/e2e-bridge.test.ts: the real gateway against a stand-in brain socket, run by CI) | live | `tests/strand/test_p4_map_index.py::test_p4_11_the_gateway_is_proven_end_to_end_in_ci` |
 
 ### P3.42 Cognitive decay (gene 4.2)
 
@@ -531,8 +531,8 @@ are the new genes (Wave 5g).
 | Codon | Promise | Status | Test |
 |---|---|---|---|
 | P4.11.1 | The brain's parts exist: loop, memory, skills, control panel, Matrix bot, bridge | live | `tests/strand/test_p4_map_index.py::test_p4_11_the_brain_parts_in_the_map_exist` |
-| P4.11.2 | The gateway serves the web UI on localhost:3000 | planned: Windy Agent: proven by bun tests in CI, not yet by a scorecard test (see P3.41.10) | — |
-| P4.11.3 | The gateway's WebSocket chat works end to end | planned: Windy Agent: live-gated only (see P3.41.10) | — |
+| P4.11.2 | The gateway serves the web UI (localhost:3000 by default) | live | `tests/strand/test_p4_map_index.py::test_p4_11_the_gateway_is_proven_end_to_end_in_ci` |
+| P4.11.3 | The gateway's WebSocket chat works end to end | live | `tests/strand/test_p4_map_index.py::test_p4_11_the_gateway_is_proven_end_to_end_in_ci` |
 | P4.11.4 | Sliders are set through the gateway's REST route | live | `tests/test_gateway_smoke.py::TestSlidersSetRoute::test_set_valid_slider` |
 | P4.11.5 | Spend is read through the gateway's REST route | live | `tests/test_gateway_smoke.py::TestCostDailyRoute::test_reflects_logged_cost` |
 | P4.11.6 | The gateway talks to the brain over the UDS bridge (the brain's own process, not the Matrix bot's) | live | `tests/test_bridge_integration.py::TestAgentRespondViaBridge::test_full_roundtrip` |
@@ -641,8 +641,8 @@ are the new genes (Wave 5g).
 | Codon | Promise | Status | Test |
 |---|---|---|---|
 | P4.C4.1 | The UDS bridge carries JSON between brain and gateway | live | `tests/test_bridge_integration.py::TestAgentRespondViaBridge::test_full_roundtrip` |
-| P4.C4.2 | The Bun gateway serves HTTP on port 3000 | planned: Windy Agent: bun tests in CI only (see P3.41.10) | — |
-| P4.C4.3 | WebSocket chat works end to end | planned: Windy Agent: live-gated only (see P3.41.10) | — |
+| P4.C4.2 | The Bun gateway serves HTTP on port 3000 (by default) | live | `tests/strand/test_p4_map_index.py::test_p4_11_the_gateway_is_proven_end_to_end_in_ci` |
+| P4.C4.3 | WebSocket chat works end to end | live | `tests/strand/test_p4_map_index.py::test_p4_11_the_gateway_is_proven_end_to_end_in_ci` |
 | P4.C4.4 | Decay lowers old memories' scores | live | `tests/test_phase4.py::TestCognitiveDecay::test_decay_returns_counts` |
 | P4.C4.5 | Aged memories (below 0.05) are deleted | retired: decay may dim, never erase (Doctrine Law 1) (#312) | — |
 | P4.C4.6 | A contradicting update is detected | live | `tests/test_phase4.py::TestConflictDetector::test_detects_conflict` |

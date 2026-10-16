@@ -10,6 +10,12 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
 
 ## Unreleased
 
+- **The gateway is tested end to end without a live stack.** A new bun test starts the real
+  gateway against a stand-in brain on a private socket and checks, over real HTTP and a real
+  WebSocket, that the web page is served, the health check sees the brain, chat refuses a
+  client without the dashboard password, and a chat message reaches the brain and its answer
+  comes back. CI runs it with the other gateway tests.
+
 - **A reply that failed to send goes out on the next good sync.** The agent kept such replies but
   sent them only after it reconnected, so while the connection stayed healthy a person could wait
   hours for an answer. Now every successful sync sends what was kept, at most once every 30
