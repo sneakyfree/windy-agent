@@ -88,3 +88,24 @@ def test_p4_c2_7_each_preset_applies_all_its_values():
 
 def test_p4_f_part5_of_the_strand_is_kept():
     assert tracked("docs/WINDY_FLY_DNA_STRAND_PART5.md")
+
+
+def test_p4_11_the_gateway_is_proven_end_to_end_in_ci():
+    """gateway/tests/e2e-bridge.test.ts boots the real gateway against a stand-in brain socket and
+    checks the web UI, health, the WebSocket auth refusal and a chat turn through the bridge; the CI
+    gateway-test job runs every bun test. Nothing in it may be skipped or focused."""
+    import re
+
+    e2e = (ROOT / "gateway" / "tests" / "e2e-bridge.test.ts").read_text(encoding="utf-8")
+    for name in ("GET / serves the web UI", "/api/health says the brain is connected",
+                 "/ws/chat refuses a client without the dashboard password",
+                 "/ws/chat carries a chat turn to the brain and the answer back"):
+        assert f'test("{name}"' in e2e, name
+    assert 'Bun.spawn(["bun", "run", "src/server.ts"]' in e2e
+    assert not re.search(r"\b(?:test|it|describe)\.(?:skip|skipIf|todo|only|if)\b", e2e)
+    server = (ROOT / "gateway" / "src" / "server.ts").read_text(encoding="utf-8")
+    assert "const PORT = Number(process.env.GATEWAY_PORT) || 3000;" in server
+    assert tracked("gateway/tests/e2e-bridge.test.ts")
+    ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    job = ci.split("gateway-test:", 1)[1].split("\n  build:", 1)[0]
+    assert re.search(r"(?m)^\s+run: bun test\s*$", job), "the gateway job must run every bun test"
