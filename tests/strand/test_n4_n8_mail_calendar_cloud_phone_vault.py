@@ -180,3 +180,17 @@ def test_n8_nothing_outside_the_vault_package_imports_it():
             if any(n == "windyfly.vault" or n.startswith("windyfly.vault.") for n in names):
                 users.append(str(py.relative_to(src)))
     assert users == []
+
+
+
+def test_n8_a_bad_lease_key_file_is_logged_not_replaced_silently(tmp_path, caplog):
+    from windyfly.vault import lease_key
+
+    path = tmp_path / "lease_keys.json"
+    path.write_text("{not json", encoding="utf-8")
+    with caplog.at_level("WARNING", logger="windyfly.vault.lease_key"):
+        entry = lease_key.ensure_active(path=path)
+    msgs = [r.getMessage() for r in caplog.records if r.name == "windyfly.vault.lease_key"]
+    assert len(msgs) == 1 and str(path) in msgs[0] and "replaces it" in msgs[0]
+    assert "{not json" not in msgs[0]
+    assert lease_key._load(path)["keys"][0]["kid"] == entry["kid"]
