@@ -2348,8 +2348,21 @@ def _register_budget_through_help():
         #
         # ``arcname`` keeps the entries relative so the tarball still
         # unpacks over an install the way it always did.
+        #
+        # The memory database is the CONFIGURED one, copied through
+        # SQLite (memory.snapshot): tarring the live file would drop this
+        # running agent's locks and leave out everything still in the WAL.
+        import tempfile
+
+        from windyfly.memory.snapshot import copy_db
+        db_path = Path((_config or {}).get("memory", {}).get(
+            "db_path",
+            os.environ.get("WINDYFLY_DB_PATH", "data/windyfly.db"),
+        ))
+        if not db_path.is_absolute():
+            db_path = PROJECT_ROOT / db_path
         files_to_backup: list[tuple[Path, str]] = []
-        for rel in ["data/windyfly.db", ".env", "windyfly.toml", "SOUL.md"]:
+        for rel in [".env", "windyfly.toml", "SOUL.md"]:
             src = PROJECT_ROOT / rel
             if src.exists():
                 files_to_backup.append((src, rel))
@@ -2358,9 +2371,14 @@ def _register_budget_through_help():
         for f in sorted((PROJECT_ROOT / "data").glob("birth_certificate_*.pdf")):
             files_to_backup.append((f, str(f.relative_to(PROJECT_ROOT))))
         try:
-            with tarfile.open(filename, "w:gz") as tar:
-                for src, arcname in files_to_backup:
-                    tar.add(src, arcname=arcname)
+            with tempfile.TemporaryDirectory(prefix="windyfly-export-") as tmp:
+                if db_path.exists():
+                    snap = Path(tmp) / "windyfly.db"
+                    copy_db(db_path, snap)
+                    files_to_backup.insert(0, (snap, "data/windyfly.db"))
+                with tarfile.open(filename, "w:gz") as tar:
+                    for src, arcname in files_to_backup:
+                        tar.add(src, arcname=arcname)
             saved_to = Path(filename).resolve()
             return f"Backup saved: {saved_to} ({len(files_to_backup)} files)"
         except Exception as e:

@@ -31,6 +31,26 @@ def _env(monkeypatch, tmp_path):
     monkeypatch.setattr(cb, "PROJECT_ROOT", tmp_path)
 
 
+
+def _real_db(path, rows=1):
+    """A real SQLite file: backups go through SQLite's backup API now, so
+    fake bytes with a SQLite header are no longer enough."""
+    import sqlite3
+    c = sqlite3.connect(str(path))
+    c.execute("CREATE TABLE t (i INTEGER PRIMARY KEY, v TEXT)")
+    c.executemany("INSERT INTO t VALUES (?, ?)", [(i, "the real database") for i in range(rows)])
+    c.commit()
+    c.close()
+
+
+def _rows(path):
+    import sqlite3
+    c = sqlite3.connect(str(path))
+    try:
+        return c.execute("SELECT i, v FROM t ORDER BY i").fetchall()
+    finally:
+        c.close()
+
 class TestCrypto:
     def test_aes_gcm_round_trip(self):
         key = cb._get_encryption_key()
@@ -92,7 +112,7 @@ class TestUploadContract:
         self._mocks(monkeypatch)
         db = tmp_path / "data" / "windyfly.db"
         db.parent.mkdir(parents=True, exist_ok=True)
-        db.write_bytes(b"SQLite format 3\x00 fake db bytes")
+        _real_db(db)
 
         captured = {}
         resp = MagicMock(status_code=201)
@@ -140,8 +160,7 @@ class TestListAndRestoreRoundTrip:
 
         db = tmp_path / "data" / "windyfly.db"
         db.parent.mkdir(parents=True, exist_ok=True)
-        original = b"SQLite format 3\x00" + b"the real database" * 50
-        db.write_bytes(original)
+        _real_db(db, rows=50)
 
         def _make_client():
             client = AsyncMock()
@@ -188,7 +207,8 @@ class TestListAndRestoreRoundTrip:
             res = _run(cb.restore_from_cloud("latest"))
 
         assert res["success"] is True
-        assert db.read_bytes() == original  # exact round-trip through R2 + AES-GCM
+        # exact round-trip through R2 + AES-GCM: the same rows come back
+        assert _rows(db) == [(i, "the real database") for i in range(50)]
 
 
 class TestErrorSurfacing:
@@ -220,7 +240,7 @@ class TestErrorSurfacing:
 
         db = tmp_path / "data" / "windyfly.db"
         db.parent.mkdir(parents=True, exist_ok=True)
-        db.write_bytes(b"x" * 64)
+        _real_db(db)
         monkeypatch.setenv("WINDY_JWT", "tok")  # auth-header fallback
 
         import windyfly.trust.gate as gate

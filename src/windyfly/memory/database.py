@@ -699,18 +699,65 @@ class Database:
     """SQLite database wrapper with migrations and dict-like row access."""
 
     @staticmethod
-    def _quarantine_if_corrupt(path: Path) -> str | None:
-        """If the memory file is unreadable, move it aside and start fresh.
+    def _connect(db_path: str) -> sqlite3.Connection:
+        conn = sqlite3.connect(
+            db_path,
+            detect_types=sqlite3.PARSE_DECLTYPES,
+            check_same_thread=False,
+        )
+        conn.row_factory = sqlite3.Row
+        # busy_timeout must come FIRST so every subsequent PRAGMA /
+        # schema op (the header probe included) waits for contested
+        # locks rather than immediately raising "database is locked".
+        # Without this, concurrent Database() opens would fail
+        # synchronously (the P1-O4 symptom).
+        conn.execute("PRAGMA busy_timeout=5000;")
+        return conn
+
+    @staticmethod
+    def _not_a_database(conn: sqlite3.Connection) -> str | None:
+        """Return why the file is not a database, or None if it is one.
 
         **The agent must always be able to boot.** A corrupt SQLite file
         used to raise ``DatabaseError: file is not a database`` straight
-        out of ``sqlite3.connect``/first query, which means the agent
-        does not start — and the supervisor restarts it into the same
-        failure, forever. That is the OpenClaw death spiral: grandma's
-        agent is bricked and only a human at a terminal can free it.
+        out of the first query, which means the agent does not start —
+        and the supervisor restarts it into the same failure, forever.
+        That is the OpenClaw death spiral: grandma's agent is bricked
+        and only a human at a terminal can free it. Found by
+        ``scripts/marathon/faults.py``, which zeroes the SQLite header
+        and then asks whether a fresh agent can still come up.
 
-        Found by ``scripts/marathon/faults.py``, which zeroes the SQLite
-        header and then asks whether a fresh agent can still come up.
+        Only SQLITE_NOTADB counts — SQLite's own verdict that the file
+        header is not a database header. Deliberately the narrowest
+        possible test, because a false positive here QUARANTINES A
+        HEALTHY DATABASE. The first version ran ``PRAGMA quick_check``,
+        which can fail for reasons that are NOT corruption (the
+        episodes_fts vtable, lock contention, a concurrent migration)
+        and duly moved a live database aside mid-race
+        (tests/contract/test_migration_race.py). Anything subtler than
+        a bad header — a torn page deep in the file — is left to the
+        real queries to surface.
+
+        The header is read THROUGH the connection, never with a plain
+        ``open()``. Closing any file descriptor on a file drops every
+        POSIX lock this process holds on it — SQLite's included — so a
+        raw header read in a process that already had the database open
+        silently left that process holding no locks. The next other
+        process to close its connection then believed it was the last
+        one, checkpointed and unlinked the WAL, and this process kept
+        writing to a deleted WAL that nobody else could see (Windy 0,
+        2026-10-15: memory split between the agent and the bridge).
+        """
+        try:
+            conn.execute("PRAGMA schema_version").fetchone()
+        except sqlite3.DatabaseError as e:
+            if getattr(e, "sqlite_errorcode", None) == sqlite3.SQLITE_NOTADB:
+                return str(e)
+        return None
+
+    @staticmethod
+    def _quarantine(path: Path, reason: str) -> str:
+        """Move a file that is not a database aside so a fresh one can start.
 
         Losing memory is bad. Being unable to START is worse — a running
         agent can be handed a restored backup; a dead one cannot even
@@ -723,37 +770,6 @@ class Database:
         plainly rather than letting them discover the amnesia
         themselves.
         """
-        if not path.exists() or path.stat().st_size == 0:
-            return None
-
-        # ONLY the file header. Deliberately the narrowest possible
-        # test, because a false positive here QUARANTINES A HEALTHY
-        # DATABASE — the "fix" would eat the user's memory, which is
-        # far worse than the crash-loop it exists to prevent.
-        #
-        # The first version ran `PRAGMA quick_check` plus
-        # `SELECT COUNT(*) FROM sqlite_master` on a bare connection.
-        # Both can raise DatabaseError for reasons that are NOT
-        # corruption — instantiating the episodes_fts virtual table,
-        # lock contention, a concurrent migration. It duly declared a
-        # live database corrupt and moved it aside mid-race
-        # (`vtable constructor failed: episodes_fts`), caught by
-        # tests/contract/test_migration_race.py.
-        #
-        # Every SQLite file begins with this exact 16-byte magic. If it
-        # is absent the file is definitively not a database, which is
-        # the one case worth acting on. Anything subtler — a torn page
-        # deep in the file — is left to the real connection to surface,
-        # because a wrong guess there costs more than it saves.
-        try:
-            with path.open("rb") as fh:
-                header = fh.read(16)
-        except OSError:
-            return None            # unreadable for other reasons; not ours to judge
-        if header == b"SQLite format 3\x00":
-            return None
-
-        reason = f"bad SQLite header {header!r}"
         stamp = time.strftime("%Y%m%d-%H%M%S")
         dead = path.with_name(f"{path.name}.corrupt-{stamp}")
         try:
@@ -788,13 +804,13 @@ class Database:
         path.parent.mkdir(parents=True, exist_ok=True)
 
         self.db_path = db_path
-        self.quarantined_from = self._quarantine_if_corrupt(path)
-        self.conn = sqlite3.connect(
-            db_path,
-            detect_types=sqlite3.PARSE_DECLTYPES,
-            check_same_thread=False,
-        )
-        self.conn.row_factory = sqlite3.Row
+        self.quarantined_from = None
+        self.conn = self._connect(db_path)
+        reason = self._not_a_database(self.conn)
+        if reason is not None:
+            self.conn.close()
+            self.quarantined_from = self._quarantine(path, reason)
+            self.conn = self._connect(db_path)
         # Serialize all access to the shared connection. ``check_same_thread=False``
         # tells sqlite3 to allow cross-thread use, but it does NOT make the
         # underlying cursor state thread-safe — concurrent calls race and
@@ -804,12 +820,6 @@ class Database:
         # nested fetchone calls).
         self._lock = threading.RLock()
 
-        # busy_timeout must come FIRST so every subsequent PRAGMA /
-        # schema op waits for contested locks rather than immediately
-        # raising "database is locked". Without this, subsequent
-        # concurrent Database() opens would fail synchronously (the
-        # P1-O4 symptom).
-        self.conn.execute("PRAGMA busy_timeout=5000;")
         # PRAGMA journal_mode=WAL needs an exclusive lock to flip
         # modes. If another connection is mid-write on the same file,
         # this raises even with busy_timeout set. The DB only needs

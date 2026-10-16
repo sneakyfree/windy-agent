@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **Memory can no longer split between the agent and other programs.** Opening the agent's memory
+  file to check its header, and copying it for the daily backup, quietly released the agent's
+  locks on it. The next other program to close the memory (the WindyTalk bridge on a restart)
+  then thought it was the last user and removed the agent's recent-writes file. From then on the
+  agent and that program each kept writing memories the other could not see (Windy 0, 2026-10-15).
+  The header is now checked through SQLite itself. Backups, `/export`, `windyfly backup` and the
+  copy made before a restore all take a consistent snapshot through SQLite, so they also include
+  writes not yet folded into the main file (backups used to leave those out). On Linux the agent
+  now checks every 15 minutes for this split and logs an ERROR "memory split" if it ever happens
+  again. `/export` also saves the configured memory file rather than always `data/windyfly.db`.
+
 - **"Windy's computers are busy" is a short wait, not an outage.** For an owner whose account uses
   only Windy's own computers, Windy Mind may answer "busy" (503 `no_third_party_unavailable`). The
   agent now waits the time Mind asks for once and tries again. If they are still busy, it does not

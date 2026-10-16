@@ -385,6 +385,8 @@ def main() -> None:
     # Start background decay scheduler (G7)
     db_path = config.get("memory", {}).get("db_path", "data/windyfly.db")
     _start_decay_scheduler(config, db_path)
+    from windyfly.memory.split_check import start_split_watch
+    start_split_watch(db_path)
 
     # ADR-051 Phase A.5 — single-runtime claim invariant.
     # Try to claim the agent's runtime slot on Mind before dispatching

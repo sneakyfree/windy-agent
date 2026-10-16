@@ -2092,9 +2092,17 @@ def cmd_export(_args: argparse.Namespace) -> None:
     files_to_backup: list[tuple[Path, str]] = []
 
     # Database
+    # Copied through SQLite (memory.snapshot), not tarred raw: a raw copy
+    # of a live WAL database leaves out everything not yet checkpointed.
+    import tempfile
+
+    from windyfly.memory.snapshot import copy_db
+    snap_dir = tempfile.TemporaryDirectory(prefix="windyfly-export-")
     db_path = _get_db_path()
     if db_path.exists():
-        files_to_backup.append((db_path, "data/windyfly.db"))
+        snap = Path(snap_dir.name) / "windyfly.db"
+        copy_db(db_path, snap)
+        files_to_backup.append((snap, "data/windyfly.db"))
 
     # Config files
     for fname in [".env", "windyfly.toml", "SOUL.md"]:
@@ -2116,6 +2124,7 @@ def cmd_export(_args: argparse.Namespace) -> None:
         files_to_backup.append((cert_path, f"data/{cert_path.name}"))
 
     if not files_to_backup:
+        snap_dir.cleanup()
         console.print("[dim]Nothing to backup.[/dim]")
         return
 
@@ -2132,6 +2141,8 @@ def cmd_export(_args: argparse.Namespace) -> None:
 
     except Exception as e:
         console.print(f"  [red]✗ Backup failed: {e}[/red]")
+    finally:
+        snap_dir.cleanup()
 
 
 # ═══════════════════════════════════════════════════════════════════════
