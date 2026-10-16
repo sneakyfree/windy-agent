@@ -581,7 +581,7 @@ are the new genes (Wave 5g).
 | Codon | Promise | Status | Test |
 |---|---|---|---|
 | P4.13.1 | Tags v0.1.0 to v1.0.0, one per phase, over 18 weeks | retired: one-time release steps, not codons (#526) | — |
-| P4.13.2 | The version line is clear (the CHANGELOG has no 1.0.0 and reuses 0.1.0, 0.4.0 and 0.5.0 after the reset to 0.6/0.7) | planned: Windy Agent: one CHANGELOG note explaining the reset | — |
+| P4.13.2 | The version line is clear: the CHANGELOG explains that the v0.4.0/v0.5.0/v1.0.0 tags were phase markers, not the package releases of the same numbers | live | `tests/strand/test_p4_map_index.py::test_p4_13_the_changelog_explains_the_version_numbers` |
 
 ### P4.C1 Phase 1 checklist (Part 4 §14)
 
