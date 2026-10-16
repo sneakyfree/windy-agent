@@ -255,7 +255,9 @@ def get_provider_for_model(model: str, config: dict[str, Any] | None = None) -> 
 def get_provider_summary(config: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     """Return a dashboard-friendly summary of all providers."""
     providers = get_all_providers(config)
-    active_model = (config or {}).get("agent", {}).get("default_model", "gpt-4o-mini")
+    from windyfly.config import default_model
+
+    active_model = default_model(config)
 
     summary = []
     for key, prov in providers.items():

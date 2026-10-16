@@ -77,7 +77,7 @@ Built in waves (strand-to-green plan, 2026-10-10): 5a set the frame plus Part 1 
 
 | Codon | Promise | Status | Test |
 |---|---|---|---|
-| P1.02.1 | One default model | planned: Windy Agent: four defaults disagree (windyfly.toml, DEFAULT_CONFIG, .env.example, the loop's fallback); pick one, the others read it | — |
+| P1.02.1 | One default model: windyfly.config.DEFAULT_MODEL; windyfly.toml names the same one, .env.example sets none, and no code names its own fallback | live | `tests/strand/test_p1_foundation.py::test_p1_02_there_is_one_default_model` |
 | P1.02.2 | [agent] temperature / max_response_tokens / max_context_tokens are honoured | planned: Windy Agent: never read (the creativity and response-length sliders decide); honour them or drop them from the file | — |
 | P1.02.3 | [memory] db_path and max_nodes_per_context come from the file | live | `tests/strand/test_p1_foundation.py::test_p1_02_memory_settings_come_from_the_file` |
 | P1.02.4 | [memory] max_episodes_per_context is honoured | planned: Windy Agent: never read (5 + 5 x context_window slider decides); honour it or drop it | — |

@@ -114,6 +114,7 @@ def _detect_intent_llm(
     """
     try:
         from windyfly.agent.models import call_llm, llm_purpose
+        from windyfly.config import default_model
 
         messages = [
             {
@@ -129,7 +130,7 @@ def _detect_intent_llm(
         with llm_purpose("intent"):
             result = call_llm(
                 messages,
-                model=(config or {}).get("agent", {}).get("default_model", "gpt-4o-mini"),
+                model=default_model(config),
                 temperature=0.1,  # Low temp for classification
                 max_tokens=100,   # Short response
                 config=config,
