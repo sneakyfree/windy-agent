@@ -27,14 +27,13 @@ import hashlib
 import json
 import logging
 import os
-import shutil
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import httpx
 
+from windyfly.memory.snapshot import copy_db, snapshot_bytes
 from windyfly.platform import get_project_root
 
 logger = logging.getLogger(__name__)
@@ -219,14 +218,13 @@ async def backup_to_cloud(config: dict | None = None) -> dict:
     if not db_path.exists():
         return {"success": False, "error": f"Database not found: {db_path}"}
 
-    # Copy DB to temp file to avoid locking issues
-    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
-        tmp_path = tmp.name
+    # A consistent snapshot through SQLite, never a file copy: copying the
+    # live file dropped this process's locks (the 2026-10-15 WAL split on
+    # Windy 0) and left out every write still in the WAL.
     try:
-        shutil.copy2(str(db_path), tmp_path)
-        raw_data = Path(tmp_path).read_bytes()
-    finally:
-        Path(tmp_path).unlink(missing_ok=True)
+        raw_data = snapshot_bytes(db_path)
+    except Exception as e:
+        return {"success": False, "error": "Could not snapshot the database: " + _describe_error(e)}
 
     # Compress THEN encrypt. SQLite compresses well (122 MB → 28 MB,
     # ~4.3x, on Windy 0), and a smaller payload is the biggest lever
@@ -360,7 +358,9 @@ async def restore_from_cloud(
             # Back up current DB before overwriting
             if db_path.exists():
                 backup_path = db_path.with_suffix(".db.pre-restore")
-                shutil.copy2(str(db_path), str(backup_path))
+                # copy_db keeps a file that is not a database as raw bytes:
+                # a broken memory file is often the reason for the restore.
+                copy_db(db_path, backup_path)
                 logger.info("Pre-restore backup saved to %s", backup_path)
 
             # Write restored database
