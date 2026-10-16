@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **A reply that failed to send goes out on the next good sync.** The agent kept such replies but
+  sent them only after it reconnected, so while the connection stayed healthy a person could wait
+  hours for an answer. Now every successful sync sends what was kept, at most once every 30
+  seconds, so a reply the homeserver keeps refusing is not sent again on every sync.
+
 - **Memory can no longer split between the agent and other programs.** Opening the agent's memory
   file to check its header, and copying it for the daily backup, quietly released the agent's
   locks on it. The next other program to close the memory (the WindyTalk bridge on a restart)
