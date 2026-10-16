@@ -1034,7 +1034,7 @@ own behaviour.
 | N5.16 | (ours) Only a listed agent of the same owner counts as trusted | live | `tests/test_windy_calendar.py::test_only_a_listed_same_owner_sibling_resolves_to_trusted` |
 | N5.17 | (ours) With no token the reply is a plain "I couldn't sign in" | live | `tests/test_windy_calendar.py::test_no_token_and_network_errors_are_plain` |
 | N5.18 | (ours) When Windy Calendar cannot be reached the reply says so plainly | live | `tests/strand/test_n4_n8_mail_calendar_cloud_phone_vault.py::test_n5_a_network_error_is_said_plainly` |
-| N5.19 | The appointments and block tools work end to end | planned: Windy Agent: their handlers have no test (capabilities/windy_calendar.py) | — |
+| N5.19 | The appointments and block tools work end to end | live | `tests/test_windy_calendar.py::test_appointments_and_block_work_end_to_end` |
 
 ### N6 Windy Cloud: backups
 
