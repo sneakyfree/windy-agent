@@ -799,7 +799,7 @@ are the new genes (Wave 5g).
 | P5.92.1 | After an emotional turn a one-line moment is saved | live | `tests/strand/test_p5_extended.py::test_p5_92_a_moment_is_saved_after_an_emotional_turn` |
 | P5.92.2 | Saved moments reach the prompt | live | `tests/test_relationship_moments.py::TestRelationshipMomentsInPrompt::test_moments_appear_in_assembled_prompt` |
 | P5.92.3 | Moments are listed through the bridge | live | `tests/test_gap_closure.py::TestDecayConflictsMomentsFailures::test_moments_list_with_data` |
-| P5.92.4 | Moments are captured only when emotional sensitivity is 3 or more (the old warmth gate) | planned: Windy Agent: the gate in the turn is untested | — |
+| P5.92.4 | Moments are captured only when emotional sensitivity is 3 or more (the old warmth gate) | live | `tests/strand/test_p5_extended.py::test_p5_92_moments_are_captured_only_at_emotional_sensitivity_3_or_more` |
 
 ### P5.93 Agent journal (gene C9.3)
 
