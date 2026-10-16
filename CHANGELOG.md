@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Dates in memory keep working on newer Python.** The memory database now registers its own
+  date and time handling instead of Python's built-in one, which has been deprecated since 3.12.
+  Stored values and what comes back are unchanged.
+
 - **One default model.** The model used when nothing picks one was named in four places that
   disagreed: windyfly.toml (kimi-k2.5), the built-in defaults (claude-sonnet-5), `.env.example`
   (gpt-4o-mini) and fallbacks in the code (gpt-4o-mini, claude-sonnet-4-6). Now there is one,
