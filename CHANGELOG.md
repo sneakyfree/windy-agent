@@ -1,5 +1,13 @@
 # Changelog
 
+**About the version numbers.** The git tags `v0.4.0`, `v0.5.0` (2026-03-25) and `v1.0.0`
+(2026-03-26, "Complete DNA Strand") marked build phases 3, 4 and 5 of the first plan. They were
+never releases: the package version at all three was 0.0.1. Package releases started on
+2026-04-01 and reused those numbers for different code: 0.4.0 (the unified command registry),
+0.5.0 and 0.5.1 below are package versions, not those tags, and 0.1.0 is this file's first entry.
+No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (2026-07-04) and the
+0.7.x releases. The `v1.0.0` tag stays where it is, as a historical phase marker.
+
 ## Unreleased
 
 - **Dates in memory keep working on newer Python.** The memory database now registers its own

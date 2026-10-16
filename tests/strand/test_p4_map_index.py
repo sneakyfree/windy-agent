@@ -88,3 +88,12 @@ def test_p4_c2_7_each_preset_applies_all_its_values():
 
 def test_p4_f_part5_of_the_strand_is_kept():
     assert tracked("docs/WINDY_FLY_DNA_STRAND_PART5.md")
+
+
+def test_p4_13_the_changelog_explains_the_version_numbers():
+    text = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    head = text.split("\n## ", 1)[0]
+    assert "About the version numbers" in head
+    for words in ("`v0.4.0`", "`v0.5.0`", "`v1.0.0`", "phase", "0.0.1", "No package 1.0.0"):
+        assert words in head, words
+    assert "\n## 1.0.0" not in text
