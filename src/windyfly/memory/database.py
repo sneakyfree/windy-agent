@@ -40,6 +40,23 @@ sqlite3.register_adapter(date, _adapt_date)
 sqlite3.register_converter("timestamp", _convert_timestamp)
 sqlite3.register_converter("date", _convert_date)
 
+
+def _split_sql(sql: str) -> list[str]:
+    """Split migration SQL into single statements (sqlite3.complete_statement understands
+    trigger bodies). One statement may span lines; a line holds at most one statement end."""
+    statements: list[str] = []
+    buf = ""
+    for line in sql.splitlines(keepends=True):
+        buf += line
+        if sqlite3.complete_statement(buf):
+            statements.append(buf.strip())
+            buf = ""
+    rest = "\n".join(ln for ln in buf.splitlines() if ln.strip() and not ln.strip().startswith("--"))
+    if rest:
+        raise ValueError("migration SQL ends in the middle of a statement")
+    return statements
+
+
 _MIGRATIONS: dict[int, tuple[str, str]] = {
     1: (
         "Phase 0: 6 core tables + FTS",
@@ -459,7 +476,7 @@ def _migration_7_tracing(conn) -> None:
                 raise
 
     # Indices are CREATE IF NOT EXISTS — no special handling.
-    conn.executescript("""
+    for _statement in _split_sql("""
         CREATE INDEX IF NOT EXISTS idx_events_request_id
             ON events(request_id);
         CREATE INDEX IF NOT EXISTS idx_agent_actions_request_id
@@ -471,7 +488,8 @@ def _migration_7_tracing(conn) -> None:
 
         INSERT OR IGNORE INTO schema_version (version, description)
             VALUES (7, 'Wave 14: tracing spine — request_id columns + indices');
-    """)
+    """):
+        conn.execute(_statement)
 
 
 def _migration_9_goal_pacing(conn) -> None:
@@ -506,13 +524,14 @@ def _migration_9_goal_pacing(conn) -> None:
             if "duplicate column" not in str(e).lower():
                 raise
 
-    conn.executescript("""
+    for _statement in _split_sql("""
         CREATE INDEX IF NOT EXISTS idx_goals_paced
             ON goals(pace_seconds, last_paced_at) WHERE pace_seconds > 0;
 
         INSERT OR IGNORE INTO schema_version (version, description)
             VALUES (9, '/goal Phase 2 — pacing columns on goals table');
-    """)
+    """):
+        conn.execute(_statement)
 
 
 def _migration_10_goal_autorun(conn) -> None:
@@ -546,13 +565,14 @@ def _migration_10_goal_autorun(conn) -> None:
             if "duplicate column" not in str(e).lower():
                 raise
 
-    conn.executescript("""
+    for _statement in _split_sql("""
         CREATE INDEX IF NOT EXISTS idx_goals_autorun_active
             ON goals(autorun_remaining) WHERE autorun_remaining > 0;
 
         INSERT OR IGNORE INTO schema_version (version, description)
             VALUES (10, '/goal Phase 3 — autorun columns on goals table');
-    """)
+    """):
+        conn.execute(_statement)
 
 
 def _migration_11_fts_porter_stemming(conn) -> None:
@@ -886,19 +906,17 @@ class Database:
         re-check the version inside the transaction so the second
         thread becomes a no-op rather than replaying the SQL.
 
-        ⚠️ **That serialization is weaker than it looks.** Several
-        migration bodies use ``conn.executescript``, and executescript
-        issues an implicit COMMIT before it runs — ending the EXCLUSIVE
-        transaction opened here, mid-loop, and releasing the write lock
-        while later migrations are still pending. A second opener can
-        then acquire the lock, read a version that is already partly
-        advanced, and run the remaining migrations CONCURRENTLY with
-        the first.
+        SQL migrations run statement by statement with ``conn.execute``
+        inside that one transaction (strand P1.03.4). They used to go
+        through ``conn.executescript``, which issues an implicit COMMIT
+        before it runs: that ended the EXCLUSIVE transaction mid-loop,
+        released the write lock while later migrations were pending, and
+        left a failed migration half applied. Now a failure rolls back
+        every migration of this run, and the lock is held to the end.
 
-        The consequence for anyone adding a migration: **every
-        migration body must be independently idempotent.** Do not rely
-        on this transaction to make it a no-op for the loser of the
-        race. That is why migration 4 pairs DROP with
+        Still keep **every migration body independently idempotent**:
+        a callable migration can commit on its own, and an older file
+        may have been migrated by code that had the race. That is why migration 4 pairs DROP with
         ``CREATE TABLE IF NOT EXISTS``, and why migration 11 re-checks
         ``sqlite_master`` before rebuilding. A bare ``CREATE TABLE``
         anywhere in this loop is a latent "table already exists" crash
@@ -928,7 +946,8 @@ class Database:
                     callable_fn = _CALLABLE_MIGRATIONS[version]
                     callable_fn(self.conn)
                 else:
-                    self.conn.executescript(sql)
+                    for statement in _split_sql(sql):
+                        self.conn.execute(statement)
             self.conn.commit()
         except Exception:
             self.conn.rollback()

@@ -268,3 +268,32 @@ class TestWriteQueue:
         wq.stop()
 
         assert results[0] == "high"
+
+
+def test_every_sql_migration_splits_into_single_statements():
+    """P1.03.4: migrations run one statement at a time inside one transaction, so each chunk must be one complete statement."""
+    import sqlite3
+
+    from windyfly.memory import database as dbmod
+
+    for version, (_desc, sql) in dbmod._MIGRATIONS.items():
+        if sql == "__callable__":
+            continue
+        parts = dbmod._split_sql(sql)
+        assert parts, version
+        conn = sqlite3.connect(":memory:")
+        try:
+            for stmt in parts:
+                assert sqlite3.complete_statement(stmt), (version, stmt[:60])
+        finally:
+            conn.close()
+
+
+def test_split_sql_refuses_a_cut_off_statement():
+    import pytest
+
+    from windyfly.memory import database as dbmod
+
+    assert dbmod._split_sql("-- only a comment\n") == []
+    with pytest.raises(ValueError):
+        dbmod._split_sql("CREATE TABLE t (x INTEGER")
