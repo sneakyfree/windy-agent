@@ -110,6 +110,11 @@ _SYNC_OUTAGE_S = 120.0
 # Kept replies are retried on a good /sync at most this often, so a reply the
 # homeserver keeps refusing is not re-sent on every sync.
 _PENDING_RETRY_EVERY_S = 30.0
+# One pass from the sync callback sends at most this many kept replies, so a
+# hung send cannot hold the next /sync for long; the rest wait for the next pass.
+_PENDING_PER_SYNC = 3
+# A reply still kept after this long is dropped (one WARNING, counted in the heartbeat).
+_PENDING_MAX_AGE_S = 24 * 3600.0
 
 
 class WindyFlyMatrixBot(ChannelAdapter):
@@ -155,6 +160,9 @@ class WindyFlyMatrixBot(ChannelAdapter):
         # Pending responses for offline queue
         self._pending_responses: list[tuple[str, str]] = []
         self._last_pending_retry = 0.0
+        # When each kept reply was first kept; replies dropped for age are counted.
+        self._pending_kept_at: dict[tuple[str, str], float] = {}
+        self._pending_dropped = 0
 
         # Track boot time to ignore old messages
         self._boot_time = time.time()
@@ -582,6 +590,7 @@ class WindyFlyMatrixBot(ChannelAdapter):
         except Exception as e:
             logger.error("Failed to send response to %s: %s", room_id, e)
             self._pending_responses.append((room_id, response_text))
+            self._pending_kept_at.setdefault((room_id, response_text), time.time())
 
         # Turn off typing indicator
         try:
@@ -657,13 +666,29 @@ class WindyFlyMatrixBot(ChannelAdapter):
         except Exception as e:
             logger.error("Failed to join room %s: %s", room_id, e)
 
-    async def _flush_pending(self) -> None:
-        """Flush any pending responses that failed to send."""
+    async def _flush_pending(self, limit: int | None = None) -> None:
+        """Flush any pending responses that failed to send.
+
+        ``limit`` caps the sends in this pass; the rest stay kept for the next one.
+        A reply kept for _PENDING_MAX_AGE_S or longer is dropped, not sent.
+        """
         if not self._pending_responses:
             return
 
-        to_flush = self._pending_responses.copy()
-        self._pending_responses.clear()
+        now = time.time()
+        fresh: list[tuple[str, str]] = []
+        for item in self._pending_responses:
+            kept_for = now - self._pending_kept_at.setdefault(item, now)
+            if kept_for >= _PENDING_MAX_AGE_S:
+                self._pending_dropped += 1
+                logger.warning(
+                    "Dropped a reply to %s: kept %.0f h and never accepted by the homeserver",
+                    item[0], kept_for / 3600,
+                )
+            else:
+                fresh.append(item)
+        to_flush = fresh if limit is None else fresh[:limit]
+        self._pending_responses = [] if limit is None else fresh[limit:]
 
         for room_id, response_text in to_flush:
             try:
@@ -681,6 +706,9 @@ class WindyFlyMatrixBot(ChannelAdapter):
             except Exception as e:
                 logger.warning("Still can't send to %s: %s", room_id, e)
                 self._pending_responses.append((room_id, response_text))
+        kept = set(self._pending_responses)
+        for item in [k for k in self._pending_kept_at if k not in kept]:
+            del self._pending_kept_at[item]
 
     def _is_token_expired_error(self, error: Exception) -> bool:
         """Check if an error indicates an expired/invalid access token."""
@@ -750,6 +778,7 @@ class WindyFlyMatrixBot(ChannelAdapter):
                     "sync_failures": self._sync_failures,
                     "sync_fail_age_s": self._sync_fail_age_s(),
                     "rooms_joined": rooms_joined,
+                    "pending_dropped": self._pending_dropped,
                     "last_error": self._last_sync_error[:120],
                 },
             )
@@ -785,7 +814,7 @@ class WindyFlyMatrixBot(ChannelAdapter):
         # not only after a reconnect (strand P2.13.4).
         if self._pending_responses and time.time() - self._last_pending_retry >= _PENDING_RETRY_EVERY_S:
             self._last_pending_retry = time.time()
-            await self._flush_pending()
+            await self._flush_pending(limit=_PENDING_PER_SYNC)
         if self._invite_rechecks:  # invites Chat could not answer yet: one more try per sync, 10 min max
             from windyfly.channels import invite_gate as _gate
 
