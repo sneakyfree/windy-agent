@@ -51,3 +51,22 @@ def test_the_private_key_round_trips(path):
     priv = lk.private_for(e["kid"], path=path)
     pub = priv.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
     assert lk._b64(pub) == e["public"]
+
+
+def test_a_lease_key_file_with_no_key_list_is_logged(tmp_path, caplog):
+    from windyfly.vault import lease_key
+
+    path = tmp_path / "lease_keys.json"
+    path.write_text('{"keys": "nope"}', encoding="utf-8")
+    with caplog.at_level("WARNING", logger="windyfly.vault.lease_key"):
+        assert lease_key._load(path) == {"keys": []}
+    msgs = [r.getMessage() for r in caplog.records if r.name == "windyfly.vault.lease_key"]
+    assert len(msgs) == 1 and "holds no key list" in msgs[0] and "nope" not in msgs[0]
+
+
+def test_a_missing_lease_key_file_is_a_quiet_first_run(tmp_path, caplog):
+    from windyfly.vault import lease_key
+
+    with caplog.at_level("WARNING", logger="windyfly.vault.lease_key"):
+        lease_key.ensure_active(path=tmp_path / "lease_keys.json")
+    assert not [r for r in caplog.records if r.name == "windyfly.vault.lease_key"]

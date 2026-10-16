@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **A damaged Vault lease key file is reported, not replaced in silence.** If the agent's lease key
+  file can't be read or holds no key list, the agent logs one warning naming the file and the reason
+  (never its contents) before a new key replaces it. A missing file is still a quiet first run. The
+  bad file is not copied aside, because a plaintext copy of a key file is not allowed.
+
 - **A reply that failed to send goes out on the next good sync.** The agent kept such replies but
   sent them only after it reconnected, so while the connection stayed healthy a person could wait
   hours for an answer. Now every successful sync sends what was kept, at most once every 30

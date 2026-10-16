@@ -18,6 +18,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import logging
 import os
 import re
 import tempfile
@@ -28,6 +29,8 @@ from collections.abc import Callable
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
+
+logger = logging.getLogger(__name__)
 
 OVERLAP_S = 24 * 3600
 _KID_RE = re.compile(r"^[0-9a-f]{16}$")
@@ -62,11 +65,20 @@ def keys_path() -> Path:
 
 
 def _load(path: Path) -> dict[str, Any]:
+    """The stored keys. A missing file is a first run; a file that is there but cannot be read or
+    is not a key list is logged (name and reason only, never its contents), then treated as empty,
+    so the next key minted replaces it (old leases re-lease to the new key)."""
     try:
         d = json.loads(path.read_text("utf-8"))
-    except (OSError, ValueError):
+    except FileNotFoundError:
+        return {"keys": []}
+    except (OSError, ValueError) as e:
+        logger.warning("lease key file %s cannot be read (%s): treating it as empty; "
+                       "the next key minted replaces it", path, type(e).__name__)
         return {"keys": []}
     if not (isinstance(d, dict) and isinstance(d.get("keys"), list)):
+        logger.warning("lease key file %s holds no key list: treating it as empty; "
+                       "the next key minted replaces it", path)
         return {"keys": []}
     for k in d["keys"]:
         # A file written before Vault's kid (lk_<random>): the kid is a pure function of the key.
