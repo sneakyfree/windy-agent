@@ -10,6 +10,10 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
 
 ## Unreleased
 
+- **Dates in memory keep working on newer Python.** The memory database now registers its own
+  date and time handling instead of Python's built-in one, which has been deprecated since 3.12.
+  Stored values and what comes back are unchanged.
+
 - **The gateway is tested end to end without a live stack.** A new bun test starts the real
   gateway against a stand-in brain on a private socket and checks, over real HTTP and a real
   WebSocket, that the web page is served, the health check sees the brain, chat refuses a
