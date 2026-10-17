@@ -48,6 +48,7 @@ def _bot():
 def _event(sender):
     room = MagicMock()
     room.room_id = "!pair:chat.windychat.ai"
+    room.joined_count = 2      # two agents alone in the room: addressed to each other (room_stop P1)
     room.user_name.return_value = "x"
     ev = MagicMock()
     ev.sender, ev.body, ev.server_timestamp = sender, "hi", time.time() * 1000
@@ -174,6 +175,7 @@ async def test_welcome_is_not_posted_into_a_team_room(monkeypatch, flag, team_ro
     bot.client.join = AsyncMock()
     room = MagicMock()
     room.room_id = "!pair:chat.windychat.ai"
+    room.joined_count = 2      # two agents alone in the room: addressed to each other (room_stop P1)
     ev = MagicMock()
     ev.state_key = bot.bot_user_id
     await bot._on_invite(room, ev)

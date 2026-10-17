@@ -107,6 +107,7 @@ def _event(sender, body="hello there"):
     room = MagicMock()
     room.room_id = ROOM
     room.user_name.return_value = "x"
+    room.joined_count = 2      # the agent and this one alone: addressed (room_stop P1)
     ev = MagicMock()
     ev.sender, ev.body, ev.server_timestamp = sender, body, time.time() * 1000
     ev.source = {"content": {"msgtype": "m.text", "body": body}}
