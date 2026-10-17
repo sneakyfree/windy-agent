@@ -313,20 +313,52 @@ def test_all_three_are_the_owners_only(fake):
 
 # ── Hub on #598: profiles, the owner-named rule, the per-turn cap outside a turn ─────────────
 
-@pytest.mark.parametrize("rel", [
+# One real path per denied location, written out by hand (not derived from cloud._PROFILE_DIRS), so dropping
+# an entry fails a test (Hub on #598). test_every_denied_location_has_a_path_here keeps the two in step.
+PROFILE_PATHS = [
     # macOS
     "Library/Application Support/Google/Chrome/Default/History",
+    "Library/Application Support/Google/Chrome Beta/Default/History",
+    "Library/Application Support/Google/Chrome Canary/Default/History",
+    "Library/Application Support/Chromium/Default/Bookmarks",
     "Library/Application Support/Microsoft Edge/Default/History",
+    "Library/Application Support/Microsoft Edge Beta/Default/History",
+    "Library/Application Support/Microsoft Edge Dev/Default/History",
+    "Library/Application Support/Microsoft Edge Canary/Default/History",
     "Library/Application Support/BraveSoftware/Brave-Browser/Default/Bookmarks",
     "Library/Application Support/Firefox/Profiles/x.default/logins.json",
+    "Library/Application Support/Arc/User Data/Default/History",
+    "Library/Application Support/Vivaldi/Default/History",
+    "Library/Application Support/com.operasoftware.Opera/History",
     "Library/Keychains/login.keychain-db",
     "Library/Safari/History.db",
+    "Library/Cookies/HSTS.plist",
+    "Library/Mail/V10/MailData/Envelope Index",
+    "Library/Messages/chat.db",
     # Windows
     "AppData/Local/Google/Chrome/User Data/Default/History",
+    "AppData/Local/Google/Chrome Beta/User Data/Default/History",
+    "AppData/Local/Google/Chrome SxS/User Data/Default/History",
+    "AppData/Local/Chromium/User Data/Default/History",
     "AppData/Local/Microsoft/Edge/User Data/Default/Bookmarks",
+    "AppData/Local/Microsoft/Credentials/DFBE70A7E5CC19A398EBF1B96859CE5D",
+    "AppData/Roaming/Microsoft/Credentials/DFBE70A7E5CC19A398EBF1B96859CE5D",
+    "AppData/Roaming/Microsoft/Protect/S-1-5-21-1/masterkey",
     "AppData/Local/BraveSoftware/Brave-Browser/User Data/Default/History",
+    "AppData/Local/Mozilla/Firefox/Profiles/x.default/cache2",
     "AppData/Roaming/Mozilla/Firefox/Profiles/x.default/places.sqlite",
-])
+    "AppData/Roaming/Opera Software/Opera Stable/History",
+    "AppData/Local/Vivaldi/User Data/Default/History",
+]
+
+
+def test_every_denied_location_has_a_path_here():
+    covered = {prefix for prefix in cloud._PROFILE_DIRS
+               for rel in PROFILE_PATHS if tuple(p.lower() for p in Path(rel).parts)[:len(prefix)] == prefix}
+    assert covered == set(cloud._PROFILE_DIRS)
+
+
+@pytest.mark.parametrize("rel", PROFILE_PATHS)
 def test_browser_profiles_and_keychains_are_never_uploaded_on_any_os_layout(fake, monkeypatch, rel):
     monkeypatch.setattr(cloud, "_allowed_roots", lambda: [fake.home])        # even inside an allowed folder
     p = fake.home / rel
@@ -335,6 +367,34 @@ def test_browser_profiles_and_keychains_are_never_uploaded_on_any_os_layout(fake
     with _turn(f"upload {p}"):
         out = cloud.upload_to_cloud(str(p))
     assert out["status"] == "refused" and "browser profile" in out["error"]
+    assert not any(r.method == "POST" for r in fake.requests)
+    monkeypatch.setattr(cloud, "_PROFILE_NAMES", frozenset())                # the location rule alone holds
+    assert cloud._denied(p.resolve()) is not None
+
+
+def test_case_does_not_matter_under_home_or_in_the_home_prefix(fake, monkeypatch):
+    monkeypatch.setattr(cloud, "_allowed_roots", lambda: [fake.home])
+    monkeypatch.setattr(cloud, "_PROFILE_NAMES", frozenset())
+    p = fake.home / "library" / "KEYCHAINS" / "login.keychain-db"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_bytes(b"k")
+    assert cloud._denied(p) is not None
+    upper_home = Path(str(fake.home).upper())                 # the same home, spelled in another case
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: upper_home))
+    assert cloud._denied(p) is not None
+
+
+def test_a_symlink_into_a_keychain_is_refused(fake, monkeypatch, tmp_path):
+    monkeypatch.setattr(cloud, "_allowed_roots", lambda: [fake.home])
+    target = fake.home / "Library" / "Keychains" / "login.keychain-db"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(b"k")
+    link = fake.home / "Documents" / "notes.txt"
+    link.parent.mkdir(parents=True, exist_ok=True)
+    link.symlink_to(target)
+    with _turn(f"upload {link}"):
+        out = cloud.upload_to_cloud(str(link))
+    assert out["status"] == "refused"
     assert not any(r.method == "POST" for r in fake.requests)
 
 
@@ -358,6 +418,8 @@ def test_an_ordinary_library_or_appdata_file_still_uploads(fake, monkeypatch):
     ("upload a", False),                            # a letter or a bare name never counts
     ("upload elsewhere.txt", False),
     ("> upload {p}\n\nyes do it", False),           # a quoted reply is not the owner's words
+    ("upload \u201c{p}\u201d please", True),          # curly quotes (iOS)
+    ("upload \u2018{p}\u2019", True),
 ])
 def test_the_owner_must_write_the_whole_path(fake, tmp_path, message, named):
     p = tmp_path / "elsewhere.txt"
