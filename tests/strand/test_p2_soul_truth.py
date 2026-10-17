@@ -73,6 +73,82 @@ def test_p2_21_sensitive_items_are_flagged_and_code_skills_skipped(tmp_path, mon
     assert [(s["name"], s["language"], bool(s["promoted"])) for s in skills] == [("notes", "playbook", False)]
 
 
+KEEP, DROP = "zqxkeep1111", "zqxdrop2222"
+
+
+def _flagged_import(db, tmp_path, monkeypatch):
+    """Approve an import whose two items are both sensitive, so both wait for review."""
+    import asyncio
+
+    from windyfly.channels.base import handle_incoming
+    from windyfly.commands.core import wire_runtime
+    from windyfly.commands.setup import init_all_commands
+    from windyfly.soul_import import flow
+
+    monkeypatch.setitem(orchestrator._PARSERS, "openclaw", lambda path: {
+        "personality": {}, "soul": "", "skills": [],
+        "memories": [{"type": "identity", "content": f"my locker code is {KEEP}"},
+                     {"type": "identity", "content": f"my bank pin is {DROP}"}]})
+    init_all_commands(db=db, config={})
+    wire_runtime(db=db)
+    flow._review_lists.clear()
+    assert import_soul(db, str(tmp_path), source_type="openclaw", user_approved=True)["flagged"] == 2
+
+    def say(text):
+        ok, out = asyncio.run(handle_incoming(text, {"platform": "cli", "channel_id": "p2-21-review"}))
+        assert ok
+        return out
+    return say
+
+
+def _prompt_text(db, query):
+    messages = assemble_prompt({"personality": {}}, db, query, "s-review")
+    return "\n".join(str(m.get("content") or "") for m in messages)
+
+
+def test_p2_21_the_owner_reviews_flagged_items_one_at_a_time_and_keeps_one(tmp_path, monkeypatch):
+    from windyfly.memory.nodes import search_nodes
+
+    db = Database(":memory:")
+    try:
+        say = _flagged_import(db, tmp_path, monkeypatch)
+        listed = say("/soul review")
+        assert "2 imported items" in listed and "1. identity" in listed and "2. identity" in listed
+        assert KEEP not in listed and DROP not in listed           # the list shows kind only, never the text
+        assert KEEP in say("/soul review 1")                       # one item opened on purpose
+        assert KEEP not in _prompt_text(db, "what is my locker code")  # still inert before keep
+        assert "Kept 1 item" in say("/soul keep 1")
+        assert KEEP in _prompt_text(db, "what is my locker code")      # kept: now the agent can use it
+        assert not search_nodes(db, DROP)                          # the other one still waits
+        assert "1 imported item wait" in say("/soul review")
+    finally:
+        db.close()
+
+
+def test_p4_c2_the_owner_drops_flagged_items_after_a_yes_leaving_nothing_readable(tmp_path, monkeypatch):
+    path = tmp_path / "memory.db"
+    export = tmp_path / "export"
+    export.mkdir()
+    db = Database(str(path))
+
+    def raw():
+        return b"".join(p.read_bytes() for p in (path, Path(f"{path}-wal")) if p.exists())
+    try:
+        say = _flagged_import(db, export, monkeypatch)
+        db.commit()
+        assert DROP.encode() in raw()
+        say("/soul review")
+        asked = say("/soul drop all")
+        assert "Delete 2 items for good?" in asked and "/soul yes" in asked
+        assert DROP not in asked and DROP.encode() in raw()        # asked by kind and date; nothing deleted yet
+        assert "Deleted 2 items" in say("/soul yes")
+        assert DROP.encode() not in raw() and KEEP.encode() not in raw()
+        assert "Nothing is waiting" in say("/soul review")
+    finally:
+        db.close()
+    assert DROP.encode() not in raw()
+
+
 # ── gene 2.3 truth layer ────────────────────────────────────────────────────────────────
 
 def _knowledge(strictness: int) -> str:

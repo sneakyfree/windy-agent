@@ -48,3 +48,32 @@ def test_imports_are_tagged_as_imported_data(tmp_path, monkeypatch):
         assert {m.get("source") for m in metas} == {"import:openclaw"}
     finally:
         db.close()
+
+
+def test_a_secret_in_any_memory_type_waits_for_review(tmp_path, monkeypatch):
+    """Hub on #586: a PIN typed 'fact' was imported as safe and recalled; now it is flagged."""
+    db = Database(":memory:")
+    try:
+        monkeypatch.setitem(orchestrator._PARSERS, "openclaw", lambda p: _parsed(
+            [{"type": "fact", "content": f"bank card pin is {SECRET}"},
+             {"type": "preference", "content": "zqxsafe likes window seats"}]))
+        out = orchestrator.import_soul(db, str(tmp_path), "openclaw", user_approved=True)
+        assert out["flagged"] == 1 and out["imported"] == 1
+        assert not search_nodes(db, SECRET) and search_nodes(db, "zqxsafe")
+        msgs = assemble_prompt({"personality": {}}, db, "what is my bank card pin", "s-pin")
+        assert SECRET not in "\n".join(str(m.get("content") or "") for m in msgs)
+    finally:
+        db.close()
+
+
+def test_the_secret_screen_flags_secrets_and_lets_ordinary_memories_through():
+    from windyfly.soul_import.preview import looks_like_secret
+
+    for text in ("My PIN is 4421", "wifi password: hunter2", "bank account number 12345678",
+                 "card 4111 1111 1111 1111", "SSN 123-45-6789", "key sk-ant-abcdefghijklmnopqrstu",
+                 "seed phrase is apple banana", "IBAN GB29NWBK60161331926819", "ghp_abcdefghijklmnop1234"):
+        assert looks_like_secret(text), text
+    for text in ("User likes oolong tea", "Lives in Ohio since 2019", "Has two kids, 7 and 9",
+                 "Spinning class on Tuesdays", "Pineapple on pizza is fine", "Born 1984-05-12"):
+        assert not looks_like_secret(text), text
+

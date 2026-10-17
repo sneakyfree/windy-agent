@@ -10,6 +10,17 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
 
 ## Unreleased
 
+- **Review imported items one at a time.** `/soul review` lists the imported items waiting for
+  your review by number and kind only, never their text. `/soul review 2` opens one. `/soul keep 1 3`
+  lets the agent use those items. `/soul drop 2` (or `/soul drop all`) asks first, then `/soul yes`
+  deletes them for good, leaving no readable copy in the memory file. The numbers come from your latest
+  list and expire after 10 minutes. Soul import and review are off in guest mode.
+
+- **An imported secret waits for review whatever it is filed as.** Only beliefs and identity items
+  were held for review, so a PIN, password, key or account number filed as an ordinary fact was
+  imported straight away and could be recalled into the model's prompt. Any imported item that looks
+  like a secret is now held for review too.
+
 - **Import a personality from another AI, right in chat.** Type `/soul import` and send your export
   as a file in the same chat: a ChatGPT `conversations.json`, or a zip of an OpenClaw, Hermes or
   ChatGPT export, up to 25 MB on Windy Chat or 20 MB on Telegram. The agent shows what it found, and
@@ -23,9 +34,8 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
   starts typing, so you can see it has seen your message. If the receipt fails, the reply still comes.
 
 - **Imported items flagged for review stay out of the agent's mind until you keep them.** A soul
-  import stores sensitive items (for example anything that looks like a password or an account
-  number) flagged for review. Nothing read that flag, so those items could still be recalled into
-  the model's prompt and show in memory searches. Every memory listing and search now skips flagged
+  import stores sensitive items (beliefs and identity items) flagged for review. Nothing read that
+  flag, so those items could still be recalled into the model's prompt and show in memory searches. Every memory listing and search now skips flagged
   items, so they reach no model until the owner keeps them.
 
 - **New mail is not lost when there is nobody to tell yet.** If the agent can't send the owner its

@@ -6,6 +6,7 @@ before any data is written to the database.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 #: Imported skill formats that are prose a person or agent reads. These are
@@ -60,13 +61,13 @@ def format_soul_preview(parsed_data: dict[str, Any]) -> str:
     lines.append("")
 
     # Classify memories
-    safe = [m for m in memories if m.get("type") in ("fact", "preference", "topic", "conversation")]
-    sensitive = [m for m in memories if m.get("type") in ("belief", "identity")]
+    sensitive = [m for m in memories if classify_memory(m) == "sensitive"]
+    safe = [m for m in memories if classify_memory(m) == "safe"]
     total_memories = len(memories)
 
     lines.append(f"🧠 Memories found: {total_memories}")
     lines.append(f"  ✅ Safe (auto-import): {len(safe)} preferences, facts, topics")
-    lines.append(f"  ⚠️  Sensitive (needs review): {len(sensitive)} beliefs, identity facts")
+    lines.append(f"  ⚠️  Sensitive (needs review): {len(sensitive)} beliefs, identity facts, anything like a secret")
     if skills:
         text_skills = [sk for sk in skills if is_text_skill(sk)]
         code_skills = len(skills) - len(text_skills)
@@ -104,4 +105,37 @@ def classify_memory(memory: dict[str, Any]) -> str:
     mem_type = memory.get("type", "")
     if mem_type in ("belief", "identity"):
         return "sensitive"
+    # Any type that carries something like a secret waits for review too (Hub on #586): a PIN typed
+    # as a 'fact' must not be imported as safe and recalled into a prompt.
+    if looks_like_secret(str(memory.get("content", ""))):
+        return "sensitive"
     return "safe"
+
+
+# What a password, PIN, key or account number looks like in an imported memory. It errs toward
+# flagging: a false match only means the owner reviews one more item.
+_SECRET_WORDS = re.compile(
+    r"\b(pass(?:word|code|phrase)?|pins?|pin\s*code|api[\s_-]*keys?|secret(?:\s*key)?s?|"
+    r"(?:access|auth|bearer|refresh|session)\s*tokens?|tokens?|credentials?|log\s*in\s*details|"
+    r"ssn|social\s+security|account\s*(?:number|no\.?|#)|routing\s*(?:number|no\.?)|iban|"
+    r"(?:credit|debit|bank)\s*card|card\s*number|cvv|cvc|security\s*code|seed\s*phrase|"
+    r"recovery\s*(?:code|phrase|key)s?|private\s*key|2fa|otp)\b",
+    re.IGNORECASE,
+)
+_SECRET_SHAPES = (
+    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
+    re.compile(r"\b(?:sk|pk|rk)[-_][A-Za-z0-9_-]{16,}"),                 # sk-..., sk-ant-..., pk_live_...
+    re.compile(r"\b(?:ghp|gho|ghs|github_pat|xox[abp]|AKIA)[A-Za-z0-9_-]{12,}"),
+    re.compile(r"\b\d{6,}:[A-Za-z0-9_-]{30,}"),                          # a Telegram bot token
+    re.compile(r"\b\d{3}-\d{2}-\d{4}\b"),                                # an SSN
+    re.compile(r"\b(?:\d[ -]?){13,19}\b"),                               # a card or account number
+    re.compile(r"\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b"),                      # an IBAN
+    re.compile(r"\b(?=[A-Za-z0-9_-]*\d)(?=[A-Za-z0-9_-]*[A-Za-z])[A-Za-z0-9_-]{32,}\b"),  # a long random token
+)
+
+
+def looks_like_secret(text: str) -> bool:
+    """True when ``text`` names or holds something like a password, PIN, key or account number."""
+    if not text:
+        return False
+    return bool(_SECRET_WORDS.search(text)) or any(r.search(text) for r in _SECRET_SHAPES)
