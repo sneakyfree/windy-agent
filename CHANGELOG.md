@@ -10,6 +10,18 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
 
 ## Unreleased
 
+- **"Save this to my cloud", "what's in my cloud?" and now "get that file back" work.** The first two
+  never worked: they called Windy Cloud addresses that don't exist. They now use Windy Cloud's real storage
+  routes, as Windy Cloud described them, and fetching a file back is new.
+  - The agent uploads only files in the folders it may use, or a file whose path you wrote in your message.
+  - It never uploads keys, passwords or env files, its own memory, or anything in a hidden folder of your
+    home folder.
+  - At most 5 files or 200 MB per message. If a file of that name is already there, it asks first,
+    because Windy Cloud moves the old one to the trash.
+  - Downloads go to the agent's own downloads folder, with a cleaned name, readable only by you, never
+    replacing an earlier download, and within size and disk limits.
+  - Only the owner can use these.
+
 - **Restoring from a cloud backup is safe again, asks first, and can be undone.** `/backup restore`
   (or `/backup restore <name>`) downloads the backup, opens it with your own backup key, and checks it,
   without changing anything. It then tells you the backup's date and size, what the agent remembers now,

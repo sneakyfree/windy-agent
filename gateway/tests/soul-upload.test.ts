@@ -44,6 +44,12 @@ function startBrain(path: string): Promise<net.Server> {
           const req = JSON.parse(line) as { id: string; method: string; params: Record<string, unknown> };
           calls.push({ method: req.method, params: req.params });
           let result: Record<string, unknown> = {};
+          if (req.method === "soul.upload" && statSync(String(req.params.file)).size === 99) {
+            // A slow parse: answer after 12 s, past Bun's default 10 s idle timeout.
+            setTimeout(() => sock.write(JSON.stringify({ id: req.id, result: { token: "s".repeat(32), preview: "slow" },
+                                                         error: null }) + "\n"), 12000);
+            continue;
+          }
           if (req.method === "soul.upload") {
             const file = String(req.params.file);
             const st = statSync(file);
@@ -226,6 +232,14 @@ describe("soul import from the dashboard", () => {
     const sent = calls.filter((c) => ["soul.preview", "soul.import", "soul.reject"].includes(c.method));
     expect(sent.every((c) => JSON.stringify(Object.keys(c.params)) === '["token"]')).toBe(true);
   });
+});
+
+describe("a slow parse", () => {
+  test("a 12 s parse still answers the browser (server.timeout 300 on the soul routes)", async () => {
+    const r = await upload(new Uint8Array(99));
+    expect(r.status).toBe(200);
+    expect(await r.json()).toEqual({ token: "s".repeat(32), preview: "slow" });
+  }, 30000);
 });
 
 describe("the startup sweep", () => {
