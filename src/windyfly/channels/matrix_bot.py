@@ -430,7 +430,14 @@ class WindyFlyMatrixBot(ChannelAdapter):
 
     async def _on_stop_event(self, room: nio.MatrixRoom, event: Any) -> None:
         """``ai.windy.stop`` from the room's owner (the phone's Stop button): silence replies to agents.
-        With teamwork on, also ``ai.windy.resume`` and the owner's ``ai.windy.agents_stopped`` state."""
+        With teamwork on, also ``ai.windy.resume`` and the owner's ``ai.windy.agents_stopped`` state.
+        Any fault is logged and dropped, never raised into nio's sync loop (Hub on #599)."""
+        try:
+            await self._stop_event(room, event)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("stop event handling failed (%s); event dropped", type(e).__name__)
+
+    async def _stop_event(self, room: nio.MatrixRoom, event: Any) -> None:
         from windyfly.channels import room_stop as _stop
         from windyfly.channels import teamwork as _tw
         from windyfly.channels import turn_budget as _budget
