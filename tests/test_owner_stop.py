@@ -200,3 +200,66 @@ def test_a_stop_survives_a_restart():
     rs._loaded = False
     assert not rs.stopped(ROOM)
 
+
+
+def test_the_stop_file_is_0600_and_never_world_readable(tmp_path):
+    import os
+    import stat
+
+    rs.stop(ROOM)
+    path = tmp_path / "state" / "room_stops.json"
+    assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
+    assert not [p for p in path.parent.iterdir() if p.name.endswith(".tmp")]     # no leftovers
+
+
+def test_a_corrupt_stop_file_is_no_stops_and_the_next_stop_rewrites_it(tmp_path):
+    path = tmp_path / "state" / "room_stops.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("{not json", encoding="utf-8")
+    rs._loaded = False
+    assert not rs.stopped(ROOM)
+    rs.stop(ROOM)
+    assert rs.stopped(ROOM) and ROOM in path.read_text(encoding="utf-8")
+
+
+def _other_process_writes(tmp_path, rooms):
+    import json
+    import os
+    import time as _t
+
+    path = tmp_path / "state" / "room_stops.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    before = path.stat().st_mtime_ns if path.exists() else 0
+    path.write_text(json.dumps(rooms), encoding="utf-8")
+    os.utime(path, ns=(before + 10**9, before + 10**9 + int(_t.time()) % 7))    # a visibly newer file
+
+
+def test_a_stop_written_by_another_process_is_seen_without_a_restart(tmp_path):
+    """Hub on #599: two agent processes may share a state directory."""
+    assert not rs.stopped(ROOM)                         # this process has read the (empty) file
+    _other_process_writes(tmp_path, [ROOM])             # the other process stops the room
+    assert rs.stopped(ROOM)
+    _other_process_writes(tmp_path, [])                 # and resumes it
+    assert not rs.stopped(ROOM)
+
+
+def test_a_write_never_drops_a_stop_another_process_added_meanwhile(tmp_path):
+    """Read, change one room, write, under the lock: never this process's whole memory."""
+    other = "!other:chat.windychat.ai"
+    assert not rs.stopped(ROOM)                         # this process read the file: no stops
+    _other_process_writes(tmp_path, [ROOM])             # another process stops ROOM after that read
+    rs._change(other, True)                             # this process stops another room
+    assert set(rs._read()) == {ROOM, other}
+    rs._change(other, False)
+    assert rs._read() == {ROOM}
+
+
+@pytest.mark.asyncio
+async def test_a_fault_in_the_stop_event_is_dropped_never_raised(monkeypatch):
+    bot = _bot()
+    room = MagicMock()
+    room.room_id = ROOM
+    ev = MagicMock()
+    ev.type, ev.sender = rs.STOP_EVENT, OWNER
+    monkeypatch.setattr(rs, "stop", lambda r: (_ for _ in ()).throw(OSError("disk")))
+    await bot._on_stop_event(room, ev)                 # no exception escapes
