@@ -1424,7 +1424,9 @@ def _register_all():
                 for it in chosen:
                     by_kind[it.kind] = by_kind.get(it.kind, 0) + 1
                 kinds = ", ".join(f"{n} {k}{'s' if n != 1 else ''}" for k, n in sorted(by_kind.items()))
-                return (f"This deletes {kinds} (summaries made from those conversations and corrections included). "
+                keep = (" Facts and other memories I keep stay; /forget <words> removes those."
+                        if what == "all" else "")
+                return (f"This deletes {kinds} (summaries made from those conversations and corrections included).{keep} "
                         "Type /history yes to delete them, or /history no.")
             return "Usage: /history · /history find <words> · /history delete <YYYY-MM-DD>[..<YYYY-MM-DD>] | all | <numbers>"
         except Exception as e:

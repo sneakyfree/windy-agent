@@ -19,8 +19,9 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
   how many there were each day for the last 30 days (UTC). `/history find <words>` lists matching
   messages. `/history delete <day>`, `<day>..<day>`, `all` or numbers from a search shows what will
   go, and nothing is deleted until `/history yes`. A day's summaries (moments, journal, turnover
-  letter) and corrections go with it. The dashboard's Memory page has a Conversations section that
-  does the same: it previews first and deletes only what it showed. Deleting a conversation search
+  letter) and corrections go with it. Facts and other memories stay; `/forget` removes those. The
+  dashboard's Memory page has a Conversations section that does the same: it previews first and
+  deletes exactly what its counts showed. Deleting a conversation search
   result there now deletes that message. No readable copy is left in the memory file. Earlier
   daily cloud backups keep a copy until 5 newer backups replace them. Guest mode can't use either.
 

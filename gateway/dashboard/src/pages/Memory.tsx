@@ -123,7 +123,7 @@ export default function Memory() {
 
   const handleDelete = (id: string, type?: string) => {
     if (type === 'conversation') {
-      askPreview({ query: query.trim(), ids: [id] })
+      askPreview({ ids: [id] })
       return
     }
     if (!confirm('Delete this memory? This cannot be undone.')) return
@@ -220,8 +220,8 @@ export default function Memory() {
       <div className="space-y-3">
         <h2 className="text-lg font-semibold text-white">Conversations</h2>
         <p className="text-[#94a3b8] text-sm">
-          Delete conversations by day (UTC), or all of them. You see exactly what goes before anything is deleted;
-          summaries made from those conversations go with them.
+          Delete conversations by day (UTC), or all of them. You see what goes before anything is deleted;
+          summaries made from those conversations go with them. Facts and other memories stay (search above to delete those).
         </p>
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <input type="date" value={fromDay} onChange={e => setFromDay(e.target.value)}
@@ -250,6 +250,12 @@ export default function Memory() {
                     <li key={`${i.kind}-${i.id}`}>{i.kind} · {i.when.slice(0, 16)} · {i.preview}</li>
                   ))}
                 </ul>
+                {(() => {
+                  const total = Object.values(preview.counts ?? {}).reduce((a, b) => a + b, 0)
+                  return total > 20 ? (
+                    <p className="text-xs text-[#94a3b8]">…and {total - 20} more. Everything counted above is deleted.</p>
+                  ) : null
+                })()}
                 <div className="flex gap-2">
                   <button onClick={confirmDelete} disabled={!preview.items?.length}
                     className="px-4 py-2 bg-red-500/80 text-white rounded-lg disabled:opacity-40">Delete these</button>
