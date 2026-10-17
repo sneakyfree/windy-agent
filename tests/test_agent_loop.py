@@ -779,3 +779,57 @@ class TestEpistemicFiltering:
         assert "[SPECULATIVE]" not in content
 
         db.close()
+
+
+class TestFitToLimit:
+    def test_under_the_limit_nothing_changes(self):
+        from windyfly.agent.prompt import fit_to_limit
+
+        msgs = [{"role": "system", "content": "soul"}, {"role": "user", "content": "hi"}]
+        assert fit_to_limit(msgs, 1000) is msgs
+
+    def test_never_drops_the_soul_other_system_blocks_or_the_current_message(self):
+        from windyfly.agent.prompt import fit_to_limit
+
+        msgs = [{"role": "system", "content": "S" * 4000},
+                {"role": "system", "content": "## Memory\n" + "m" * 400},
+                {"role": "user", "content": "h" * 4000},
+                {"role": "assistant", "content": "a" * 4000},
+                {"role": "user", "content": "now"}]
+        out = fit_to_limit(msgs, 100)
+        assert out == [msgs[0], msgs[1], msgs[4]]
+
+    def test_an_odd_count_trim_leaves_a_user_message_first(self):
+        """Hub 10-17: dropping exactly one message must not leave an assistant turn first."""
+        from windyfly.agent.prompt import estimate_tokens, fit_to_limit
+
+        hist = [{"role": "user" if n % 2 == 0 else "assistant", "content": f"m{n} " + "x" * 400} for n in range(6)]
+        msgs = [{"role": "system", "content": "soul"}, *hist, {"role": "user", "content": "now"}]
+        out = fit_to_limit(msgs, estimate_tokens(msgs) - 10)      # one message is enough to fit
+        rest = [m for m in out if m["role"] != "system"]
+        assert rest[0]["role"] == "user" and rest[0]["content"].startswith("m2 ")
+        assert out[0] == msgs[0] and out[-1] == msgs[-1]
+
+    def test_a_tool_result_never_outlives_its_call(self):
+        from windyfly.agent.prompt import estimate_tokens, fit_to_limit
+
+        call = {"role": "assistant", "content": "", "tool_calls": [{"id": "t1", "function": {"name": "f", "arguments": "{}"}}]}
+        result = {"role": "tool", "tool_call_id": "t1", "content": "r" * 400}
+        msgs = [{"role": "system", "content": "soul"},
+                {"role": "user", "content": "u1 " + "x" * 400}, call, result,
+                {"role": "assistant", "content": "done"},
+                {"role": "user", "content": "u2"}, {"role": "assistant", "content": "ok"},
+                {"role": "user", "content": "now"}]
+        out = fit_to_limit(msgs, estimate_tokens(msgs) - 150)    # dropping u1 alone would be enough
+        assert result not in out and call not in out
+        assert [m for m in out if m["role"] != "system"][0]["content"] == "u2"
+
+    def test_recall_blocks_go_after_the_history(self):
+        from windyfly.agent.prompt import estimate_tokens, fit_to_limit
+
+        recall = {"role": "system", "content": "## Relevant earlier context (this conversation):\n" + "r" * 2000}
+        msgs = [{"role": "system", "content": "soul"}, recall,
+                {"role": "user", "content": "h" * 2000}, {"role": "user", "content": "now"}]
+        limit = estimate_tokens(msgs) - 100
+        out = fit_to_limit(msgs, limit)
+        assert recall in out and msgs[2] not in out

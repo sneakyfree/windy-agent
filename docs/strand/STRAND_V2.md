@@ -161,7 +161,7 @@ Built in waves (strand-to-green plan, 2026-10-10): 5a set the frame plus Part 1 
 | P1.06.2 | The user's message comes last | live | `tests/test_agent_loop.py::TestAssemblePrompt::test_has_user_message_at_end` |
 | P1.06.3 | The last turns of this session are in the prompt; other sessions' are not | live | `tests/strand/test_p1_loop.py::test_p1_06_remembers_the_last_turn_in_the_session` |
 | P1.06.4 | Relevant memory is added; high strictness drops inferred facts | live | `tests/test_agent_loop.py::TestEpistemicFiltering::test_high_strictness_filters_inferred` |
-| P1.06.5 | The whole prompt stays under max_context_tokens | planned: Windy Agent: no overall cap (each block has its own budget; the system message alone is about 8.2k characters on an empty database); see P1.02.2 | — |
+| P1.06.5 | The whole prompt stays under the effective limit (the model's window or the owner's /memory cap, less room for the answer): the oldest history goes first, never the soul or the current message | live | `tests/strand/test_p1_loop.py::test_p1_06_the_whole_prompt_stays_under_the_effective_limit` |
 | P1.06.6 | The config reaches the model call | live | `tests/test_agent_loop.py::TestAgentRespond::test_passes_config_to_llm` |
 | P1.06.7 | Each turn is saved as episodes (with its emotional context) | live | `tests/test_agent_loop.py::TestEmotionalContextIntegration::test_emotional_context_passed_to_episode` |
 | P1.06.8 | Facts are learned only from the owner's own untainted words | live | `tests/test_facts_owner_only.py::TestTurns::test_owner_turn_stores_the_facts` |

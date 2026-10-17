@@ -918,6 +918,11 @@ def _agent_respond_turn(
             pct_remaining=_pct_remaining,
             band=band,
         )
+        # The whole prompt stays under the effective limit (the model's window or the owner's /memory cap),
+        # with room left for the answer (strand P1.06.5).
+        from windyfly.agent.prompt import fit_to_limit as _fit, reply_reserve as _reserve
+
+        messages = _fit(messages, _max_ctx - _reserve(_max_ctx))
 
     # A phone-tools follow-up turn: the phone's data is quoted into THIS model call only (the stored user text
     # stays the short stub), and the turn runs with NO tools (see the tools line before call_llm).
