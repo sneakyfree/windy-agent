@@ -173,3 +173,57 @@ class TestPromptIndex:
         assert "Skills you know" in joined
         assert "deploy-website" in joined
         assert "wrangler" not in joined  # bodies stay out of context
+
+
+class TestSkillVerdict:
+    """Strand P3.31.10: a viewed skill is judged on the owner's next message."""
+
+    def test_friction_counts_a_failure_and_a_calm_reply_a_success(self, reg, db):
+        from windyfly.agent.capabilities.audit import set_current_session_id
+        from windyfly.memory.skills import get_skill_by_name
+        from windyfly.memory.write_queue import WriteQueue
+        from windyfly.skills.manager import judge_skill_uses
+
+        _save(reg)
+        wq = WriteQueue()
+        wq.start()
+        try:
+            set_current_session_id("s-verdict")
+            reg.get("skill.view").handler(name="deploy-website")
+            assert judge_skill_uses(db, wq, "s-verdict", friction=True) == 1
+            reg.get("skill.view").handler(name="deploy-website")
+            assert judge_skill_uses(db, wq, "s-verdict", friction=False) == 1
+            assert judge_skill_uses(db, wq, "s-verdict", friction=False) == 0      # nothing left to judge
+        finally:
+            set_current_session_id(None)
+            wq.stop()
+        row = get_skill_by_name(db, "deploy-website")
+        assert (row["failure_count"], row["success_count"]) == (1, 1)
+        assert (row["usage_count"] or 0) == 2                                     # the views, counted once each
+
+    def test_the_turn_after_a_skill_was_used_judges_it(self, reg, db):
+        """End to end: the agent views a skill, the owner answers with a correction, the skill gets a failure."""
+        from unittest.mock import patch
+
+        from tests.test_strand_wave4_agent_loop import _llm_result, _make_config
+        from windyfly.agent import loop
+        from windyfly.agent.capabilities.audit import set_current_session_id
+        from windyfly.memory.episodes import save_episode
+        from windyfly.memory.skills import get_skill_by_name
+        from windyfly.memory.write_queue import WriteQueue
+
+        _save(reg)
+        save_episode(db, "user", "how do I deploy?", session_id="s-e2e")
+        save_episode(db, "assistant", "Run wrangler deploy from the repo root.", session_id="s-e2e")
+        set_current_session_id("s-e2e")
+        reg.get("skill.view").handler(name="deploy-website")
+        set_current_session_id(None)
+        wq = WriteQueue()
+        wq.start()
+        try:
+            with patch.object(loop, "call_llm", return_value=_llm_result("Sorry, let me fix that.")), \
+                 patch.object(loop, "is_online", return_value=True):
+                loop.agent_respond(_make_config(), db, wq, "No, that's wrong, it failed", "s-e2e")
+        finally:
+            wq.stop()
+        assert get_skill_by_name(db, "deploy-website")["failure_count"] == 1

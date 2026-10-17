@@ -100,6 +100,10 @@ def register_skill_learning_capabilities(
             db.commit()
         except Exception:
             pass
+        from windyfly.agent.capabilities.audit import get_current_session_id
+        from windyfly.skills.manager import note_skill_used
+
+        note_skill_used(get_current_session_id(), skill["id"])  # judged on the owner's next message (P3.31.10)
         if _drops.is_drop_row(skill):
             return {
                 "ok": True,

@@ -1006,6 +1006,13 @@ def _agent_respond_turn(
             break
 
     friction = detect_friction(user_message, prev_agent_msg)
+    # Skills the last turn used get their verdict from this message (strand P3.31.10).
+    try:
+        from windyfly.skills.manager import judge_skill_uses
+
+        judge_skill_uses(db, write_queue, session_id, friction=bool(friction))
+    except Exception as e:
+        logger.debug("skill verdict skipped: %s", e)
     if friction:
         extra_instruction = handle_friction(db, write_queue, friction)
         if extra_instruction:
