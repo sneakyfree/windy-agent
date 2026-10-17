@@ -10,6 +10,11 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
 
 ## Unreleased
 
+- **`/forget` also removes the correction skill made from a correction you delete.** That skill's
+  text comes from your own words, so it now goes with the correction, and a search finds it too.
+  `/forget find <words>` searches for words that begin with yes, no or delete. The reply now says
+  "the items you picked".
+
 - **See and delete conversation history.** `/history` still shows the last messages, and now also
   how many there were each day for the last 30 days (UTC). `/history find <words>` lists matching
   messages. `/history delete <day>`, `<day>..<day>`, `all` or numbers from a search shows what will

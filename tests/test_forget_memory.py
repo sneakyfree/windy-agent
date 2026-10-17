@@ -83,3 +83,31 @@ def test_a_choice_expires_after_ten_minutes(db, monkeypatch):
 
 def test_nothing_found_says_so(db):
     assert "I don't remember anything" in _say("/forget submarine")
+
+
+def test_deleting_a_correction_deletes_the_skill_built_from_it(db):
+    """Hub on #575: a correction skill's text is distilled from the owner's own words."""
+    from windyfly.memory.failures import log_failure
+    from windyfly.memory.skills import save_skill
+
+    skill_id = save_skill(db, name="correction-factual_error", code="When they say plinth, check twice",
+                          language="playbook", description="Auto-generated correction", risk_level="low")
+    log_failure(db, "factual_error", "No, the plinth is granite", correction_skill_id=skill_id)
+    db.commit()
+    kinds = {i.kind for i in fg.find(db, "plinth")}
+    assert kinds == {"correction", "skill"}
+    listed = _say("/forget find plinth").splitlines()
+    pick = next(line.split(".")[0].strip() for line in listed if "correction," in line)
+    _say(f"/forget delete {pick}")                       # only the correction is picked
+    out = _say("/forget yes")
+    assert "1 correction" in out and "1 skill" in out
+    assert db.fetchone("SELECT COUNT(*) AS n FROM skills WHERE id = ?", (skill_id,))["n"] == 0
+
+
+def test_find_lets_a_search_start_with_a_command_word(db):
+    from windyfly.memory.episodes import save_episode
+
+    save_episode(db, "user", "yes we can paint the shed", session_id="s")
+    db.commit()
+    out = _say("/forget find yes paint")
+    assert "1 thing" in out and "paint the shed" in out

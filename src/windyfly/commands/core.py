@@ -1383,7 +1383,7 @@ def _register_all():
                 counts = _fg.forget(_db, state["chosen"])
                 _history_state.pop(key, None)
                 done = ", ".join(f"{n} {k}{'s' if n != 1 else ''}" for k, n in sorted(counts.items())) or "nothing"
-                return (f"Deleted: {done}. No readable copy is left in my memory file. "
+                return (f"Deleted: {done}. No readable copy of the items you picked is left in my memory file. "
                         "My daily cloud backups made before now still hold a copy until 5 newer backups replace them.")
             if verb == "find":
                 words = " ".join(args[1:])
@@ -1819,8 +1819,8 @@ def _register_all():
 
         args = ctx.get("_args", []) or []
         if not args:
-            return ("Usage: /forget <words> finds everything I remember that contains those words. "
-                    "Then /forget delete <numbers> or /forget delete all, then /forget yes. "
+            return ("Usage: /forget <words> (or /forget find <words>) finds everything I remember that contains "
+                    "those words. Then /forget delete <numbers> or /forget delete all, then /forget yes. "
                     "Nothing is deleted until you say yes.")
         if not _db:
             return "Database not available."
@@ -1840,7 +1840,7 @@ def _register_all():
             counts = _fg.forget(_db, state["chosen"])
             _forget_state.pop(key, None)
             done = ", ".join(f"{n} {k}{'s' if n != 1 else ''}" for k, n in sorted(counts.items())) or "nothing"
-            return (f"Deleted: {done}. No readable copy is left in my memory file. "
+            return (f"Deleted: {done}. No readable copy of the items you picked is left in my memory file. "
                     "My daily cloud backups made before now still hold a copy until 5 newer backups replace them.")
         if verb == "delete":
             if not state or not state.get("found"):
@@ -1866,7 +1866,10 @@ def _register_all():
             lines.append("Type /forget yes to delete them, or /forget no.")
             return "\n".join(lines)
 
-        words = " ".join(args)
+        # "/forget find <words>" searches for words that start with yes/no/delete/find (Hub, #575).
+        words = " ".join(args[1:] if verb == "find" else args)
+        if not words:
+            return "Usage: /forget find <words>"
         found = _fg.find(_db, words)
         more = len(found) > _fg.MAX_ITEMS
         found = found[: _fg.MAX_ITEMS]
@@ -1881,7 +1884,7 @@ def _register_all():
         lines.append("Type /forget delete <numbers> or /forget delete all. Nothing is deleted until you confirm.")
         return "\n".join(lines)
     _r("forget", "Find and delete something I remember", "06_memory", cmd_forget,
-       usage="forget <words> | forget delete <numbers|all> | forget yes | forget no")
+       usage="forget <words> | forget find <words> | forget delete <numbers|all> | forget yes | forget no")
 
     async def cmd_remember(ctx):
         fact = (ctx.get("_raw", "") or "").strip()

@@ -36,6 +36,8 @@ _SOURCES: tuple[tuple[str, str, tuple[str, ...], str, str], ...] = (
     ("conflict", "conflicts", ("old_value", "new_value"), "created_at", "new_value"),
     ("tool record", "agent_actions", ("args_json", "error_message"), "created_at", "capability_id"),
     ("event", "events", ("data",), "created_at", "event_type"),
+    # Correction skills (language 'playbook') are distilled from the owner's own friction text.
+    ("skill", "skills", ("code", "description"), "created_at", "name"),
 )
 _TABLE = {kind: table for kind, table, *_ in _SOURCES}
 
@@ -65,6 +67,8 @@ def find(db: Database, words: str, limit: int = MAX_ITEMS + 1) -> list[Item]:
     for kind, table, cols, when_col, preview_sql in _SOURCES:
         per_term = "(" + " OR ".join(f"COALESCE({c}, '') LIKE ? ESCAPE '\\'" for c in cols) + ")"
         where = " AND ".join([per_term] * len(terms))
+        if table == "skills":
+            where = f"language = 'playbook' AND {where}"
         params: list[str] = []
         for t in terms:
             params.extend([f"%{_escape_like(t)}%"] * len(cols))
@@ -98,6 +102,13 @@ def forget(db: Database, items: list[Item]) -> dict[str, int]:
             if table == "nodes":
                 db.execute("DELETE FROM edges WHERE source_id = ? OR target_id = ?", (it.id, it.id))
                 db.execute("DELETE FROM conflicts WHERE node_id = ?", (it.id,))
+            if table == "failures":
+                # The correction skill built from this failure carries the owner's words too (Hub, #575).
+                row = db.fetchone("SELECT correction_skill_id AS s FROM failures WHERE id = ?", (it.id,))
+                if row and row["s"]:
+                    cur = db.execute("DELETE FROM skills WHERE id = ?", (row["s"],))
+                    if getattr(cur, "rowcount", 0):
+                        counts["skill"] = counts.get("skill", 0) + 1
             cur = db.execute(f"DELETE FROM {table} WHERE id = ?", (it.id,))
             if getattr(cur, "rowcount", 0):
                 counts[it.kind] = counts.get(it.kind, 0) + 1
