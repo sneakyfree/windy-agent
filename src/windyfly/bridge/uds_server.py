@@ -441,7 +441,8 @@ class UDSBridge:
         from windyfly.soul_import import flow
 
         kind = "zip" if params.get("kind") == "zip" else "json"
-        return flow.dashboard_upload(self.db, str(params.get("file") or ""), kind)
+        # Up to 90 MB to parse: in a worker thread, so the bridge keeps answering (Hub, #589).
+        return await asyncio.to_thread(flow.dashboard_upload, self.db, str(params.get("file") or ""), kind)
 
     async def _handle_soul_preview(self, params: dict) -> dict:
         from windyfly.soul_import import flow
@@ -451,11 +452,15 @@ class UDSBridge:
     async def _handle_soul_import(self, params: dict) -> dict:
         from windyfly.soul_import import flow
 
-        return flow.dashboard_approve(self.db, params.get("token"))
+        return await asyncio.to_thread(flow.dashboard_approve, self.db, params.get("token"))
 
     async def _handle_soul_reject(self, params: dict) -> dict:
         from windyfly.soul_import import flow
 
+        if params.get("all") is True:
+            # The page lost its token (a reload, or a timeout while the brain was still parsing):
+            # the owner can still clear the one waiting dashboard import.
+            return flow.dashboard_cancel()
         return flow.dashboard_reject(params.get("token"))
 
     async def _handle_sms_inbound(self, params: dict) -> dict:

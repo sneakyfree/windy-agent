@@ -21,6 +21,8 @@ import { join } from "path";
 
 export const SOUL_UPLOAD_MAX_BYTES = 90 * 1024 * 1024;
 export const SOUL_UPLOAD_PREFIX = "windy-soul-upload-";
+/** How long the gateway waits for the brain to parse (soul.upload) or write (soul.import) an export. */
+export const SOUL_PARSE_TIMEOUT_MS = 5 * 60 * 1000;
 const MAX_AGE_MS = 30 * 60 * 1000;
 
 function candidateDirs(): string[] {

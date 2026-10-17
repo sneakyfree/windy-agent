@@ -36,7 +36,7 @@ import { bridge } from "./bridge";
 import { handleClose, handleMessage, handleWebSocket } from "./websocket";
 import { handleHatchRemote } from "./hatch-remote";
 import { removeRetiredDataFiles } from "./retired-data";
-import { receiveSoulUpload, sweepSoulUploads } from "./soul-upload";
+import { receiveSoulUpload, SOUL_PARSE_TIMEOUT_MS, sweepSoulUploads } from "./soul-upload";
 
 const PORT = Number(process.env.GATEWAY_PORT) || 3000;
 const PUBLIC_DIR = resolve(import.meta.dir, "../public");
@@ -924,8 +924,10 @@ async function handleRequest(req: Request, server: import("bun").Server<any>): P
     // reject. No route takes a host path: a body carrying export_path is refused (the old form let the
     // page make the agent parse any folder on the host).
     if (path === "/api/soul/upload" && req.method === "POST") {
+      // A 90 MB export can take longer than the default 30 s to parse; the brain parses it in a worker
+      // thread, so a long wait here does not stall other calls (Hub, #589).
       const up = await receiveSoulUpload(req, (file, kind) =>
-        bridge.call("soul.upload", { file, kind }) as Promise<Record<string, unknown>>);
+        bridge.call("soul.upload", { file, kind }, SOUL_PARSE_TIMEOUT_MS) as Promise<Record<string, unknown>>);
       return Response.json(up.body, { status: up.status, headers });
     }
     if ((path === "/api/soul/preview" || path === "/api/soul/import" || path === "/api/soul/reject")
@@ -936,11 +938,21 @@ async function handleRequest(req: Request, server: import("bun").Server<any>): P
       } catch {
         return Response.json({ error: "Send JSON with the upload token." }, { status: 400, headers });
       }
+      // {all: true} on reject clears the one waiting import when the page has lost its token.
+      if (path === "/api/soul/reject" && body.all === true && !("export_path" in body)) {
+        try {
+          return Response.json(await bridge.call("soul.reject", { all: true }), { headers });
+        } catch {
+          return Response.json({ error: "Brain offline", _offline: true }, { status: 503, headers });
+        }
+      }
       if ("export_path" in body || typeof body.token !== "string" || body.token.length > 64) {
         return Response.json({ error: "Upload the file first; then send its token." }, { status: 400, headers });
       }
       try {
-        const result = await bridge.call(`soul.${path.slice("/api/soul/".length)}`, { token: body.token });
+        const method = `soul.${path.slice("/api/soul/".length)}`;
+        const result = await bridge.call(method, { token: body.token },
+                                         method === "soul.import" ? SOUL_PARSE_TIMEOUT_MS : undefined);
         return Response.json(result, { headers });
       } catch {
         return Response.json({ error: "Brain offline", _offline: true }, { status: 503, headers });

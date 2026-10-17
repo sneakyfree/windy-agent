@@ -1,10 +1,17 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { api } from '../hooks/useApi'
 
 // Soul import from the dashboard (strand P2.21.13). The file goes up as the raw request body; the
 // gateway keeps it in a private RAM-backed file and the agent previews it. Nothing is kept until
 // Approve. The preview holds text from the export, so it is shown as plain text, never as HTML.
 const MAX_MB = 90
+// The token lives in this tab's sessionStorage (never a URL, never localStorage), so a reload can
+// bring the waiting preview back instead of leaving it to block a new upload for 30 minutes.
+const KEY = 'windy-soul-import-token'
+const saveToken = (t: string | null) => {
+  try { if (t) sessionStorage.setItem(KEY, t); else sessionStorage.removeItem(KEY) } catch { /* storage off */ }
+}
+const loadToken = () => { try { return sessionStorage.getItem(KEY) } catch { return null } }
 
 interface Approved {
   imported: number
@@ -20,12 +27,34 @@ export default function SoulImport() {
   const [preview, setPreview] = useState('')
   const [message, setMessage] = useState('')
   const [done, setDone] = useState<Approved | null>(null)
+  const [blocked, setBlocked] = useState(false)
 
-  const reset = () => { setToken(null); setPreview(''); setFile(null) }
+  const reset = () => { setToken(null); setPreview(''); setFile(null); saveToken(null) }
+
+  useEffect(() => {
+    const t = loadToken()
+    if (!t) return
+    api<{ preview?: string }>('/api/soul/preview', { method: 'POST', body: JSON.stringify({ token: t }) })
+      .then(out => { if (out.preview) { setToken(t); setPreview(out.preview) } else saveToken(null) })
+      .catch(() => saveToken(null))
+  }, [])
+
+  const cancelWaiting = async () => {
+    setBusy(true)
+    try {
+      await api('/api/soul/reject', { method: 'POST', body: JSON.stringify({ all: true }) })
+      setMessage('The waiting import was cancelled and its file wiped. Upload again.')
+      setBlocked(false)
+    } catch {
+      setMessage('The agent did not answer. Try again in a moment.')
+    } finally {
+      setBusy(false)
+    }
+  }
 
   const upload = async () => {
     if (!file) return
-    setMessage(''); setDone(null)
+    setMessage(''); setDone(null); setBlocked(false)
     if (file.size > MAX_MB * 1024 * 1024) {
       setMessage(`That file is over ${MAX_MB} MB. Upload only the conversations.json from the export.`)
       return
@@ -38,8 +67,11 @@ export default function SoulImport() {
         body: file,
       })
       const out = await res.json().catch(() => ({})) as { token?: string; preview?: string; error?: string }
-      if (out.token && out.preview) { setToken(out.token); setPreview(out.preview) }
-      else setMessage(out.error || `The upload failed (${res.status}). Nothing was kept.`)
+      if (out.token && out.preview) { setToken(out.token); setPreview(out.preview); saveToken(out.token) }
+      else {
+        setMessage(out.error || `The upload failed (${res.status}). Nothing was kept.`)
+        setBlocked(!!out.error?.startsWith('Another import is waiting'))
+      }
     } catch {
       setMessage('The upload failed. Nothing was kept.')
     } finally {
@@ -97,6 +129,12 @@ export default function SoulImport() {
         </div>
       )}
       {message && <p className="text-sm text-[#eab308] mt-3">{message}</p>}
+      {blocked && (
+        <button onClick={cancelWaiting} disabled={busy}
+                className="mt-2 px-3 py-1.5 rounded-lg border border-[#1e293b] text-sm hover:border-[#ef4444] hover:text-[#ef4444] disabled:opacity-50">
+          Cancel the waiting import
+        </button>
+      )}
       {done && (
         <div className="text-sm text-[#cbd5e1] mt-3 space-y-1">
           <p>Imported {done.imported}. {done.skipped} skipped. The file is wiped.</p>

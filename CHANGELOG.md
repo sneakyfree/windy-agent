@@ -10,6 +10,12 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
 
 ## Unreleased
 
+- **Big exports no longer stall the agent or the page.** Reading a large export (up to 90 MB) now
+  happens off the agent's main loop, so the dashboard and chat keep answering meanwhile, and the
+  dashboard waits up to 5 minutes for it instead of 30 seconds. A reload no longer loses a waiting
+  import: the page brings its preview back. If the page has lost track of a waiting import, a "Cancel
+  the waiting import" button clears it (and wipes its file) instead of blocking new uploads for 30 minutes.
+
 - **Restoring from a cloud backup is safe again, asks first, and can be undone.** `/backup restore`
   (or `/backup restore <name>`) downloads the backup, opens it with your own backup key, and checks it,
   without changing anything. It then tells you the backup's date and size, what the agent remembers now,
