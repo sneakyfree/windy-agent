@@ -34,9 +34,15 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
     the owner gets one plain line saying who answered and who did not, with no model call.
   - The agents' back-and-forth goes out as quiet notices in the task's thread, so the phone does not
     buzz for it. Only the answer to the owner is a normal, pushed message.
+  - Only the owner's own agents can send the agent a task, and at most 20 tasks per room per 10 minutes
+    become turns.
   - Code, not the model, refuses a request that goes more than 3 levels deep, asks back an agent already
-    in the chain, or repeats an open question. A turn started by another agent never has outward tools
-    and cannot hand out more work.
+    in the chain, or repeats an open question.
+  - A turn started by another agent's task may use public reads only (web search, weather, news,
+    calculations). It can't send, write, message another agent or hand out more work. Each answer it
+    gets back is fenced as another agent's words, never instructions.
+  - Good to know: open tasks live in memory. If the agent restarts while a task is open, that task's
+    one answer to the owner is not sent; the owner asks again.
   - In a room with the owner's other agents, a short message with "stop", "halt", "enough", "pause",
     "quiet" or "silence" in it stops every agent at once and cancels the open tasks. One agent confirms
     with one quiet line. The phone's Resume button, or the owner's next message, resumes. In a

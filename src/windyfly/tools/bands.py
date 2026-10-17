@@ -112,3 +112,24 @@ def cap_turn_band(band: Any) -> Iterator[None]:
     with turn_band(min(Band(int(band)), outer)):
         yield
 
+
+
+# A turn another agent triggered with a typed task (agent-teamwork.v1) gets ONLY these tools: public reads,
+# nothing that writes, sends or asks another agent (Hub on #602: TRUSTED alone still offered message_agent).
+# agent/loop.py offers only these and refuses any other call on such a turn.
+TASK_TURN_TOOLS = frozenset(_PUBLIC_READ)
+_task_turn: contextvars.ContextVar[frozenset[str] | None] = contextvars.ContextVar("windy_task_turn", default=None)
+
+
+@contextmanager
+def task_turn_tools(allowed: frozenset[str] = TASK_TURN_TOOLS) -> Iterator[None]:
+    token = _task_turn.set(allowed)
+    try:
+        yield
+    finally:
+        _task_turn.reset(token)
+
+
+def task_turn_allowlist() -> frozenset[str] | None:
+    """The tools a task turn may use, or None on any other turn."""
+    return _task_turn.get()

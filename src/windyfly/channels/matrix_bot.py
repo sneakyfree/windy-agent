@@ -75,6 +75,17 @@ def _bound_turn(team_room: Any, fn: Any) -> Any:
     return call
 
 
+def _task_tools_turn(fn: Any) -> Any:
+    """``fn`` run with the task-turn allowlist set in the agent-turn thread (public reads only)."""
+    from windyfly.tools.bands import task_turn_tools
+
+    def call(*args: Any, **kwargs: Any) -> Any:
+        with task_turn_tools():
+            return fn(*args, **kwargs)
+
+    return call
+
+
 def _teamwork_backstage(team_room: Any) -> dict[str, Any]:
     """The owner turn sent requests: its own reply goes backstage (m.notice in the task's thread)."""
     from windyfly.channels import teamwork as _tw
@@ -195,6 +206,8 @@ class WindyFlyMatrixBot(ChannelAdapter):
         self._pending_dropped = 0
         # Rooms the owner just stopped by a typed stop word (agent-teamwork.v1: the one quiet line).
         self._stop_followups: list[str] = []
+        # Rooms THIS process has handled a stop for (cancel its tasks, maybe confirm) since the last resume.
+        self._stopped_here: set[str] = set()
 
         # Track boot time to ignore old messages
         self._boot_time = time.time()
@@ -409,13 +422,14 @@ class WindyFlyMatrixBot(ChannelAdapter):
             # contract's wider rule (a short message with a stop word in it) is a stop too.
             if _stop.is_stop_word(body) or (_tw.enabled() and _tw.is_contract_stop(body)
                                             and self._owner_agents_in_room(room)):
-                already = _stop.stopped(room_id)
                 _stop.stop(room_id)
                 logger.info("owner stop in room %s: replies to agents silenced", _budget.room_ref(room_id))
-                if not already:
+                if room_id not in self._stopped_here:      # this process's own record: the shared file
+                    self._stopped_here.add(room_id)        # may already say stopped (Hub on #602)
                     self._stop_followups.append(room_id)
                 return True
             _stop.resume(room_id)
+            self._stopped_here.discard(room_id)
         if from_agent:
             if _stop.stopped(room_id):
                 logger.info("owner stop: agent %s in room %s not answered", sender, _budget.room_ref(room_id))
@@ -464,12 +478,13 @@ class WindyFlyMatrixBot(ChannelAdapter):
             stopping = content["stopped"]
         if not stopping:
             _stop.resume(room.room_id)
+            self._stopped_here.discard(room.room_id)
             logger.info("owner resume in room %s", _budget.room_ref(room.room_id))
             return
-        already = _stop.stopped(room.room_id)
         _stop.stop(room.room_id)
         logger.info("owner stop event in room %s: replies to agents silenced", _budget.room_ref(room.room_id))
-        if not already:
+        if room.room_id not in self._stopped_here:
+            self._stopped_here.add(room.room_id)
             await self._after_stop(room)
 
     def _owner_agents_in_room(self, room: Any) -> set[str]:
@@ -568,8 +583,8 @@ class WindyFlyMatrixBot(ChannelAdapter):
         except Exception as e:
             logger.debug("Failed to set typing indicator: %s", e)
         try:
-            text = await run_turn(agent_respond, self.config, self.db, self.write_queue, turn_body,
-                                  _room_session(self, room_id), self.tool_registry, band=band)
+            text = await run_turn(_task_tools_turn(agent_respond), self.config, self.db, self.write_queue,
+                                  turn_body, _room_session(self, room_id), self.tool_registry, band=band)
         except Exception as e:
             from windyfly.channels.errors import classify
 
@@ -647,9 +662,12 @@ class WindyFlyMatrixBot(ChannelAdapter):
         if isinstance(event, nio.RoomMessageNotice):
             from windyfly.channels import teamwork as _tw_notice
 
+            from windyfly.channels import parity as _parity_notice
+
             src = getattr(event, "source", None)
-            if not (_tw_notice.enabled() and isinstance(src, dict) and _tw_notice.parse(src.get("content"))):
-                return
+            if not (_tw_notice.enabled() and _parity_notice.passport_of(event.sender)
+                    and isinstance(src, dict) and _tw_notice.parse(src.get("content"))):
+                return            # a notice from a person, or untyped, stays dropped (Hub on #602)
 
         # Skip stale messages so a reconnect doesn't replay a backlog.
         #
@@ -753,8 +771,18 @@ class WindyFlyMatrixBot(ChannelAdapter):
         if from_agent and _tw.enabled():
             try:
                 src = getattr(event, "source", None)
-                verdict = _tw.on_agent_message(room_id, self.bot_user_id or "", sender,
-                                               src.get("content") if isinstance(src, dict) else None)
+                task_content = src.get("content") if isinstance(src, dict) else None
+                if _tw.parse(task_content) is not None:
+                    from windyfly.agent import teams as _teams_tw
+
+                    if _teams_tw.siblings_stale():
+                        await asyncio.to_thread(_teams_tw.refresh_siblings)
+                    if sender not in _teams_tw.sibling_ids():
+                        # The contract: tasks come from an agent of the room's OWNER (Hub on #602).
+                        logger.info("teamwork: typed task from %s, not one of the owner's agents: dropped",
+                                    sender)
+                        return
+                verdict = _tw.on_agent_message(room_id, self.bot_user_id or "", sender, task_content)
             except Exception as e:  # noqa: BLE001
                 logger.warning("teamwork check failed (%s); message dropped", type(e).__name__)
                 return
@@ -888,10 +916,6 @@ class WindyFlyMatrixBot(ChannelAdapter):
                 "windy_original": True,
                 "windy_lang": self._detect_lang(response_text),
             }
-            # Teamwork: when this turn sent requests, its reply is backstage (m.notice in the task's
-            # thread, never pushed); the owner's ONE answer comes when the results are in.
-            if team_room is not None:
-                content.update(_teamwork_backstage(team_room))
             # Chat contract: the model Mind actually SERVED; absent otherwise.
             from windyfly.agent.loop import pop_served_model
             served = pop_served_model(session_id)
@@ -909,6 +933,10 @@ class WindyFlyMatrixBot(ChannelAdapter):
 
                     content["ai.windy.quick_reply"] = {"id": "qr_" + _secrets.token_hex(6),
                                                        "options": ["send", "wait"]}
+            # Teamwork: when this turn sent requests, its reply is backstage (m.notice in the task's
+            # thread, never pushed); the owner's ONE answer comes when the results are in.
+            if team_room is not None and "ai.windy.quick_reply" not in content:   # a confirm card is for the person
+                content.update(_teamwork_backstage(team_room))
             await self.client.room_send(
                 room_id,
                 "m.room.message",
