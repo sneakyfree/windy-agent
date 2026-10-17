@@ -496,6 +496,14 @@ class WindyFlyMatrixBot(ChannelAdapter):
         # The room's rolling session (same shape as Telegram's): survives restarts, honours /new.
         session_id = _room_session(self, room_id)
 
+        # Read receipt: the person sees the agent has read their message (strand P4.11.12). Best-effort.
+        event_id = getattr(event, "event_id", None)
+        if isinstance(event_id, str) and event_id:
+            try:
+                await self.client.room_read_markers(room_id, event_id, read_event=event_id)
+            except Exception as e:
+                logger.debug("Failed to send read receipt: %s", e)
+
         # Show typing indicator
         try:
             await self.client.room_typing(room_id, True, timeout=15000)
