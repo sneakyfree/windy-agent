@@ -639,3 +639,20 @@ class TestPasswordLoginNeedsAUser:
             await bot.login()
         bot.client.login.assert_not_awaited()
         db.close()
+
+
+
+@pytest.mark.asyncio
+async def test_a_failed_read_receipt_never_blocks_the_reply():
+    """P4.11.12: the read receipt is best-effort."""
+    from tests.strand.test_p2_matrix import _bot, _event
+
+    bot = _bot()
+    bot.client.room_read_markers = AsyncMock(side_effect=RuntimeError("homeserver hiccup"))
+    bot.client.room_typing = AsyncMock()
+    bot.client.room_send = AsyncMock()
+    room, ev = _event()
+    ev.event_id = "$evt-2"
+    with patch("windyfly.channels.matrix_bot.agent_respond", return_value="hi"):
+        await bot._on_message(room, ev)
+    bot.client.room_send.assert_awaited()

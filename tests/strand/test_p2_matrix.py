@@ -110,3 +110,20 @@ async def test_p2_13_kept_replies_go_out_on_the_next_good_sync():
     assert bot.client.room_send.await_args.args[2]["body"] == "hi Grant"
     assert bot._pending_responses == []
 
+
+
+
+@pytest.mark.asyncio
+async def test_p4_11_the_agent_marks_a_message_read_before_it_starts_typing():
+    bot = _bot()
+    order = []
+    bot.client.room_read_markers = AsyncMock(side_effect=lambda *a, **k: order.append(("read", a, k)))
+    bot.client.room_typing = AsyncMock(side_effect=lambda *a, **k: order.append(("typing", a[1])))
+    bot.client.room_send = AsyncMock()
+    room, ev = _event()
+    ev.event_id = "$evt-1"
+    with patch("windyfly.channels.matrix_bot.agent_respond", return_value="hi"):
+        await bot._on_message(room, ev)
+    assert order[0] == ("read", (ROOM, "$evt-1"), {"read_event": "$evt-1"})
+    assert order[1] == ("typing", True)
+

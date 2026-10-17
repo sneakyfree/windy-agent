@@ -10,6 +10,9 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
 
 ## Unreleased
 
+- **Read receipts.** When the agent takes up your message on Windy Chat it marks it read, and then
+  starts typing, so you can see it has seen your message. If the receipt fails, the reply still comes.
+
 - **Imported items flagged for review stay out of the agent's mind until you keep them.** A soul
   import stores sensitive items (for example anything that looks like a password or an account
   number) flagged for review. Nothing read that flag, so those items could still be recalled into

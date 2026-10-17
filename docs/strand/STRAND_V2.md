@@ -541,7 +541,7 @@ are the new genes (Wave 5g).
 | P4.11.9 | Rooms are end-to-end encrypted | retired: never active (no olm); dead E2E code removed, one honest line for encrypted events (#505) | — |
 | P4.11.10 | Presence shows the agent online | live | `tests/strand/test_p2_matrix.py::test_p2_12_presence_online_at_start` |
 | P4.11.11 | Typing shows while the agent works | live | `tests/strand/test_p2_matrix.py::test_p2_12_typing_on_before_the_turn_and_off_after_the_reply` |
-| P4.11.12 | Read receipts | planned: Windy Agent: the agent sends none; send them or drop the promise | — |
+| P4.11.12 | Read receipts: the agent marks a message read when it takes it up, before it starts typing | live | `tests/strand/test_p2_matrix.py::test_p4_11_the_agent_marks_a_message_read_before_it_starts_typing` |
 | P4.11.13 | Onboarding (K2) gives the agent its chat account, using its passport | live | `tests/test_chat_session.py::TestFetchAgentChatSession::test_sends_ept_bearer_and_returns_session` |
 | P4.11.14 | The directory (K3) lists the agent as discoverable | planned: Windy Agent: no registration call (teams only reads the owner's roster); decide with Windy Chat whether agents are listed | — |
 | P4.11.15 | Push (K6) delivers the agent's replies to the phone | planned: Windy Agent: server-side, nothing in this repo; Windy Chat to confirm push covers agent replies | — |
