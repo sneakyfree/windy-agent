@@ -211,7 +211,7 @@ def _step_register_voice(ctx: BootContext) -> None:
 
 def _step_register_cloud(ctx: BootContext) -> None:
     from windyfly.tools.cloud import register_cloud_tools
-    register_cloud_tools(ctx.tool_registry)
+    register_cloud_tools(ctx.tool_registry, config=ctx.config, db=ctx.db, write_queue=ctx.write_queue)
 
 
 def _step_register_windy_domains(ctx: BootContext) -> None:
