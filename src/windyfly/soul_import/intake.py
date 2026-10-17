@@ -34,7 +34,7 @@ import time
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import BinaryIO
+from typing import IO, BinaryIO
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +74,7 @@ def _new_dir() -> tuple[str, Path]:
     return intake_id, d
 
 
-def _copy_capped(src: BinaryIO, dst_path: Path, cap: int) -> int:
+def _copy_capped(src: IO[bytes], dst_path: Path, cap: int) -> int:
     total = 0
     with open(dst_path, "wb") as out:
         os.chmod(dst_path, 0o600)
