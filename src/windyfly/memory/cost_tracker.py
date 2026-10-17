@@ -7,6 +7,8 @@ budget checking, percentage-based warnings, and alert generation.
 from __future__ import annotations
 
 import logging
+import math
+import threading
 from typing import Any
 
 from windyfly.memory.cost_ledger import get_daily_spend, log_cost
@@ -58,16 +60,44 @@ def extra_today(db: Database) -> float:
         return 0.0
 
 
+_continue_lock = threading.Lock()   # the once-a-day check and the write are one step (Hub on #601)
+
+
+def _num(value: Any, default: float) -> float:
+    try:
+        n = float(value)
+    except (TypeError, ValueError):
+        return default
+    return n if math.isfinite(n) else default
+
+
+def month_capped(db: Database, config: dict[str, Any]) -> bool:
+    """True when a monthly budget is set and this month's spend has reached it."""
+    monthly_budget = _num((config.get("costs") or {}).get("monthly_budget_usd", 0.0), 0.0)
+    return monthly_budget > 0 and get_monthly_spend(db) >= monthly_budget
+
+
 def continue_today(db: Database, config: dict[str, Any]) -> dict[str, Any]:
-    """Grant one more day's budget for the rest of today (once). Returns what happened."""
+    """Grant one more day's budget for the rest of today (once). Returns what happened.
+
+    The monthly budget is checked first: when the month is capped the grant would change nothing, so it is
+    refused and kept for another day (Hub on #601). No daily budget (0 or less): nothing to extend."""
     import json
 
     from windyfly.memory.soul import upsert_soul
 
-    if extra_today(db) > 0:
-        return {"granted": False, "already": True}
-    extra = float((config.get("costs") or {}).get("daily_budget_usd", 5.0))
-    upsert_soul(db, CONTINUE_KEY, json.dumps({"date": _today(db), "extra": extra}), source="control_panel")
+    costs = config.get("costs") or {}
+    extra = _num(costs.get("daily_budget_usd", 5.0), 5.0)
+    if extra <= 0:
+        return {"granted": False, "no_daily": True}
+    if month_capped(db, config):
+        return {"granted": False, "monthly": True,
+                "monthly_spend": round(get_monthly_spend(db), 2),
+                "monthly_budget": _num(costs.get("monthly_budget_usd", 0.0), 0.0)}
+    with _continue_lock:
+        if extra_today(db) > 0:
+            return {"granted": False, "already": True}
+        upsert_soul(db, CONTINUE_KEY, json.dumps({"date": _today(db), "extra": extra}), source="control_panel")
     try:
         from windyfly.observability.events import record_event
 
@@ -111,9 +141,15 @@ def check_budget(
 
     allowed = daily_allowed and monthly_allowed
 
-    # Generate alert message if needed
+    # Generate alert message if needed. A capped month comes first: /budget continue can't help then, so
+    # the daily message (which offers it) is only for a month that still has room (Hub on #601).
     alert = None
-    if not daily_allowed and extra > 0:
+    if not monthly_allowed and monthly_budget > 0:
+        alert = (
+            f"I've hit my monthly budget (${monthly_spend:.2f} / ${monthly_budget:.2f}). "
+            "You can increase it in windyfly.toml under [costs] monthly_budget_usd."
+        )
+    elif not daily_allowed and extra > 0:
         alert = (
             f"I've used today's budget and the extra you allowed (${daily_spend:.2f} / "
             f"${daily_budget + extra:.2f}). I'll be back tomorrow, or you can increase the budget in settings."
@@ -123,11 +159,6 @@ def check_budget(
             f"I've hit my daily budget (${daily_spend:.2f} / ${daily_budget:.2f}). "
             f"I'll be back tomorrow. To keep going today, my owner can type /budget continue "
             f"(up to another ${daily_budget:.2f} today), or increase the budget in settings."
-        )
-    elif not monthly_allowed:
-        alert = (
-            f"I've hit my monthly budget (${monthly_spend:.2f} / ${monthly_budget:.2f}). "
-            "You can increase it in windyfly.toml under [costs] monthly_budget_usd."
         )
     elif daily_pct >= warn_pct:
         alert = (
