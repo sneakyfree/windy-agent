@@ -11,7 +11,9 @@
   (gpt-4o-mini) and fallbacks in the code (gpt-4o-mini, claude-sonnet-4-6). Now there is one,
   `claude-sonnet-5`, in `windyfly.config.DEFAULT_MODEL`. windyfly.toml names the same model,
   `.env.example` leaves `DEFAULT_MODEL` unset so a copied file no longer overrides it, and every
-  fallback reads the one value. An install that sets its own model is unchanged.
+  fallback reads the one value. An install that sets its own model is unchanged. An install that
+  relied on the shipped windyfly.toml (kimi-k2.5) or on the old gpt-4o-mini last resort now asks for
+  claude-sonnet-5, so it needs an Anthropic key or Windy Mind.
 
 - **A damaged Vault lease key file is reported, not replaced in silence.** If the agent's lease key
   file can't be read or holds no key list, the agent logs one warning naming the file and the reason
