@@ -390,8 +390,10 @@ def main() -> None:
     # A soul import cut short by a restart leaves its upload in the intake dir: wipe old ones.
     try:
         from windyfly.soul_import.intake import sweep as _sweep_soul_intake
+        from windyfly.soul_import.intake import sweep_uploads as _sweep_soul_uploads
 
         _sweep_soul_intake()
+        _sweep_soul_uploads()
     except Exception as e:  # noqa: BLE001
         logger.debug("soul intake sweep skipped: %s", e)
 

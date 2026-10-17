@@ -188,8 +188,10 @@ class UDSBridge:
             "intents.list": self._handle_intents_list,
             "dashboard.summary": self._handle_dashboard_summary,
             "trust.webhook": self._handle_trust_webhook,
+            "soul.upload": self._handle_soul_upload,
             "soul.preview": self._handle_soul_preview,
             "soul.import": self._handle_soul_import,
+            "soul.reject": self._handle_soul_reject,
             "sms.inbound": self._handle_sms_inbound,
             "sms.send": self._handle_sms_send,
             "email.inbound": self._handle_email_inbound,
@@ -431,24 +433,30 @@ class UDSBridge:
             logger.exception("Trust webhook handler failed")
             return {"ok": False, "reason": f"handler error: {exc}"}
 
+    # Soul import from the dashboard (strand P2.21.13, PR 4). These never take a host path from the
+    # page: the old export_path form let anything holding the dashboard password make the agent parse
+    # any folder, so it is gone. soul.upload takes only the gateway's own upload file (checked and
+    # wiped in soul_import.intake.receive_upload); the rest take the token it returns.
+    async def _handle_soul_upload(self, params: dict) -> dict:
+        from windyfly.soul_import import flow
+
+        kind = "zip" if params.get("kind") == "zip" else "json"
+        return flow.dashboard_upload(self.db, str(params.get("file") or ""), kind)
+
     async def _handle_soul_preview(self, params: dict) -> dict:
-        """Soul Passport preview — parse and preview without writing."""
-        from windyfly.soul_import.orchestrator import import_soul
-        export_path = params.get("export_path", "")
-        source_type = params.get("source_type")
-        result = import_soul(self.db, export_path, source_type, user_approved=False)
-        # Don't send parsed_data over the wire — just the preview text
-        result.pop("parsed_data", None)
-        return result
+        from windyfly.soul_import import flow
+
+        return flow.dashboard_preview(params.get("token"))
 
     async def _handle_soul_import(self, params: dict) -> dict:
-        """Soul Passport import — parse, preview, and write to database."""
-        from windyfly.soul_import.orchestrator import import_soul
-        export_path = params.get("export_path", "")
-        source_type = params.get("source_type")
-        result = import_soul(self.db, export_path, source_type, user_approved=True)
-        result.pop("parsed_data", None)
-        return result
+        from windyfly.soul_import import flow
+
+        return flow.dashboard_approve(self.db, params.get("token"))
+
+    async def _handle_soul_reject(self, params: dict) -> dict:
+        from windyfly.soul_import import flow
+
+        return flow.dashboard_reject(params.get("token"))
 
     async def _handle_sms_inbound(self, params: dict) -> dict:
         from windyfly.channels.sms import WindyFlySMS

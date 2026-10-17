@@ -31,6 +31,7 @@ class _Pending:
     started: float = field(default_factory=time.time)
     intake: _intake.Intake | None = None
     source: str | None = None
+    preview: str = ""
 
 
 _pending: dict[str, _Pending] = {}
@@ -113,6 +114,7 @@ def take_file(db: Any, key: str, stream: BinaryIO, filename: str, *, max_bytes: 
         return "I couldn't recognise that as an export I know. Nothing was kept."
     with _lock:
         p.intake, p.source = got, result.get("source_type")
+        p.preview = result["preview"]
     logger.info("soul import: previewed (%s)", p.source)
     return (result["preview"].rsplit("\n", 1)[0].rstrip()
             + "\n\nType /soul approve to keep it (sensitive items wait for your review), or /soul reject.")
@@ -316,7 +318,8 @@ def apply(db: Any, key: str) -> str:
     if _guest():
         return GUEST_OFF
     with _lock:
-        at, values, source = _tones.get(key, (0.0, {}, ""))
+        # A tone approved on the dashboard can be applied from the owner's chat.
+        at, values, source = _tones.get(key) or _tones.get(DASHBOARD_TONE) or (0.0, {}, "")
     if not values or time.time() - at > PENDING_FOR_S:
         return "There is no imported tone to apply. It is kept for 30 minutes after /soul approve."
     now = get_sliders(db)
@@ -325,7 +328,9 @@ def apply(db: Any, key: str) -> str:
         return "Your sliders already match the imported tone. Nothing to change."
     with _lock:
         _confirm[key] = (time.time(), "apply", {"changes": changes, "source": source})
-    lines = [f"Set these sliders from your {source} export?"]
+    # A ChatGPT tone is worked out from how the owner writes: a rough estimate, and it says so (Hub, #588).
+    what = "estimated from how you write in" if source == "chatgpt" else "from"
+    lines = [f"Set these sliders to the tone {what} your {source} export?"]
     lines += [f"  {k}: {a} -> {b}" for k, (a, b) in changes.items()]
     if bool(now.get("raw_mode", 0)):
         lines.append("Raw mode is on, so tone sliders are not used until you turn it off (/slider raw_mode 0).")
@@ -380,3 +385,97 @@ def undo(db: Any, key: str) -> str:
     if kept:
         out += f" Left {', '.join(kept)} as you set {'them' if len(kept) > 1 else 'it'} since."
     return out
+
+
+# ── The dashboard (P2.21.13, PR 4): upload -> token -> preview -> approve or reject ─────────────────
+# The token IS the flow key ("dashboard:<token>"), so the chat flow's rules hold: single use, gone after
+# approve or reject, wiped after 30 minutes, nothing in guest mode. 192 random bits; never logged.
+# One dashboard import may wait at a time (each holds up to twice the cap in RAM-backed storage).
+
+DASHBOARD_TONE = "dashboard"
+_DASH = "dashboard:"
+
+
+def _dashboard_waiting() -> bool:
+    with _lock:
+        keys = [k for k in _pending if k.startswith(_DASH)]
+    return any(_get(k) is not None for k in keys)
+
+
+def dashboard_upload(db: Any, path: str, kind: str) -> dict[str, Any]:
+    """The gateway's upload file arrived: receive it safely (it is wiped either way) and preview it."""
+    import secrets
+
+    from windyfly.soul_import.orchestrator import import_soul
+
+    try:
+        if _guest():
+            return {"error": GUEST_OFF}
+        if _dashboard_waiting():
+            return {"error": "Another import is waiting for approve or reject. Finish it first."}
+        try:
+            got = _intake.receive_upload(path, kind=kind)
+        except _intake.IntakeError as e:
+            return {"error": f"I couldn't take that file: {e}. Nothing was kept."}
+        path = ""                                  # received: receive_upload wiped the gateway's file
+        result = import_soul(db, str(got.dir), user_approved=False)
+        if result.get("error") or not result.get("preview"):
+            _intake.discard(got)
+            return {"error": "I couldn't recognise that as an export I know. Nothing was kept."}
+        token = secrets.token_urlsafe(24)
+        preview = result["preview"].rsplit("\n", 1)[0].rstrip()
+        with _lock:
+            _pending[_DASH + token] = _Pending(intake=got, source=result.get("source_type"), preview=preview)
+        logger.info("soul import: dashboard upload previewed (%s)", result.get("source_type"))
+        return {"token": token, "preview": preview}
+    finally:
+        if path:
+            _intake.wipe_upload(path)
+
+
+def _dash_key(token: Any) -> str | None:
+    if not isinstance(token, str) or not 20 <= len(token) <= 64:
+        return None
+    return _DASH + token
+
+
+def dashboard_preview(token: Any) -> dict[str, Any]:
+    key = _dash_key(token)
+    p = _get(key) if key else None
+    if p is None or p.intake is None:
+        return {"error": "No import is waiting. Upload the file again."}
+    return {"preview": p.preview}
+
+
+def dashboard_approve(db: Any, token: Any) -> dict[str, Any]:
+    key = _dash_key(token)
+    if key is None or (p := _get(key)) is None or p.intake is None:
+        return {"error": "No import is waiting. Upload the file again."}
+    if _guest():
+        return {"error": GUEST_OFF}
+    from windyfly.soul_import.orchestrator import import_soul
+
+    try:
+        result = import_soul(db, str(p.intake.dir), p.source, user_approved=True)
+    finally:
+        _drop(key)
+    if result.get("error"):
+        return {"error": "The import failed and nothing was kept. The file is wiped."}
+    out = {k: int(result.get(k, 0)) for k in ("imported", "flagged", "skipped")}
+    tone = result.get("personality") or {}
+    if tone:
+        with _lock:
+            _tones[DASHBOARD_TONE] = (time.time(), dict(tone), p.source or "import")
+    logger.info("soul import: dashboard approved (%s) imported=%d flagged=%d skipped=%d",
+                p.source, out["imported"], out["flagged"], out["skipped"])
+    return {**out, "tone": tone}
+
+
+def dashboard_reject(token: Any) -> dict[str, Any]:
+    key = _dash_key(token)
+    if key is None:
+        return {"rejected": False}
+    had = _get(key) is not None
+    _drop(key)
+    return {"rejected": had}
+
