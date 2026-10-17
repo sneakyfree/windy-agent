@@ -924,8 +924,10 @@ async function handleRequest(req: Request, server: import("bun").Server<any>): P
     // reject. No route takes a host path: a body carrying export_path is refused (the old form let the
     // page make the agent parse any folder on the host).
     if (path === "/api/soul/upload" && req.method === "POST") {
-      // A big export can take minutes to parse. Bun 1.4.2 keeps a busy request open anyway (tested 40 s),
-      // but the gateway's Bun is not pinned on owners' machines, so say so (Hub, 10-17).
+      // Bun drops a request after 10 s with no bytes moving. A big upload over a slow link can pause
+      // longer than that, and a big export can take minutes to parse (Bun 1.4.2 keeps a busy handler open
+      // anyway, but the gateway's Bun is not pinned on owners' machines). The per-request timeout is not
+      // capped at 255 like Bun.serve's idleTimeout option: 300 is honoured (tests/soul-upload.test.ts).
       server.timeout(req, 300);
       const up = await receiveSoulUpload(req, (file, kind) =>
         bridge.call("soul.upload", { file, kind }) as Promise<Record<string, unknown>>);
