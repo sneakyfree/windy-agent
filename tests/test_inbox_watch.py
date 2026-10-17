@@ -206,3 +206,58 @@ def test_telegram_does_not_start_maintenance_when_matrix_is_the_runner(monkeypat
     bot = telegram_bot.TelegramChannel.__new__(telegram_bot.TelegramChannel)
     asyncio.run(bot._start_maintenance())
     assert started == []
+
+
+def test_telegram_notice_counts_as_told_when_any_owner_got_it(monkeypatch):
+    """Hub on #582: one unreachable owner must not make the others hear the same notice every tick."""
+    import asyncio
+    import threading
+    from unittest.mock import AsyncMock, MagicMock
+
+    import pytest
+
+    from windyfly.channels import telegram_bot
+
+    bot = telegram_bot.TelegramChannel.__new__(telegram_bot.TelegramChannel)
+    bot._app = MagicMock()
+    calls = []
+
+    async def send_message(chat_id, text):
+        calls.append(chat_id)
+        if chat_id == "2" or state["all_fail"]:
+            raise RuntimeError("blocked")
+
+    state = {"all_fail": False}
+    bot._app.bot.send_message = AsyncMock(side_effect=send_message)
+    monkeypatch.setattr("windyfly.channels.identity.owner_ids", lambda cfg: {"telegram": {"1", "2"}})
+    seen = {}
+    monkeypatch.setattr("windyfly.agent.inbox_watch.make_inbox_watch_job",
+                        lambda notify, agent_name="": seen.setdefault("notify", notify))
+
+    def run_in_thread(fn, *args):
+        box = {}
+        t = threading.Thread(target=lambda: box.setdefault("err", _try(fn, *args)))
+        t.start()
+        return t, box
+
+    def _try(fn, *args):
+        try:
+            fn(*args)
+        except Exception as e:  # noqa: BLE001
+            return e
+        return None
+
+    async def go():
+        bot._make_inbox_watch_job({})
+        t, box = run_in_thread(seen["notify"], "📬 mail")
+        while t.is_alive():
+            await asyncio.sleep(0.01)
+        assert box["err"] is None                       # owner 1 was told: counts as told
+        state["all_fail"] = True
+        t, box = run_in_thread(seen["notify"], "📬 mail")
+        while t.is_alive():
+            await asyncio.sleep(0.01)
+        assert isinstance(box["err"], RuntimeError)     # nobody told: raises, so the mail stays unseen
+
+    asyncio.run(go())
+    assert calls.count("1") == 2 and calls.count("2") == 2

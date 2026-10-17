@@ -1936,10 +1936,20 @@ class TelegramChannel(ChannelAdapter):
         def notify(text: str) -> None:
             if self._app is None or not owners:
                 raise RuntimeError("no Telegram owner to tell")
+            # Each owner on their own: one who can't be reached must not make the others hear the same
+            # notice again every tick (Hub on #582). The mail counts as told when anyone got it.
+            told, last_error = 0, None
             for chat_id in owners:
-                asyncio.run_coroutine_threadsafe(
-                    self._app.bot.send_message(chat_id=chat_id, text=text), loop,
-                ).result(timeout=30)
+                try:
+                    asyncio.run_coroutine_threadsafe(
+                        self._app.bot.send_message(chat_id=chat_id, text=text), loop,
+                    ).result(timeout=30)
+                    told += 1
+                except Exception as exc:  # noqa: BLE001
+                    last_error = exc
+                    logger.warning("inbox-watch: could not tell one Telegram owner (%s)", type(exc).__name__)
+            if not told:
+                raise RuntimeError(f"no Telegram owner could be told ({type(last_error).__name__})")
 
         return make_inbox_watch_job(notify, agent_name=agent_name)
 
