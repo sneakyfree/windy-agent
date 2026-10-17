@@ -479,3 +479,14 @@ def dashboard_reject(token: Any) -> dict[str, Any]:
     _drop(key)
     return {"rejected": had}
 
+
+def dashboard_cancel() -> dict[str, Any]:
+    """Drop every waiting dashboard import, token or not (the page lost it); its file is wiped."""
+    with _lock:
+        keys = [k for k in _pending if k.startswith(_DASH)]
+    for k in keys:
+        _drop(k)
+    if keys:
+        logger.info("soul import: dashboard import cancelled")
+    return {"rejected": bool(keys)}
+

@@ -1599,7 +1599,10 @@ def _register_all():
                 return _flow.reject(key)
             if not _db:
                 return "Database not available."
-            return _flow.approve(_db, key)
+            import asyncio as _asyncio
+
+            # A big export takes a while to parse: never on the event loop (Hub, #589).
+            return await _asyncio.to_thread(_flow.approve, _db, key)
         # Anchored to the project root: read from the cwd, /soul told the
         # user "No SOUL.md found. Create one" whenever they ran from
         # anywhere else — inviting them to overwrite the one document in

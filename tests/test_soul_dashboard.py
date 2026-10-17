@@ -181,3 +181,45 @@ def test_a_chatgpt_tone_is_called_an_estimate(run_dir, db):
     flow.offer_tone("cli:x", {"humor": 9}, "chatgpt")
     assert "estimated from how you write in your chatgpt export" in flow.apply(db, "cli:x")
 
+
+def test_a_lost_token_can_still_cancel_the_waiting_import(run_dir, db):
+    """Hub on #589: a reload or a timeout loses the token; the one waiting import must not block 30 min."""
+    from windyfly.bridge.uds_server import UDSBridge
+
+    flow.dashboard_upload(db, str(_upload(run_dir)), "json")
+    assert "Another import is waiting" in flow.dashboard_upload(db, str(_upload(run_dir)), "json")["error"]
+    server = UDSBridge.__new__(UDSBridge)
+    server.db = db
+    assert asyncio.run(server._handle_soul_reject({"all": True})) == {"rejected": True}
+    assert not list((run_dir.parent / "intake").iterdir())                # its file is wiped
+    assert "token" in flow.dashboard_upload(db, str(_upload(run_dir)), "json")
+    assert asyncio.run(server._handle_soul_reject({"all": "yes"})) == {"rejected": False}   # only a real true
+
+
+def test_the_bridge_keeps_answering_while_an_export_is_parsed(run_dir, db, monkeypatch):
+    """Hub on #589: a 90 MB parse runs in a worker thread, not on the bridge's event loop."""
+    from windyfly.bridge.uds_server import UDSBridge
+
+    window: list[float] = []
+
+    def slow_upload(*_a):
+        window.append(time.monotonic())
+        time.sleep(0.4)
+        window.append(time.monotonic())
+        return {"token": "t" * 32, "preview": "p"}
+
+    monkeypatch.setattr(flow, "dashboard_upload", slow_upload)
+    server = UDSBridge.__new__(UDSBridge)
+    server.db = db
+    ticks: list[float] = []
+
+    async def ticker():
+        for _ in range(20):
+            ticks.append(time.monotonic())
+            await asyncio.sleep(0.03)
+
+    async def both():
+        await asyncio.gather(server._handle_soul_upload({"file": "x", "kind": "json"}), ticker())
+
+    asyncio.run(both())
+    assert len([t for t in ticks if window[0] < t < window[1]]) >= 3   # the loop ran during the parse
