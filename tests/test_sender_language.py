@@ -193,6 +193,50 @@ def test_a_huge_list_is_refused_by_bytes_and_capped_by_count(monkeypatch):
     assert out["count"] == windy_api.LANG_MAX and out["truncated"] is True
 
 
+def test_an_endless_body_is_cut_off_while_reading(monkeypatch):
+    """Hub on #600: the cap must stop the read, not run after it."""
+    import httpx
+
+    from windyfly.tools import windy_api
+
+    pulls = {"n": 0}
+    chunk = b"x" * 8192
+
+    def endless():                     # 40 MB at most, so a cap that runs after the read fails, never hangs
+        for _ in range(5000):
+            pulls["n"] += 1
+            yield chunk
+
+    _languages_client(monkeypatch, lambda req: httpx.Response(200, content=endless()))
+    assert windy_api.list_languages() == {"error": "Windy Pro's language list is too large to read"}
+    assert pulls["n"] <= windy_api.LANG_MAX_BYTES // len(chunk) + 2
+
+
+def test_identity_is_asked_for_and_a_compressed_answer_is_refused(monkeypatch):
+    import gzip
+
+    import httpx
+
+    from windyfly.tools import windy_api
+
+    bomb = gzip.compress(b'{"languages": [' + b" " * 100_000_000 + b"]}")
+    seen = _languages_client(monkeypatch, lambda req: httpx.Response(
+        200, content=bomb, headers={"content-encoding": "gzip"}))
+    assert windy_api.list_languages() == {"error": "Couldn't read the language list from Windy Pro"}
+    assert seen["requests"][0].headers["accept-encoding"] == "identity"
+
+
+def test_json_nested_too_deep_is_a_plain_failure(monkeypatch):
+    import httpx
+
+    from windyfly.tools import windy_api
+
+    deep = b"[" * 100_000 + b"]" * 100_000
+    _languages_client(monkeypatch, lambda req: httpx.Response(200, content=deep))
+    monkeypatch.setattr(windy_api, "LANG_MAX_BYTES", 300_000)
+    assert windy_api.list_languages() == {"error": "Couldn't read the language list from Windy Pro"}
+
+
 def test_every_field_is_checked_or_coerced(monkeypatch):
     import httpx
 
