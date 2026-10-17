@@ -179,4 +179,22 @@ describe("gateway end to end with a stand-in brain", () => {
       ws.close();
     }
   });
+
+  // LAST: it uses up the auth budget for this IP, which would 429 any test after it.
+  test("a signed-in owner is never rate-limited; a password guesser is", async () => {
+    const good = { headers: { Authorization: `Bearer ${PASSWORD}` } };
+    for (let i = 0; i < 12; i++) {
+      expect((await fetch(base + "/api/memory/search?q=x", good)).status).toBe(200);
+    }
+    // Failures do count (the /ws/chat refusal above already spent one): at most 5 in a minute.
+    const bad = { headers: { Authorization: "Bearer wrong-guess" } };
+    const seen: number[] = [];
+    for (let i = 0; i < 6; i++) seen.push((await fetch(base + "/api/memory/search?q=x", bad)).status);
+    const refused = seen.filter((c) => c === 401).length;
+    expect(refused).toBeGreaterThanOrEqual(1);
+    expect(refused).toBeLessThanOrEqual(5);
+    expect(seen.slice(refused).every((c) => c === 429)).toBe(true);
+    expect(seen.slice(0, refused).every((c) => c === 401)).toBe(true);
+    expect((await fetch(base + "/api/memory/search?q=x", good)).status).toBe(429);  // blocked before the compare
+  });
 });

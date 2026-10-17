@@ -87,6 +87,12 @@ const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
 /** GET /api/journal while the brain is down: the bridge's own key ("journal"), empty (P5.93.5). */
 export const JOURNAL_OFFLINE = { journal: [] as unknown[], _offline: true };
 
+/** True when this IP has already used up the bucket in the current window. Does not count a hit. */
+export function rateLimitSpent(ip: string, bucket: RateLimitBucket): boolean {
+  const entry = rateLimitMap.get(`${bucket}:${ip}`);
+  return !!entry && Date.now() <= entry.resetAt && entry.count >= RATE_LIMITS[bucket];
+}
+
 export function isRateLimited(ip: string, bucket: RateLimitBucket = "setup"): boolean {
   const key = `${bucket}:${ip}`;
   const now = Date.now();
@@ -488,15 +494,19 @@ function checkDashboardAuth(req: Request, server: import("bun").Server<any>): Re
     );
   }
 
-  // Rate-limit auth probes. We do this *before* comparing the password
-  // so a brute-forcer can't even time the compare.
+  // Rate-limit auth probes. A blocked IP is refused *before* the password is
+  // compared, so a brute-forcer can't even time the compare. Only a FAILED
+  // check spends the budget: a signed-in owner's own page loads used to count
+  // too, so the 6th dashboard request in a minute got a 429 (behind nginx
+  // every request is 127.0.0.1, so it locked out everyone).
   const ip = clientIp(req);
-  if (isRateLimited(ip, "auth")) {
+  if (rateLimitSpent(ip, "auth")) {
     return new Response("Too many auth attempts — try again in a minute.",
       { status: 429, headers: { "Retry-After": "60" } });
   }
 
   if (isDashboardAuthValid(req, server)) return null;
+  isRateLimited(ip, "auth");  // count this failure
 
   return new Response(loginPageHtml(), {
     status: 401, headers: { "Content-Type": "text/html" },

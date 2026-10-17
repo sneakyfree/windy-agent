@@ -10,6 +10,12 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
 
 ## Unreleased
 
+- **The dashboard no longer locks its own owner out.** Every dashboard request, including a
+  signed-in owner's own page loads, counted against the limit of 5 failed sign-in attempts a
+  minute. So the sixth request in a minute got "Too many auth attempts". Behind nginx every
+  request comes from the same address, so that locked out everyone. Now only failed sign-ins
+  count. A blocked address is still refused before the password is checked.
+
 - **`/forget` works.** `/forget <words>` lists everything the agent remembers that contains those
   words: messages, facts and summaries, corrections, goals, tool records and log entries. Then
   `/forget delete <numbers>` (or `all`) shows exactly what will go, and nothing is deleted until
