@@ -171,3 +171,17 @@ class TestAdapterTimeout:
         with patch("httpx.get", return_value=ok):
             assert adapter.check_inbox() == [{"id": "x"}]
         assert adapter.last_error == ""
+
+
+def test_telegram_does_not_start_maintenance_when_matrix_is_the_runner(monkeypatch):
+    import asyncio
+
+    from windyfly.channels import telegram_bot
+
+    monkeypatch.setenv("WINDY_MAINTENANCE_RUNNER", "matrix")
+    started = []
+    monkeypatch.setattr("windyfly.agent.maintenance.maintenance_loop",
+                        lambda *a, **k: started.append(1))
+    bot = telegram_bot.TelegramChannel.__new__(telegram_bot.TelegramChannel)
+    asyncio.run(bot._start_maintenance())
+    assert started == []

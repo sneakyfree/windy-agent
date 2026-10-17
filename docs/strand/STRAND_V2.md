@@ -1010,7 +1010,7 @@ own behaviour.
 | N4.27 | (ours) A "[TEST]" mail is marked seen but never announced | live | `tests/test_mail_one_message.py::test_test_mail_is_seen_but_never_announced` |
 | N4.28 | (ours) Inbound email runs at the sender's resolved band, not as the owner | live | `tests/test_channel_inbound_band.py::test_email_inbound_threads_resolved_band` |
 | N4.29 | The local mail rate limiter limits sends | retired: it never ran (no adapter had a database); Windy Mail enforces the limits and says them plainly (#546) | — |
-| N4.30 | The inbox watch runs on Matrix as well as Telegram | planned: Windy Agent: only the Telegram runtime starts the job (telegram_bot.py); start it on Matrix or correct the docstring | — |
+| N4.30 | The inbox watch runs on Matrix as well as Telegram, in exactly one process per agent (Telegram when a Telegram bot is configured, else Matrix, or as WINDY_MAINTENANCE_RUNNER says) | live | `tests/strand/test_n4_n8_mail_calendar_cloud_phone_vault.py::test_n4_the_inbox_watch_runs_in_exactly_one_process_and_matrix_can_run_it` |
 
 ### N5 Windy Calendar
 

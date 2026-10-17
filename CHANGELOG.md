@@ -10,6 +10,13 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
 
 ## Unreleased
 
+- **A Matrix-only agent now watches its mailbox and keeps its journal.** The background jobs (the
+  daily journal, key refreshes, the mail inbox watch) used to run only in the Telegram process, so an
+  agent on Windy Chat alone never ran them. Exactly one process per agent now runs them: Telegram
+  when a Telegram bot is set up, otherwise Matrix (a minute after it starts), so no job ever runs
+  twice. `WINDY_MAINTENANCE_RUNNER=telegram|matrix` pins it. New mail is announced in the owner's
+  direct room on Matrix.
+
 - **The agent notices everyday corrections.** "That is wrong", "that's not right", a reply that
   opens with "Incorrect," or "Wrong,", and "Actually, it's ..." now count as corrections, so "Never
   Wrong Twice" learns from them. Agreement such as "Actually, that's exactly right" or "that's not

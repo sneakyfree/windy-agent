@@ -217,3 +217,44 @@ def test_n6_no_backup_is_uploaded_without_an_owner_held_key(monkeypatch, caplog)
     assert cb.owner_key_missing() is True
     monkeypatch.setenv("WINDY_BACKUP_KEY", "owner-secret")
     assert cb.owner_key_missing() is False
+
+
+def test_n4_the_inbox_watch_runs_in_exactly_one_process_and_matrix_can_run_it(monkeypatch):
+    """Strand N4.30: one maintenance runner per agent; when it is Matrix, new mail reaches the owner's room."""
+    import threading
+
+    from tests.test_matrix_bot import _make_config
+    from windyfly.agent import maintenance
+    from windyfly.channels.matrix_bot import WindyFlyMatrixBot
+    from windyfly.memory.database import Database
+    from windyfly.memory.write_queue import WriteQueue
+
+    monkeypatch.delenv("WINDY_MAINTENANCE_RUNNER", raising=False)
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "t")
+    assert maintenance.maintenance_runner() == "telegram"          # Zero's case: both units agree
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN")
+    assert maintenance.maintenance_runner() == "matrix"            # a Matrix-only agent
+    monkeypatch.setenv("WINDY_MAINTENANCE_RUNNER", "telegram")
+    assert maintenance.maintenance_runner() == "telegram"          # pinned
+
+    bot = WindyFlyMatrixBot(_make_config(), Database(":memory:"), WriteQueue())
+    bot._hatch_dm_room_id = "!owner-dm:chat.example.test"
+    bot.client.room_send = AsyncMock()
+    seen = {}
+
+    def fake_make_job(notify, agent_name=""):
+        seen["notify"] = notify
+        return "job"
+
+    async def go():
+        monkeypatch.setattr("windyfly.agent.inbox_watch.make_inbox_watch_job", fake_make_job)
+        assert bot._make_inbox_watch_job() == "job"
+        t = threading.Thread(target=seen["notify"], args=("📬 New mail from Sam",))
+        t.start()
+        while t.is_alive():
+            await asyncio.sleep(0.01)
+
+    asyncio.run(go())
+    bot.client.room_send.assert_awaited_once()
+    room, kind, content = bot.client.room_send.await_args.args
+    assert room == "!owner-dm:chat.example.test" and content["body"] == "📬 New mail from Sam"

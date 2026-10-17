@@ -159,6 +159,9 @@ class WindyFlyMatrixBot(ChannelAdapter):
 
         # Pending responses for offline queue
         self._pending_responses: list[tuple[str, str]] = []
+        # The maintenance loop, when this process is the agent's maintenance runner (strand N4.30).
+        self._maintenance_task: asyncio.Task[None] | None = None
+        self._maintenance_stop_event: asyncio.Event | None = None
         self._last_pending_retry = 0.0
         # When each kept reply was first kept; replies dropped for age are counted.
         self._pending_kept_at: dict[tuple[str, str], float] = {}
@@ -900,6 +903,46 @@ class WindyFlyMatrixBot(ChannelAdapter):
         if self._sync_task is not None and not self._sync_task.done():
             self._sync_task.cancel()
 
+    async def _start_maintenance(self) -> None:
+        """The in-process maintenance loop on Matrix (strand N4.30). Best-effort: a setup problem
+        disables maintenance, never the channel."""
+        from windyfly.agent.maintenance import default_jobs, maintenance_loop
+
+        self._maintenance_stop_event = asyncio.Event()
+        try:
+            jobs = default_jobs(self.config)
+            jobs.append(self._make_inbox_watch_job())
+        except Exception as e:
+            logger.warning("maintenance: job setup failed (%s) — defaults only", e)
+            jobs = None
+        try:
+            await maintenance_loop(self.config, jobs=jobs, stop_event=self._maintenance_stop_event,
+                                   first_delay_s=60.0)
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.warning("maintenance loop exited with error: %s", e)
+
+    def _make_inbox_watch_job(self):
+        """Inbox watch (agent/inbox_watch.py) on Matrix: new mail is told to the owner in their direct
+        room. The job runs in a worker thread, so delivery hops back onto the event loop."""
+        from windyfly.agent.inbox_watch import make_inbox_watch_job
+
+        loop = asyncio.get_running_loop()
+        agent_name = str((self.config.get("agent") or {}).get("name") or "")
+
+        def notify(text: str) -> None:
+            room = self._hatch_dm_room_id
+            if not room:
+                return
+            asyncio.run_coroutine_threadsafe(
+                self.client.room_send(room, "m.room.message",
+                                      {"msgtype": "m.text", "body": text, "windy_original": True}),
+                loop,
+            ).result(timeout=30)
+
+        return make_inbox_watch_job(notify, agent_name=agent_name)
+
     async def _graceful_shutdown(self) -> None:
         """Graceful shutdown: set offline, flush messages, close connection.
 
@@ -910,6 +953,10 @@ class WindyFlyMatrixBot(ChannelAdapter):
             return
         self._graceful_done = True
         self._shutting_down = True
+        if self._maintenance_stop_event is not None:
+            self._maintenance_stop_event.set()
+        if self._maintenance_task is not None:
+            self._maintenance_task.cancel()
         # Leave a handoff for the next boot — same deterministic writer
         # as /new, so a deliberate stop never strands the next session
         # without context (Principle #7; the 2026-07-17 01:15 stop left
@@ -1095,6 +1142,10 @@ class WindyFlyMatrixBot(ChannelAdapter):
         from windyfly.channels import phone_tools as _phone_flag
         if _phone_flag.enabled():
             self._phone_task = asyncio.create_task(self._phone_loop())
+        # Maintenance (journal, inbox watch, ...): exactly one process per agent runs it (strand N4.30).
+        from windyfly.agent.maintenance import maintenance_runner
+        if maintenance_runner() == "matrix":
+            self._maintenance_task = asyncio.create_task(self._start_maintenance())
 
         # Sync with reconnection retry loop (exponential backoff)
         self._backoff = _INITIAL_BACKOFF_S
