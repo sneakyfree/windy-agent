@@ -10,6 +10,15 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
 
 ## Unreleased
 
+- **Import from another AI on the dashboard.** The Personality page has a new "Bring a personality
+  from another AI" section. Upload a ChatGPT `conversations.json` or an export zip (up to 90 MB), read
+  what was found, then Approve or Reject. The file is kept in memory and wiped either way, and items
+  that need your review or a tone to apply are pointed to `/soul review` and `/soul apply` in chat.
+- **The dashboard can no longer make the agent read a folder on its computer.** The old soul import
+  routes took a file path from the browser, so anyone with the dashboard password could make the agent
+  parse any folder on the host. The path form is removed. An import now starts with an upload, and every
+  later step uses the short-lived one-time token it returns.
+
 - **Bring your old AI's tone with you.** After you approve an import, the agent tells you the tone
   it found: humour, formality and verbosity, from an OpenClaw `config.yaml` or `config.json`, or worked
   out from how you write in a ChatGPT export. It counts only your own messages, never ChatGPT's replies,

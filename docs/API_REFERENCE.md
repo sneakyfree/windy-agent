@@ -581,48 +581,43 @@ SendGrid inbound email webhook. Parses email and generates a response.
 
 ---
 
-## Soul Passport
+## Soul Passport (import from another AI)
+
+No route takes a host path. The file is uploaded, and every later step uses the token the upload
+returns: 192 random bits, single use, valid for 30 minutes, sent only in a JSON body. One import may
+wait at a time. A body carrying `export_path` is refused with 400. All routes need the dashboard
+password.
+
+### `POST /api/soul/upload`
+
+The export as the raw request body (`Content-Type: application/octet-stream`). The optional
+`X-Filename` header holds the URI-encoded file name and is used only to tell `.zip` from `.json`.
+
+Limits and failures:
+- `Content-Length` is required (411 without it).
+- Over 90 MB gets 413 before anything is written.
+- The file is held in `$XDG_RUNTIME_DIR` or `/dev/shm`, mode 0600, and is wiped whatever the outcome.
+
+**Response:** `{"token": "...", "preview": "🧬 Soul Preview ..."}` or `{"error": "..."}`
 
 ### `POST /api/soul/preview`
 
-Preview a Soul Passport import without writing to the database.
-
-**Request:**
-```json
-{
-  "export_path": "/path/to/export.json",
-  "source_type": "chatgpt"
-}
-```
-
-**Response:**
-```json
-{
-  "preview": "Found 42 facts, 15 preferences...",
-  "stats": { "facts": 42, "preferences": 15 }
-}
-```
+**Request:** `{"token": "..."}`. **Response:** `{"preview": "..."}` or `{"error": "..."}`. Nothing is
+written.
 
 ### `POST /api/soul/import`
 
-Import a Soul Passport — parse and write to the knowledge graph.
+Approve: write the import. Sensitive items are stored flagged for review (`/soul review` in chat).
 
-**Request:**
-```json
-{
-  "export_path": "/path/to/export.json",
-  "source_type": "chatgpt"
-}
-```
+**Request:** `{"token": "..."}`
 
-**Response:**
-```json
-{
-  "imported": true,
-  "stats": { "facts": 42, "preferences": 15 },
-  "preview": "..."
-}
-```
+**Response:** `{"imported": 12, "flagged": 2, "skipped": 1, "tone": {"humor": 7}}` or
+`{"error": "..."}`. The tone can be applied with `/soul apply` in chat within 30 minutes.
+
+### `POST /api/soul/reject`
+
+**Request:** `{"token": "..."}`. **Response:** `{"rejected": true}`. Nothing is kept, and the file is
+wiped.
 
 ---
 

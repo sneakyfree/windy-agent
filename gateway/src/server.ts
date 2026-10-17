@@ -36,6 +36,7 @@ import { bridge } from "./bridge";
 import { handleClose, handleMessage, handleWebSocket } from "./websocket";
 import { handleHatchRemote } from "./hatch-remote";
 import { removeRetiredDataFiles } from "./retired-data";
+import { receiveSoulUpload, sweepSoulUploads } from "./soul-upload";
 
 const PORT = Number(process.env.GATEWAY_PORT) || 3000;
 const PUBLIC_DIR = resolve(import.meta.dir, "../public");
@@ -919,22 +920,27 @@ async function handleRequest(req: Request, server: import("bun").Server<any>): P
       }
     }
 
-    // Soul Passport preview
-    if (path === "/api/soul/preview" && req.method === "POST") {
-      const body = (await req.json()) as { export_path: string; source_type?: string };
-      try {
-        const result = await bridge.call("soul.preview", body);
-        return Response.json(result, { headers });
-      } catch {
-        return Response.json({ error: "Brain offline", _offline: true }, { status: 503, headers });
-      }
+    // Soul import from the dashboard (strand P2.21.13): upload, then a token for preview / import /
+    // reject. No route takes a host path: a body carrying export_path is refused (the old form let the
+    // page make the agent parse any folder on the host).
+    if (path === "/api/soul/upload" && req.method === "POST") {
+      const up = await receiveSoulUpload(req, (file, kind) =>
+        bridge.call("soul.upload", { file, kind }) as Promise<Record<string, unknown>>);
+      return Response.json(up.body, { status: up.status, headers });
     }
-
-    // Soul Passport import
-    if (path === "/api/soul/import" && req.method === "POST") {
-      const body = (await req.json()) as { export_path: string; source_type?: string };
+    if ((path === "/api/soul/preview" || path === "/api/soul/import" || path === "/api/soul/reject")
+        && req.method === "POST") {
+      let body: Record<string, unknown> = {};
       try {
-        const result = await bridge.call("soul.import", body);
+        body = (await req.json()) as Record<string, unknown>;
+      } catch {
+        return Response.json({ error: "Send JSON with the upload token." }, { status: 400, headers });
+      }
+      if ("export_path" in body || typeof body.token !== "string" || body.token.length > 64) {
+        return Response.json({ error: "Upload the file first; then send its token." }, { status: 400, headers });
+      }
+      try {
+        const result = await bridge.call(`soul.${path.slice("/api/soul/".length)}`, { token: body.token });
         return Response.json(result, { headers });
       } catch {
         return Response.json({ error: "Brain offline", _offline: true }, { status: 503, headers });
@@ -1480,6 +1486,8 @@ async function main() {
   for (const name of removeRetiredDataFiles()) {
     console.log(`[gateway] removed retired data/${name}`);
   }
+  const swept = sweepSoulUploads();
+  if (swept) console.log(`[gateway] removed ${swept} old soul upload(s)`);
 
   // Try to connect to Python brain
   try {
@@ -1493,6 +1501,9 @@ async function main() {
 
   const server = Bun.serve({
     port: PORT,
+    // At or above the soul upload cap (90 MB, src/soul-upload.ts), so a too-big upload gets our own
+    // 413 with a plain message rather than the server's.
+    maxRequestBodySize: 128 * 1024 * 1024,
     fetch(req, server) {
       const pathname = new URL(req.url).pathname;
       const isWsChat = pathname === "/ws/chat";

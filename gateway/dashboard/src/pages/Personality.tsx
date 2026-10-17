@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../hooks/useApi'
+import SoulImport from '../components/SoulImport'
 
 interface SliderInfo {
   name: string
@@ -293,6 +294,10 @@ export default function Personality() {
           ))}
         </div>
       )}
+
+      {/* Soul import (strand P2.21.13) */}
+      <h2 className="text-lg font-semibold text-white mt-8 mb-2">Bring a personality from another AI</h2>
+      <SoulImport />
     </div>
   )
 }

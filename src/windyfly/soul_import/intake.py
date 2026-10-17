@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import secrets
 import shutil
 import stat
@@ -187,6 +188,109 @@ def receive(stream: BinaryIO, *, filename: str = "", max_bytes: int = MAX_UPLOAD
     except Exception:
         _wipe_tree(d)
         raise
+
+
+# ── The dashboard's upload (P2.21.13, PR 4; Hub's conditions) ────────────────────────────────────
+# The gateway streams the browser's file to <dir>/windy-soul-upload-<32 hex> (0600, O_EXCL), with <dir>
+# $XDG_RUNTIME_DIR first and /dev/shm second, then hands the brain only that path. The brain takes it
+# only when the name and the folder are right, opens it with O_NOFOLLOW and checks the OPEN descriptor
+# (a regular file owned by the agent), so a file swapped for a link is never read. It wipes it after.
+
+UPLOAD_PREFIX = "windy-soul-upload-"
+_UPLOAD_NAME = re.compile(r"windy-soul-upload-[0-9a-f]{32}")
+DASHBOARD_MAX_BYTES = 90 * 1024 * 1024     # under common edge-proxy request limits, so the 413 is ours
+
+
+def upload_dirs() -> list[Path]:
+    """Where the gateway may write an upload, in its order of preference."""
+    out: list[Path] = []
+    for cand in (os.environ.get("XDG_RUNTIME_DIR") or "", "/dev/shm"):
+        if cand and Path(cand).is_dir():
+            real = Path(os.path.realpath(cand))
+            if real not in out:
+                out.append(real)
+    return out
+
+
+def receive_upload(path: str, *, kind: str, max_bytes: int = DASHBOARD_MAX_BYTES) -> Intake:
+    """Take the gateway's upload file and wipe it. ``kind`` ('zip' or 'json') is only a hint."""
+    p = Path(path)
+    if not _UPLOAD_NAME.fullmatch(p.name):
+        raise IntakeError("that is not an upload from the dashboard")
+    folder = Path(os.path.realpath(p.parent))
+    if folder not in upload_dirs():
+        raise IntakeError("that is not an upload from the dashboard")
+    target = folder / p.name
+    try:
+        fd = os.open(target, os.O_RDWR | os.O_NOFOLLOW | getattr(os, "O_NOCTTY", 0))
+    except OSError as e:
+        raise IntakeError("the upload is gone or is not a plain file") from e
+    st = os.fstat(fd)
+    if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid():
+        os.close(fd)                       # not ours to read, and never ours to overwrite
+        raise IntakeError("the upload is gone or is not a plain file")
+    try:
+        if st.st_size > max_bytes:
+            raise IntakeError(f"the file is larger than {max_bytes // (1024 * 1024)} MB")
+        with os.fdopen(os.dup(fd), "rb") as f:
+            return receive(f, filename="export.zip" if kind == "zip" else "conversations.json",
+                           max_bytes=max_bytes)
+    finally:
+        _wipe_fd(fd, st.st_size)
+        os.close(fd)
+        try:  # remove the name only while it is still this same file
+            now = os.stat(target, follow_symlinks=False)
+            if (now.st_dev, now.st_ino) == (st.st_dev, st.st_ino):
+                target.unlink()
+        except OSError:
+            pass
+
+
+def _wipe_fd(fd: int, size: int) -> None:
+    try:
+        os.lseek(fd, 0, os.SEEK_SET)
+        while size > 0:
+            n = min(size, _CHUNK)
+            os.write(fd, b"\0" * n)
+            size -= n
+        os.fsync(fd)
+    except OSError:
+        pass
+
+
+def wipe_upload(path: str) -> None:
+    """Wipe a gateway upload the brain did not take (a refusal before receive_upload ran)."""
+    p = Path(path)
+    if _UPLOAD_NAME.fullmatch(p.name) and Path(os.path.realpath(p.parent)) in upload_dirs():
+        try:
+            st = os.lstat(p)
+            if stat.S_ISREG(st.st_mode) and st.st_uid == os.getuid():
+                _wipe_file(p)
+        except OSError:
+            pass
+
+
+def sweep_uploads(max_age_s: float = MAX_AGE_S, dirs: list[Path] | None = None) -> int:
+    """Remove dashboard uploads older than ``max_age_s`` (a gateway or brain stopped mid-handoff)."""
+    removed, now = 0, time.time()
+    for d in dirs if dirs is not None else upload_dirs():
+        for f in d.glob(f"{UPLOAD_PREFIX}*"):
+            try:
+                st = f.lstat()
+                if now - st.st_mtime <= max_age_s:
+                    continue
+                if stat.S_ISREG(st.st_mode) and st.st_uid == os.getuid():
+                    _wipe_file(f)
+                elif stat.S_ISLNK(st.st_mode):
+                    f.unlink()                     # never follow it
+                else:
+                    continue
+                removed += 1
+            except OSError:
+                continue
+    if removed:
+        logger.info("soul intake: swept %d old dashboard upload(s)", removed)
+    return removed
 
 
 def discard(intake: Intake | None) -> None:
