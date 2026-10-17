@@ -558,8 +558,8 @@ are the new genes (Wave 5g).
 | P4.11.25 | Voice notes are transcribed in the agent (its own faster-whisper, optional extra) and answered | live | `tests/test_voice_handler.py::test_voice_handler_dispatches_transcript_to_agent` |
 | P4.11.26 | The agent can query and tune WindySense | planned: Windy Agent: no integration; Hub decides whether it is still wanted | — |
 | P4.11.27 | The phone and the agent share Matrix under a pinned contract (phone tools off by default) | live | `tests/test_phone_tools.py::test_dark_by_default` |
-| P4.11.28 | Files are stored on Windy Cloud (POST /api/v1/storage/upload; only files in the allowed folders or named by the owner, never keys, env files, the agent's data or hidden folders; 5 files / 200 MB per message) | live | `tests/test_cloud_tool.py::test_upload_list_download_follow_clouds_contract` |
-| P4.11.29 | Files on Windy Cloud are listed (GET /api/v1/storage/files; names framed as data) | live | `tests/test_cloud_tool.py::test_upload_list_download_follow_clouds_contract` |
+| P4.11.28 | Files are stored on Windy Cloud (POST /api/v1/storage/upload; only files in the allowed folders or whose full path the owner wrote, never keys, env files, the agent's data, browser profiles, keychains or hidden folders; 5 files / 200 MB per message, none outside a turn) | live | `tests/test_cloud_tool.py::test_upload_list_download_follow_clouds_contract` |
+| P4.11.29 | Files on Windy Cloud are listed (GET /api/v1/storage/files; names framed as data, control characters stripped; other apps' files taint the turn) | live | `tests/test_cloud_tool.py::test_upload_list_download_follow_clouds_contract` |
 | P4.11.30 | Files on Windy Cloud are retrieved (GET /api/v1/storage/files/{file_id} into the agent's downloads folder, 0600, never overwriting, capped) | live | `tests/test_cloud_tool.py::test_the_servers_name_is_cleaned_and_kept_inside_the_folder` |
 
 ### P4.12 Master file index (Part 4 §12)

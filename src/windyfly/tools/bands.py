@@ -137,3 +137,15 @@ def turn_text() -> str | None:
 def turn_state() -> dict[str, Any] | None:
     return _turn_state.get()
 
+
+def mark_turn_tainted() -> None:
+    """A tool says its result carries text a third party chose: the rest of this turn is tainted (the I2
+    taint model in agent/loop.py refuses outward tools from then on). Outside a turn: nothing to mark."""
+    state = _turn_state.get()
+    if state is not None:
+        state["tainted"] = True
+
+
+def turn_marked_tainted() -> bool:
+    state = _turn_state.get()
+    return bool(state and state.get("tainted"))
