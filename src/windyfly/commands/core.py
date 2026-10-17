@@ -949,10 +949,13 @@ def _register_all():
             wq = WriteQueue()
             wq.start()
             try:
+                from windyfly.agent.capabilities import Band
+
                 response = agent_respond(
                     cfg, _db, wq,
                     "What is 2+2? Reply with just the number.",
                     "benchmark-session",
+                    band=Band.OWNER,          # /benchmark is an owner command
                 )
             finally:
                 try:
