@@ -536,7 +536,7 @@ class TelegramChannel(ChannelAdapter):
         CHANNEL_LAYER_EXTRAS: list[tuple[int, str, str]] = [
             (1, "panic", "Emergency reset — bot acting weird"),
             (5, "goal", "Set/show/clear a goal · /goal pace 4h · /goal autorun 3"),
-            (5, "forget", "Demote an auto-promoted correction skill"),
+            (5, "demote", "Demote an auto-promoted correction skill"),
             (5, "objective", "Alias for /goal"),
             (5, "mission", "Alias for /goal"),
             (1, "resurrect", "Switch to free local backup model"),
@@ -1610,9 +1610,9 @@ class TelegramChannel(ChannelAdapter):
             self._last_message_at = time.time()
             return
 
-        # ── /forget — user-facing skill demotion (PR 2026-05-20 #3) ──
+        # ── /demote (/unlearn) — user-facing skill demotion (PR 2026-05-20 #3) ──
         # When an auto-promoted correction skill is bad advice, the
-        # user types /forget <substring> and we demote any matching
+        # user types /demote <substring> and we demote any matching
         # promoted skills. Row stays for audit + future re-promotion
         # via the bridge UDS server; demotion just stops the loop
         # from injecting it into the system prompt.
@@ -1622,9 +1622,9 @@ class TelegramChannel(ChannelAdapter):
             from windyfly.skills.manager import demote_skill_by_name
             if not forget_arg:
                 ack = (
-                    "Usage: `/forget <skill-name-or-substring>` — e.g. "
-                    "`/forget factual_error` to drop the "
-                    "correction-factual_error skill, or `/forget "
+                    "Usage: `/demote <skill-name-or-substring>` — e.g. "
+                    "`/demote factual_error` to drop the "
+                    "correction-factual_error skill, or `/demote "
                     "correction-` to clear all auto-corrections."
                 )
             else:
@@ -1632,7 +1632,7 @@ class TelegramChannel(ChannelAdapter):
                 if not demoted:
                     ack = (
                         f"No promoted skill matched `{forget_arg}`. "
-                        f"Try `/forget correction-` to see if any "
+                        f"Try `/demote correction-` to see if any "
                         f"auto-correction skills exist at all."
                     )
                 else:
@@ -1653,7 +1653,7 @@ class TelegramChannel(ChannelAdapter):
             try:
                 await self._send_long_reply(update.message, ack)
             except Exception as e:
-                logger.warning("/forget reply failed: %s", e)
+                logger.warning("/demote reply failed: %s", e)
             self._last_message_at = time.time()
             return
 

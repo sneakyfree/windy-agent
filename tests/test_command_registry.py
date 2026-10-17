@@ -200,11 +200,12 @@ class TestDangerousCommands:
         )
         assert "dangerous" in result.lower() or "confirm" in result.lower()
 
-    def test_forget_blocked(self, loaded_registry):
+    def test_forget_deletes_nothing_without_a_yes(self, loaded_registry):
+        """/forget has its own confirm step (search, pick, then /forget yes; strand N10.2)."""
         result = asyncio.run(
             loaded_registry.execute("forget")
         )
-        assert "dangerous" in result.lower() or "confirm" in result.lower()
+        assert "nothing is deleted until you say yes" in result.lower()
 
     def test_doctor_not_blocked(self, loaded_registry):
         """Non-dangerous commands should execute without confirmation."""

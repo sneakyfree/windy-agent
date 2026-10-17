@@ -126,11 +126,12 @@ async def test_undo_says_plainly_nothing_can_be_undone_and_never_a_sentinel():
 
 
 @pytest.mark.asyncio
-async def test_forget_keeps_the_what_in_the_confirm_text_and_says_the_truth():
-    _, ask = await _say("/forget pizza")
-    assert "/forget pizza --confirm" in ask
-    _, done = await _say("/forget pizza --confirm")
-    assert "can't forget" in done and "pizza" in done and "nothing was removed" in done
+async def test_forget_says_the_truth_and_deletes_nothing_without_a_yes():
+    """/forget is real now (strand N10.2): a search lists, and nothing goes without /forget yes."""
+    _, found = await _say("/forget pizza")
+    assert "pizza" in found and ("I don't remember" in found or "Nothing is deleted until you confirm" in found)
+    _, nothing = await _say("/forget yes")
+    assert "nothing waiting" in nothing
 
 
 @pytest.mark.asyncio

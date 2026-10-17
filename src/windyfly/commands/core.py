@@ -1736,13 +1736,79 @@ def _register_all():
             return f"Error: {e}"
     _r("facts", "List known facts about the user", "06_memory", cmd_facts)
 
+    # /forget (strand N10.2): search -> pick -> confirm -> delete. Nothing is deleted without "/forget yes".
+    _forget_state: dict[str, dict] = {}
+
     async def cmd_forget(ctx):
-        what = ((ctx or {}).get("_raw") or "").strip()
-        about = f' "{what}"' if what else " anything"
-        return (f"I can't forget{about} yet: removing a memory isn't something I can do from a command today, "
-                "so nothing was removed and everything I remember is still here.")
-    _r("forget", "Make me forget something I remember", "06_memory", cmd_forget, dangerous=True,
-       usage="forget <what>")
+        import time as _time
+
+        from windyfly.memory import forget as _fg
+
+        args = ctx.get("_args", []) or []
+        if not args:
+            return ("Usage: /forget <words> finds everything I remember that contains those words. "
+                    "Then /forget delete <numbers> or /forget delete all, then /forget yes. "
+                    "Nothing is deleted until you say yes.")
+        if not _db:
+            return "Database not available."
+        key = f"{ctx.get('platform', '?')}:{ctx.get('channel_id', '?')}"
+        state = _forget_state.get(key)
+        if state and _time.time() - state["at"] > 600:
+            _forget_state.pop(key, None)
+            state = None
+        verb = args[0].lower() if args else ""
+
+        if verb == "no":
+            _forget_state.pop(key, None)
+            return "OK, nothing was deleted."
+        if verb == "yes":
+            if not state or not state.get("chosen"):
+                return "There is nothing waiting to be deleted. Start with /forget <words>."
+            counts = _fg.forget(_db, state["chosen"])
+            _forget_state.pop(key, None)
+            done = ", ".join(f"{n} {k}{'s' if n != 1 else ''}" for k, n in sorted(counts.items())) or "nothing"
+            return (f"Deleted: {done}. No readable copy is left in my memory file. "
+                    "My daily cloud backups made before now still hold a copy until 5 newer backups replace them.")
+        if verb == "delete":
+            if not state or not state.get("found"):
+                return "Search first: /forget <words>."
+            found = state["found"]
+            picks = args[1:]
+            if picks == ["all"]:
+                chosen = list(found)
+            else:
+                try:
+                    nums = sorted({int(x) for x in picks})
+                except ValueError:
+                    return "Give the numbers from the list (for example /forget delete 1 3) or 'all'."
+                if not nums or nums[0] < 1 or nums[-1] > len(found):
+                    return f"Pick numbers from 1 to {len(found)}."
+                chosen = [found[n - 1] for n in nums]
+            state["chosen"] = chosen
+            state["at"] = _time.time()
+            lines = [f"This deletes {len(chosen)} item{'s' if len(chosen) != 1 else ''}:"]
+            lines += [f"  - {it.kind}, {it.when[:16]}: {it.preview}" for it in chosen[:20]]
+            if len(chosen) > 20:
+                lines.append(f"  ... and {len(chosen) - 20} more")
+            lines.append("Type /forget yes to delete them, or /forget no.")
+            return "\n".join(lines)
+
+        words = " ".join(args)
+        found = _fg.find(_db, words)
+        more = len(found) > _fg.MAX_ITEMS
+        found = found[: _fg.MAX_ITEMS]
+        if not found:
+            _forget_state.pop(key, None)
+            return f'I don\'t remember anything containing "{words}".'
+        _forget_state[key] = {"found": found, "chosen": None, "at": _time.time()}
+        lines = [f'I remember {len(found)}{"+" if more else ""} thing{"s" if len(found) != 1 else ""} containing "{words}":']
+        lines += [f"  {i}. {it.kind}, {it.when[:16]}: {it.preview}" for i, it in enumerate(found, 1)]
+        if more:
+            lines.append(f"(Only the newest {_fg.MAX_ITEMS} are shown: add words to narrow it.)")
+        lines.append("Type /forget delete <numbers> or /forget delete all. Nothing is deleted until you confirm.")
+        return "\n".join(lines)
+    _r("forget", "Find and delete something I remember", "06_memory", cmd_forget,
+       usage="forget <words> | forget delete <numbers|all> | forget yes | forget no")
 
     async def cmd_remember(ctx):
         fact = (ctx.get("_raw", "") or "").strip()

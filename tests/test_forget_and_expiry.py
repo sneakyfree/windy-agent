@@ -38,28 +38,29 @@ from windyfly.skills.manager import (
 
 
 class TestForgetParser:
+    """Skill demotion is /demote or /unlearn; /forget is the memory delete (strand N10.2)."""
 
     def test_bare_command(self):
-        assert parse_forget_command("/forget") == (True, None)
-        assert parse_forget_command("/FORGET") == (True, None)
-        assert parse_forget_command("  /forget  ") == (True, None)
+        assert parse_forget_command("/demote") == (True, None)
+        assert parse_forget_command("/UNLEARN") == (True, None)
+        assert parse_forget_command("  /demote  ") == (True, None)
 
     def test_with_argument(self):
-        assert parse_forget_command("/forget factual_error") == (True, "factual_error")
-        assert parse_forget_command("/forget correction-x") == (True, "correction-x")
+        assert parse_forget_command("/demote factual_error") == (True, "factual_error")
+        assert parse_forget_command("/unlearn correction-x") == (True, "correction-x")
         # Preserves user's original case in the substring
-        assert parse_forget_command("/forget Factual") == (True, "Factual")
+        assert parse_forget_command("/demote Factual") == (True, "Factual")
 
-    def test_aliases(self):
-        for alias in ("/demote", "/unlearn"):
-            assert parse_forget_command(f"{alias} foo")[0] is True
+    def test_forget_is_no_longer_taken_for_demotion(self):
+        assert parse_forget_command("/forget factual_error") == (False, None)
+        assert parse_forget_command("/forget") == (False, None)
 
     def test_not_a_command(self):
         assert parse_forget_command("hello") == (False, None)
         assert parse_forget_command("") == (False, None)
         assert parse_forget_command(None) == (False, None)
-        # /forgetful is not /forget
-        assert parse_forget_command("/forgetful")[0] is False
+        # /demoted is not /demote
+        assert parse_forget_command("/demoted")[0] is False
 
 
 # ── demote_skill + demote_skill_by_name ──────────────────────────

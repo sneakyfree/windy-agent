@@ -64,7 +64,7 @@ def boot_commands():
 _CHANNEL_LAYER_EXTRAS = [
     (1, "panic", "Emergency reset — bot acting weird"),
     (5, "goal", "Set/show/clear a goal · /goal pace 4h · /goal autorun 3"),
-    (5, "forget", "Demote an auto-promoted correction skill"),
+    (5, "demote", "Demote an auto-promoted correction skill"),
     (5, "objective", "Alias for /goal"),
     (5, "mission", "Alias for /goal"),
     (1, "resurrect", "Switch to free local backup model"),
