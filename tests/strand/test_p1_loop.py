@@ -135,3 +135,4 @@ def test_p1_06_the_whole_prompt_stays_under_the_effective_limit(tmp_path):
     kept = [c[:6] for c in main if c.startswith("old-")]
     assert kept and "old-19" in kept and "old-00" not in kept
     assert kept == sorted(kept)                       # what is left is the newest, still in order
+    assert int(kept[0][4:6]) % 2 == 0                 # the kept history opens with a user turn (even = user)

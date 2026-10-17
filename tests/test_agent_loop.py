@@ -799,6 +799,31 @@ class TestFitToLimit:
         out = fit_to_limit(msgs, 100)
         assert out == [msgs[0], msgs[1], msgs[4]]
 
+    def test_an_odd_count_trim_leaves_a_user_message_first(self):
+        """Hub 10-17: dropping exactly one message must not leave an assistant turn first."""
+        from windyfly.agent.prompt import estimate_tokens, fit_to_limit
+
+        hist = [{"role": "user" if n % 2 == 0 else "assistant", "content": f"m{n} " + "x" * 400} for n in range(6)]
+        msgs = [{"role": "system", "content": "soul"}, *hist, {"role": "user", "content": "now"}]
+        out = fit_to_limit(msgs, estimate_tokens(msgs) - 10)      # one message is enough to fit
+        rest = [m for m in out if m["role"] != "system"]
+        assert rest[0]["role"] == "user" and rest[0]["content"].startswith("m2 ")
+        assert out[0] == msgs[0] and out[-1] == msgs[-1]
+
+    def test_a_tool_result_never_outlives_its_call(self):
+        from windyfly.agent.prompt import estimate_tokens, fit_to_limit
+
+        call = {"role": "assistant", "content": "", "tool_calls": [{"id": "t1", "function": {"name": "f", "arguments": "{}"}}]}
+        result = {"role": "tool", "tool_call_id": "t1", "content": "r" * 400}
+        msgs = [{"role": "system", "content": "soul"},
+                {"role": "user", "content": "u1 " + "x" * 400}, call, result,
+                {"role": "assistant", "content": "done"},
+                {"role": "user", "content": "u2"}, {"role": "assistant", "content": "ok"},
+                {"role": "user", "content": "now"}]
+        out = fit_to_limit(msgs, estimate_tokens(msgs) - 150)    # dropping u1 alone would be enough
+        assert result not in out and call not in out
+        assert [m for m in out if m["role"] != "system"][0]["content"] == "u2"
+
     def test_recall_blocks_go_after_the_history(self):
         from windyfly.agent.prompt import estimate_tokens, fit_to_limit
 
