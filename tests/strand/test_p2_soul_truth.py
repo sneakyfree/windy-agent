@@ -151,7 +151,9 @@ def test_p2_24_common_corrections_are_detected():
                  "Wrong, the file is in /tmp.",
                  "Actually, it's Tuesday today.",
                  "Actually, the train leaves at 6.",
-                 "Actually you're thinking of my sister."):
+                 "Actually you're thinking of my sister.",
+                 "That was wrong, I asked for Python not Go.",
+                 "Actually, the deadline is next week, not tomorrow."):
         got = detect_friction(text)
         assert got and got["fault_type"] == "factual_error", text
     for text in ("Actually, that's exactly right!",
@@ -159,5 +161,17 @@ def test_p2_24_common_corrections_are_detected():
                  "Actually it's perfect, thank you.",
                  "That's not wrong at all, nice work.",
                  "Is that wrong? I can't tell.",
-                 "No problem, that works great!"):
+                 "No problem, that works great!",
+                 # Hub's offline run on #580: praise, self-blame and banter are not corrections.
+                 "Actually, it's a great idea, let's do it",
+                 "Actually, it's exactly what I needed",
+                 "Actually, that's what I wanted",
+                 "Actually, the food was good",
+                 "Actually, the answer is perfect",
+                 "Actually, you are so helpful",
+                 "That was wrong of me, sorry",
+                 "I thought that was wrong but it's fine",
+                 "Wrong, wrong, wrong, haha you got it right",
+                 "Actually, it's my fault, not yours",
+                 "That was not right of me, apologies"):
         assert detect_friction(text) is None, text
