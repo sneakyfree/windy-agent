@@ -1114,3 +1114,16 @@ iPhone/Android notes) are in `docs/strand/AGENTS_HANDS_N9.md`. Gene N7 is what i
 | N9.9 | A shell on an owner machine over Windy Mesh is FULL_MACHINE: owner only, a card per session start, start/stop counts only; agents never attach to or type into a session through the broker (v1) | planned: Windy Agent: after Windy Code's session broker and Mind S20 | — |
 | N9.10 | A simulated phone drives every kind through done, declined, expired and unknown in CI; lab phones only | planned: Windy Agent: tests/phone_sim.py | — |
 | N9.11 | HQ gets one counts-only event per phone request (kind, class, outcome, duration, platform) | planned: Windy Agent: Admin's event family | — |
+
+### N10 The owner sees and deletes the agent's memory (planned, Boss 10-17)
+
+Planned after Boss's privacy truth check (Word's v25 text). Full plan:
+`~/windy-orchestra/specs/AGENT_MEMORY_DELETE_N10_2026-10-17.md`. "Deleted" means the messages, their search
+index and embeddings, the summaries made from them (relationship moments, journal, turnover letter), the
+correction text in failures, and nothing left readable in the database file or its WAL. The Cloud backups
+keep a copy until 5 newer backups exist (Cloud's and Hub's to state).
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| N10.1 | The owner sees conversation history by date and by search, and deletes it after a confirm, in chat (/history) and on the dashboard; owner band only, none in guest mode | planned: Windy Agent: PR to Hub by Tue 10-20 18:00Z | — |
+| N10.2 | /forget finds facts and messages by search and deletes the ones the owner picks after a confirm, leaving no readable copy on disk | planned: Windy Agent: PR to Hub by Mon 10-19 18:00Z | — |
