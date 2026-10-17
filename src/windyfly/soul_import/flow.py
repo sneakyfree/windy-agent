@@ -134,10 +134,11 @@ def approve(db: Any, key: str) -> str:
         return "The import failed and nothing was kept. The file is wiped."
     imported, flagged, skipped = (result.get("imported", 0), result.get("flagged", 0), result.get("skipped", 0))
     logger.info("soul import: approved (%s) imported=%d flagged=%d skipped=%d", p.source, imported, flagged, skipped)
+    tone = offer_tone(key, result.get("personality") or {}, p.source)
     return (f"Imported {imported} item{'s' if imported != 1 else ''}. "
             f"{flagged} sensitive item{'s wait' if flagged != 1 else ' waits'} for your review and "
             f"{'are' if flagged != 1 else 'is'} not used until you keep {'them' if flagged != 1 else 'it'}. "
-            f"{skipped} skipped. The file is wiped.")
+            f"{skipped} skipped. The file is wiped.{tone}")
 
 
 def reject(key: str) -> str:
@@ -150,7 +151,9 @@ def reject(key: str) -> str:
 # ── /soul review: flagged imports wait here until the owner keeps or drops them (P2.21.11) ──────
 
 _review_lists: dict[str, tuple[float, list[str]]] = {}
-_drops: dict[str, tuple[float, list[str]]] = {}
+# ONE pending question per conversation (Hub on PR 3): asking to drop or to apply replaces the other,
+# so /soul yes only ever does the last thing it was asked, and its reply names it.
+_confirm: dict[str, tuple[float, str, Any]] = {}      # key -> (asked at, "drop" | "apply", what)
 REVIEW_LIST_FOR_S = 600
 
 
@@ -190,7 +193,7 @@ def review(db: Any, key: str, nums: list[str]) -> str:
             return "Nothing is waiting for your review."
         with _lock:
             _review_lists[key] = (time.time(), [r["id"] for r in rows])
-            _drops.pop(key, None)
+            _confirm.pop(key, None)
         lines = [f"{len(rows)} imported item{'s' if len(rows) != 1 else ''} wait for your review "
                  "(not used until you keep them):"]
         for i, r in enumerate(rows, 1):
@@ -256,7 +259,7 @@ def drop(db: Any, key: str, nums: list[str]) -> str:
         return picked
     with _lock:
         at, ids = _review_lists.get(key, (0.0, []))
-        _drops[key] = (time.time(), list(picked))
+        _confirm[key] = (time.time(), "drop", list(picked))
     n = len(picked)
     lines = [f"Delete {n} item{'s' if n != 1 else ''} for good? This can't be undone."]
     lines += [f"  {ids.index(i) + 1}. {d}" for i, d in zip(picked, _describe(db, picked)) if i in ids]
@@ -264,15 +267,22 @@ def drop(db: Any, key: str, nums: list[str]) -> str:
     return "\n".join(lines)
 
 
-def confirm_drop(db: Any, key: str) -> str:
-    from windyfly.memory import forget as _forget
-
+def confirm(db: Any, key: str) -> str:
+    """/soul yes: do what the last question in this conversation asked (a drop, or applying a tone)."""
     if _guest():
         return GUEST_OFF
     with _lock:
-        at, ids = _drops.pop(key, (0.0, []))
-    if not ids or time.time() - at > REVIEW_LIST_FOR_S:
-        return "Nothing is waiting to be deleted. /soul review, then /soul drop <numbers>."
+        at, kind, what = _confirm.pop(key, (0.0, "", None))
+    if not kind or time.time() - at > REVIEW_LIST_FOR_S:
+        return "Nothing is waiting for a yes."
+    if kind == "apply":
+        return _apply_tone(db, what)
+    return _drop_now(db, key, what)
+
+
+def _drop_now(db: Any, key: str, ids: list[str]) -> str:
+    from windyfly.memory import forget as _forget
+
     # Only items still flagged: anything kept since the question stays.
     still = {r["id"] for r in _flagged(db)}
     items = [_forget.Item("memory", node_id, "", "") for node_id in ids if node_id in still]
@@ -282,3 +292,91 @@ def confirm_drop(db: Any, key: str) -> str:
     n = counts.get("memory", 0)
     logger.info("soul review: dropped %d", n)
     return f"Deleted {n} item{'s' if n != 1 else ''} for good. No readable copy is left in my memory file."
+
+
+# ── /soul apply: the imported tone onto the sliders, with /soul undo (P2.21.12 (a); Hub A7) ──────
+
+UNDO_KEY = "soul_import_undo"
+_tones: dict[str, tuple[float, dict[str, int], str]] = {}   # key -> (approved at, slider values, source)
+
+
+def offer_tone(key: str, values: dict[str, int], source: str | None) -> str:
+    """After an approved import: keep its tone for /soul apply and say what it was."""
+    if not values:
+        return ""
+    with _lock:
+        _tones[key] = (time.time(), dict(values), source or "import")
+    said = ", ".join(f"{k} {v}" for k, v in sorted(values.items()))
+    return f" The export's tone was {said}; /soul apply shows what that would change."
+
+
+def apply(db: Any, key: str) -> str:
+    from windyfly.control_panel import get_sliders
+
+    if _guest():
+        return GUEST_OFF
+    with _lock:
+        at, values, source = _tones.get(key, (0.0, {}, ""))
+    if not values or time.time() - at > PENDING_FOR_S:
+        return "There is no imported tone to apply. It is kept for 30 minutes after /soul approve."
+    now = get_sliders(db)
+    changes = {k: (int(float(now.get(k, 5))), v) for k, v in sorted(values.items()) if int(float(now.get(k, 5))) != v}
+    if not changes:
+        return "Your sliders already match the imported tone. Nothing to change."
+    with _lock:
+        _confirm[key] = (time.time(), "apply", {"changes": changes, "source": source})
+    lines = [f"Set these sliders from your {source} export?"]
+    lines += [f"  {k}: {a} -> {b}" for k, (a, b) in changes.items()]
+    if bool(now.get("raw_mode", 0)):
+        lines.append("Raw mode is on, so tone sliders are not used until you turn it off (/slider raw_mode 0).")
+    lines.append("/soul yes sets them. /soul undo puts them back later.")
+    return "\n".join(lines)
+
+
+def _apply_tone(db: Any, what: dict[str, Any]) -> str:
+    import json
+
+    from windyfly.control_panel import set_slider
+    from windyfly.memory.soul import upsert_soul
+    from windyfly.personality.versioning import snapshot_personality
+
+    changes: dict[str, tuple[int, int]] = what["changes"]
+    snapshot_personality(db, changed_by="soul_import")      # the personality as it was, in its history
+    for name, (_before, after) in changes.items():
+        set_slider(db, name, after, source="soul_import")
+    upsert_soul(db, UNDO_KEY, json.dumps({"before": {k: a for k, (a, _b) in changes.items()},
+                                         "after": {k: b for k, (_a, b) in changes.items()}}),
+                source="soul_import")
+    snapshot_personality(db, changed_by="soul_import")
+    logger.info("soul import: tone applied (%d sliders)", len(changes))
+    return (f"Applied the imported tone: {', '.join(f'{k} {b}' for k, (_a, b) in changes.items())}. "
+            "/soul undo puts them back; /sliders shows them all.")
+
+
+def undo(db: Any, key: str) -> str:
+    """Put back the sliders the last /soul apply changed, unless the owner has changed one since."""
+    import json
+
+    from windyfly.control_panel import get_sliders, set_slider
+    from windyfly.memory.soul import get_soul, upsert_soul
+
+    if _guest():
+        return GUEST_OFF
+    row = get_soul(db, UNDO_KEY)
+    record = json.loads(row["value"]) if row and row["value"] else {}
+    if not record.get("before"):
+        return "There is no imported tone to undo."
+    now = get_sliders(db)
+    back, kept = [], []
+    for name, before in sorted(record["before"].items()):
+        if int(float(now.get(name, 5))) == record["after"].get(name):
+            set_slider(db, name, int(before), source="rollback")
+            back.append(f"{name} {before}")
+        else:
+            kept.append(name)
+    upsert_soul(db, UNDO_KEY, "{}", source="rollback")
+    logger.info("soul import: tone undone (%d back, %d changed since)", len(back), len(kept))
+    out = f"Put back {', '.join(back)}." if back else "Nothing put back."
+    if kept:
+        out += f" Left {', '.join(kept)} as you set {'them' if len(kept) > 1 else 'it'} since."
+    return out

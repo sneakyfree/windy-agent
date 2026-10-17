@@ -6,7 +6,9 @@ skills/*.md, config.yaml) and returns a standardized import dict.
 
 from __future__ import annotations
 
+import json
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
@@ -56,21 +58,10 @@ def parse_openclaw(export_path: str) -> dict[str, Any]:
                 "language": "markdown",
             })
 
-    # Parse config.yaml for additional settings
-    config_file = path / "config.yaml"
-    if config_file.exists():
-        try:
-            import yaml  # noqa: F811
-            config_data = yaml.safe_load(config_file.read_text(encoding="utf-8"))
-            if isinstance(config_data, dict):
-                if "humor" in config_data:
-                    result["personality"]["humor"] = config_data["humor"]
-                if "formality" in config_data:
-                    result["personality"]["formality"] = config_data["formality"]
-        except ImportError:
-            logger.debug("PyYAML not installed, skipping config.yaml parsing")
-        except Exception as e:
-            logger.warning("Failed to parse config.yaml: %s", e)
+    # The tone in config.yaml or config.json (top-level humor / formality / verbosity numbers only).
+    # Read without PyYAML, which is not a runtime dependency: with it missing, the tone of every
+    # OpenClaw export was silently skipped.
+    result["personality"].update(_config_tone(path))
 
     # Mark all imports with low confidence
     for memory in result["memories"]:
@@ -120,3 +111,26 @@ def _extract_memories(memory_text: str) -> list[dict[str, Any]]:
                 })
 
     return memories
+
+
+_TONE_LINE = re.compile(r"^(humor|formality|verbosity)\s*:\s*(\d+(?:\.\d+)?)\s*(?:#.*)?$")
+
+
+def _config_tone(path: Path) -> dict[str, float]:
+    tone: dict[str, float] = {}
+    yaml_file, json_file = path / "config.yaml", path / "config.json"
+    try:
+        if yaml_file.is_file():
+            for line in yaml_file.read_text(encoding="utf-8", errors="replace").splitlines():
+                m = _TONE_LINE.match(line.rstrip())
+                if m:
+                    tone[m.group(1)] = float(m.group(2))
+        elif json_file.is_file():
+            data = json.loads(json_file.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                tone = {k: data[k] for k in ("humor", "formality", "verbosity")
+                        if isinstance(data.get(k), (int, float)) and not isinstance(data.get(k), bool)}
+    except (OSError, ValueError) as e:
+        logger.warning("OpenClaw config not read (%s)", type(e).__name__)
+    return tone
+
