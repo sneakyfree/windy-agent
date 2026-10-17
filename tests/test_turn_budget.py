@@ -88,6 +88,7 @@ def _bot():
 def _event(sender, body="hi"):
     room = MagicMock()
     room.room_id, room.display_name = ROOM, "Email helpers"
+    room.joined_count = 2      # two agents alone in the room: addressed to each other (room_stop P1)
     room.user_name.return_value = "Fly Two"
     ev = MagicMock()
     ev.sender, ev.body, ev.server_timestamp = sender, body, time.time() * 1000
