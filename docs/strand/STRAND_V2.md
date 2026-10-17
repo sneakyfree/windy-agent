@@ -352,7 +352,7 @@ Built in waves (strand-to-green plan, 2026-10-10): 5a set the frame plus Part 1 
 | P3.32.3 | Monthly spend is summed | live | `tests/test_cost_tracker.py::TestCostTracker::test_monthly_spend_with_entries` |
 | P3.32.4 | The budget check allows spending under budget | live | `tests/test_cost_tracker.py::TestBudgetCheck::test_within_budget` |
 | P3.32.5 | Over budget, the turn is blocked before the model is called | live | `tests/test_agent_loop.py::TestBudgetEnforcement::test_blocks_when_over_budget` |
-| P3.32.6 | Over budget, the owner can choose to go on anyway | planned: Windy Agent: a hard block today; the only way past is raising the budget in settings | — |
+| P3.32.6 | Over budget, the owner can choose to go on anyway: /budget continue allows one more day's budget for the rest of the UTC day, once; it resets by itself and never lifts the monthly budget | live | `tests/test_budget_continue.py::test_over_budget_the_owner_can_continue_today_once` |
 | P3.32.7 | The user is warned in chat as spending nears the budget | retired: the warning leaked into user replies; it goes to the log instead (#72) | — |
 
 ### P3.33 Intents (gene 3.3)

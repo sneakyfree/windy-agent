@@ -10,6 +10,12 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
 
 ## Unreleased
 
+- **Keep going today when the budget runs out.** When the agent hits its daily budget it now says the owner
+  can type `/budget continue`, which lets it spend up to one more day's budget for the rest of the day, once.
+  It goes back to normal at midnight UTC by itself, and the monthly budget, if one is set, is never lifted.
+  Only the owner can do this. `/budget` and `/version` now show the limit the agent really uses, and
+  `/budget set` really changes it (until a restart); before, they used a setting the agent never read.
+
 - **The agent answers in your language.** When your Windy app tags a message with your language, the agent
   now answers in it (it only ever tagged its own replies before). Only a well-formed language code is used,
   and a message without a tag keeps the last language. "What languages can you translate?" now reads Windy's
