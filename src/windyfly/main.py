@@ -396,6 +396,13 @@ def main() -> None:
         _sweep_soul_uploads()
     except Exception as e:  # noqa: BLE001
         logger.debug("soul intake sweep skipped: %s", e)
+    # A restore's encrypted undo copy is wiped at 24 hours, also across a restart.
+    try:
+        from windyfly.backup_restore import sweep_undo as _sweep_restore_undo
+
+        _sweep_restore_undo(db_path)
+    except Exception as e:  # noqa: BLE001
+        logger.debug("restore undo sweep skipped: %s", e)
 
     # ADR-051 Phase A.5 — single-runtime claim invariant.
     # Try to claim the agent's runtime slot on Mind before dispatching

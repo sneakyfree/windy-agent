@@ -1,8 +1,8 @@
 """Cold storage backup — back up agent memory to Windy Cloud.
 
 Encrypts and uploads windyfly.db to Windy Cloud (Cloudflare R2) on a
-configurable schedule. Supports restore for device migration and
-disaster recovery.
+configurable schedule. Restore lives in windyfly/backup_restore.py (asks first, restores through the live
+connection, keeps an encrypted undo).
 
 Config (windyfly.toml):
     [cloud]
@@ -33,7 +33,7 @@ from typing import Any
 
 import httpx
 
-from windyfly.memory.snapshot import copy_db, snapshot_bytes
+from windyfly.memory.snapshot import snapshot_bytes
 from windyfly.platform import get_project_root
 
 logger = logging.getLogger(__name__)
@@ -310,95 +310,6 @@ async def backup_to_cloud(config: dict | None = None) -> dict:
         return {"success": False, "error": f"Cannot reach Windy Cloud at {cloud_url}"}
     except httpx.HTTPStatusError as e:
         return {"success": False, "error": f"Upload failed: {e.response.status_code}"}
-    except Exception as e:
-        return {"success": False, "error": _describe_error(e)}
-
-
-async def restore_from_cloud(
-    backup_id: str = "latest",
-    config: dict | None = None,
-) -> dict:
-    """Download and decrypt a backup from Windy Cloud.
-
-    Replaces the local database with the restored backup.
-    Creates a local backup before overwriting.
-    """
-    from windyfly.auth.audit import audit_bot_key_call
-    from windyfly.auth.bot_credentials import ecosystem_auth_header, get_bot_key
-
-    cloud_url = _get_cloud_url(config)
-    auth_header = await ecosystem_auth_header(fallback_token=_get_cloud_token())
-
-    if await _no_credential(auth_header, cloud_url):
-        return {"success": False, "error": "No cloud token configured"}
-
-    cred = await get_bot_key()
-    audit_key_id = cred.key_id if cred else ""
-
-    db_path = PROJECT_ROOT / "data" / "windyfly.db"
-    if config:
-        db_path = Path(config.get("memory", {}).get("db_path", "data/windyfly.db"))
-
-    # Resolve "latest" to a real filename via the list endpoint.
-    filename = backup_id
-    if backup_id in ("", "latest"):
-        listed = await list_backups(config)
-        backups = listed.get("backups", [])
-        if not backups:
-            return {"success": False, "error": "No backups found"}
-        filename = backups[0]["filename"]  # list is newest-first
-
-    try:
-        # Canonical: fetch raw encrypted bytes by filename.
-        target_url = f"{cloud_url}/api/v1/archive/retrieve/windy_fly/{filename}"
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            with audit_bot_key_call(
-                key_id=audit_key_id,
-                scope_used="cloud:download",
-                target_url=target_url,
-            ) as ctx:
-                resp = await _cloud_send(client, "GET", target_url, auth_header, "backup read")
-                ctx["response_status"] = resp.status_code
-            resp.raise_for_status()
-            encrypted = resp.content
-
-            key = _get_encryption_key()
-            try:
-                decrypted = _maybe_decompress(_decrypt_data(encrypted, key))
-            except Exception:
-                return {
-                    "success": False,
-                    "error": "Could not decrypt backup — wrong key or "
-                    "corrupted data. If you set WINDY_BACKUP_KEY on the "
-                    "source device, set the same value here.",
-                }
-
-            # Back up current DB before overwriting
-            if db_path.exists():
-                backup_path = db_path.with_suffix(".db.pre-restore")
-                # copy_db keeps a file that is not a database as raw bytes:
-                # a broken memory file is often the reason for the restore.
-                copy_db(db_path, backup_path)
-                logger.info("Pre-restore backup saved to %s", backup_path)
-
-            # Write restored database
-            db_path.parent.mkdir(parents=True, exist_ok=True)
-            db_path.write_bytes(decrypted)
-
-            logger.info("Database restored from backup %s (%d bytes)", filename, len(decrypted))
-            return {
-                "success": True,
-                "backup_id": filename,
-                "size_bytes": len(decrypted),
-                "restored_at": datetime.now(timezone.utc).isoformat(),
-            }
-
-    except httpx.ConnectError:
-        return {"success": False, "error": f"Cannot reach Windy Cloud at {cloud_url}"}
-    except httpx.HTTPStatusError as e:
-        if e.response.status_code == 404:
-            return {"success": False, "error": "No backups found"}
-        return {"success": False, "error": f"Download failed: {e.response.status_code}"}
     except Exception as e:
         return {"success": False, "error": _describe_error(e)}
 

@@ -546,7 +546,7 @@ are the new genes (Wave 5g).
 | P4.11.13 | Onboarding (K2) gives the agent its chat account, using its passport | live | `tests/test_chat_session.py::TestFetchAgentChatSession::test_sends_ept_bearer_and_returns_session` |
 | P4.11.14 | The directory (K3) lists the agent as discoverable | retired: agents stay private (Windy Chat 10-17: the agent directory was dropped in windy-chat #385, Grant's decision; Synapse runs with search_all_users false, so an agent is findable only by people already in a room with it) (#594) | — |
 | P4.11.15 | Push (K6) delivers the agent's replies to the phone: replies go out as m.text, which Windy Chat's push covers (m.notice is never pushed); Windy Chat's prod proof BOARD 10-17T15:19Z (K6.m5) | live | `tests/strand/test_step8_restated.py::test_p4_11_15_replies_go_out_as_m_text_so_they_are_pushed` |
-| P4.11.16 | The agent's conversations are backed up (its own encrypted database backup to Windy Cloud, in place of K8) | live | `tests/test_cloud_backup_contract.py::TestListAndRestoreRoundTrip::test_backup_list_restore` |
+| P4.11.16 | The agent's conversations are backed up (its own encrypted database backup to Windy Cloud, in place of K8), and restored only after a yes, with a way back | live | `tests/test_backup_restore.py::TestListAndRestoreRoundTrip::test_backup_list_restore` |
 | P4.11.17 | Translation history from the Windy Pro account server | live | `tests/test_contract_pro_api.py::TestTranslationHistoryContract::test_correct_path_and_auth` |
 | P4.11.18 | Recordings from the account server | live | `tests/test_tools.py::TestWindyApiTools::test_get_recordings` |
 | P4.11.19 | Clone training data from the account server | live | `tests/test_tools.py::TestWindyApiTools::test_get_clone_status` |
@@ -1041,7 +1041,7 @@ own behaviour.
 
 | Codon | Promise | Status | Test |
 |---|---|---|---|
-| N6.1 | A backup restored as "latest" brings back exactly the original database | live | `tests/test_cloud_backup_contract.py::TestListAndRestoreRoundTrip::test_backup_list_restore` |
+| N6.1 | A backup restored as "latest" brings back exactly the original database | live | `tests/test_backup_restore.py::TestListAndRestoreRoundTrip::test_backup_list_restore` |
 | N6.2 | Backups are encrypted (AES-256-GCM) before they leave the machine | live | `tests/test_cloud_backup_contract.py::TestCrypto::test_aes_gcm_round_trip` |
 | N6.3 | A backup changed in storage is refused | live | `tests/test_cloud_backup_contract.py::TestCrypto::test_tamper_is_rejected` |
 | N6.4 | With the owner's own backup secret, the key no longer comes from the passport | live | `tests/test_cloud_backup_contract.py::TestCrypto::test_user_key_is_zero_knowledge` |
@@ -1052,7 +1052,7 @@ own behaviour.
 | N6.9 | With no credential at all, nothing is sent to the cloud | live | `tests/test_cloud_auth.py::test_backup_with_no_old_credential_and_no_token_sends_nothing` |
 | N6.10 | A retried upload sends the whole file again | live | `tests/test_cloud_auth.py::test_upload_retry_sends_the_whole_file_again` |
 | N6.11 | The cloud file tool says "unavailable" when the cloud is not configured | live | `tests/test_cloud_tool.py::TestUploadUnavailable::test_returns_unavailable_when_env_unset` |
-| N6.12 | (ours) A restore first keeps the current database as .db.pre-restore | live | `tests/strand/test_n4_n8_mail_calendar_cloud_phone_vault.py::test_n6_a_restore_keeps_the_current_database_as_pre_restore` |
+| N6.12 | (ours) A restore asks first, and keeps the current memory as an encrypted copy for /backup undo (24 hours); never a plaintext copy | live | `tests/strand/test_n4_n8_mail_calendar_cloud_phone_vault.py::test_n6_a_restore_keeps_an_encrypted_undo_copy_never_a_plaintext_one` |
 | N6.13 | (ours) A backup is due 24 hours after the last one by default | live | `tests/strand/test_n4_n8_mail_calendar_cloud_phone_vault.py::test_n6_a_backup_is_due_after_24_hours_by_default` |
 | N6.14 | (ours) auto_backup = false means no scheduled backup | live | `tests/strand/test_n4_n8_mail_calendar_cloud_phone_vault.py::test_n6_auto_backup_off_means_never_due` |
 | N6.15 | (ours) With no cloud credential the scheduled backup does not run | live | `tests/strand/test_n4_n8_mail_calendar_cloud_phone_vault.py::test_n6_no_cloud_credential_means_no_scheduled_backup` |

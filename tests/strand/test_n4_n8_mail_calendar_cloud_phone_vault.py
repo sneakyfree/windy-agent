@@ -83,36 +83,37 @@ def cloud(monkeypatch, tmp_path):
     return tmp_path
 
 
-def test_n6_a_restore_keeps_the_current_database_as_pre_restore(cloud, monkeypatch):
-    key = cb._get_encryption_key()
-    stored = cb._encrypt_data(b"SQLite format 3\x00 the backed-up memory", key)
-    db = cloud / "data" / "windyfly.db"
-    db.parent.mkdir(parents=True)
-    db.write_bytes(b"SQLite format 3\x00 today's memory")
-    monkeypatch.setattr("windyfly.auth.bot_credentials.ecosystem_auth_header",
-                        AsyncMock(return_value={"Authorization": "Bearer t"}))
-    monkeypatch.setattr("windyfly.auth.bot_credentials.get_bot_key", AsyncMock(return_value=None))
+def test_n6_a_restore_keeps_an_encrypted_undo_copy_never_a_plaintext_one(cloud, monkeypatch):
+    """Before a restore the current memory is kept ENCRYPTED with the owner key for /backup undo (24 h);
+    no plaintext .pre-restore copy is written (Boss's 10-16 rule; Hub 10-17)."""
+    import gzip
 
-    async def get(url, headers=None):
-        r = MagicMock(status_code=200)
-        if "/list/" in url:
-            r.json.return_value = {"files": [{"filename": "windyfly-x.enc", "size_bytes": len(stored),
-                                              "created_at": "2026-10-01T00:00:00Z"}], "count": 1}
-        else:
-            r.content = stored
-        r.raise_for_status = MagicMock()
-        return r
+    from windyfly import backup_restore as br
+    from windyfly.memory.database import Database
+    from windyfly.memory.nodes import upsert_node
 
-    client = AsyncMock()
-    client.get = AsyncMock(side_effect=get)
-    ctx = AsyncMock()
-    ctx.__aenter__ = AsyncMock(return_value=client)
-    ctx.__aexit__ = AsyncMock(return_value=False)
-    monkeypatch.setattr("httpx.AsyncClient", lambda *a, **k: ctx)
-    res = asyncio.run(cb.restore_from_cloud("latest"))
-    assert res["success"] is True, res
-    assert db.read_bytes() == b"SQLite format 3\x00 the backed-up memory"
-    assert db.with_suffix(".db.pre-restore").read_bytes() == b"SQLite format 3\x00 today's memory"
+    monkeypatch.setenv("WINDY_BACKUP_KEY", "n6-owner-key")
+    src = cloud / "src.db"
+    d = Database(str(src))
+    upsert_node(d, "fact", "zqxbackedup")
+    d.commit()
+    d.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    d.close()
+    stored = cb._encrypt_data(gzip.compress(src.read_bytes()), cb._get_encryption_key())
+    live = Database(str(cloud / "data" / "windyfly.db"))
+    try:
+        upsert_node(live, "fact", "zqxtoday")
+        live.commit()
+        monkeypatch.setattr(br, "_fetch", AsyncMock(return_value=(stored, {"filename": "b.enc",
+                                                                           "created_at": "2026-10-01T00:00:00Z"})))
+        br._questions.clear()
+        asyncio.run(br.ask_restore(live, "cli:n6"))
+        assert asyncio.run(br.confirm(live, "cli:n6")).startswith("Restored")
+        undo = cloud / "data" / "windyfly.db.undo.enc"
+        assert undo.is_file() and b"zqxtoday" not in undo.read_bytes()
+        assert not (cloud / "data" / "windyfly.db.pre-restore").exists()
+    finally:
+        live.close()
 
 
 def _last_backup(cloud, hours_ago: float) -> None:
