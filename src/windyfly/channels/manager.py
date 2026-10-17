@@ -92,8 +92,9 @@ class ChannelManager:
         session_id = next_session_id(msg.platform, msg.channel_id)
         # Sender → band (Sprint 4): identity finally survives past the
         # adapter boundary. Callbacks that accept ``band=`` get the
-        # resolved trust level; older two-arg callbacks (tests, custom
-        # embeddings) keep working unchanged.
+        # resolved trust level; an older two-arg callback (tests, custom
+        # embeddings) is only ever called for the owner (Hub on #592).
+        from windyfly.agent.capabilities import Band
         from windyfly.channels.identity import resolve_band
         band = resolve_band(msg.platform, msg.sender_id)
         if self._accepts_band is None:
@@ -109,8 +110,13 @@ class ChannelManager:
         try:
             if self._accepts_band:
                 result = self.agent_respond(msg.text, session_id, band=band)
-            else:
+            elif band >= Band.OWNER:
+                # A two-argument callback cannot be told the sender's band, so it only ever hears the
+                # owner: anyone else would get the owner's tools (Hub on #592, fail closed).
                 result = self.agent_respond(msg.text, session_id)
+            else:
+                logger.warning("callback takes no band; message from a non-owner dropped")
+                return ""
             if asyncio.iscoroutine(result):
                 result = await result
             # agent_respond is typed Callable[..., Awaitable[str] | str];
