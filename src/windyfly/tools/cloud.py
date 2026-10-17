@@ -115,18 +115,30 @@ _DENY_NAMES = re.compile(
 _PROFILE_DIRS = (
     ("library", "application support", "google", "chrome"),
     ("library", "application support", "google", "chrome beta"),
+    ("library", "application support", "google", "chrome canary"),
     ("library", "application support", "chromium"),
     ("library", "application support", "microsoft edge"),
+    ("library", "application support", "microsoft edge beta"),
+    ("library", "application support", "microsoft edge dev"),
+    ("library", "application support", "microsoft edge canary"),
     ("library", "application support", "bravesoftware"),
     ("library", "application support", "firefox"),
     ("library", "application support", "arc"),
     ("library", "application support", "vivaldi"),
+    ("library", "application support", "com.operasoftware.opera"),
     ("library", "keychains"),
     ("library", "safari"),
     ("library", "cookies"),
+    ("library", "mail"),
+    ("library", "messages"),
     ("appdata", "local", "google", "chrome"),
+    ("appdata", "local", "google", "chrome beta"),
+    ("appdata", "local", "google", "chrome sxs"),
     ("appdata", "local", "chromium"),
     ("appdata", "local", "microsoft", "edge"),
+    ("appdata", "local", "microsoft", "credentials"),
+    ("appdata", "roaming", "microsoft", "credentials"),
+    ("appdata", "roaming", "microsoft", "protect"),
     ("appdata", "local", "bravesoftware"),
     ("appdata", "local", "mozilla"),
     ("appdata", "roaming", "mozilla"),
@@ -161,22 +173,26 @@ def _inside(path: Path, root: Path) -> bool:
         return False
 
 
+def _under_home(real: Path, home: Path) -> tuple[str, ...] | None:
+    """``real``'s path below the home folder, lowercased, compared case-insensitively (macOS and Windows
+    folders are case-insensitive: /Users/Ann/library/KEYCHAINS is the keychain). None when not under home."""
+    rp, hp = [p.lower() for p in real.parts], [p.lower() for p in home.parts]
+    return tuple(rp[len(hp):]) if rp[:len(hp)] == hp else None
+
+
 def _denied(real: Path) -> str | None:
     """Why ``real`` may never be uploaded, or None."""
     home = Path.home().resolve(strict=False)
-    if _inside(real, home):
-        rel = real.relative_to(home).parts
-        if rel and rel[0].startswith("."):
-            return "it is in a hidden folder of your home folder (settings, keys, browser data)"
+    rel_low = _under_home(real, home)
+    if rel_low and rel_low[0].startswith("."):
+        return "it is in a hidden folder of your home folder (settings, keys, browser data)"
     for d in _agent_data_dirs():
         if _inside(real, d):
             return "it is part of the agent's own data"
     if _DENY_NAMES.search(real.name):
         return "its name looks like a key, token, password or env file"
-    if _inside(real, home):
-        rel_low = tuple(p.lower() for p in real.relative_to(home).parts)
-        if any(rel_low[:len(prefix)] == prefix for prefix in _PROFILE_DIRS):
-            return "it is part of a browser profile or a keychain"
+    if rel_low is not None and any(rel_low[:len(prefix)] == prefix for prefix in _PROFILE_DIRS):
+        return "it is part of a browser profile or a keychain"
     if any(p.lower() in _PROFILE_NAMES for p in real.parts[:-1]):
         return "it is part of a browser profile or a keychain"
     return None
@@ -200,7 +216,8 @@ def _named_in_message(typed: str, real: Path) -> bool:
         candidates.add(typed)
         candidates.add(str(Path(typed).expanduser()))
     for c in candidates:
-        pattern = r"(?<![^\s\"'(\[<`])" + re.escape(c) + r"(?=$|[\s\"')\]>`,;:!?]|\.(?:$|\s))"
+        pattern = (r"(?<![^\s\"'(\[<`\u201c\u2018])" + re.escape(c)
+                   + r"(?=$|[\s\"')\]>`,;:!?\u201d\u2019]|\.(?:$|\s))")      # curly quotes too
         if re.search(pattern, words):
             return True
     return False
