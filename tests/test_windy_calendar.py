@@ -318,3 +318,27 @@ def test_create_meeting_schema_matches_the_contract_limits(calls):
     props = _cap("windy_calendar.create_meeting").input_schema["properties"]
     assert props["duration_minutes"]["minimum"] == 15 and props["duration_minutes"]["maximum"] == 240
     assert props["invitees"]["minItems"] == 1 and props["invitees"]["maxItems"] == 10
+
+
+def test_appointments_and_block_work_end_to_end(calls):
+    """N5.19: both handlers put the right call on the wire and hand Calendar's answer back."""
+    appts = [{"startsAtUtc": "2026-10-20T15:00:00Z", "bookerName": "Sam"}]
+    _answer(calls, _resp(200, {"ok": True, "result": appts}))
+    out = _cap("windy_calendar.appointments").handler(from_date="2026-10-19", to_date="2026-10-25", timezone="America/New_York")
+    assert calls[-1][0] == "https://windycalendar.com/invoke"
+    assert calls[-1][1]["json"] == {"name": "list_appointments",
+                                    "arguments": {"timezone": "America/New_York", "from": "2026-10-19", "to": "2026-10-25"}}
+    assert out == {"ok": True, "appointments": appts}
+
+    _answer(calls, _resp(200, {"ok": True, "result": {"block_id": "b-1"}}))
+    out = _cap("windy_calendar.block").handler(starts_at_utc="2026-10-21T13:00:00Z",
+                                               ends_at_utc="2026-10-21T14:00:00Z", reason="dentist")
+    sent = calls[-1][1]["json"]
+    assert sent["name"] == "block_time"
+    assert {k: sent["arguments"][k] for k in ("starts_at_utc", "ends_at_utc", "reason")} == {
+        "starts_at_utc": "2026-10-21T13:00:00Z", "ends_at_utc": "2026-10-21T14:00:00Z", "reason": "dentist"}
+    assert out == {"ok": True, "block_id": "b-1"}
+
+    _answer(calls, _resp(403, {"ok": False, "error": "denied", "reason": "agent_blocked"}))
+    refused = _cap("windy_calendar.block").handler(starts_at_utc="2026-10-21T13:00:00Z", ends_at_utc="2026-10-21T14:00:00Z")
+    assert refused["ok"] is False

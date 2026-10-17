@@ -295,7 +295,7 @@ Built in waves (strand-to-green plan, 2026-10-10): 5a set the frame plus Part 1 
 | P2.22.8 | Sliders read back, with config defaults | live | `tests/test_control_panel.py::TestSliders::test_config_defaults` |
 | P2.22.9 | Monthly cost is estimated from the sliders | live | `tests/test_control_panel.py::TestCostEstimation::test_powerhouse_more_than_engineer` |
 | P2.22.10 | With raw mode off, the sliders shape the agent's tone | live | `tests/test_control_panel.py::test_turning_raw_off_hands_tone_back_to_the_sliders` |
-| P2.22.11 | /preset says when raw mode means the preset won't change the tone | planned: Windy Agent: raw mode is the default (Grant 07-25), so buddy and engineer give the same prompt while /preset still answers "applied" | — |
+| P2.22.11 | /preset says when raw mode means the preset won't change the tone | live | `tests/test_truthful_commands.py::test_preset_in_raw_mode_says_which_sliders_are_not_used` |
 
 ### P2.23 Truth layer (gene 2.3)
 
@@ -398,7 +398,7 @@ Built in waves (strand-to-green plan, 2026-10-10): 5a set the frame plus Part 1 
 | P3.41.7 | Memory is searched through the bridge (knowledge nodes) | live | `tests/test_bridge_integration.py::TestDispatchRoundtrips::test_memory_search_returns_list` |
 | P3.41.8 | Bridge memory search also searches past conversations | planned: Windy Agent: memory.search returns nodes only; episodes are not searched | — |
 | P3.41.9 | The gateway's health route reports whether the brain is connected | live | `tests/test_gateway_smoke.py::TestHealthRoute::test_bridge_reports_connected_state` |
-| P3.41.10 | Gateway HTTP and WebSocket chat are proven end to end without a live stack | planned: Windy Agent: only live-gated tests cover the gateway boot and the /ws/chat proxy; add a hermetic bun test gateway -> bridge | — |
+| P3.41.10 | Gateway HTTP and WebSocket chat are proven end to end without a live stack (gateway/tests/e2e-bridge.test.ts: the real gateway against a stand-in brain socket, run by CI) | live | `tests/strand/test_p4_map_index.py::test_p4_11_the_gateway_is_proven_end_to_end_in_ci` |
 
 ### P3.42 Cognitive decay (gene 4.2)
 
@@ -531,8 +531,8 @@ are the new genes (Wave 5g).
 | Codon | Promise | Status | Test |
 |---|---|---|---|
 | P4.11.1 | The brain's parts exist: loop, memory, skills, control panel, Matrix bot, bridge | live | `tests/strand/test_p4_map_index.py::test_p4_11_the_brain_parts_in_the_map_exist` |
-| P4.11.2 | The gateway serves the web UI on localhost:3000 | planned: Windy Agent: proven by bun tests in CI, not yet by a scorecard test (see P3.41.10) | — |
-| P4.11.3 | The gateway's WebSocket chat works end to end | planned: Windy Agent: live-gated only (see P3.41.10) | — |
+| P4.11.2 | The gateway serves the web UI (localhost:3000 by default) | live | `tests/strand/test_p4_map_index.py::test_p4_11_the_gateway_is_proven_end_to_end_in_ci` |
+| P4.11.3 | The gateway's WebSocket chat works end to end | live | `tests/strand/test_p4_map_index.py::test_p4_11_the_gateway_is_proven_end_to_end_in_ci` |
 | P4.11.4 | Sliders are set through the gateway's REST route | live | `tests/test_gateway_smoke.py::TestSlidersSetRoute::test_set_valid_slider` |
 | P4.11.5 | Spend is read through the gateway's REST route | live | `tests/test_gateway_smoke.py::TestCostDailyRoute::test_reflects_logged_cost` |
 | P4.11.6 | The gateway talks to the brain over the UDS bridge (the brain's own process, not the Matrix bot's) | live | `tests/test_bridge_integration.py::TestAgentRespondViaBridge::test_full_roundtrip` |
@@ -581,7 +581,7 @@ are the new genes (Wave 5g).
 | Codon | Promise | Status | Test |
 |---|---|---|---|
 | P4.13.1 | Tags v0.1.0 to v1.0.0, one per phase, over 18 weeks | retired: one-time release steps, not codons (#526) | — |
-| P4.13.2 | The version line is clear (the CHANGELOG has no 1.0.0 and reuses 0.1.0, 0.4.0 and 0.5.0 after the reset to 0.6/0.7) | planned: Windy Agent: one CHANGELOG note explaining the reset | — |
+| P4.13.2 | The version line is clear: the CHANGELOG explains that the v0.4.0/v0.5.0/v1.0.0 tags were phase markers, not the package releases of the same numbers | live | `tests/strand/test_p4_map_index.py::test_p4_13_the_changelog_explains_the_version_numbers` |
 
 ### P4.C1 Phase 1 checklist (Part 4 §14)
 
@@ -641,8 +641,8 @@ are the new genes (Wave 5g).
 | Codon | Promise | Status | Test |
 |---|---|---|---|
 | P4.C4.1 | The UDS bridge carries JSON between brain and gateway | live | `tests/test_bridge_integration.py::TestAgentRespondViaBridge::test_full_roundtrip` |
-| P4.C4.2 | The Bun gateway serves HTTP on port 3000 | planned: Windy Agent: bun tests in CI only (see P3.41.10) | — |
-| P4.C4.3 | WebSocket chat works end to end | planned: Windy Agent: live-gated only (see P3.41.10) | — |
+| P4.C4.2 | The Bun gateway serves HTTP on port 3000 (by default) | live | `tests/strand/test_p4_map_index.py::test_p4_11_the_gateway_is_proven_end_to_end_in_ci` |
+| P4.C4.3 | WebSocket chat works end to end | live | `tests/strand/test_p4_map_index.py::test_p4_11_the_gateway_is_proven_end_to_end_in_ci` |
 | P4.C4.4 | Decay lowers old memories' scores | live | `tests/test_phase4.py::TestCognitiveDecay::test_decay_returns_counts` |
 | P4.C4.5 | Aged memories (below 0.05) are deleted | retired: decay may dim, never erase (Doctrine Law 1) (#312) | — |
 | P4.C4.6 | A contradicting update is detected | live | `tests/test_phase4.py::TestConflictDetector::test_detects_conflict` |
@@ -799,7 +799,7 @@ are the new genes (Wave 5g).
 | P5.92.1 | After an emotional turn a one-line moment is saved | live | `tests/strand/test_p5_extended.py::test_p5_92_a_moment_is_saved_after_an_emotional_turn` |
 | P5.92.2 | Saved moments reach the prompt | live | `tests/test_relationship_moments.py::TestRelationshipMomentsInPrompt::test_moments_appear_in_assembled_prompt` |
 | P5.92.3 | Moments are listed through the bridge | live | `tests/test_gap_closure.py::TestDecayConflictsMomentsFailures::test_moments_list_with_data` |
-| P5.92.4 | Moments are captured only when emotional sensitivity is 3 or more (the old warmth gate) | planned: Windy Agent: the gate in the turn is untested | — |
+| P5.92.4 | Moments are captured only when emotional sensitivity is 3 or more (the old warmth gate) | live | `tests/strand/test_p5_extended.py::test_p5_92_moments_are_captured_only_at_emotional_sensitivity_3_or_more` |
 
 ### P5.93 Agent journal (gene C9.3)
 
@@ -1034,7 +1034,7 @@ own behaviour.
 | N5.16 | (ours) Only a listed agent of the same owner counts as trusted | live | `tests/test_windy_calendar.py::test_only_a_listed_same_owner_sibling_resolves_to_trusted` |
 | N5.17 | (ours) With no token the reply is a plain "I couldn't sign in" | live | `tests/test_windy_calendar.py::test_no_token_and_network_errors_are_plain` |
 | N5.18 | (ours) When Windy Calendar cannot be reached the reply says so plainly | live | `tests/strand/test_n4_n8_mail_calendar_cloud_phone_vault.py::test_n5_a_network_error_is_said_plainly` |
-| N5.19 | The appointments and block tools work end to end | planned: Windy Agent: their handlers have no test (capabilities/windy_calendar.py) | — |
+| N5.19 | The appointments and block tools work end to end | live | `tests/test_windy_calendar.py::test_appointments_and_block_work_end_to_end` |
 
 ### N6 Windy Cloud: backups
 
