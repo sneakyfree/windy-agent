@@ -10,6 +10,11 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
 
 ## Unreleased
 
+- **A failed database upgrade no longer leaves memory half changed.** Upgrades of the memory
+  database used to commit each SQL step as it went, so a failure part-way left some changes in
+  and released the lock other openers were waiting on. Now one upgrade run is one transaction:
+  it applies completely or not at all.
+
 - **The gateway is tested end to end without a live stack.** A new bun test starts the real
   gateway against a stand-in brain on a private socket and checks, over real HTTP and a real
   WebSocket, that the web page is served, the health check sees the brain, chat refuses a

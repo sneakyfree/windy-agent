@@ -153,3 +153,28 @@ def test_p1_03_timestamps_parse_without_the_deprecated_defaults():
         db.close()
     assert (rows[0][0], rows[0][1]) == (when, day)
     assert isinstance(rows[1][0], dt.datetime) and isinstance(rows[1][1], dt.date)
+
+
+def test_p1_03_a_failed_migration_run_leaves_nothing_behind(tmp_path, monkeypatch):
+    from windyfly.memory import database as dbmod
+
+    path = str(tmp_path / "m.db")
+    dbmod.Database(path).close()                     # fully migrated
+    top = max(dbmod._MIGRATIONS)
+    good = (f"CREATE TABLE t_good (x INTEGER);\n"
+            f"INSERT INTO schema_version (version, description) VALUES ({top + 1}, 'good');\n")
+    bad = (f"CREATE TABLE t_half (x INTEGER);\n"
+           f"INSERT INTO no_such_table VALUES (1);\n"
+           f"INSERT INTO schema_version (version, description) VALUES ({top + 2}, 'bad');\n")
+    monkeypatch.setitem(dbmod._MIGRATIONS, top + 1, ("good", good))
+    monkeypatch.setitem(dbmod._MIGRATIONS, top + 2, ("bad", bad))
+    with pytest.raises(sqlite3.OperationalError):
+        dbmod.Database(path)
+    conn = sqlite3.connect(path)
+    try:
+        names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        version = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
+    finally:
+        conn.close()
+    assert "t_good" not in names and "t_half" not in names
+    assert version == top
