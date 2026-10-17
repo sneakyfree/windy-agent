@@ -159,6 +159,31 @@ def translate_text(
         return {"error": str(e)}
 
 
+def list_languages() -> dict[str, Any]:
+    """The languages Windy translates, with honest quality tiers (strand P4.11.21).
+
+    ``GET /api/v1/translate/languages`` is public on the account server, so no credential is sent. Each
+    language carries its code, English and native name, and the measured tier to and from English
+    (great | good | basic | unrated; never a score).
+    """
+    try:
+        response = httpx.get(f"{_get_api_url()}/api/v1/translate/languages", timeout=_TIMEOUT)
+        response.raise_for_status()
+        body = response.json()
+    except httpx.ConnectError as e:
+        logger.error("Windy Pro is not available: %s", e)
+        return {"error": "Windy Pro is not available right now"}
+    except (httpx.HTTPError, ValueError) as e:
+        logger.error("Failed to list languages: %s", type(e).__name__)
+        return {"error": "Couldn't read the language list from Windy Pro"}
+    out = []
+    for lang in (body.get("languages") if isinstance(body, dict) else None) or []:
+        if isinstance(lang, dict) and isinstance(lang.get("code"), str):
+            out.append({k: lang.get(k) for k in ("code", "name", "native_name", "from_en", "to_en")})
+    return {"languages": out, "count": len(out), "version": body.get("version") if isinstance(body, dict) else None,
+            "tiers": "great, good and basic are measured; unrated means served but not yet measured"}
+
+
 _PROBE_TIMEOUT = 3.0
 
 
@@ -190,6 +215,16 @@ def register_windy_tools(registry: ToolRegistry) -> None:
             "this is checked once at start, so restart the agent to retry"
         )
         return
+    registry.register(
+        name="list_languages",
+        description=(
+            "The languages Windy can translate, each with its code, name and quality to and from English "
+            "(great / good / basic / unrated). Use for 'what languages can you translate?' or before choosing "
+            "a language code."
+        ),
+        parameters={"type": "object", "properties": {}, "required": []},
+        fn=list_languages,
+    )
     registry.register(
         name="get_translation_history",
         description=(

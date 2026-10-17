@@ -702,6 +702,13 @@ def assemble_prompt(
                 "reason."
             )
 
+    # Answer in the sender's language when their Windy app tags it (strand P2.11.13).
+    from windyfly.channels import sender_lang as _sender_lang
+
+    lang_line = _sender_lang.prompt_line(session_id)
+    if lang_line:
+        system_parts.append(lang_line)
+
     messages.append({
         "role": "system",
         "content": "\n\n".join(system_parts),
