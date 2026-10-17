@@ -148,8 +148,8 @@ _DERIVED_NODE_TYPES = ("relationship_moment", "journal_entry", "turnover_letter"
 def history_days(db: Database, days: int = 30) -> list[tuple[str, int]]:
     """Messages per UTC day for the last ``days`` days, newest first."""
     rows = db.fetchall(
-        "SELECT substr(created_at, 1, 10) AS d, COUNT(*) AS n FROM episodes "
-        "WHERE created_at >= datetime('now', ?) GROUP BY d ORDER BY d DESC",
+        "SELECT date(created_at) AS d, COUNT(*) AS n FROM episodes "
+        "WHERE datetime(created_at) >= datetime('now', ?) GROUP BY d ORDER BY d DESC",
         (f"-{int(days)} days",),
     )
     return [(str(r["d"]), int(r["n"])) for r in rows]
@@ -162,24 +162,37 @@ def find_messages(db: Database, words: str, limit: int = MAX_ITEMS + 1) -> list[
 
 def items_between(db: Database, start: str, end: str) -> list[Item]:
     """Everything a delete of the UTC days ``start``..``end`` (inclusive, YYYY-MM-DD) takes: the
-    messages, the summaries made from conversations in those days, and the corrections logged then."""
+    messages, the summaries made from conversations in those days, and the corrections logged then.
+    Times are compared through datetime(), so a 'T' or offset form is caught too."""
     lo, hi = f"{start} 00:00:00", f"{end} 23:59:59"
     items: list[Item] = []
     for r in db.fetchall(
         "SELECT id, created_at AS w, role || ': ' || content AS p FROM episodes "
-        "WHERE created_at BETWEEN ? AND ? ORDER BY created_at DESC", (lo, hi)):
+        "WHERE datetime(created_at) BETWEEN ? AND ? ORDER BY created_at DESC", (lo, hi)):
         items.append(Item("message", str(r["id"]), str(r["w"]), " ".join(str(r["p"]).split())[:PREVIEW_CHARS]))
     marks = ",".join("?" * len(_DERIVED_NODE_TYPES))
     for r in db.fetchall(
         f"SELECT id, created_at AS w, type || ': ' || name AS p FROM nodes "
-        f"WHERE type IN ({marks}) AND created_at BETWEEN ? AND ? ORDER BY created_at DESC",
+        f"WHERE type IN ({marks}) AND datetime(created_at) BETWEEN ? AND ? ORDER BY created_at DESC",
         (*_DERIVED_NODE_TYPES, lo, hi)):
         items.append(Item("memory", str(r["id"]), str(r["w"]), " ".join(str(r["p"]).split())[:PREVIEW_CHARS]))
     for r in db.fetchall(
         "SELECT id, created_at AS w, description AS p FROM failures "
-        "WHERE created_at BETWEEN ? AND ? ORDER BY created_at DESC", (lo, hi)):
+        "WHERE datetime(created_at) BETWEEN ? AND ? ORDER BY created_at DESC", (lo, hi)):
         items.append(Item("correction", str(r["id"]), str(r["w"]), " ".join(str(r["p"] or "").split())[:PREVIEW_CHARS]))
     return items
+
+
+def messages_by_id(db: Database, ids: list[str]) -> list[Item]:
+    """The messages with these ids (the dashboard deletes one search hit by its id)."""
+    wanted = [str(i) for i in ids][:MAX_ITEMS]
+    if not wanted:
+        return []
+    marks = ",".join("?" * len(wanted))
+    rows = db.fetchall(
+        f"SELECT id, created_at AS w, role || ': ' || content AS p FROM episodes WHERE id IN ({marks})",
+        tuple(wanted))
+    return [Item("message", str(r["id"]), str(r["w"]), " ".join(str(r["p"]).split())[:PREVIEW_CHARS]) for r in rows]
 
 
 def all_history(db: Database) -> list[Item]:

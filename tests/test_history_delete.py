@@ -94,3 +94,28 @@ def test_bridge_refuses_in_guest_mode(db):
         assert "error" in asyncio.run(b._dispatch("history.preview", {"all": True}))
         assert "error" in asyncio.run(b._dispatch("history.delete", {"token": "x"}))
     assert _n(db) == 2
+
+
+def test_a_day_delete_also_catches_iso_t_timestamps(db):
+    """Hub on #577: an importer writing '2026-10-05T12:00:00' must not escape a day delete."""
+    from windyfly.memory import forget as fg
+
+    db.execute("UPDATE episodes SET created_at = '2026-10-05T12:00:00' WHERE content LIKE 'the red kite%'")
+    db.commit()
+    got = fg.items_between(db, "2026-10-05", "2026-10-05")
+    assert [i.kind for i in got] == ["message"] and "red kite" in got[0].preview
+
+
+def test_bridge_preview_by_id_alone_finds_a_multi_word_hit(db):
+    """Hub on #577: a dashboard search is ANY-word; previewing by the hit's id must not depend on the words."""
+    b = _bridge(db)
+    eid = db.fetchone("SELECT id FROM episodes WHERE content LIKE 'kites need%'")["id"]
+    with patch("windyfly.agent.guest_mode.is_guest_active", return_value=False):
+        p = asyncio.run(b._dispatch("history.preview", {"ids": [eid]}))
+    assert [i["id"] for i in p["items"]] == [eid] and p["counts"] == {"message": 1}
+
+
+def test_delete_all_says_facts_stay(db):
+    out = _say("/history delete all")
+    assert "Facts and other memories I keep stay" in out and "/forget" in out
+    _say("/history no")

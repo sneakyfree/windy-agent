@@ -276,7 +276,10 @@ class UDSBridge:
 
         if is_guest_active():
             return {"error": "not available in guest mode"}
-        if params.get("all") is True:
+        ids = params.get("ids")
+        if isinstance(ids, list) and ids and not (params.get("query") or params.get("from") or params.get("all")):
+            items = fg.messages_by_id(self.db, ids)              # one search hit, by its id alone
+        elif params.get("all") is True:
             items = fg.all_history(self.db)
         elif params.get("query"):
             items = fg.find_messages(self.db, str(params["query"]))[: fg.MAX_ITEMS]
@@ -286,8 +289,7 @@ class UDSBridge:
                 return {"error": "dates must be YYYY-MM-DD"}
             items = fg.items_between(self.db, *span)
         else:
-            return {"error": "give query, from+to, or all"}
-        ids = params.get("ids")
+            return {"error": "give ids, query, from+to, or all"}
         if isinstance(ids, list) and ids:
             wanted = {str(i) for i in ids}
             items = [it for it in items if it.id in wanted]
