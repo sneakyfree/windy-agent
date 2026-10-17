@@ -610,6 +610,15 @@ def _dispatch_tool_call(*args: Any, **kwargs: Any) -> str:
     """``_dispatch_tool_call_inner`` + the health row's tool counts + turn timing."""
     from windyfly.observability import turn_timing
 
+    # A typed-task turn (agent-teamwork.v1) may call only its allowlist, on every dispatch path.
+    from windyfly.tools.bands import task_turn_allowlist
+
+    allow = task_turn_allowlist()
+    fn_name = args[0] if args else kwargs.get("fn_name")
+    if allow is not None and fn_name not in allow:
+        logger.warning("Task turn: refusing %s (not on the task-turn allowlist)", fn_name)
+        return json.dumps({"error": ("task_turn_denied: a task from another agent may use public reads only "
+                                     "(web search, weather, news, calculations).")})
     with turn_timing.phase("tools"):
         result = _dispatch_tool_call_inner(*args, **kwargs)
     ok = True
@@ -1260,6 +1269,12 @@ def _agent_respond_turn(
 
     capability_tools = _phone_tools.filter_tools(capability_tools, session_id)
     tools = (legacy_tools + capability_tools) if (legacy_tools or capability_tools) else None
+    # A typed-task turn (agent-teamwork.v1) is offered only its allowlist (public reads).
+    from windyfly.tools.bands import task_turn_allowlist
+
+    _task_allow = task_turn_allowlist()
+    if _task_allow is not None and tools:
+        tools = [t for t in tools if (t.get("function") or {}).get("name") in _task_allow] or None
 
     # 2.1. Tier 0 — Anthropic native web_search (PR #164).
     # When the active model supports it AND we're under the daily
