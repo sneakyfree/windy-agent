@@ -175,10 +175,10 @@ def _run_bot_channel(
         from windyfly.agent.capabilities import Band
         from windyfly.agent.executor import run_turn
         if band is None:
-            # Fallback for non-manager callers; the manager resolves
-            # sender→band via channels.identity (guest capping included).
-            from windyfly.agent.guest_mode import is_guest_active
-            band = Band.USER if is_guest_active() else Band.OWNER
+            # The ChannelManager always passes the sender's band (channels.identity). A caller that
+            # forgets it must not get the owner's tools (Hub on #592): fail closed to SANDBOX.
+            logger.warning("respond called without a band; treating the sender as a stranger")
+            band = Band.SANDBOX
         # Off-loop: a long turn must not starve heartbeats or the other
         # channels this process serves (see agent/executor.py).
         return await run_turn(
@@ -559,15 +559,15 @@ def main() -> None:
         async def _respond(
             text: str, session_id: str, band=None,
         ) -> str:
-            # Guest-mode toggle: when Grant has flipped /guest on (file
-            # flag at ~/.windy/.guest), demote every message to
-            # Band.USER so prompt assembly engages GRANDMA MODE for
-            # demo audiences. Default OWNER otherwise.
+            # The band comes from the ChannelManager (channels.identity.resolve_band), which also
+            # caps every sender to Band.USER in guest mode (GRANDMA MODE for demo audiences).
             from windyfly.agent.capabilities import Band
             from windyfly.agent.executor import run_turn
             if band is None:
-                from windyfly.agent.guest_mode import is_guest_active
-                band = Band.USER if is_guest_active() else Band.OWNER
+                # The ChannelManager always passes the sender's band (channels.identity). A caller that
+                # forgets it must not get the owner's tools (Hub on #592): fail closed to SANDBOX.
+                logger.warning("respond called without a band; treating the sender as a stranger")
+                band = Band.SANDBOX
             # Off-loop: keeps the watchdog heartbeat + /panic path
             # responsive during long turns (see agent/executor.py).
             return await run_turn(
