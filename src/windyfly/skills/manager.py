@@ -9,6 +9,7 @@ through the agent's own tools under the owner's trust settings.
 from __future__ import annotations
 
 import logging
+import threading
 
 from windyfly.memory.database import Database
 from windyfly.memory.skills import get_skill, require_playbook_language, save_skill
@@ -188,6 +189,35 @@ def increment_usage(
         db.commit()
 
     write_queue.enqueue(Priority.MEDIUM, _update)
+
+
+# Skills the agent looked at during a turn, per session. They are judged on the owner's NEXT message
+# (strand P3.31.10): friction there ("no, that's wrong", "I already said") counts a failure for each,
+# anything else a success. The view itself already counts the use (usage_count, P3.31.3).
+_viewed_this_turn: dict[str, set[str]] = {}
+_viewed_lock = threading.Lock()
+
+
+def note_skill_used(session_id: str | None, skill_id: str) -> None:
+    """Remember that this session's current turn used ``skill_id``."""
+    if not session_id or not skill_id:
+        return
+    with _viewed_lock:
+        _viewed_this_turn.setdefault(session_id, set()).add(skill_id)
+
+
+def judge_skill_uses(db: Database, write_queue: WriteQueue, session_id: str, *, friction: bool) -> int:
+    """On the owner's next message: count a failure (friction) or a success for each skill the
+    previous turn used, then forget them. Returns how many skills were judged."""
+    with _viewed_lock:
+        ids = _viewed_this_turn.pop(session_id, set())
+    column = "failure_count" if friction else "success_count"
+    for skill_id in ids:
+        def _update(sid: str = skill_id) -> None:
+            db.execute(f"UPDATE skills SET {column} = {column} + 1 WHERE id = ?", (sid,))
+            db.commit()
+        write_queue.enqueue(Priority.MEDIUM, _update)
+    return len(ids)
 
 
 def rollback_skill(db: Database, skill_id: str) -> str | None:

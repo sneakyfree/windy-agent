@@ -340,7 +340,7 @@ Built in waves (strand-to-green plan, 2026-10-10): 5a set the frame plus Part 1 
 | P3.31.7 | Skills are text playbooks only: no skill text can ever run as code | live | `tests/test_skills_text_only.py::test_skills_module_cannot_execute_code` |
 | P3.31.8 | Only the playbook language is accepted | live | `tests/test_skills_text_only.py::test_only_playbook_is_accepted` |
 | P3.31.9 | Skills run in a sandbox, promoted only after syntax, execution and safety gates | retired: the sandbox did not isolate and the safety gate was bypassable; executable skills, sandbox, evaluator and golden tests removed (#504) | — |
-| P3.31.10 | Success and failure uses are counted separately | planned: Windy Agent: increment_usage has no callers; viewing counts a use without success or failure | — |
+| P3.31.10 | Success and failure uses are counted separately: a skill the agent used is judged on the owner's next message (friction = failure, otherwise success) | live | `tests/test_skill_engine.py::TestSkillVerdict::test_the_turn_after_a_skill_was_used_judges_it` |
 
 ### P3.32 Cost ledger and budget (gene 3.2)
 

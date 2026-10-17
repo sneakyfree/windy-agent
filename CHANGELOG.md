@@ -10,6 +10,11 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
 
 ## Unreleased
 
+- **Skills learn whether they helped.** When the agent uses one of its skills, the owner's next
+  message decides how it went. A correction ("no, that's wrong", "I already said") counts as a
+  failure for that skill, and anything else counts as a success. Before this the success and failure
+  counts were never filled in.
+
 - **`/forget` also removes the correction skill made from a correction you delete.** That skill's
   text comes from your own words, so it now goes with the correction, and a search finds it too.
   `/forget find <words>` searches for words that begin with yes, no or delete. The reply now says
