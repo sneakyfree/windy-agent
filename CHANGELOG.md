@@ -10,6 +10,12 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
 
 ## Unreleased
 
+- **Imported items flagged for review stay out of the agent's mind until you keep them.** A soul
+  import stores sensitive items (for example anything that looks like a password or an account
+  number) flagged for review. Nothing read that flag, so those items could still be recalled into
+  the model's prompt and show in memory searches. Every memory listing and search now skips flagged
+  items, so they reach no model until the owner keeps them.
+
 - **New mail is not lost when there is nobody to tell yet.** If the agent can't send the owner its
   new-mail notice, for example before the owner's direct room exists, the mail is no longer marked as
   seen, so the next check announces it. A wrong `WINDY_MAINTENANCE_RUNNER` value is logged, a Matrix

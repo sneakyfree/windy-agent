@@ -17,6 +17,15 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+# An imported item flagged for the owner's review (needs_review) stays out of recall, the prompt and
+# every listing until the owner keeps it (Hub on the soul-import design, 10-17). json_valid guards a
+# row whose metadata is not JSON, so it can never break a query.
+NOT_FLAGGED = (
+    "(metadata IS NULL OR NOT json_valid(metadata) "
+    "OR COALESCE(json_extract(metadata, '$.needs_review'), 0) = 0)"
+)
+
+
 def upsert_node(
     db: Database,
     type: str,
@@ -134,11 +143,11 @@ def get_all_nodes(
     """
     if node_type:
         return db.fetchall(
-            "SELECT * FROM nodes WHERE type = ? ORDER BY updated_at DESC LIMIT ?",
+            f"SELECT * FROM nodes WHERE type = ? AND {NOT_FLAGGED} ORDER BY updated_at DESC LIMIT ?",
             (node_type, limit),
         )
     return db.fetchall(
-        "SELECT * FROM nodes ORDER BY updated_at DESC LIMIT ?",
+        f"SELECT * FROM nodes WHERE {NOT_FLAGGED} ORDER BY updated_at DESC LIMIT ?",
         (limit,),
     )
 
@@ -186,7 +195,7 @@ def get_nodes_by_type(
         List of node dicts.
     """
     return db.fetchall(
-        "SELECT * FROM nodes WHERE type = ? ORDER BY updated_at DESC LIMIT ?",
+        f"SELECT * FROM nodes WHERE type = ? AND {NOT_FLAGGED} ORDER BY updated_at DESC LIMIT ?",
         (type, limit),
     )
 
@@ -218,7 +227,7 @@ def search_nodes(
     # Tier 1: name match — high precision. Each term ORed.
     name_clauses = " OR ".join(["name LIKE ?"] * len(terms))
     name_hits = db.fetchall(
-        f"SELECT * FROM nodes WHERE {name_clauses} "
+        f"SELECT * FROM nodes WHERE ({name_clauses}) AND {NOT_FLAGGED} "
         f"ORDER BY updated_at DESC LIMIT ?",
         (*likes, limit),
     )
@@ -231,7 +240,7 @@ def search_nodes(
     # nodes whose metadata happens to contain a common word.
     meta_clauses = " OR ".join(["JSON_EXTRACT(metadata, '$') LIKE ?"] * len(terms))
     return db.fetchall(
-        f"SELECT * FROM nodes WHERE {meta_clauses} "
+        f"SELECT * FROM nodes WHERE ({meta_clauses}) AND {NOT_FLAGGED} "
         f"ORDER BY updated_at DESC LIMIT ?",
         (*likes, limit),
     )
