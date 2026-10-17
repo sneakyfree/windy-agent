@@ -2238,7 +2238,10 @@ def _register_budget_through_help():
         # Default: show status
         state = get_backup_state()
         last = state.get("last_backup", "never")
-        return f"\U0001f4be Backup status: last backup at {last}\nUsage: /backup [now | list | restore [id]]"
+        from windyfly.cloud_backup import owner_key_missing
+        off = ("\n\u26a0\ufe0f Cloud backups are OFF: this agent has no backup key of its own (WINDY_BACKUP_KEY). "
+               "A key derived from the passport is never used for uploads.") if owner_key_missing() else ""
+        return f"\U0001f4be Backup status: last backup at {last}{off}\nUsage: /backup [now | list | restore [id]]"
     _r("backup", "Cloud backup: run, list, or restore", "10_cloud", cmd_backup,
        usage="backup [now | list | restore [backup_id] | status]")
 

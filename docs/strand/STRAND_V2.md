@@ -1056,6 +1056,7 @@ own behaviour.
 | N6.14 | (ours) auto_backup = false means no scheduled backup | live | `tests/strand/test_n4_n8_mail_calendar_cloud_phone_vault.py::test_n6_auto_backup_off_means_never_due` |
 | N6.15 | (ours) With no cloud credential the scheduled backup does not run | live | `tests/strand/test_n4_n8_mail_calendar_cloud_phone_vault.py::test_n6_no_cloud_credential_means_no_scheduled_backup` |
 | N6.16 | Each agent gets a free-tier storage plan from Windy Cloud at hatch | retired: an identity with no plan gets Cloud's free default and an agent's writes count against its owner's plan; the never-called allocate_cloud_quota is removed (#546) | — |
+| N6.17 | No backup is uploaded without an owner-held key (WINDY_BACKUP_KEY): a key derived from the passport and name is never used for an upload, the refusal is counted in the log, and /backup tells the owner backups are off | live | `tests/strand/test_n4_n8_mail_calendar_cloud_phone_vault.py::test_n6_no_backup_is_uploaded_without_an_owner_held_key` |
 
 ### N7 Phone tools (the owner's phone, through Windy Chat)
 

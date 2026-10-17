@@ -41,6 +41,7 @@ logger = logging.getLogger(__name__)
 PROJECT_ROOT = get_project_root()
 _BACKUP_STATE_FILE = PROJECT_ROOT / "data" / "backup_state.json"
 _RETENTION_COUNT = 5  # keep the 5 most recent backups (Cloud enforces)
+_derived_key_refusals = 0  # uploads refused for want of an owner-held key (counts only)
 
 # A backup is a BULK transfer, not an interactive call. The old flat
 # 60s httpx timeout applied to writes too, so on a normie's home/office
@@ -188,6 +189,11 @@ async def _no_credential(auth_header: dict, cloud_url: str) -> bool:
     return await asyncio.to_thread(cloud_auth.agent_headers, "GET", cloud_url) is None
 
 
+def owner_key_missing() -> bool:
+    """True when the agent has no owner-held WINDY_BACKUP_KEY: then no backup is uploaded (Boss 10-17)."""
+    return not os.environ.get("WINDY_BACKUP_KEY", "")
+
+
 async def backup_to_cloud(config: dict | None = None) -> dict:
     """Encrypt and upload the agent database to Windy Cloud.
 
@@ -196,6 +202,18 @@ async def backup_to_cloud(config: dict | None = None) -> dict:
     from windyfly.auth.audit import audit_bot_key_call
     from windyfly.auth.bot_credentials import ecosystem_auth_header, get_bot_key
     from windyfly.trust.gate import TrustDenied, require_trust
+
+    # Boss 10-17: no backup leaves under the key derived from passport + agent name. Both are sent
+    # to Cloud with the upload, so Cloud could open it. Only an owner-held WINDY_BACKUP_KEY uploads.
+    # (Restore still opens old backups with whichever key made them.)
+    if owner_key_missing():
+        global _derived_key_refusals
+        _derived_key_refusals += 1
+        logger.warning("backup not sent: no WINDY_BACKUP_KEY; a derived key is never used for an upload "
+                       "(refused %d time(s) since start)", _derived_key_refusals)
+        return {"success": False,
+                "error": "Backup not sent: this agent has no backup key of its own (WINDY_BACKUP_KEY). "
+                         "A key derived from the passport is not used for uploads."}
 
     try:
         await require_trust("upload_file")

@@ -194,3 +194,26 @@ def test_n8_a_bad_lease_key_file_is_logged_not_replaced_silently(tmp_path, caplo
     assert len(msgs) == 1 and str(path) in msgs[0] and "replaces it" in msgs[0]
     assert "{not json" not in msgs[0]
     assert lease_key._load(path)["keys"][0]["kid"] == entry["kid"]
+
+
+def test_n6_no_backup_is_uploaded_without_an_owner_held_key(monkeypatch, caplog):
+    """Boss 10-17: a key derived from passport + name is never used for an upload."""
+    from unittest.mock import AsyncMock
+
+    monkeypatch.delenv("WINDY_BACKUP_KEY", raising=False)
+    monkeypatch.setenv("ETERNITAS_PASSPORT", "ET26-TEST-0001")
+    trust = AsyncMock(return_value=None)
+    auth = AsyncMock(return_value={"Authorization": "Bearer t"})
+    monkeypatch.setattr("windyfly.trust.gate.require_trust", trust)
+    monkeypatch.setattr("windyfly.auth.bot_credentials.ecosystem_auth_header", auth)
+    before = cb._derived_key_refusals
+    with caplog.at_level("WARNING", logger="windyfly.cloud_backup"):
+        out = asyncio.run(cb.backup_to_cloud())
+    assert out["success"] is False and "no backup key of its own" in out["error"]
+    assert cb._derived_key_refusals == before + 1
+    trust.assert_not_awaited()                                       # nothing was prepared or sent
+    auth.assert_not_awaited()
+    assert any("backup not sent" in r.getMessage() for r in caplog.records)
+    assert cb.owner_key_missing() is True
+    monkeypatch.setenv("WINDY_BACKUP_KEY", "owner-secret")
+    assert cb.owner_key_missing() is False

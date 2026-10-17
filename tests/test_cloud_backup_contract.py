@@ -109,6 +109,7 @@ class TestUploadContract:
         )
 
     def test_upload_is_multipart_not_json(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("WINDY_BACKUP_KEY", "contract-test-owner-key")  # uploads need an owner-held key (Boss 10-17)
         self._mocks(monkeypatch)
         db = tmp_path / "data" / "windyfly.db"
         db.parent.mkdir(parents=True, exist_ok=True)
@@ -145,6 +146,7 @@ class TestUploadContract:
 
 class TestListAndRestoreRoundTrip:
     def test_backup_list_restore(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("WINDY_BACKUP_KEY", "contract-test-owner-key")  # uploads need an owner-held key (Boss 10-17)
         # A fake in-memory "cloud": filename -> stored encrypted bytes.
         store: dict[str, bytes] = {}
         monkeypatch.setattr(
@@ -229,6 +231,7 @@ class TestErrorSurfacing:
         assert cb._describe_error(RuntimeError("   ")) == "RuntimeError"
 
     def test_backup_upload_returns_typed_error_on_blank_exception(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("WINDY_BACKUP_KEY", "contract-test-owner-key")  # uploads need an owner-held key (Boss 10-17)
         # The realistic reproduction of the Windy 0 blank failure: the
         # upload's generic `except Exception as e` caught something whose
         # str() was "" → returned {"error": ""} → main.py logged
