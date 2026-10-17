@@ -11,9 +11,14 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
 ## Unreleased
 
 - **The agent answers in your language.** When your Windy app tags a message with your language, the agent
-  now answers in it (it only ever tagged its own replies before). Only a well-formed language code is used,
-  and a message without a tag keeps the last language. "What languages can you translate?" now reads Windy's
-  own list, with each language's quality to and from English.
+  now answers in it (it only ever tagged its own replies before).
+  - Only your own messages set it; another person in a shared room can't change the language of the
+    agent's replies.
+  - Only a well-formed language code is used (like `es`, `pt-BR`, `zh-Hant-TW`), and only a language Windy
+    serves is named to the model. A message without a tag keeps the last language.
+- **"What languages can you translate?"** now reads Windy's own list, fresh each time (not cached), with
+  each language's quality to and from English. The list is read with limits: at most 256 KB and 200
+  languages, names as plain text of at most 64 characters, and no redirects.
 
 - **Restoring from a cloud backup is safe again, asks first, and can be undone.** `/backup restore`
   (or `/backup restore <name>`) downloads the backup, opens it with your own backup key, and checks it,

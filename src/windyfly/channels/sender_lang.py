@@ -4,9 +4,14 @@ Windy apps tag each Matrix message with ``content.windy_lang``, the language the
 only outgoing messages set it and nothing read it. Now the Matrix channel notes the tag from each incoming
 message for that conversation, and the prompt asks the model to answer in that language.
 
-The tag is untrusted input, so only a well-formed language code is kept (``es``, ``pt-BR``). The prompt line
-names the language from a fixed table (the languages Windy serves) and otherwise uses the bare code. Text
-from the event never reaches the prompt. A message without a tag leaves the last known language in place.
+The tag is untrusted input, so only a well-formed BCP 47 shape is kept: a 2-3 letter language, an optional
+4-letter script and an optional region (2 letters or 3 digits): ``es``, ``pt-BR``, ``zh-Hant-TW``. Nothing
+else (``es-IGNOREPR`` is refused). The prompt line is written only for a language in the fixed table (the
+languages Windy serves), naming it from that table; any other language gets no line at all. Text from the
+event never reaches the prompt. A message without a tag leaves the last known language in place.
+
+Only the OWNER's messages set the language (Hub on #600): in a shared room another person's tag must not
+flip the agent's replies. The matrix channel checks that before calling ``note``.
 """
 
 from __future__ import annotations
@@ -14,7 +19,7 @@ from __future__ import annotations
 import re
 import threading
 
-_CODE = re.compile(r"[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})?")
+_CODE = re.compile(r"[a-z]{2,3}(?:-[A-Z][a-z]{3})?(?:-(?:[A-Z]{2}|[0-9]{3}))?")
 
 # The languages Windy serves (account server, GET /api/v1/translate/languages, 10-17).
 NAMES = {
@@ -35,12 +40,11 @@ def from_content(content: object) -> str | None:
     raw = content.get("windy_lang")
     if not isinstance(raw, str):
         return None
-    code = raw.strip()
-    if "-" in code:
-        base, _, region = code.partition("-")
-        code = f"{base.lower()}-{region}"
-    else:
-        code = code.lower()
+    parts = raw.strip().split("-")
+    out = [parts[0].lower()]
+    for p in parts[1:]:
+        out.append(p.title() if len(p) == 4 else p.upper())   # script Hant, region TW / 419
+    code = "-".join(out)
     return code if _CODE.fullmatch(code) else None
 
 
@@ -57,13 +61,14 @@ def get(session_id: str) -> str | None:
 
 
 def prompt_line(session_id: str) -> str | None:
-    """The system-prompt line for this conversation, or None (no tag known, or English)."""
+    """The system-prompt line for this conversation, or None (no tag known, English, or a language outside
+    the table: only a language Windy serves is ever named in the prompt)."""
     code = get(session_id)
-    if not code:
+    if not code or not _CODE.fullmatch(code):
         return None
     base = code.split("-", 1)[0]
-    if base == "en":
+    if base == "en" or base not in NAMES:
         return None
-    name = NAMES.get(base, f"the language with code {code}")
+    name = NAMES[base]
     return (f"LANGUAGE: the person writes in {name} ({code}), as their Windy app reports. Answer in {name} "
             "unless they ask for another language.")
