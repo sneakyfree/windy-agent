@@ -214,3 +214,34 @@ class TestConfabRetryMessagesEndWithUser:
         assert api_msgs_fixed[-1]["role"] == "user", (
             "post-fix shape: messages must end with user role for Anthropic"
         )
+
+
+class TestAnthropicHistoryOpensWithAUser:
+    """Hub 10-17: a history window that starts mid-pair must not reach Anthropic as assistant-first."""
+
+    def test_a_leading_assistant_turn_is_dropped(self):
+        from windyfly.agent.models import _openai_messages_to_anthropic
+
+        msgs = [{"role": "system", "content": "soul"},
+                {"role": "assistant", "content": "old reply"},
+                {"role": "user", "content": "hi"}, {"role": "assistant", "content": "hello"},
+                {"role": "user", "content": "now"}]
+        system, api = _openai_messages_to_anthropic(msgs)
+        assert system == "soul"
+        assert [m["role"] for m in api] == ["user", "assistant", "user"] and api[0]["content"] == "hi"
+
+    def test_an_orphan_tool_result_is_dropped(self):
+        from windyfly.agent.models import _openai_messages_to_anthropic
+
+        msgs = [{"role": "tool", "tool_call_id": "gone", "content": "r"},
+                {"role": "assistant", "content": "done"},
+                {"role": "user", "content": "now"}]
+        _, api = _openai_messages_to_anthropic(msgs)
+        assert api == [{"role": "user", "content": "now"}]
+
+    def test_a_normal_history_is_unchanged(self):
+        from windyfly.agent.models import _openai_messages_to_anthropic
+
+        msgs = [{"role": "user", "content": "a"}, {"role": "assistant", "content": "b"}, {"role": "user", "content": "c"}]
+        _, api = _openai_messages_to_anthropic(msgs)
+        assert [m["content"] for m in api] == ["a", "b", "c"]
