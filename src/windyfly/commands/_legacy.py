@@ -768,6 +768,19 @@ def _config_path() -> None:
 # ═══════════════════════════════════════════════════════════════════════
 
 
+def _gate_daily_budget() -> float:
+    """The daily limit the budget gate uses ([costs] daily_budget_usd), not DAILY_BUDGET_USD (never read)."""
+    import math
+
+    try:
+        from windyfly.config import load_config
+
+        value = float(((load_config() or {}).get("costs") or {}).get("daily_budget_usd", 5.0))
+    except Exception:  # noqa: BLE001
+        return 5.0
+    return value if math.isfinite(value) else 5.0
+
+
 def cmd_version(_args: argparse.Namespace) -> None:
     """Show Windy Fly version and environment info."""
     import os as _os
@@ -777,8 +790,7 @@ def cmd_version(_args: argparse.Namespace) -> None:
     console.print(f"  Python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro} | {SYSTEM}")
 
     model = _os.environ.get("DEFAULT_MODEL", "not set")
-    budget = _os.environ.get("DAILY_BUDGET_USD", "5.00")
-    console.print(f"  Brain: {model} | Budget: ${budget}/day")
+    console.print(f"  Brain: {model} | Budget: ${_gate_daily_budget():.2f}/day")
 
     # Bun version
     if can_run("bun"):
