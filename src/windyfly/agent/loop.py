@@ -731,14 +731,14 @@ def agent_respond(
     from windyfly.observability import agent_health, turn_timing
 
     from windyfly.agent.capabilities import Band
-    from windyfly.tools.bands import turn_band
+    from windyfly.tools.bands import turn_band, turn_context
 
     if band is None:
         band = Band.OWNER
     timing = turn_timing.start()
     try:
         # The band legacy tools are gated on at execution (windyfly.tools.bands): this turn's.
-        with agent_health.turn(write_queue), turn_band(band):
+        with agent_health.turn(write_queue), turn_band(band), turn_context(user_message):
             return _agent_respond_turn(
                 config, db, write_queue, user_message, session_id,
                 tool_registry=tool_registry, band=band,

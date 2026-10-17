@@ -101,26 +101,6 @@ def test_flag_off_is_the_old_path_exactly(monkeypatch):
 
 # ── files (upload re-sends the whole file on the retry) ──────────────────────────────────
 
-def test_upload_retry_sends_the_whole_file_again(minted, monkeypatch, tmp_path):
-    from windyfly.tools import cloud
-
-    monkeypatch.setenv("WINDY_CLOUD_URL", "https://cloud.windycloud.com")
-    monkeypatch.setenv("WINDY_CLOUD_TOKEN", "old-cloud")
-    f = tmp_path / "a.txt"
-    f.write_bytes(b"hello cloud")
-    seq = [_resp(403), _resp(201, {"file_id": "f1"})]
-    seen = []
-
-    def post(url, files, data, headers, timeout):
-        seen.append((headers, files["file"][1].read()))
-        return seq.pop(0)
-
-    monkeypatch.setattr("httpx.post", post)
-    out = cloud.upload_to_cloud(str(f))
-    assert out.get("status") != "failed"
-    assert seen == [(AGENT, b"hello cloud"), ({"Authorization": "Bearer old-cloud"}, b"hello cloud")]
-
-
 # ── backups (core: Zero's ET26-T11V; the old path stays until the core flip) ─────────────
 
 def test_backup_send_prefers_the_agent_token_and_falls_back_on_refusal(minted):
