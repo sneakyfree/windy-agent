@@ -51,6 +51,8 @@ QUESTION_FOR_S = 10 * 60
 UNDO_FOR_S = 24 * 60 * 60
 _SQLITE_MAGIC = b"SQLite format 3\x00"
 _UNDO_SUFFIX = ".undo.enc"
+# A Windy Fly memory has these tables; a backup without them is something else (Hub on #595).
+REQUIRED_TABLES = ("schema_version", "nodes", "episodes", "soul")
 
 NO_OWNER_KEY = ("This agent has no backup key of its own (WINDY_BACKUP_KEY), so I can't open a backup. "
                 "Set WINDY_BACKUP_KEY to the key the backups were made with, then try again. Nothing was changed.")
@@ -134,6 +136,14 @@ def check_database_bytes(data: bytes) -> dict[str, Any]:
             raise RestoreError("That backup is damaged and can't be opened. Nothing was changed.") from e
         if not ok or ok[0] != "ok":
             raise RestoreError("That backup failed its integrity check. Nothing was changed.")
+        names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        missing = [t for t in REQUIRED_TABLES if t not in names]
+        if missing:
+            raise RestoreError("That backup is not a Windy Fly memory (it is missing "
+                               f"{len(missing)} of its core tables). Nothing was changed.")
+        if conn.execute("PRAGMA foreign_key_check").fetchall():
+            raise RestoreError("That backup failed its foreign-key check, so I won't restore it (there is no "
+                               "override; an older backup may restore cleanly). Nothing was changed.")
         try:
             version = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] or 0
         except sqlite3.DatabaseError:
@@ -343,7 +353,7 @@ def _copy_pages(src: sqlite3.Connection, dst: sqlite3.Connection) -> None:
     src.backup(dst)                      # one step: SQLite applies all of it or none of it
 
 
-def _restore_into(db: Any, data: bytes) -> None:
+def _restore_into(db: Any, data: bytes) -> bool:
     """Copy ``data`` (a checked database) into the live connection, under the database lock."""
     src = sqlite3.connect(":memory:")
     try:
@@ -360,8 +370,12 @@ def _restore_into(db: Any, data: bytes) -> None:
                 raise _MigrateFailed(type(e).__name__) from e
             db.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
             ok = db.conn.execute("PRAGMA integrity_check").fetchone()
-        if not ok or ok[0] != "ok":
-            logger.error("backup restore: integrity check after restore failed")
+            fk = db.conn.execute("PRAGMA foreign_key_check").fetchall()
+        passed = bool(ok) and ok[0] == "ok" and not fk
+        if not passed:
+            logger.error("backup restore: check after restore failed (integrity=%s, fk=%d)",
+                         ok[0] if ok else None, len(fk))
+        return passed
     finally:
         src.close()
 
@@ -373,7 +387,7 @@ def _apply(db: Any, data: bytes, owner_key: bytes, label: str) -> str:
         logger.error("backup restore: undo copy failed (%s); nothing restored", type(e).__name__)
         return "I couldn't keep a copy of my memory as it is now, so I restored nothing."
     try:
-        _restore_into(db, data)
+        passed = _restore_into(db, data)
     except _CopyFailed as e:
         _wipe(_undo_path(db))                    # memory is unchanged: the undo copy has nothing to undo
         logger.error("backup restore: copy failed (%s); nothing changed", e)
@@ -387,6 +401,9 @@ def _apply(db: Any, data: bytes, owner_key: bytes, label: str) -> str:
     timer.daemon = True
     timer.start()
     logger.info("backup restore: restored (%d bytes)", len(data))
+    if not passed:
+        return (f"I restored {label}, but my memory failed its check afterwards. /backup undo puts back "
+                "what I remembered before, within 24 hours.")
     return f"Restored from {label}. /backup undo puts back what I remembered before, within 24 hours."
 
 
@@ -395,10 +412,22 @@ def _read_undo(db: Any) -> tuple[float, bytes]:
     return float(json.loads(head).get("at", 0)), blob
 
 
+_restoring = threading.Lock()      # one restore or undo at a time (Hub on #595)
+
+
 async def confirm(db: Any, key: str, config: dict | None = None) -> str:
     """/backup yes: do what the last question asked, after fetching and checking the bytes again."""
     if _guest():
         return "Restoring a backup is off while guest mode is on."
+    if not _restoring.acquire(blocking=False):
+        return "A restore is already running. Wait for it to finish; this yes did nothing."
+    try:
+        return await _confirm(db, key, config)
+    finally:
+        _restoring.release()
+
+
+async def _confirm(db: Any, key: str, config: dict | None) -> str:
     with _lock:
         q = _questions.pop(key, None)
     if q is None or time.time() - q.asked > QUESTION_FOR_S:
@@ -426,11 +455,14 @@ async def confirm(db: Any, key: str, config: dict | None = None) -> str:
     if q.kind == "restore":
         return await asyncio.to_thread(_apply, db, data, owner_key, q.label)
     try:
-        await asyncio.to_thread(_restore_into, db, data)
+        passed = await asyncio.to_thread(_restore_into, db, data)
     except _CopyFailed:
         return "Putting back the earlier memory failed and nothing was changed. The undo copy is kept."
     except _MigrateFailed:
         return "I put back the earlier memory, but couldn't bring it up to date with this version of me."
+    if not passed:
+        return ("I put back the earlier memory, but it failed its check afterwards. The undo copy is kept, "
+                "so /backup undo can try again.")
     _wipe(_undo_path(db))
     logger.info("backup restore: undone (%d bytes)", len(data))
     return "Put back my memory as it was before the restore. The undo copy is now deleted."
