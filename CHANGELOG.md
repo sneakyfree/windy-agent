@@ -18,6 +18,11 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
     guest mode too.
   - Before, any person speaking in the room reset the agents' reply budget, so "stop" gave them six more
     replies each.
+  - A stop now survives a restart of the agent. An iPhone's curly apostrophe ("that’s enough") counts.
+  - Good to know: in a one-to-one chat with the agent, "stop" gets no reply either; the next message
+    resumes. Only a whole-message stop word counts ("stop by the store" does not). Agents are recognised
+    by their `@agent_` account name.
+
 - **Agents answer other agents only when addressed.** Another agent's message is now a turn only when it
   mentions this agent, sends it a typed task, or the two of them are alone in the room. Teamwork stays
   possible; chatter that names nobody no longer wakes every agent.
