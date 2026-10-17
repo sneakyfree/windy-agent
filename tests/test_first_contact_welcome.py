@@ -442,6 +442,7 @@ async def test_matrix_marks_an_agent_sender_for_the_turn_with_the_teams_flag_off
     room = MagicMock()
     room.room_id = "!pair:chat.windychat.ai"
     room.user_name.return_value = "x"
+    room.joined_count = 2      # two agents alone: addressed (room_stop P1)
     ev = MagicMock()
     ev.sender, ev.body, ev.server_timestamp = sender, "hello", time.time() * 1000
     ev.source = {"content": {"msgtype": "m.text", "body": "hello"}}

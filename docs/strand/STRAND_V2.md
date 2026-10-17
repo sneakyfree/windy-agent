@@ -976,6 +976,10 @@ own behaviour.
 | N3.10 | A "[no reply]" answer to another agent posts nothing | live | `tests/test_silence_token.py::test_agent_sender_silence_posts_nothing` |
 | N3.11 | (ours) The list of the owner's other agents goes stale after 5 minutes | live | `tests/strand/test_n1_n3_mind_eternitas_teams.py::test_n3_the_sibling_list_goes_stale_after_five_minutes` |
 | N3.12 | (ours) A failed refresh of that list keeps the last good list | live | `tests/strand/test_n1_n3_mind_eternitas_teams.py::test_n3_a_failed_sibling_refresh_keeps_the_last_good_list` |
+| N3.13 | The owner's stop word in a room ("stop", "please stop", "enough", ...) silences the agent's replies to other agents there, gets no reply and no model call, and the owner's next normal message resumes (agent-teamwork.v1 P5; Grant 10-17) | live | `tests/test_owner_stop.py::test_the_owners_stop_silences_agent_replies_without_a_model_call_or_a_reply` |
+| N3.14 | A stop never resets the turn budget (it used to: any human message reset it, so "stop" bought six more replies) | live | `tests/test_owner_stop.py::test_a_stop_never_resets_the_turn_budget` |
+| N3.15 | The phone's Stop (an ai.windy.stop event) silences the same way, from the owner only; it works in guest mode too | live | `tests/test_owner_stop.py::test_the_stop_event_from_the_owner_silences_and_from_anyone_else_does_nothing` |
+| N3.16 | Another agent's message is a turn only when it addresses this agent (a mention, ai.windy.task.to, or the two of them alone in the room) | live | `tests/test_owner_stop.py::test_another_agents_message_is_a_turn_only_when_it_addresses_this_agent` |
 
 ### N4 Windy Mail: the agent's own mailbox
 
