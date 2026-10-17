@@ -2390,18 +2390,20 @@ def _register_budget_through_help():
     async def cmd_backup(ctx):
         args = ctx.get("_args", [])
         action = args[0] if args else "status"
-        from windyfly.cloud_backup import backup_to_cloud, restore_from_cloud, list_backups, get_backup_state
+        from windyfly.cloud_backup import backup_to_cloud, list_backups, get_backup_state
         if action == "now":
             result = await backup_to_cloud()
             if result.get("success"):
                 return f"\u2705 Backup complete: {result.get('backup_id', 'ok')} ({result.get('size_bytes', 0)} bytes)"
             return f"\u274c Backup failed: {result.get('error', 'unknown')}"
         if action == "restore":
-            backup_id = args[1] if len(args) > 1 else "latest"
-            result = await restore_from_cloud(backup_id)
-            if result.get("success"):
-                return f"\u2705 Restored from {result.get('backup_id', 'latest')} ({result.get('size_bytes', 0)} bytes)"
-            return f"\u274c Restore failed: {result.get('error', 'unknown')}"
+            # Off while it is rebuilt (Hub, 10-17): it wrote the backup over the memory file while the
+            # agent held it open (WAL mode), with no yes, and left a plaintext copy beside it. That can
+            # corrupt a running agent's memory. The safe restore (check, ask, restore through the live
+            # connection, encrypted undo) replaces this; until then nothing is touched.
+            return ("Restoring from a cloud backup is switched off while it is rebuilt: done on a running "
+                    "agent it could damage my memory. Your backups are safe on Windy Cloud (/backup list "
+                    "shows them). Nothing was changed.")
         if action == "list":
             result = await list_backups()
             if not result.get("backups"):
@@ -2416,9 +2418,9 @@ def _register_budget_through_help():
         from windyfly.cloud_backup import owner_key_missing
         off = ("\n\u26a0\ufe0f Cloud backups are OFF: this agent has no backup key of its own (WINDY_BACKUP_KEY). "
                "A key derived from the passport is never used for uploads.") if owner_key_missing() else ""
-        return f"\U0001f4be Backup status: last backup at {last}{off}\nUsage: /backup [now | list | restore [id]]"
-    _r("backup", "Cloud backup: run, list, or restore", "10_cloud", cmd_backup,
-       usage="backup [now | list | restore [backup_id] | status]")
+        return f"\U0001f4be Backup status: last backup at {last}{off}\nUsage: /backup [now | list] (restore is switched off while it is rebuilt)"
+    _r("backup", "Cloud backup: run or list (restore is being rebuilt)", "10_cloud", cmd_backup,
+       usage="backup [now | list | status]")
 
     # ═══════════════════════════════════════════════════════════════
     # CONFIGURATION (87-94)
