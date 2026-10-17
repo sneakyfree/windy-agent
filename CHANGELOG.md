@@ -10,6 +10,12 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
 
 ## Unreleased
 
+- **A conversation sent to Anthropic always starts with the person's message.** When the recent
+  history began with one of the agent's own replies (for example with the context slider at 0, which
+  keeps an odd number of messages), the request could start with an assistant turn, which Anthropic
+  refuses. Such leading replies, and tool results whose tool call is not there, are now left out of
+  that request.
+
 - **A long conversation no longer pushes the prompt past the model's limit.** Before each model
   call the agent now checks the prompt against the real limit: the model's context window, or the
   owner's `/memory` cap, less room for the answer. If it is over, the oldest conversation history

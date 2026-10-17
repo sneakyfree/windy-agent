@@ -1989,7 +1989,24 @@ def _openai_messages_to_anthropic(
             "content": msg.get("content", ""),
         })
 
-    return ("\n".join(system_parts).strip(), api_messages)
+    # Anthropic refuses a conversation that opens with an assistant turn (or with a tool result
+    # whose tool_use is not there): a recent-history window can start mid-pair. Drop such leading
+    # messages; the current user message always remains.
+    lead = 0
+    while lead < len(api_messages) - 1 and not _plain_user_turn(api_messages[lead]):
+        lead += 1
+    if lead:
+        logger.info("anthropic: dropped %d leading non-user message(s) from the history", lead)
+    return ("\n".join(system_parts).strip(), api_messages[lead:])
+
+
+def _plain_user_turn(message: dict) -> bool:
+    """A user message that is not only tool results: the only kind Anthropic accepts first."""
+    if message.get("role") != "user":
+        return False
+    content = message.get("content")
+    return not (isinstance(content, list) and content and all(
+        isinstance(b, dict) and b.get("type") == "tool_result" for b in content))
 
 
 # Opus models that support (and default to) extended thinking. Both
