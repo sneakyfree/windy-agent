@@ -30,6 +30,7 @@ _WORDS = {
 _stopped: set[str] = set()
 _lock = threading.Lock()
 _loaded = False
+_seen: tuple[int, int] | None = None     # (mtime_ns, size) of the state file when last read
 
 
 def _path():
@@ -38,35 +39,89 @@ def _path():
     return windy_state_dir() / "room_stops.json"
 
 
-def _load() -> None:
-    """Stops survive a restart (Hub on #596): otherwise a restart mid-loop would let agents go on."""
-    global _loaded
-    if _loaded:
-        return
-    _loaded = True
+def _stat() -> tuple[int, int] | None:
+    try:
+        st = _path().stat()
+        return (st.st_mtime_ns, st.st_size)
+    except OSError:
+        return None
+
+
+def _read() -> set[str]:
+    """The stops on disk. A missing or corrupt file is no stops (and is logged), never an error."""
     import json
+    import logging
 
     try:
         data = json.loads(_path().read_text(encoding="utf-8"))
-        if isinstance(data, list):
-            _stopped.update(r for r in data if isinstance(r, str))
-    except (OSError, ValueError):
-        pass
+    except FileNotFoundError:
+        return set()
+    except (OSError, ValueError) as e:
+        logging.getLogger(__name__).warning("room stops: state file unreadable (%s); treated as none",
+                                            type(e).__name__)
+        return set()
+    return {r for r in data if isinstance(r, str)} if isinstance(data, list) else set()
 
 
-def _save() -> None:
+def _load() -> None:
+    """Stops survive a restart (Hub on #596), and a stop written by another process sharing this state
+    directory is seen (Hub on #599): the file is the record; memory follows it when it changes."""
+    global _loaded, _seen
+    st = _stat()
+    if _loaded and st == _seen:
+        return
+    _stopped.clear()
+    _stopped.update(_read())
+    _loaded, _seen = True, st
+
+
+def _change(room: str, add: bool) -> None:
+    """Read, change one room, write: under a file lock, so two processes never drop each other's stops.
+    The new file is created 0600 (mkstemp) and moved into place; it is never world-readable."""
     import json
     import os
+    import tempfile
 
+    global _seen
+    path = _path()
     try:
-        path = _path()
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(sorted(_stopped)), encoding="utf-8")
-        os.chmod(tmp, 0o600)
-        os.replace(tmp, path)
+        fd = os.open(path.with_suffix(".lock"), os.O_RDWR | os.O_CREAT, 0o600)
     except OSError:
-        pass
+        (_stopped.add if add else _stopped.discard)(room)        # memory still stops this process
+        return
+    try:
+        try:
+            import fcntl
+
+            fcntl.flock(fd, fcntl.LOCK_EX)
+        except ImportError:                                       # no flock (Windows): best effort
+            pass
+        current = _read()
+        if (room in current) == add:
+            _stopped.clear()
+            _stopped.update(current)
+            _seen = _stat()
+            return
+        (current.add if add else current.discard)(room)
+        tmp_fd, tmp = tempfile.mkstemp(prefix=".room_stops.", suffix=".tmp", dir=path.parent)
+        try:
+            with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+                f.write(json.dumps(sorted(current)))
+            os.replace(tmp, path)
+        except OSError:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
+        _stopped.clear()
+        _stopped.update(current)
+        _seen = _stat()
+    except OSError:
+        (_stopped.add if add else _stopped.discard)(room)
+    finally:
+        os.close(fd)
 
 
 def is_stop_word(text: str | None) -> bool:
@@ -83,16 +138,14 @@ def is_stop_word(text: str | None) -> bool:
 def stop(room: str) -> None:
     with _lock:
         _load()
-        _stopped.add(room)
-        _save()
+        _change(room, True)
 
 
 def resume(room: str) -> None:
     with _lock:
         _load()
         if room in _stopped:
-            _stopped.discard(room)
-            _save()
+            _change(room, False)
 
 
 def stopped(room: str) -> bool:
@@ -123,7 +176,7 @@ def is_owner(sender: str | None, config: dict | None = None) -> bool:
 
 
 def reset_for_tests() -> None:
-    global _loaded
+    global _loaded, _seen
     with _lock:
         _stopped.clear()
-        _loaded = True        # tests start empty and never read a stale file
+        _loaded, _seen = False, None      # tests run on their own WINDY_STATE_DIR
