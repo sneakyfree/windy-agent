@@ -10,6 +10,20 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
 
 ## Unreleased
 
+- **The strand stops promising what the product shouldn't do.** Eight leftover promises are settled on the
+  record.
+  - **Dropped (never used):**
+    - the config settings `temperature`, `max_response_tokens`, `max_context_tokens` and
+      `max_episodes_per_context`. They are removed from `windyfly.toml`, the setup templates, the defaults,
+      auto-repair's tunables and the dashboard's Settings page, which showed values the agent never used;
+    - the Hermes database reader (it guessed table names);
+    - the empty memory graph;
+    - the agent directory listing (agents stay private, as Windy Chat confirmed);
+    - the old `/auth/me` check (the passport replaced it).
+  - **Restated to match what is true:** writes are batched for fairness, and the owner's SOUL.md is never
+    cut in raw mode, with slider text bounded.
+  - **Confirmed:** pushes to the phone cover the agent's replies (Windy Chat's prod proof).
+
 - **Only the owner can make the agent send, call, buy, publish or upload.** The agent's older tools carried
   no permission level, so anyone the agent treats below the owner could get them run, and a tool the
   model named was run for any sender, strangers included. That covers three kinds of sender: someone

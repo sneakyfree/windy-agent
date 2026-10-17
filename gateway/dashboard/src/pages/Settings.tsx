@@ -25,8 +25,6 @@ export default function Settings() {
       {/* Agent config */}
       <Section title="Agent Configuration">
         <InfoRow label="Model" value={String(config.model || 'not set')} />
-        <InfoRow label="Temperature" value={String(config.temperature ?? '0.7')} />
-        <InfoRow label="Max Tokens" value={String(config.max_tokens ?? '2000')} />
         <InfoRow label="Daily Budget" value={`$${config.daily_budget ?? '5.00'}`} />
         <p className="text-xs text-[#64748b] mt-3">
           Edit <code className="text-[#00d4ff]">windyfly.toml</code> to change these settings.

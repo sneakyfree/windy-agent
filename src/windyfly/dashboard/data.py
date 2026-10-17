@@ -65,8 +65,6 @@ def get_dashboard_summary(
         # config is passed (e.g. brain-offline fallbacks).
         "config": {
             "model": agent.get("default_model"),
-            "temperature": agent.get("temperature"),
-            "max_tokens": agent.get("max_response_tokens"),
             "daily_budget": costs_cfg.get("daily_budget_usd"),
         },
         "ecosystem": {

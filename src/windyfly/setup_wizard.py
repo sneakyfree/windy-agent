@@ -495,13 +495,9 @@ def _step_finalize(
     toml_content = f"""[agent]
 name = "Windy Fly"
 default_model = "{model}"
-max_context_tokens = 8000
-max_response_tokens = 2000
-temperature = 0.7
 
 [memory]
 db_path = "data/windyfly.db"
-max_episodes_per_context = 20
 max_nodes_per_context = 10
 
 [personality]
