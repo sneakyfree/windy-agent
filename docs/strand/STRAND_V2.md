@@ -1105,12 +1105,29 @@ iPhone/Android notes) are in `docs/strand/AGENTS_HANDS_N9.md`. Gene N7 is what i
 |---|---|---|---|
 | N9.1 | The agent offers any phone kind the pinned contract defines and the phone advertises, not a fixed pair; unknown kinds are refused | planned: Windy Agent: phone-tools v2 per-kind schemas from Chat/Mobile | — |
 | N9.2 | Every phone kind has a risk class that maps to a capability tier and a confirm rule; a kind with no class is refused | planned: Windy Agent: phone-tools v2 risk field | — |
-| N9.3 | Anything that sends, changes, deletes, shares or pays waits for the owner's tap on the confirm card; no tap or a "no" is "not done", never retried | planned: Windy Agent: approvals contract H0.6 (Hub) and the card (Mobile) | — |
+| N9.3 | Anything that sends, changes, deletes, shares or pays waits for the owner's tap on the confirm card; no tap or a "no" is "not done", never retried | planned: Windy Agent: the phone's local confirm (Mobile); approval.v1 for server-side classes (Hub) | — |
 | N9.4 | Each phone request runs at most once: no resend after a timeout, a restart, an unknown outcome or a model retry | planned: Windy Agent: phone-tools v2 request_id | — |
 | N9.5 | Every phone answer is read once and wiped; memory keeps a stub; files never reach the model as raw bytes | planned: Windy Agent: extend N7.5/N7.6 to every kind | — |
 | N9.6 | Phone requests have per-kind limits, and a pause stops every phone request at once | planned: Windy Agent: caps + pause check | — |
 | N9.7 | The no-confirm / confirm / never policy table is code and tested; the "never" column cannot be asked away | planned: Windy Agent: phone_policy.py | — |
 | N9.8 | Android accessibility actions: reading runs, a send/pay/delete/confirm tap waits for the card, password fields are never read | planned: Windy Agent: after Mobile's power-mode build | — |
-| N9.9 | A shell on an owner machine over Windy Mesh is FULL_MACHINE: owner only, a card per session start, start/stop counts only | planned: Windy Agent: after Windy Code's session broker and Mind S20 | — |
+| N9.9 | A shell on an owner machine over Windy Mesh is FULL_MACHINE: owner only, a card per session start, start/stop counts only; agents never attach to or type into a session through the broker (v1) | planned: Windy Agent: after Windy Code's session broker and Mind S20 | — |
 | N9.10 | A simulated phone drives every kind through done, declined, expired and unknown in CI; lab phones only | planned: Windy Agent: tests/phone_sim.py | — |
 | N9.11 | HQ gets one counts-only event per phone request (kind, class, outcome, duration, platform) | planned: Windy Agent: Admin's event family | — |
+
+### N10 The owner sees and deletes the agent's memory (planned, Boss 10-17)
+
+Planned after Boss's privacy truth check (Word's v25 text). Full plan:
+`~/windy-orchestra/specs/AGENT_MEMORY_DELETE_N10_2026-10-17.md`. "Deleted" means the messages, their search
+index and embeddings, the summaries made from them (relationship moments, journal, turnover letter), the
+correction text in failures, and nothing left readable in the database file or its WAL. Backups are a
+separate gap. Each upload sends `retention_count=5` and Windy Cloud trims to the newest 5 on upload (its
+second copy follows after 7 days), so the last 5 of a STOPPED agent stay with no time limit. Cloud erases
+them at once (its second copy in about 8 days) only when an account purge reaches it (Cloud, BOARD
+10-17).
+
+| Codon | Promise | Status | Test |
+|---|---|---|---|
+| N10.1 | The owner sees conversation history by date and by search, and deletes it after a confirm, in chat (/history) and on the dashboard; owner band only, none in guest mode | planned: Windy Agent: PR to Hub by Tue 10-20 18:00Z | — |
+| N10.2 | /forget finds facts and messages by search and deletes the ones the owner picks after a confirm, leaving no readable copy on disk | planned: Windy Agent: PR to Hub by Mon 10-19 18:00Z | — |
+| N10.3 | When the helper or the account is deleted, the agent learns it by pulling a signed status (agent-status.v1) and acts: blocked keeps memory and stops model calls and backups; purged (signed, twice 6 h apart) wipes memory on Windy-run hosts; unknown never deletes anything; Windy Cloud erases the helper's backups on the same identity.purged / tombstone | planned: Windy Agent with Windy Hub and Windy Cloud: contract first, Boss's GO and policy for owner machines | — |

@@ -2,7 +2,7 @@
 
 Windy Agent's codons for "Your Agent's Hands" v3 (Boss 10-16 ~23:55Z; Grant: the agent can do anything on
 his phone that the phone allows, the way a terminal with sudo can on a computer). Windy Mobile owns the phone
-side (Strand H), Windy Chat the H1 bridge, and Windy Hub the approvals contract (H0.6). This file is the
+side (Strand H), Windy Chat the H1 bridge, and Windy Hub the approvals contract (approval.v1). This file is the
 **agent's** part: how the agent calls phone tools, what it may run without a confirm, and how each request is
 run once and wiped. Each codon also has a `planned` row in `STRAND_V2.md` (gene N9); a row turns `live`
 only with its test, as for every other gene.
@@ -75,10 +75,12 @@ one follow-up turn with no tools, and memory keeps only a stub. Today the agent 
   - The agent cannot set `confirm: none` on a kind whose class needs one; the phone enforces it too.
 - **Why:** this is the one rule that makes "do anything" acceptable: nothing leaves the phone, changes or
   is deleted without the owner seeing it first.
-- **Owner:** Windy Agent (request + outcome); Mobile (the card); Hub (approvals contract H0.6).
+- **Owner:** Windy Agent (request + outcome); Mobile (the card); Hub (approval.v1, for the server-side classes).
+- **The phone decides locally:** a tap on the owner's own phone is the phone's local confirm and works when
+  Hub is down. Hub's approval.v1 covers the classes approved on the server (Hub alignment 10-16).
 - **Where:** `phone_tools.py`.
-- **Contract:** approvals v1 (H0.6) + phone-tools v2. **Flag:** `WINDY_PHONE_TOOLS`.
-- **Needs:** Hub H0.6, Mobile's card.
+- **Contract:** approval.v1 (Hub, server-side classes) + phone-tools v2. **Flag:** `WINDY_PHONE_TOOLS`.
+- **Needs:** Hub approval.v1, Mobile's card.
 - **Done when:**
   - a lab test with a simulated phone shows that a declined card and an expired card each give "not done"
     and no second request;
@@ -181,13 +183,17 @@ one follow-up turn with no tools, and memory keeps only a stub. Today the agent 
   - every session start goes through the confirm card on the phone (which machine, which session);
   - no unattended starts;
   - the HQ ledger records start and stop counts only, never keystrokes or output.
+- **No agent attach in v1:** agents never get `attach` or typing through Windy Code's session broker
+  (Windy Code W12, `~/windy-orchestra/specs/CODE_AGENTS_HANDS_CODONS_2026-10-16.md`). Only humans on approved
+  devices get it. An agent drives a machine only through this tool, with its confirm card (agreed with Windy
+  Code 10-17).
 - **Why:** a terminal with sudo is the most powerful hand. Its seatbelt is the same as a payment's.
 - **Owner:** Windy Agent (tool tier + policy); Windy Code (session broker); Windy Mind (S20 mesh, the new
   "attach to a running session" codon).
 - **Where:** `agent/capabilities` (a descriptor for the Code tool).
 - **Contract:** Windy Code's session-broker contract (to be named by Windy Code). **Flag:**
   `WINDY_MESH_SESSIONS=1`.
-- **Needs:** Windy Code's broker; Mind S20.5/S20.7; Hub's device approval.
+- **Needs:** Windy Code's broker (W12); Mind S20.5/S20.7; Hub's device approval (HH.2, which matches this per Hub).
 - **Done when:** a descriptor test shows FULL_MACHINE, owner-only and confirm-required, and a lab run against
   a lab node starts only after the card and logs start/stop counts only.
 - **Size:** S (agent side).
