@@ -149,6 +149,97 @@ def test_p4_c2_the_owner_drops_flagged_items_after_a_yes_leaving_nothing_readabl
     assert DROP.encode() not in raw()
 
 
+
+def _chatgpt_export(tmp_path, owner: list[str], assistant: list[str]):
+    import json
+
+    mapping = {f"u{i}": {"message": {"author": {"role": "user"}, "content": {"parts": [t]}}} for i, t in enumerate(owner)}
+    mapping.update({f"a{i}": {"message": {"author": {"role": "assistant"}, "content": {"parts": [t]}}}
+                    for i, t in enumerate(assistant)})
+    (tmp_path / "conversations.json").write_text(json.dumps([{"title": "chat", "mapping": mapping}]))
+    return str(tmp_path)
+
+
+def test_p2_21_chatgpt_style_comes_from_the_owners_own_messages_only(tmp_path):
+    from windyfly.soul_import.chatgpt import parse_chatgpt
+
+    casual = ["lol that's wild", "ok", "gonna try it haha", "yeah idk", "can't wait lol", "sure"] * 4
+    formal_reply = ["Thank you kindly for your question. I would be pleased to help you with a full and careful answer."] * 30
+    style = parse_chatgpt(_chatgpt_export(tmp_path, casual, formal_reply))["personality"]
+    assert style["humor"] >= 8 and style["formality"] <= 3 and style["verbosity"] == 2
+    # the assistant's side changes nothing: the same owner messages alone give the same numbers
+    alone = tmp_path / "alone"
+    alone.mkdir()
+    assert parse_chatgpt(_chatgpt_export(alone, casual, []))["personality"] == style
+
+    polite = ["Could you please summarise the attached report for the quarterly board meeting, thank you."] * 24
+    other = tmp_path / "polite"
+    other.mkdir()
+    style = parse_chatgpt(_chatgpt_export(other, polite, []))["personality"]
+    assert style == {"humor": 3, "formality": 10, "verbosity": 5}
+    few = tmp_path / "few"
+    few.mkdir()
+    assert parse_chatgpt(_chatgpt_export(few, casual[:5], []))["personality"] == {}     # too little to judge
+
+
+def test_p2_21_an_imported_tone_is_applied_after_a_yes_and_can_be_undone(tmp_path, monkeypatch):
+    import asyncio
+    import io
+    import zipfile
+
+    from windyfly.channels.base import handle_incoming
+    from windyfly.commands.core import wire_runtime
+    from windyfly.commands.setup import init_all_commands
+    from windyfly.control_panel import get_sliders
+    from windyfly.personality.versioning import detect_drift
+    from windyfly.soul_import import flow
+    from windyfly.soul_import import intake as ik
+
+    monkeypatch.setattr(ik, "_base_dir", lambda: tmp_path)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("SOUL.md", "- Warm\n")
+        z.writestr("config.yaml", "humor: 8\nformality: 2\n")
+    db = Database(":memory:")
+    try:
+        init_all_commands(db=db, config={})
+        wire_runtime(db=db)
+        for held in (flow._pending, flow._confirm, flow._tones):
+            held.clear()
+
+        def say(text):
+            ok, out = asyncio.run(handle_incoming(text, {"platform": "cli", "channel_id": "p2-21-tone"}))
+            assert ok
+            return out
+
+        def tone():
+            return {k: int(float(v)) for k, v in get_sliders(db).items() if k in ("humor", "formality")}
+
+        say("/slider humor 5")                                      # a history to measure drift against
+        say("/slider formality 5")
+        say("/soul import")
+        flow.take_file(db, "cli:p2-21-tone", io.BytesIO(buf.getvalue()), "export.zip", max_bytes=10**6)
+        assert "formality 2, humor 8" in say("/soul approve")
+        asked = say("/soul apply")
+        assert "humor: 5 -> 8" in asked and "formality: 5 -> 2" in asked and "Raw mode is on" in asked
+        assert tone() == {"humor": 5, "formality": 5}              # nothing changes before the yes
+        assert "Applied the imported tone: formality 2, humor 8" in say("/soul yes")
+        assert tone() == {"humor": 8, "formality": 2}
+        assert detect_drift(db) is None                            # moved 3 points, but on the owner's own yes
+        assert "Put back formality 5, humor 5" in say("/soul undo")
+        assert tone() == {"humor": 5, "formality": 5}
+
+        say("/soul apply")
+        say("/soul yes")
+        say("/slider humor 6")                                      # the owner changes one afterwards
+        undone = say("/soul undo")
+        assert "Put back formality 5" in undone and "Left humor" in undone
+        assert tone() == {"humor": 6, "formality": 5}
+        assert "no imported tone to undo" in say("/soul undo")
+    finally:
+        db.close()
+
+
 # ── gene 2.3 truth layer ────────────────────────────────────────────────────────────────
 
 def _knowledge(strictness: int) -> str:

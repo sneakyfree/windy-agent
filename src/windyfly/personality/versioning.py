@@ -37,7 +37,8 @@ DRIFT_BASELINE_DAYS = 30
 # it is drift. Since shape-shift was retired (2026-10-10) no code path
 # writes sliders under another source; this catches a direct database
 # edit or any future non-owner writer.
-OWNER_SOURCES: frozenset[str] = frozenset({"control_panel", "rollback"})
+# "soul_import" is the owner's /soul yes to an imported tone (soul_import/flow.py).
+OWNER_SOURCES: frozenset[str] = frozenset({"control_panel", "rollback", "soul_import"})
 
 # Soul key the latest drift result is persisted under (dashboard reads it).
 DRIFT_ALERT_KEY = "drift_alert"

@@ -53,6 +53,7 @@ def parse_chatgpt(export_path: str) -> dict[str, Any]:
     # Extract topics and preferences from conversation titles and content
     topics: set[str] = set()
     user_messages: list[str] = []
+    owner_texts: list[str] = []      # every owner message, short ones too, for the style counts only
 
     for conv in conversations:
         if not isinstance(conv, dict):
@@ -76,8 +77,11 @@ def parse_chatgpt(export_path: str) -> dict[str, Any]:
                 if author.get("role") == "user":
                     content = message.get("content", {})
                     parts = content.get("parts", [])
-                    for part in parts:
-                        if isinstance(part, str) and len(part) > 10:
+                    texts = [part for part in parts if isinstance(part, str)]
+                    if texts:
+                        owner_texts.append(" ".join(texts))
+                    for part in texts:
+                        if len(part) > 10:
                             user_messages.append(part)
 
     # Build memory items from topics
@@ -91,6 +95,12 @@ def parse_chatgpt(export_path: str) -> dict[str, Any]:
 
     # Extract preferences and patterns from user messages
     _extract_preferences(user_messages, result["memories"])
+
+    # How the owner writes (strand P2.21.5): plain counts over the owner's own messages, kept as three
+    # slider numbers. The assistant's side is never read for this.
+    from windyfly.soul_import.style import communication_style
+
+    result["personality"] = communication_style(owner_texts)
 
     return result
 

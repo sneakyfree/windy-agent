@@ -53,6 +53,8 @@ def format_soul_preview(parsed_data: dict[str, Any]) -> str:
         lines.append(f"  - Humor level: {humor}/10")
     if formality is not None:
         lines.append(f"  - Formality: {formality}/10")
+    if personality.get("verbosity") is not None:
+        lines.append(f"  - Verbosity: {personality['verbosity']}/10")
     if traits:
         for trait in traits[:5]:
             lines.append(f"  - {trait}")

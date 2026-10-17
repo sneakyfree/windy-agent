@@ -21,6 +21,7 @@ from windyfly.soul_import.preview import (
     format_soul_preview,
     is_text_skill,
 )
+from windyfly.soul_import.style import tone_values
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +106,7 @@ def import_soul(
         return {
             "preview": preview,
             "parsed_data": parsed_data,
+            "personality": tone_values(parsed_data.get("personality")),
             "source_type": source_type,
             "imported": 0,
             "flagged": 0,
@@ -184,6 +186,7 @@ def import_soul(
 
     return {
         "preview": preview,
+        "personality": tone_values(parsed_data.get("personality")),
         "source_type": source_type,
         "imported": imported,
         "flagged": flagged,

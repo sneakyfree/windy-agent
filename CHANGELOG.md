@@ -10,6 +10,15 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
 
 ## Unreleased
 
+- **Bring your old AI's tone with you.** After you approve an import, the agent tells you the tone
+  it found: humour, formality and verbosity, from an OpenClaw `config.yaml` or `config.json`, or worked
+  out from how you write in a ChatGPT export. It counts only your own messages, never ChatGPT's replies,
+  makes no model call, and keeps only the three numbers. `/soul apply` shows what would change, `/soul yes`
+  sets the sliders, and `/soul undo` puts them back (a slider you changed since stays as you set it).
+  With raw mode on (the default) the agent says that tone sliders are not used until you turn it off.
+  An OpenClaw tone was silently skipped before, because PyYAML is not installed with the agent; it is
+  now read without it.
+
 - **Review imported items one at a time.** `/soul review` lists the imported items waiting for
   your review by number and kind only, never their text. `/soul review 2` opens one. `/soul keep 1 3`
   lets the agent use those items. `/soul drop 2` (or `/soul drop all`) asks first, then `/soul yes`

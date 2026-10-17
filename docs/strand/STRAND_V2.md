@@ -271,14 +271,15 @@ Built in waves (strand-to-green plan, 2026-10-10): 5a set the frame plus Part 1 
 | P2.21.2 | A Hermes export is read (MEMORY.md, skills) | live | `tests/test_soul_import.py::TestHermesParser::test_parses_memory_file` |
 | P2.21.3 | Hermes's SQLite store is read | planned: Windy Agent: the reader guesses table names and no test drives it; prove it on a real-shaped Hermes database or drop it | — |
 | P2.21.4 | A ChatGPT export is read for preferences and topics | live | `tests/test_soul_import.py::TestChatGPTParser::test_parses_conversations` |
-| P2.21.5 | ChatGPT's communication style is extracted | planned: Windy Agent: personality is always empty for ChatGPT exports | — |
+| P2.21.5 | ChatGPT's communication style is extracted: humour, formality and verbosity from plain counts over the owner's own messages (never the assistant's), no model call | live | `tests/strand/test_p2_soul_truth.py::test_p2_21_chatgpt_style_comes_from_the_owners_own_messages_only` |
 | P2.21.6 | The source is detected automatically | live | `tests/test_soul_import.py::TestSourceDetection::test_detects_openclaw` |
 | P2.21.7 | The Soul Preview shows what would be imported | live | `tests/test_soul_import.py::TestSoulPreview::test_format_preview` |
 | P2.21.8 | Without approval nothing is written | live | `tests/strand/test_p2_soul_truth.py::test_p2_21_preview_writes_nothing` |
 | P2.21.9 | Approved items are stored as low-confidence imports (0.5, imported_<source>, inferred) | live | `tests/strand/test_p2_soul_truth.py::test_p2_21_approved_items_are_stored_as_low_confidence_imports` |
 | P2.21.10 | Sensitive items are stored at 0.3, flagged for review; code skills are skipped, prose skills become unpromoted playbooks | live | `tests/strand/test_p2_soul_truth.py::test_p2_21_sensitive_items_are_flagged_and_code_skills_skipped` |
 | P2.21.11 | The owner can review flagged items: /soul review lists them by number and kind, /soul review <n> opens one, /soul keep <n> lets the agent use it | live | `tests/strand/test_p2_soul_truth.py::test_p2_21_the_owner_reviews_flagged_items_one_at_a_time_and_keeps_one` |
-| P2.21.12 | Imported personality (traits, humour, formality) is applied on approval | planned: Windy Agent: shown in the preview, then dropped by the importer | — |
+| P2.21.12 | An imported tone (humour, formality, verbosity) can be applied to the sliders: /soul apply shows the changes, /soul yes sets them, /soul undo puts them back | live | `tests/strand/test_p2_soul_truth.py::test_p2_21_an_imported_tone_is_applied_after_a_yes_and_can_be_undone` |
+| P2.21.14 | Imported personality traits are added to the SOUL.md the agent loads, shown first, after a snapshot, with /soul undo | planned: Windy Agent: waits on Boss's ruling on which SOUL.md Zero loads | — |
 | P2.21.13 | The owner can start an import without a terminal: /soul import, send the export in chat, see the preview, /soul approve or /soul reject (the file is wiped either way) | live | `tests/test_soul_import_flow.py::test_approve_keeps_the_import_and_wipes_the_file` |
 
 ### P2.22 The cockpit: presets and sliders (gene 2.2)
