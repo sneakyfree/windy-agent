@@ -145,9 +145,12 @@ def check_database_bytes(data: bytes) -> dict[str, Any]:
             raise RestoreError("That backup failed its foreign-key check, so I won't restore it (there is no "
                                "override; an older backup may restore cleanly). Nothing was changed.")
         try:
-            version = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] or 0
+            version = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
         except sqlite3.DatabaseError:
-            version = 0
+            version = None
+        if not isinstance(version, int) or version < 1:     # four empty tables of the right names are not one
+            raise RestoreError("That backup is not a Windy Fly memory (it has no schema version). "
+                               "Nothing was changed.")
         if version > code_schema_version():
             raise RestoreError("That backup was made by a newer version of the agent. Update the agent, "
                                "then restore. Nothing was changed.")
@@ -353,8 +356,9 @@ def _copy_pages(src: sqlite3.Connection, dst: sqlite3.Connection) -> None:
     src.backup(dst)                      # one step: SQLite applies all of it or none of it
 
 
-def _restore_into(db: Any, data: bytes) -> bool:
-    """Copy ``data`` (a checked database) into the live connection, under the database lock."""
+def _restore_into(db: Any, data: bytes) -> str | None:
+    """Copy ``data`` (a checked database) into the live connection, under the database lock. Returns None
+    when the restored memory passes its checks, else which check failed ("integrity" or "foreign-key")."""
     src = sqlite3.connect(":memory:")
     try:
         src.deserialize(_loadable(data))        # the header edit is on an in-memory copy only
@@ -371,11 +375,11 @@ def _restore_into(db: Any, data: bytes) -> bool:
             db.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
             ok = db.conn.execute("PRAGMA integrity_check").fetchone()
             fk = db.conn.execute("PRAGMA foreign_key_check").fetchall()
-        passed = bool(ok) and ok[0] == "ok" and not fk
-        if not passed:
+        failed = "integrity" if not ok or ok[0] != "ok" else ("foreign-key" if fk else None)
+        if failed:
             logger.error("backup restore: check after restore failed (integrity=%s, fk=%d)",
                          ok[0] if ok else None, len(fk))
-        return passed
+        return failed
     finally:
         src.close()
 
@@ -387,7 +391,7 @@ def _apply(db: Any, data: bytes, owner_key: bytes, label: str) -> str:
         logger.error("backup restore: undo copy failed (%s); nothing restored", type(e).__name__)
         return "I couldn't keep a copy of my memory as it is now, so I restored nothing."
     try:
-        passed = _restore_into(db, data)
+        failed = _restore_into(db, data)
     except _CopyFailed as e:
         _wipe(_undo_path(db))                    # memory is unchanged: the undo copy has nothing to undo
         logger.error("backup restore: copy failed (%s); nothing changed", e)
@@ -401,9 +405,9 @@ def _apply(db: Any, data: bytes, owner_key: bytes, label: str) -> str:
     timer.daemon = True
     timer.start()
     logger.info("backup restore: restored (%d bytes)", len(data))
-    if not passed:
-        return (f"I restored {label}, but my memory failed its check afterwards. /backup undo puts back "
-                "what I remembered before, within 24 hours.")
+    if failed:
+        return (f"I restored {label}, but my memory failed its {failed} check afterwards. /backup undo puts "
+                "back what I remembered before, within 24 hours.")
     return f"Restored from {label}. /backup undo puts back what I remembered before, within 24 hours."
 
 
@@ -416,18 +420,41 @@ _restoring = threading.Lock()      # one restore or undo at a time (Hub on #595)
 
 
 async def confirm(db: Any, key: str, config: dict | None = None) -> str:
-    """/backup yes: do what the last question asked, after fetching and checking the bytes again."""
+    """/backup yes: do what the last question asked, after fetching and checking the bytes again.
+
+    The lock is taken here and handed to the thread that changes the memory, which releases it when it is
+    done. If this task is cancelled while that thread runs (Hub on #597), the lock stays held until the
+    thread really ends, so a fresh ask and yes can't start a second restore beside it."""
     if _guest():
         return "Restoring a backup is off while guest mode is on."
     if not _restoring.acquire(blocking=False):
         return "A restore is already running. Wait for it to finish; this yes did nothing."
+    handed = False
     try:
-        return await _confirm(db, key, config)
+        job = await _prepare(db, key, config)
+        if isinstance(job, str):
+            return job
+        fut = asyncio.get_running_loop().run_in_executor(None, _run_locked, job)
+        handed = True
+        return await fut
+    finally:
+        if not handed:
+            _restoring.release()
+
+
+def _run_locked(job: tuple[str, Any, bytes, bytes, str]) -> str:
+    """The memory-changing half of /backup yes, on a worker thread that owns the restore lock."""
+    try:
+        kind, db, data, owner_key, label = job
+        if kind == "restore":
+            return _apply(db, data, owner_key, label)
+        return _undo_apply(db, data)
     finally:
         _restoring.release()
 
 
-async def _confirm(db: Any, key: str, config: dict | None) -> str:
+async def _prepare(db: Any, key: str, config: dict | None) -> str | tuple[str, Any, bytes, bytes, str]:
+    """Fetch and check again what the question named. A str is the answer (nothing to do)."""
     with _lock:
         q = _questions.pop(key, None)
     if q is None or time.time() - q.asked > QUESTION_FOR_S:
@@ -452,17 +479,19 @@ async def _confirm(db: Any, key: str, config: dict | None) -> str:
         return str(e)
     except (OSError, ValueError):
         return "The undo copy is unreadable. Nothing was changed."
-    if q.kind == "restore":
-        return await asyncio.to_thread(_apply, db, data, owner_key, q.label)
+    return (q.kind, db, data, owner_key, q.label)
+
+
+def _undo_apply(db: Any, data: bytes) -> str:
     try:
-        passed = await asyncio.to_thread(_restore_into, db, data)
+        failed = _restore_into(db, data)
     except _CopyFailed:
         return "Putting back the earlier memory failed and nothing was changed. The undo copy is kept."
     except _MigrateFailed:
         return "I put back the earlier memory, but couldn't bring it up to date with this version of me."
-    if not passed:
-        return ("I put back the earlier memory, but it failed its check afterwards. The undo copy is kept, "
-                "so /backup undo can try again.")
+    if failed:
+        return (f"I put back the earlier memory, but it failed its {failed} check afterwards. The undo copy "
+                "is kept, so /backup undo can try again.")
     _wipe(_undo_path(db))
     logger.info("backup restore: undone (%d bytes)", len(data))
     return "Put back my memory as it was before the restore. The undo copy is now deleted."
