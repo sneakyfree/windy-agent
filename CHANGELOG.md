@@ -10,6 +10,11 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
 
 ## Unreleased
 
+- **The agent answers in your language.** When your Windy app tags a message with your language, the agent
+  now answers in it (it only ever tagged its own replies before). Only a well-formed language code is used,
+  and a message without a tag keeps the last language. "What languages can you translate?" now reads Windy's
+  own list, with each language's quality to and from English.
+
 - **Only the owner can make the agent send, call, buy, publish or upload.** The agent's older tools carried
   no permission level, so anyone the agent treats below the owner could get them run, and a tool the
   model named was run for any sender, strangers included. That covers three kinds of sender: someone
