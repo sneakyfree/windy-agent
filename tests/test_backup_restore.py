@@ -388,15 +388,84 @@ def test_one_restore_at_a_time(cloud, live, tmp_path):
     assert _yes(live).startswith("Restored")                      # once the first one is done
 
 
+def _migration_leaving_an_orphan(db: Database):
+    """A real post-restore failure: a 'migration' that leaves a row pointing at no node."""
+    def run():
+        db.conn.execute("PRAGMA foreign_keys = OFF")
+        db.conn.execute("CREATE TABLE IF NOT EXISTS extra (node TEXT REFERENCES nodes(id))")
+        db.conn.execute("INSERT INTO extra VALUES ('no-such-node')")
+        db.conn.commit()
+    return run
+
+
 def test_the_owner_is_told_when_the_restored_memory_fails_its_check(cloud, live, tmp_path, monkeypatch):
     cloud.store["b.enc"] = _backup_blob(tmp_path, "zqxbackedup")
     asyncio.run(br.ask_restore(live, KEY))
-    real = br._restore_into
-    monkeypatch.setattr(br, "_restore_into", lambda db, data: (real(db, data), False)[1])
+    monkeypatch.setattr(live, "_run_migrations", _migration_leaving_an_orphan(live))
     out = _yes(live)
-    assert "failed its check afterwards" in out and "/backup undo" in out
+    assert "failed its foreign-key check afterwards" in out and "/backup undo" in out
+    assert Path(live.db_path + ".undo.enc").exists()
 
 
+def test_a_failed_check_after_undo_is_told_and_the_undo_copy_is_kept(cloud, live, tmp_path, monkeypatch):
+    cloud.store["b.enc"] = _backup_blob(tmp_path, "zqxbackedup")
+    asyncio.run(br.ask_restore(live, KEY))
+    assert _yes(live).startswith("Restored")
+    assert "/backup yes" in br.ask_undo(live, KEY)
+    monkeypatch.setattr(live, "_run_migrations", _migration_leaving_an_orphan(live))
+    out = _yes(live)
+    assert "failed its foreign-key check afterwards" in out and "undo copy is kept" in out
+    assert Path(live.db_path + ".undo.enc").exists()
+
+
+def test_a_cancelled_yes_keeps_the_lock_until_the_restore_thread_ends(cloud, live, tmp_path, monkeypatch):
+    """Hub on #597: cancelling the confirm task must not let a second restore start beside the first."""
+    import threading
+
+    cloud.store["b.enc"] = _backup_blob(tmp_path, "zqxbackedup")
+    started, release = threading.Event(), threading.Event()
+    real = br._restore_into
+
+    def slow(db, data):
+        started.set()
+        release.wait(10)
+        return real(db, data)
+
+    monkeypatch.setattr(br, "_restore_into", slow)
+
+    async def scenario():
+        await br.ask_restore(live, KEY)
+        task = asyncio.create_task(br.confirm(live, KEY))
+        while not started.is_set():
+            await asyncio.sleep(0.01)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert br._restoring.locked()                                   # still held: the thread runs on
+        await br.ask_restore(live, KEY)
+        second = await br.confirm(live, KEY)
+        release.set()
+        for _ in range(500):
+            if not br._restoring.locked():
+                break
+            await asyncio.sleep(0.01)
+        return second
+
+    assert "already running" in asyncio.run(scenario())
+    assert not br._restoring.locked()
+    assert _names(live) == ["zqxbackedup"]
+
+
+def test_tables_with_the_right_names_but_no_schema_version_are_refused(cloud, live, tmp_path):
+    fake = tmp_path / "fake.db"
+    c = sqlite3.connect(fake)
+    for t in ("schema_version", "nodes", "episodes", "soul"):
+        c.execute(f"CREATE TABLE {t} (junk)")
+    c.commit()
+    c.close()
+    cloud.store["b.enc"] = _backup_blob(tmp_path, "x", raw=fake.read_bytes())
+    out = asyncio.run(br.ask_restore(live, KEY))
+    assert "not a Windy Fly memory" in out and "schema version" in out
 
 
 def test_a_backup_that_fails_its_foreign_key_check_is_refused(cloud, live, tmp_path):
