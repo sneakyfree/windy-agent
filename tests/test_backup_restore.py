@@ -331,11 +331,11 @@ def test_a_backup_that_changed_since_the_question_is_not_restored(cloud, live, t
 
 def test_a_backup_with_another_page_size_is_refused(cloud, live, tmp_path):
     src = tmp_path / "big-pages.db"
+    _memory(src, "x")                                   # a real memory, then rewritten with 8 KiB pages
     c = sqlite3.connect(src)
+    c.execute("PRAGMA journal_mode = DELETE")
     c.execute("PRAGMA page_size = 8192")
-    c.execute("CREATE TABLE schema_version (version INTEGER, description TEXT)")
     c.execute("VACUUM")
-    c.commit()
     c.close()
     cloud.store["b.enc"] = _backup_blob(tmp_path, "x", raw=src.read_bytes())
     assert "different database page size" in asyncio.run(br.ask_restore(live, KEY))
@@ -366,3 +366,48 @@ def test_a_failed_migration_after_the_copy_points_to_undo(cloud, live, tmp_path,
     assert "/backup undo" in out and "couldn't bring it up to date" in out
     assert Path(live.db_path + ".undo.enc").exists()
 
+
+def test_a_database_that_is_not_a_windy_fly_memory_is_refused(cloud, live, tmp_path):
+    other = tmp_path / "other.db"
+    c = sqlite3.connect(other)
+    c.execute("CREATE TABLE notes (x)")
+    c.commit()
+    c.close()
+    cloud.store["b.enc"] = _backup_blob(tmp_path, "x", raw=other.read_bytes())
+    assert "not a Windy Fly memory" in asyncio.run(br.ask_restore(live, KEY))
+
+
+def test_one_restore_at_a_time(cloud, live, tmp_path):
+    cloud.store["b.enc"] = _backup_blob(tmp_path, "zqxbackedup")
+    asyncio.run(br.ask_restore(live, KEY))
+    assert br._restoring.acquire(blocking=False)
+    try:
+        assert "already running" in _yes(live)
+    finally:
+        br._restoring.release()
+    assert _yes(live).startswith("Restored")                      # once the first one is done
+
+
+def test_the_owner_is_told_when_the_restored_memory_fails_its_check(cloud, live, tmp_path, monkeypatch):
+    cloud.store["b.enc"] = _backup_blob(tmp_path, "zqxbackedup")
+    asyncio.run(br.ask_restore(live, KEY))
+    real = br._restore_into
+    monkeypatch.setattr(br, "_restore_into", lambda db, data: (real(db, data), False)[1])
+    out = _yes(live)
+    assert "failed its check afterwards" in out and "/backup undo" in out
+
+
+
+
+def test_a_backup_that_fails_its_foreign_key_check_is_refused(cloud, live, tmp_path):
+    src = tmp_path / "fk.db"
+    _memory(src, "x")
+    c = sqlite3.connect(src)
+    c.execute("PRAGMA foreign_keys = OFF")
+    c.execute("CREATE TABLE extra (node TEXT REFERENCES nodes(id))")      # the schema declares none itself
+    c.execute("INSERT INTO extra VALUES ('no-such-node')")
+    c.commit()
+    c.close()
+    cloud.store["b.enc"] = _backup_blob(tmp_path, "x", raw=src.read_bytes())
+    out = asyncio.run(br.ask_restore(live, KEY))
+    assert "foreign-key check" in out and "no override" in out
