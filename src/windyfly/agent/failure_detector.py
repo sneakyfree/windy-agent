@@ -22,6 +22,15 @@ logger = logging.getLogger(__name__)
 # Uses negative lookahead to avoid false positives on agreement phrases
 FRICTION_PATTERNS: list[tuple[str, str]] = [
     (r"(?i)^(?!.*(no\s+(problem|worries|thanks|that'?s\s+(fine|great|good|perfect|right|correct)))).*\b(no,?\s+(?:that'?s\s+)?(?:wrong|incorrect|not\s+(?:right|what|correct)))\b", "factual_error"),
+    # Common corrections (strand P2.24.3), each kept narrow so agreement never matches (P2.24.2):
+    # "That is wrong" / "that's not right" (not "that's not wrong"), a message that OPENS with
+    # "Incorrect," or "Wrong,", and "Actually, it's/the/you're ..." unless what follows agrees.
+    (r"(?i)\bthat(?:'s|\s+is|\s+was)\s+(?:(?:just|totally|completely|simply|still)\s+)?"
+     r"(?:wrong|incorrect|not\s+(?:right|true|correct|accurate|what\s+i))\b", "factual_error"),
+    (r"(?i)^\s*(?:incorrect|wrong)\s*[,.:;!-]", "factual_error"),
+    (r"(?i)^\s*actually,?\s+(?!(?:that'?s|that\s+is|it'?s|it\s+is|you'?re|you\s+are)\s+"
+     r"(?:(?:exactly|totally|completely|absolutely|quite|so)\s+)?(?:right|correct|perfect|great|fine|true|good|spot\s+on)\b)"
+     r"(?:it'?s|it\s+(?:is|was)|the\s|that'?s|that\s+(?:is|was)|you'?re|you\s+are)", "factual_error"),
     (r"(?i)\b(what i meant was|let me clarify|i didn'?t mean)\b", "ambiguity_mishandled"),
     (r"(?i)\b(i (?:already )?(?:said|told you|asked you|meant))\b(?!.*(?:thanks|great|perfect))", "preference_miss"),
     (r"(?i)\b(try again|redo|retry|one more time|do it (?:again|over))\b", "execution_failure"),

@@ -140,3 +140,24 @@ def test_p2_24_a_correction_reaches_the_model_as_a_correction():
             wq.stop()
             db.close()
     assert any("The user just corrected you" in c for c in seen)
+
+
+def test_p2_24_common_corrections_are_detected():
+    from windyfly.agent.failure_detector import detect_friction
+
+    for text in ("That is wrong, the meeting is on Friday.",
+                 "That's not right, I live in Denver.",
+                 "Incorrect, it was 1987 not 1989.",
+                 "Wrong, the file is in /tmp.",
+                 "Actually, it's Tuesday today.",
+                 "Actually, the train leaves at 6.",
+                 "Actually you're thinking of my sister."):
+        got = detect_friction(text)
+        assert got and got["fault_type"] == "factual_error", text
+    for text in ("Actually, that's exactly right!",
+                 "Actually, you're totally right about that.",
+                 "Actually it's perfect, thank you.",
+                 "That's not wrong at all, nice work.",
+                 "Is that wrong? I can't tell.",
+                 "No problem, that works great!"):
+        assert detect_friction(text) is None, text
