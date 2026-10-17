@@ -226,6 +226,21 @@ describe("soul import from the dashboard", () => {
     const sent = calls.filter((c) => ["soul.preview", "soul.import", "soul.reject"].includes(c.method));
     expect(sent.every((c) => JSON.stringify(Object.keys(c.params)) === '["token"]')).toBe(true);
   });
+
+  test("reject with all:true clears a waiting import whose token the page lost", async () => {
+    const json = { ...auth, "Content-Type": "application/json" };
+    const r = await fetch(base + "/api/soul/reject", { method: "POST", headers: json,
+                                                       body: JSON.stringify({ all: true, extra: 1 }) });
+    expect(await r.json()).toEqual({ ok: "soul.reject" });
+    expect(calls.at(-1)).toEqual({ method: "soul.reject", params: { all: true } });
+    for (const body of [{ all: "true" }, { all: true, export_path: "/home" }]) {
+      const bad = await fetch(base + "/api/soul/reject", { method: "POST", headers: json, body: JSON.stringify(body) });
+      expect(bad.status).toBe(400);
+    }
+    const preview = await fetch(base + "/api/soul/preview", { method: "POST", headers: json,
+                                                              body: JSON.stringify({ all: true }) });
+    expect(preview.status).toBe(400);                                // only reject clears without a token
+  });
 });
 
 describe("the startup sweep", () => {
