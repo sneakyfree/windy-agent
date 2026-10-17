@@ -66,5 +66,11 @@ async def test_p4_11_15_replies_go_out_as_m_text_so_they_are_pushed():
     sent = [c for c in bot.client.room_send.await_args_list if c.args[1] == "m.room.message"]
     assert sent and all(c.args[2]["msgtype"] == "m.text" for c in sent)
     assert sent[0].args[0] == ROOM
-    offenders = [str(p.relative_to(SRC)) for p in SRC.rglob("*.py") if "m.notice" in p.read_text()]
-    assert offenders == []                                   # Synapse's suppress_notices drops m.notice pushes
+    # Synapse's suppress_notices drops m.notice pushes, so nothing meant for the person is ever a notice.
+    # The one exception is agent-teamwork.v1 backstage (dark, WINDY_TEAMWORK=1): agent-to-agent requests and
+    # results, the chief's "asked them" line in the task's thread, and the one quiet stop line. Those live
+    # in these two files only (tests/test_teamwork.py pins them); the owner's ONE answer is m.text.
+    backstage = {"channels/teamwork.py", "channels/matrix_bot.py"}
+    offenders = [str(p.relative_to(SRC)) for p in SRC.rglob("*.py")
+                 if "m.notice" in p.read_text() and str(p.relative_to(SRC)) not in backstage]
+    assert offenders == []

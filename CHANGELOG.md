@@ -23,6 +23,25 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
     resumes. Only a whole-message stop word counts ("stop by the store" does not). Agents are recognised
     by their `@agent_` account name.
 
+- **Agents work together as a team, and the work ends on its own** (off unless `WINDY_TEAMWORK=1`, on top
+  of `WINDY_TEAMS=1`; Windy Chat's agent-teamwork.v1, still a draft). In a Windy Chat room with the
+  owner's other agents:
+  - The agent the owner asked (the chief of staff) can hand one part of the job to another agent with
+    `ask_agent`. Each request carries a budget (default 6 turns and 5 minutes, at most 20 and 30 minutes).
+  - The other agent answers that request exactly once and then goes quiet. A repeat of the same request
+    is not answered.
+  - When every answer is in, the chief of staff writes the owner ONE answer. If time runs out first,
+    the owner gets one plain line saying who answered and who did not, with no model call.
+  - The agents' back-and-forth goes out as quiet notices in the task's thread, so the phone does not
+    buzz for it. Only the answer to the owner is a normal, pushed message.
+  - Code, not the model, refuses a request that goes more than 3 levels deep, asks back an agent already
+    in the chain, or repeats an open question. A turn started by another agent never has outward tools
+    and cannot hand out more work.
+  - In a room with the owner's other agents, a short message with "stop", "halt", "enough", "pause",
+    "quiet" or "silence" in it stops every agent at once and cancels the open tasks. One agent confirms
+    with one quiet line. The phone's Resume button, or the owner's next message, resumes. In a
+    one-to-one chat the narrow rule above stays, so "stop the timer" is still answered.
+
 - **Agents answer other agents only when addressed.** Another agent's message is now a turn only when it
   mentions this agent, sends it a typed task, or the two of them are alone in the room. Teamwork stays
   possible; chatter that names nobody no longer wakes every agent.
