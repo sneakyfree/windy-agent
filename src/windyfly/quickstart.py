@@ -172,13 +172,9 @@ def write_quick_config(
     toml_content = f"""[agent]
 name = "{agent_name}"
 default_model = "{model}"
-max_context_tokens = 8000
-max_response_tokens = 2000
-temperature = 0.7
 
 [memory]
 db_path = "data/windyfly.db"
-max_episodes_per_context = 20
 max_nodes_per_context = 10
 
 [personality]
@@ -266,13 +262,9 @@ def write_keyless_config(preset: str = "buddy") -> None:
     toml_content = f"""[agent]
 name = "{agent_name}"
 default_model = "{KEYLESS_MODEL}"
-max_context_tokens = 8000
-max_response_tokens = 2000
-temperature = 0.7
 
 [memory]
 db_path = "data/windyfly.db"
-max_episodes_per_context = 20
 max_nodes_per_context = 10
 
 [personality]

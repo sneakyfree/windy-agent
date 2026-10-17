@@ -97,13 +97,6 @@ _KNOB_WHITELIST: dict[str, dict[str, Any]] = {
         "type": "int",
         "description": "How much I say per response",
     },
-    "max_episodes_per_context": {
-        "config_path": ("memory", "max_episodes_per_context"),
-        "min": 5,
-        "max": 50,
-        "type": "int",
-        "description": "How many recent messages I consider per turn",
-    },
     "max_nodes_per_context": {
         "config_path": ("memory", "max_nodes_per_context"),
         "min": 5,

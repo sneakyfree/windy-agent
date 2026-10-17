@@ -78,9 +78,9 @@ Built in waves (strand-to-green plan, 2026-10-10): 5a set the frame plus Part 1 
 | Codon | Promise | Status | Test |
 |---|---|---|---|
 | P1.02.1 | One default model: windyfly.config.DEFAULT_MODEL; windyfly.toml names the same one, .env.example sets none, and no code names its own fallback | live | `tests/strand/test_p1_foundation.py::test_p1_02_there_is_one_default_model` |
-| P1.02.2 | [agent] temperature / max_response_tokens / max_context_tokens are honoured | planned: Windy Agent: never read (the creativity and response-length sliders decide); honour them or drop them from the file | — |
+| P1.02.2 | [agent] temperature / max_response_tokens / max_context_tokens are honoured | retired: never read (the creativity and response-length sliders and the model's window decide); the settings are removed from windyfly.toml, the setup templates, the config defaults and the dashboard Settings page (#594) | — |
 | P1.02.3 | [memory] db_path and max_nodes_per_context come from the file | live | `tests/strand/test_p1_foundation.py::test_p1_02_memory_settings_come_from_the_file` |
-| P1.02.4 | [memory] max_episodes_per_context is honoured | planned: Windy Agent: never read (5 + 5 x context_window slider decides); honour it or drop it | — |
+| P1.02.4 | [memory] max_episodes_per_context is honoured | retired: never read (the context slider decides); removed from the config files and from auto-repair's tunable settings (#594) | — |
 | P1.02.5 | [personality] sliders default from the file | live | `tests/strand/test_p1_foundation.py::test_p1_02_personality_sliders_default_from_the_file` |
 | P1.02.6 | [costs] daily budget is enforced | live | `tests/test_cost_tracker.py::TestBudgetCheck::test_exceeds_budget` |
 | P1.02.7 | [matrix] settings come from the file | live | `tests/strand/test_p1_foundation.py::test_p1_02_matrix_settings_come_from_the_file` |
@@ -128,7 +128,7 @@ Built in waves (strand-to-green plan, 2026-10-10): 5a set the frame plus Part 1 
 | P1.03.18 | HIGH writes run before MEDIUM, MEDIUM before LOW | live | `tests/test_strand_wave4_write_queue.py::test_C0_11_strict_priority_order_with_several_items_each` |
 | P1.03.19 | A failing write does not stop the queue | live | `tests/test_chaos.py::TestWriteQueueCrashRecovery::test_worker_survives_failing_callback` |
 | P1.03.20 | stop() finishes the writes already queued | live | `tests/test_chaos.py::TestWriteQueueCrashRecovery::test_stop_flushes_pending_items` |
-| P1.03.21 | MEDIUM writes run as one transaction per batch of up to 50 | planned: Windy Agent: the queue batches up to 50 but each write commits itself; share one transaction, or restate the promise as "batched for fairness" | — |
+| P1.03.21 | MEDIUM writes run together in batches of up to 50 for fairness (each write commits on its own), and one failing write never stops the rest of its batch | live | `tests/strand/test_step8_restated.py::test_p1_03_21_medium_writes_run_in_batches_and_one_failure_never_stops_the_rest` |
 | P1.03.22 | Timestamps keep parsing on future Python versions (explicit adapters and converters, not the defaults deprecated in 3.12) | live | `tests/strand/test_p1_memory.py::test_p1_03_timestamps_parse_without_the_deprecated_defaults` |
 
 ### P1.04 Personality engine (gene 0.4)
@@ -140,7 +140,7 @@ Built in waves (strand-to-green plan, 2026-10-10): 5a set the frame plus Part 1 
 | P1.04.3 | Humour below 3 strips the witty lines | live | `tests/test_personality.py::TestBuildPersonalityBlock::test_low_humor_strips_witty` |
 | P1.04.4 | Formality above 7 adds the formal instruction | live | `tests/test_personality.py::TestBuildPersonalityBlock::test_high_formality_adds_instruction` |
 | P1.04.5 | Sliders shape the personality block (e.g. autonomy) | live | `tests/test_autonomy_slider_wired.py::test_high_autonomy_emits_action_bias_modifier` |
-| P1.04.6 | The personality block stays under 600 tokens | planned: Windy Agent: not enforced; about 474 tokens with the default SOUL.md at maximum sliders, but a custom SOUL.md has no cap | — |
+| P1.04.6 | In raw mode (the default) the owner's SOUL.md is passed whole, never cut; with sliders on, the slider text added to it is at most 800 characters | live | `tests/strand/test_step8_restated.py::test_p1_04_6_the_soul_is_whole_in_raw_mode_and_the_slider_text_is_bounded` |
 | P1.04.7 | Modes (companion / focused / neutral) override the personality | retired: switching modes did nothing; modes removed (#499) | — |
 
 ### P1.05 Model calls (gene 0.5)
@@ -269,7 +269,7 @@ Built in waves (strand-to-green plan, 2026-10-10): 5a set the frame plus Part 1 
 |---|---|---|---|
 | P2.21.1 | An OpenClaw export is read (soul, memories, skills) | live | `tests/test_soul_import.py::TestOpenClawParser::test_parses_soul` |
 | P2.21.2 | A Hermes export is read (MEMORY.md, skills) | live | `tests/test_soul_import.py::TestHermesParser::test_parses_memory_file` |
-| P2.21.3 | Hermes's SQLite store is read | planned: Windy Agent: the reader guesses table names and no test drives it; prove it on a real-shaped Hermes database or drop it | — |
+| P2.21.3 | Hermes's SQLite store is read | retired: the reader guessed table names and no real Hermes database was ever provided; soul-import intake never takes a database file, so Hermes imports through its SOUL.md and MEMORY.md only (#594) | — |
 | P2.21.4 | A ChatGPT export is read for preferences and topics | live | `tests/test_soul_import.py::TestChatGPTParser::test_parses_conversations` |
 | P2.21.5 | ChatGPT's communication style is extracted: humour, formality and verbosity from plain counts over the owner's own messages (never the assistant's), no model call | live | `tests/strand/test_p2_soul_truth.py::test_p2_21_chatgpt_style_comes_from_the_owners_own_messages_only` |
 | P2.21.6 | The source is detected automatically | live | `tests/test_soul_import.py::TestSourceDetection::test_detects_openclaw` |
@@ -369,7 +369,7 @@ Built in waves (strand-to-green plan, 2026-10-10): 5a set the frame plus Part 1 
 | P3.33.8 | Mentioning a goal again keeps it fresh | live | `tests/test_intents.py::TestTouchIntent::test_touch_resets_score_and_clock` |
 | P3.33.9 | Stale goals decay and pause on the daily schedule | live | `tests/test_intents.py::TestDecaySchedulerRunsIntentDecay::test_scheduler_decays_and_pauses_stale_intents` |
 | P3.33.10 | /decay also decays goals | live | `tests/test_decay_runs_intents.py::test_slash_decay_pauses_stale_intents` |
-| P3.33.11 | Edges link memories into a graph | planned: Windy Agent: the edges table exists but nothing writes to it; build the graph or drop the table | — |
+| P3.33.11 | Edges link memories into a graph | retired: nothing writes edges and no graph feature is planned; the table stays only so /forget removes any edge rows with a node (#594) | — |
 
 ### P3.34 Emotional awareness (gene 3.4)
 
@@ -544,15 +544,15 @@ are the new genes (Wave 5g).
 | P4.11.11 | Typing shows while the agent works | live | `tests/strand/test_p2_matrix.py::test_p2_12_typing_on_before_the_turn_and_off_after_the_reply` |
 | P4.11.12 | Read receipts: the agent marks a message read when it takes it up, before it starts typing | live | `tests/strand/test_p2_matrix.py::test_p4_11_the_agent_marks_a_message_read_before_it_starts_typing` |
 | P4.11.13 | Onboarding (K2) gives the agent its chat account, using its passport | live | `tests/test_chat_session.py::TestFetchAgentChatSession::test_sends_ept_bearer_and_returns_session` |
-| P4.11.14 | The directory (K3) lists the agent as discoverable | planned: Windy Agent: no registration call (teams only reads the owner's roster); decide with Windy Chat whether agents are listed | — |
-| P4.11.15 | Push (K6) delivers the agent's replies to the phone | planned: Windy Agent: server-side, nothing in this repo; Windy Chat to confirm push covers agent replies | — |
+| P4.11.14 | The directory (K3) lists the agent as discoverable | retired: agents stay private (Windy Chat 10-17: the agent directory was dropped in windy-chat #385, Grant's decision; Synapse runs with search_all_users false, so an agent is findable only by people already in a room with it) (#594) | — |
+| P4.11.15 | Push (K6) delivers the agent's replies to the phone: replies go out as m.text, which Windy Chat's push covers (m.notice is never pushed); Windy Chat's prod proof BOARD 10-17T15:19Z (K6.m5) | live | `tests/strand/test_step8_restated.py::test_p4_11_15_replies_go_out_as_m_text_so_they_are_pushed` |
 | P4.11.16 | The agent's conversations are backed up (its own encrypted database backup to Windy Cloud, in place of K8) | live | `tests/test_cloud_backup_contract.py::TestListAndRestoreRoundTrip::test_backup_list_restore` |
 | P4.11.17 | Translation history from the Windy Pro account server | live | `tests/test_contract_pro_api.py::TestTranslationHistoryContract::test_correct_path_and_auth` |
 | P4.11.18 | Recordings from the account server | live | `tests/test_tools.py::TestWindyApiTools::test_get_recordings` |
 | P4.11.19 | Clone training data from the account server | live | `tests/test_tools.py::TestWindyApiTools::test_get_clone_status` |
 | P4.11.20 | Translate text through the account server | live | `tests/test_contract_pro_api.py::TestTranslateContract::test_correct_path_method_and_body` |
 | P4.11.21 | The supported-languages list from the account server | planned: Windy Agent: not wrapped; wrap it or drop it | — |
-| P4.11.22 | The JWT is verified with /auth/me | planned: Windy Agent: identity is the passport (EPT/JWKS) now; record the retirement in a PR | — |
+| P4.11.22 | The JWT is verified with /auth/me | retired: an agent's identity is its Eternitas passport (EPT verified against the JWKS), which every agent uses; /auth/me is not used (#594) | — |
 | P4.11.23 | The account-server JWT comes from the environment, not windyfly.toml | live | `tests/test_contract_pro_api.py::TestTranslationHistoryContract::test_correct_path_and_auth` |
 | P4.11.24 | Shared contracts are vendored and pinned (JSON from windy-contracts) | live | `tests/test_shared_commands.py::test_the_vendored_contract_is_the_pinned_one` |
 | P4.11.25 | Voice notes are transcribed in the agent (its own faster-whisper, optional extra) and answered | live | `tests/test_voice_handler.py::test_voice_handler_dispatches_transcript_to_agent` |
