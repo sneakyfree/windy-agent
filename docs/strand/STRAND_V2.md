@@ -277,7 +277,7 @@ Built in waves (strand-to-green plan, 2026-10-10): 5a set the frame plus Part 1 
 | P2.21.8 | Without approval nothing is written | live | `tests/strand/test_p2_soul_truth.py::test_p2_21_preview_writes_nothing` |
 | P2.21.9 | Approved items are stored as low-confidence imports (0.5, imported_<source>, inferred) | live | `tests/strand/test_p2_soul_truth.py::test_p2_21_approved_items_are_stored_as_low_confidence_imports` |
 | P2.21.10 | Sensitive items are stored at 0.3, flagged for review; code skills are skipped, prose skills become unpromoted playbooks | live | `tests/strand/test_p2_soul_truth.py::test_p2_21_sensitive_items_are_flagged_and_code_skills_skipped` |
-| P2.21.11 | The owner can review flagged items | planned: Windy Agent: needs_review is stored but nothing reads it; the preview offers "review sensitive" with no flow behind it | — |
+| P2.21.11 | The owner can review flagged items: /soul review lists them by number and kind, /soul review <n> opens one, /soul keep <n> lets the agent use it | live | `tests/strand/test_p2_soul_truth.py::test_p2_21_the_owner_reviews_flagged_items_one_at_a_time_and_keeps_one` |
 | P2.21.12 | Imported personality (traits, humour, formality) is applied on approval | planned: Windy Agent: shown in the preview, then dropped by the importer | — |
 | P2.21.13 | The owner can start an import without a terminal: /soul import, send the export in chat, see the preview, /soul approve or /soul reject (the file is wiped either way) | live | `tests/test_soul_import_flow.py::test_approve_keeps_the_import_and_wipes_the_file` |
 
@@ -606,7 +606,7 @@ are the new genes (Wave 5g).
 | P4.C2.2 | A Hermes export is read | live | `tests/test_soul_import.py::TestHermesParser::test_parses_memory_file` |
 | P4.C2.3 | A ChatGPT export is read | live | `tests/test_soul_import.py::TestChatGPTParser::test_parses_conversations` |
 | P4.C2.4 | The Soul Preview comes before any write | live | `tests/strand/test_p2_soul_truth.py::test_p2_21_preview_writes_nothing` |
-| P4.C2.5 | The owner can approve, reject or review the sensitive items | planned: Windy Agent: approve and reject work; reviewing flagged items has no surface (P2.21.11) | — |
+| P4.C2.5 | The owner can approve, reject or review the sensitive items; /soul drop, then /soul yes, deletes flagged items leaving no readable copy | live | `tests/strand/test_p2_soul_truth.py::test_p4_c2_the_owner_drops_flagged_items_after_a_yes_leaving_nothing_readable` |
 | P4.C2.6 | Imports carry the right confidence and source | live | `tests/strand/test_p2_soul_truth.py::test_p2_21_approved_items_are_stored_as_low_confidence_imports` |
 | P4.C2.7 | The presets (buddy, engineer, powerhouse, and the newer ones) apply all their values | live | `tests/strand/test_p4_map_index.py::test_p4_c2_7_each_preset_applies_all_its_values` |
 | P4.C2.8 | Each slider is written and read back | live | `tests/test_control_panel.py::TestSliders::test_set_and_get` |

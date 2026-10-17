@@ -1567,6 +1567,23 @@ def _register_all():
         if args and args[0] == "edit":
             return "Run 'windy soul edit' from terminal to open SOUL.md in your editor."
         # Soul import (strand P2.21.13): /soul import -> send the file -> /soul approve | /soul reject.
+        if args and args[0].lower() == "yes":
+            from windyfly.soul_import import flow as _flow
+
+            if not _db:
+                return "Database not available."
+            key = f"{ctx.get('platform', '?')}:{ctx.get('channel_id', '?')}"
+            return _flow.confirm_drop(_db, key)
+        if args and args[0].lower() in ("review", "keep", "drop"):
+            from windyfly.soul_import import flow as _flow
+
+            if not _db:
+                return "Database not available."
+            key = f"{ctx.get('platform', '?')}:{ctx.get('channel_id', '?')}"
+            fn = {"review": _flow.review, "keep": _flow.keep, "drop": _flow.drop}[args[0].lower()]
+            if args[0].lower() != "review" and len(args) < 2:
+                return f"Usage: /soul {args[0].lower()} <numbers from /soul review | all>"
+            return fn(_db, key, args[1:])
         if args and args[0].lower() in ("import", "approve", "reject"):
             from windyfly.soul_import import flow as _flow
 
@@ -1589,7 +1606,7 @@ def _register_all():
             return f"Current personality:\n{content}{'...' if len(soul_path.read_text(encoding="utf-8")) > 500 else ''}"
         return "No SOUL.md found. Create one to define your agent's personality."
     _r("soul", "Show your agent's personality, or import one (/soul import)", "05_personality", cmd_soul,
-       aliases=["personality", "persona"], usage="soul | soul import | soul approve | soul reject")
+       aliases=["personality", "persona"], usage="soul | soul import | soul approve | soul reject | soul review [n] | soul keep <n> | soul drop <n|all> | soul yes")
 
     async def cmd_sliders(ctx):
         if not _db:

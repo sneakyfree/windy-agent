@@ -54,13 +54,27 @@ def _drop(key: str) -> None:
         _intake.discard(p.intake)
 
 
+GUEST_OFF = "Soul import is off while guest mode is on. /guest off first."
+
+
+def _guest() -> bool:
+    """Guest mode (a demo for other people): no import, review, keep or drop (the design, Hub on #586)."""
+    from windyfly.agent.guest_mode import is_guest_active
+
+    return is_guest_active()
+
+
 def awaiting_file(key: str) -> bool:
     """True when this owner conversation asked to import and the file has not arrived yet."""
+    if _guest():
+        return False
     p = _get(key)
     return bool(p and p.intake is None)
 
 
 def start(key: str) -> str:
+    if _guest():
+        return GUEST_OFF
     _drop(key)
     with _lock:
         _pending[key] = _Pending()
@@ -81,6 +95,9 @@ def take_file(db: Any, key: str, stream: BinaryIO, filename: str, *, max_bytes: 
     """The awaited file arrived: receive it safely and answer with the preview (nothing written)."""
     from windyfly.soul_import.orchestrator import import_soul
 
+    if _guest():
+        _drop(key)
+        return GUEST_OFF
     p = _get(key)
     if p is None or p.intake is not None:
         return "I wasn't expecting a file. Start with /soul import."
@@ -104,6 +121,8 @@ def take_file(db: Any, key: str, stream: BinaryIO, filename: str, *, max_bytes: 
 def approve(db: Any, key: str) -> str:
     from windyfly.soul_import.orchestrator import import_soul
 
+    if _guest():
+        return GUEST_OFF
     p = _get(key)
     if p is None or p.intake is None:
         return "There is no import waiting. Start with /soul import."
@@ -126,3 +145,140 @@ def reject(key: str) -> str:
     _drop(key)
     return ("Cancelled. Nothing was kept, and the file is wiped." if had
             else "There is no import waiting.")
+
+
+# ── /soul review: flagged imports wait here until the owner keeps or drops them (P2.21.11) ──────
+
+_review_lists: dict[str, tuple[float, list[str]]] = {}
+_drops: dict[str, tuple[float, list[str]]] = {}
+REVIEW_LIST_FOR_S = 600
+
+
+def _flagged(db: Any) -> list[dict[str, Any]]:
+    return db.fetchall(
+        "SELECT id, type, created_at, metadata FROM nodes "
+        "WHERE metadata IS NOT NULL AND json_valid(metadata) "
+        "AND COALESCE(json_extract(metadata, '$.needs_review'), 0) != 0 "
+        "ORDER BY created_at, rowid")
+
+
+def _numbered(key: str, nums: list[str]) -> list[str] | str:
+    with _lock:
+        at, ids = _review_lists.get(key, (0.0, []))
+    if not ids or time.time() - at > REVIEW_LIST_FOR_S:
+        return "List them first: /soul review."
+    if nums == ["all"]:
+        return list(ids)
+    try:
+        picked = sorted({int(n) for n in nums})
+    except ValueError:
+        return "Give the numbers from /soul review (for example /soul keep 1 3), or 'all'."
+    if not picked or picked[0] < 1 or picked[-1] > len(ids):
+        return f"Pick numbers from 1 to {len(ids)}."
+    return [ids[n - 1] for n in picked]
+
+
+def review(db: Any, key: str, nums: list[str]) -> str:
+    """List flagged items by number and kind only; '/soul review <n>' opens one item's text."""
+    import json
+
+    if _guest():
+        return GUEST_OFF
+    rows = _flagged(db)
+    if not nums:
+        if not rows:
+            return "Nothing is waiting for your review."
+        with _lock:
+            _review_lists[key] = (time.time(), [r["id"] for r in rows])
+            _drops.pop(key, None)
+        lines = [f"{len(rows)} imported item{'s' if len(rows) != 1 else ''} wait for your review "
+                 "(not used until you keep them):"]
+        for i, r in enumerate(rows, 1):
+            src = str((json.loads(r["metadata"]) or {}).get("import_source", "import")).replace("imported_", "")
+            lines.append(f"  {i}. {r['type']} from {src}, {str(r['created_at'])[:10]}")
+        lines.append("/soul review <number> shows one. /soul keep <numbers> uses them; /soul drop <numbers|all> "
+                     "deletes them for good.")
+        return "\n".join(lines)
+    picked = _numbered(key, nums[:1])
+    if isinstance(picked, str):
+        return picked
+    row = db.fetchone("SELECT type, metadata FROM nodes WHERE id = ?", (picked[0],))
+    if not row:
+        return "That item is gone. /soul review lists what is left."
+    text = str((json.loads(row["metadata"]) or {}).get("raw_content", ""))[:600]
+    return f"{nums[0]}. {row['type']}: {text}\n/soul keep {nums[0]} or /soul drop {nums[0]}."
+
+
+def keep(db: Any, key: str, nums: list[str]) -> str:
+    import json
+
+    if _guest():
+        return GUEST_OFF
+    picked = _numbered(key, nums)
+    if isinstance(picked, str):
+        return picked
+    kept = 0
+    for node_id in picked:
+        row = db.fetchone("SELECT metadata FROM nodes WHERE id = ?", (node_id,))
+        if not row:
+            continue
+        meta = json.loads(row["metadata"]) or {}
+        meta.pop("needs_review", None)
+        meta["reviewed"] = "kept"
+        db.execute("UPDATE nodes SET metadata = ?, confidence = 0.5, epistemic_status = 'inferred', "
+                   "updated_at = CURRENT_TIMESTAMP WHERE id = ?", (json.dumps(meta), node_id))
+        kept += 1
+    db.commit()
+    with _lock:
+        _review_lists.pop(key, None)
+    logger.info("soul review: kept %d", kept)
+    return f"Kept {kept} item{'s' if kept != 1 else ''}; I can use {'them' if kept != 1 else 'it'} now."
+
+
+def _describe(db: Any, ids: list[str]) -> list[str]:
+    import json
+
+    out = []
+    for node_id in ids:
+        r = db.fetchone("SELECT type, created_at, metadata FROM nodes WHERE id = ?", (node_id,))
+        if r:
+            src = str((json.loads(r["metadata"]) or {}).get("import_source", "import")).replace("imported_", "")
+            out.append(f"{r['type']} from {src}, {str(r['created_at'])[:10]}")
+    return out
+
+
+def drop(db: Any, key: str, nums: list[str]) -> str:
+    """Ask first: the list shows no text, so a mistyped number would delete an item never seen (Hub on #586)."""
+    if _guest():
+        return GUEST_OFF
+    picked = _numbered(key, nums)
+    if isinstance(picked, str):
+        return picked
+    with _lock:
+        at, ids = _review_lists.get(key, (0.0, []))
+        _drops[key] = (time.time(), list(picked))
+    n = len(picked)
+    lines = [f"Delete {n} item{'s' if n != 1 else ''} for good? This can't be undone."]
+    lines += [f"  {ids.index(i) + 1}. {d}" for i, d in zip(picked, _describe(db, picked)) if i in ids]
+    lines.append("/soul yes deletes them. /soul review starts over and deletes nothing.")
+    return "\n".join(lines)
+
+
+def confirm_drop(db: Any, key: str) -> str:
+    from windyfly.memory import forget as _forget
+
+    if _guest():
+        return GUEST_OFF
+    with _lock:
+        at, ids = _drops.pop(key, (0.0, []))
+    if not ids or time.time() - at > REVIEW_LIST_FOR_S:
+        return "Nothing is waiting to be deleted. /soul review, then /soul drop <numbers>."
+    # Only items still flagged: anything kept since the question stays.
+    still = {r["id"] for r in _flagged(db)}
+    items = [_forget.Item("memory", node_id, "", "") for node_id in ids if node_id in still]
+    counts = _forget.forget(db, items)
+    with _lock:
+        _review_lists.pop(key, None)
+    n = counts.get("memory", 0)
+    logger.info("soul review: dropped %d", n)
+    return f"Deleted {n} item{'s' if n != 1 else ''} for good. No readable copy is left in my memory file."
