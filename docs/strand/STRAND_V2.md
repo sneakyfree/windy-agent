@@ -1121,9 +1121,10 @@ Planned after Boss's privacy truth check (Word's v25 text). Full plan:
 `~/windy-orchestra/specs/AGENT_MEMORY_DELETE_N10_2026-10-17.md`. "Deleted" means the messages, their search
 index and embeddings, the summaries made from them (relationship moments, journal, turnover letter), the
 correction text in failures, and nothing left readable in the database file or its WAL. Backups are a
-separate gap (Windy Cloud, BOARD 10-17 02:57:45Z): Cloud has no keep-5 rotation and no expiry, the agent
-trims nothing (its code assumes Cloud does), so every backup sent stays with no time limit; Cloud erases
-them at once (its second copy in about 8 days) only when an account purge reaches it.
+separate gap. Each upload sends `retention_count=5` and Windy Cloud trims to the newest 5 on upload (its
+second copy follows after 7 days), so the last 5 of a STOPPED agent stay with no time limit. Cloud erases
+them at once (its second copy in about 8 days) only when an account purge reaches it (Cloud, BOARD
+10-17).
 
 | Codon | Promise | Status | Test |
 |---|---|---|---|
