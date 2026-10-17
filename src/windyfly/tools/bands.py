@@ -29,7 +29,7 @@ from windyfly.agent.capabilities.descriptor import Band
 _PUBLIC_READ = (
     "fetch_url", "get_news", "get_weather", "web_search", "windy_plans",
     "search_domain", "suggest_domains", "windycodeweb_list_templates", "windycodeweb_status",
-    "calculate", "convert_units", "flip_coin", "roll_dice",
+    "calculate", "convert_units", "flip_coin", "roll_dice", "list_languages",
 )
 # The owner's private data, read only (translate_text runs on the owner's account).
 _PRIVATE_READ = (

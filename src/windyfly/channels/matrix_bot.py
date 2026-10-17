@@ -516,6 +516,13 @@ class WindyFlyMatrixBot(ChannelAdapter):
 
         agent_turn = _silence.enabled() and _silence.sender_is_agent(sender)
         agent_sender = _parity.passport_of(sender) is not None  # independent of the teams flag
+
+        # The person's language, as their Windy app tags it (strand P2.11.13): the reply follows it.
+        if not agent_sender:
+            from windyfly.channels import sender_lang as _lang
+
+            src = getattr(event, "source", None)
+            _lang.note(session_id, _lang.from_content(src.get("content") if isinstance(src, dict) else None))
         if agent_sender:
             _silence.mark_agent_sender(session_id)
         if agent_turn:

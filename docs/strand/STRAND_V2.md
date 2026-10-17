@@ -218,7 +218,7 @@ Built in waves (strand-to-green plan, 2026-10-10): 5a set the frame plus Part 1 
 | P2.11.10 | A message gets an answer in the same room | live | `tests/test_matrix_bot.py::TestMatrixBotMessage::test_responds_to_fresh_message` |
 | P2.11.11 | Replies carry windy_original and windy_lang | live | `tests/test_contract_matrix.py::TestMessageFormatContract::test_response_message_has_correct_schema` |
 | P2.11.12 | windy_lang is detected from the reply text | live | `tests/test_contract_matrix.py::TestMessageFormatContract::test_windy_lang_detects_non_latin` |
-| P2.11.13 | The sender's windy_lang is read from the incoming event | planned: Windy Agent: never read (only outbound sets it); use it to answer in the sender's language, or retire the promise | — |
+| P2.11.13 | The sender's windy_lang is read from the incoming event, and the agent answers in that language (a well-formed code only; the last known language stays when a message has none) | live | `tests/test_sender_language.py::test_the_matrix_channel_notes_the_tag_from_the_incoming_event` |
 | P2.11.14 | Invites to this agent are accepted | live | `tests/test_matrix_bot.py::TestMatrixBotInvite::test_accepts_invite` |
 | P2.11.15 | Invites for someone else are ignored | live | `tests/test_matrix_bot.py::TestMatrixBotInvite::test_ignores_invite_for_others` |
 | P2.11.16 | The welcome message has the agreed shape | live | `tests/test_contract_matrix.py::TestMessageFormatContract::test_welcome_message_has_correct_schema` |
@@ -551,7 +551,7 @@ are the new genes (Wave 5g).
 | P4.11.18 | Recordings from the account server | live | `tests/test_tools.py::TestWindyApiTools::test_get_recordings` |
 | P4.11.19 | Clone training data from the account server | live | `tests/test_tools.py::TestWindyApiTools::test_get_clone_status` |
 | P4.11.20 | Translate text through the account server | live | `tests/test_contract_pro_api.py::TestTranslateContract::test_correct_path_method_and_body` |
-| P4.11.21 | The supported-languages list from the account server | planned: Windy Agent: not wrapped; wrap it or drop it | — |
+| P4.11.21 | The supported-languages list from the account server (GET /api/v1/translate/languages, public; codes, names and quality tiers) | live | `tests/test_sender_language.py::test_list_languages_reads_the_public_route_without_a_credential` |
 | P4.11.22 | The JWT is verified with /auth/me | retired: an agent's identity is its Eternitas passport (EPT verified against the JWKS), which every agent uses; /auth/me is not used (#594) | — |
 | P4.11.23 | The account-server JWT comes from the environment, not windyfly.toml | live | `tests/test_contract_pro_api.py::TestTranslationHistoryContract::test_correct_path_and_auth` |
 | P4.11.24 | Shared contracts are vendored and pinned (JSON from windy-contracts) | live | `tests/test_shared_commands.py::test_the_vendored_contract_is_the_pinned_one` |
