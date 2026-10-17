@@ -1341,23 +1341,96 @@ def _register_all():
         return f"LOAD_CONVERSATION:{filename}"
     _r("load", "Load a conversation from file", "03_chat", cmd_load_chat, usage="load <filename>")
 
+    # /history (strand N10.1): see conversation history by day and search; delete by date, search
+    # result or all, only after "/history yes". Dates are UTC days.
+    _history_state: dict[str, dict] = {}
+
     async def cmd_history(ctx):
+        import time as _time
+
+        from windyfly.memory import forget as _fg
+
         if not _db:
             return "Database not available."
+        key = f"{ctx.get('platform', '?')}:{ctx.get('channel_id', '?')}"
+        args = ctx.get("_args", []) or []
+        state = _history_state.get(key)
+        if state and _time.time() - state["at"] > 600:
+            _history_state.pop(key, None)
+            state = None
+        verb = args[0].lower() if args else ""
         try:
-            from windyfly.memory.episodes import get_recent_episodes
-            episodes = get_recent_episodes(_db, limit=10)
-            if not episodes:
-                return "No conversation history."
-            lines = ["Recent conversation:\n"]
-            for ep in episodes:
-                role = ep.get("role", "?")
-                content = ep.get("content", "")[:80]
-                lines.append(f"  [{role}] {content}...")
-            return "\n".join(lines)
+            if not args:
+                from windyfly.memory.episodes import get_recent_episodes
+                episodes = get_recent_episodes(_db, limit=10)
+                if not episodes:
+                    return "No conversation history."
+                lines = ["Recent conversation:\n"]
+                for ep in episodes:
+                    lines.append(f"  [{ep.get('role', '?')}] {ep.get('content', '')[:80]}...")
+                days = _fg.history_days(_db, 30)
+                if days:
+                    lines.append("\nMessages per day, last 30 days (UTC):")
+                    lines += [f"  {d}: {n}" for d, n in days[:30]]
+                lines.append("\n/history find <words> · /history delete <YYYY-MM-DD>[..<YYYY-MM-DD>] | all")
+                return "\n".join(lines)
+            if verb == "no":
+                _history_state.pop(key, None)
+                return "OK, nothing was deleted."
+            if verb == "yes":
+                if not state or not state.get("chosen"):
+                    return "There is nothing waiting to be deleted. Start with /history find <words> or /history delete <date>."
+                counts = _fg.forget(_db, state["chosen"])
+                _history_state.pop(key, None)
+                done = ", ".join(f"{n} {k}{'s' if n != 1 else ''}" for k, n in sorted(counts.items())) or "nothing"
+                return (f"Deleted: {done}. No readable copy of the items you picked is left in my memory file. "
+                        "My daily cloud backups made before now still hold a copy until 5 newer backups replace them.")
+            if verb == "find":
+                words = " ".join(args[1:])
+                if not words:
+                    return "Usage: /history find <words>"
+                found = _fg.find_messages(_db, words)[: _fg.MAX_ITEMS]
+                if not found:
+                    return f'No message contains "{words}".'
+                _history_state[key] = {"found": found, "chosen": None, "at": _time.time()}
+                lines = [f'{len(found)} message{"s" if len(found) != 1 else ""} containing "{words}":']
+                lines += [f"  {i}. {it.when[:16]} {it.preview}" for i, it in enumerate(found, 1)]
+                lines.append("Type /history delete <numbers> or /history delete found. Nothing is deleted until you confirm.")
+                return "\n".join(lines)
+            if verb == "delete":
+                what = " ".join(args[1:]).strip()
+                if what == "all":
+                    chosen = _fg.all_history(_db)
+                elif what == "found" or (what and all(x.isdigit() for x in what.split())):
+                    if not state or not state.get("found"):
+                        return "Search first: /history find <words>."
+                    found = state["found"]
+                    if what == "found":
+                        chosen = list(found)
+                    else:
+                        nums = sorted({int(x) for x in what.split()})
+                        if nums[0] < 1 or nums[-1] > len(found):
+                            return f"Pick numbers from 1 to {len(found)}."
+                        chosen = [found[n - 1] for n in nums]
+                else:
+                    span = _fg.parse_days(what)
+                    if span is None:
+                        return "Give a day (YYYY-MM-DD), a range (YYYY-MM-DD..YYYY-MM-DD), 'all', or numbers from /history find."
+                    chosen = _fg.items_between(_db, *span)
+                if not chosen:
+                    return "Nothing there to delete."
+                _history_state[key] = {"found": (state or {}).get("found"), "chosen": chosen, "at": _time.time()}
+                by_kind: dict[str, int] = {}
+                for it in chosen:
+                    by_kind[it.kind] = by_kind.get(it.kind, 0) + 1
+                kinds = ", ".join(f"{n} {k}{'s' if n != 1 else ''}" for k, n in sorted(by_kind.items()))
+                return (f"This deletes {kinds} (summaries made from those conversations and corrections included). "
+                        "Type /history yes to delete them, or /history no.")
+            return "Usage: /history · /history find <words> · /history delete <YYYY-MM-DD>[..<YYYY-MM-DD>] | all | <numbers>"
         except Exception as e:
             return f"Error: {e}"
-    _r("history", "Show conversation history (last 10 messages)", "03_chat", cmd_history)
+    _r("history", "See and delete conversation history (by day, search, or all)", "03_chat", cmd_history,
+       usage="history | history find <words> | history delete <date|date..date|all|numbers> | history yes | history no")
 
     async def cmd_summarize(ctx):
         return "SUMMARIZE_CONVERSATION"
@@ -1746,8 +1819,8 @@ def _register_all():
 
         args = ctx.get("_args", []) or []
         if not args:
-            return ("Usage: /forget <words> finds everything I remember that contains those words. "
-                    "Then /forget delete <numbers> or /forget delete all, then /forget yes. "
+            return ("Usage: /forget <words> (or /forget find <words>) finds everything I remember that contains "
+                    "those words. Then /forget delete <numbers> or /forget delete all, then /forget yes. "
                     "Nothing is deleted until you say yes.")
         if not _db:
             return "Database not available."
@@ -1767,7 +1840,7 @@ def _register_all():
             counts = _fg.forget(_db, state["chosen"])
             _forget_state.pop(key, None)
             done = ", ".join(f"{n} {k}{'s' if n != 1 else ''}" for k, n in sorted(counts.items())) or "nothing"
-            return (f"Deleted: {done}. No readable copy is left in my memory file. "
+            return (f"Deleted: {done}. No readable copy of the items you picked is left in my memory file. "
                     "My daily cloud backups made before now still hold a copy until 5 newer backups replace them.")
         if verb == "delete":
             if not state or not state.get("found"):
@@ -1793,7 +1866,10 @@ def _register_all():
             lines.append("Type /forget yes to delete them, or /forget no.")
             return "\n".join(lines)
 
-        words = " ".join(args)
+        # "/forget find <words>" searches for words that start with yes/no/delete/find (Hub, #575).
+        words = " ".join(args[1:] if verb == "find" else args)
+        if not words:
+            return "Usage: /forget find <words>"
         found = _fg.find(_db, words)
         more = len(found) > _fg.MAX_ITEMS
         found = found[: _fg.MAX_ITEMS]
@@ -1808,7 +1884,7 @@ def _register_all():
         lines.append("Type /forget delete <numbers> or /forget delete all. Nothing is deleted until you confirm.")
         return "\n".join(lines)
     _r("forget", "Find and delete something I remember", "06_memory", cmd_forget,
-       usage="forget <words> | forget delete <numbers|all> | forget yes | forget no")
+       usage="forget <words> | forget find <words> | forget delete <numbers|all> | forget yes | forget no")
 
     async def cmd_remember(ctx):
         fact = (ctx.get("_raw", "") or "").strip()

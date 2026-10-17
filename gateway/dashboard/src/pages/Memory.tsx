@@ -27,6 +27,21 @@ interface Intent {
   confidence?: number
 }
 
+// Conversation history delete (strand N10.1): preview first, then delete with the preview's token.
+interface HistoryItem {
+  kind: string
+  id: string
+  when: string
+  preview: string
+}
+
+interface HistoryPreview {
+  token?: string
+  counts?: Record<string, number>
+  items?: HistoryItem[]
+  error?: string
+}
+
 interface DashboardResponse {
   dashboard: {
     memory: { total_nodes: number; total_episodes: number }
@@ -71,7 +86,46 @@ export default function Memory() {
     }
   }, [query])
 
-  const handleDelete = (id: string) => {
+  const [fromDay, setFromDay] = useState('')
+  const [toDay, setToDay] = useState('')
+  const [preview, setPreview] = useState<HistoryPreview | null>(null)
+  const [historyMsg, setHistoryMsg] = useState<string | null>(null)
+
+  const askPreview = async (body: Record<string, unknown>) => {
+    setHistoryMsg(null)
+    try {
+      const p = await api<HistoryPreview>('/api/history/preview', { method: 'POST', body: JSON.stringify(body) })
+      setPreview(p)
+    } catch (e) {
+      setHistoryMsg(e instanceof Error ? e.message : 'Preview failed')
+    }
+  }
+
+  const confirmDelete = async () => {
+    if (!preview?.token) return
+    try {
+      const r = await api<{ deleted?: Record<string, number>; error?: string }>('/api/history/delete', {
+        method: 'POST', body: JSON.stringify({ token: preview.token }),
+      })
+      if (r.error) {
+        setHistoryMsg(r.error)
+      } else {
+        const done = Object.entries(r.deleted ?? {}).map(([k, n]) => `${n} ${k}${n === 1 ? '' : 's'}`).join(', ')
+        setHistoryMsg(`Deleted: ${done || 'nothing'}. Earlier daily cloud backups keep a copy until 5 newer backups replace them.`)
+        const gone = new Set((preview.items ?? []).map(i => i.id))
+        setResults(prev => prev ? prev.filter(r => !gone.has(r.id)) : null)
+      }
+    } catch (e) {
+      setHistoryMsg(e instanceof Error ? e.message : 'Delete failed')
+    }
+    setPreview(null)
+  }
+
+  const handleDelete = (id: string, type?: string) => {
+    if (type === 'conversation') {
+      askPreview({ query: query.trim(), ids: [id] })
+      return
+    }
     if (!confirm('Delete this memory? This cannot be undone.')) return
     api(`/api/memory/${id}`, { method: 'DELETE' })
       .then(() => setResults(prev => prev ? prev.filter(r => r.id !== id) : null))
@@ -141,7 +195,7 @@ export default function Memory() {
                       {r.content}
                     </p>
                     <button
-                      onClick={() => handleDelete(r.id)}
+                      onClick={() => handleDelete(r.id, r.type)}
                       className="text-[#64748b] hover:text-red-400 text-xs shrink-0 transition-colors"
                       title="Delete memory"
                     >
@@ -161,6 +215,51 @@ export default function Memory() {
           )}
         </div>
       )}
+
+      {/* Conversations: see and delete history (strand N10.1) */}
+      <div className="space-y-3">
+        <h2 className="text-lg font-semibold text-white">Conversations</h2>
+        <p className="text-[#94a3b8] text-sm">
+          Delete conversations by day (UTC), or all of them. You see exactly what goes before anything is deleted;
+          summaries made from those conversations go with them.
+        </p>
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <input type="date" value={fromDay} onChange={e => setFromDay(e.target.value)}
+            className="bg-[#111827] border border-[#1e293b] rounded-lg px-3 py-2 text-white" aria-label="From day" />
+          <span className="text-[#64748b]">to</span>
+          <input type="date" value={toDay} onChange={e => setToDay(e.target.value)}
+            className="bg-[#111827] border border-[#1e293b] rounded-lg px-3 py-2 text-white" aria-label="To day" />
+          <button onClick={() => askPreview({ from: fromDay, to: toDay || fromDay })} disabled={!fromDay}
+            className="px-4 py-2 bg-[#1e293b] text-white rounded-lg disabled:opacity-40">Show what would go</button>
+          <button onClick={() => askPreview({ all: true })}
+            className="px-4 py-2 bg-[#1e293b] text-white rounded-lg">All conversations</button>
+        </div>
+        {historyMsg && <p className="text-sm text-[#e2e8f0]">{historyMsg}</p>}
+        {preview && (
+          <div className="bg-[#111827] border border-red-500/30 rounded-lg p-4 space-y-2">
+            {preview.error ? (
+              <p className="text-red-400 text-sm">{preview.error}</p>
+            ) : (
+              <>
+                <p className="text-white text-sm">
+                  This deletes{' '}
+                  {Object.entries(preview.counts ?? {}).map(([k, n]) => `${n} ${k}${n === 1 ? '' : 's'}`).join(', ') || 'nothing'}.
+                </p>
+                <ul className="text-xs text-[#94a3b8] space-y-1 max-h-48 overflow-y-auto">
+                  {(preview.items ?? []).slice(0, 20).map(i => (
+                    <li key={`${i.kind}-${i.id}`}>{i.kind} · {i.when.slice(0, 16)} · {i.preview}</li>
+                  ))}
+                </ul>
+                <div className="flex gap-2">
+                  <button onClick={confirmDelete} disabled={!preview.items?.length}
+                    className="px-4 py-2 bg-red-500/80 text-white rounded-lg disabled:opacity-40">Delete these</button>
+                  <button onClick={() => setPreview(null)} className="px-4 py-2 bg-[#1e293b] text-white rounded-lg">Cancel</button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Recent Moments */}
       <div className="space-y-3">

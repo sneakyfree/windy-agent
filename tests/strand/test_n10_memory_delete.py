@@ -59,3 +59,33 @@ def test_n10_forget_finds_and_deletes_after_a_yes_leaving_nothing_readable(tmp_p
     finally:
         db.close()
     assert CANARY.encode() not in _raw_bytes(path)                      # not in the file, not in the WAL
+
+
+def test_n10_history_deletes_a_day_and_its_summaries_after_a_yes_and_keeps_other_days(tmp_path):
+    from windyfly.commands.core import wire_runtime
+
+    path = tmp_path / "history.db"
+    db = Database(str(path))
+    try:
+        init_all_commands(db=db, config={})
+        wire_runtime(db=db)
+        save_episode(db, "user", f"on that day we spoke of {CANARY}", session_id="s1")
+        save_episode(db, "user", "a message on another day", session_id="s1")
+        upsert_node(db, "relationship_moment", f"moment: {CANARY} made them laugh")
+        db.commit()
+        db.execute("UPDATE episodes SET created_at = '2026-10-05 12:00:00' WHERE content LIKE ?", (f"%{CANARY}%",))
+        db.execute("UPDATE episodes SET created_at = '2026-10-09 12:00:00' WHERE content LIKE 'a message%'")
+        db.execute("UPDATE nodes SET created_at = '2026-10-05 13:00:00' WHERE type = 'relationship_moment'")
+        db.commit()
+
+        asked = _say("/history delete 2026-10-05")
+        assert "1 message" in asked and "1 memory" in asked and "/history yes" in asked
+        assert CANARY.encode() in _raw_bytes(path)                      # nothing deleted before the yes
+
+        done = _say("/history yes")
+        assert done.startswith("Deleted:")
+        assert CANARY.encode() not in _raw_bytes(path)                  # while the agent still runs
+        assert db.fetchone("SELECT COUNT(*) AS n FROM episodes")["n"] == 1   # the other day stays
+    finally:
+        db.close()
+    assert CANARY.encode() not in _raw_bytes(path)

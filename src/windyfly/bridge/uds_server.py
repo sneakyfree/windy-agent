@@ -177,6 +177,8 @@ class UDSBridge:
             "agent.respond": self._handle_respond,
             "memory.search": self._handle_search,
             "memory.delete": self._handle_memory_delete,
+            "history.preview": self._handle_history_preview,
+            "history.delete": self._handle_history_delete,
             "sliders.get": self._handle_sliders_get,
             "sliders.set": self._handle_sliders_set,
             "sliders.info": self._handle_sliders_info,
@@ -259,6 +261,61 @@ class UDSBridge:
                 for ep in search_episodes(self.db, query, limit=limit)
             ]
         return {"nodes": nodes, "episodes": episodes}
+
+    # Conversation history delete for the dashboard (strand N10.1). Two steps so the page always shows
+    # what goes before it goes: history.preview returns the items and a single-use token (10 min);
+    # history.delete takes only that token. Never in guest mode.
+    _HISTORY_TOKEN_S = 600
+
+    async def _handle_history_preview(self, params: dict) -> dict:
+        import secrets
+        import time
+
+        from windyfly.agent.guest_mode import is_guest_active
+        from windyfly.memory import forget as fg
+
+        if is_guest_active():
+            return {"error": "not available in guest mode"}
+        if params.get("all") is True:
+            items = fg.all_history(self.db)
+        elif params.get("query"):
+            items = fg.find_messages(self.db, str(params["query"]))[: fg.MAX_ITEMS]
+        elif params.get("from") and params.get("to"):
+            span = fg.parse_days(f"{params['from']}..{params['to']}")
+            if span is None:
+                return {"error": "dates must be YYYY-MM-DD"}
+            items = fg.items_between(self.db, *span)
+        else:
+            return {"error": "give query, from+to, or all"}
+        ids = params.get("ids")
+        if isinstance(ids, list) and ids:
+            wanted = {str(i) for i in ids}
+            items = [it for it in items if it.id in wanted]
+        tokens = getattr(self, "_history_tokens", {})
+        now = time.time()
+        tokens = {t: v for t, v in tokens.items() if now - v[0] < self._HISTORY_TOKEN_S}
+        token = secrets.token_urlsafe(18)
+        tokens[token] = (now, items)
+        self._history_tokens = tokens
+        counts: dict[str, int] = {}
+        for it in items:
+            counts[it.kind] = counts.get(it.kind, 0) + 1
+        return {"token": token, "counts": counts,
+                "items": [{"kind": it.kind, "id": it.id, "when": it.when, "preview": it.preview} for it in items[:200]]}
+
+    async def _handle_history_delete(self, params: dict) -> dict:
+        import time
+
+        from windyfly.agent.guest_mode import is_guest_active
+        from windyfly.memory import forget as fg
+
+        if is_guest_active():
+            return {"error": "not available in guest mode"}
+        tokens = getattr(self, "_history_tokens", {})
+        entry = tokens.pop(str(params.get("token") or ""), None)
+        if entry is None or time.time() - entry[0] >= self._HISTORY_TOKEN_S:
+            return {"error": "preview first (the token is missing, used or expired)"}
+        return {"deleted": fg.forget(self.db, entry[1])}
 
     async def _handle_memory_delete(self, params: dict) -> dict:
         from windyfly.memory.nodes import delete_node

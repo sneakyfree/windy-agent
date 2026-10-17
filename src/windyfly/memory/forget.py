@@ -36,6 +36,8 @@ _SOURCES: tuple[tuple[str, str, tuple[str, ...], str, str], ...] = (
     ("conflict", "conflicts", ("old_value", "new_value"), "created_at", "new_value"),
     ("tool record", "agent_actions", ("args_json", "error_message"), "created_at", "capability_id"),
     ("event", "events", ("data",), "created_at", "event_type"),
+    # Correction skills (language 'playbook') are distilled from the owner's own friction text.
+    ("skill", "skills", ("code", "description"), "created_at", "name"),
 )
 _TABLE = {kind: table for kind, table, *_ in _SOURCES}
 
@@ -65,6 +67,8 @@ def find(db: Database, words: str, limit: int = MAX_ITEMS + 1) -> list[Item]:
     for kind, table, cols, when_col, preview_sql in _SOURCES:
         per_term = "(" + " OR ".join(f"COALESCE({c}, '') LIKE ? ESCAPE '\\'" for c in cols) + ")"
         where = " AND ".join([per_term] * len(terms))
+        if table == "skills":
+            where = f"language = 'playbook' AND {where}"
         params: list[str] = []
         for t in terms:
             params.extend([f"%{_escape_like(t)}%"] * len(cols))
@@ -98,6 +102,13 @@ def forget(db: Database, items: list[Item]) -> dict[str, int]:
             if table == "nodes":
                 db.execute("DELETE FROM edges WHERE source_id = ? OR target_id = ?", (it.id, it.id))
                 db.execute("DELETE FROM conflicts WHERE node_id = ?", (it.id,))
+            if table == "failures":
+                # The correction skill built from this failure carries the owner's words too (Hub, #575).
+                row = db.fetchone("SELECT correction_skill_id AS s FROM failures WHERE id = ?", (it.id,))
+                if row and row["s"]:
+                    cur = db.execute("DELETE FROM skills WHERE id = ?", (row["s"],))
+                    if getattr(cur, "rowcount", 0):
+                        counts["skill"] = counts.get("skill", 0) + 1
             cur = db.execute(f"DELETE FROM {table} WHERE id = ?", (it.id,))
             if getattr(cur, "rowcount", 0):
                 counts[it.kind] = counts.get(it.kind, 0) + 1
@@ -126,3 +137,68 @@ def _truncate_wal(db: Database, tries: int = 5) -> bool:
             return True
         time.sleep(0.2 * (n + 1))
     return False
+
+
+# ── Conversation history by date (strand N10.1) ─────────────────────────────────────────────────
+
+# Summaries written FROM conversations: deleting a stretch of history takes these with it.
+_DERIVED_NODE_TYPES = ("relationship_moment", "journal_entry", "turnover_letter")
+
+
+def history_days(db: Database, days: int = 30) -> list[tuple[str, int]]:
+    """Messages per UTC day for the last ``days`` days, newest first."""
+    rows = db.fetchall(
+        "SELECT substr(created_at, 1, 10) AS d, COUNT(*) AS n FROM episodes "
+        "WHERE created_at >= datetime('now', ?) GROUP BY d ORDER BY d DESC",
+        (f"-{int(days)} days",),
+    )
+    return [(str(r["d"]), int(r["n"])) for r in rows]
+
+
+def find_messages(db: Database, words: str, limit: int = MAX_ITEMS + 1) -> list[Item]:
+    """Only conversation messages containing all of ``words``."""
+    return [i for i in find(db, words, limit=limit) if i.kind == "message"][:limit]
+
+
+def items_between(db: Database, start: str, end: str) -> list[Item]:
+    """Everything a delete of the UTC days ``start``..``end`` (inclusive, YYYY-MM-DD) takes: the
+    messages, the summaries made from conversations in those days, and the corrections logged then."""
+    lo, hi = f"{start} 00:00:00", f"{end} 23:59:59"
+    items: list[Item] = []
+    for r in db.fetchall(
+        "SELECT id, created_at AS w, role || ': ' || content AS p FROM episodes "
+        "WHERE created_at BETWEEN ? AND ? ORDER BY created_at DESC", (lo, hi)):
+        items.append(Item("message", str(r["id"]), str(r["w"]), " ".join(str(r["p"]).split())[:PREVIEW_CHARS]))
+    marks = ",".join("?" * len(_DERIVED_NODE_TYPES))
+    for r in db.fetchall(
+        f"SELECT id, created_at AS w, type || ': ' || name AS p FROM nodes "
+        f"WHERE type IN ({marks}) AND created_at BETWEEN ? AND ? ORDER BY created_at DESC",
+        (*_DERIVED_NODE_TYPES, lo, hi)):
+        items.append(Item("memory", str(r["id"]), str(r["w"]), " ".join(str(r["p"]).split())[:PREVIEW_CHARS]))
+    for r in db.fetchall(
+        "SELECT id, created_at AS w, description AS p FROM failures "
+        "WHERE created_at BETWEEN ? AND ? ORDER BY created_at DESC", (lo, hi)):
+        items.append(Item("correction", str(r["id"]), str(r["w"]), " ".join(str(r["p"] or "").split())[:PREVIEW_CHARS]))
+    return items
+
+
+def all_history(db: Database) -> list[Item]:
+    """Every message, every summary made from conversations, every correction."""
+    return items_between(db, "0000-01-01", "9999-12-31")
+
+
+def parse_days(text: str) -> tuple[str, str] | None:
+    """'YYYY-MM-DD' or 'YYYY-MM-DD..YYYY-MM-DD' -> (start, end); None when it is neither."""
+    from datetime import date
+
+    parts = [p.strip() for p in (text or "").split("..")]
+    if len(parts) not in (1, 2):
+        return None
+    try:
+        days = [date.fromisoformat(p) for p in parts]
+    except ValueError:
+        return None
+    start, end = days[0], days[-1]
+    if end < start:
+        start, end = end, start
+    return start.isoformat(), end.isoformat()
