@@ -180,7 +180,8 @@ def _register_all():
         from windyfly import __version__
         ver = __version__
         model = os.environ.get("DEFAULT_MODEL", "not set")
-        budget = os.environ.get("DAILY_BUDGET_USD", "5.00")
+        # The limit the budget gate actually uses ([costs] daily_budget_usd), not DAILY_BUDGET_USD.
+        budget = f"{float(((_config or {}).get('costs') or {}).get('daily_budget_usd', 5.0)):.2f}"
         return (f"🪰 Windy Fly v{ver}\n"
                 f"Python {platform.python_version()} | {platform.system()} {platform.machine()}\n"
                 f"Model: {model} | Budget: ${budget}/day")
@@ -2112,41 +2113,40 @@ def _register_budget_through_help():
         if not _db:
             return "Database not available."
         try:
-            # Pre-fix: imported `get_daily_cost` which has never
-            # existed. Compute today's spend from cost_ledger
-            # directly + use `get_monthly_spend` for the 30-day
-            # rollup the "month" subcommand wants.
-            from windyfly.memory.cost_tracker import get_monthly_spend
-            def _today_cost() -> float:
-                row = _db.fetchone(
-                    "SELECT COALESCE(SUM(cost_usd), 0) AS daily "
-                    "FROM cost_ledger "
-                    "WHERE created_at >= datetime('now', 'start of day')",
-                )
-                return float((row or {}).get("daily", 0))
-            limit = float(os.environ.get("DAILY_BUDGET_USD", "5.00"))
+            # The same numbers the budget gate uses (memory/cost_tracker.check_budget). The old command
+            # showed and set DAILY_BUDGET_USD, which the gate never read.
+            from windyfly.memory.cost_tracker import check_budget, continue_today, get_monthly_spend
+
+            cfg = _config if isinstance(_config, dict) else {}
+            if args and args[0] == "continue":
+                done = continue_today(_db, cfg)
+                if done.get("already"):
+                    return "You've already let me keep going today. I'll be back to the normal budget tomorrow."
+                return (f"OK, I'll keep going today, up to another ${done['extra']:.2f}. "
+                        "Tomorrow the normal budget applies again.")
             if args and args[0] == "set" and len(args) > 1:
                 new_limit = float(args[1])
-                os.environ["DAILY_BUDGET_USD"] = str(new_limit)
-                return f"Daily budget set to ${new_limit:.2f}"
+                if new_limit < 0:
+                    return "The budget can't be negative."
+                cfg.setdefault("costs", {})["daily_budget_usd"] = new_limit
+                return (f"Daily budget set to ${new_limit:.2f} until I restart. "
+                        "To keep it, set [costs] daily_budget_usd in windyfly.toml.")
             if args and args[0] == "month":
-                monthly = get_monthly_spend(_db)
-                daily = _today_cost()
-                return (
-                    f"This month's actual spend: ${monthly:.2f} "
-                    f"(today so far: ${daily:.4f})"
-                )
+                return f"This month's actual spend: ${get_monthly_spend(_db):.2f}"
             if args and args[0] == "breakdown":
                 return "Cost breakdown by model:\n(Available in the gateway dashboard at localhost:3000)"
-            cost = _today_cost()
+            b = check_budget(_db, cfg)
+            limit = float(b["daily_budget"]) + float(b.get("extra_today") or 0)
+            cost = float(b["daily_spend"])
             pct = (cost / limit * 100) if limit > 0 else 0
             bar = "█" * min(10, int(pct / 10)) + "░" * max(0, 10 - int(pct / 10))
-            return f"Budget: ${cost:.4f} / ${limit:.2f} [{bar}] {pct:.1f}%"
+            extra = " (includes today's extra)" if b.get("extra_today") else ""
+            return f"Budget: ${cost:.4f} / ${limit:.2f}{extra} [{bar}] {pct:.1f}%"
         except Exception as e:
             return f"Error: {e}"
 
     _r("budget", "Show today's spend vs daily limit", "08_budget", cmd_budget,
-        aliases=["cost", "spend"], usage="budget [month | set <amount> | breakdown]")
+        aliases=["cost", "spend"], usage="budget [continue | month | set <amount> | breakdown]")
 
     async def cmd_usage(ctx):
         """commands.v1 ``usage``. Says what it really shows: today's spend as counted on THIS machine,
