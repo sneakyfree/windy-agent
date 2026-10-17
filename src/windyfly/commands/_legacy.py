@@ -1166,7 +1166,9 @@ def _model_show() -> None:
                 import tomllib
                 with open(toml_file, "rb") as f:
                     config = tomllib.load(f)
-                model = config.get("agent", {}).get("default_model", "")
+                from windyfly.config import default_model
+
+                model = default_model(config)
             except Exception as e:
                 logger.debug("Failed to load model config: %s", e)
 

@@ -1463,9 +1463,9 @@ def _register_all():
                 pass
         try:
             from windyfly.agent.models_catalog import resolve, format_cap
-            model = os.environ.get("DEFAULT_MODEL", "") or (
-                (_config or {}).get("agent", {}).get("default_model", "")
-            )
+            from windyfly.config import default_model
+
+            model = os.environ.get("DEFAULT_MODEL", "") or default_model(_config)
             info = resolve(model)
             if info:
                 return (

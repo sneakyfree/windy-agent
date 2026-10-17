@@ -32,6 +32,7 @@ from windyfly.agent.models import (
 from windyfly.agent.offline import get_offline_response, is_online
 from windyfly.agent.prompt import assemble_prompt
 from windyfly.agent.tracing import set_request_id, request_id_short
+from windyfly.config import default_model as _default_model
 from windyfly.control_panel import get_sliders
 from windyfly.memory.cost_tracker import check_budget
 from windyfly.memory.database import Database
@@ -904,9 +905,7 @@ def _agent_respond_turn(
         get_memory_cap(_plat, _chan)
         if (_plat and _chan) else None
     )
-    _model_for_call = config.get("agent", {}).get(
-        "default_model", "claude-sonnet-4-6"
-    )
+    _model_for_call = _default_model(config)
     _model_info = _resolve_model(_model_for_call)
     _native_cap = _model_info.native_cap if _model_info else 200_000
     _max_ctx = _user_cap if _user_cap is not None else _native_cap
@@ -1060,8 +1059,7 @@ def _agent_respond_turn(
     #   1. Per-channel /model preference (session_reset.get_model)
     #   1b. a model picked in Windy Mind (mind_self.picked_model)
     #   2. env DEFAULT_MODEL
-    #   3. config agent.default_model
-    #   4. "gpt-4o-mini" last-resort
+    #   3. config agent.default_model, else the built-in DEFAULT_MODEL
     # Per-channel preference wins so /model opus on a Telegram
     # channel actually routes that channel's next reply to Opus,
     # without affecting other channels or restarting the process.
@@ -1074,8 +1072,7 @@ def _agent_respond_turn(
         _channel_model
         or _mind_self.picked_model()  # picked in Windy Mind (the agent itself or its owner)
         or os.environ.get("DEFAULT_MODEL")
-        or config.get("agent", {}).get("default_model")
-        or "gpt-4o-mini"
+        or _default_model(config)
     )
 
     # Creativity slider → LLM temperature (0→0.0, 10→1.0)
@@ -2269,8 +2266,7 @@ def _extract_relationship_moment(
                     {"role": "user", "content": moment_prompt},
                 ],
                 model=(os.environ.get("DEFAULT_MODEL")
-                       or config.get("agent", {}).get("default_model")
-                       or "gpt-4o-mini"),
+                       or _default_model(config)),
                 temperature=0.3,
                 max_tokens=50,
                 config=config,
@@ -2345,8 +2341,7 @@ def _maybe_write_journal_entry(
                     {"role": "user", "content": journal_prompt},
                 ],
                 model=(os.environ.get("DEFAULT_MODEL")
-                       or config.get("agent", {}).get("default_model")
-                       or "gpt-4o-mini"),
+                       or _default_model(config)),
                 temperature=0.6,
                 max_tokens=80,
                 config=config,

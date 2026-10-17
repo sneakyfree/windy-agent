@@ -236,7 +236,9 @@ def _build_chain(
     chain = agent_cfg.get("failover_chain")
     if chain:
         return [m for m in chain if not is_auto_model(m)]
-    default = agent_cfg.get("default_model", "gpt-4o-mini")
+    from windyfly.config import default_model as _default_model
+
+    default = _default_model(config)
     # "auto" names no provider model: only Mind can serve it, so no direct chain.
     return [] if is_auto_model(default) else [default]
 

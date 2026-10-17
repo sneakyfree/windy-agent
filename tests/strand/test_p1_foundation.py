@@ -128,6 +128,20 @@ def _load(tmp_path, monkeypatch, text: str) -> dict:
     return load_config(str(path))
 
 
+def test_p1_02_there_is_one_default_model():
+    from windyfly.config import DEFAULT_CONFIG, DEFAULT_MODEL, default_model
+
+    toml = tomllib.loads((ROOT / "windyfly.toml").read_text(encoding="utf-8"))
+    assert toml["agent"]["default_model"] == DEFAULT_MODEL == DEFAULT_CONFIG["agent"]["default_model"]
+    assert not re.search(r"(?m)^DEFAULT_MODEL=", (ROOT / ".env.example").read_text(encoding="utf-8"))
+    assert default_model({}) == DEFAULT_MODEL
+    assert default_model({"agent": {"default_model": "x-model"}}) == "x-model"
+    # The agent's own setting read with a fallback of its own (a per-provider default is another thing).
+    own = re.compile(r"""(?:["']agent["'][^\n]*?\)|\bagent\w*)\s*\.get\(\s*["']default_model["']\s*(?:,|\)\s*or\s*["'])""")
+    hits = [str(p.relative_to(ROOT)) for p in (ROOT / "src").rglob("*.py") if own.search(p.read_text(encoding="utf-8"))]
+    assert not hits, f"these name their own fallback model: {hits}"
+
+
 def test_p1_02_memory_settings_come_from_the_file(tmp_path, monkeypatch):
     cfg = _load(tmp_path, monkeypatch, '[memory]\ndb_path = "data/x.db"\nmax_nodes_per_context = 3\n')
     assert cfg["memory"]["db_path"] == "data/x.db"

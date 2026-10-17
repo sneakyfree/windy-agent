@@ -25,6 +25,10 @@ from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 
+# The ONE built-in default model (strand P1.02.1). windyfly.toml names the same model; every
+# fallback in the code reads it through default_model() instead of naming its own.
+DEFAULT_MODEL = "claude-sonnet-5"
+
 # Safe boot skeleton used when windyfly.toml is unreadable. Mirrors the
 # sections of the reference windyfly.toml; values here only need to be
 # good enough to boot, reach the channels (tokens come from env/.env),
@@ -32,7 +36,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_CONFIG: dict[str, Any] = {
     "agent": {
         "name": "Windy Fly",
-        "default_model": "claude-sonnet-5",
+        "default_model": DEFAULT_MODEL,
         "max_context_tokens": 8000,
         "max_response_tokens": 2000,
     },
@@ -58,6 +62,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "channels": {},
     "ecosystem": {},
 }
+
+
+def default_model(config: dict[str, Any] | None = None) -> str:
+    """The configured agent.default_model, else the one built-in DEFAULT_MODEL."""
+    agent = (config or {}).get("agent") or {}
+    return (agent.get("default_model") if isinstance(agent, dict) else None) or DEFAULT_MODEL
 
 
 def load_config(path: str | None = None) -> dict[str, Any]:
