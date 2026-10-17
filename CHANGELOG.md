@@ -10,6 +10,16 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
 
 ## Unreleased
 
+- **Only the owner can make the agent send, call, buy, publish or upload.** The agent's older tools carried
+  no permission level, so anyone the agent treats below the owner could get them run, and a tool the
+  model named was run for any sender, strangers included. That covers three kinds of sender: someone
+  talking to it during a guest-mode demo, a text message relayed from the owner's phone (texts can be
+  spoofed), and a sibling agent. Now every older tool has a level. Only tools that read public
+  information (web, news, weather, plans, domain search, sums) are open to others. The owner's own data,
+  changes to it, and anything that acts outward are the owner's alone. A new tool with no level is the
+  owner's by default. The check happens when a tool runs, not only in what the model is offered. What
+  family members or guests may get back is for the owner to decide.
+
 - **Restoring from a cloud backup is switched off for now.** `/backup restore` wrote the backup over
   the agent's memory file while the agent was using it, with no question first, and left an unencrypted
   copy of the old memory beside it. On a running agent that could damage its memory. It now refuses and

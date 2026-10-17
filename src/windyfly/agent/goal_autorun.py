@@ -162,6 +162,9 @@ async def run_autorun(
                             user_message=_AUTORUN_PROMPT,
                             session_id=current["session_id"],
                             tool_registry=tool_registry,
+                            # The owner's own goal, run on the owner's behalf: owner band, explicitly,
+                            # so its outward tools pass the legacy-tool gate (windyfly.tools.bands).
+                            band=_owner_band(),
                         ),
                     ),
                     timeout=PER_TURN_TIMEOUT_S,
@@ -248,3 +251,10 @@ def _format_summary(
         f"*Outcome:* {abort_reason}\n\n"
         f"*Last update:*\n{excerpt}"
     )
+
+
+def _owner_band():
+    from windyfly.agent.capabilities import Band
+
+    return Band.OWNER
+

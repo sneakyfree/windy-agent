@@ -1071,7 +1071,8 @@ class WindyFlyMatrixBot(ChannelAdapter):
             reply = await run_turn(
                 agent_respond, self.config, self.db, self.write_queue,
                 f"[Text message from you] {body}", session_id, self.tool_registry,
-                band=Band.USER,  # no side-effecting tool from a text
+                # USER: a text can be spoofed, so only public-read tools (windyfly.tools.bands) run.
+                band=Band.USER,
             )
             return str(reply)
 
