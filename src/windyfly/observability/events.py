@@ -17,6 +17,8 @@ logger = logging.getLogger(__name__)
 # All known event types
 EVENT_TYPES = frozenset({
     "agent.respond",
+    "cloud.upload",
+    "cloud.download",
     "memory.write",
     "failure.detect",
     "intent.surface",

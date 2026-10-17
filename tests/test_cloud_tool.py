@@ -247,7 +247,7 @@ def test_a_same_name_file_asks_first(fake):
 
 def test_the_upload_audit_has_counts_and_sizes_only(fake, monkeypatch):
     seen = []
-    monkeypatch.setattr(cloud, "_audit", lambda event, data: seen.append((event, data)))
+    monkeypatch.setattr(cloud, "_log_event", lambda event, data: seen.append((event, data)))
     with _turn():
         cloud.upload_to_cloud(str(_doc(fake)))
     assert seen == [("cloud.upload", {"count": 1, "bytes": 11})]
@@ -309,3 +309,205 @@ def test_all_three_are_the_owners_only(fake):
         with bands.turn_band(Band.USER):
             assert "refused" in json.loads(r.execute(name, {"file_path": "x", "file_id": "f1"}))["error"]
     assert {s["function"]["name"] for s in r.get_schemas(Band.USER)} == set()
+
+
+# ── Hub on #598: profiles, the owner-named rule, the per-turn cap outside a turn ─────────────
+
+@pytest.mark.parametrize("rel", [
+    # macOS
+    "Library/Application Support/Google/Chrome/Default/History",
+    "Library/Application Support/Microsoft Edge/Default/History",
+    "Library/Application Support/BraveSoftware/Brave-Browser/Default/Bookmarks",
+    "Library/Application Support/Firefox/Profiles/x.default/logins.json",
+    "Library/Keychains/login.keychain-db",
+    "Library/Safari/History.db",
+    # Windows
+    "AppData/Local/Google/Chrome/User Data/Default/History",
+    "AppData/Local/Microsoft/Edge/User Data/Default/Bookmarks",
+    "AppData/Local/BraveSoftware/Brave-Browser/User Data/Default/History",
+    "AppData/Roaming/Mozilla/Firefox/Profiles/x.default/places.sqlite",
+])
+def test_browser_profiles_and_keychains_are_never_uploaded_on_any_os_layout(fake, monkeypatch, rel):
+    monkeypatch.setattr(cloud, "_allowed_roots", lambda: [fake.home])        # even inside an allowed folder
+    p = fake.home / rel
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_bytes(b"private")
+    with _turn(f"upload {p}"):
+        out = cloud.upload_to_cloud(str(p))
+    assert out["status"] == "refused" and "browser profile" in out["error"]
+    assert not any(r.method == "POST" for r in fake.requests)
+
+
+def test_an_ordinary_library_or_appdata_file_still_uploads(fake, monkeypatch):
+    monkeypatch.setattr(cloud, "_allowed_roots", lambda: [fake.home])
+    for rel in ("Library/Mobile Documents/report.txt", "AppData/Local/Temp/report2.txt"):
+        p = fake.home / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(b"ok")
+        with _turn():
+            assert cloud.upload_to_cloud(str(p))["status"] == "uploaded", rel
+
+
+@pytest.mark.parametrize("message,named", [
+    ("upload {p}", True),
+    ("upload {p}.", True),                          # sentence end
+    ('upload "{p}" please', True),
+    ("upload ({p})", True),
+    ("upload {p}.old", False),                      # a longer path is not this one
+    ("upload x{p}", False),
+    ("upload a", False),                            # a letter or a bare name never counts
+    ("upload elsewhere.txt", False),
+    ("> upload {p}\n\nyes do it", False),           # a quoted reply is not the owner's words
+])
+def test_the_owner_must_write_the_whole_path(fake, tmp_path, message, named):
+    p = tmp_path / "elsewhere.txt"
+    p.write_bytes(b"x")
+    with _turn(message.format(p=p)):
+        out = cloud.upload_to_cloud(str(p))
+    assert (out["status"] == "uploaded") is named, out
+
+
+def test_a_typed_single_letter_path_is_never_named(fake, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "a").write_bytes(b"x")
+    with _turn("send a to my cloud, a is a file"):
+        assert cloud.upload_to_cloud("a")["status"] == "refused"
+
+
+def test_a_home_relative_path_written_with_a_tilde_counts(fake, tmp_path, monkeypatch):
+    monkeypatch.setattr(cloud, "_allowed_roots", lambda: [tmp_path / "nowhere"])
+    p = fake.home / "outside" / "plan.txt"
+    p.parent.mkdir(parents=True)
+    p.write_bytes(b"x")
+    with _turn("upload ~/outside/plan.txt"):
+        assert cloud.upload_to_cloud("~/outside/plan.txt")["status"] == "uploaded"
+
+
+def test_no_upload_outside_a_turn(fake):
+    out = cloud.upload_to_cloud(str(_doc(fake)))
+    assert out["status"] == "refused" and "while answering" in out["error"]
+    assert fake.requests == []
+
+
+def _llm_round(tool_calls):
+    return {"content": "" if tool_calls else "done", "model": "gpt-4o-mini", "input_tokens": 10,
+            "output_tokens": 5, "tool_calls": tool_calls}
+
+
+def _agent_turn(fake, tmp_path, monkeypatch, rounds, text="please back up my notes"):
+    """One real agent_respond turn whose model makes the tool calls in ``rounds``."""
+    from unittest.mock import patch
+
+    from tests.test_gauge_footprint_within_turn import _config
+    from windyfly.agent.loop import agent_respond
+    from windyfly.memory.database import Database
+    from windyfly.memory.write_queue import WriteQueue
+
+    monkeypatch.setenv("WINDY_PAUSE_FLAG", str(tmp_path / ".paused"))
+    monkeypatch.setenv("WINDY_YOLO_FLAG", str(tmp_path / ".yolo"))
+    monkeypatch.setenv("WINDY_GUEST_FLAG", str(tmp_path / ".guest"))
+    registry = ToolRegistry()
+    cloud.register_cloud_tools(registry, config={"capabilities": {"filesystem": {"allowed_roots": [str(fake.home / "docs")]}}})
+    results: list[dict] = []
+    real_execute = registry.execute
+
+    def execute(name, args):
+        out = real_execute(name, args)
+        results.append({"name": name, **json.loads(out)})
+        return out
+
+    registry.execute = execute  # type: ignore[method-assign]
+    db, wq = Database(":memory:"), WriteQueue()
+    wq.start()
+    try:
+        with patch("windyfly.agent.loop.is_online", return_value=True), \
+             patch("windyfly.agent.loop.call_llm", side_effect=[_llm_round(r) for r in rounds] + [_llm_round(None)]):
+            agent_respond(_config(), db, wq, text, "cloud-session", registry)
+    finally:
+        wq.stop()
+        db.close()
+    return results
+
+
+def _call(i, name, **args):
+    return {"id": f"c{i}", "function": {"name": name, "arguments": args}}
+
+
+def test_through_agent_respond_the_cap_is_five_uploads_per_message(fake, tmp_path, monkeypatch):
+    paths = [str(_doc(fake, f"n{i}.txt")) for i in range(6)]
+    results = _agent_turn(fake, tmp_path, monkeypatch,
+                          [[_call(i, "upload_to_cloud", file_path=p, replace=True) for i, p in enumerate(paths)]])
+    assert [r.get("status") for r in results] == ["uploaded"] * 5 + ["refused"]
+    assert "at most 5" in results[-1]["error"]
+
+
+def test_listing_all_products_taints_the_turn_so_nothing_goes_out_after(fake, tmp_path, monkeypatch):
+    p = str(_doc(fake))
+    fake.blobs["f0001"] = b"x"
+    results = _agent_turn(fake, tmp_path, monkeypatch, [
+        [_call(1, "list_cloud_files", all_products=True)],
+        [_call(2, "upload_to_cloud", file_path=p), _call(3, "download_cloud_file", file_id="f0001")],
+    ])
+    assert [r["name"] for r in results] == ["list_cloud_files"]       # the loop refused both before they ran
+    assert not any(r.method == "POST" for r in fake.requests)
+    assert not any(r.url.path.endswith("/f0001") for r in fake.requests)
+
+
+def test_listing_only_this_agents_files_does_not_taint(fake, tmp_path, monkeypatch):
+    p = str(_doc(fake))
+    results = _agent_turn(fake, tmp_path, monkeypatch, [
+        [_call(1, "list_cloud_files")],
+        [_call(2, "upload_to_cloud", file_path=p)],
+    ])
+    assert results[-1]["status"] == "uploaded"
+
+
+# ── before release (Hub on #598) ──────────────────────────────────────────────────────────────
+
+def test_list_names_lose_control_characters_and_bad_numbers_do_not_raise(fake):
+    fake.files["f1"] = {"file_id": "f1", "filename": "ok\x1b[31m‮evil\nname.txt", "size_bytes": "lots",
+                        "created_at": "2026-10-17\x00T10"}
+    out = cloud.list_cloud_files(limit="many")
+    (f,) = out["files"]
+    assert f["name"] == "ok[31mevilname.txt" and f["size_bytes"] == 0 and "\x00" not in f["created_at"]
+    assert "limit=20" in str(fake.requests[-1].url)
+
+
+def test_a_failed_write_closes_the_file_and_leaves_no_partial(fake, monkeypatch):
+    fake.blobs["f1"] = b"some bytes"
+    closed: list[int] = []
+    real_close = os.close
+    monkeypatch.setattr(cloud.os, "write", lambda fd, b: (_ for _ in ()).throw(OSError(28, "No space left")))
+    monkeypatch.setattr(cloud.os, "close", lambda fd: (closed.append(fd), real_close(fd)))
+    out = cloud.download_cloud_file("f1")
+    assert out["status"] == "failed" and "OSError" in out["error"]
+    assert len(closed) == 1 and list(cloud.downloads_dir().iterdir()) == []
+
+
+def test_the_audit_events_are_known_types():
+    from windyfly.observability.events import EVENT_TYPES
+
+    assert {"cloud.upload", "cloud.download"} <= EVENT_TYPES
+
+
+def test_download_is_refused_on_a_tainted_turn():
+    from windyfly.agent.loop import TAINT_FORBIDDEN_TOOLS
+
+    assert {"upload_to_cloud", "download_cloud_file"} <= TAINT_FORBIDDEN_TOOLS
+
+
+def test_a_browser_profile_folder_is_refused_wherever_it_is(fake, tmp_path):
+    p = tmp_path / "snap" / "chromium" / "common" / "chromium" / "Default" / "History"
+    p.parent.mkdir(parents=True)
+    p.write_bytes(b"private")
+    with _turn(f"upload {p}"):
+        assert "browser profile" in cloud.upload_to_cloud(str(p))["error"]
+
+
+def test_a_relative_name_in_the_message_does_not_name_the_file(fake, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "taxes.pdf").write_bytes(b"x")
+    with _turn("upload taxes.pdf to my cloud"):
+        assert cloud.upload_to_cloud("taxes.pdf")["status"] == "refused"
+    with _turn(f"upload {tmp_path / 'taxes.pdf'} to my cloud"):
+        assert cloud.upload_to_cloud("taxes.pdf")["status"] == "uploaded"

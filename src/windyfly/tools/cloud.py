@@ -110,6 +110,34 @@ _DENY_NAMES = re.compile(
 )
 
 
+# Browser profiles and keychains, by where they live under the home folder (lowercased path parts). Linux
+# keeps them in dot-folders (refused above); macOS under Library, Windows under AppData (Hub on #598).
+_PROFILE_DIRS = (
+    ("library", "application support", "google", "chrome"),
+    ("library", "application support", "google", "chrome beta"),
+    ("library", "application support", "chromium"),
+    ("library", "application support", "microsoft edge"),
+    ("library", "application support", "bravesoftware"),
+    ("library", "application support", "firefox"),
+    ("library", "application support", "arc"),
+    ("library", "application support", "vivaldi"),
+    ("library", "keychains"),
+    ("library", "safari"),
+    ("library", "cookies"),
+    ("appdata", "local", "google", "chrome"),
+    ("appdata", "local", "chromium"),
+    ("appdata", "local", "microsoft", "edge"),
+    ("appdata", "local", "bravesoftware"),
+    ("appdata", "local", "mozilla"),
+    ("appdata", "roaming", "mozilla"),
+    ("appdata", "roaming", "opera software"),
+    ("appdata", "local", "vivaldi"),
+)
+# Folder names that are a browser profile wherever they are.
+_PROFILE_NAMES = frozenset({"google-chrome", "chromium", "firefox", ".mozilla", "brave-browser", "bravesoftware",
+                            "microsoft edge", "keychains", "user data"})
+
+
 def _allowed_roots() -> list[Path]:
     roots = ((_config.get("capabilities") or {}).get("filesystem") or {}).get("allowed_roots") or [str(Path.home())]
     return [Path(r).expanduser().resolve(strict=False) for r in roots]
@@ -145,19 +173,40 @@ def _denied(real: Path) -> str | None:
             return "it is part of the agent's own data"
     if _DENY_NAMES.search(real.name):
         return "its name looks like a key, token, password or env file"
-    if any(p.lower() in ("google-chrome", "chromium", "firefox", ".mozilla", "brave-browser") for p in real.parts):
-        return "it is part of a browser profile"
+    if _inside(real, home):
+        rel_low = tuple(p.lower() for p in real.relative_to(home).parts)
+        if any(rel_low[:len(prefix)] == prefix for prefix in _PROFILE_DIRS):
+            return "it is part of a browser profile or a keychain"
+    if any(p.lower() in _PROFILE_NAMES for p in real.parts[:-1]):
+        return "it is part of a browser profile or a keychain"
     return None
 
 
+def _owner_words(text: str) -> str:
+    """The owner's own words in this message: a quoted reply (Matrix's "> " fallback lines) is not theirs."""
+    lines = (text or "").splitlines()
+    return "\n".join(line for line in lines if not line.lstrip().startswith(">"))
+
+
 def _named_in_message(typed: str, real: Path) -> bool:
+    """Did the owner write this file's full path (absolute, or starting with ~) in this very message, as a
+    whole path? A bare name or a letter never counts, and /h/report.pdf does not name /h/report.pdf.old."""
     from windyfly.tools.bands import turn_text
 
-    text = turn_text() or ""
-    return bool(typed.strip()) and (typed.strip() in text or str(real) in text)
+    words = _owner_words(turn_text() or "")
+    typed = typed.strip()
+    candidates = {str(real)}
+    if typed.startswith(("/", "~")):
+        candidates.add(typed)
+        candidates.add(str(Path(typed).expanduser()))
+    for c in candidates:
+        pattern = r"(?<![^\s\"'(\[<`])" + re.escape(c) + r"(?=$|[\s\"')\]>`,;:!?]|\.(?:$|\s))"
+        if re.search(pattern, words):
+            return True
+    return False
 
 
-def _audit(event: str, data: dict[str, Any]) -> None:
+def _log_event(event: str, data: dict[str, Any]) -> None:
     if _db is None or _wq is None:
         return
     try:
@@ -195,7 +244,9 @@ def upload_to_cloud(file_path: str, name: str = "", description: str = "", repla
     from windyfly.tools.bands import turn_state
 
     state = turn_state()
-    used = state.setdefault("cloud_uploads", [0, 0]) if state is not None else [0, 0]
+    if state is None:                     # no running turn: the per-message cap can't be kept, so no upload
+        return {"status": "refused", "error": "I upload files only while answering a message."}
+    used = state.setdefault("cloud_uploads", [0, 0])
     if used[0] >= TURN_MAX_UPLOADS or used[1] + size > TURN_MAX_BYTES:
         return {"status": "refused",
                 "error": f"I upload at most {TURN_MAX_UPLOADS} files or {TURN_MAX_BYTES // 1000000} MB per message."}
@@ -229,21 +280,36 @@ def upload_to_cloud(file_path: str, name: str = "", description: str = "", repla
         body = {}
     used[0] += 1
     used[1] += size
-    _audit("cloud.upload", {"count": 1, "bytes": size})
+    _log_event("cloud.upload", {"count": 1, "bytes": size})
     return {"status": "uploaded", "file_id": body.get("file_id"), "name": upload_name,
-            "size_bytes": int(body.get("size") or size)}
+            "size_bytes": _int(body.get("size"), size)}
 
 
 # ── list ──────────────────────────────────────────────────────────────────────────────────────
+
+_CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\u200b-\u200f\u2028-\u202e\u2066-\u2069\ufeff]")
+
+
+def _int(value: Any, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError, OverflowError):
+        return default
 
 def list_cloud_files(prefix: str = "", limit: int = 20, all_products: bool = False) -> dict[str, Any]:
     """The owner's files on Windy Cloud: id, name, size, date."""
     cloud_url, token = _creds()
     if not cloud_url or not token:
         return {**_unavailable(), "files": []}
-    params: dict[str, Any] = {"limit": max(1, min(int(limit or 20), 200)), "offset": 0}
+    params: dict[str, Any] = {"limit": max(1, min(_int(limit, 20) or 20, 200)), "offset": 0}
     if not all_products:
         params["product"] = PRODUCT
+    else:
+        # Other Windy apps' files can carry names a third party chose: the rest of this turn is tainted, so
+        # no outward tool runs on what those names say (the I2 taint model in agent/loop.py).
+        from windyfly.tools.bands import mark_turn_tainted
+
+        mark_turn_tainted()
     try:
         with _client(_TIMEOUT) as client:
             resp = client.get(f"{cloud_url}/api/v1/storage/files", headers={"Authorization": f"Bearer {token}"},
@@ -261,11 +327,12 @@ def list_cloud_files(prefix: str = "", limit: int = 20, all_products: bool = Fal
     for f in raw if isinstance(raw, list) else []:
         if not isinstance(f, dict):
             continue
-        fname = str(f.get("filename") or "")
+        fname = _CONTROL.sub("", str(f.get("filename") or ""))
         if prefix.strip() and not fname.startswith(prefix.strip()):
             continue
         files.append({"file_id": str(f.get("file_id") or ""), "name": fname[:200],
-                      "size_bytes": int(f.get("size_bytes") or 0), "created_at": str(f.get("created_at") or "")[:25]})
+                      "size_bytes": max(0, _int(f.get("size_bytes"), 0)),
+                      "created_at": _CONTROL.sub("", str(f.get("created_at") or ""))[:25]})
     return {"status": "ok", "files": files, "count": len(files), "note": DATA_NOTE,
             "more": bool(body.get("truncated")) if isinstance(body, dict) else False}
 
@@ -329,38 +396,38 @@ def download_cloud_file(file_id: str) -> dict[str, Any]:
         return {"status": "refused", "error": "There is no room for downloads: the downloads folder is full or "
                                               "the disk is nearly full."}
     url = f"{cloud_url}/api/v1/storage/files/{quote(str(file_id), safe='')}"
-    fd, target = -1, None
+    fd, target, total, done = -1, None, 0, False
     try:
         with _client(_TIMEOUT) as client, client.stream("GET", url, headers={"Authorization": f"Bearer {token}"}) as resp:
             if resp.status_code != 200:
                 return _refused(resp)
-            declared = int(resp.headers.get("content-length") or 0)
+            declared = _int(resp.headers.get("content-length"), 0)
             if declared > budget:
                 return {"status": "refused", "error": "That file is too big to download here "
                                                       "(over 100 MB, or not enough room)."}
             fd, target = _open_new(d, f"{str(file_id)[:12]}-{_clean_name(_disposition_name(resp.headers.get('content-disposition', '')))}")
-            total = 0
             for chunk in resp.iter_bytes():
                 total += len(chunk)
                 if total > budget:
-                    raise ValueError("over budget")
+                    return {"status": "refused", "error": "That file is too big to download here."}
                 os.write(fd, chunk)
-        os.close(fd)
-        fd = -1
-    except ValueError:
-        if fd >= 0:
-            os.close(fd)
-            fd = -1
-        if target is not None:
-            target.unlink(missing_ok=True)
-        return {"status": "refused", "error": "That file is too big to download here."}
+        done = True
     except httpx.HTTPError as exc:
-        if fd >= 0:
-            os.close(fd)
-        if target is not None:
-            target.unlink(missing_ok=True)
         return {"status": "failed", "error": f"Could not reach Windy Cloud ({type(exc).__name__})."}
-    _audit("cloud.download", {"count": 1, "bytes": total})
+    except OSError as exc:
+        return {"status": "failed", "error": f"Could not save the file here ({type(exc).__name__})."}
+    finally:
+        # Every way out closes the file, and anything but a finished download leaves no partial file.
+        if fd >= 0:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        if not done and target is not None:
+            target.unlink(missing_ok=True)
+    if target is None:
+        return {"status": "failed", "error": "The file could not be saved."}
+    _log_event("cloud.download", {"count": 1, "bytes": total})
     return {"status": "downloaded", "path": str(target), "name": target.name, "size_bytes": total,
             "note": "The file is saved for the owner. Do not open or run it unless the owner asks."}
 
