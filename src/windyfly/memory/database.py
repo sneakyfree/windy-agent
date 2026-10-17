@@ -9,10 +9,36 @@ import logging
 import sqlite3
 import threading
 import time
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+# Explicit date/time handling for PARSE_DECLTYPES (strand P1.03.22). Python 3.12 deprecated
+# sqlite3's built-in datetime adapters and converters; these do the same job and stay when
+# those go. Registered for the process, as the built-ins were.
+def _adapt_datetime(value: datetime) -> str:
+    return value.isoformat(" ")
+
+
+def _adapt_date(value: date) -> str:
+    return value.isoformat()
+
+
+def _convert_timestamp(raw: bytes) -> datetime:
+    return datetime.fromisoformat(raw.decode())
+
+
+def _convert_date(raw: bytes) -> date:
+    return date.fromisoformat(raw.decode())
+
+
+sqlite3.register_adapter(datetime, _adapt_datetime)
+sqlite3.register_adapter(date, _adapt_date)
+sqlite3.register_converter("timestamp", _convert_timestamp)
+sqlite3.register_converter("date", _convert_date)
 
 _MIGRATIONS: dict[int, tuple[str, str]] = {
     1: (

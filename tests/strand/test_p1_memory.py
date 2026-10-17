@@ -132,3 +132,24 @@ def test_p1_03_write_queue_runs_on_a_daemon_thread():
     finally:
         wq.stop()
     assert seen[0] is not threading.main_thread() and seen[0].daemon
+
+
+def test_p1_03_timestamps_parse_without_the_deprecated_defaults():
+    import datetime as dt
+    import warnings
+
+    from windyfly.memory.database import Database
+
+    db = Database(":memory:")
+    try:
+        db.conn.execute("CREATE TABLE t_p1_03_22 (at TIMESTAMP, on_day DATE)")
+        when, day = dt.datetime(2026, 10, 16, 23, 5, 7, 123456), dt.date(2026, 10, 16)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DeprecationWarning)
+            db.conn.execute("INSERT INTO t_p1_03_22 VALUES (?, ?)", (when, day))
+            db.conn.execute("INSERT INTO t_p1_03_22 VALUES (CURRENT_TIMESTAMP, CURRENT_DATE)")
+            rows = db.conn.execute("SELECT at, on_day FROM t_p1_03_22").fetchall()
+    finally:
+        db.close()
+    assert (rows[0][0], rows[0][1]) == (when, day)
+    assert isinstance(rows[1][0], dt.datetime) and isinstance(rows[1][1], dt.date)
