@@ -10,6 +10,21 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
 
 ## Unreleased
 
+- **Restoring from a cloud backup is safe again, asks first, and can be undone.** `/backup restore`
+  (or `/backup restore <name>`) downloads the backup, opens it with your own backup key, and checks it,
+  without changing anything. It then tells you the backup's date and size, what the agent remembers now,
+  and that anything you deleted since the backup will come back. `/backup yes` restores it without
+  stopping the agent. First it keeps an encrypted copy of the current memory, so `/backup undo` can put it
+  back within 24 hours; after that the copy is wiped. No unencrypted copy is ever left on disk.
+  - Refused without your own `WINDY_BACKUP_KEY` (said plainly).
+  - Refused if the backup is damaged, too big, or made by a newer agent.
+  - Plain answers when Windy Cloud has locked the agent's storage or refuses its credentials.
+  - Off in guest mode.
+  - `/backup list` now shows each backup's name, date and size; before, every column showed "?".
+  - `/import` now says to stop the agent before unpacking a local archive.
+  The old restore wrote over the memory file while the agent was using it; it was switched off earlier
+  today and is now removed.
+
 - **The strand stops promising what the product shouldn't do.** Eight leftover promises are settled on the
   record.
   - **Dropped (never used):**
@@ -34,12 +49,6 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
   owner's by default. The check happens when a tool runs, not only in what the model is offered. What
   family members or guests may get back is for the owner to decide.
 
-- **Restoring from a cloud backup is switched off for now.** `/backup restore` wrote the backup over
-  the agent's memory file while the agent was using it, with no question first, and left an unencrypted
-  copy of the old memory beside it. On a running agent that could damage its memory. It now refuses and
-  changes nothing, until a safe restore replaces it: one that checks the backup, asks first, restores
-  without stopping the agent, and keeps an encrypted way back. Backups themselves are unaffected:
-  `/backup now` and `/backup list` work as before.
 - **The strand no longer claims the cloud file tools work.** "Save this file to my cloud" and "what's in
   my cloud?" have never worked in production: they called Windy Cloud routes that do not exist, and their
   tests passed only against a mock of those guessed routes (Windy Cloud, 10-17). Their strand rows are

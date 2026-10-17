@@ -2399,21 +2399,34 @@ def _register_budget_through_help():
             if result.get("success"):
                 return f"\u2705 Backup complete: {result.get('backup_id', 'ok')} ({result.get('size_bytes', 0)} bytes)"
             return f"\u274c Backup failed: {result.get('error', 'unknown')}"
-        if action == "restore":
-            # Off while it is rebuilt (Hub, 10-17): it wrote the backup over the memory file while the
-            # agent held it open (WAL mode), with no yes, and left a plaintext copy beside it. That can
-            # corrupt a running agent's memory. The safe restore (check, ask, restore through the live
-            # connection, encrypted undo) replaces this; until then nothing is touched.
-            return ("Restoring from a cloud backup is switched off while it is rebuilt: done on a running "
-                    "agent it could damage my memory. Your backups are safe on Windy Cloud (/backup list "
-                    "shows them). Nothing was changed.")
+        if action in ("restore", "yes", "undo", "cancel"):
+            # The safe restore (strand P4.11.16; Hub 10-17): check and ask first, restore through the
+            # live connection, an encrypted undo for 24 hours. See windyfly/backup_restore.py.
+            import asyncio
+
+            from windyfly import backup_restore as _br
+
+            if not _db:
+                return "Database not available."
+            key = f"{ctx.get('platform', '?')}:{ctx.get('channel_id', '?')}"
+            if action == "restore":
+                return await _br.ask_restore(_db, key, args[1] if len(args) > 1 else "latest")
+            if action == "undo":
+                return await asyncio.to_thread(_br.ask_undo, _db, key)
+            if action == "cancel":
+                return "Cancelled. Nothing was changed." if _br.cancel(key) else "Nothing was waiting."
+            return await _br.confirm(_db, key)
         if action == "list":
             result = await list_backups()
             if not result.get("backups"):
                 return "No backups found." + (f" ({result.get('error', '')})" if result.get("error") else "")
             lines = ["\U0001f4be Cloud Backups:\n"]
+            # Cloud's list gives filename / created_at / size_bytes (the old backup_id / timestamp keys
+            # never existed, so every row showed "?").
             for b in result["backups"]:
-                lines.append(f"  {b.get('backup_id', '?'):20s}  {b.get('timestamp', '?'):25s}  {b.get('size_bytes', 0)} bytes")
+                when = str(b.get("created_at") or "?")[:16].replace("T", " ")
+                lines.append(f"  {b.get('filename', '?')}  {when} UTC  {int(b.get('size_bytes') or 0) / 1048576:.1f} MB")
+            lines.append("\n/backup restore <name> (or latest) checks one and asks before changing anything.")
             return "\n".join(lines)
         # Default: show status
         state = get_backup_state()
@@ -2421,9 +2434,9 @@ def _register_budget_through_help():
         from windyfly.cloud_backup import owner_key_missing
         off = ("\n\u26a0\ufe0f Cloud backups are OFF: this agent has no backup key of its own (WINDY_BACKUP_KEY). "
                "A key derived from the passport is never used for uploads.") if owner_key_missing() else ""
-        return f"\U0001f4be Backup status: last backup at {last}{off}\nUsage: /backup [now | list] (restore is switched off while it is rebuilt)"
-    _r("backup", "Cloud backup: run or list (restore is being rebuilt)", "10_cloud", cmd_backup,
-       usage="backup [now | list | status]")
+        return f"\U0001f4be Backup status: last backup at {last}{off}\nUsage: /backup [now | list | restore [name] | undo]"
+    _r("backup", "Cloud backup: run, list, restore (asks first) or undo a restore", "10_cloud", cmd_backup,
+       usage="backup [now | list | restore [name] | yes | undo | cancel | status]")
 
     # ═══════════════════════════════════════════════════════════════
     # CONFIGURATION (87-94)
@@ -2573,7 +2586,11 @@ def _register_budget_through_help():
         args = ctx.get("_args", [])
         if not args:
             return "Usage: /import <backup-file.tar.gz>"
-        return f"Run from terminal: tar xzf {args[0]} (will overwrite current data)"
+        # Hub on #590: say to stop the agent first; extracting over a running agent's memory file is the
+        # same hazard the old cloud restore had. A cloud backup is restored with /backup restore.
+        return ("To restore a local backup archive: stop the agent first (windy stop), then from a terminal run "
+                f"tar xzf {args[0]} in the agent's folder (it replaces the current data), then start it. "
+                "For a Windy Cloud backup use /backup restore, which asks first and can be undone.")
     _r("import", "Restore from backup", "11_maintenance", cmd_import, aliases=["restore"], usage="import <file>")
 
     async def cmd_reset_agent(ctx):

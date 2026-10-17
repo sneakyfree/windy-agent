@@ -144,8 +144,9 @@ class TestUploadContract:
         assert out["backup_id"].startswith("windyfly-") and out["backup_id"].endswith(".enc")
 
 
-class TestListAndRestoreRoundTrip:
-    def test_backup_list_restore(self, monkeypatch, tmp_path):
+class TestBackupAndListRoundTrip:
+    def test_backup_then_list(self, monkeypatch, tmp_path):
+        """The upload and list halves; the restore itself is tests/test_backup_restore.py (asks first)."""
         monkeypatch.setenv("WINDY_BACKUP_KEY", "contract-test-owner-key")  # uploads need an owner-held key (Boss 10-17)
         # A fake in-memory "cloud": filename -> stored encrypted bytes.
         store: dict[str, bytes] = {}
@@ -204,13 +205,11 @@ class TestListAndRestoreRoundTrip:
             listed = _run(cb.list_backups())
             assert listed["success"], listed.get("error")
             assert len(listed["backups"]) == 1, listed
-            # corrupt the local DB, then restore "latest"
-            db.write_bytes(b"corrupted")
-            res = _run(cb.restore_from_cloud("latest"))
-
-        assert res["success"] is True
-        # exact round-trip through R2 + AES-GCM: the same rows come back
-        assert _rows(db) == [(i, "the real database") for i in range(50)]
+        # exact round-trip through R2 + AES-GCM: what was stored decrypts to the same rows
+        (name,) = store
+        out = tmp_path / "decrypted.db"
+        out.write_bytes(cb._maybe_decompress(cb._decrypt_data(store[name], cb._get_encryption_key())))
+        assert _rows(out) == [(i, "the real database") for i in range(50)]
 
 
 class TestErrorSurfacing:
