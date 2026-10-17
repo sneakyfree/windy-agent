@@ -19,8 +19,9 @@ Rules:
     does not announce a month of backlog;
   - at most ``MAX_NOTIFY_PER_TICK`` messages per notice;
   - never raises into the scheduler; a Mail outage is one log line;
-  - cross-process dedup comes free from the maintenance last-run file
-    (telegram and matrix share the state dir, one of them polls).
+  - exactly one process per agent runs it: maintenance_runner() picks
+    telegram when a Telegram bot is configured, else matrix, or the one
+    WINDY_MAINTENANCE_RUNNER names (strand N4.30).
 """
 
 from __future__ import annotations

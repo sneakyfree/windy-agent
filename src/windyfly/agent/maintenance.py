@@ -134,6 +134,21 @@ def run_due_jobs(
     return ran
 
 
+def maintenance_runner() -> str:
+    """The ONE channel process that runs the maintenance jobs (journal, inbox watch, ...) for this agent.
+
+    WINDY_MAINTENANCE_RUNNER (telegram|matrix) pins it. Otherwise: telegram when a Telegram bot is
+    configured, else matrix. Both of an agent's processes read the same environment, so they agree,
+    and a job never runs twice (strand N4.30).
+    """
+    import os
+
+    pinned = os.environ.get("WINDY_MAINTENANCE_RUNNER", "").strip().lower()
+    if pinned in ("telegram", "matrix"):
+        return pinned
+    return "telegram" if os.environ.get("TELEGRAM_BOT_TOKEN") else "matrix"
+
+
 # ── Default job registry ─────────────────────────────────────────────
 def default_jobs(config: dict[str, Any]) -> list[MaintenanceJob]:
     """The cross-platform maintenance jobs. Starts with the Journal (was
@@ -248,10 +263,19 @@ async def maintenance_loop(
     jobs: list[MaintenanceJob] | None = None,
     stop_event: asyncio.Event | None = None,
     tick_seconds: float = TICK_SECONDS,
+    first_delay_s: float = 0.0,
 ) -> None:
     """Long-running in-process maintenance loop. Started by the channel
-    adapter alongside goal-pacing. Never raises; jobs run in a thread."""
+    adapter alongside goal-pacing. Never raises; jobs run in a thread.
+    ``first_delay_s`` waits before the first tick (a channel that has just
+    started lets its login and sync settle first)."""
     stop_event = stop_event or asyncio.Event()
+    if first_delay_s > 0:
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=first_delay_s)
+            return
+        except asyncio.TimeoutError:
+            pass
     jobs = jobs if jobs is not None else default_jobs(config)
     logger.info("maintenance scheduler started (%d jobs, tick=%ds)",
                 len(jobs), int(tick_seconds))

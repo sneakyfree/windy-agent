@@ -1894,6 +1894,11 @@ class TelegramChannel(ChannelAdapter):
     async def _start_maintenance(self) -> None:
         """Start the in-process maintenance loop (Tier 2). Best-effort —
         a config hiccup disables maintenance, never the channel."""
+        from windyfly.agent.maintenance import maintenance_runner
+
+        if maintenance_runner() != "telegram":
+            logger.info("maintenance: runs in the %s process for this agent, not here", maintenance_runner())
+            return
         try:
             from windyfly.agent.maintenance import maintenance_loop
             from windyfly.config import load_config
