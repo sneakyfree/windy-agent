@@ -1566,6 +1566,19 @@ def _register_all():
         args = ctx.get("_args", [])
         if args and args[0] == "edit":
             return "Run 'windy soul edit' from terminal to open SOUL.md in your editor."
+        # Soul import (strand P2.21.13): /soul import -> send the file -> /soul approve | /soul reject.
+        if args and args[0].lower() in ("import", "approve", "reject"):
+            from windyfly.soul_import import flow as _flow
+
+            key = f"{ctx.get('platform', '?')}:{ctx.get('channel_id', '?')}"
+            verb = args[0].lower()
+            if verb == "import":
+                return _flow.start(key)
+            if verb == "reject":
+                return _flow.reject(key)
+            if not _db:
+                return "Database not available."
+            return _flow.approve(_db, key)
         # Anchored to the project root: read from the cwd, /soul told the
         # user "No SOUL.md found. Create one" whenever they ran from
         # anywhere else — inviting them to overwrite the one document in
@@ -1575,8 +1588,8 @@ def _register_all():
             content = soul_path.read_text(encoding="utf-8")[:500]
             return f"Current personality:\n{content}{'...' if len(soul_path.read_text(encoding="utf-8")) > 500 else ''}"
         return "No SOUL.md found. Create one to define your agent's personality."
-    _r("soul", "Show current personality / SOUL.md", "05_personality", cmd_soul,
-       aliases=["personality", "persona"])
+    _r("soul", "Show your agent's personality, or import one (/soul import)", "05_personality", cmd_soul,
+       aliases=["personality", "persona"], usage="soul | soul import | soul approve | soul reject")
 
     async def cmd_sliders(ctx):
         if not _db:

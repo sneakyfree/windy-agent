@@ -128,18 +128,26 @@ def import_soul(
                 db,
                 type=mem_type,
                 name=content[:200],
-                metadata={"raw_content": content, "import_source": source_label},
+                # Tagged as imported data (Hub, soul-import review A3): never an instruction.
+                metadata={"raw_content": content, "import_source": source_label, "source": f"import:{source_type}"},
                 confidence=0.5,
                 source=source_label,
                 epistemic_status="inferred",
             )
             imported += 1
         elif classification == "sensitive":
+            # A flagged item never touches an existing node: updating one would hide the owner's own
+            # fact (flagged rows are not recalled) or hold a conflict whose new value - this item's
+            # text - is listed in the prompt (Hub on #583). An item already known is skipped.
+            if db.fetchone("SELECT 1 FROM nodes WHERE type = ? AND name = ?", (mem_type, content[:200])):
+                skipped += 1
+                continue
             upsert_node(
                 db,
                 type=mem_type,
                 name=content[:200],
-                metadata={"raw_content": content, "import_source": source_label, "needs_review": True},
+                metadata={"raw_content": content, "import_source": source_label,
+                          "source": f"import:{source_type}", "needs_review": True},
                 confidence=0.3,
                 source=source_label,
                 epistemic_status="speculative",

@@ -387,6 +387,13 @@ def main() -> None:
     _start_decay_scheduler(config, db_path)
     from windyfly.memory.split_check import start_split_watch
     start_split_watch(db_path)
+    # A soul import cut short by a restart leaves its upload in the intake dir: wipe old ones.
+    try:
+        from windyfly.soul_import.intake import sweep as _sweep_soul_intake
+
+        _sweep_soul_intake()
+    except Exception as e:  # noqa: BLE001
+        logger.debug("soul intake sweep skipped: %s", e)
 
     # ADR-051 Phase A.5 — single-runtime claim invariant.
     # Try to claim the agent's runtime slot on Mind before dispatching
