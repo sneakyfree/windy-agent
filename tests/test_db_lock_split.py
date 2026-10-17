@@ -172,6 +172,7 @@ def test_cloud_backup_of_a_non_database_is_a_typed_failure(tmp_path, monkeypatch
 
     import windyfly.cloud_backup as cb
 
+    monkeypatch.setenv("WINDY_BACKUP_KEY", "owner-key")  # uploads need an owner-held key (Boss 10-17)
     monkeypatch.setattr("windyfly.trust.gate.require_trust", AsyncMock(return_value=None))
     monkeypatch.setattr(
         "windyfly.auth.bot_credentials.ecosystem_auth_header",

@@ -200,3 +200,21 @@ class TestBootSequenceWiring:
         # in the registry).
         cloud_idx = names.index("tools.cloud")
         assert names[cloud_idx - 1] in ("tools.chat", "tools.sms", "tools.voice")
+
+
+def test_backup_status_tells_the_owner_backups_are_off_without_a_key(monkeypatch):
+    import asyncio
+
+    from windyfly.channels.base import handle_incoming
+    from windyfly.commands.setup import init_all_commands
+    from windyfly.memory.database import Database
+
+    database = Database(":memory:")
+    init_all_commands(db=database, config={})
+    monkeypatch.delenv("WINDY_BACKUP_KEY", raising=False)
+    ok, out = asyncio.run(handle_incoming("/backup", {"platform": "cli", "channel_id": "x"}))
+    assert ok and "Cloud backups are OFF" in out and "WINDY_BACKUP_KEY" in out
+    monkeypatch.setenv("WINDY_BACKUP_KEY", "owner-secret")
+    ok, out = asyncio.run(handle_incoming("/backup", {"platform": "cli", "channel_id": "x"}))
+    assert ok and "OFF" not in out
+    database.close()
