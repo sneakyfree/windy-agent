@@ -364,6 +364,19 @@ class WindyFlyMatrixBot(ChannelAdapter):
         except Exception as e:
             logger.error("turn budget owner notice failed: %s", e)
 
+    async def _on_stop_event(self, room: nio.MatrixRoom, event: Any) -> None:
+        """``ai.windy.stop`` from the room's owner (the phone's Stop button): silence replies to agents."""
+        from windyfly.channels import room_stop as _stop
+
+        if getattr(event, "type", None) != _stop.STOP_EVENT:
+            return
+        if not _stop.is_owner(getattr(event, "sender", None), self.config):
+            return
+        _stop.stop(room.room_id)
+        from windyfly.channels import turn_budget as _budget
+
+        logger.info("owner stop event in room %s: replies to agents silenced", _budget.room_ref(room.room_id))
+
     async def _on_message(
         self,
         room: nio.MatrixRoom,
@@ -454,9 +467,30 @@ class WindyFlyMatrixBot(ChannelAdapter):
 
         # Agent-to-agent turn budget (10-11 loop incident): a human message resets it; past it, an
         # agent's message is dropped BEFORE any command or model work, and the owner is told once.
+        from windyfly.channels import room_stop as _stop
         from windyfly.channels import turn_budget as _budget
 
         from_agent = _parity.passport_of(sender) is not None
+        # The owner's stop (agent-teamwork.v1 P5, 10-17): a stop word silences this agent's replies to
+        # other agents in this room, gets no reply and no model call, and never resets the budget. The
+        # owner's next normal message resumes.
+        if not from_agent and _stop.is_owner(sender, self.config):
+            if _stop.is_stop_word(body):
+                _stop.stop(room_id)
+                logger.info("owner stop in room %s: replies to agents silenced", _budget.room_ref(room_id))
+                return
+            _stop.resume(room_id)
+        if from_agent:
+            if _stop.stopped(room_id):
+                logger.info("owner stop: agent %s in room %s not answered", sender, _budget.room_ref(room_id))
+                return
+            # Addressed only (P1): another agent's message is a turn only when it names this agent.
+            src = getattr(event, "source", None)
+            content = src.get("content") if isinstance(src, dict) else None
+            if not _stop.addressed_to(content, self.bot_user_id or getattr(self.client, "user_id", None),
+                                      int(getattr(room, "joined_count", 0) or 0)):
+                logger.info("agent %s in room %s did not address me: no turn", sender, _budget.room_ref(room_id))
+                return
         if not from_agent:
             _budget.human_spoke(room_id)
         elif not _budget.allow(room_id):
@@ -1161,6 +1195,7 @@ class WindyFlyMatrixBot(ChannelAdapter):
         # Register event callbacks (encrypted events only get an honest log line)
         self.client.add_event_callback(self._on_message, nio.RoomMessageText)
         self.client.add_event_callback(self._on_file, nio.RoomMessageFile)
+        self.client.add_event_callback(self._on_stop_event, nio.UnknownEvent)
         self.client.add_event_callback(self._on_invite, nio.InviteMemberEvent)
         self.client.add_event_callback(self._on_encrypted_event, nio.MegolmEvent)
         # Sync outcome callbacks — these are what make a dead homeserver a
