@@ -146,6 +146,8 @@ def maintenance_runner() -> str:
     pinned = os.environ.get("WINDY_MAINTENANCE_RUNNER", "").strip().lower()
     if pinned in ("telegram", "matrix"):
         return pinned
+    if pinned:
+        logger.warning("WINDY_MAINTENANCE_RUNNER=%r is not telegram or matrix; using the default", pinned)
     return "telegram" if os.environ.get("TELEGRAM_BOT_TOKEN") else "matrix"
 
 
@@ -161,8 +163,11 @@ def default_jobs(config: dict[str, Any]) -> list[MaintenanceJob]:
         db_path = (config.get("memory", {}) or {}).get("db_path", "data/windyfly.db")
         db = Database(db_path)
         day = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
-        model_caller = _journal_model_caller(config)
-        write_day(db, day, model_caller=model_caller)
+        try:
+            model_caller = _journal_model_caller(config)
+            write_day(db, day, model_caller=model_caller)
+        finally:
+            db.close()
 
     def _refresh_ept() -> None:
         from windyfly.eternitas.ept_refresh import refresh_ept

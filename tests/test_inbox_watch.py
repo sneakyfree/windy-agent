@@ -99,6 +99,27 @@ class TestJob:
         job.run()                      # nothing new
         assert len(sent) == 1
 
+    def test_mail_the_owner_was_not_told_about_is_announced_next_tick(self, tmp_path):
+        """Hub on #581: a notice that cannot be sent (no owner room yet) must not mark the mail seen."""
+        adapter = FakeAdapter(_msgs("a"))
+        sent, fail = [], {"on": True}
+
+        def notify(text):
+            if fail["on"]:
+                raise RuntimeError("no direct room with the owner yet")
+            sent.append(text)
+
+        job = iw.make_inbox_watch_job(notify, adapter_factory=lambda: adapter, state_dir=tmp_path, interval_s=1)
+        job.run()                      # seed
+        adapter.messages = _msgs("a", "b")
+        job.run()                      # cannot tell anyone
+        assert sent == []
+        fail["on"] = False
+        job.run()                      # the room exists now: b is announced
+        assert len(sent) == 1 and "b@example.com" in sent[0]
+        job.run()
+        assert len(sent) == 1
+
     def test_job_is_quiet_without_a_mailbox(self, tmp_path):
         sent = []
         job = iw.make_inbox_watch_job(sent.append, adapter_factory=lambda: None,
