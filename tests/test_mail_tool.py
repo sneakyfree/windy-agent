@@ -24,6 +24,18 @@ from windyfly.tools.mail import (
 from windyfly.tools.registry import ToolRegistry
 
 
+@pytest.fixture(autouse=True)
+def _owner_turn():
+    """These call ToolRegistry.execute directly, outside agent_respond: run them as the owner's turn
+    (legacy tools are gated on the running turn's band, windyfly.tools.bands)."""
+    from windyfly.agent.capabilities import Band
+    from windyfly.tools.bands import turn_band
+
+    with turn_band(Band.OWNER):
+        yield
+
+
+
 @pytest.fixture
 def no_mail_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Strip WINDYMAIL_* so adapter init fails the way prod expects.

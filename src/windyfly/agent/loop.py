@@ -667,7 +667,10 @@ def _dispatch_tool_call_inner(
         return json.dumps({"error": f"Unknown tool: {fn_name}"})
 
     try:
-        return tool_registry.execute(fn_name, fn_args)
+        from windyfly.tools.bands import cap_turn_band
+
+        with cap_turn_band(band):          # the taint cap may only LOWER the turn's band, never set one
+            return tool_registry.execute(fn_name, fn_args)
     except KeyError:
         logger.warning("LLM called unknown tool: %s", fn_name)
         return json.dumps({"error": f"Unknown tool: {fn_name}"})
@@ -727,9 +730,15 @@ def agent_respond(
     """
     from windyfly.observability import agent_health, turn_timing
 
+    from windyfly.agent.capabilities import Band
+    from windyfly.tools.bands import turn_band
+
+    if band is None:
+        band = Band.OWNER
     timing = turn_timing.start()
     try:
-        with agent_health.turn(write_queue):
+        # The band legacy tools are gated on at execution (windyfly.tools.bands): this turn's.
+        with agent_health.turn(write_queue), turn_band(band):
             return _agent_respond_turn(
                 config, db, write_queue, user_message, session_id,
                 tool_registry=tool_registry, band=band,
@@ -1239,11 +1248,10 @@ def _agent_respond_turn(
         logger.warning("[budget] %s", budget["alert"])
 
     # 2. Call LLM (with tools if registry provided)
-    legacy_tools = tool_registry.get_schemas() if tool_registry else []
-    # Sprint 4: legacy ToolRegistry tools carry NO band metadata (sms,
-    # mail, cloud senders live there) — strangers resolved to SANDBOX
-    # by channels.identity get none of them. Capability tools below
-    # are already band-filtered by the registry.
+    # Legacy ToolRegistry tools are offered by band (windyfly.tools.bands): USER sees only public
+    # reads, the owner's data and every outward tool are the owner's (Hub ruling 10-17). The same
+    # table gates them again at execution. Capability tools below are band-filtered by their registry.
+    legacy_tools = tool_registry.get_schemas(band) if tool_registry else []
     if band <= Band.SANDBOX:
         legacy_tools = []
     capability_tools = capability_registry.tool_schemas_for_band(band)

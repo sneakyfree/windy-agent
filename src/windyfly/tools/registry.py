@@ -51,9 +51,18 @@ class ToolRegistry:
         })
         logger.debug("Registered tool: %s", name)
 
-    def get_schemas(self) -> list[dict[str, Any]]:
-        """Get all tool schemas in OpenAI function-calling format."""
-        return self._schemas.copy()
+    def get_schemas(self, band: Any = None) -> list[dict[str, Any]]:
+        """Tool schemas in OpenAI function-calling format.
+
+        With ``band``, only the tools that band may use (windyfly.tools.bands), so the model is not even
+        told about the others. Without it, every schema (introspection only; the agent loop always
+        passes the turn's band).
+        """
+        if band is None:
+            return self._schemas.copy()
+        from windyfly.tools import bands as _bands
+
+        return [s for s in self._schemas if _bands.allowed(s["function"]["name"], band)]
 
     def execute(self, name: str, arguments: dict[str, Any] | str) -> str:
         """Execute a registered tool by name.
@@ -70,6 +79,16 @@ class ToolRegistry:
         """
         if name not in self._tools:
             raise KeyError(f"Unknown tool: {name}")
+
+        # The running turn's band (set by agent_respond), never a parameter a caller could leave out.
+        # Not allowed, or no turn band at all for a tool above USER: refused (Hub ruling 10-17).
+        from windyfly.tools import bands as _bands
+
+        if not _bands.allowed(name):
+            logger.warning("Tool '%s' refused: needs band %s, turn band %s", name,
+                           _bands.required_band(name).name, getattr(_bands.current_band(), "name", None))
+            return json.dumps({"error": f"refused: {name} is only for the owner",
+                               "speak": "Only my owner can ask me to do that."})
 
         if isinstance(arguments, str):
             try:

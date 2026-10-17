@@ -20,6 +20,17 @@ from windyfly.tools.windy_api import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _owner_turn():
+    """These call ToolRegistry.execute directly, outside agent_respond: run them as the owner's turn
+    (legacy tools are gated on the running turn's band, windyfly.tools.bands)."""
+    from windyfly.agent.capabilities import Band
+    from windyfly.tools.bands import turn_band
+
+    with turn_band(Band.OWNER):
+        yield
+
+
 # === Tool Registry Tests ===
 
 

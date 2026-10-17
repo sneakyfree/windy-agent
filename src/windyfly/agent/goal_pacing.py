@@ -126,6 +126,8 @@ async def _fire_progress_check(
                 user_message=synthetic_prompt,
                 session_id=goal["session_id"],
                 tool_registry=tool_registry,
+                # The owner's own goal: owner band, explicitly (windyfly.tools.bands).
+                band=_owner_band(),
             ),
         )
     except Exception as e:
@@ -243,3 +245,10 @@ async def scheduler_loop(
         except asyncio.TimeoutError:
             continue
     logger.info("goal-pacing scheduler stopped")
+
+
+def _owner_band():
+    from windyfly.agent.capabilities import Band
+
+    return Band.OWNER
+
