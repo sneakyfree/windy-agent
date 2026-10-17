@@ -1105,12 +1105,12 @@ iPhone/Android notes) are in `docs/strand/AGENTS_HANDS_N9.md`. Gene N7 is what i
 |---|---|---|---|
 | N9.1 | The agent offers any phone kind the pinned contract defines and the phone advertises, not a fixed pair; unknown kinds are refused | planned: Windy Agent: phone-tools v2 per-kind schemas from Chat/Mobile | — |
 | N9.2 | Every phone kind has a risk class that maps to a capability tier and a confirm rule; a kind with no class is refused | planned: Windy Agent: phone-tools v2 risk field | — |
-| N9.3 | Anything that sends, changes, deletes, shares or pays waits for the owner's tap on the confirm card; no tap or a "no" is "not done", never retried | planned: Windy Agent: approvals contract H0.6 (Hub) and the card (Mobile) | — |
+| N9.3 | Anything that sends, changes, deletes, shares or pays waits for the owner's tap on the confirm card; no tap or a "no" is "not done", never retried | planned: Windy Agent: the phone's local confirm (Mobile); approval.v1 for server-side classes (Hub) | — |
 | N9.4 | Each phone request runs at most once: no resend after a timeout, a restart, an unknown outcome or a model retry | planned: Windy Agent: phone-tools v2 request_id | — |
 | N9.5 | Every phone answer is read once and wiped; memory keeps a stub; files never reach the model as raw bytes | planned: Windy Agent: extend N7.5/N7.6 to every kind | — |
 | N9.6 | Phone requests have per-kind limits, and a pause stops every phone request at once | planned: Windy Agent: caps + pause check | — |
 | N9.7 | The no-confirm / confirm / never policy table is code and tested; the "never" column cannot be asked away | planned: Windy Agent: phone_policy.py | — |
 | N9.8 | Android accessibility actions: reading runs, a send/pay/delete/confirm tap waits for the card, password fields are never read | planned: Windy Agent: after Mobile's power-mode build | — |
-| N9.9 | A shell on an owner machine over Windy Mesh is FULL_MACHINE: owner only, a card per session start, start/stop counts only | planned: Windy Agent: after Windy Code's session broker and Mind S20 | — |
+| N9.9 | A shell on an owner machine over Windy Mesh is FULL_MACHINE: owner only, a card per session start, start/stop counts only; agents never attach to or type into a session through the broker (v1) | planned: Windy Agent: after Windy Code's session broker and Mind S20 | — |
 | N9.10 | A simulated phone drives every kind through done, declined, expired and unknown in CI; lab phones only | planned: Windy Agent: tests/phone_sim.py | — |
 | N9.11 | HQ gets one counts-only event per phone request (kind, class, outcome, duration, platform) | planned: Windy Agent: Admin's event family | — |
