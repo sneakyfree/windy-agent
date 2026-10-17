@@ -198,9 +198,13 @@ def list_languages() -> dict[str, Any]:
 
     url = f"{_get_api_url()}/api/v1/translate/languages"
     try:
-        with _lang_client() as client, client.stream("GET", url) as response:
+        # identity: iter_bytes would inflate a gzip body before the cap could see it (Hub: 100 KB -> 100 MB).
+        with _lang_client() as client, client.stream("GET", url, headers={"Accept-Encoding": "identity"}) as response:
             if response.status_code != 200:
                 logger.error("Failed to list languages: HTTP %s", response.status_code)
+                return {"error": "Couldn't read the language list from Windy Pro"}
+            if response.headers.get("content-encoding", "identity").strip().lower() not in ("", "identity"):
+                logger.error("Failed to list languages: compressed answer refused")
                 return {"error": "Couldn't read the language list from Windy Pro"}
             declared = response.headers.get("content-length", "")
             if declared.isdigit() and int(declared) > LANG_MAX_BYTES:
@@ -214,7 +218,7 @@ def list_languages() -> dict[str, Any]:
     except httpx.ConnectError as e:
         logger.error("Windy Pro is not available: %s", e)
         return {"error": "Windy Pro is not available right now"}
-    except (httpx.HTTPError, ValueError) as e:
+    except (httpx.HTTPError, ValueError, RecursionError) as e:    # RecursionError: JSON nested too deep
         logger.error("Failed to list languages: %s", type(e).__name__)
         return {"error": "Couldn't read the language list from Windy Pro"}
     langs = body.get("languages") if isinstance(body, dict) else None
