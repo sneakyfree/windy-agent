@@ -2120,12 +2120,26 @@ def _register_budget_through_help():
             cfg = _config if isinstance(_config, dict) else {}
             if args and args[0] == "continue":
                 done = continue_today(_db, cfg)
+                if done.get("no_daily"):
+                    return "There's no daily budget set, so there is nothing to extend."
+                if done.get("monthly"):
+                    return (f"I've hit my monthly budget (${done['monthly_spend']:.2f} / "
+                            f"${done['monthly_budget']:.2f}), so going on today wouldn't help: /budget continue "
+                            "only extends the daily budget. You can raise [costs] monthly_budget_usd in "
+                            "windyfly.toml. Today's continue is still yours to use.")
                 if done.get("already"):
                     return "You've already let me keep going today. I'll be back to the normal budget tomorrow."
                 return (f"OK, I'll keep going today, up to another ${done['extra']:.2f}. "
                         "Tomorrow the normal budget applies again.")
             if args and args[0] == "set" and len(args) > 1:
-                new_limit = float(args[1])
+                import math
+
+                try:
+                    new_limit = float(args[1])
+                except ValueError:
+                    return "Give the budget as a number of dollars, for example /budget set 5."
+                if not math.isfinite(new_limit):        # nan passed the < 0 check and blocked every turn
+                    return "Give the budget as a number of dollars, for example /budget set 5."
                 if new_limit < 0:
                     return "The budget can't be negative."
                 cfg.setdefault("costs", {})["daily_budget_usd"] = new_limit

@@ -81,3 +81,107 @@ def test_budget_shows_and_sets_the_limit_the_gate_uses(db):
     assert "until I restart" in _say("/budget set 2")
     assert "/ $2.00" in _say("/budget")
     assert check_budget(db, CFG)["daily_budget"] == 2.0
+
+
+# ── Hub on #601 ─────────────────────────────────────────────────────────────────────────────
+
+def _ask(text, platform, sender):
+    return asyncio.run(handle_incoming(text, {"platform": platform, "channel_id": "room", "sender_id": sender}))
+
+
+def test_a_capped_month_refuses_continue_and_keeps_the_grant(db):
+    CFG["costs"] = {"daily_budget_usd": 1.0, "monthly_budget_usd": 1.5}
+    _spend(db, 1.60)
+    blocked = check_budget(db, CFG)
+    assert not blocked["allowed"] and "monthly budget" in blocked["alert"]
+    assert "/budget continue" not in blocked["alert"]                     # it couldn't help
+    out = _say("/budget continue")
+    assert "monthly budget" in out and "keep going today, up to" not in out
+    assert extra_today(db) == 0.0                                         # the grant is kept
+    CFG["costs"]["monthly_budget_usd"] = 10.0                              # the owner raises the month
+    assert "keep going today, up to another $1.00" in _say("/budget continue")
+
+
+def test_the_daily_block_offers_continue_only_while_the_month_has_room(db):
+    CFG["costs"] = {"daily_budget_usd": 1.0, "monthly_budget_usd": 50.0}
+    _spend(db, 1.20)
+    assert "/budget continue" in check_budget(db, CFG)["alert"]
+
+
+@pytest.mark.parametrize("value", ["nan", "NaN", "inf", "-inf", "infinity", "abc"])
+def test_budget_set_refuses_a_value_that_is_not_a_number(db, value):
+    out = _say(f"/budget set {value}")
+    assert "number of dollars" in out
+    assert CFG["costs"]["daily_budget_usd"] == 1.0
+    assert check_budget(db, CFG)["allowed"]
+
+
+def test_no_daily_budget_means_nothing_to_extend(db):
+    CFG["costs"] = {"daily_budget_usd": 0}
+    assert "nothing to extend" in _say("/budget continue")
+    assert extra_today(db) == 0.0
+
+
+def test_eight_threads_get_one_grant_and_one_row(tmp_path):
+    import threading
+
+    from windyfly.memory.cost_tracker import continue_today
+
+    d = Database(str(tmp_path / "w.db"))
+    try:
+        results, start = [], threading.Barrier(8)
+
+        def go():
+            start.wait(5)
+            results.append(continue_today(d, {"costs": {"daily_budget_usd": 1.0}}))
+
+        threads = [threading.Thread(target=go) for _ in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(10)
+        assert sum(1 for r in results if r.get("granted")) == 1 and len(results) == 8
+        rows = d.fetchall("SELECT id FROM soul WHERE key = ?", (CONTINUE_KEY,))
+        assert len(rows) == 1
+    finally:
+        d.close()
+
+
+@pytest.mark.parametrize("platform,owner", [("matrix", "@owner:example.test"), ("telegram", "4242")])
+def test_the_owner_continues_from_matrix_and_telegram_and_others_cannot(db, monkeypatch, platform, owner):
+    monkeypatch.setenv("WINDY_OWNER_IDS", f"{platform}:{owner}")
+    other = "@stranger:example.test" if platform == "matrix" else "999"
+    ok, out = _ask("/budget continue", platform, other)
+    assert ok and "owner-only" in out and extra_today(db) == 0.0
+    ok, out = _ask("/budget continue", platform, owner)
+    assert ok and "keep going today" in out and extra_today(db) == 1.0
+
+
+def test_an_agent_or_a_quoted_reply_cannot_continue(db, monkeypatch):
+    monkeypatch.setenv("WINDY_OWNER_IDS", "matrix:@owner:example.test")
+    ok, out = _ask("/budget continue", "matrix", "@agent_et26-ab12-cd34:chat.windychat.ai")
+    assert ok and "owner-only" in out
+    ok, _out = _ask("> <@owner:example.test> /budget continue\n\nsounds good", "matrix", "@stranger:example.test")
+    assert extra_today(db) == 0.0
+    ok, _out = _ask("/budget continue", "matrix", None)                   # no sender id at all
+    assert extra_today(db) == 0.0
+
+
+def test_the_version_command_shows_the_gate_limit_not_the_env(db, monkeypatch):
+    monkeypatch.setenv("DAILY_BUDGET_USD", "99.00")
+    CFG["costs"] = {"daily_budget_usd": 2.5}
+    out = _say("/version")
+    assert "Budget: $2.50/day" in out and "99" not in out
+
+
+def test_the_cli_version_shows_the_gate_limit_not_the_env(monkeypatch, capsys):
+    import argparse
+
+    from windyfly.commands import _legacy
+
+    monkeypatch.setenv("DAILY_BUDGET_USD", "99.00")
+    monkeypatch.setattr("windyfly.config.load_config", lambda *a, **k: {"costs": {"daily_budget_usd": 3.25}})
+    monkeypatch.setattr(_legacy, "can_run", lambda name: False)
+    _legacy.cmd_version(argparse.Namespace())
+    out = capsys.readouterr().out
+    assert "Budget: $3.25/day" in out and "99.00" not in out
