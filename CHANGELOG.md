@@ -10,6 +10,10 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
 
 ## Unreleased
 
+- **Searching memory on the dashboard also finds past conversations.** The Memory page searched
+  only stored facts. It now also shows matching messages from past conversations, as a short
+  preview marked "conversation". In guest mode, conversations are never shown.
+
 - **No cloud backup without the owner's own key.** An agent with no `WINDY_BACKUP_KEY` used to
   encrypt its backups with a key worked out from its passport and name, both of which go to Windy
   Cloud with the upload, so Cloud could have opened them. Such an agent now uploads nothing. The

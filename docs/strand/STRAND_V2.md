@@ -396,7 +396,7 @@ Built in waves (strand-to-green plan, 2026-10-10): 5a set the frame plus Part 1 
 | P3.41.5 | Today's spend is read through the bridge | live | `tests/test_bridge_integration.py::TestDispatchRoundtrips::test_cost_daily_returns_float` |
 | P3.41.6 | Goals are listed through the bridge | live | `tests/test_bridge_integration.py::TestDispatchRoundtrips::test_intents_list_returns_array` |
 | P3.41.7 | Memory is searched through the bridge (knowledge nodes) | live | `tests/test_bridge_integration.py::TestDispatchRoundtrips::test_memory_search_returns_list` |
-| P3.41.8 | Bridge memory search also searches past conversations | planned: Windy Agent: memory.search returns nodes only; episodes are not searched | — |
+| P3.41.8 | Bridge memory search also searches past conversations (none in guest mode; a 300-character preview each) | live | `tests/test_bridge_integration.py::TestMemorySearchCoversConversations::test_memory_search_also_searches_past_conversations` |
 | P3.41.9 | The gateway's health route reports whether the brain is connected | live | `tests/test_gateway_smoke.py::TestHealthRoute::test_bridge_reports_connected_state` |
 | P3.41.10 | Gateway HTTP and WebSocket chat are proven end to end without a live stack (gateway/tests/e2e-bridge.test.ts: the real gateway against a stand-in brain socket, run by CI) | live | `tests/strand/test_p4_map_index.py::test_p4_11_the_gateway_is_proven_end_to_end_in_ci` |
 
