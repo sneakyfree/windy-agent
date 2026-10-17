@@ -10,6 +10,17 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
 
 ## Unreleased
 
+- **Restoring from a cloud backup is switched off for now.** `/backup restore` wrote the backup over
+  the agent's memory file while the agent was using it, with no question first, and left an unencrypted
+  copy of the old memory beside it. On a running agent that could damage its memory. It now refuses and
+  changes nothing, until a safe restore replaces it: one that checks the backup, asks first, restores
+  without stopping the agent, and keeps an encrypted way back. Backups themselves are unaffected:
+  `/backup now` and `/backup list` work as before.
+- **The strand no longer claims the cloud file tools work.** "Save this file to my cloud" and "what's in
+  my cloud?" have never worked in production: they called Windy Cloud routes that do not exist, and their
+  tests passed only against a mock of those guessed routes (Windy Cloud, 10-17). Their strand rows are
+  marked planned until they are moved to Windy Cloud's real storage routes.
+
 - **Import from another AI on the dashboard.** The Personality page has a new "Bring a personality
   from another AI" section. Upload a ChatGPT `conversations.json` or an export zip (up to 90 MB), read
   what was found, then Approve or Reject. The file is kept in memory and wiped either way, and items
