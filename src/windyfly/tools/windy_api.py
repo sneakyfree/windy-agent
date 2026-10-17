@@ -6,8 +6,10 @@ translation history, recordings, clone status, and text translation.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
+import unicodedata
 from typing import Any
 
 import httpx
@@ -159,28 +161,79 @@ def translate_text(
         return {"error": str(e)}
 
 
+# The language list is untrusted remote data that lands in a tool result (Hub on #600): bounded in bytes and
+# count, every field checked or coerced.
+LANG_MAX_BYTES = 256 * 1024
+LANG_MAX = 200
+LANG_NAME_MAX = 64
+LANG_TIERS = ("great", "good", "basic", "unrated")   # account-server translate-languages.ts Tier; null for English
+
+
+def _lang_client() -> httpx.Client:
+    # No redirects (a 3xx is refused, the other host is never contacted) and no proxy from the environment.
+    return httpx.Client(timeout=_TIMEOUT, follow_redirects=False, trust_env=False)
+
+
+def _clean_name(value: Any) -> str:
+    if not isinstance(value, str):
+        return ""
+    text = "".join(ch for ch in value if not unicodedata.category(ch).startswith("C"))
+    return " ".join(text.split())[:LANG_NAME_MAX]
+
+
+def _tier(value: Any) -> str | None:
+    return value if isinstance(value, str) and value in LANG_TIERS else None
+
+
 def list_languages() -> dict[str, Any]:
     """The languages Windy translates, with honest quality tiers (strand P4.11.21).
 
     ``GET /api/v1/translate/languages`` is public on the account server, so no credential is sent. Each
     language carries its code, English and native name, and the measured tier to and from English
-    (great | good | basic | unrated; never a score).
+    (great | good | basic | unrated; never a score). Read fresh on every call (not cached). At most
+    256 KB and 200 languages are read; a code that is not a well-formed language code is dropped, names are
+    plain text of at most 64 characters, and a tier outside the four words is shown as unknown (null).
     """
+    from windyfly.channels.sender_lang import from_content as _lang_code
+
+    url = f"{_get_api_url()}/api/v1/translate/languages"
     try:
-        response = httpx.get(f"{_get_api_url()}/api/v1/translate/languages", timeout=_TIMEOUT)
-        response.raise_for_status()
-        body = response.json()
+        with _lang_client() as client, client.stream("GET", url) as response:
+            if response.status_code != 200:
+                logger.error("Failed to list languages: HTTP %s", response.status_code)
+                return {"error": "Couldn't read the language list from Windy Pro"}
+            declared = response.headers.get("content-length", "")
+            if declared.isdigit() and int(declared) > LANG_MAX_BYTES:
+                return {"error": "Windy Pro's language list is too large to read"}
+            raw = bytearray()
+            for chunk in response.iter_bytes():
+                raw += chunk
+                if len(raw) > LANG_MAX_BYTES:
+                    return {"error": "Windy Pro's language list is too large to read"}
+        body = json.loads(bytes(raw))
     except httpx.ConnectError as e:
         logger.error("Windy Pro is not available: %s", e)
         return {"error": "Windy Pro is not available right now"}
     except (httpx.HTTPError, ValueError) as e:
         logger.error("Failed to list languages: %s", type(e).__name__)
         return {"error": "Couldn't read the language list from Windy Pro"}
-    out = []
-    for lang in (body.get("languages") if isinstance(body, dict) else None) or []:
-        if isinstance(lang, dict) and isinstance(lang.get("code"), str):
-            out.append({k: lang.get(k) for k in ("code", "name", "native_name", "from_en", "to_en")})
-    return {"languages": out, "count": len(out), "version": body.get("version") if isinstance(body, dict) else None,
+    langs = body.get("languages") if isinstance(body, dict) else None
+    out: list[dict[str, Any]] = []
+    for lang in langs if isinstance(langs, list) else []:
+        if len(out) >= LANG_MAX:
+            break
+        if not isinstance(lang, dict) or not isinstance(lang.get("code"), str):
+            continue
+        code = _lang_code({"windy_lang": lang["code"]})
+        if code is None:
+            continue
+        out.append({"code": code, "name": _clean_name(lang.get("name")),
+                    "native_name": _clean_name(lang.get("native_name")),
+                    "from_en": _tier(lang.get("from_en")), "to_en": _tier(lang.get("to_en"))})
+    version = body.get("version") if isinstance(body, dict) else None
+    return {"languages": out, "count": len(out),
+            "version": version if isinstance(version, int) and not isinstance(version, bool) else None,
+            "truncated": isinstance(langs, list) and len(langs) > LANG_MAX,
             "tiers": "great, good and basic are measured; unrated means served but not yet measured"}
 
 
