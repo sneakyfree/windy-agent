@@ -28,6 +28,55 @@ def get_monthly_spend(db: Database) -> float:
     return float(row["total"]) if row else 0.0
 
 
+# "Continue today" (strand P3.32.6): the owner may let the agent go on past the daily budget for the rest of
+# the UTC day, by one more day's budget, once. It resets by itself at midnight UTC (the same day boundary
+# the daily spend uses). The monthly budget is never overridden.
+CONTINUE_KEY = "budget_continue"
+
+
+def _today(db: Database) -> str:
+    row = db.fetchone("SELECT date('now') AS d")
+    return str((row or {}).get("d") or "")
+
+
+def extra_today(db: Database) -> float:
+    """The extra allowance the owner granted for today, or 0."""
+    import json
+
+    from windyfly.memory.soul import get_soul
+
+    row = get_soul(db, CONTINUE_KEY)
+    try:
+        data = json.loads(row["value"]) if row and row.get("value") else {}
+    except (ValueError, TypeError):
+        return 0.0
+    if not isinstance(data, dict) or data.get("date") != _today(db):
+        return 0.0
+    try:
+        return max(0.0, float(data.get("extra", 0)))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def continue_today(db: Database, config: dict[str, Any]) -> dict[str, Any]:
+    """Grant one more day's budget for the rest of today (once). Returns what happened."""
+    import json
+
+    from windyfly.memory.soul import upsert_soul
+
+    if extra_today(db) > 0:
+        return {"granted": False, "already": True}
+    extra = float((config.get("costs") or {}).get("daily_budget_usd", 5.0))
+    upsert_soul(db, CONTINUE_KEY, json.dumps({"date": _today(db), "extra": extra}), source="control_panel")
+    try:
+        from windyfly.observability.events import record_event
+
+        record_event(db, "budget.continue", {"extra_usd": round(extra, 2)})
+    except Exception:  # noqa: BLE001
+        pass
+    return {"granted": True, "extra": extra}
+
+
 def check_budget(
     db: Database,
     config: dict[str, Any],
@@ -47,9 +96,10 @@ def check_budget(
 
     daily_spend = get_daily_spend(db) + proposed_cost
     monthly_spend = get_monthly_spend(db) + proposed_cost
+    extra = extra_today(db)
 
-    # Daily budget check
-    daily_allowed = daily_spend <= daily_budget
+    # Daily budget check (plus the owner's "continue today", if granted today)
+    daily_allowed = daily_spend <= daily_budget + extra
     daily_pct = (daily_spend / daily_budget * 100) if daily_budget > 0 else 0
 
     # Monthly budget check
@@ -63,10 +113,16 @@ def check_budget(
 
     # Generate alert message if needed
     alert = None
-    if not daily_allowed:
+    if not daily_allowed and extra > 0:
+        alert = (
+            f"I've used today's budget and the extra you allowed (${daily_spend:.2f} / "
+            f"${daily_budget + extra:.2f}). I'll be back tomorrow, or you can increase the budget in settings."
+        )
+    elif not daily_allowed:
         alert = (
             f"I've hit my daily budget (${daily_spend:.2f} / ${daily_budget:.2f}). "
-            "I'll be back tomorrow, or you can increase the budget in settings."
+            f"I'll be back tomorrow. To keep going today, my owner can type /budget continue "
+            f"(up to another ${daily_budget:.2f} today), or increase the budget in settings."
         )
     elif not monthly_allowed:
         alert = (
@@ -88,6 +144,7 @@ def check_budget(
         "allowed": allowed,
         "daily_spend": round(daily_spend, 4),
         "daily_budget": daily_budget,
+        "extra_today": round(extra, 4),
         "daily_percent": round(daily_pct, 1),
         "monthly_spend": round(monthly_spend, 4),
         "monthly_budget": monthly_budget,
