@@ -934,7 +934,7 @@ class WindyFlyMatrixBot(ChannelAdapter):
         def notify(text: str) -> None:
             room = self._hatch_dm_room_id
             if not room:
-                return
+                raise RuntimeError("no direct room with the owner yet")
             asyncio.run_coroutine_threadsafe(
                 self.client.room_send(room, "m.room.message",
                                       {"msgtype": "m.text", "body": text, "windy_original": True}),
@@ -1146,6 +1146,9 @@ class WindyFlyMatrixBot(ChannelAdapter):
         from windyfly.agent.maintenance import maintenance_runner
         if maintenance_runner() == "matrix":
             self._maintenance_task = asyncio.create_task(self._start_maintenance())
+        else:
+            logger.info("maintenance: runs in the %s process for this agent, not here "
+                        "(if that process is not running, no maintenance runs)", maintenance_runner())
 
         # Sync with reconnection retry loop (exponential backoff)
         self._backoff = _INITIAL_BACKOFF_S

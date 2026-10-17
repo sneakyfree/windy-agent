@@ -106,3 +106,31 @@ class TestBatteryJobFold:
         monday9 = datetime(2026, 7, 20, 9, 0, tzinfo=timezone.utc)
         assert due(None, sunday9) is True
         assert due(None, monday9) is False
+
+
+def test_the_journal_job_closes_its_database_even_when_writing_fails(monkeypatch, tmp_path):
+    """Hub on #581: the daily journal opened a second Database and never closed it."""
+    from windyfly.agent import maintenance
+
+    closed = []
+
+    class FakeDb:
+        def __init__(self, path):
+            pass
+
+        def close(self):
+            closed.append(True)
+
+    def boom(db, day, model_caller=None):
+        raise RuntimeError("model down")
+
+    monkeypatch.setattr("windyfly.memory.database.Database", FakeDb)
+    monkeypatch.setattr("windyfly.memory.journal.write_day", boom)
+    monkeypatch.setattr(maintenance, "_journal_model_caller", lambda cfg: None)
+    job = next(j for j in maintenance.default_jobs({"memory": {"db_path": str(tmp_path / "x.db")}})
+               if j.name == "journal.daily")
+    try:
+        job.run()
+    except RuntimeError:
+        pass
+    assert closed == [True]

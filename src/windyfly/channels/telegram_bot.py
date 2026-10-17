@@ -1935,7 +1935,7 @@ class TelegramChannel(ChannelAdapter):
 
         def notify(text: str) -> None:
             if self._app is None or not owners:
-                return
+                raise RuntimeError("no Telegram owner to tell")
             for chat_id in owners:
                 asyncio.run_coroutine_threadsafe(
                     self._app.bot.send_message(chat_id=chat_id, text=text), loop,

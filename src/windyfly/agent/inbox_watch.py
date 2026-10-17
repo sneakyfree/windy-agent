@@ -157,6 +157,16 @@ def format_notice(messages: list[dict[str, Any]], *, agent_name: str = "") -> st
     return "\n".join(lines)
 
 
+def unmark_seen(messages: list[dict[str, Any]], *, state_dir: Path | None = None) -> None:
+    """Forget these messages again, so the next tick announces them (their notice could not be sent)."""
+    keys = {message_key(m) for m in messages if isinstance(m, dict)}
+    if not keys:
+        return
+    state = load_state(state_dir)
+    state["seen"] = [k for k in state.get("seen", []) if k not in keys]
+    save_state(state, state_dir)
+
+
 def make_inbox_watch_job(
     notify: NotifyFn,
     *,
@@ -188,6 +198,9 @@ def make_inbox_watch_job(
             notify(format_notice(fresh, agent_name=agent_name))
             logger.info("inbox-watch: notified owner of %d new message(s)", len(fresh))
         except Exception as exc:  # noqa: BLE001
-            logger.warning("inbox-watch notify failed: %s", exc)
+            # Not told = not seen: the next tick tries again (Hub on #581).
+            unmark_seen(fresh, state_dir=state_dir)
+            logger.warning("inbox-watch: could not tell the owner about %d new message(s) (%s); "
+                           "will try again next tick", len(fresh), exc)
 
     return MaintenanceJob(name="inbox_watch", run=_run, due=interval_due(interval_s))
