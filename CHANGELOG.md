@@ -10,6 +10,13 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
 
 ## Unreleased
 
+- **`/forget` works.** `/forget <words>` lists everything the agent remembers that contains those
+  words: messages, facts and summaries, corrections, goals, tool records and log entries. Then
+  `/forget delete <numbers>` (or `all`) shows exactly what will go, and nothing is deleted until
+  `/forget yes`. The delete leaves no readable copy in the memory file or its log. Earlier daily cloud
+  backups keep a copy until 5 newer backups replace them, and the reply says so. Demoting a
+  correction skill moved from `/forget` to `/demote` (or `/unlearn`).
+
 - **Searching memory on the dashboard also finds past conversations.** The Memory page searched
   only stored facts. It now also shows matching messages from past conversations, as a short
   preview marked "conversation". In guest mode, conversations are never shown.

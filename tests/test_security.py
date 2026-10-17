@@ -127,8 +127,11 @@ class TestSQLInjectionPrevention:
             #   HARDCODED clause set (no user input in the SQL text); every
             #   value (since/until/limit) is passed via ? placeholders
             #   (verified 2026-07-18)
+            # - forget.py: table and column names come only from the constant
+            #   _SOURCES tuple (never user input); every value, including the
+            #   owner's words, is passed via ? placeholders (verified 2026-10-17)
             if py_file.name in ("decay.py", "failures.py", "nodes.py",
-                                "journal.py"):
+                                "journal.py", "forget.py"):
                 continue
             matches = re.findall(
                 r'db\.(execute|fetchone|fetchall)\s*\(\s*f["\']',

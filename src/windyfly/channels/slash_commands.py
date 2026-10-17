@@ -343,18 +343,19 @@ def _parse_duration(text: str) -> int | None:
 #
 # When an auto-promoted correction skill is bad advice (false
 # positive on friction, over-cautious correction, etc.) the user
-# types ``/forget <name-or-substring>`` to demote it. Demotion
+# types ``/demote <name-or-substring>`` (or ``/unlearn``) to demote it. Demotion
 # keeps the row for audit + future re-promotion via the bridge
 # UDS server — it just stops the loop from injecting it into the
-# system prompt.
-FORGET_PREFIXES = ("/forget", "/demote", "/unlearn")
+# system prompt. ``/forget`` itself is the memory delete (strand N10.2,
+# commands/core.py), so it is no longer taken here.
+FORGET_PREFIXES = ("/demote", "/unlearn")
 
 
 def parse_forget_command(text: str | None) -> tuple[bool, str | None]:
     """Returns (is_cmd, name_substring).
       - (True, "factual_error") — demote correction-factual_error
-      - (True, None) — bare /forget (caller should show usage)
-      - (False, None) — not a /forget command
+      - (True, None) — bare /demote or /unlearn (caller should show usage)
+      - (False, None) — not a demote command (/forget is the memory delete)
     """
     if not text:
         return False, None
