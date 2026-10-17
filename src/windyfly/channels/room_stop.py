@@ -7,7 +7,8 @@ six more replies each. Now:
 - **Stop (P5).** In a room, the owner's stop word ("stop", "stop it", "please stop", "enough", "be
   quiet", ...) or an ``ai.windy.stop`` event from the owner silences this agent's replies to OTHER AGENTS
   in that room. A stop is answered with nothing (no model call, no reply, no push), and it never resets
-  the turn budget. The owner's next normal message in that room resumes. Stops live in this process only.
+  the turn budget. The owner's next normal message in that room resumes. Stops are kept in a small
+  state file (room ids only), so a restart in the middle of a loop does not let the agents go on.
 - **Addressed only (P1).** Another agent's message is a turn only when it is addressed to this agent: its
   ``m.mentions.user_ids`` names this agent, or its ``ai.windy.task.to`` does, or the room holds just the
   two of them. Everything else is not a turn and makes no model call.
@@ -28,6 +29,44 @@ _WORDS = {
 }
 _stopped: set[str] = set()
 _lock = threading.Lock()
+_loaded = False
+
+
+def _path():
+    from windyfly.platform import windy_state_dir
+
+    return windy_state_dir() / "room_stops.json"
+
+
+def _load() -> None:
+    """Stops survive a restart (Hub on #596): otherwise a restart mid-loop would let agents go on."""
+    global _loaded
+    if _loaded:
+        return
+    _loaded = True
+    import json
+
+    try:
+        data = json.loads(_path().read_text(encoding="utf-8"))
+        if isinstance(data, list):
+            _stopped.update(r for r in data if isinstance(r, str))
+    except (OSError, ValueError):
+        pass
+
+
+def _save() -> None:
+    import json
+    import os
+
+    try:
+        path = _path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(sorted(_stopped)), encoding="utf-8")
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, path)
+    except OSError:
+        pass
 
 
 def is_stop_word(text: str | None) -> bool:
@@ -35,23 +74,30 @@ def is_stop_word(text: str | None) -> bool:
     stopping is not."""
     if (text or "").lstrip().startswith("/"):
         return False                         # a slash command (/pause, /stop) stays a command
-    norm = re.sub(r"[^\w\s']", " ", (text or "").lower())
+    text = (text or "").replace("\u2019", "'").replace("\u2018", "'")      # iOS types a curly apostrophe
+    norm = re.sub(r"[^\w\s']", " ", text.lower())
     norm = " ".join(norm.split())
     return norm in _WORDS
 
 
 def stop(room: str) -> None:
     with _lock:
+        _load()
         _stopped.add(room)
+        _save()
 
 
 def resume(room: str) -> None:
     with _lock:
-        _stopped.discard(room)
+        _load()
+        if room in _stopped:
+            _stopped.discard(room)
+            _save()
 
 
 def stopped(room: str) -> bool:
     with _lock:
+        _load()
         return room in _stopped
 
 
@@ -62,10 +108,11 @@ def addressed_to(content: object, me: str | None, joined_members: int) -> bool:
     if not isinstance(content, dict) or not me:
         return False
     mentions = content.get("m.mentions")
-    if isinstance(mentions, dict) and me in (mentions.get("user_ids") or []):
+    ids = mentions.get("user_ids") if isinstance(mentions, dict) else None
+    if isinstance(ids, list) and any(isinstance(u, str) and u == me for u in ids):
         return True
     task = content.get(TASK_FIELD)
-    return isinstance(task, dict) and task.get("to") == me
+    return isinstance(task, dict) and isinstance(task.get("to"), str) and task.get("to") == me
 
 
 def is_owner(sender: str | None, config: dict | None = None) -> bool:
@@ -76,5 +123,7 @@ def is_owner(sender: str | None, config: dict | None = None) -> bool:
 
 
 def reset_for_tests() -> None:
+    global _loaded
     with _lock:
         _stopped.clear()
+        _loaded = True        # tests start empty and never read a stale file

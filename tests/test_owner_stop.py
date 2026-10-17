@@ -24,8 +24,9 @@ OTHER_AGENT = "@agent_et26-ab12-cd34:chat.windychat.ai"
 
 
 @pytest.fixture(autouse=True)
-def _clean(monkeypatch):
+def _clean(monkeypatch, tmp_path):
     monkeypatch.setenv("WINDY_OWNER_IDS", f"matrix:{OWNER}")
+    monkeypatch.setenv("WINDY_STATE_DIR", str(tmp_path / "state"))
     rs.reset_for_tests()
     tb.reset_for_tests()
     yield
@@ -114,6 +115,7 @@ async def test_the_owners_stop_works_in_guest_mode_too(monkeypatch, tmp_path):
 
 @pytest.mark.parametrize("text,stops", [
     ("stop", True), ("STOP.", True), ("please stop", True), ("enough!", True), ("be quiet", True),
+    ("that\u2019s enough", True), ("that's enough", True),
     ("/pause", False), ("/stop", False), ("can you stop by the store", False), ("don't stop", False), ("", False),
 ])
 def test_only_a_whole_stop_word_is_a_stop(text, stops):
@@ -137,3 +139,64 @@ async def test_a_person_who_is_not_the_owner_cannot_stop_the_agents():
     bot = _bot()
     await _run(bot, *_msg("@guest:example.test", "stop"))
     assert not rs.stopped(ROOM)
+
+
+# ── Hub's #596 review: never raise, test gaps, a stop survives a restart ─────────────────────────
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mentions", [{"user_ids": 5}, {"user_ids": "@windyfly:chat.windychat.ai"},
+                                      {"user_ids": [5, None, {"a": 1}]}, "not a dict", {"user_ids": None}])
+async def test_a_malformed_mention_is_dropped_never_raised(mentions):
+    bot = _bot()
+    assert await _run(bot, *_msg(OTHER_AGENT, "x", {"m.mentions": mentions})) == []
+
+
+@pytest.mark.asyncio
+async def test_any_fault_in_the_decision_drops_the_message(monkeypatch):
+    bot = _bot()
+
+    def boom(*a, **k):
+        raise RuntimeError("bad event")
+
+    monkeypatch.setattr(rs, "addressed_to", boom)
+    assert await _run(bot, *_msg(OTHER_AGENT, "x", _to_me(bot))) == []      # no exception escapes
+
+
+@pytest.mark.asyncio
+async def test_with_no_owner_configured_nobody_can_stop(monkeypatch):
+    monkeypatch.setenv("WINDY_OWNER_IDS", "")
+    assert not rs.is_owner(OWNER, None)
+    assert not rs.is_owner("", None) and not rs.is_owner(None, None)
+
+
+@pytest.mark.asyncio
+async def test_an_agent_saying_stop_is_not_a_stop():
+    bot = _bot()
+    await _run(bot, *_msg(OTHER_AGENT, "stop", _to_me(bot)))
+    assert not rs.stopped(ROOM)
+
+
+@pytest.mark.asyncio
+async def test_two_agents_and_the_owner_a_loop_ends_at_the_owners_stop():
+    bot = _bot()
+    turns = 0
+    for _ in range(3):
+        turns += len(await _run(bot, *_msg(OTHER_AGENT, "and another idea", _to_me(bot))))
+    assert turns == 3                                                       # teamwork while addressed
+    await _run(bot, *_msg(OWNER, "stop"))
+    for _ in range(10):
+        assert await _run(bot, *_msg(OTHER_AGENT, "one more!", _to_me(bot))) == []
+    assert await _run(bot, *_msg(OWNER, "ok go on")) == ["ok go on"]
+    assert await _run(bot, *_msg(OTHER_AGENT, "back to work", _to_me(bot))) != []
+
+
+def test_a_stop_survives_a_restart():
+    rs.stop(ROOM)
+    rs._stopped.clear()                       # the process restarts: memory is empty
+    rs._loaded = False
+    assert rs.stopped(ROOM)                   # read back from the state file
+    rs.resume(ROOM)
+    rs._stopped.clear()
+    rs._loaded = False
+    assert not rs.stopped(ROOM)
+
