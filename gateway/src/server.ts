@@ -868,6 +868,29 @@ async function handleRequest(req: Request, server: import("bun").Server<any>): P
       }
     }
 
+    // Conversation history delete (strand N10.1). Preview first: it returns what would go and a
+    // single-use token; delete takes only that token, so the page always shows what goes first.
+    if (path === "/api/history/preview" && req.method === "POST") {
+      try {
+        const body = (await req.json()) as Record<string, unknown>;
+        const params: Record<string, unknown> = {};
+        for (const k of ["query", "from", "to", "all", "ids"]) if (k in body) params[k] = body[k];
+        const result = await bridge.call("history.preview", params);
+        return Response.json(result, { headers });
+      } catch {
+        return Response.json({ error: "Brain offline", _offline: true }, { status: 503, headers });
+      }
+    }
+    if (path === "/api/history/delete" && req.method === "POST") {
+      try {
+        const body = (await req.json()) as { token?: string };
+        const result = await bridge.call("history.delete", { token: String(body.token ?? "") });
+        return Response.json(result, { headers });
+      } catch {
+        return Response.json({ error: "Brain offline", _offline: true }, { status: 503, headers });
+      }
+    }
+
     // Email delegation status — backs the Email tab's status dot.
     // Derived from whether the agent has a provisioned address; without
     // this route the page got a 404 and showed "Unknown" forever.

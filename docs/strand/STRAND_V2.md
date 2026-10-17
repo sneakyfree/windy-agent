@@ -1129,6 +1129,6 @@ them at once (its second copy in about 8 days) only when an account purge reache
 
 | Codon | Promise | Status | Test |
 |---|---|---|---|
-| N10.1 | The owner sees conversation history by date and by search, and deletes it after a confirm, in chat (/history) and on the dashboard; owner band only, none in guest mode | planned: Windy Agent: PR to Hub by Tue 10-20 18:00Z | — |
+| N10.1 | The owner sees conversation history by date and by search, and deletes it after a confirm, in chat (/history) and on the dashboard; owner band only, none in guest mode | live | `tests/strand/test_n10_memory_delete.py::test_n10_history_deletes_a_day_and_its_summaries_after_a_yes_and_keeps_other_days` |
 | N10.2 | /forget finds facts and messages by search and deletes the ones the owner picks after a confirm, leaving no readable copy on disk | live | `tests/strand/test_n10_memory_delete.py::test_n10_forget_finds_and_deletes_after_a_yes_leaving_nothing_readable` |
 | N10.3 | When the helper or the account is deleted, the agent learns it by pulling a signed status (agent-status.v1) and acts: blocked keeps memory and stops model calls and backups; purged (signed, twice 6 h apart) wipes memory on Windy-run hosts; unknown never deletes anything; Windy Cloud erases the helper's backups on the same identity.purged / tombstone | planned: Windy Agent with Windy Hub and Windy Cloud: contract first, Boss's GO and policy for owner machines | — |

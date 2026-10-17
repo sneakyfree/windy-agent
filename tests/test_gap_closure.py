@@ -336,14 +336,15 @@ class TestDispatchRegistry:
         mode.get / mode.set, shape_shift.execute / shape_shift.restore,
         skills.evaluate / skills.golden_tests / skills.regression; 2026-10-12:
         email.send (an unused door around the owner's send confirmation).
-        REQUIRED_METHODS covers 32 of them (memory.delete and trust.webhook
-        are pinned by their own tests)."""
+        Added 2026-10-17: history.preview / history.delete (strand N10.1).
+        REQUIRED_METHODS covers 32 of them (memory.delete, trust.webhook and
+        the two history methods are pinned by their own tests)."""
         bridge, db, _ = _make_bridge()
         table = bridge._handler_table()
-        assert len(table) == 34
+        assert len(table) == 36
         assert len(self.REQUIRED_METHODS) == 32
         assert set(self.REQUIRED_METHODS) <= set(table)
         assert set(table) - set(self.REQUIRED_METHODS) == {
-            "memory.delete", "trust.webhook",
+            "memory.delete", "trust.webhook", "history.preview", "history.delete",
         }
         db.close()

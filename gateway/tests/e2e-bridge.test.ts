@@ -51,7 +51,12 @@ function startBrain(path: string): Promise<net.Server> {
                   episodes: [{ id: "e1", role: "user", content: "my sourdough starter is called Clint",
                                session_id: "s1", created_at: "2026-10-15 09:00:00" }],
                 }
-              : {};
+              : req.method === "history.preview"
+                ? { token: "tok-1", counts: { message: 1 },
+                    items: [{ kind: "message", id: "e1", when: "2026-10-15 09:00:00", preview: "user: hi" }] }
+                : req.method === "history.delete"
+                  ? (req.params.token === "tok-1" ? { deleted: { message: 1 } } : { error: "preview first" })
+                  : {};
           sock.write(JSON.stringify({ id: req.id, result, error: null }) + "\n");
         }
       });
@@ -163,6 +168,21 @@ describe("gateway end to end with a stand-in brain", () => {
     const { results } = (await r.json()) as { results: Array<Record<string, unknown>> };
     expect(results.map((x) => [x.id, x.type])).toEqual([["n1", "fact"], ["e1", "conversation"]]);
     expect(results[1].content).toBe("my sourdough starter is called Clint");
+  });
+
+  test("history delete needs the dashboard password, a preview, and that preview's token", async () => {
+    const auth = { Authorization: `Bearer ${PASSWORD}`, "Content-Type": "application/json" };
+    const noAuth = await fetch(base + "/api/history/preview",
+                               { method: "POST", body: JSON.stringify({ all: true }) });
+    expect(noAuth.status).toBe(401);
+    const preview = await (await fetch(base + "/api/history/preview",
+      { method: "POST", headers: auth, body: JSON.stringify({ from: "2026-10-15", to: "2026-10-15", junk: 1 }) })).json();
+    expect(preview.counts).toEqual({ message: 1 });
+    const sent = calls.filter((c) => c.method === "history.preview").at(-1);
+    expect(sent?.params).toEqual({ from: "2026-10-15", to: "2026-10-15" });   // only known keys pass
+    const done = await (await fetch(base + "/api/history/delete",
+      { method: "POST", headers: auth, body: JSON.stringify({ token: preview.token }) })).json();
+    expect(done).toEqual({ deleted: { message: 1 } });
   });
 
   test("/ws/chat carries a chat turn to the brain and the answer back", async () => {

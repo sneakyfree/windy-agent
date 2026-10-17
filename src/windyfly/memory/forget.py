@@ -126,3 +126,68 @@ def _truncate_wal(db: Database, tries: int = 5) -> bool:
             return True
         time.sleep(0.2 * (n + 1))
     return False
+
+
+# ── Conversation history by date (strand N10.1) ─────────────────────────────────────────────────
+
+# Summaries written FROM conversations: deleting a stretch of history takes these with it.
+_DERIVED_NODE_TYPES = ("relationship_moment", "journal_entry", "turnover_letter")
+
+
+def history_days(db: Database, days: int = 30) -> list[tuple[str, int]]:
+    """Messages per UTC day for the last ``days`` days, newest first."""
+    rows = db.fetchall(
+        "SELECT substr(created_at, 1, 10) AS d, COUNT(*) AS n FROM episodes "
+        "WHERE created_at >= datetime('now', ?) GROUP BY d ORDER BY d DESC",
+        (f"-{int(days)} days",),
+    )
+    return [(str(r["d"]), int(r["n"])) for r in rows]
+
+
+def find_messages(db: Database, words: str, limit: int = MAX_ITEMS + 1) -> list[Item]:
+    """Only conversation messages containing all of ``words``."""
+    return [i for i in find(db, words, limit=limit) if i.kind == "message"][:limit]
+
+
+def items_between(db: Database, start: str, end: str) -> list[Item]:
+    """Everything a delete of the UTC days ``start``..``end`` (inclusive, YYYY-MM-DD) takes: the
+    messages, the summaries made from conversations in those days, and the corrections logged then."""
+    lo, hi = f"{start} 00:00:00", f"{end} 23:59:59"
+    items: list[Item] = []
+    for r in db.fetchall(
+        "SELECT id, created_at AS w, role || ': ' || content AS p FROM episodes "
+        "WHERE created_at BETWEEN ? AND ? ORDER BY created_at DESC", (lo, hi)):
+        items.append(Item("message", str(r["id"]), str(r["w"]), " ".join(str(r["p"]).split())[:PREVIEW_CHARS]))
+    marks = ",".join("?" * len(_DERIVED_NODE_TYPES))
+    for r in db.fetchall(
+        f"SELECT id, created_at AS w, type || ': ' || name AS p FROM nodes "
+        f"WHERE type IN ({marks}) AND created_at BETWEEN ? AND ? ORDER BY created_at DESC",
+        (*_DERIVED_NODE_TYPES, lo, hi)):
+        items.append(Item("memory", str(r["id"]), str(r["w"]), " ".join(str(r["p"]).split())[:PREVIEW_CHARS]))
+    for r in db.fetchall(
+        "SELECT id, created_at AS w, description AS p FROM failures "
+        "WHERE created_at BETWEEN ? AND ? ORDER BY created_at DESC", (lo, hi)):
+        items.append(Item("correction", str(r["id"]), str(r["w"]), " ".join(str(r["p"] or "").split())[:PREVIEW_CHARS]))
+    return items
+
+
+def all_history(db: Database) -> list[Item]:
+    """Every message, every summary made from conversations, every correction."""
+    return items_between(db, "0000-01-01", "9999-12-31")
+
+
+def parse_days(text: str) -> tuple[str, str] | None:
+    """'YYYY-MM-DD' or 'YYYY-MM-DD..YYYY-MM-DD' -> (start, end); None when it is neither."""
+    from datetime import date
+
+    parts = [p.strip() for p in (text or "").split("..")]
+    if len(parts) not in (1, 2):
+        return None
+    try:
+        days = [date.fromisoformat(p) for p in parts]
+    except ValueError:
+        return None
+    start, end = days[0], days[-1]
+    if end < start:
+        start, end = end, start
+    return start.isoformat(), end.isoformat()
