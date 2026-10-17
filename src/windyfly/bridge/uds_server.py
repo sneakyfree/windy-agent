@@ -241,10 +241,24 @@ class UDSBridge:
         return {"response": response}
 
     async def _handle_search(self, params: dict) -> dict:
+        """Stored facts (nodes) and past conversations (episodes) matching the query (strand P3.41.8).
+
+        Episodes are the owner's conversations: none are returned while guest mode is on. Each
+        carries only id, role, a 300-character preview, session and time."""
+        from windyfly.agent.guest_mode import is_guest_active
+        from windyfly.memory.episodes import search_episodes
+
         query = params.get("query", "")
         limit = params.get("limit", 10)
         nodes = search_nodes(self.db, query, limit=limit)
-        return {"nodes": nodes}
+        episodes: list[dict[str, Any]] = []
+        if query and not is_guest_active():
+            episodes = [
+                {"id": ep.get("id"), "role": ep.get("role"), "content": (ep.get("content") or "")[:300],
+                 "session_id": ep.get("session_id"), "created_at": ep.get("created_at")}
+                for ep in search_episodes(self.db, query, limit=limit)
+            ]
+        return {"nodes": nodes, "episodes": episodes}
 
     async def _handle_memory_delete(self, params: dict) -> dict:
         from windyfly.memory.nodes import delete_node

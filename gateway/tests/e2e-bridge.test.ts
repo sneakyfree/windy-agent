@@ -44,7 +44,14 @@ function startBrain(path: string): Promise<net.Server> {
           calls.push({ method: req.method, params: req.params });
           const result = req.method === "agent.respond"
             ? { response: `brain heard: ${String(req.params.message)}` }
-            : {};
+            : req.method === "memory.search"
+              ? {
+                  nodes: [{ id: "n1", name: "Clint is the sourdough starter", confidence: 0.9,
+                            created_at: "2026-10-16 10:00:00", type: "fact" }],
+                  episodes: [{ id: "e1", role: "user", content: "my sourdough starter is called Clint",
+                               session_id: "s1", created_at: "2026-10-15 09:00:00" }],
+                }
+              : {};
           sock.write(JSON.stringify({ id: req.id, result, error: null }) + "\n");
         }
       });
@@ -147,6 +154,15 @@ describe("gateway end to end with a stand-in brain", () => {
                  "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==" },
     });
     expect(r.status).toBe(401);
+  });
+
+  test("memory search shows stored facts and past conversations", async () => {
+    const r = await fetch(base + "/api/memory/search?q=sourdough&limit=5",
+                          { headers: { Authorization: `Bearer ${PASSWORD}` } });
+    expect(r.status).toBe(200);
+    const { results } = (await r.json()) as { results: Array<Record<string, unknown>> };
+    expect(results.map((x) => [x.id, x.type])).toEqual([["n1", "fact"], ["e1", "conversation"]]);
+    expect(results[1].content).toBe("my sourdough starter is called Clint");
   });
 
   test("/ws/chat carries a chat turn to the brain and the answer back", async () => {

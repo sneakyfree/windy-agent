@@ -322,3 +322,36 @@ class TestFrameParsing:
         assert replies[1]["id"] == "g"
         assert replies[1]["error"] is None
         assert replies[1]["result"]["online"] in (True, False)
+
+
+class TestMemorySearchCoversConversations:
+    """Strand P3.41.8: the bridge's memory search also finds past conversations."""
+
+    def _bridge_with_episode(self):
+        from windyfly.memory.episodes import save_episode
+
+        db = Database(":memory:")
+        save_episode(db, "user", "my sourdough starter is called Clint " + "x" * 400, session_id="s1")
+        return UDSBridge({}, db, WriteQueue()), db
+
+    def test_memory_search_also_searches_past_conversations(self):
+        bridge, db = self._bridge_with_episode()
+        try:
+            with patch("windyfly.agent.guest_mode.is_guest_active", return_value=False):
+                result = _run(bridge._dispatch("memory.search", {"query": "sourdough", "limit": 5}))
+        finally:
+            db.close()
+        assert isinstance(result["nodes"], list)
+        [ep] = result["episodes"]
+        assert set(ep) == {"id", "role", "content", "session_id", "created_at"}
+        assert ep["role"] == "user" and ep["session_id"] == "s1"
+        assert ep["content"].startswith("my sourdough starter") and len(ep["content"]) == 300
+
+    def test_guest_mode_returns_no_conversations(self):
+        bridge, db = self._bridge_with_episode()
+        try:
+            with patch("windyfly.agent.guest_mode.is_guest_active", return_value=True):
+                result = _run(bridge._dispatch("memory.search", {"query": "sourdough", "limit": 5}))
+        finally:
+            db.close()
+        assert result["episodes"] == []

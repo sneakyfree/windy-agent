@@ -822,6 +822,7 @@ async function handleRequest(req: Request, server: import("bun").Server<any>): P
       try {
         const result = (await bridge.call("memory.search", { query, limit })) as {
           nodes?: Array<Record<string, unknown>>;
+          episodes?: Array<Record<string, unknown>>;
         };
         const results = (result.nodes ?? []).map((n) => ({
           id: n.id,
@@ -830,6 +831,16 @@ async function handleRequest(req: Request, server: import("bun").Server<any>): P
           timestamp: n.created_at,
           type: n.type,
         }));
+        // Past conversations (strand P3.41.8), after the stored facts.
+        for (const e of result.episodes ?? []) {
+          results.push({
+            id: e.id,
+            content: e.content,
+            relevance: 1,
+            timestamp: e.created_at,
+            type: "conversation",
+          });
+        }
         return Response.json({ results }, { headers });
       } catch {
         return Response.json({ results: [], _offline: true }, { headers });
