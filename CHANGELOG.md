@@ -10,6 +10,11 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
 
 ## Unreleased
 
+- **The agent notices everyday corrections.** "That is wrong", "that's not right", a reply that
+  opens with "Incorrect," or "Wrong,", and "Actually, it's ..." now count as corrections, so "Never
+  Wrong Twice" learns from them. Agreement such as "Actually, that's exactly right" or "that's not
+  wrong" still doesn't count.
+
 - **Skills learn whether they helped.** When the agent uses one of its skills, the owner's next
   message decides how it went. A correction ("no, that's wrong", "I already said") counts as a
   failure for that skill, and anything else counts as a success. Before this the success and failure

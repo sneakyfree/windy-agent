@@ -312,7 +312,7 @@ Built in waves (strand-to-green plan, 2026-10-10): 5a set the frame plus Part 1 
 |---|---|---|---|
 | P2.24.1 | A factual correction is detected | live | `tests/test_control_panel.py::TestFrictionDetection::test_detects_factual_error` |
 | P2.24.2 | Agreement is never mistaken for a correction | live | `tests/test_failure_detector_precision.py::TestFrictionPrecision::test_no_false_positive_on_agreement` |
-| P2.24.3 | Common corrections ("That is wrong", "Incorrect, it was ...", "Actually ...") are detected | planned: Windy Agent: the patterns were tuned for precision and miss these; widen them without breaking P2.24.2 | — |
+| P2.24.3 | Common corrections ("That is wrong", "Incorrect, it was ...", "Actually ...") are detected | live | `tests/strand/test_p2_soul_truth.py::test_p2_24_common_corrections_are_detected` |
 | P2.24.4 | Failures are logged and read back | live | `tests/test_memory.py::TestFailures::test_log_and_retrieve` |
 | P2.24.5 | Recurring failures are found over 7 days | live | `tests/test_memory.py::TestFailures::test_recurring_check` |
 | P2.24.6 | A correction reaches the model as a correction | live | `tests/strand/test_p2_soul_truth.py::test_p2_24_a_correction_reaches_the_model_as_a_correction` |
