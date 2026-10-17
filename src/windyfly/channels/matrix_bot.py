@@ -625,6 +625,49 @@ class WindyFlyMatrixBot(ChannelAdapter):
             room.room_id, event.sender,
         )
 
+    async def _on_file(self, room: nio.MatrixRoom, event: nio.RoomMessageFile) -> None:
+        """A file in a room: only the owner's awaited soul-import export is taken (strand P2.21.13).
+
+        Anything else is ignored, exactly as before. The size the event declares is checked before
+        any download, and the bytes are counted again while they are received."""
+        if event.sender == self.bot_user_id:
+            return
+        from windyfly.soul_import import flow as _flow
+
+        key = f"matrix:{room.room_id}"
+        if not _flow.awaiting_file(key):
+            return
+        from windyfly.agent.capabilities.descriptor import Band
+        from windyfly.channels.identity import resolve_band
+
+        if resolve_band("matrix", event.sender, config=self.config) < Band.OWNER:
+            return
+
+        async def say(text: str) -> None:
+            await self.client.room_send(room.room_id, "m.room.message",
+                                        {"msgtype": "m.text", "body": text, "windy_original": True})
+
+        info = ((event.source or {}).get("content") or {}).get("info") or {}
+        declared = info.get("size") if isinstance(info.get("size"), int) else None
+        refusal = _flow.too_big(declared, _flow.MATRIX_MAX_BYTES, "Windy Chat")
+        if refusal:
+            await say(refusal)
+            return
+        try:
+            resp = await self.client.download(mxc=event.url)
+            body = getattr(resp, "body", None)
+            if not isinstance(body, (bytes, bytearray)):
+                await say("I couldn't download that file. Nothing was kept. /soul import to try again.")
+                return
+            import io
+
+            reply = await asyncio.to_thread(_flow.take_file, self.db, key, io.BytesIO(bytes(body)),
+                                            str(event.body or ""), max_bytes=_flow.MATRIX_MAX_BYTES)
+        except Exception as e:
+            logger.warning("soul import download failed: %s", type(e).__name__)
+            reply = "Something went wrong receiving that file. Nothing was kept."
+        await say(reply)
+
     async def _on_invite(
         self,
         room: nio.MatrixRoom,
@@ -1103,6 +1146,7 @@ class WindyFlyMatrixBot(ChannelAdapter):
 
         # Register event callbacks (encrypted events only get an honest log line)
         self.client.add_event_callback(self._on_message, nio.RoomMessageText)
+        self.client.add_event_callback(self._on_file, nio.RoomMessageFile)
         self.client.add_event_callback(self._on_invite, nio.InviteMemberEvent)
         self.client.add_event_callback(self._on_encrypted_event, nio.MegolmEvent)
         # Sync outcome callbacks — these are what make a dead homeserver a

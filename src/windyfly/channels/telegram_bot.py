@@ -395,6 +395,8 @@ class TelegramChannel(ChannelAdapter):
                 self._app.add_handler(MessageHandler(
                     filters.VOICE | filters.AUDIO, self._handle_voice,
                 ))
+                # A document is only taken when the owner asked for a soul import (strand P2.21.13).
+                self._app.add_handler(MessageHandler(filters.Document.ALL, self._handle_document))
                 self._app.add_error_handler(self._on_polling_error)
 
                 await self._app.initialize()
@@ -728,6 +730,40 @@ class TelegramChannel(ChannelAdapter):
             except Exception as e:
                 logger.debug("App shutdown step failed: %s", e)
         self._app = None
+
+    async def _handle_document(self, update: Any, context: Any) -> None:
+        """The owner's awaited soul-import export. Anything else is ignored, exactly as before."""
+        msg = getattr(update, "message", None)
+        doc = getattr(msg, "document", None)
+        if msg is None or doc is None:
+            return
+        from windyfly.soul_import import flow as _flow
+
+        key = f"telegram:{msg.chat_id}"
+        if not _flow.awaiting_file(key):
+            return
+        from windyfly.agent.capabilities.descriptor import Band
+        from windyfly.channels.identity import resolve_band
+
+        sender_id = str(getattr(getattr(msg, "from_user", None), "id", "") or "")
+        if resolve_band("telegram", sender_id) < Band.OWNER:
+            return
+        refusal = _flow.too_big(getattr(doc, "file_size", None), _flow.TELEGRAM_MAX_BYTES, "Telegram")
+        if refusal:
+            await msg.reply_text(refusal)
+            return
+        try:
+            tg_file = await doc.get_file()
+            data = await tg_file.download_as_bytearray()
+            import io
+
+            reply = await asyncio.to_thread(_flow.take_file, self._db, key, io.BytesIO(bytes(data)),
+                                            str(getattr(doc, "file_name", "") or ""),
+                                            max_bytes=_flow.TELEGRAM_MAX_BYTES)
+        except Exception as e:
+            logger.warning("soul import download failed: %s", type(e).__name__)
+            reply = "Something went wrong receiving that file. Nothing was kept."
+        await msg.reply_text(reply)
 
     async def _handle_voice(self, update, context) -> None:
         """Voice / audio message ingestion.

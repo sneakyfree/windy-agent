@@ -279,7 +279,7 @@ Built in waves (strand-to-green plan, 2026-10-10): 5a set the frame plus Part 1 
 | P2.21.10 | Sensitive items are stored at 0.3, flagged for review; code skills are skipped, prose skills become unpromoted playbooks | live | `tests/strand/test_p2_soul_truth.py::test_p2_21_sensitive_items_are_flagged_and_code_skills_skipped` |
 | P2.21.11 | The owner can review flagged items | planned: Windy Agent: needs_review is stored but nothing reads it; the preview offers "review sensitive" with no flow behind it | — |
 | P2.21.12 | Imported personality (traits, humour, formality) is applied on approval | planned: Windy Agent: shown in the preview, then dropped by the importer | — |
-| P2.21.13 | The owner can start an import without a terminal | planned: Windy Agent: reachable only through the bridge and the gateway API; no command or dashboard page calls it | — |
+| P2.21.13 | The owner can start an import without a terminal: /soul import, send the export in chat, see the preview, /soul approve or /soul reject (the file is wiped either way) | live | `tests/test_soul_import_flow.py::test_approve_keeps_the_import_and_wipes_the_file` |
 
 ### P2.22 The cockpit: presets and sliders (gene 2.2)
 

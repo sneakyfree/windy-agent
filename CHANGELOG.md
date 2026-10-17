@@ -10,6 +10,15 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
 
 ## Unreleased
 
+- **Import a personality from another AI, right in chat.** Type `/soul import` and send your export
+  as a file in the same chat: a ChatGPT `conversations.json`, or a zip of an OpenClaw, Hermes or
+  ChatGPT export, up to 25 MB on Windy Chat or 20 MB on Telegram. The agent shows what it found, and
+  nothing is kept until you type `/soul approve`; `/soul reject` cancels. Either way the file is wiped.
+  The file is held in memory where the host allows, never in the agent's folders, and only the
+  export files the importer reads are taken (never media or databases); zips with path tricks, links, hidden characters or bomb-like compression are
+  refused. Sensitive items wait for your review and are not used until you keep them. An imported
+  item never changes a fact the agent already has. `/soul` on its own still shows the personality.
+
 - **Read receipts.** When the agent takes up your message on Windy Chat it marks it read, and then
   starts typing, so you can see it has seen your message. If the receipt fails, the reply still comes.
 
