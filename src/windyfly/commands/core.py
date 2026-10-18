@@ -2140,8 +2140,8 @@ def _register_budget_through_help():
                     return "Give the budget as a number of dollars, for example /budget set 5."
                 if not math.isfinite(new_limit):        # nan passed the < 0 check and blocked every turn
                     return "Give the budget as a number of dollars, for example /budget set 5."
-                if new_limit < 0:
-                    return "The budget can't be negative."
+                if new_limit <= 0:          # 0 would block every turn (Hub on #601)
+                    return "The daily budget has to be more than $0. To pause me, use /pause."
                 cfg.setdefault("costs", {})["daily_budget_usd"] = new_limit
                 return (f"Daily budget set to ${new_limit:.2f} until I restart. "
                         "To keep it, set [costs] daily_budget_usd in windyfly.toml.")
