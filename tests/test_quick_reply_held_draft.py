@@ -44,6 +44,7 @@ async def _turn(sender, *, draft: bool, flag: str = "1", monkeypatch=None):
         monkeypatch.setenv("WINDY_TEAMS", "1")
     bot = _bot()
     room = MagicMock(); room.room_id = "!dm:chat.windychat.ai"; room.user_name.return_value = "x"
+    room.joined_count = 2      # the sibling and this agent alone: addressed (room_stop P1)
     ev = MagicMock(); ev.sender, ev.body, ev.server_timestamp = sender, "email Sam the report", time.time() * 1000 + 5
 
     async def fake_run_turn(fn, *a, **k):

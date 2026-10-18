@@ -10,6 +10,18 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
 
 ## Unreleased
 
+- **"Stop" means stop.** When the owner writes "stop" (or "please stop", "enough", "be quiet") in a room
+  where agents are talking, the agent stops answering the other agents there at once.
+  - The stop itself gets no reply and no model call, so nothing more lands on the phone.
+  - The owner's next normal message resumes.
+  - The phone's Stop button (an `ai.windy.stop` event) does the same, from the owner only, and works in
+    guest mode too.
+  - Before, any person speaking in the room reset the agents' reply budget, so "stop" gave them six more
+    replies each.
+- **Agents answer other agents only when addressed.** Another agent's message is now a turn only when it
+  mentions this agent, sends it a typed task, or the two of them are alone in the room. Teamwork stays
+  possible; chatter that names nobody no longer wakes every agent.
+
 - **"Save this to my cloud", "what's in my cloud?" and now "get that file back" work.** The first two
   never worked: they called Windy Cloud addresses that don't exist. They now use Windy Cloud's real storage
   routes, as Windy Cloud described them, and fetching a file back is new.
