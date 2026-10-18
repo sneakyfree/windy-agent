@@ -10,6 +10,20 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
 
 ## Unreleased
 
+- **"Save this to my cloud", "what's in my cloud?" and now "get that file back" work.** The first two
+  never worked: they called Windy Cloud addresses that don't exist. They now use Windy Cloud's real storage
+  routes, as Windy Cloud described them, and fetching a file back is new.
+  - The agent uploads only files in the folders it may use, or a file whose full path (starting with / or
+    ~) you wrote in your own message. A bare file name or a quoted earlier message does not count.
+  - It never uploads keys, passwords or env files, its own memory, browser profiles or keychains (on
+    Linux, macOS and Windows), or anything in a hidden folder of your home folder.
+  - At most 5 files or 200 MB per message. If a file of that name is already there, it asks first,
+    because Windy Cloud moves the old one to the trash.
+  - Downloads go to the agent's own downloads folder, with a cleaned name, readable only by you, never
+    replacing an earlier download, and within size and disk limits.
+  - Only the owner can use these. Listing files saved by other Windy apps counts as reading outside text:
+    for the rest of that message the agent does not upload, download or send anything.
+
 - **Keep going today when the budget runs out.** When the agent hits its daily budget it now says the owner
   can type `/budget continue`, which lets it spend up to one more day's budget for the rest of the day, once.
   It goes back to normal at midnight UTC by itself, and the monthly budget, if one is set, is never lifted:

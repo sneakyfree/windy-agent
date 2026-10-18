@@ -277,7 +277,7 @@ UNTRUSTED_SOURCE_TOOLS = frozenset({
 # instruction can't exfiltrate/act after the agent has read untrusted content.
 TAINT_FORBIDDEN_TOOLS = frozenset({
     "send_email", "send_sms", "send_chat_message", "make_call",
-    "upload_to_cloud",
+    "upload_to_cloud", "download_cloud_file",
     "windycode_run", "windycode_write_file", "windycode_save_to_git",
     "windycode_create_project",
     # Browser builder + direct Sites writes: content from an injected page/email
@@ -731,14 +731,14 @@ def agent_respond(
     from windyfly.observability import agent_health, turn_timing
 
     from windyfly.agent.capabilities import Band
-    from windyfly.tools.bands import turn_band
+    from windyfly.tools.bands import turn_band, turn_context
 
     if band is None:
         band = Band.OWNER
     timing = turn_timing.start()
     try:
         # The band legacy tools are gated on at execution (windyfly.tools.bands): this turn's.
-        with agent_health.turn(write_queue), turn_band(band):
+        with agent_health.turn(write_queue), turn_band(band), turn_context(user_message):
             return _agent_respond_turn(
                 config, db, write_queue, user_message, session_id,
                 tool_registry=tool_registry, band=band,
@@ -1646,7 +1646,9 @@ def _agent_respond_turn(
                 })
                 # [I2 taint model] If this tool returned attacker-authored
                 # content, taint the rest of the turn.
-                if fn_name in UNTRUSTED_SOURCE_TOOLS:
+                from windyfly.tools.bands import turn_marked_tainted
+
+                if fn_name in UNTRUSTED_SOURCE_TOOLS or turn_marked_tainted():
                     if not turn_tainted:
                         logger.info(
                             "Turn tainted by untrusted-source tool: %s", fn_name)

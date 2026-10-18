@@ -558,9 +558,9 @@ are the new genes (Wave 5g).
 | P4.11.25 | Voice notes are transcribed in the agent (its own faster-whisper, optional extra) and answered | live | `tests/test_voice_handler.py::test_voice_handler_dispatches_transcript_to_agent` |
 | P4.11.26 | The agent can query and tune WindySense | planned: Windy Agent: no integration; Hub decides whether it is still wanted | — |
 | P4.11.27 | The phone and the agent share Matrix under a pinned contract (phone tools off by default) | live | `tests/test_phone_tools.py::test_dark_by_default` |
-| P4.11.28 | Files are stored on Windy Cloud | planned: Windy Agent: broken in production since it shipped: upload_to_cloud posts to /api/v1/archive/file, which Windy Cloud does not have (404, Cloud 10-17 reading prod 1045b17); the test passed only against a mock of that guessed route. Move to POST /api/v1/storage/upload | — |
-| P4.11.29 | Files on Windy Cloud are listed | planned: Windy Agent: broken in production since it shipped: list_cloud_files reads /api/v1/archive/files, which Windy Cloud does not have (404, Cloud 10-17); the test passed only against a mock. Move to GET /api/v1/storage/files | — |
-| P4.11.30 | Files on Windy Cloud are retrieved | planned: Windy Agent: download is not wrapped | — |
+| P4.11.28 | Files are stored on Windy Cloud (POST /api/v1/storage/upload; only files in the allowed folders or whose full path the owner wrote, never keys, env files, the agent's data, browser profiles, keychains or hidden folders; 5 files / 200 MB per message, none outside a turn) | live | `tests/test_cloud_tool.py::test_upload_list_download_follow_clouds_contract` |
+| P4.11.29 | Files on Windy Cloud are listed (GET /api/v1/storage/files; names framed as data, control characters stripped; other apps' files taint the turn) | live | `tests/test_cloud_tool.py::test_upload_list_download_follow_clouds_contract` |
+| P4.11.30 | Files on Windy Cloud are retrieved (GET /api/v1/storage/files/{file_id} into the agent's downloads folder, 0600, never overwriting, capped) | live | `tests/test_cloud_tool.py::test_the_servers_name_is_cleaned_and_kept_inside_the_folder` |
 
 ### P4.12 Master file index (Part 4 §12)
 
@@ -1050,8 +1050,8 @@ own behaviour.
 | N6.7 | A failed backup always says why | live | `tests/test_cloud_backup_contract.py::TestErrorSurfacing::test_backup_upload_returns_typed_error_on_blank_exception` |
 | N6.8 | Cloud calls use the agent's own token first and the old credential only after a 401 or 403 | live | `tests/test_cloud_auth.py::test_backup_send_prefers_the_agent_token_and_falls_back_on_refusal` |
 | N6.9 | With no credential at all, nothing is sent to the cloud | live | `tests/test_cloud_auth.py::test_backup_with_no_old_credential_and_no_token_sends_nothing` |
-| N6.10 | A retried upload sends the whole file again | live | `tests/test_cloud_auth.py::test_upload_retry_sends_the_whole_file_again` |
-| N6.11 | The cloud file tool says "unavailable" when the cloud is not configured | live | `tests/test_cloud_tool.py::TestUploadUnavailable::test_returns_unavailable_when_env_unset` |
+| N6.10 | A file upload is sent once with the Bearer token (Windy Cloud has no agent signed-header auth, so there is nothing to retry with); a 503 is not retried | live | `tests/test_cloud_tool.py::test_upload_answers_are_plain_and_a_503_is_not_retried` |
+| N6.11 | The cloud file tools say plainly when the cloud is not configured | live | `tests/test_cloud_tool.py::test_unconfigured_is_plain` |
 | N6.12 | (ours) A restore asks first, and keeps the current memory as an encrypted copy for /backup undo (24 hours); never a plaintext copy | live | `tests/strand/test_n4_n8_mail_calendar_cloud_phone_vault.py::test_n6_a_restore_keeps_an_encrypted_undo_copy_never_a_plaintext_one` |
 | N6.13 | (ours) A backup is due 24 hours after the last one by default | live | `tests/strand/test_n4_n8_mail_calendar_cloud_phone_vault.py::test_n6_a_backup_is_due_after_24_hours_by_default` |
 | N6.14 | (ours) auto_backup = false means no scheduled backup | live | `tests/strand/test_n4_n8_mail_calendar_cloud_phone_vault.py::test_n6_auto_backup_off_means_never_due` |

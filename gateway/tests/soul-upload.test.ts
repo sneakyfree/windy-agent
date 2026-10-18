@@ -44,6 +44,12 @@ function startBrain(path: string): Promise<net.Server> {
           const req = JSON.parse(line) as { id: string; method: string; params: Record<string, unknown> };
           calls.push({ method: req.method, params: req.params });
           let result: Record<string, unknown> = {};
+          if (req.method === "soul.upload" && statSync(String(req.params.file)).size === 99) {
+            // A slow parse: answer after 12 s, past Bun's default 10 s idle timeout.
+            setTimeout(() => sock.write(JSON.stringify({ id: req.id, result: { token: "s".repeat(32), preview: "slow" },
+                                                         error: null }) + "\n"), 12000);
+            continue;
+          }
           if (req.method === "soul.upload") {
             const file = String(req.params.file);
             const st = statSync(file);
@@ -241,6 +247,48 @@ describe("soul import from the dashboard", () => {
                                                               body: JSON.stringify({ all: true }) });
     expect(preview.status).toBe(400);                                // only reject clears without a token
   });
+});
+
+// A request whose body pauses 12 s mid-send, past Bun's default 10 s idle timeout. Without
+// server.timeout(req, 300) Bun 1.4.2 drops it ("timed out a request after 10 seconds"); with it the
+// route answers. This is what discriminates the two server.timeout lines (Hub on #598).
+function stalledPost(path: string, head: string, rest: string, contentType: string): Promise<string> {
+  return new Promise((ok) => {
+    const port = Number(new URL(base).port);
+    const total = Buffer.byteLength(head) + Buffer.byteLength(rest);
+    let out = "";
+    const s = net.connect(port, "127.0.0.1", () => {
+      s.write(`POST ${path} HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer ${PASSWORD}\r\n` +
+              `Content-Type: ${contentType}\r\nX-Filename: stalled.json\r\nContent-Length: ${total}\r\n` +
+              "Connection: close\r\n\r\n" + head);
+      setTimeout(() => { if (!s.destroyed) s.write(rest); }, 12000);
+    });
+    s.on("data", (d) => { out += d.toString(); });
+    s.on("close", () => ok(out));
+    s.on("error", () => ok(out));
+    setTimeout(() => { s.destroy(); ok(out); }, 25000);
+  });
+}
+
+describe("a slow client", () => {
+  test("an upload or import body that stalls 12 s still gets its answer (server.timeout 300)", async () => {
+    const [up, imp] = await Promise.all([
+      stalledPost("/api/soul/upload", "{\"a\": 1, ", "\"b\": 22222}", "application/octet-stream"),
+      stalledPost("/api/soul/import", '{"token": "', "t".repeat(32) + '"}', "application/json"),
+    ]);
+    expect(up.split("\r\n")[0]).toBe("HTTP/1.1 200 OK");
+    expect(up).toContain("t".repeat(32));
+    expect(imp.split("\r\n")[0]).toBe("HTTP/1.1 200 OK");
+    expect(imp).toContain("soul.import");
+  }, 30000);
+
+  test("a 12 s parse still answers the browser", async () => {
+    // Bun 1.4.2 keeps a request open while its handler awaits, with or without server.timeout, so this one
+    // does not tell the two apart; it guards the slow-parse path on other Bun versions.
+    const r = await upload(new Uint8Array(99));
+    expect(r.status).toBe(200);
+    expect(await r.json()).toEqual({ token: "s".repeat(32), preview: "slow" });
+  }, 30000);
 });
 
 describe("the startup sweep", () => {

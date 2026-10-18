@@ -46,7 +46,7 @@ _LOCAL_WRITE = (
     "add_todo", "complete_todo", "set_reminder", "cancel_reminder", "create_event",
     "windycodeweb_create_project", "windycodeweb_add_files", "windycodeweb_edit_text",
     "windycodeweb_start", "windycodeweb_start_from_template", "windycodeweb_undo",
-    "set_timer", "windycode_create_project", "windycode_write_file",
+    "set_timer", "windycode_create_project", "windycode_write_file", "download_cloud_file",
     "windycodeweb_file_project", "windycodeweb_log_activity",
 )
 # Acts outward: sends, calls, buys, publishes, uploads.
@@ -112,3 +112,40 @@ def cap_turn_band(band: Any) -> Iterator[None]:
     with turn_band(min(Band(int(band)), outer)):
         yield
 
+
+# The running turn's own words and a scratch dict for per-turn limits (the cloud upload cap), set by
+# agent_respond next to the band. Tools read them; nothing outside a turn has them.
+_turn_text: contextvars.ContextVar[str | None] = contextvars.ContextVar("windy_turn_text", default=None)
+_turn_state: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar("windy_turn_state", default=None)
+
+
+@contextmanager
+def turn_context(text: str) -> Iterator[None]:
+    t1 = _turn_text.set(text)
+    t2 = _turn_state.set({})
+    try:
+        yield
+    finally:
+        _turn_state.reset(t2)
+        _turn_text.reset(t1)
+
+
+def turn_text() -> str | None:
+    return _turn_text.get()
+
+
+def turn_state() -> dict[str, Any] | None:
+    return _turn_state.get()
+
+
+def mark_turn_tainted() -> None:
+    """A tool says its result carries text a third party chose: the rest of this turn is tainted (the I2
+    taint model in agent/loop.py refuses outward tools from then on). Outside a turn: nothing to mark."""
+    state = _turn_state.get()
+    if state is not None:
+        state["tainted"] = True
+
+
+def turn_marked_tainted() -> bool:
+    state = _turn_state.get()
+    return bool(state and state.get("tainted"))
