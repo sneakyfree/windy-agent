@@ -22,11 +22,12 @@ import threading
 STOP_EVENT = "ai.windy.stop"
 TASK_FIELD = "ai.windy.task"
 
-_WORDS = {
-    "stop", "stop it", "stop now", "please stop", "stop please", "stop talking", "stop that",
-    "enough", "that's enough", "thats enough", "be quiet", "quiet", "shut up", "pause", "hold on stop",
-    "stop stop", "stop everyone", "everyone stop", "agents stop", "stop agents",
-}
+# The ONE canonical list in agent-teamwork.v1 (windy-contracts #158, x-runtime.one_to_one_stop_phrases; the
+# roster matches it): case-insensitive, whitespace and trailing punctuation allowed, plus /stop.
+_WORDS = frozenset({
+    "stop", "stop it", "stop now", "stop talking", "please stop", "enough", "that's enough", "thats enough",
+    "be quiet", "quiet", "silence", "shut up", "pause", "halt",
+})
 _stopped: set[str] = set()
 _lock = threading.Lock()
 _loaded = False
@@ -125,14 +126,17 @@ def _change(room: str, add: bool) -> None:
 
 
 def is_stop_word(text: str | None) -> bool:
-    """The whole message is a stop word (case and punctuation ignored); a sentence that mentions
-    stopping is not."""
-    if (text or "").lstrip().startswith("/"):
-        return False                         # a slash command (/pause, /stop) stays a command
-    text = (text or "").replace("\u2019", "'").replace("\u2018", "'")      # iOS types a curly apostrophe
-    norm = re.sub(r"[^\w\s']", " ", text.lower())
-    norm = " ".join(norm.split())
-    return norm in _WORDS
+    """The whole message is a stop phrase, or /stop (case ignored; extra whitespace and trailing
+    punctuation allowed). A sentence that mentions stopping is not ("stop the timer" stays a request).
+
+    /stop is the contract's stop, not windyfly's old process-stop command: in a chat room it silences the
+    agents and never shuts the agent down (that stays a terminal command)."""
+    t = (text or "").replace("\u2019", "'").replace("\u2018", "'").strip().lower()     # iOS curly apostrophe
+    t = re.sub(r"[\s.!?…]+$", "", t)
+    t = " ".join(t.split())
+    if t == "/stop":
+        return True
+    return t in _WORDS
 
 
 def stop(room: str) -> None:

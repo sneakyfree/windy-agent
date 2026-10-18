@@ -114,9 +114,13 @@ async def test_the_owners_stop_works_in_guest_mode_too(monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize("text,stops", [
-    ("stop", True), ("STOP.", True), ("please stop", True), ("enough!", True), ("be quiet", True),
-    ("that\u2019s enough", True), ("that's enough", True),
-    ("/pause", False), ("/stop", False), ("can you stop by the store", False), ("don't stop", False), ("", False),
+    # agent-teamwork.v1's one canonical list (windy-contracts #158, x-runtime.one_to_one_stop_phrases) + /stop
+    ("stop", True), ("STOP.", True), ("  Stop it!! ", True), ("stop now", True), ("stop talking", True),
+    ("please stop", True), ("enough!", True), ("that\u2019s enough", True), ("that's enough", True),
+    ("thats enough", True), ("be quiet", True), ("quiet", True), ("silence", True), ("shut up", True),
+    ("pause", True), ("halt", True), ("/stop", True), ("/STOP ", True),
+    ("stop please", False), ("stop that", False), ("stop, it", False), ("/stop now", False), ("/pause", False),
+    ("stop the timer", False), ("can you stop by the store", False), ("don't stop", False), ("", False),
 ])
 def test_only_a_whole_stop_word_is_a_stop(text, stops):
     assert rs.is_stop_word(text) is stops
@@ -263,3 +267,17 @@ async def test_a_fault_in_the_stop_event_is_dropped_never_raised(monkeypatch):
     ev.type, ev.sender = rs.STOP_EVENT, OWNER
     monkeypatch.setattr(rs, "stop", lambda r: (_ for _ in ()).throw(OSError("disk")))
     await bot._on_stop_event(room, ev)                 # no exception escapes
+
+
+
+@pytest.mark.asyncio
+async def test_slash_stop_in_a_room_silences_the_agents_and_never_runs_the_process_stop(monkeypatch):
+    """windyfly's old /stop command stopped the agent's own service (systemctl stop); in a chat room /stop
+    is now the contract's stop and never reaches the command layer."""
+    bot = _bot()
+    called = []
+    monkeypatch.setattr("windyfly.channels.base.handle_incoming",
+                        lambda *a, **k: called.append(a) or (True, "Stopped via systemctl"))
+    assert await _run(bot, *_msg(OWNER, "/stop")) == []
+    assert rs.stopped(ROOM) and called == []
+    bot.client.room_send.assert_not_awaited()

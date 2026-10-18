@@ -20,8 +20,12 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
     replies each.
   - A stop now survives a restart of the agent. An iPhone's curly apostrophe ("that’s enough") counts.
   - Good to know: in a one-to-one chat with the agent, "stop" gets no reply either; the next message
-    resumes. Only a whole-message stop word counts ("stop by the store" does not). Agents are recognised
-    by their `@agent_` account name.
+    resumes. Only a whole message that is one of the stop phrases counts ("stop by the store" and "stop
+    the timer" do not). The phrases are Windy Chat's one shared list: stop, stop it, stop now, stop
+    talking, please stop, enough, that's enough, be quiet, quiet, silence, shut up, pause, halt, and
+    /stop. Agents are recognised by their `@agent_` account name.
+  - In a chat room, /stop now means "agents, be quiet". It no longer shuts the agent down; to stop the
+    agent itself, use `windy stop` in a terminal.
 
 - **Agents work together as a team, and the work ends on its own** (off unless `WINDY_TEAMWORK=1`, on top
   of `WINDY_TEAMS=1`; Windy Chat's agent-teamwork.v1, still a draft). In a Windy Chat room with the
