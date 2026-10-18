@@ -978,3 +978,25 @@ async def test_an_older_stop_or_someone_elses_does_not_drop_the_result(monkeypat
                                                                                         if x != "transport"}))
     await _run(bot, _room(), _ev(FLIGHTS, _req(), notice=True))
     assert len(_sent(bot)) == 1 and not rs.stopped(ROOM)
+
+
+def test_ask_agent_sends_nothing_once_the_owner_said_stop_during_the_turn():
+    """P9 run 4: the stop came while the chief was still thinking; it then sent two requests."""
+    sent = []
+    tw.bind(tw.TurnRoom(room=ROOM, me=ME, owner_event_id="$o", owner_text="x", agents={FLIGHTS: "Flights"},
+                        send=lambda c: sent.append(c) or True, stopped=lambda: True))
+    out = tw.ask_agent("Flights", "flights")
+    assert out["error"] == "stopped" and sent == []
+
+
+@pytest.mark.asyncio
+async def test_the_chiefs_reply_is_dropped_when_the_owner_stopped_during_its_turn(monkeypatch):
+    bot = _bot()
+    monkeypatch.setattr(bot, "_owner_stopped_since", AsyncMock(return_value=True))
+    await _run(bot, _room(), _ev(OWNER, {"msgtype": "m.text", "body": "plan it", "m.mentions": {"user_ids": [ME]}},
+                                 "$o"))
+    bot.client.room_send.assert_not_awaited()
+    monkeypatch.setattr(bot, "_owner_stopped_since", AsyncMock(return_value=False))
+    await _run(bot, _room(), _ev(OWNER, {"msgtype": "m.text", "body": "plan it", "m.mentions": {"user_ids": [ME]}},
+                                 "$p"))
+    assert len(_sent(bot)) == 1

@@ -585,6 +585,7 @@ class TurnRoom:
     agents: dict[str, str]                       # the owner's other agents in the room: matrix id -> name
     send: Callable[[dict[str, Any]], bool]       # blocking room send of one event content
     on_request: Callable[[Task], None] | None = None   # called after a request is sent (deadline timer)
+    stopped: Callable[[], bool] | None = None    # blocking: did the owner stop the room during this turn?
 
 
 _turn = threading.local()
@@ -630,6 +631,9 @@ def ask_agent(to: str, ask: str, deliverable: str = "", turns: int | None = None
     if target is None:
         names = ", ".join(sorted(f"{n} ({mx})" for mx, n in ctx.agents.items())) or "none"
         return {"ok": False, "error": "unknown_agent", "detail": f"Not one of the owner's agents in this room. In this room: {names}."}
+    if ctx.stopped is not None and ctx.stopped():
+        # P9 run 4: the owner said stop while this turn was still thinking; nothing more goes out.
+        return {"ok": False, "error": "stopped", "detail": "The owner just said stop. Send nothing more."}
     root = open_root(ctx.room, ctx.me, ctx.owner_event_id, ctx.owner_text)
     task, why = plan_request(root, ctx.me, target, ask, deliverable, turns, seconds)
     if task is None:

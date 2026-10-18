@@ -589,11 +589,20 @@ class WindyFlyMatrixBot(ChannelAdapter):
         def on_request(root: Any) -> None:
             loop.call_soon_threadsafe(self._schedule_expiry, root)
 
+        started_ms = int(time.time() * 1000)
+
+        def stopped() -> bool:
+            fut = asyncio.run_coroutine_threadsafe(self._owner_stopped_since(room, started_ms), loop)
+            try:
+                return bool(fut.result(timeout=10))
+            except Exception:  # noqa: BLE001
+                return False
+
         event_id = getattr(event, "event_id", None)
         return _tw.TurnRoom(room=room_id, me=self.bot_user_id or "",
                             owner_event_id=event_id if isinstance(event_id, str) else None,
                             owner_text=body, agents={a: _agent_name(room, a) for a in sorted(agents)},
-                            send=send, on_request=on_request)
+                            send=send, on_request=on_request, stopped=stopped)
 
     async def _task_turn(self, room: Any, sender: str, display_name: str, kind: str, task: Any) -> None:
         """One turn on typed task traffic: a request addressed to this agent (its ONE result goes back),
@@ -1064,6 +1073,11 @@ class WindyFlyMatrixBot(ChannelAdapter):
             # thread, never pushed); the owner's ONE answer comes when the results are in.
             if team_room is not None and "ai.windy.quick_reply" not in content:   # a confirm card is for the person
                 content.update(_teamwork_backstage(team_room))
+            # A team room: if the owner said stop while this turn ran, the reply is dropped (P9 run 4).
+            if team_room is not None and team_room.stopped is not None and await asyncio.to_thread(team_room.stopped):
+                logger.info("teamwork: the owner stopped room %s during this turn; reply dropped",
+                            _budget.room_ref(room_id))
+                return
             await self.client.room_send(
                 room_id,
                 "m.room.message",
