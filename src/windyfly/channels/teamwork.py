@@ -598,12 +598,24 @@ def current() -> TurnRoom | None:
     return getattr(_turn, "room", None)
 
 
+def _norm(name: str) -> str:
+    """A name without decoration: Windy Chat display names carry an emoji ("p9b089866 🪰", P9 re-run)."""
+    return " ".join(re.sub(r"[^\w.\-]+", " ", name or "").split()).casefold()
+
+
 def _resolve(to: str, agents: dict[str, str]) -> str | None:
+    """The Matrix id of one of the owner's agents in the room named ``to``: its id, its display name or the
+    name Windy Chat lists (decoration ignored), or its account name. None when nothing or several match."""
+    from windyfly.agent import teams
+
     to = (to or "").strip()
     if to in agents:
         return to
-    low = to.lower().lstrip("@")
-    hits = [mx for mx, name in agents.items() if (name or "").lower() == low or mx.lower().lstrip("@").split(":")[0] == low]
+    want = _norm(to.lstrip("@"))
+    if not want:
+        return None
+    hits = [mx for mx, name in agents.items()
+            if want in {_norm(name), _norm(teams.sibling_name(mx)), _norm(mx.lstrip("@").split(":")[0])}]
     return hits[0] if len(hits) == 1 else None
 
 

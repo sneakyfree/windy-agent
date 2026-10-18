@@ -927,3 +927,15 @@ def test_the_model_does_not_choose_the_budget():
     sent = _bind()
     tw.ask_agent("Flights", "find flights")
     assert tw.parse(sent[0])["budget"] == {"turns": tw.DEFAULT_TURNS, "seconds": tw.DEFAULT_SECONDS}
+
+
+
+def test_ask_agent_finds_an_agent_whose_display_name_carries_an_emoji():
+    """P9 re-run: Windy Chat display names end with an emoji, so "p9b089866" never matched "p9b089866 🪰"."""
+    sent = []
+    tw.bind(tw.TurnRoom(room=ROOM, me=ME, owner_event_id="$o", owner_text="x",
+                        agents={FLIGHTS: "p9b089866 \U0001fab0", HOTELS: "p9ccf44ff \U0001fab0"},
+                        send=lambda c: sent.append(c) or True))
+    assert tw.ask_agent("p9b089866", "flights")["ok"] is True
+    assert tw.ask_agent("P9CCF44FF", "hotels")["ok"] is True
+    assert [tw.parse(c)["to"] for c in sent] == [FLIGHTS, HOTELS]
