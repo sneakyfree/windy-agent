@@ -912,3 +912,18 @@ async def test_a_restarted_agent_sees_its_team_from_the_servers_member_list():
     assert bot._owner_agents_in_room(room) == {FLIGHTS, HOTELS}
     await bot._refresh_members(ROOM)
     assert bot.client.joined_members.await_count == 1             # cached
+
+
+
+def test_the_model_does_not_choose_the_budget():
+    """P9: the model gave a web search 30 s and 1 turn; the runtime sets the contract defaults."""
+    from windyfly.agent.capabilities.registry import CapabilityRegistry
+    from windyfly.agent.capabilities.teams import register_teams_capabilities
+
+    reg = CapabilityRegistry()
+    register_teams_capabilities(reg)
+    (schema,) = [t for t in reg.tool_schemas_for_band(Band.OWNER) if t["function"]["name"] == "ask_agent"]
+    assert set(schema["function"]["parameters"]["properties"]) == {"to", "ask", "deliverable"}
+    sent = _bind()
+    tw.ask_agent("Flights", "find flights")
+    assert tw.parse(sent[0])["budget"] == {"turns": tw.DEFAULT_TURNS, "seconds": tw.DEFAULT_SECONDS}

@@ -51,8 +51,9 @@ def register_teams_capabilities(registry: CapabilityRegistry, config: dict[str, 
                      "once, later; when every agent you asked has answered you get all the answers together "
                      "and write the owner ONE answer. Use it when another agent is better at a part of the "
                      "owner's request."),
-        handler=lambda *, to, ask, deliverable="", turns=None, seconds=None: teamwork.ask_agent(
-            to, ask, deliverable, turns, seconds),
+        # The runtime sets the budget (the contract defaults, capped by what is left of the task): P9 showed a
+        # model choosing 30 s and 1 turn for a web search, so the request timed out before its answer.
+        handler=lambda *, to, ask, deliverable="": teamwork.ask_agent(to, ask, deliverable),
         input_schema={
             "type": "object",
             "properties": {
@@ -62,8 +63,6 @@ def register_teams_capabilities(registry: CapabilityRegistry, config: dict[str, 
                         "description": "What to do, in plain words, with everything the agent needs."},
                 "deliverable": {"type": "string", "maxLength": 500,
                                 "description": "What the answer must contain, in one line."},
-                "turns": {"type": "integer", "minimum": 1, "maximum": 20},
-                "seconds": {"type": "integer", "minimum": 10, "maximum": 1800},
             },
             "required": ["to", "ask"], "additionalProperties": False,
         },
