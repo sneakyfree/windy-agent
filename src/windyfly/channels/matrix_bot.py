@@ -516,6 +516,19 @@ class WindyFlyMatrixBot(ChannelAdapter):
 
         agent_turn = _silence.enabled() and _silence.sender_is_agent(sender)
         agent_sender = _parity.passport_of(sender) is not None  # independent of the teams flag
+
+        # The OWNER's language, as their Windy app tags it (strand P2.11.13): the reply follows it. Another
+        # person in a shared room can't flip it (Hub on #600).
+        if not agent_sender:
+            from windyfly.channels import sender_lang as _lang
+            from windyfly.channels.identity import owner_ids as _owner_ids
+            from windyfly.channels.identity import resolve_band as _lang_band
+            from windyfly.agent.capabilities.descriptor import Band as _LangBand
+
+            if (sender in (_owner_ids(self.config).get("matrix") or set())
+                    or _lang_band("matrix", sender, config=self.config) >= _LangBand.OWNER):
+                src = getattr(event, "source", None)
+                _lang.note(session_id, _lang.from_content(src.get("content") if isinstance(src, dict) else None))
         if agent_sender:
             _silence.mark_agent_sender(session_id)
         if agent_turn:

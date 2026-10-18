@@ -131,10 +131,10 @@ class TestWindyToolRegistration:
 
         monkeypatch.setattr(windy_api, "windy_pro_answers", lambda: True)
 
-    def test_registers_four_tools(self):
+    def test_registers_five_tools(self):
         registry = ToolRegistry()
         register_windy_tools(registry)
-        assert registry.tool_count == 4
+        assert registry.tool_count == 5
 
     def test_schema_format(self):
         registry = ToolRegistry()
@@ -145,6 +145,7 @@ class TestWindyToolRegistration:
         assert "get_recordings" in tool_names
         assert "get_clone_status" in tool_names
         assert "translate_text" in tool_names
+        assert "list_languages" in tool_names
 
     def test_translate_schema_has_required_params(self):
         registry = ToolRegistry()
@@ -353,6 +354,7 @@ class TestWindyToolsOnlyWhenConfigured:
         assert any("restart the agent to retry" in r.getMessage() for r in caplog.records)
 
     def test_answering_pro_registers_four(self, monkeypatch):
+        """(Name kept for the strand rows that cite it; there are five tools since list_languages.)"""
         from unittest.mock import MagicMock
 
         from windyfly.tools import windy_api
@@ -369,6 +371,6 @@ class TestWindyToolsOnlyWhenConfigured:
         monkeypatch.setattr(windy_api.httpx, "get", fake_get)
         registry = ToolRegistry()
         register_windy_tools(registry)
-        assert registry.tool_count == 4
+        assert registry.tool_count == 5
         assert seen["url"].endswith("/api/v1/user/history")
         assert seen["headers"]["Authorization"] == "Bearer jwt-test"
