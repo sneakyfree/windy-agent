@@ -624,6 +624,7 @@ class WindyFlyMatrixBot(ChannelAdapter):
         else:
             turn_body = _tw.results_turn_text(task, me, names)
         status = "done"
+        started_ms = int(time.time() * 1000)
         try:
             await self.client.room_typing(room_id, True, timeout=15000)
         except Exception as e:
@@ -641,7 +642,10 @@ class WindyFlyMatrixBot(ChannelAdapter):
                 await self.client.room_typing(room_id, False)
             except Exception as e:
                 logger.debug("Failed to clear typing indicator: %s", e)
-        if _stop.stopped(room_id):
+        # nio hands this process one event at a time, so an owner's stop sent while this turn ran has not been
+        # read yet: look at the room's latest events before anything goes out (P9 run 4: two results went out
+        # 11-12 s after the owner's stop). The contract: a stop drops any reply being generated.
+        if _stop.stopped(room_id) or await self._owner_stopped_since(room, started_ms):
             from windyfly.channels import turn_budget as _budget
 
             logger.info("teamwork: the owner stopped room %s during the turn; reply dropped",
@@ -658,6 +662,43 @@ class WindyFlyMatrixBot(ChannelAdapter):
         if status == "done" and any(x.status == "needs_input" for x in _tw.children(task, me)):
             status = "needs_input"                  # an agent needs the owner: the report asks (contract)
         await self._send_owner_result(room_id, task, str(text or ""), status)
+
+    async def _owner_stopped_since(self, room: Any, since_ms: int) -> bool:
+        """Did the room's owner stop the agents after ``since_ms``? Reads the room's latest events (the stop
+        callback may still be queued behind this turn). Not logged in, or the read fails: False."""
+        from windyfly.channels import room_stop as _stop
+        from windyfly.channels import teamwork as _tw
+
+        token = getattr(self.client, "access_token", None)
+        homeserver = str(getattr(self.client, "homeserver", "") or "").rstrip("/")
+        if not token or not homeserver:
+            return False
+        try:
+            import httpx
+
+            async with httpx.AsyncClient(timeout=5.0, follow_redirects=False, trust_env=False) as http:
+                resp = await http.get(f"{homeserver}/_matrix/client/v3/rooms/{room.room_id}/messages",
+                                      params={"dir": "b", "limit": "20"},
+                                      headers={"Authorization": f"Bearer {token}"})
+            chunk = resp.json().get("chunk", []) if resp.status_code == 200 else []
+        except Exception as e:  # noqa: BLE001
+            logger.debug("stop look-back failed: %s", type(e).__name__)
+            return False
+        team = bool(self._owner_agents_in_room(room))
+        for ev in chunk if isinstance(chunk, list) else []:
+            if not isinstance(ev, dict) or int(ev.get("origin_server_ts") or 0) < since_ms:
+                continue
+            if not _stop.is_owner(ev.get("sender"), self.config):
+                continue
+            if ev.get("type") == _stop.STOP_EVENT:
+                _stop.stop(room.room_id)
+                return True
+            body = (ev.get("content") or {}).get("body") if ev.get("type") == "m.room.message" else None
+            if isinstance(body, str) and (_stop.is_stop_word(body)
+                                          or (team and _tw.enabled() and _tw.is_contract_stop(body))):
+                _stop.stop(room.room_id)        # the queued stop event still cancels tasks and confirms
+                return True
+        return False
 
     async def _send_owner_result(self, room_id: str, root: Any, text: str, status: str) -> None:
         from windyfly.channels import teamwork as _tw

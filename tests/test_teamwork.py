@@ -939,3 +939,42 @@ def test_ask_agent_finds_an_agent_whose_display_name_carries_an_emoji():
     assert tw.ask_agent("p9b089866", "flights")["ok"] is True
     assert tw.ask_agent("P9CCF44FF", "hotels")["ok"] is True
     assert [tw.parse(c)["to"] for c in sent] == [FLIGHTS, HOTELS]
+
+
+@pytest.mark.asyncio
+async def test_a_stop_sent_while_the_turn_ran_drops_the_result_before_it_goes_out(monkeypatch):
+    """P9 run 4: two results went out 11-12 s after the owner's stop (nio reads one event at a time)."""
+    import httpx
+
+    bot = _bot()
+    bot.client.access_token, bot.client.homeserver = "t", "https://chat.example.test"
+    bot.client.joined_members = AsyncMock(return_value=None)                    # no network in tests
+    later = int(time.time() * 1000) + 60_000
+    events = {"chunk": [{"type": "m.room.message", "sender": OWNER, "origin_server_ts": later,
+                         "content": {"msgtype": "m.text", "body": "stop"}}]}
+    real = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda *a, **k: real(
+        transport=httpx.MockTransport(lambda req: httpx.Response(200, json=events)), **{x: y for x, y in k.items()
+                                                                                        if x != "transport"}))
+    assert await _run(bot, _room(), _ev(FLIGHTS, _req(), notice=True)) != []     # the turn ran
+    bot.client.room_send.assert_not_awaited()                                    # but nothing went out
+    assert rs.stopped(ROOM)
+
+
+@pytest.mark.asyncio
+async def test_an_older_stop_or_someone_elses_does_not_drop_the_result(monkeypatch):
+    import httpx
+
+    bot = _bot()
+    bot.client.access_token, bot.client.homeserver = "t", "https://chat.example.test"
+    bot.client.joined_members = AsyncMock(return_value=None)                    # no network in tests
+    events = {"chunk": [{"type": "m.room.message", "sender": OWNER, "origin_server_ts": 1,
+                         "content": {"msgtype": "m.text", "body": "stop"}},
+                        {"type": "m.room.message", "sender": FLIGHTS, "origin_server_ts": int(time.time() * 1000) + 60_000,
+                         "content": {"msgtype": "m.text", "body": "stop"}}]}
+    real = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda *a, **k: real(
+        transport=httpx.MockTransport(lambda req: httpx.Response(200, json=events)), **{x: y for x, y in k.items()
+                                                                                        if x != "transport"}))
+    await _run(bot, _room(), _ev(FLIGHTS, _req(), notice=True))
+    assert len(_sent(bot)) == 1 and not rs.stopped(ROOM)
