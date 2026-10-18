@@ -219,6 +219,8 @@ class WindyFlyMatrixBot(ChannelAdapter):
         self._stop_followups: list[str] = []
         # Rooms THIS process has handled a stop for (cancel its tasks, maybe confirm) since the last resume.
         self._stopped_here: set[str] = set()
+        # Teamwork: the server's joined members per room, (fetched at, ids).
+        self._members_cache: dict[str, tuple[float, set[str]]] = {}
 
         # Track boot time to ignore old messages
         self._boot_time = time.time()
@@ -470,6 +472,8 @@ class WindyFlyMatrixBot(ChannelAdapter):
         etype = getattr(event, "type", None)
         if etype not in (_stop.STOP_EVENT, _tw.RESUME_EVENT, _tw.STOPPED_STATE):
             return
+        if _tw.enabled():
+            await self._refresh_members(room.room_id)
         if not _stop.is_owner(getattr(event, "sender", None), self.config):
             if etype == _stop.STOP_EVENT:
                 logger.info("stop event from a non-owner in room %s: ignored", _budget.room_ref(room.room_id))
@@ -499,13 +503,31 @@ class WindyFlyMatrixBot(ChannelAdapter):
             await self._after_stop(room)
 
     def _owner_agents_in_room(self, room: Any) -> set[str]:
-        """The owner's OTHER agents joined to this room (sibling ids from Windy Chat), by Matrix id."""
+        """The owner's OTHER agents joined to this room (sibling ids from Windy Chat), by Matrix id. The room's
+        member list plus the server's joined members (_refresh_members): after a restart the client knows only
+        the members it has seen lately (P9: a restarted chief saw no team and ask_agent found nobody)."""
         from windyfly.agent import teams as _teams
 
-        users = getattr(room, "users", None) or {}
+        users = set(getattr(room, "users", None) or {})
+        users |= self._members_cache.get(getattr(room, "room_id", ""), (0.0, set()))[1]
         sibs = _teams.sibling_ids()
         me = self.bot_user_id or getattr(self.client, "user_id", None)
         return {u for u in users if isinstance(u, str) and u != me and u in sibs}
+
+    async def _refresh_members(self, room_id: str, max_age_s: float = 120.0) -> None:
+        """Teamwork on: ask the server who is joined (cached for two minutes). Not logged in: nothing."""
+        if not getattr(self.client, "access_token", None):
+            return
+        hit = self._members_cache.get(room_id)
+        if hit and time.time() - hit[0] < max_age_s:
+            return
+        try:
+            resp = await self.client.joined_members(room_id)
+        except Exception as e:  # noqa: BLE001
+            logger.debug("joined members not read: %s", type(e).__name__)
+            return
+        if isinstance(resp, nio.JoinedMembersResponse):
+            self._members_cache[room_id] = (time.time(), {m.user_id for m in resp.members})
 
     def _person_turn_is_mine(self, room: Any, event: Any, body: str, agents_here: set[str]) -> bool:
         """In a team room, is a person's message this agent's turn? agent-teamwork.v1 (#158 at 0362388): a
@@ -727,6 +749,11 @@ class WindyFlyMatrixBot(ChannelAdapter):
         body = event.body
         sender = event.sender
         display_name = room.user_name(sender) or sender
+
+        from windyfly.channels import teamwork as _tw_members
+
+        if _tw_members.enabled():
+            await self._refresh_members(room_id)
 
         # An edit (m.replace) of an earlier message is never a new turn (agent-teamwork.v1, Hub on #158).
         _src = getattr(event, "source", None)

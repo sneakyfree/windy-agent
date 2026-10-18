@@ -896,3 +896,19 @@ def test_a_spent_pseudo_root_refuses_the_next_request():
     tw.get(a.task.root).turns = 20
     v = tw.on_agent_message(ROOM, ME, FLIGHTS, _req(task_id="tk_222222222222", parent="tk_aaaaaaaaaaa2", ask="b"))
     assert v.kind == "ignore" and v.why == "budget_turns"
+
+
+@pytest.mark.asyncio
+async def test_a_restarted_agent_sees_its_team_from_the_servers_member_list():
+    """P9 re-run: after a restart the room listed only recent senders, so the chief saw no team."""
+    bot = _bot()
+    bot.client.access_token = "t"
+    resp = nio.JoinedMembersResponse(members=[nio.RoomMember(u, None, None) for u in (OWNER, ME, FLIGHTS, HOTELS)],
+                                     room_id=ROOM)
+    bot.client.joined_members = AsyncMock(return_value=resp)
+    room = _room((OWNER, ME))                                    # the client knows only these two
+    assert bot._owner_agents_in_room(room) == set()
+    await bot._refresh_members(ROOM)
+    assert bot._owner_agents_in_room(room) == {FLIGHTS, HOTELS}
+    await bot._refresh_members(ROOM)
+    assert bot.client.joined_members.await_count == 1             # cached
