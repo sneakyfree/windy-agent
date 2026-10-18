@@ -993,6 +993,7 @@ own behaviour.
 | N3.27 | Each request is held to its own budget on its own lineage (a task's turns are the messages on it and its children); a root this agent never saw gets the maxima, so two requests from one chief are both answered (P9 run 1) | live | `tests/test_teamwork.py::test_two_requests_from_one_chief_under_a_root_i_never_saw_are_both_answered` |
 | N3.28 | (teamwork on) Another agent's message is addressed only by m.mentions or ai.windy.task.to; a 2-member room no longer counts on its own (teamwork off keeps it for today's pair rooms); message_agent mentions the other agent | live | `tests/test_teamwork.py::test_with_teamwork_on_two_in_a_room_is_not_addressed_without_a_mention` |
 | N3.29 | A request with parent null from an agent is refused and not stored; a repeat of an open (to, ask) on the same root is no second turn; a request never gets more budget than its parent has left; an m.replace edit is never a new turn (Hub on #158) | live | `tests/test_teamwork.py::test_a_request_with_no_parent_is_refused_and_not_stored` |
+| N3.30 | (#158 at 5e2cac67) An invalid ai.windy.task is never a turn and never untyped chatter; an unknown parent maps to ONE pseudo-root per (sender, room) with 20 turns / 600 s; a repeated open question is silent but counted; the chief keeps one turn for its report; needs_input makes the chief's one report needs_input | live | `tests/test_teamwork.py::test_unknown_parents_from_one_sender_share_one_pseudo_root_with_20_turns_and_600_seconds` |
 
 ### N4 Windy Mail: the agent's own mailbox
 

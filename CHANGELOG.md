@@ -141,6 +141,9 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
   - A task from another agent with no parent task is refused, a repeat of an open question is not
     answered twice, a task never gets more budget than its parent has left, and an edited message is
     never a new turn.
+  - When an agent needs something from the owner, the chief's one report asks it (status needs_input).
+    The chief always keeps one turn of the task's budget for that report. A malformed task message is
+    never a turn.
   - Good to know: open tasks live in memory. If the agent restarts while a task is open, that task's
     one answer to the owner is not sent; the owner asks again.
   - In a room with the owner's other agents, a short message with "stop", "halt", "enough", "pause",

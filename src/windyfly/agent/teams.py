@@ -38,7 +38,7 @@ _TIMEOUT_S = 10.0
 SIBLING_TTL_S = 300.0
 
 _lock = threading.Lock()
-_siblings: dict[str, Any] = {"ids": frozenset(), "at": 0.0}
+_siblings: dict[str, Any] = {"ids": frozenset(), "names": {}, "at": 0.0}
 
 
 def _base() -> str:
@@ -78,8 +78,16 @@ call = _call  # the invite gate (channels/invite_gate.py) asks Chat through the 
 
 def _remember(agents: list[dict[str, Any]]) -> None:
     ids = frozenset(str(a["matrix_id"]) for a in agents if a.get("matrix_id") and not a.get("self"))
+    names = {str(a["matrix_id"]): str(a.get("name") or "")[:60] for a in agents
+             if a.get("matrix_id") and not a.get("self") and a.get("name")}
     with _lock:
-        _siblings["ids"], _siblings["at"] = ids, time.time()
+        _siblings["ids"], _siblings["names"], _siblings["at"] = ids, names, time.time()
+
+
+def sibling_name(matrix_id: str) -> str:
+    """The name Windy Chat lists for one of the owner's agents ('' when unknown)."""
+    with _lock:
+        return str((_siblings.get("names") or {}).get(matrix_id, ""))
 
 
 def list_my_agents() -> dict[str, Any]:

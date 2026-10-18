@@ -61,6 +61,17 @@ def _room_session(bot: Any, room_id: str) -> str:
     return sid
 
 
+def _agent_name(room: Any, mxid: str) -> str:
+    """An agent's name: the room's display name, else the name Windy Chat lists for it (a room that has not
+    loaded member names yet gave only the id, and ask_agent could not find "p9b089866": P9 run 1 re-run)."""
+    from windyfly.agent import teams as _teams
+
+    shown = room.user_name(mxid) if hasattr(room, "user_name") else None
+    if isinstance(shown, str) and shown.strip() and shown != mxid:
+        return shown.strip()
+    return _teams.sibling_name(mxid) or mxid
+
+
 def _bound_turn(team_room: Any, fn: Any) -> Any:
     """``fn`` run with the teamwork room bound in the agent-turn thread (ask_agent reads it there)."""
     from windyfly.channels import teamwork as _tw
@@ -559,7 +570,7 @@ class WindyFlyMatrixBot(ChannelAdapter):
         event_id = getattr(event, "event_id", None)
         return _tw.TurnRoom(room=room_id, me=self.bot_user_id or "",
                             owner_event_id=event_id if isinstance(event_id, str) else None,
-                            owner_text=body, agents={a: (room.user_name(a) or a) for a in sorted(agents)},
+                            owner_text=body, agents={a: _agent_name(room, a) for a in sorted(agents)},
                             send=send, on_request=on_request)
 
     async def _task_turn(self, room: Any, sender: str, display_name: str, kind: str, task: Any) -> None:
@@ -622,6 +633,8 @@ class WindyFlyMatrixBot(ChannelAdapter):
             except Exception as e:
                 logger.error("teamwork result send failed: %s", e)
             return
+        if status == "done" and any(x.status == "needs_input" for x in _tw.children(task, me)):
+            status = "needs_input"                  # an agent needs the owner: the report asks (contract)
         await self._send_owner_result(room_id, task, str(text or ""), status)
 
     async def _send_owner_result(self, room_id: str, root: Any, text: str, status: str) -> None:

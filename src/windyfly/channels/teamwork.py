@@ -264,7 +264,11 @@ def _count(task: Task) -> None:
 def over_budget_chain(task: Task, now: float | None = None) -> str | None:
     """Is ``task`` or any task above it out of its own budget? (Each request carries its own budget.)"""
     now = time.time() if now is None else now
-    for t in [task, *ancestors(task)]:
+    chain = [task, *ancestors(task)]
+    root = _tasks.get(task.root)
+    if root is not None and root not in chain:
+        chain.append(root)
+    for t in chain:
         if t.turns >= t.budget_turns:
             return "budget_turns"
         if now - t.created >= t.budget_seconds:
@@ -324,11 +328,11 @@ def plan_request(root: Task, me: str, to: str, ask: str, deliverable: str = "", 
             return None, f"Refused: this task's budget is spent ({why.replace('_', ' ')})."
         left_turns = root.budget_turns - root.turns
         left_s = int(root.budget_seconds - (now - root.created))
-        if left_turns < 2:
-            return None, "Refused: not enough of this task's budget left for a request and its answer."
+        if left_turns < 3:            # the request, its answer, and ONE turn kept for the report to the owner
+            return None, "Refused: not enough of this task's budget left for a request, its answer and the report."
         if left_s < 10:
             return None, "Refused: this task's time is up."
-        bt = max(1, min(_int(turns, DEFAULT_TURNS), MAX_TURNS, left_turns))
+        bt = max(1, min(_int(turns, DEFAULT_TURNS), MAX_TURNS, left_turns - 1))   # one kept for the report
         bs = max(10, min(_int(seconds, DEFAULT_SECONDS), MAX_SECONDS, left_s))
         task = Task(task_id=new_task_id(), room=root.room, sender=me, to=to, parent=root.task_id, ask=ask,
                     deliverable=(deliverable or "").strip()[:500], budget_turns=bt, budget_seconds=bs,
@@ -368,6 +372,8 @@ def on_agent_message(room: str, me: str, sender: str, content: object, now: floa
     now = time.time() if now is None else now
     t = parse(content)
     if t is None:
+        if isinstance(content, dict) and TASK_FIELD in content:
+            return Verdict("ignore", why="an invalid ai.windy.task")      # never a turn, never untyped chatter
         return Verdict("untyped")
     with _lock:
         _prune(now)
@@ -387,7 +393,12 @@ def on_agent_message(room: str, me: str, sender: str, content: object, now: floa
             if parent is not None:
                 root_id, depth = (parent.root or parent.task_id), parent.depth + 1
             else:
-                root_id, depth = (t["parent"] or t["task_id"]), (2 if t["parent"] else 1)
+                # An unknown parent: ONE shared pseudo-root per (sender, room) with 20 turns / 600 s (contract);
+                # once its time is up, the next request starts a fresh one.
+                root_id, depth = f"pseudo:{sender}|{room}", 2
+                old_root = _tasks.get(root_id)
+                if old_root is not None and now - old_root.created >= old_root.budget_seconds:
+                    _tasks.pop(root_id, None)
             turns, seconds = t["budget"]["turns"], t["budget"]["seconds"]
             if parent is not None:
                 # A request never gets more than its parent has left (the sender's model chose the numbers;
@@ -395,8 +406,10 @@ def on_agent_message(room: str, me: str, sender: str, content: object, now: floa
                 turns = max(1, min(turns, parent.budget_turns - parent.turns))
                 seconds = max(1, min(seconds, int(parent.created + parent.budget_seconds - now)))
             # The same open question to the same agent under the same root, sent again: no second turn.
-            if any(x.root == root_id and x.status == "open" and x.to == t["to"] and x.ask == t["ask"]
-                   for x in _tasks.values() if x.task_id != x.root):          # roots are not requests
+            same = [x for x in _tasks.values() if x.task_id != x.root and x.root == root_id
+                    and x.status == "open" and x.to == t["to"] and x.ask == t["ask"]]   # roots are not requests
+            if same:
+                _count(same[0])                         # silent, but it is a message on that task's lineage
                 return Verdict("ignore", why="the same open question to the same agent on this task")
             task = Task(task_id=t["task_id"], room=room, sender=sender, to=t["to"], parent=t["parent"],
                         ask=t["ask"], deliverable=t["deliverable"], budget_turns=turns,
@@ -408,7 +421,7 @@ def on_agent_message(room: str, me: str, sender: str, content: object, now: floa
                 # links its requests together, so it gets the maxima: each request is held to its OWN budget
                 # (P9 run 1: using the first request's budget for the whole root refused the chief's second).
                 _tasks[root_id] = Task(task_id=root_id, room=room, sender=sender, to=sender, parent=None,
-                                       ask=task.ask, budget_turns=MAX_TURNS, budget_seconds=MAX_SECONDS,
+                                       ask=task.ask, budget_turns=ROOT_TURNS, budget_seconds=ROOT_SECONDS,
                                        created=now, thread=task.thread, root=root_id, depth=1)
             # The budget is checked BEFORE this request is counted: the request is what the budget pays for,
             # so turns = 1 still gets its one answer (Hub on #602). The request and every task above it.

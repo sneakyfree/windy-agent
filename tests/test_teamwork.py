@@ -201,8 +201,8 @@ def test_a_requests_budget_is_capped_by_what_is_left_of_the_root():
     root = tw.open_root(ROOM, ME, "$o", "x")
     root.turns = root.budget_turns - 3
     task, _ = tw.plan_request(root, ME, FLIGHTS, "flights", turns=20, seconds=1800)
-    assert task.budget_turns == 3 and task.budget_seconds <= tw.ROOT_SECONDS
-    root.turns = root.budget_turns - 1
+    assert task.budget_turns == 2 and task.budget_seconds <= tw.ROOT_SECONDS   # one turn kept for the report
+    root.turns = root.budget_turns - 2
     assert tw.plan_request(root, ME, HOTELS, "hotels")[0] is None
     assert tw.plan_request(tw.open_root(ROOM, ME, "$p", "y"), ME, HOTELS, "h", turns="lots")[0].budget_turns == 6
 
@@ -838,3 +838,61 @@ def test_message_agent_mentions_the_partner_with_teamwork_on(monkeypatch):
                         lambda text, to_room=None, mentions=None: sent.update(m=mentions) or {"status": "sent"})
     assert teams.message_agent("Flights", "hi")["ok"] is True
     assert sent["m"] == [FLIGHTS]
+
+
+
+# ── Chat's #158 MUSTs (5e2cac67) ─────────────────────────────────────────────────────────────────
+
+def test_an_invalid_task_field_is_never_a_turn_and_never_untyped_chatter():
+    bad = _req()
+    bad["ai.windy.task"]["budget"] = {"turns": 99, "seconds": 300}
+    v = tw.on_agent_message(ROOM, ME, FLIGHTS, bad)
+    assert v.kind == "ignore" and "invalid" in v.why
+
+
+def test_unknown_parents_from_one_sender_share_one_pseudo_root_with_20_turns_and_600_seconds():
+    now = time.time()
+    a = tw.on_agent_message(ROOM, ME, FLIGHTS, _req(task_id="tk_111111111111", parent="tk_aaaaaaaaaaa1"), now=now)
+    b = tw.on_agent_message(ROOM, ME, FLIGHTS, _req(task_id="tk_222222222222", parent="tk_aaaaaaaaaaa2",
+                                                    ask="other"), now=now)
+    assert a.task.root == b.task.root
+    root = tw.get(a.task.root)
+    assert (root.budget_turns, root.budget_seconds) == (20, 600) and root.turns == 2
+    late = tw.on_agent_message(ROOM, ME, FLIGHTS, _req(task_id="tk_333333333333", parent="tk_aaaaaaaaaaa3",
+                                                       ask="later"), now=now + 601)
+    assert late.kind == "request" and tw.get(late.task.root).turns == 1      # a fresh pseudo-root
+
+
+def test_a_repeated_open_question_is_silent_but_counted():
+    first = tw.on_agent_message(ROOM, ME, FLIGHTS, _req(task_id="tk_111111111111")).task
+    before = first.turns
+    tw.on_agent_message(ROOM, ME, FLIGHTS, _req(task_id="tk_222222222222"))
+    assert first.turns == before + 1
+
+
+@pytest.mark.asyncio
+async def test_needs_input_from_an_agent_makes_the_chiefs_one_report_needs_input():
+    bot = _bot()
+    root = tw.open_root(ROOM, ME, "$o", "plan the trip")
+    a, _ = tw.plan_request(root, ME, FLIGHTS, "flights")
+    tw.sent(a)
+    await _run(bot, _room(), _ev(FLIGHTS, _res(a.task_id, ME, status="needs_input", summary="which dates?"),
+                                 notice=True), reply="Which dates do you want?")
+    report = _sent(bot)[-1]
+    assert report["msgtype"] == "m.text" and report["ai.windy.task"]["status"] == "needs_input"
+
+
+def test_an_agent_with_no_display_name_in_the_room_is_named_from_windy_chats_list():
+    from windyfly.channels.matrix_bot import _agent_name
+
+    teams._remember([{"matrix_id": FLIGHTS, "name": "p9b089866"}, {"matrix_id": HOTELS}])
+    room = MagicMock()
+    room.user_name.side_effect = lambda mx: mx                 # members not loaded: the id comes back
+    assert _agent_name(room, FLIGHTS) == "p9b089866" and _agent_name(room, HOTELS) == HOTELS
+
+
+def test_a_spent_pseudo_root_refuses_the_next_request():
+    a = tw.on_agent_message(ROOM, ME, FLIGHTS, _req(task_id="tk_111111111111", parent="tk_aaaaaaaaaaa1"))
+    tw.get(a.task.root).turns = 20
+    v = tw.on_agent_message(ROOM, ME, FLIGHTS, _req(task_id="tk_222222222222", parent="tk_aaaaaaaaaaa2", ask="b"))
+    assert v.kind == "ignore" and v.why == "budget_turns"
