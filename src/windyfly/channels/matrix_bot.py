@@ -715,6 +715,13 @@ class WindyFlyMatrixBot(ChannelAdapter):
         sender = event.sender
         display_name = room.user_name(sender) or sender
 
+        # An edit (m.replace) of an earlier message is never a new turn (agent-teamwork.v1, Hub on #158).
+        _src = getattr(event, "source", None)
+        _rel = (_src.get("content") or {}).get("m.relates_to") if isinstance(_src, dict) else None
+        if isinstance(_rel, dict) and _rel.get("rel_type") == "m.replace":
+            logger.info("an edit in room %s: not a new turn", room_id)
+            return
+
         # Another agent's command reply (marked by its runtime) is not for the model: no turn, no history.
         # Only an AGENT's message can be skipped this way; the owner's or any human's never is.
         if _is_command_reply(event):
@@ -772,10 +779,9 @@ class WindyFlyMatrixBot(ChannelAdapter):
         except Exception as e:  # noqa: BLE001
             logger.warning("stop/addressed check failed (%s); message dropped", type(e).__name__)
             return
-        while self._stop_followups:
-            stopped_room = self._stop_followups.pop()
-            if stopped_room == room_id:
-                await self._after_stop(room)
+        if room_id in self._stop_followups:          # this room's only: other rooms' follow-ups stay (Hub on #158)
+            self._stop_followups = [r for r in self._stop_followups if r != room_id]
+            await self._after_stop(room)
         if decision:
             return
         # Typed task traffic (agent-teamwork.v1): budgets and the lineage guard decide, not the backstop.

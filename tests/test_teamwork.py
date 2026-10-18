@@ -68,7 +68,7 @@ def _clean(monkeypatch, tmp_path):
     teams._reset_for_tests()
 
 
-def _req(task_id="tk_aaaaaaaaaaaa", to=ME, parent=None, ask="find flights", turns=6, seconds=300, **extra):
+def _req(task_id="tk_aaaaaaaaaaaa", to=ME, parent="tk_feedfacecafe", ask="find flights", turns=6, seconds=300, **extra):
     t = {"type": "request", "task_id": task_id, "parent": parent, "to": to, "ask": ask,
          "budget": {"turns": turns, "seconds": seconds}, **extra}
     return {"msgtype": "m.notice", "body": "Request", "m.mentions": {"user_ids": [to]}, "ai.windy.task": t,
@@ -418,7 +418,7 @@ async def test_typed_traffic_does_not_spend_the_untyped_backstop():
     bot = _bot()
     room = _room()
     for i in range(tb.limit() + 2):
-        await _run(bot, room, _ev(FLIGHTS, _req(task_id=f"tk_{i:012x}"), notice=True))
+        await _run(bot, room, _ev(FLIGHTS, _req(task_id=f"tk_{i:012x}", ask=f"q{i}"), notice=True))
     assert len(_sent(bot)) == tb.limit() + 2
 
 
@@ -577,10 +577,12 @@ async def test_a_typed_request_from_an_agent_that_is_not_the_owners_is_no_turn()
 def test_typed_requests_have_a_per_room_cap():
     n = 0
     for i in range(tw.TYPED_REQUESTS_PER_WINDOW + 3):
-        n += tw.on_agent_message(ROOM, ME, FLIGHTS, _req(task_id=f"tk_{i:012x}")).kind == "request"
-    assert n == tw.TYPED_REQUESTS_PER_WINDOW
+        n += tw.on_agent_message(ROOM, ME, FLIGHTS, _req(task_id=f"tk_{i:012x}", ask=f"q{i}",
+                                                         parent=f"tk_{i + 4096:012x}")).kind == "request"
+    assert n == tw.TYPED_REQUESTS_PER_WINDOW                         # each under its own root: the room cap
     later = time.time() + tw.TYPED_WINDOW_S + 1
-    assert tw.on_agent_message(ROOM, ME, FLIGHTS, _req(task_id="tk_ffffffffffff"), now=later).kind == "request"
+    assert tw.on_agent_message(ROOM, ME, FLIGHTS, _req(task_id="tk_ffffffffffff", parent="tk_eeeeeeeeeeee"),
+                               now=later).kind == "request"
 
 
 def test_a_request_under_my_task_from_an_agent_i_did_not_ask_is_not_counted():
@@ -779,3 +781,60 @@ def test_a_childs_message_counts_against_its_parent():
     second = tw.on_agent_message(ROOM, ME, HOTELS, _req(task_id="tk_333333333333", parent="tk_111111111111",
                                                         ask="something else"))
     assert second.kind == "ignore" and second.why == "budget_turns"
+
+
+
+# ── Hub on #158 (contract review) ──────────────────────────────────────────────────────────────
+
+def test_a_request_with_no_parent_is_refused_and_not_stored():
+    assert tw.on_agent_message(ROOM, ME, FLIGHTS, _req(parent=None)).why == "a request with no parent task"
+    assert tw.get("tk_aaaaaaaaaaaa") is None
+
+
+def test_the_same_open_question_sent_again_is_no_second_turn():
+    assert tw.on_agent_message(ROOM, ME, FLIGHTS, _req(task_id="tk_111111111111")).kind == "request"
+    again = tw.on_agent_message(ROOM, ME, FLIGHTS, _req(task_id="tk_222222222222"))
+    assert again.kind == "ignore" and "same open question" in again.why
+
+
+def test_a_request_never_gets_more_than_its_parent_has_left():
+    tw.on_agent_message(ROOM, ME, STRANGER, _req(task_id="tk_111111111111", to=HOTELS, turns=4, seconds=100))
+    v = tw.on_agent_message(ROOM, ME, HOTELS, _req(task_id="tk_222222222222", parent="tk_111111111111",
+                                                   turns=20, seconds=1800))
+    assert v.kind == "request" and v.task.budget_turns <= 3 and v.task.budget_seconds <= 100
+
+
+@pytest.mark.asyncio
+async def test_an_edit_is_never_a_new_turn():
+    bot = _bot()
+    edit = {"msgtype": "m.text", "body": "* plan the trip", "m.mentions": {"user_ids": [ME]},
+            "m.relates_to": {"rel_type": "m.replace", "event_id": "$orig"}}
+    assert await _run(bot, _room(), _ev(OWNER, edit)) == []
+
+
+@pytest.mark.asyncio
+async def test_with_teamwork_on_two_in_a_room_is_not_addressed_without_a_mention():
+    bot = _bot()
+    room = _room((ME, FLIGHTS))
+    assert await _run(bot, room, _ev(FLIGHTS, {"msgtype": "m.text", "body": "hey"})) == []
+    assert await _run(bot, room, _ev(FLIGHTS, {"msgtype": "m.text", "body": "hey you",
+                                               "m.mentions": {"user_ids": [ME]}})) != []
+
+
+@pytest.mark.asyncio
+async def test_a_stop_follow_up_for_another_room_is_kept():
+    bot = _bot()
+    bot._stop_followups = ["!other:x"]
+    await _run(bot, _room(), _ev(OWNER, {"msgtype": "m.text", "body": "stop"}))     # this room's stop is handled
+    assert bot._stop_followups == ["!other:x"] and rs.stopped(ROOM)
+
+
+def test_message_agent_mentions_the_partner_with_teamwork_on(monkeypatch):
+    sent = {}
+    monkeypatch.setattr(teams, "_call", lambda *a, **k: (200, {"ok": True, "room_id": "!pair:x"}))
+    monkeypatch.setattr(teams, "_join", lambda room: None)
+    monkeypatch.setattr(teams, "_other_agents", lambda room: [FLIGHTS])
+    monkeypatch.setattr("windyfly.tools.chat.send_chat_message",
+                        lambda text, to_room=None, mentions=None: sent.update(m=mentions) or {"status": "sent"})
+    assert teams.message_agent("Flights", "hi")["ok"] is True
+    assert sent["m"] == [FLIGHTS]

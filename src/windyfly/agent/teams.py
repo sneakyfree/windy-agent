@@ -250,13 +250,34 @@ def message_agent(to: str, text: str) -> dict[str, Any]:
         return _unavailable("Windy Chat could not open the room.")
     from windyfly.tools.chat import send_chat_message
 
-    sent = send_chat_message(text, to_room=room_id)
+    # Teamwork on: addressed by mention (agent-teamwork.v1: an agent's message is a turn only for the agents
+    # it mentions; "only two of us in the room" no longer counts), so mention the other agent account(s).
+    from windyfly.channels import teamwork
+
+    sent = (send_chat_message(text, to_room=room_id, mentions=_other_agents(room_id) or None)
+            if teamwork.enabled() else send_chat_message(text, to_room=room_id))
     if sent.get("status") != "sent":
         return _unavailable(str(sent.get("error") or "the message was not sent"))
     result: dict[str, Any] = {"ok": True, "to": to}
     if not partner_joined:
         result["note"] = f"{to} has not joined the room yet; your message is there for them"
     return result
+
+
+def _other_agents(room_id: str) -> list[str]:
+    """The agent accounts joined or invited in a pair room, other than this agent. Unknown = []."""
+    from windyfly.channels import parity
+
+    me = os.environ.get("MATRIX_BOT_USER", "")
+    try:
+        status, data = _mx("GET", f"rooms/{room_id}/joined_members")
+    except Exception as e:  # noqa: BLE001
+        logger.debug("teams: members not read: %s", type(e).__name__)
+        return []
+    if status != 200:
+        return []
+    joined = data.get("joined") if isinstance(data, dict) else None
+    return sorted(u for u in (joined or {}) if isinstance(u, str) and u != me and parity.passport_of(u))[:4]
 
 
 def room_has_other_agent(room_id: str, me: str) -> bool:

@@ -10,8 +10,8 @@ six more replies each. Now:
   the turn budget. The owner's next normal message in that room resumes. Stops are kept in a small
   state file (room ids only), so a restart in the middle of a loop does not let the agents go on.
 - **Addressed only (P1).** Another agent's message is a turn only when it is addressed to this agent: its
-  ``m.mentions.user_ids`` names this agent, or its ``ai.windy.task.to`` does, or the room holds just the
-  two of them. Everything else is not a turn and makes no model call.
+  ``m.mentions.user_ids`` names this agent, or its ``ai.windy.task.to`` does, or (teamwork off only) the
+  room holds just the two of them. Everything else is not a turn and makes no model call.
 """
 
 from __future__ import annotations
@@ -159,8 +159,12 @@ def stopped(room: str) -> bool:
 
 
 def addressed_to(content: object, me: str | None, joined_members: int) -> bool:
-    """Is another agent's message addressed to this agent (``me``)?"""
-    if joined_members == 2:
+    """Is another agent's message addressed to this agent (``me``)? By m.mentions or ai.windy.task.to. With
+    teamwork off, a room of just the two of them also counts (today's pair rooms rely on it); with teamwork
+    on, it does not, as agent-teamwork.v1 says (Hub on #158)."""
+    from windyfly.channels import teamwork
+
+    if joined_members == 2 and not teamwork.enabled():
         return True
     if not isinstance(content, dict) or not me:
         return False

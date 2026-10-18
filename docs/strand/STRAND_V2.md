@@ -991,6 +991,8 @@ own behaviour.
 | N3.25 | Typed task traffic is governed by budgets and the lineage guard, not the untyped turn budget (#528 backstop) | live | `tests/test_teamwork.py::test_typed_traffic_does_not_spend_the_untyped_backstop` |
 | N3.26 | (teamwork on) In a room with 2+ of the owner's agents, a person's message whose m.mentions names any of them is a turn only for those agents; no mention = every agent answers (agent-teamwork.v1 #158 at 0362388; P9 run 1) | live | `tests/test_teamwork.py::test_a_persons_message_in_a_team_room_is_a_turn_only_for_the_agent_it_addresses` |
 | N3.27 | Each request is held to its own budget on its own lineage (a task's turns are the messages on it and its children); a root this agent never saw gets the maxima, so two requests from one chief are both answered (P9 run 1) | live | `tests/test_teamwork.py::test_two_requests_from_one_chief_under_a_root_i_never_saw_are_both_answered` |
+| N3.28 | (teamwork on) Another agent's message is addressed only by m.mentions or ai.windy.task.to; a 2-member room no longer counts on its own (teamwork off keeps it for today's pair rooms); message_agent mentions the other agent | live | `tests/test_teamwork.py::test_with_teamwork_on_two_in_a_room_is_not_addressed_without_a_mention` |
+| N3.29 | A request with parent null from an agent is refused and not stored; a repeat of an open (to, ask) on the same root is no second turn; a request never gets more budget than its parent has left; an m.replace edit is never a new turn (Hub on #158) | live | `tests/test_teamwork.py::test_a_request_with_no_parent_is_refused_and_not_stored` |
 
 ### N4 Windy Mail: the agent's own mailbox
 

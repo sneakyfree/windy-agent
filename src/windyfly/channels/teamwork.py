@@ -374,6 +374,10 @@ def on_agent_message(room: str, me: str, sender: str, content: object, now: floa
         if t["type"] == "request":
             if t["task_id"] in _tasks:
                 return Verdict("ignore", why="a request already seen (one result per request)")
+            if t["parent"] is None:
+                # The contract: parent is never null agent-to-agent (null only means the person gave the task,
+                # which never travels as a request). Not stored, not counted, no turn.
+                return Verdict("ignore", why="a request with no parent task")
             parent = _tasks.get(t["parent"] or "")
             # A request under a task THIS agent leads, from an agent it did not ask: not counted, no turn
             # (a team member can't spend the chief's budget by naming its root).
@@ -384,9 +388,19 @@ def on_agent_message(room: str, me: str, sender: str, content: object, now: floa
                 root_id, depth = (parent.root or parent.task_id), parent.depth + 1
             else:
                 root_id, depth = (t["parent"] or t["task_id"]), (2 if t["parent"] else 1)
+            turns, seconds = t["budget"]["turns"], t["budget"]["seconds"]
+            if parent is not None:
+                # A request never gets more than its parent has left (the sender's model chose the numbers;
+                # Hub on #158).
+                turns = max(1, min(turns, parent.budget_turns - parent.turns))
+                seconds = max(1, min(seconds, int(parent.created + parent.budget_seconds - now)))
+            # The same open question to the same agent under the same root, sent again: no second turn.
+            if any(x.root == root_id and x.status == "open" and x.to == t["to"] and x.ask == t["ask"]
+                   for x in _tasks.values() if x.task_id != x.root):          # roots are not requests
+                return Verdict("ignore", why="the same open question to the same agent on this task")
             task = Task(task_id=t["task_id"], room=room, sender=sender, to=t["to"], parent=t["parent"],
-                        ask=t["ask"], deliverable=t["deliverable"], budget_turns=t["budget"]["turns"],
-                        budget_seconds=t["budget"]["seconds"], created=now, thread=thread_of(content),
+                        ask=t["ask"], deliverable=t["deliverable"], budget_turns=turns,
+                        budget_seconds=seconds, created=now, thread=thread_of(content),
                         root=root_id, depth=depth)
             _tasks[task.task_id] = task
             if root_id not in _tasks:
