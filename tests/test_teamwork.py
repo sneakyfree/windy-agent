@@ -375,7 +375,7 @@ async def test_the_chief_asks_two_agents_answers_backstage_then_gives_the_owner_
         assert tw.ask_agent("Flights", "find flights")["ok"]
         assert tw.ask_agent("Hotels", "find hotels")["ok"]
 
-    calls = await _run(bot, room, _ev(OWNER, {"msgtype": "m.text", "body": "plan the trip"}, "$o"),
+    calls = await _run(bot, room, _ev(OWNER, {"msgtype": "m.text", "body": "plan the trip", "m.mentions": {"user_ids": [ME]}}, "$o"),
                        reply="Asked Flights and Hotels.", during=model_asks)
     assert len(calls) == 1
     req1, req2, reply = _sent(bot)
@@ -654,7 +654,7 @@ async def test_task_turns_run_with_the_allowlist_set():
     await _run(bot, _room(), _ev(FLIGHTS, _req(), notice=True), during=lambda: seen.append(task_turn_allowlist()))
     assert seen and seen[0] is not None and "web_search" in seen[0]
     owner_seen = []
-    await _run(bot, _room(), _ev(OWNER, {"msgtype": "m.text", "body": "hello"}, "$h"),
+    await _run(bot, _room(), _ev(OWNER, {"msgtype": "m.text", "body": "hello", "m.mentions": {"user_ids": [ME]}}, "$h"),
                during=lambda: owner_seen.append(task_turn_allowlist()))
     assert owner_seen == [None]                                   # the owner's own turn is not fenced
 
@@ -684,7 +684,7 @@ async def test_a_confirm_card_from_the_chiefs_turn_stays_a_pushed_message(monkey
         tw.ask_agent("Flights", "flights")
         drafted.append(1)
 
-    await _run(bot, _room(), _ev(OWNER, {"msgtype": "m.text", "body": "plan and email Ann"}, "$o"), during=model)
+    await _run(bot, _room(), _ev(OWNER, {"msgtype": "m.text", "body": "plan and email Ann", "m.mentions": {"user_ids": [ME]}}, "$o"), during=model)
     reply = _sent(bot)[-1]
     assert "ai.windy.quick_reply" in reply and reply["msgtype"] == "m.text"
 
@@ -721,3 +721,61 @@ def test_a_task_turn_is_offered_only_its_allowlist():
     finally:
         wq.stop()
         db.close()
+
+
+
+# ── P9 run 1: a person's message in a team room picks its agent; each request has its own budget ──────
+
+@pytest.mark.parametrize("content,mine", [
+    ({"msgtype": "m.text", "body": "Flights, find me a flight", "m.mentions": {"user_ids": [FLIGHTS]}}, False),
+    ({"msgtype": "m.text", "body": "both of you", "m.mentions": {"user_ids": [FLIGHTS, ME]}}, True),
+    ({"msgtype": "m.text", "body": "anyone?", "m.mentions": {"user_ids": [ME]}}, True),
+    ({"msgtype": "m.text", "body": "Hotels, please plan it"}, True),        # a name in the text is not a mention
+    ({"msgtype": "m.text", "body": "plan the trip"}, True),                 # no mention: every agent answers (v1)
+    ({"msgtype": "m.text", "body": "hi", "m.mentions": {"user_ids": ["@someone:else"]}}, True),   # not an agent
+])
+@pytest.mark.asyncio
+async def test_a_persons_message_in_a_team_room_is_a_turn_only_for_the_agent_it_addresses(content, mine):
+    """agent-teamwork.v1 (#158 at 0362388): mentions pick the agents; no mention, every agent answers."""
+    bot = _bot()
+    calls = await _run(bot, _room(), _ev(OWNER, content))
+    assert bool(calls) is mine
+
+
+@pytest.mark.asyncio
+async def test_a_one_to_one_room_and_teamwork_off_are_unchanged(monkeypatch):
+    bot = _bot()
+    assert await _run(bot, _room((OWNER, ME)), _ev(OWNER, {"msgtype": "m.text", "body": "plan the trip"})) != []
+    monkeypatch.setenv("WINDY_TEAMWORK", "0")
+    assert await _run(bot, _room(), _ev(OWNER, {"msgtype": "m.text", "body": "plan the trip"})) != []
+
+
+def test_two_requests_from_one_chief_under_a_root_i_never_saw_are_both_answered():
+    """P9 run 1: the first request's budget was taken as the whole root's, so the second was refused."""
+    root = "tk_0a1b2c3d4e5f"
+    first = tw.on_agent_message(ROOM, ME, FLIGHTS, _req(task_id="tk_111111111111", parent=root, turns=1))
+    assert first.kind == "request"
+    tw.answered(first.task)
+    second = tw.on_agent_message(ROOM, ME, FLIGHTS, _req(task_id="tk_222222222222", parent=root, turns=1,
+                                                       ask="and hotels"))
+    assert second.kind == "request"
+
+
+def test_a_child_request_is_held_to_its_parent_requests_budget():
+    tw.on_agent_message(ROOM, ME, STRANGER, _req(task_id="tk_111111111111", to=HOTELS, turns=2, parent="tk_0a1b2c3d4e5f"))  # under a root I never saw
+    parent = tw.get("tk_111111111111")
+    tw.on_agent_message(ROOM, ME, HOTELS, _res("tk_111111111111", STRANGER))      # 2 of the parent's 2 used
+    assert parent.turns == 2
+    v = tw.on_agent_message(ROOM, ME, HOTELS, _req(task_id="tk_222222222222", parent="tk_111111111111"))
+    assert v.kind == "ignore" and v.why == "budget_turns"
+
+
+def test_a_childs_message_counts_against_its_parent():
+    """Contract BUDGETS: a task's turns are the messages on it and on its children."""
+    tw.on_agent_message(ROOM, ME, STRANGER, _req(task_id="tk_111111111111", to=HOTELS, turns=2,
+                                                parent="tk_0a1b2c3d4e5f"))
+    first = tw.on_agent_message(ROOM, ME, HOTELS, _req(task_id="tk_222222222222", parent="tk_111111111111"))
+    assert first.kind == "request" and tw.get("tk_111111111111").turns == 2
+    second = tw.on_agent_message(ROOM, ME, HOTELS, _req(task_id="tk_333333333333", parent="tk_111111111111",
+                                                        ask="something else"))
+    assert second.kind == "ignore" and second.why == "budget_turns"

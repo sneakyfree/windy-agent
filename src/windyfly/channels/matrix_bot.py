@@ -496,6 +496,19 @@ class WindyFlyMatrixBot(ChannelAdapter):
         me = self.bot_user_id or getattr(self.client, "user_id", None)
         return {u for u in users if isinstance(u, str) and u != me and u in sibs}
 
+    def _person_turn_is_mine(self, room: Any, event: Any, body: str, agents_here: set[str]) -> bool:
+        """In a team room, is a person's message this agent's turn? agent-teamwork.v1 (#158 at 0362388): a
+        message whose m.mentions.user_ids names any of the owner's agents is a turn ONLY for those agents;
+        a message that mentions none is a turn for every agent (a designated head agent is a v1.1 item)."""
+        me = self.bot_user_id or getattr(self.client, "user_id", None) or ""
+        team = {a for a in agents_here if a} | {me}
+        src = getattr(event, "source", None)
+        content = src.get("content") if isinstance(src, dict) else None
+        mentions = content.get("m.mentions") if isinstance(content, dict) else None
+        ids = mentions.get("user_ids") if isinstance(mentions, dict) else None
+        addressed = {u for u in ids if isinstance(u, str) and u in team} if isinstance(ids, list) else set()
+        return me in addressed if addressed else True
+
     async def _after_stop(self, room: Any) -> None:
         """Teamwork on: cancel the room's open tasks; the owner's agent with the smallest id in the room
         sends the one quiet line (m.notice, never pushed). Teamwork off: nothing (the stop is silent)."""
@@ -767,6 +780,20 @@ class WindyFlyMatrixBot(ChannelAdapter):
             return
         # Typed task traffic (agent-teamwork.v1): budgets and the lineage guard decide, not the backstop.
         from windyfly.channels import teamwork as _tw
+
+        # A person's message in a room with the owner's other agents (teamwork on): when it mentions any of
+        # them, only the mentioned agents take the turn (P9 run 1: two agents acted as chief on a message
+        # meant for one; the contract rule, #158).
+        if not from_agent and _tw.enabled():
+            from windyfly.agent import teams as _teams_person
+
+            if _teams_person.siblings_stale():
+                await asyncio.to_thread(_teams_person.refresh_siblings)
+            agents_here = self._owner_agents_in_room(room)
+            if agents_here and not self._person_turn_is_mine(room, event, body, agents_here):
+                logger.info("teamwork: a person's message in team room %s is for another agent: no turn",
+                            _budget.room_ref(room_id))
+                return
 
         if from_agent and _tw.enabled():
             try:

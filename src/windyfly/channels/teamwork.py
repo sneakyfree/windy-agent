@@ -248,7 +248,28 @@ def over_budget(root: Task, now: float | None = None) -> str | None:
 
 
 def _count(task: Task) -> None:
-    _root(task).turns += 1
+    """One agent message on ``task``: it counts on the task itself and on every task above it, up to the
+    root (contract BUDGETS: a task's turns are the messages on it and its children)."""
+    seen: set[str] = set()
+    cur: Task | None = task
+    while cur is not None and cur.task_id not in seen:
+        seen.add(cur.task_id)
+        cur.turns += 1
+        cur = _tasks.get(cur.parent or "") if cur.parent else None
+    root = _root(task)
+    if root.task_id not in seen:
+        root.turns += 1
+
+
+def over_budget_chain(task: Task, now: float | None = None) -> str | None:
+    """Is ``task`` or any task above it out of its own budget? (Each request carries its own budget.)"""
+    now = time.time() if now is None else now
+    for t in [task, *ancestors(task)]:
+        if t.turns >= t.budget_turns:
+            return "budget_turns"
+        if now - t.created >= t.budget_seconds:
+            return "budget_seconds"
+    return None
 
 
 def open_root(room: str, me: str, owner_event_id: str | None, owner_text: str, now: float | None = None) -> Task:
@@ -368,14 +389,16 @@ def on_agent_message(room: str, me: str, sender: str, content: object, now: floa
                         budget_seconds=t["budget"]["seconds"], created=now, thread=thread_of(content),
                         root=root_id, depth=depth)
             _tasks[task.task_id] = task
-            if root_id not in _tasks:   # a root we never saw: the request's own budget stands for it
+            if root_id not in _tasks:
+                # A root this agent never saw belongs to another runtime, which keeps its budget. Here it only
+                # links its requests together, so it gets the maxima: each request is held to its OWN budget
+                # (P9 run 1: using the first request's budget for the whole root refused the chief's second).
                 _tasks[root_id] = Task(task_id=root_id, room=room, sender=sender, to=sender, parent=None,
-                                       ask=task.ask, budget_turns=task.budget_turns,
-                                       budget_seconds=task.budget_seconds, created=now, thread=task.thread,
-                                       root=root_id, depth=1)
+                                       ask=task.ask, budget_turns=MAX_TURNS, budget_seconds=MAX_SECONDS,
+                                       created=now, thread=task.thread, root=root_id, depth=1)
             # The budget is checked BEFORE this request is counted: the request is what the budget pays for,
-            # so turns = 1 still gets its one answer (Hub on #602).
-            why = over_budget(_root(task), now)
+            # so turns = 1 still gets its one answer (Hub on #602). The request and every task above it.
+            why = over_budget_chain(task, now)
             _count(task)
             if task.to != me:
                 return Verdict("ignore", why="a request for another agent")

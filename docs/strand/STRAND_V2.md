@@ -989,6 +989,8 @@ own behaviour.
 | N3.23 | With teamwork on, the contract's stop rule (a short message with a stop word) stops every agent in a team room and cancels open tasks; the smallest id confirms with one m.notice; a 1:1 room keeps the narrow rule | live | `tests/test_teamwork.py::test_the_contract_stop_in_a_team_room_cancels_tasks_and_one_agent_confirms` |
 | N3.24 | ai.windy.resume and the owner's ai.windy.agents_stopped state stop and resume like the matching event; from the owner only; a resume is never answered | live | `tests/test_teamwork.py::test_resume_event_and_the_stopped_state_from_the_owner_only` |
 | N3.25 | Typed task traffic is governed by budgets and the lineage guard, not the untyped turn budget (#528 backstop) | live | `tests/test_teamwork.py::test_typed_traffic_does_not_spend_the_untyped_backstop` |
+| N3.26 | (teamwork on) In a room with 2+ of the owner's agents, a person's message whose m.mentions names any of them is a turn only for those agents; no mention = every agent answers (agent-teamwork.v1 #158 at 0362388; P9 run 1) | live | `tests/test_teamwork.py::test_a_persons_message_in_a_team_room_is_a_turn_only_for_the_agent_it_addresses` |
+| N3.27 | Each request is held to its own budget on its own lineage (a task's turns are the messages on it and its children); a root this agent never saw gets the maxima, so two requests from one chief are both answered (P9 run 1) | live | `tests/test_teamwork.py::test_two_requests_from_one_chief_under_a_root_i_never_saw_are_both_answered` |
 
 ### N4 Windy Mail: the agent's own mailbox
 
