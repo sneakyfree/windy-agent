@@ -126,15 +126,15 @@ def _change(room: str, add: bool) -> None:
 
 
 def is_stop_word(text: str | None) -> bool:
-    """The whole message is a stop phrase, or /stop (case ignored; extra whitespace and trailing
-    punctuation allowed). A sentence that mentions stopping is not ("stop the timer" stays a request).
+    """The whole message is a stop phrase, or its first word is /stop or !stop (case ignored; extra
+    whitespace and trailing punctuation allowed). A sentence that mentions stopping is not ("stop the timer" stays a request).
 
     /stop is the contract's stop, not windyfly's old process-stop command: in a chat room it silences the
     agents and never shuts the agent down (that stays a terminal command)."""
     t = (text or "").replace("\u2019", "'").replace("\u2018", "'").strip().lower()     # iOS curly apostrophe
     t = re.sub(r"[\s.!?…]+$", "", t)
     t = " ".join(t.split())
-    if t == "/stop":
+    if t.split(" ", 1)[0] in ("/stop", "!stop"):     # "/stop now", "!stop": never the old process stop (Hub on #604)
         return True
     return t in _WORDS
 
