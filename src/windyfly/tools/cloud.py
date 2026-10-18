@@ -187,7 +187,7 @@ def _denied(real: Path) -> str | None:
     if rel_low and rel_low[0].startswith("."):
         return "it is in a hidden folder of your home folder (settings, keys, browser data)"
     for d in _agent_data_dirs():
-        if _inside(real, d):
+        if _under_home(real, d) is not None:       # case-insensitive, like the home checks (Hub on #598)
             return "it is part of the agent's own data"
     if _DENY_NAMES.search(real.name):
         return "its name looks like a key, token, password or env file"

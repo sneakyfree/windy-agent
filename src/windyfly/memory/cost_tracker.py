@@ -60,7 +60,10 @@ def extra_today(db: Database) -> float:
         return 0.0
 
 
-_continue_lock = threading.Lock()   # the once-a-day check and the write are one step (Hub on #601)
+# The once-a-day check and the write are one step within THIS process (Hub on #601). It is process-local: an
+# agent's matrix and telegram units are separate processes, so two owners' /budget continue at the same instant
+# in two channels could both be granted (same value, so the extra is not doubled).
+_continue_lock = threading.Lock()
 
 
 def _num(value: Any, default: float) -> float:
@@ -120,8 +123,9 @@ def check_budget(
     - Alert messages for the agent to relay to the user
     """
     costs_config = config.get("costs", {})
-    daily_budget = costs_config.get("daily_budget_usd", 5.0)
-    monthly_budget = costs_config.get("monthly_budget_usd", 0.0)  # 0 = no monthly limit
+    # An owner-edited nan or text in windyfly.toml falls back to the default instead of blocking every turn.
+    daily_budget = _num(costs_config.get("daily_budget_usd", 5.0), 5.0)
+    monthly_budget = _num(costs_config.get("monthly_budget_usd", 0.0), 0.0)  # 0 = no monthly limit
     warn_pct = costs_config.get("warn_at_percent", 80)
 
     daily_spend = get_daily_spend(db) + proposed_cost

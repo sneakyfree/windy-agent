@@ -573,3 +573,12 @@ def test_a_relative_name_in_the_message_does_not_name_the_file(fake, tmp_path, m
         assert cloud.upload_to_cloud("taxes.pdf")["status"] == "refused"
     with _turn(f"upload {tmp_path / 'taxes.pdf'} to my cloud"):
         assert cloud.upload_to_cloud("taxes.pdf")["status"] == "uploaded"
+
+
+def test_the_agent_data_folder_is_refused_in_any_case(fake, monkeypatch, tmp_path):
+    """Hub on #598: the agent-data check compared case-sensitively."""
+    data = tmp_path / "proj" / "data"
+    monkeypatch.setattr(cloud, "_agent_data_dirs", lambda: [data])
+    other = tmp_path / "proj" / "DATA" / "notes.txt"
+    assert cloud._denied(other) == "it is part of the agent's own data"
+    assert cloud._denied(tmp_path / "proj" / "elsewhere" / "notes.txt") is None

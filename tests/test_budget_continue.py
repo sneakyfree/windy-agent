@@ -185,3 +185,16 @@ def test_the_cli_version_shows_the_gate_limit_not_the_env(monkeypatch, capsys):
     _legacy.cmd_version(argparse.Namespace())
     out = capsys.readouterr().out
     assert "Budget: $3.25/day" in out and "99.00" not in out
+
+
+@pytest.mark.parametrize("value", ["0", "0.0", "-1"])
+def test_budget_set_refuses_zero_and_below(db, value):
+    """Hub on #601: /budget set 0 was accepted and then blocked every turn."""
+    out = _say(f"/budget set {value}")
+    assert "more than $0" in out and CFG["costs"]["daily_budget_usd"] == 1.0
+
+
+@pytest.mark.parametrize("bad", [float("nan"), "lots", None])
+def test_a_bad_daily_budget_in_the_config_falls_back_instead_of_blocking(db, bad):
+    allowed = check_budget(db, {"costs": {"daily_budget_usd": bad}})
+    assert allowed["allowed"] is True
