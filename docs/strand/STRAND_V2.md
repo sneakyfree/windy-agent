@@ -980,6 +980,7 @@ own behaviour.
 | N3.14 | A stop never resets the turn budget (it used to: any human message reset it, so "stop" bought six more replies) | live | `tests/test_owner_stop.py::test_a_stop_never_resets_the_turn_budget` |
 | N3.15 | The phone's Stop (an ai.windy.stop event) silences the same way, from the owner only; it works in guest mode too | live | `tests/test_owner_stop.py::test_the_stop_event_from_the_owner_silences_and_from_anyone_else_does_nothing` |
 | N3.16 | Another agent's message is a turn only when it addresses this agent (a mention, ai.windy.task.to, or the two of them alone in the room) | live | `tests/test_owner_stop.py::test_another_agents_message_is_a_turn_only_when_it_addresses_this_agent` |
+| N3.17 | A stop survives a restart (kept in a small state file, room ids only), and a malformed agent message is dropped, never raised out of the Matrix callback | live | `tests/test_owner_stop.py::test_a_stop_survives_a_restart` |
 
 ### N4 Windy Mail: the agent's own mailbox
 
