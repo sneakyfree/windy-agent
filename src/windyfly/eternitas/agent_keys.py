@@ -794,13 +794,33 @@ _TOKEN_LOCK = threading.Lock()
 class AgentTokenError(Exception):
     """A refused or failed mode B exchange. ``code`` is Eternitas's error code
     (dpop_required, invalid_dpop_proof, passport_suspended, passport_revoked,
-    passport_not_active, unknown_audience, ...) or ``no_key`` / ``http_<n>`` /
-    ``unreachable``; ``retry_after`` is set on 429."""
+    passport_not_active, passport_not_born, unknown_audience, ...) or ``no_key`` /
+    ``http_<n>`` / ``unreachable``; ``retry_after`` is set whenever Eternitas sends
+    Retry-After (429, and 409 ``passport_not_born``)."""
 
     def __init__(self, code: str, message: str = "", status: int = 0,
                  retry_after: float | None = None) -> None:
         super().__init__(f"{code}: {message}" if message else code)
         self.code, self.message, self.status, self.retry_after = code, message, status, retry_after
+
+
+# Birth reservation v1 (eternitas #265, docs/spec/birth-reservation.v1.md section 2): mid-canal, every credential
+# route answers 409 passport_not_born + Retry-After: 30. It is NOT a refusal of standing: whoever runs the agent
+# waits quietly and retries. Never revoked wording, never a lifeboat.
+NOT_BORN = "passport_not_born"
+
+
+def is_not_born(code: str | None) -> bool:
+    """True for Eternitas's 'this passport is still being born' answer."""
+    return code == NOT_BORN
+
+
+def retry_after_s(resp: httpx.Response) -> float | None:
+    """Retry-After in seconds (delta form), else None."""
+    try:
+        return float(resp.headers.get("Retry-After", "") or 0) or None
+    except ValueError:
+        return None
 
 
 def _active_key(cred_path: Path | None) -> tuple[ec.EllipticCurvePrivateKey, str]:
@@ -837,13 +857,7 @@ def request_agent_token(aud: str, *, transport: httpx.BaseTransport | None = Non
         raise AgentTokenError("unreachable", type(exc).__name__) from exc
     if resp.status_code != 200:
         code, msg = error_code(resp)
-        retry = None
-        if resp.status_code == 429:
-            try:
-                retry = float(resp.headers.get("Retry-After", "") or 0) or None
-            except ValueError:
-                retry = None
-        raise AgentTokenError(code or f"http_{resp.status_code}", msg, resp.status_code, retry)
+        raise AgentTokenError(code or f"http_{resp.status_code}", msg, resp.status_code, retry_after_s(resp))
     body = resp.json()
     token = str(body.get("token") or "")
     if not token:

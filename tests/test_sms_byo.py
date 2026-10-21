@@ -207,7 +207,7 @@ def test_the_legacy_passport_token_is_never_sent(monkeypatch):
     assert sent and all("ept-own" not in a for a in sent)
 
 
-@pytest.mark.parametrize("code", ["no_key", "unknown_audience", "unreachable", "passport_not_born"])
+@pytest.mark.parametrize("code", ["no_key", "unknown_audience", "unreachable"])  # passport_not_born: test_passport_not_born.py
 def test_no_agent_token_means_nothing_is_sent(monkeypatch, code):
     from windyfly.eternitas import agent_keys as ak
 

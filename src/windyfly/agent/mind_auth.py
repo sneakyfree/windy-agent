@@ -64,7 +64,12 @@ def headers(method: str, url: str, ept: str) -> tuple[dict[str, str], bool]:
     try:
         return service_auth.agent_headers(MIND_AUD, method, url), True
     except service_auth.ServiceAuthError as exc:
-        _warn_once(f"mint:{exc.code}", "Windy Mind: no EPT+agent (%s); using the legacy EPT", exc.code)
+        from windyfly.eternitas.agent_keys import is_not_born
+
+        if is_not_born(exc.code):  # mid-canal: a wait, not a failure (birth reservation v1)
+            logger.info("Windy Mind: passport still being born; waiting for birth complete")
+        else:
+            _warn_once(f"mint:{exc.code}", "Windy Mind: no EPT+agent (%s); using the legacy EPT", exc.code)
         return legacy_headers(ept), False
 
 
