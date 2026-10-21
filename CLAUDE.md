@@ -19,7 +19,7 @@ This repo (`windy-agent`) is the **developer name** for what consumers see as **
 
 **Dev-name ↔ consumer-brand mapping (don't conflate):**
 - `sneakyfree/windy-agent` = "Windy Fly" (this agent product)
-- `sneakyfree/windy-pro` = "Windy Word" (the hub product / account-server)
+- `sneakyfree/windy-pro` = "Windy Word" (the product) and **Windy Accounts** (its account server, which runs the Birth Canal: the hatch ceremony every Windy agent is born through)
 - All other repos: 1:1 dev-name ↔ brand (windy-mail ↔ "Windy Mail" etc.)
 
 **Sister repos most relevant to this one:**

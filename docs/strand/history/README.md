@@ -18,3 +18,14 @@ Gap analyses and reports (same origin):
   build script.
 
 Machine paths were replaced with placeholders; nothing else was edited.
+
+## Words (Grant, 2026-10-21)
+
+These dated papers use older words. Read them with today's:
+- **Doorway:** where a person starts making an agent. Windy's are the phone app, the desktop Windy Word app and Windy Accounts' hatch page. windyfly.ai is not a doorway.
+- **Birth Canal:** the one path every Windy agent is born through, the hatch ceremony in **Windy Accounts**. The old papers say "the hub", "hatch hallway" or "one hallway".
+- **Eternitas Registry:** at the end of every Birth Canal it issues the birth certificate, passport and Integrity Index.
+- **Windy Accounts** is the software. "The Hub lane" is the Claude session that runs it. Never "the hub" for the software.
+
+Code names stay as they are (`hub_hatch.py`, `tests/test_one_hallway.py`).
+

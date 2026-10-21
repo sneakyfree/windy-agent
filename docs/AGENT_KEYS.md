@@ -80,7 +80,8 @@ suspect it has leaked.
 
 1. It opens a **fresh** browser sign-in with `prompt=login` and `max_age=0`.
    Eternitas accepts an owner-registered key only if the hub token has
-   `email_verified: true` and an `auth_time` less than 10 minutes old, and a
+   `email_verified: true` and an `auth_time` less than 10 minutes old (the Windy
+   Accounts sign-in token, called the "hub token" in code), and a
    stored or refreshed session never meets that. The new token is used once
    and is not saved over your `windy login` session.
 2. It registers a brand-new key with that token, a PoP and
