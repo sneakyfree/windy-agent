@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -33,14 +34,18 @@ ENV_FLAG = "WINDY_VAULT_LEASE"
 ENV_URL = "WINDY_VAULT_API_URL"
 AUD = "windy-vault"
 _TIMEOUT_S = 15.0
+_LEASE_ID_RE = re.compile(r"^lse_[A-Za-z0-9_-]+$")
+# vault-api answers EVERY agent-auth failure with one code, 401 {"error": "unauthenticated"} (no oracle; Windy
+# Vault 10-21, workers/vault-api/src/index.ts:130-151). A blocked passport gets it too, so re-mint ONCE, never loop.
+REMINT_CODES = frozenset({"unauthenticated"})
 
 
 class VaultError(Exception):
     """A Vault call failed. ``code`` is Vault's error code (or unavailable / bad_response / http_<n>)."""
 
-    def __init__(self, code: str, status: int = 0) -> None:
+    def __init__(self, code: str, status: int = 0, retry_after: float | None = None) -> None:
         super().__init__(code)
-        self.code, self.status = code, status
+        self.code, self.status, self.retry_after = code, status, retry_after
 
 
 @dataclass(frozen=True)
@@ -78,16 +83,26 @@ def _call(method: str, path: str, body: dict[str, Any] | None = None) -> Any:
         except httpx.HTTPError as exc:
             raise VaultError("unavailable") from exc
         code = _error_code(resp)
-        if resp.status_code == 401 and attempt == 1 and code in service_auth.REMINT_CODES:
+        if resp.status_code == 401 and attempt == 1 and code in REMINT_CODES:
             service_auth.forget_token()  # one fresh mint + a fresh proof, then give up
             continue
         if not 200 <= resp.status_code < 300:
-            raise VaultError(code or f"http_{resp.status_code}", resp.status_code)
+            # 503 vault_unavailable carries retry_after_s: the caller backs off that long (no re-mint).
+            raise VaultError(code or f"http_{resp.status_code}", resp.status_code, _retry_after_s(resp))
         try:
             return resp.json()
         except ValueError:
             raise VaultError("bad_response", resp.status_code) from None
     raise VaultError("refused", 401)
+
+
+def _retry_after_s(resp: httpx.Response) -> float | None:
+    try:
+        data = resp.json()
+        value = data.get("retry_after_s") if isinstance(data, dict) else None
+        return float(value) if isinstance(value, (int, float)) and value > 0 else None
+    except ValueError:
+        return None
 
 
 def _error_code(resp: httpx.Response) -> str:
@@ -131,11 +146,12 @@ def lease(item_id: str) -> Lease:
         if not isinstance(data, dict) or data.get("mode") != "static_key" or not isinstance(data.get("value_jwe"), str):
             raise VaultError("bad_response")
         lid, kid, exp = data.get("lease_id"), data.get("kid"), data.get("expires_at")
-        if not (isinstance(lid, str) and lid.startswith("lse_") and isinstance(kid, str) and isinstance(exp, int)):
+        if not (isinstance(lid, str) and _LEASE_ID_RE.match(lid) and isinstance(kid, str) and isinstance(exp, int)):
             raise VaultError("bad_response")
         try:
             value = lease_jwe.decrypt_lease(data["value_jwe"], lambda k: lease_key.private_for(k), lease_kid=kid)
         except lease_jwe.UnknownLeaseKey:
+            _release_quietly(lid)  # that lease is OPEN at Vault: give it back before asking again
             if attempt == 2:
                 raise VaultError("unknown_lease_key") from None
             logger.info("Vault lease to a key this agent no longer holds; re-registering the lease key")
@@ -147,7 +163,16 @@ def lease(item_id: str) -> Lease:
     raise VaultError("unknown_lease_key")
 
 
+def _release_quietly(lease_id: str) -> None:
+    try:
+        release(lease_id)
+    except VaultError as e:
+        logger.info("Vault: could not release lease %s (%s); it expires on its own", lease_id, e.code)
+
+
 def release(lease_id: str) -> bool:
     """End a lease early. True = Vault confirmed; False = Vault keeps retrying (stop using it either way)."""
+    if not isinstance(lease_id, str) or not _LEASE_ID_RE.match(lease_id):
+        raise VaultError("bad_lease_id")  # never let a "/" or ".." into the URL path
     data = _call("POST", f"/v1/agent/lease/{lease_id}/release")
     return bool(isinstance(data, dict) and data.get("released") is True)
