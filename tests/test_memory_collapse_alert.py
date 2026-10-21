@@ -33,6 +33,8 @@ def test_announce_once_board_line_and_one_mail(tmp_path, monkeypatch, caplog):
     board = tmp_path / "BOARD.md"
     board.write_text("")
     monkeypatch.setenv(ca.ENV_BOARD, str(board))
+    monkeypatch.setenv("OWNER_EMAIL", "owner@example.invalid")
+    monkeypatch.setenv("WINDYMAIL_API_URL", "https://mail.example.invalid")
     mails = []
     monkeypatch.setattr("windyfly.agent.owner_mail.send_sync", lambda subject, body: mails.append((subject, body)) or True)
     monkeypatch.setattr(ca, "_last_backup", lambda: {"last_backup": "2026-10-18T15:05:37", "episodes": 31257})
@@ -79,3 +81,20 @@ def test_the_maintenance_loop_announces_right_after_opening_the_db(tmp_path, mon
     t = wf_main._start_decay_scheduler({}, db)
     t.join(timeout=10)
     assert seen == [db]
+
+
+def test_a_configured_mail_that_fails_is_retried_at_the_next_start(tmp_path, monkeypatch):
+    db = _collapse(tmp_path)
+    monkeypatch.setenv("OWNER_EMAIL", "owner@example.invalid")
+    monkeypatch.setenv("WINDYMAIL_API_URL", "https://mail.example.invalid")
+    tries = []
+    monkeypatch.setattr("windyfly.agent.owner_mail.send_sync", lambda s, b: tries.append(1) or len(tries) > 1)
+    assert ca.announce(db) is True and ca.marker_path(db).exists()  # mail failed: the marker is back
+    assert ca.announce(db) is True and not ca.marker_path(db).exists()  # next start: sent, claimed for good
+    assert len(tries) == 2
+
+
+def test_without_mail_configured_the_marker_is_not_put_back(tmp_path, monkeypatch):
+    db = _collapse(tmp_path)
+    monkeypatch.delenv("OWNER_EMAIL", raising=False)
+    assert ca.announce(db) is True and not ca.marker_path(db).exists()
