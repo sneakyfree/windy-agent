@@ -183,7 +183,7 @@ class TestCommandExecution:
 class TestDangerousCommands:
     def test_kill_blocked_without_confirm(self, loaded_registry):
         result = asyncio.run(
-            loaded_registry.execute("kill")
+            loaded_registry.execute("kill", {"platform": "terminal"})
         )
         assert "dangerous" in result.lower() or "confirm" in result.lower()
 

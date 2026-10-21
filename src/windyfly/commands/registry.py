@@ -78,10 +78,10 @@ CHANNEL_POLICY: dict[str, frozenset[str]] = {
     "cli": frozenset(),
 }
 
-# Commands a platform may never run, whatever their category (Hub on #604): process control from Matrix.
-_PLATFORM_DENIED_COMMANDS: dict[str, frozenset[str]] = {
-    "matrix": frozenset({"stop", "restart", "shutdown", "kill"}),
-}
+# Process control runs only from the owner's terminal, never from a chat (Hub on #604; Telegram too since
+# 10-21): in a chat, "stop" means "be quiet", and stopping the service there leaves the agent dead until
+# someone restarts it from a terminal.
+_PROCESS_CONTROL_COMMANDS = frozenset({"stop", "restart", "shutdown", "kill"})
 
 # Map a command name → the trust gate action we should require before
 # execution. When a command isn't in this table but is `dangerous=True`
@@ -178,13 +178,20 @@ class CommandRegistry:
                 f"Run it from the owner's terminal."
             )
 
-        # Process control from a chat room: a Matrix room is shared with the owner's other agents, and
-        # "/stop" there means "agents, be quiet" (agent-teamwork.v1). Stopping, restarting or killing the
-        # agent's own service never runs from Matrix; it stays a terminal command (Hub on #604).
-        if cmd.name in _PLATFORM_DENIED_COMMANDS.get(platform, frozenset()):
+        # Process control from a chat: stopping, restarting or killing the agent's own service is a
+        # terminal command on every platform. A Matrix room's "/stop" means "agents, be quiet"
+        # (agent-teamwork.v1); on Telegram /pause is the quiet switch.
+        if cmd.name in _PROCESS_CONTROL_COMMANDS and platform not in _LOCAL_PLATFORMS:
             logger.warning("Process control refused from %s: /%s", platform, cmd.name)
-            return (f"/{cmd.name} doesn't run from a chat room: it would shut me down there. To quiet the "
-                    f"agents in this room, say stop. To {cmd.name} me, use `windy {cmd.name}` in a terminal.")
+            if platform == "matrix":
+                quiet = "To quiet the agents in this room, say stop."
+            elif platform == "telegram":
+                quiet = "To stop me answering and spending, send /pause (/resume wakes me)."
+            else:
+                quiet = ""
+            return " ".join(x for x in (
+                f"/{cmd.name} doesn't run from a chat: it would shut me down until someone starts me again "
+                f"from a terminal.", quiet, f"To {cmd.name} me, use `windy {cmd.name}` in a terminal.") if x)
 
         # Trust gate — sensitive commands go through Eternitas before
         # dispatch. We fail closed on TrustDenied; fail open on any

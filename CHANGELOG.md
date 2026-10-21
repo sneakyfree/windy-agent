@@ -10,6 +10,12 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
 
 ## Unreleased
 
+- **/stop never shuts the agent down from a chat.** /stop, /restart, /shutdown and /kill run only from the
+  owner's terminal on every chat platform, not just Matrix. Before, a Telegram /stop with anything after
+  it (or /kill, /restart, /shutdown) still stopped the service, and the agent stayed dead until someone
+  restarted it from a terminal. The reply names the quiet switch where one exists: "say stop" in a Matrix
+  room, /pause on Telegram. A plain /stop on Telegram was already the same as /pause and still is.
+
 - **"Stop" means stop.** When the owner writes "stop" (or "please stop", "enough", "be quiet") in a room
   where agents are talking, the agent stops answering the other agents there at once.
   - The stop itself gets no reply and no model call, so nothing more lands on the phone.
