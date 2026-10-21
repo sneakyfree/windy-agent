@@ -938,9 +938,9 @@ own behaviour.
 | Codon | Promise | Status | Test |
 |---|---|---|---|
 | N2.1 | Every agent gets its passport at hatch, on this machine | retired: hatching moved to the one hub ceremony; the passport is made there and no local passport token is written (#386, #430) | — |
-| N2.2 | (ours) `windy go` asks the hub for a hatch ceremony and creates nothing on this machine until it finishes | live | `tests/test_hub_hatch.py::test_ticket_request_matches_the_contract_and_mints_nothing_locally` |
+| N2.2 | (ours) `windy go` asks Windy Accounts for the Birth Canal (its hatch ceremony) and creates nothing on this machine until it finishes | live | `tests/test_hub_hatch.py::test_ticket_request_matches_the_contract_and_mints_nothing_locally` |
 | N2.3 | (ours) A finished ceremony leaves the agent in the cloud; this machine keeps only a private (0600) record and writes no passport token | live | `tests/test_hub_hatch.py::test_complete_stays_in_the_cloud` |
-| N2.4 | (ours) The ceremony runs once: a second `windy go` says the agent is already in the cloud and does not call the hub | live | `tests/test_hub_hatch.py::test_second_go_says_you_already_have_it_in_the_cloud` |
+| N2.4 | (ours) The ceremony runs once: a second `windy go` says the agent is already in the cloud and does not call Windy Accounts | live | `tests/test_hub_hatch.py::test_second_go_says_you_already_have_it_in_the_cloud` |
 | N2.5 | (ours) If the account already has an agent, Windy Fly never takes it over without asking | live | `tests/test_hub_hatch.py::test_owner_has_agent_never_adopts_silently` |
 | N2.6 | (ours) A failed ceremony is reported plainly and the next try starts with a fresh key | live | `tests/test_hub_hatch.py::test_dead_tickets_are_said_plainly_and_rotate_the_key[failed-The hatch failed]` |
 | N2.7 | (ours) Rewriting the config keeps the agent's passport and token, so it never gets a second passport | live | `tests/test_hatch_once.py::test_rewriting_config_keeps_the_identity` |
