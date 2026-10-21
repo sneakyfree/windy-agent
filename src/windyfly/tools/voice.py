@@ -24,7 +24,9 @@ from windyfly.tools.registry import ToolRegistry
 logger = logging.getLogger(__name__)
 
 ENV_FLAG = "WINDY_OWNER_CALL"
-_TIMEOUT = 20.0
+# The server renders the Mind clips one after another before it dials (each up to 20 s on a cold cache), so a
+# first call can take well over 20 s (Windy Call on #609).
+_TIMEOUT = 90.0
 _DEFAULT_BASE_URL = "https://api.windytext.com"
 _PATH = "/call/v1/owner-call"
 MAX_MESSAGE = 500
@@ -35,8 +37,9 @@ def enabled() -> bool:
 
 
 def make_call(message: str) -> dict[str, Any]:
-    """Phone the owner. Returns the server's facts: {status: 'calling', call_id, call_status, time_limit_seconds}
-    or {status: 'refused', http_status, code} or {status: 'failed', error}."""
+    """Phone the owner. Returns the server's facts: {status: 'calling', call_id, call_status, time_limit_seconds},
+    {status: 'refused', http_status, code}, {status: 'unknown', error} (no answer after the request may have
+    arrived) or {status: 'failed', error} (nothing was placed)."""
     from windyfly.tools.sms import _send_auth
 
     text = (message or "").strip()
@@ -53,9 +56,16 @@ def make_call(message: str) -> dict[str, Any]:
         return {"status": "failed", "error": "no agent credential for windy-text"}
     try:
         resp = httpx.post(url, json={"mode": "announce", "message": text}, headers=headers, timeout=_TIMEOUT)
-    except httpx.HTTPError as exc:
+    except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout) as exc:
+        # Nothing reached windy-text: no call can have been placed.
         logger.info("make_call: windy-text unreachable (%s)", type(exc).__name__)
         return {"status": "failed", "error": "windy-text unreachable"}
+    except httpx.HTTPError as exc:
+        # The request may have arrived: the owner's phone may already be ringing. A second try is safe (the
+        # server answers 409 call_in_progress while a call is active).
+        logger.info("make_call: no answer from windy-text (%s)", type(exc).__name__)
+        return {"status": "unknown",
+                "error": f"no answer from windy-text in {int(_TIMEOUT)} s; a call may still be placed"}
     try:
         body = resp.json()
     except ValueError:
@@ -78,7 +88,8 @@ def register_voice_tools(registry: ToolRegistry) -> None:
         name="make_call",
         description=(
             "Phones your owner, and only your owner, and speaks a short message. Returns {status: 'calling', "
-            "call_id, call_status, time_limit_seconds} or {status: 'refused', http_status, code}."
+            "call_id, call_status, time_limit_seconds}, {status: 'refused', http_status, code} or "
+            "{status: 'unknown', error} when windy-text did not answer in time (a call may still be placed)."
         ),
         parameters={
             "type": "object",

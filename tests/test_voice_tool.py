@@ -72,10 +72,24 @@ def test_refusals_come_back_verbatim_and_are_never_retried(on, status, body, cod
     assert post.call_count == 1
 
 
-def test_a_network_error_is_one_failure_not_a_retry(on):
-    with patch("httpx.post", side_effect=httpx.ConnectError("x")) as post:
+@pytest.mark.parametrize("exc", [httpx.ConnectError("x"), httpx.ConnectTimeout("x"), httpx.PoolTimeout("x")])
+def test_nothing_reached_windy_text_is_one_failure_not_a_retry(on, exc):
+    with patch("httpx.post", side_effect=exc) as post:
         assert voice.make_call("hi") == {"status": "failed", "error": "windy-text unreachable"}
     assert post.call_count == 1
+
+
+@pytest.mark.parametrize("exc", [httpx.ReadTimeout("x"), httpx.WriteTimeout("x"), httpx.RemoteProtocolError("x")])
+def test_no_answer_after_the_request_may_have_arrived_is_unknown_not_failed(on, exc):
+    with patch("httpx.post", side_effect=exc) as post:
+        out = voice.make_call("hi")
+    assert out["status"] == "unknown" and "may still be placed" in out["error"] and post.call_count == 1
+
+
+def test_the_timeout_covers_the_server_s_clip_rendering(on):
+    with patch("httpx.post", return_value=_resp(200, {})) as post:
+        voice.make_call("hi")
+    assert post.call_args.kwargs["timeout"] >= 90
 
 
 def test_a_refused_passport_never_dials(monkeypatch):
