@@ -1,0 +1,16 @@
+{
+  "items": [
+    {
+      "grant_id": "grt_opvymctqxxvkusmj",
+      "item_id": "itm_k425u5lvzblgqmnl",
+      "label": "Soul key",
+      "expires_at": null
+    },
+    {
+      "grant_id": "grt_gs7nmlbtkcvgijf3",
+      "item_id": "itm_ku5mm5qg3mkdkqg5",
+      "label": "OpenRouter",
+      "expires_at": 1802592000
+    }
+  ]
+}
