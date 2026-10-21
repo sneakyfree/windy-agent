@@ -876,9 +876,19 @@ def request_agent_token(aud: str, *, transport: httpx.BaseTransport | None = Non
 def service_dpop(htm: str, url: str, *, cred_path: Path | None = None) -> str:
     """Per-request DPoP proof (fresh iat + unique jti) for calling a Windy service
     with an ``EPT+agent``: send ``Authorization: DPoP <token>`` plus ``DPoP: <this>``.
-    ``url`` is the absolute URL of THAT request (no query string, per RFC 9449)."""
+    ``url`` is the absolute URL of THAT request; the proof signs :func:`htu` of it."""
     key, _ = _active_key(cred_path)
-    return dpop_proof(key, htm, url.split("?", 1)[0].split("#", 1)[0])
+    return dpop_proof(key, htm, htu(url))
+
+
+def htu(url: str) -> str:
+    """The DPoP ``htu`` for ``url``: exactly what httpx will send. Scheme and host (default port dropped), then
+    the percent-encoded path with dot segments removed, with no query or fragment (RFC 9449). Signing the raw
+    string instead would sign "a b" while "a%20b" goes on the wire, and a server that checks the encoded path
+    (Windy Cloud since its htu fix) refuses that."""
+    u = httpx.URL(url)
+    path = u.raw_path.split(b"?", 1)[0].decode("ascii")
+    return f"{u.scheme}://{u.netloc.decode('ascii')}{path}"
 
 
 def clear_token_cache() -> None:
