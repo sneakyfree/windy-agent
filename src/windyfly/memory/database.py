@@ -837,6 +837,9 @@ class Database:
             "deleted — it may be partly recoverable with `sqlite3 .recover`.",
             path, reason, dead,
         )
+        from windyfly.memory.collapse_alert import write_marker
+
+        write_marker(path, dead, reason)  # announced once by the maintenance loop (collapse_alert.announce)
         return str(dead)
 
     #: Set when __init__ had to quarantine an unreadable memory file.

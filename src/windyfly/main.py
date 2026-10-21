@@ -117,6 +117,11 @@ def _start_decay_scheduler(
     def _decay_loop() -> None:
         # Use a dedicated DB connection for the decay thread
         decay_db = Database(db_path)
+        try:  # a memory file set aside at startup is announced at once, by one process (collapse_alert)
+            from windyfly.memory.collapse_alert import announce
+            announce(db_path)
+        except Exception as e:  # noqa: BLE001
+            logger.error("memory collapse alert failed: %s", type(e).__name__)
         decay_wq = WriteQueue()
         decay_wq.start()
         backs_up = _backs_up(channel)
