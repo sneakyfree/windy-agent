@@ -58,15 +58,38 @@ def test_items_without_an_id_are_skipped(tmp_path):
 def test_fetch_reads_messages_with_the_agents_ept(monkeypatch):
     seen = {}
 
+    from windyfly.eternitas import agent_keys as ak
+
+    monkeypatch.setenv("ETERNITAS_PASSPORT_TOKEN", "ept-own")
+    monkeypatch.setattr(ak, "request_agent_token", lambda aud: {"token": f"tok-{aud}"})
+    monkeypatch.setattr(ak, "service_dpop", lambda m, u: f"proof-{m}-{u}")
+
     def get(url, headers=None, timeout=None):
-        seen["url"], seen["auth"] = url, headers["Authorization"]
+        seen["url"], seen["auth"], seen["dpop"] = url, headers["Authorization"], headers.get("DPoP")
         return httpx.Response(200, json={"count": 1, "messages": [{"message_sid": "SM1"}]},
                               request=httpx.Request("GET", url))
 
     monkeypatch.setattr(sms_inbox.httpx, "get", get)
-    out = sms_inbox.fetch_inbox("https://api.windytext.com", "ept-own")
+    out = sms_inbox.fetch_inbox("https://api.windytext.com")
     assert out == [{"message_sid": "SM1"}]
-    assert seen["url"].endswith("/sms/inbox/mine") and seen["auth"] == "Bearer ept-own"
+    assert seen["url"].endswith("/sms/inbox/mine") and seen["auth"] == "Bearer tok-windy-telephony"
+    assert seen["dpop"] == "proof-GET-https://api.windytext.com/sms/inbox/mine"  # never the legacy token
+
+
+def test_fetch_without_an_agent_token_asks_nothing_and_says_so(monkeypatch):
+    import pytest
+
+    from windyfly.eternitas import agent_keys as ak
+
+    def no_key(aud):
+        raise ak.AgentTokenError("no_key")
+
+    calls = []
+    monkeypatch.setattr(ak, "request_agent_token", no_key)
+    monkeypatch.setattr(sms_inbox.httpx, "get", lambda *a, **k: calls.append(1))
+    with pytest.raises(sms_inbox.InboxAuthError, match="no_key"):  # the poll loop logs it as a warning
+        sms_inbox.fetch_inbox("https://api.windytext.com")
+    assert calls == []
 
 
 def test_poller_only_starts_when_byo_is_on(monkeypatch):

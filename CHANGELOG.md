@@ -13,9 +13,10 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
 - **Texting on the owner's own Twilio signs in only with a short agent token.** With WINDY_TEXT_BYO=1, all
   three calls to Windy Text (the consent check, the request for the owner's OK, and the send) now carry a short
   agent token for windy-telephony plus a proof for that exact request. The old 365-day passport token is never
-  sent, and it is no longer needed for texting. If the token or proof cannot be made, nothing is sent, not even
-  the consent check, and the owner gets a plain sentence. Before, the two consent calls used the old token, and
-  the send fell back to it when no agent key was registered. Windy Text confirmed (10-21) that both consent routes
+  sent, and it is no longer needed for texting. The inbox poll for incoming texts (every 60 s) moves the same
+  way. If the token or proof cannot be made, nothing is sent, not even the consent check: the owner gets a plain
+  sentence, and the inbox poll logs a warning each round instead of asking. Before, the consent calls and the
+  inbox poll used the old token, and the send fell back to it when no agent key was registered. Windy Text confirmed (10-21) that both consent routes
   already accept the agent token.
 
 - **make_call phones only the owner, and is off until switched on.** It now calls windy-text's owner-call route
