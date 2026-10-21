@@ -13,7 +13,9 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
 - **`windy budget set` now changes the budget.** It wrote `[budget] daily_budget`, which the budget gate never
   read, so the owner's new limit did nothing. It now writes `[costs] daily_budget_usd` (in WINDYFLY_CONFIG, else
   the project's windyfly.toml), refuses anything under $0.01 or not a number, and `windy budget` shows the limit
-  the gate uses.
+  the gate uses. The edited file is read back before it is saved: unless it parses and holds the new value with
+  every other setting unchanged, nothing is written and it says so (an inline `costs = {...}` table is left for
+  the owner to edit). The save is atomic.
 
 - **`windy version --config <file>`.** `windy version` now takes the config file the agent runs with and
   shows that file's daily budget, through the same reader as the budget gate. Before, it only followed

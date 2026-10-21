@@ -307,3 +307,32 @@ def test_windy_budget_set_refuses_a_budget_that_cannot_work(tmp_path, monkeypatc
 def test_windy_budget_today_ignores_the_old_budget_section(tmp_path, monkeypatch):
     _legacy, _cfg = _cli_budget(tmp_path, monkeypatch, "[budget]\ndaily_budget = 9\n")
     assert _legacy._get_daily_budget() == 5.0
+
+
+@pytest.mark.parametrize("toml,kept", [
+    ("[costs] # spending\ndaily_budget_usd = 5.0\n", {}),
+    ("[ costs ]\ndaily_budget_usd = 5.0\nmonthly_budget_usd = 50.0\n", {"monthly_budget_usd": 50.0}),
+    ('[costs]\n"daily_budget_usd" = 5.0\n\n[agent]\nname = "x"\n', {}),
+    ("[agent]\nname = 'x'\n\n[costs]\nwarn_at_percent = 80\n", {"warn_at_percent": 80}),
+])
+def test_windy_budget_set_edits_the_one_costs_table_whatever_its_spelling(tmp_path, monkeypatch, toml, kept):
+    import tomllib
+
+    _legacy, cfg = _cli_budget(tmp_path, monkeypatch, toml)
+    _legacy._budget_set("3")
+    data = tomllib.loads(cfg.read_text(encoding="utf-8"))
+    assert data["costs"] == {**kept, "daily_budget_usd": 3.0}
+    assert cfg.read_text(encoding="utf-8").count("costs") == toml.count("costs")
+
+
+@pytest.mark.parametrize("toml", [
+    "costs = { daily_budget_usd = 5.0 }\n",
+    "costs.daily_budget_usd = 5.0\n",
+    "[costs]\ndaily_budget_usd = 5.0\n[costs.extra]\nx = 1\n[agent\n",
+])
+def test_windy_budget_set_refuses_and_writes_nothing_when_it_cannot_edit_safely(tmp_path, monkeypatch, toml, capsys):
+    _legacy, cfg = _cli_budget(tmp_path, monkeypatch, toml)
+    _legacy._budget_set("3")
+    assert cfg.read_text(encoding="utf-8") == toml
+    out = capsys.readouterr().out
+    assert "nothing" in out and "Daily budget set" not in out

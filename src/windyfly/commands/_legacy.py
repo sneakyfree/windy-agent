@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -1639,9 +1640,39 @@ def _budget_history() -> None:
     console.print(table)
 
 
+_COSTS_HEADER = re.compile(r"^\s*\[\s*costs\s*\]\s*(#.*)?$")
+_ANY_HEADER = re.compile(r"^\s*\[")
+_BUDGET_KEY = re.compile(r"""^\s*(daily_budget_usd|"daily_budget_usd"|'daily_budget_usd')\s*=""")
+_INLINE_OR_DOTTED_COSTS = re.compile(r"^\s*costs\s*(=|\.)")
+
+
+def _set_daily_budget_text(text: str, value: float) -> str | None:
+    """``text`` with [costs] daily_budget_usd = value, or None when the file's shape is one this
+    line editor cannot change safely (an inline or dotted costs table)."""
+    lines = text.splitlines()
+    if any(_INLINE_OR_DOTTED_COSTS.match(line) for line in lines):
+        return None
+    new_line = f"daily_budget_usd = {value}"
+    header = next((i for i, line in enumerate(lines) if _COSTS_HEADER.match(line)), None)
+    if header is None:
+        return "\n".join(lines + ["", "[costs]", new_line]) + "\n"
+    end = next((i for i in range(header + 1, len(lines)) if _ANY_HEADER.match(lines[i])), len(lines))
+    key = next((i for i in range(header + 1, end) if _BUDGET_KEY.match(lines[i])), None)
+    if key is None:
+        lines.insert(header + 1, new_line)
+    else:
+        lines[key] = new_line
+    return "\n".join(lines) + "\n"
+
+
 def _budget_set(amount: str) -> None:
-    """Set [costs] daily_budget_usd, the key the budget gate reads (the old [budget] daily_budget was never read)."""
+    """Set [costs] daily_budget_usd, the key the budget gate reads (the old [budget] daily_budget was never read).
+
+    The new file is parsed before it is written and must read back the new value with every other setting
+    unchanged; otherwise nothing is written. The write is atomic (temp file + rename)."""
     import math
+    import tempfile
+    import tomllib
 
     from windyfly.memory.cost_tracker import MIN_DAILY_BUDGET_USD
 
@@ -1663,28 +1694,34 @@ def _budget_set(amount: str) -> None:
         console.print("[yellow]No windyfly.toml found. Run [bold]windy init[/bold] first.[/yellow]")
         return
 
-    lines = toml_file.read_text(encoding="utf-8").splitlines()
-    new_lines: list[str] = []
-    in_costs = found = False
-    for line in lines:
-        stripped = line.strip()
-        if stripped.startswith("[") and stripped.endswith("]"):
-            if in_costs and not found:
-                new_lines.append(f"daily_budget_usd = {budget_val}")
-                found = True
-            in_costs = stripped == "[costs]"
-        if in_costs and stripped.split("=", 1)[0].strip() == "daily_budget_usd":
-            new_lines.append(f"daily_budget_usd = {budget_val}")
-            found = True
-            continue
-        new_lines.append(line)
-    if not found:
-        if in_costs:
-            new_lines.append(f"daily_budget_usd = {budget_val}")
-        else:
-            new_lines += ["", "[costs]", f"daily_budget_usd = {budget_val}"]
+    text = toml_file.read_text(encoding="utf-8")
+    try:
+        before = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as e:
+        console.print(f"[red]{toml_file} is not valid TOML ({e}); nothing changed. Fix it first.[/red]")
+        return
+    new_text = _set_daily_budget_text(text, budget_val)
+    after = None
+    if new_text is not None:
+        try:
+            after = tomllib.loads(new_text)
+        except tomllib.TOMLDecodeError:
+            after = None
+    expected = {**before, "costs": {**(before.get("costs") or {}), "daily_budget_usd": budget_val}}
+    if after != expected:
+        console.print(f"[red]Couldn't change {toml_file} safely, so nothing was written. Set [bold][costs] "
+                      f"daily_budget_usd = {budget_val}[/bold] in it by hand.[/red]")
+        return
 
-    toml_file.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+    fd, tmp = tempfile.mkstemp(dir=str(toml_file.parent), prefix=f".{toml_file.name}.")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(new_text)
+        os.chmod(tmp, toml_file.stat().st_mode & 0o777)
+        os.replace(tmp, toml_file)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
     console.print(f"  [green]✓[/green] Daily budget set to [bold]${budget_val:.2f}[/bold] ([costs] daily_budget_usd)")
 
 
