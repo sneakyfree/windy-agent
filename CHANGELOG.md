@@ -10,6 +10,13 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
 
 ## Unreleased
 
+- **Texting refusals are plain sentences, and the inbox poll stops repeating its warning.** When Windy Text
+  refuses the agent's sign-in (401), its standing (403) or is briefly down (503), the owner now hears one plain
+  sentence for each. Windy Text's own wording, such as "EPT invalid: <code>", is never passed on. A consent check
+  refused for the agent's standing no longer says "I couldn't check". The 60 s inbox poll logs a warning when it
+  starts failing, when the reason changes, and at most once an hour while it lasts, then says when it recovers.
+  Before, it warned every minute, about 1,440 lines a day.
+
 - **Texting on the owner's own Twilio signs in only with a short agent token.** With WINDY_TEXT_BYO=1, all
   three calls to Windy Text (the consent check, the request for the owner's OK, and the send) now carry a short
   agent token for windy-telephony plus a proof for that exact request. The old 365-day passport token is never

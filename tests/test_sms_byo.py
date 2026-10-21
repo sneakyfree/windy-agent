@@ -135,10 +135,41 @@ def test_code_in_detail_also_becomes_a_plain_sentence(monkeypatch):
     assert "carriers haven't approved" in out["error"]
 
 
-def test_free_text_detail_is_still_relayed(monkeypatch):
+def test_windy_texts_own_wording_is_never_passed_on(monkeypatch):
     _server(monkeypatch, OWNER_OK, send_status=400, send_body={"detail": "Body is empty."})
     out = sms.send_sms(body="hello")
-    assert out["error"] == "Body is empty." and out["error_code"] is None
+    assert "Body is empty" not in out["error"] and "answered 400" in out["error"] and out["error_code"] is None
+
+
+@pytest.mark.parametrize("status,detail,phrase", [
+    (401, "EPT invalid: dpop_replay", "couldn't sign in to Windy Text"),
+    (403, "passport_not_in_good_standing", "standing doesn't allow"),
+    (503, "keys_unavailable", "briefly unavailable"),
+    (503, "revocation_unavailable", "briefly unavailable"),
+])
+def test_auth_refusals_on_send_are_plain_and_never_echo_detail(monkeypatch, status, detail, phrase):
+    _server(monkeypatch, OWNER_OK, send_status=status, send_body={"detail": detail})
+    out = sms.send_sms(body="hello")
+    assert out["status"] == "failed" and phrase in out["error"] and detail not in out["error"]
+
+
+@pytest.mark.parametrize("status,detail,phrase", [
+    (401, "EPT invalid: expired", "couldn't sign in to Windy Text"),
+    (403, "passport_not_in_good_standing", "standing doesn't allow"),
+    (503, "keys_unavailable", "briefly unavailable"),
+])
+def test_auth_refusals_on_the_approval_request_are_plain(monkeypatch, status, detail, phrase):
+    _server(monkeypatch, {"approved": False, "opted_out": False, "first_contact": True, "kind": "contact"},
+            send_status=status, send_body={"detail": detail})
+    out = sms.send_sms(to="+15551230000", body="hi")
+    assert out["status"] == "failed" and phrase in out["error"] and detail not in out["error"]
+
+
+@pytest.mark.parametrize("status,phrase", [(401, "couldn't sign in"), (403, "standing doesn't allow")])
+def test_consent_check_refusing_the_credential_says_so(monkeypatch, status, phrase):
+    calls = _server(monkeypatch, recipient_status=status)
+    out = sms.send_sms(to="+15551230000", body="hi")
+    assert phrase in out["error"] and "couldn't check" not in out["error"] and calls["post"] == []
 
 
 def test_no_confirm_tool_for_the_model_in_byo_mode():

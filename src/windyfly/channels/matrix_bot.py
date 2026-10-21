@@ -1435,13 +1435,21 @@ class WindyFlyMatrixBot(ChannelAdapter):
             )
             return str(reply)
 
+        health = sms_inbox.PollHealth()
         while not self._shutting_down:
             try:
                 items = await asyncio.to_thread(sms_inbox.fetch_inbox, _sms._windy_text_base())
-                await sms_inbox.handle_new(
-                    items, seen, send_dm=send_dm, run_owner_turn=run_owner_turn)
             except Exception as e:  # a poll failure must never take the bot down
-                logger.warning("sms inbox poll failed: %s", e)
+                reason = f"{type(e).__name__}: {e}"
+                (logger.warning if health.failed(reason) else logger.debug)("sms inbox poll failed: %s", reason)
+            else:
+                if health.ok():
+                    logger.info("sms inbox poll recovered")
+                try:
+                    await sms_inbox.handle_new(
+                        items, seen, send_dm=send_dm, run_owner_turn=run_owner_turn)
+                except Exception as e:  # noqa: BLE001  (a relay failure must never take the bot down)
+                    logger.warning("sms inbox relay failed: %s", e)
             await asyncio.sleep(sms_inbox.POLL_S)
 
     async def _mark_phone(self, session_id: str, room_id: str, sender: str, band: Any) -> None:
