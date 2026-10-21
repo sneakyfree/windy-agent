@@ -99,6 +99,12 @@ Every exception must be logged here with a reason and a scope.
   sneakyfree/anima. Revisit if Grant adds another developer to the
   team.
 
+## Changelog: fragments, never CHANGELOG.md (2026-10-21)
+
+A PR adds its changelog note as ONE file `changelog.d/<pr-number>.md` (or `<branch-slug>.md`), never an edit to
+`CHANGELOG.md`: one shared line made every merge conflict with the next PR. `scripts/changelog_fold.py` folds the
+fragments in at release (`--check` validates). See `changelog.d/README.md`.
+
 ## Architectural rule (post-Wave 15 #0)
 
 This repo must contain **no instance-specific files** (no `<name>.toml`,
