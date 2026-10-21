@@ -19,6 +19,9 @@ from windyfly.config import load_config
 logger = logging.getLogger(__name__)
 
 _DECAY_INTERVAL_SECONDS = 24 * 60 * 60  # 24 hours
+# The cloud-backup due-check runs this often against cloud.backup_interval (default 24 h), so a restart can
+# delay a backup by at most this much (it used to reset a 24 h sleep: gaps of 34-48 h on Windy 0, 10-21).
+_BACKUP_CHECK_SECONDS = 60 * 60
 
 # The launchable channels (`--channel <name>`). Module-level so it's the
 # single source of truth for the argparse choices AND importable by tests.
@@ -33,11 +36,25 @@ CHANNEL_CHOICES = [
 ]
 
 
+def _backs_up(channel: str | None) -> bool:
+    """Whether THIS process runs the cloud-backup check. An agent's telegram and matrix processes share one
+    database: only the maintenance runner (agent.maintenance.maintenance_runner) uploads, so one backup is not
+    sent twice (Windy 0, 10-15 and 10-20: the same backup twice, using two of Cloud's 5 slots). Any other
+    process (cli, other channels) keeps backing up as before."""
+    if channel not in ("telegram", "matrix"):
+        return True
+    from windyfly.agent.maintenance import maintenance_runner
+
+    return channel == maintenance_runner()
+
+
 def _start_decay_scheduler(
     config: dict,
     db_path: str,
+    channel: str | None = None,
 ) -> threading.Thread:
-    """Start a daemon thread that runs cognitive decay every 24 hours."""
+    """Start a daemon thread: decay, drift, curation and retention every 24 hours; the cloud-backup
+    due-check every hour (in the backup-running process only, see _backs_up)."""
     import asyncio
 
     from windyfly.memory.database import Database
@@ -45,63 +62,76 @@ def _start_decay_scheduler(
     from windyfly.memory.write_queue import WriteQueue
     from windyfly.personality.versioning import run_periodic_drift_check
 
+    def _daily_cycle(decay_db, decay_wq) -> None:
+        try:
+            counts = run_decay(decay_db, decay_wq, config)
+            logger.info("Decay cycle complete: %s", counts)
+        except Exception as e:
+            logger.error("Decay cycle failed: %s", e)
+        # (run_decay also decays intents: one cycle for the job, /decay and decay.run)
+        try:
+            drift = run_periodic_drift_check(decay_db, decay_wq)
+            if drift.get("drift_detected"):
+                logger.warning("Personality drift detected: %s", drift["drift_report"])
+            else:
+                logger.info("Drift check complete: no drift detected")
+        except Exception as e:
+            logger.error("Drift check failed: %s", e)
+        # Skill-library curation (Sprint 3): demote failing skills,
+        # cap the promoted playbook library (LRU). Demote-only.
+        try:
+            from windyfly.skills.curator import run_curation
+            cstats = run_curation(decay_db)
+            logger.info("Skill curation complete: %s", cstats)
+        except Exception as e:
+            logger.error("Skill curation failed: %s", e)
+        # Retention: prune high-churn bookkeeping tables (soul_history
+        # heartbeat dupes + stale events) and VACUUM if it freed real
+        # space. Runs BEFORE the backup so the uploaded DB is already
+        # compacted — this is the fix for the 122 MB / 363k-row bloat
+        # that broke cloud backup on Windy 0.
+        try:
+            from windyfly.memory.retention import run_retention
+            rstats = run_retention(decay_db, config)
+            logger.info("Retention complete: %s", rstats)
+        except Exception as e:
+            logger.error("Retention failed: %s", e)
+
+    def _backup_check() -> None:
+        try:
+            from windyfly.cloud_backup import run_backup_if_due
+            result = asyncio.run(run_backup_if_due(config))
+            if result and not result.get("success"):
+                # error is guaranteed non-empty by cloud_backup's
+                # _describe_error; the `or` is a last-ditch guard so a
+                # future caller can never reintroduce the blank line.
+                logger.warning(
+                    "Scheduled backup failed: %s",
+                    result.get("error") or "unknown (no error detail)",
+                )
+        except Exception as e:
+            # A raised (not returned) failure used to log at DEBUG —
+            # invisible in prod, another way this stayed unexplained.
+            logger.warning("Backup check raised: %s: %s", type(e).__name__, e)
+
     def _decay_loop() -> None:
         # Use a dedicated DB connection for the decay thread
         decay_db = Database(db_path)
         decay_wq = WriteQueue()
         decay_wq.start()
-        logger.info("Decay + drift + backup scheduler started (interval: 24h)")
+        backs_up = _backs_up(channel)
+        logger.info("Decay + drift scheduler started (24h); backup check %s",
+                    "hourly in this process" if backs_up else "off here (the maintenance runner does it)")
+        next_cycle = 0.0
         while True:
-            try:
-                counts = run_decay(decay_db, decay_wq, config)
-                logger.info("Decay cycle complete: %s", counts)
-            except Exception as e:
-                logger.error("Decay cycle failed: %s", e)
-            # (run_decay also decays intents: one cycle for the job, /decay and decay.run)
-            try:
-                drift = run_periodic_drift_check(decay_db, decay_wq)
-                if drift.get("drift_detected"):
-                    logger.warning("Personality drift detected: %s", drift["drift_report"])
-                else:
-                    logger.info("Drift check complete: no drift detected")
-            except Exception as e:
-                logger.error("Drift check failed: %s", e)
-            # Skill-library curation (Sprint 3): demote failing skills,
-            # cap the promoted playbook library (LRU). Demote-only.
-            try:
-                from windyfly.skills.curator import run_curation
-                cstats = run_curation(decay_db)
-                logger.info("Skill curation complete: %s", cstats)
-            except Exception as e:
-                logger.error("Skill curation failed: %s", e)
-            # Retention: prune high-churn bookkeeping tables (soul_history
-            # heartbeat dupes + stale events) and VACUUM if it freed real
-            # space. Runs BEFORE the backup so the uploaded DB is already
-            # compacted — this is the fix for the 122 MB / 363k-row bloat
-            # that broke cloud backup on Windy 0.
-            try:
-                from windyfly.memory.retention import run_retention
-                rstats = run_retention(decay_db, config)
-                logger.info("Retention complete: %s", rstats)
-            except Exception as e:
-                logger.error("Retention failed: %s", e)
-            # Cloud backup check
-            try:
-                from windyfly.cloud_backup import run_backup_if_due
-                result = asyncio.run(run_backup_if_due(config))
-                if result and not result.get("success"):
-                    # error is guaranteed non-empty by cloud_backup's
-                    # _describe_error; the `or` is a last-ditch guard so a
-                    # future caller can never reintroduce the blank line.
-                    logger.warning(
-                        "Scheduled backup failed: %s",
-                        result.get("error") or "unknown (no error detail)",
-                    )
-            except Exception as e:
-                # A raised (not returned) failure used to log at DEBUG —
-                # invisible in prod, another way this stayed unexplained.
-                logger.warning("Backup check raised: %s: %s", type(e).__name__, e)
-            time.sleep(_DECAY_INTERVAL_SECONDS)
+            if time.monotonic() >= next_cycle:
+                next_cycle = time.monotonic() + _DECAY_INTERVAL_SECONDS
+                _daily_cycle(decay_db, decay_wq)
+            # The due-check runs hourly against cloud.backup_interval (default 24 h): a restart no longer
+            # resets a 24 h sleep, so a backup is late by at most _BACKUP_CHECK_SECONDS.
+            if backs_up:
+                _backup_check()
+            time.sleep(_BACKUP_CHECK_SECONDS)
 
     t = threading.Thread(target=_decay_loop, daemon=True, name="decay-scheduler")
     t.start()
@@ -384,7 +414,7 @@ def main() -> None:
 
     # Start background decay scheduler (G7)
     db_path = config.get("memory", {}).get("db_path", "data/windyfly.db")
-    _start_decay_scheduler(config, db_path)
+    _start_decay_scheduler(config, db_path, args.channel)
     from windyfly.memory.split_check import start_split_watch
     start_split_watch(db_path)
     # A soul import cut short by a restart leaves its upload in the intake dir: wipe old ones.
