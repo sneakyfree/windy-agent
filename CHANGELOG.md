@@ -19,6 +19,10 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
   inbox poll used the old token, and the send fell back to it when no agent key was registered. Windy Text confirmed (10-21) that both consent routes
   already accept the agent token.
 
+- **Every request the agent signs carries a proof, reads included.** Requests made with the agent's short
+  Eternitas token (EPT+agent) now always add a DPoP proof for that exact method and address (query left out),
+  GETs to Windy Mind, Windy Cloud and Windy Vault included; before, only Calendar and Chat reads had one. A
+  leaked token is useless without the agent's key (Eternitas verifier.v1.1, phase A: clients always send a proof).
 - **One hallway: windyfly can no longer mint a passport itself.** Every agent is born through Hub's hatch
   ceremony, and Eternitas (the one certifying authority) mints there. The old direct doors in this code
   (`EternitasClient.register()` -> `/bots/register`, `auto_hatch()` -> `/bots/auto-hatch`,
