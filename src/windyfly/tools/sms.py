@@ -277,6 +277,21 @@ TELEPHONY_AUD = "windy-telephony"
 _MODE_B_UNAVAILABLE = {"no_key", "unknown_audience", "unreachable"}
 
 
+def agent_auth(url: str) -> tuple[dict[str, str] | None, str | None]:
+    """ONLY mode B: a <=5-min EPT+agent for aud windy-telephony plus a DPoP proof for this exact POST URL.
+    Returns (headers, None), or (None, code) when either cannot be made. No other credential is ever tried."""
+    from windyfly.eternitas import agent_keys as ak
+
+    try:
+        tok = ak.request_agent_token(TELEPHONY_AUD)["token"]
+        proof = ak.service_dpop("POST", url)
+    except ak.AgentTokenError as e:
+        return None, e.code or "agent_token_refused"
+    except Exception:  # noqa: BLE001  (no key store, key IO)
+        return None, "no_agent_key"
+    return {"Authorization": f"Bearer {tok}", "DPoP": proof}, None
+
+
 def _send_auth(url: str, legacy: dict[str, str]) -> tuple[dict[str, str], dict[str, Any] | None]:
     """Auth for the money route POST /sms/send: a ≤5-min EPT+agent token for
     aud windy-telephony bound to the agent's registered key, plus a DPoP proof for

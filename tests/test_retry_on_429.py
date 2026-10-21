@@ -45,7 +45,14 @@ def _run(tmp_path: Path, outcomes: list[str], status: Path | None = None):
     if status:
         args += ["--status-file", str(status)]
     args += ["--", str(job)]
-    env = {**os.environ, "WINDY_429_BACKOFFS": "0 0"}
+    # A stub `logger` first on PATH: the wrapper's fake 429 lines go to a temp file, never the host's real
+    # journal (where they read like Anthropic rate-limiting us; Windy Git saw ~116 a day on Veron's CI runner).
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    stub = bin_dir / "logger"
+    stub.write_text(f'#!/usr/bin/env bash\nprintf "%s\\n" "$*" >> {tmp_path / "logger.log"}\n')
+    stub.chmod(0o755)
+    env = {**os.environ, "WINDY_429_BACKOFFS": "0 0", "PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"}
     p = subprocess.run(args, capture_output=True, text=True, env=env, timeout=30)
     attempts = int((tmp_path / "count").read_text())
     return p, attempts
@@ -107,3 +114,9 @@ def test_429_then_real_failure_pages(tmp_path):
 def test_output_is_streamed_through(tmp_path):
     p, _ = _run(tmp_path, ["ok"])
     assert "[fire-drill] engine_swap: PASS" in p.stdout
+
+
+def test_the_wrapper_logs_through_logger_and_tests_never_reach_the_real_journal(tmp_path):
+    _run(tmp_path, ["429", "ok"])
+    lines = (tmp_path / "logger.log").read_text().splitlines()
+    assert any("-t windy-test-job" in line and "hit Anthropic 429" in line for line in lines), lines

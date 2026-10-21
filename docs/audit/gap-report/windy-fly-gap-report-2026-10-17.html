@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Windy Fly Strand Gaps</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+:root{--bg:#f7f8f6;--surface:#ffffff;--fg:#1c211f;--muted:#5d6762;--line:#dfe3df;--head:#eef1ee;--accent:#1f6f5c;
+--red:#b42318;--red-bg:#fdecea;--yel:#8a5a00;--yel-bg:#fff4d6;--grn:#17663a;--grn-bg:#e3f4e8;--no:#6b4a46;--yes:#17663a;color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#121614;--surface:#1a1f1d;--fg:#e7ebe8;--muted:#9aa5a0;--line:#2c3431;--head:#222a27;--accent:#5fc3a6;
+--red:#ff8b7e;--red-bg:#3a1714;--yel:#f2c14e;--yel-bg:#33280c;--grn:#6fd69a;--grn-bg:#11301e;--no:#d9a59d;--yes:#6fd69a;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#121614;--surface:#1a1f1d;--fg:#e7ebe8;--muted:#9aa5a0;--line:#2c3431;--head:#222a27;--accent:#5fc3a6;
+--red:#ff8b7e;--red-bg:#3a1714;--yel:#f2c14e;--yel-bg:#33280c;--grn:#6fd69a;--grn-bg:#11301e;--no:#d9a59d;--yes:#6fd69a;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.55 Archivo,system-ui,-apple-system,"Segoe UI",sans-serif}
+.wrap{max-width:1180px;margin:0 auto;padding:32px 20px 64px}
+.kicker{font:700 12px/1 "JetBrains Mono",ui-monospace,monospace;letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+h1{font-size:30px;line-height:1.2;margin:10px 0 8px;text-wrap:balance}
+h2{font-size:20px;margin:36px 0 10px;text-wrap:balance}
+p{max-width:78ch;margin:0 0 10px}
+.src{color:var(--muted);font-size:14px}
+code,.mono{font-family:"JetBrains Mono",ui-monospace,Menlo,monospace;font-size:.88em}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:22px 0 8px}
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.tile b{display:block;font-size:30px;line-height:1.1;font-variant-numeric:tabular-nums}
+.tile span{color:var(--muted);font-size:13px}
+.tile.r b{color:var(--red)}.tile.y b{color:var(--yel)}.tile.g b{color:var(--grn)}
+.was{color:var(--muted);font-size:12px;display:block;margin-top:4px}
+.legend{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 18px;margin:18px 0}
+.legend ul{margin:6px 0 0;padding-left:18px}
+.tablewrap{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;min-width:760px}
+th,td{text-align:left;vertical-align:top;padding:11px 12px;border-bottom:1px solid var(--line)}
+th{background:var(--head);font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);position:sticky;top:0}
+tr.gene td{background:var(--head);font-weight:700;font-size:13px}
+td.feat{width:58%}
+.code{font:700 12px "JetBrains Mono",ui-monospace,monospace;color:var(--accent)}
+.name{font-weight:600;display:block}
+.note{color:var(--muted);font-size:13.5px;display:block;margin-top:2px}
+.pill{display:inline-block;font:700 11.5px "JetBrains Mono",ui-monospace,monospace;padding:4px 9px;border-radius:999px;white-space:nowrap}
+.RED{background:var(--red-bg);color:var(--red)}.YELLOW{background:var(--yel-bg);color:var(--yel)}.GREEN{background:var(--grn-bg);color:var(--grn)}
+.prev{display:block;margin-top:6px;color:var(--muted);font:500 11px "JetBrains Mono",ui-monospace,monospace}
+.y{color:var(--yes);font-weight:600}.n{color:var(--no);font-weight:600}
+.filters{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 12px}
+.filters button{font:600 13px Archivo,system-ui,sans-serif;border:1px solid var(--line);background:var(--surface);color:var(--fg);padding:7px 13px;border-radius:999px;cursor:pointer}
+.filters button[aria-pressed="true"]{border-color:var(--accent);color:var(--accent)}
+.callout{border-left:4px solid var(--red);background:var(--surface);border-radius:0 10px 10px 0;padding:12px 16px;margin:14px 0}
+.steps td:first-child{font-weight:700;white-space:nowrap}
+@media (max-width:640px){.wrap{padding:22px 16px 48px}h1{font-size:24px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="kicker">Windy Fly · DNA master strand · gap analysis · update</div>
+<h1>Windy Fly: what the strand promises and isn't done yet</h1>
+<p class="src">Updated <b>Sat 10-17-2026, 10:49 AM ET</b>. Source: <code>docs/strand/STRAND_V2.md</code> on master <code>7e89fbe</code> (sneakyfree/windy-agent), plus the PRs built and waiting to merge. The first report (10-16) used master <code>07c5f00</code>. Zero (Windy 0) still runs <code>7311e0e5</code> and is on <b>HOLD</b> until Boss gives a GO, so nothing merged since 10-16 is running on Zero yet.</p>
+
+<div class="tiles">
+  <div class="tile g"><b>26</b><span>green · works</span><span class="was">was 4 on 10-16</span></div>
+  <div class="tile y"><b>5</b><span>yellow · partly, or built and waiting</span><span class="was">was 16</span></div>
+  <div class="tile r"><b>8</b><span>red · not built</span><span class="was">was 19</span></div>
+  <div class="tile r"><b>6</b><span>urgent: broken or risky on Zero today</span><span class="was">was 3</span></div>
+</div>
+<p class="src">The first three tiles cover the same 39 open codons as the 10-16 report. 25 of them were built and merged since then (PRs #562–#589). The fourth tile covers live problems, three of them found while doing this work.</p>
+
+<div class="legend">
+  <b>How to read the columns</b>
+  <ul>
+    <li><b>Feature:</b> what the strand says we are building, with the codon id and where it stands now.</li>
+    <li><b>Built?</b> Yes, Partly or No, checked against master today. "Waiting" means built and tested in a PR that has not merged yet.</li>
+    <li><b>Visible?</b> Can you see it working in the product today: on Zero, in Windy Chat or on a running gateway, not only in a test. Merged work turns Yes only after Zero is updated on Boss's GO.</li>
+    <li><b>Working:</b> <span class="pill RED">RED</span> not built or not working · <span class="pill YELLOW">YELLOW</span> partly works, or built and waiting to merge · <span class="pill GREEN">GREEN</span> built, merged and proven by a test. The small grey line shows the 10-16 colour.</li>
+  </ul>
+</div>
+
+<h2>Urgent: broken or risky on Zero right now</h2>
+<div class="callout">These are live problems, not unbuilt promises. Every fix that is ours is built. What's left is Boss's GO for Zero, and that one release would carry all of them together.</div>
+<div class="tablewrap"><table>
+<thead><tr><th>Feature</th><th>Built?</th><th>Visible?</th><th>Working</th></tr></thead>
+<tbody>
+<tr><td class="feat"><span class="code">P1.2.2 · P1.4.1 · memory</span><span class="name">Zero's memory (one SQLite database)</span><span class="note">Split since 10-15. The agent units write to a deleted log file, so other processes can't see their writes. The fix (#561, hotfix <code>2eb18e40</code>) is ready; the repair window waits on Boss's GO. Unchanged since 10-16.</span></td><td>Fix built</td><td class="n">No</td><td><span class="pill RED">RED</span><span class="prev">10-16: RED</span></td></tr>
+<tr><td class="feat"><span class="code">N6 · cloud backups</span><span class="name">Daily encrypted backup to Windy Cloud</span><span class="note">Zero's backups fail because of the split. They resume after the memory repair. Unchanged since 10-16.</span></td><td>Yes</td><td class="n">No</td><td><span class="pill RED">RED</span><span class="prev">10-16: RED</span></td></tr>
+<tr><td class="feat"><span class="code">owner tools</span><span class="name">Cloudflare tools for the owner</span><span class="note">5 of 94 owner tools are skipped since Cloud revoked Zero's token on 10-14. Boss decides whether Zero gets a read-only token. Unchanged since 10-16.</span></td><td>Yes</td><td class="n">No</td><td><span class="pill RED">RED</span><span class="prev">10-16: RED</span></td></tr>
+<tr><td class="feat"><span class="code">NEW · security</span><span class="name">Only the owner can make the agent send, call, buy, publish or upload</span><span class="note">Found 10-17. The older tools had no permission check, so a guest during a demo, a text relayed from the owner's phone (texts can be spoofed) or a sibling agent could have the agent email, text, call, publish a site or upload a file. A stranger's turn could too, if the model named the tool. Zero has the text relay switched on. The fix (#592) is approved by Hub and merging now. A follow-up, also built, makes a turn without a stated sender fail closed. 72 tools are classified for Boss and Grant to decide what family or guests may get back.</span></td><td>Waiting<br><span class="note">#592 approved, merging</span></td><td class="n">No</td><td><span class="pill RED">RED</span><span class="prev">new</span></td></tr>
+<tr><td class="feat"><span class="code">NEW · N6 restore</span><span class="name">Restoring memory from a cloud backup</span><span class="note">Found 10-17. <code>/backup restore</code> wrote the backup over the memory file while the agent was using it, with no question first, and left an unencrypted copy beside it. It is switched off on master (#590). A safe restore is built and waits its turn: it checks first, asks, restores without stopping the agent and keeps an encrypted undo for 24 hours. Zero still runs the old code until the next GO'd release.</span></td><td>Switched off; safe version waiting</td><td class="n">No</td><td><span class="pill RED">RED</span><span class="prev">new</span></td></tr>
+<tr><td class="feat"><span class="code">NEW · P4.11.28 · P4.11.29</span><span class="name">"Save this to my cloud" and "what's in my cloud?"</span><span class="note">Found 10-17 by Windy Cloud. These never worked in production: they called Cloud addresses that don't exist, and their tests passed only against a fake of those addresses. The strand now says planned (#590). A rewrite to Cloud's real storage routes is built, tested against Cloud's documented contract, and waits its turn, together with download (P4.11.30).</span></td><td>Waiting</td><td class="n">No</td><td><span class="pill RED">RED</span><span class="prev">10-16: marked live</span></td></tr>
+</tbody></table></div>
+
+<h2>The 39 open codons from 10-16</h2>
+<div class="filters" role="group" aria-label="Filter by colour">
+  <button type="button" data-f="all" aria-pressed="true">All 39</button>
+  <button type="button" data-f="RED" aria-pressed="false">Red 8</button>
+  <button type="button" data-f="YELLOW" aria-pressed="false">Yellow 5</button>
+  <button type="button" data-f="GREEN" aria-pressed="false">Green 26</button>
+</div>
+<div class="tablewrap"><table id="codons">
+<thead><tr><th>Feature</th><th>Built?</th><th>Visible?</th><th>Working</th></tr></thead>
+<tbody>
+<tr class="gene"><td colspan="4">P1.02 · Config (gene 0.2)</td></tr>
+<tr data-c="GREEN"><td class="feat"><span class="code">P1.02.1</span><span class="name">One default model</span><span class="note">Done (#565): one <code>DEFAULT_MODEL</code> (claude-sonnet-5) read everywhere through <code>config.default_model()</code>.</span></td><td class="y">Yes</td><td class="n">Not yet<br><span class="note">Zero on HOLD</span></td><td><span class="pill GREEN">GREEN</span><span class="prev">10-16: RED</span></td></tr>
+<tr data-c="RED"><td class="feat"><span class="code">P1.02.2</span><span class="name">[agent] temperature, max_response_tokens and max_context_tokens are honoured</span><span class="note">Still never read; the sliders decide. Plan: retire these settings on the record (step 8).</span></td><td class="n">No</td><td class="n">No</td><td><span class="pill RED">RED</span><span class="prev">10-16: RED</span></td></tr>
+<tr data-c="RED"><td class="feat"><span class="code">P1.02.4</span><span class="name">[memory] max_episodes_per_context is honoured</span><span class="note">Still never read; the context slider decides. Plan: retire (step 8).</span></td><td class="n">No</td><td class="n">No</td><td><span class="pill RED">RED</span><span class="prev">10-16: RED</span></td></tr>
+<tr class="gene"><td colspan="4">P1.03 · Database layer (gene 0.3)</td></tr>
+<tr data-c="GREEN"><td class="feat"><span class="code">P1.03.4</span><span class="name">Each migration is applied atomically</span><span class="note">Done (#569): SQL migrations run statement by statement inside one transaction, so a failure rolls back the whole run.</span></td><td class="y">Yes</td><td class="n">Not yet</td><td><span class="pill GREEN">GREEN</span><span class="prev">10-16: YELLOW</span></td></tr>
+<tr data-c="YELLOW"><td class="feat"><span class="code">P1.03.21</span><span class="name">MEDIUM writes run as one transaction per batch of up to 50</span><span class="note">Still batched without a shared transaction. Plan: restate as "batched for fairness" (step 8).</span></td><td>Partly</td><td class="n">No</td><td><span class="pill YELLOW">YELLOW</span><span class="prev">10-16: YELLOW</span></td></tr>
+<tr data-c="GREEN"><td class="feat"><span class="code">P1.03.22</span><span class="name">Timestamps keep parsing on future Python versions</span><span class="note">Done (#567): explicit date adapters replace the deprecated default.</span></td><td class="y">Yes</td><td class="n">Not yet</td><td><span class="pill GREEN">GREEN</span><span class="prev">10-16: YELLOW</span></td></tr>
+<tr class="gene"><td colspan="4">P1.04 · Personality engine (gene 0.4)</td></tr>
+<tr data-c="YELLOW"><td class="feat"><span class="code">P1.04.6</span><span class="name">The personality block stays under 600 tokens</span><span class="note">Not capped, on purpose: a hard cap would cut an owner's own SOUL.md. Plan: restate as "the owner's SOUL.md is never cut; added slider text is bounded" (step 8).</span></td><td>Partly</td><td class="n">No</td><td><span class="pill YELLOW">YELLOW</span><span class="prev">10-16: YELLOW</span></td></tr>
+<tr class="gene"><td colspan="4">P1.06 · Prompt and agent loop (gene 0.6)</td></tr>
+<tr data-c="GREEN"><td class="feat"><span class="code">P1.06.5</span><span class="name">The whole prompt stays under the real limit</span><span class="note">Done (#570, #571): trims the oldest history first, never the soul or the current message, and always opens with a user turn.</span></td><td class="y">Yes</td><td class="n">Not yet</td><td><span class="pill GREEN">GREEN</span><span class="prev">10-16: YELLOW</span></td></tr>
+<tr class="gene"><td colspan="4">P2.11 · Matrix channel (gene 1.1)</td></tr>
+<tr data-c="RED"><td class="feat"><span class="code">P2.11.13</span><span class="name">The sender's windy_lang is read from incoming messages</span><span class="note">Not built yet. Next up (step 7b): answer in the sender's language.</span></td><td class="n">No</td><td class="n">No</td><td><span class="pill RED">RED</span><span class="prev">10-16: RED</span></td></tr>
+<tr class="gene"><td colspan="4">P2.13 · Offline queue and reconnection (gene 1.3)</td></tr>
+<tr data-c="GREEN"><td class="feat"><span class="code">P2.13.4</span><span class="name">Kept replies go out on the next successful sync</span><span class="note">Done (#562, with Hub's caps in #563: 3 per sync, dropped after 24 h).</span></td><td class="y">Yes</td><td class="n">Not yet</td><td><span class="pill GREEN">GREEN</span><span class="prev">10-16: RED</span></td></tr>
+<tr class="gene"><td colspan="4">P2.21 · Soul import (gene 2.1)</td></tr>
+<tr data-c="YELLOW"><td class="feat"><span class="code">P2.21.3</span><span class="name">Hermes's SQLite store is read</span><span class="note">Still guesses table names. Plan: retire unless a real-shaped Hermes database turns up (step 8).</span></td><td>Partly</td><td class="n">No</td><td><span class="pill YELLOW">YELLOW</span><span class="prev">10-16: YELLOW</span></td></tr>
+<tr data-c="GREEN"><td class="feat"><span class="code">P2.21.5</span><span class="name">ChatGPT's communication style is extracted</span><span class="note">Done (#588): humour, formality and verbosity from plain counts over the owner's own messages only. No model call; only three numbers kept.</span></td><td class="y">Yes</td><td class="n">Not yet</td><td><span class="pill GREEN">GREEN</span><span class="prev">10-16: RED</span></td></tr>
+<tr data-c="GREEN"><td class="feat"><span class="code">P2.21.11</span><span class="name">The owner can review flagged items</span><span class="note">Done (#587): <code>/soul review</code>, <code>keep</code> and <code>drop</code> (with a yes). Anything that looks like a secret is flagged whatever its type.</span></td><td class="y">Yes</td><td class="n">Not yet</td><td><span class="pill GREEN">GREEN</span><span class="prev">10-16: RED</span></td></tr>
+<tr data-c="GREEN"><td class="feat"><span class="code">P2.21.12</span><span class="name">Imported personality is applied on approval</span><span class="note">Done for the tone sliders (#588): <code>/soul apply</code>, a yes, and <code>/soul undo</code>. Adding imported traits to SOUL.md is split out as P2.21.14, which waits on Boss.</span></td><td class="y">Yes</td><td class="n">Not yet</td><td><span class="pill GREEN">GREEN</span><span class="prev">10-16: RED</span></td></tr>
+<tr data-c="GREEN"><td class="feat"><span class="code">P2.21.13</span><span class="name">The owner can start an import without a terminal</span><span class="note">Done in chat (#586) and on the dashboard (#589). The old path-based API, which let the page make the agent read any folder, is removed. Small follow-ups (#591: large files, reload, cancel) are approved and waiting.</span></td><td class="y">Yes</td><td class="n">Not yet</td><td><span class="pill GREEN">GREEN</span><span class="prev">10-16: RED</span></td></tr>
+<tr class="gene"><td colspan="4">P2.22 · The cockpit: presets and sliders (gene 2.2)</td></tr>
+<tr data-c="GREEN"><td class="feat"><span class="code">P2.22.11</span><span class="name">/preset says when raw mode means the preset won't change the tone</span><span class="note">Strand row flipped (#568); the feature was already built in #497.</span></td><td class="y">Yes</td><td class="y">Yes</td><td><span class="pill GREEN">GREEN</span><span class="prev">10-16: GREEN</span></td></tr>
+<tr class="gene"><td colspan="4">P2.24 · "Never Wrong Twice" (gene 2.4)</td></tr>
+<tr data-c="GREEN"><td class="feat"><span class="code">P2.24.3</span><span class="name">Common corrections are detected</span><span class="note">Done (#580): "that is wrong", "incorrect", "actually…", with whole-message guards against false alarms.</span></td><td class="y">Yes</td><td class="n">Not yet</td><td><span class="pill GREEN">GREEN</span><span class="prev">10-16: YELLOW</span></td></tr>
+<tr class="gene"><td colspan="4">P3.31 · Skills (gene 3.1)</td></tr>
+<tr data-c="GREEN"><td class="feat"><span class="code">P3.31.10</span><span class="name">Successful and failed uses are counted separately</span><span class="note">Done (#579).</span></td><td class="y">Yes</td><td class="n">Not yet</td><td><span class="pill GREEN">GREEN</span><span class="prev">10-16: RED</span></td></tr>
+<tr class="gene"><td colspan="4">P3.32 · Cost ledger and budget (gene 3.2)</td></tr>
+<tr data-c="RED"><td class="feat"><span class="code">P3.32.6</span><span class="name">Over budget, the owner can choose to go on anyway</span><span class="note">Not built yet. Planned (step 7c): an owner-only "continue today".</span></td><td class="n">No</td><td class="n">No</td><td><span class="pill RED">RED</span><span class="prev">10-16: RED</span></td></tr>
+<tr class="gene"><td colspan="4">P3.33 · Intents (gene 3.3)</td></tr>
+<tr data-c="RED"><td class="feat"><span class="code">P3.33.11</span><span class="name">Edges link memories into a graph</span><span class="note">Nothing writes edges. Plan: retire the empty graph (step 8).</span></td><td class="n">No</td><td class="n">No</td><td><span class="pill RED">RED</span><span class="prev">10-16: RED</span></td></tr>
+<tr class="gene"><td colspan="4">P3.41 · Brain bridge and gateway (gene 4.1)</td></tr>
+<tr data-c="GREEN"><td class="feat"><span class="code">P3.41.8</span><span class="name">Bridge memory search also searches past conversations</span><span class="note">Done (#574).</span></td><td class="y">Yes</td><td class="n">Not yet</td><td><span class="pill GREEN">GREEN</span><span class="prev">10-16: YELLOW</span></td></tr>
+<tr data-c="GREEN"><td class="feat"><span class="code">P3.41.10</span><span class="name">Gateway HTTP and WebSocket chat proven end to end without a live stack</span><span class="note">Done (#568): the real gateway runs against a stand-in brain in CI.</span></td><td class="y">Yes</td><td class="n">In CI</td><td><span class="pill GREEN">GREEN</span><span class="prev">10-16: YELLOW</span></td></tr>
+<tr class="gene"><td colspan="4">P4.11 · Windy ecosystem map (Part 4 §11)</td></tr>
+<tr data-c="GREEN"><td class="feat"><span class="code">P4.11.2</span><span class="name">The gateway serves the web UI</span><span class="note">Proven (#568). Nothing serves the gateway on Windy 0 today.</span></td><td class="y">Yes</td><td class="n">In CI</td><td><span class="pill GREEN">GREEN</span><span class="prev">10-16: GREEN</span></td></tr>
+<tr data-c="GREEN"><td class="feat"><span class="code">P4.11.3</span><span class="name">The gateway's WebSocket chat works end to end</span><span class="note">Proven (#568).</span></td><td class="y">Yes</td><td class="n">In CI</td><td><span class="pill GREEN">GREEN</span><span class="prev">10-16: YELLOW</span></td></tr>
+<tr data-c="GREEN"><td class="feat"><span class="code">P4.11.12</span><span class="name">Read receipts</span><span class="note">Done (#585): the agent marks a message read before it starts typing.</span></td><td class="y">Yes</td><td class="n">Not yet</td><td><span class="pill GREEN">GREEN</span><span class="prev">10-16: RED</span></td></tr>
+<tr data-c="RED"><td class="feat"><span class="code">P4.11.14</span><span class="name">The directory (K3) lists the agent as discoverable</span><span class="note">A decision, not code. Plan: retire, so agents stay private (step 8, with Windy Chat).</span></td><td class="n">No</td><td class="n">No</td><td><span class="pill RED">RED</span><span class="prev">10-16: RED</span></td></tr>
+<tr data-c="YELLOW"><td class="feat"><span class="code">P4.11.15</span><span class="name">Push (K6) delivers the agent's replies to the phone</span><span class="note">Server-side, nothing in this repo. Turns green on Windy Chat's written confirmation.</span></td><td>Not ours</td><td class="n">No</td><td><span class="pill YELLOW">YELLOW</span><span class="prev">10-16: YELLOW</span></td></tr>
+<tr data-c="RED"><td class="feat"><span class="code">P4.11.21</span><span class="name">The supported-languages list from the account server</span><span class="note">Not built yet. Next with P2.11.13 (step 7b).</span></td><td class="n">No</td><td class="n">No</td><td><span class="pill RED">RED</span><span class="prev">10-16: RED</span></td></tr>
+<tr data-c="GREEN"><td class="feat"><span class="code">P4.11.22</span><span class="name">The JWT is verified with /auth/me</span><span class="note">Replaced by the Eternitas passport, which Zero uses every day. Only the retirement PR is left (step 8).</span></td><td>Replaced</td><td class="y">Yes</td><td><span class="pill GREEN">GREEN</span><span class="prev">10-16: GREEN</span></td></tr>
+<tr data-c="RED"><td class="feat"><span class="code">P4.11.26</span><span class="name">The agent can query and tune WindySense</span><span class="note">No integration. Plan: retire unless Hub or Word names a current use.</span></td><td class="n">No</td><td class="n">No</td><td><span class="pill RED">RED</span><span class="prev">10-16: RED</span></td></tr>
+<tr data-c="YELLOW"><td class="feat"><span class="code">P4.11.30</span><span class="name">Files on Windy Cloud are retrieved</span><span class="note">Built and tested in the cloud storage-routes PR (waiting its turn). Fetches by file id into the agent's own downloads folder, readable only by the owner, never overwriting, with size and disk limits.</span></td><td>Waiting</td><td class="n">No</td><td><span class="pill YELLOW">YELLOW</span><span class="prev">10-16: RED</span></td></tr>
+<tr class="gene"><td colspan="4">P4.13 · Roadmap (Part 4 §13)</td></tr>
+<tr data-c="GREEN"><td class="feat"><span class="code">P4.13.2</span><span class="name">The version line is clear</span><span class="note">Done (#568): a CHANGELOG note explains the version reset.</span></td><td class="y">Yes</td><td class="y">Yes</td><td><span class="pill GREEN">GREEN</span><span class="prev">10-16: RED</span></td></tr>
+<tr class="gene"><td colspan="4">P4.C2 · Phase 2 checklist</td></tr>
+<tr data-c="GREEN"><td class="feat"><span class="code">P4.C2.5</span><span class="name">The owner can approve, reject or review the sensitive items</span><span class="note">Done (#587), with P2.21.11.</span></td><td class="y">Yes</td><td class="n">Not yet</td><td><span class="pill GREEN">GREEN</span><span class="prev">10-16: YELLOW</span></td></tr>
+<tr class="gene"><td colspan="4">P4.C4 · Phase 4 checklist</td></tr>
+<tr data-c="GREEN"><td class="feat"><span class="code">P4.C4.2</span><span class="name">The Bun gateway serves HTTP on port 3000</span><span class="note">Proven (#568); not running on Windy 0.</span></td><td class="y">Yes</td><td class="n">In CI</td><td><span class="pill GREEN">GREEN</span><span class="prev">10-16: GREEN</span></td></tr>
+<tr data-c="GREEN"><td class="feat"><span class="code">P4.C4.3</span><span class="name">WebSocket chat works end to end</span><span class="note">Proven (#568).</span></td><td class="y">Yes</td><td class="n">In CI</td><td><span class="pill GREEN">GREEN</span><span class="prev">10-16: YELLOW</span></td></tr>
+<tr class="gene"><td colspan="4">P5.92 · Relationship moments (gene C9.2)</td></tr>
+<tr data-c="GREEN"><td class="feat"><span class="code">P5.92.4</span><span class="name">Moments are captured only when emotional sensitivity is 3 or more</span><span class="note">Test added (#568).</span></td><td class="y">Yes</td><td class="n">Not yet</td><td><span class="pill GREEN">GREEN</span><span class="prev">10-16: YELLOW</span></td></tr>
+<tr class="gene"><td colspan="4">N4 · Windy Mail: the agent's own mailbox</td></tr>
+<tr data-c="GREEN"><td class="feat"><span class="code">N4.30</span><span class="name">The inbox watch runs on Matrix as well as Telegram</span><span class="note">Done (#581, #582, #584): exactly one runner per agent, so alerts never arrive twice.</span></td><td class="y">Yes</td><td class="n">Not yet</td><td><span class="pill GREEN">GREEN</span><span class="prev">10-16: YELLOW</span></td></tr>
+<tr class="gene"><td colspan="4">N5 · Windy Calendar</td></tr>
+<tr data-c="GREEN"><td class="feat"><span class="code">N5.19</span><span class="name">The appointments and block tools work end to end</span><span class="note">Tests added (#568).</span></td><td class="y">Yes</td><td class="n">Not yet</td><td><span class="pill GREEN">GREEN</span><span class="prev">10-16: YELLOW</span></td></tr>
+<tr class="gene"><td colspan="4">N8 · Windy Vault (agent side, dark)</td></tr>
+<tr data-c="GREEN"><td class="feat"><span class="code">N8.10</span><span class="name">A corrupt lease key file is not replaced silently</span><span class="note">Done (#564): it is logged, never silently minted over.</span></td><td class="y">Yes</td><td class="n">Not yet</td><td><span class="pill GREEN">GREEN</span><span class="prev">10-16: RED</span></td></tr>
+</tbody></table></div>
+
+<h2>Added to the strand since 10-16</h2>
+<p class="src">New promises written in during this work. They are not part of the 39 above.</p>
+<div class="tablewrap"><table>
+<thead><tr><th>Feature</th><th>Built?</th><th>Visible?</th><th>Working</th></tr></thead>
+<tbody>
+<tr><td class="feat"><span class="code">N10.1 · N10.2</span><span class="name">The owner sees and deletes the agent's memory</span><span class="note">Done (#575, #577, #578): <code>/history</code> by date or search, and <code>/forget</code>. Both delete after a yes and leave no readable copy on disk. History is on the dashboard too.</span></td><td class="y">Yes</td><td class="n">Not yet</td><td><span class="pill GREEN">GREEN</span></td></tr>
+<tr><td class="feat"><span class="code">N10.3 · N10.4</span><span class="name">Account deletion reaches the agent; backups with the owner's own key</span><span class="note">Waiting on Boss: the agent-status.v1 contract (N10.3) and the location of the recovery copy of the interim key (N10.4, due Wed 10-21).</span></td><td class="n">No</td><td class="n">No</td><td><span class="pill RED">RED</span></td></tr>
+<tr><td class="feat"><span class="code">P2.21.14</span><span class="name">Imported personality traits are added to SOUL.md</span><span class="note">Waiting on Boss's ruling on which SOUL.md Zero loads.</span></td><td class="n">No</td><td class="n">No</td><td><span class="pill RED">RED</span></td></tr>
+<tr><td class="feat"><span class="code">N9.1 – N9.11</span><span class="name">Agent's Hands: phone tools v2 (11 codons)</span><span class="note">A planning gene Boss added on 10-16. It waits on Windy Mobile and Windy Chat's per-kind contracts and Windy Code's session broker. Not started.</span></td><td class="n">No</td><td class="n">No</td><td><span class="pill RED">RED</span></td></tr>
+</tbody></table></div>
+
+<h2>What's left to reach green</h2>
+<div class="tablewrap"><table class="steps">
+<thead><tr><th>Step</th><th>What</th><th>Codons</th><th>Status</th></tr></thead>
+<tbody>
+<tr><td>Merge queue</td><td>#592 (owner-only tools), then the fail-closed follow-up, #591 (dashboard import fixes), the safe restore, and the cloud storage routes. Each goes in at the exact commit Hub approves.</td><td class="mono">P4.11.28 P4.11.29 P4.11.30 · N6</td><td>Built; merging one at a time</td></tr>
+<tr><td>0 · Zero</td><td>Memory repair, backups resume, then one release with everything above. For Cloudflare: a read-only token, or the 5 tools come off Zero.</td><td class="mono">memory · N6 · tools</td><td>Boss GO</td></tr>
+<tr><td>7</td><td>Answer in the sender's language and the supported-languages list; an owner-only "continue today" past the budget.</td><td class="mono">P2.11.13 P4.11.21 P3.32.6</td><td>Next to build</td></tr>
+<tr><td>8</td><td>Retire or restate on the record. Push turns green on Windy Chat's written confirmation.</td><td class="mono">P1.02.2 P1.02.4 P1.03.21 P1.04.6 P2.21.3 P3.33.11 P4.11.14 P4.11.22 P4.11.26 · P4.11.15</td><td>After step 7</td></tr>
+<tr><td>Boss</td><td>Agent-status contract, the interim key's recovery copy, the SOUL.md ruling, and what a guest or family member may use.</td><td class="mono">N10.3 N10.4 P2.21.14 · tool bands</td><td>Waiting on Boss</td></tr>
+</tbody></table></div>
+
+<p class="src" style="margin-top:22px">Method: the 39 rows are the strand's planned codons at master <code>07c5f00</code> (10-16). Each one's state today comes from the strand at master <code>7e89fbe</code> and from the branches of the PRs waiting to merge. "Visible" is Yes only where you can see it without a new deploy: Zero runs <code>7311e0e5</code> and is held, so merged work shows "Not yet", and gateway proofs show "In CI". Every green row has a test that fails the build if code and strand disagree.</p>
+
+</div>
+<script>
+(function(){
+  var buttons = document.querySelectorAll('.filters button');
+  var rows = document.querySelectorAll('#codons tbody tr');
+  function apply(f){
+    rows.forEach(function(r){
+      if (r.classList.contains('gene')) { r.hidden = false; return; }
+      r.hidden = !(f === 'all' || r.getAttribute('data-c') === f);
+    });
+    // hide gene headers with nothing visible under them
+    rows.forEach(function(r){
+      if (!r.classList.contains('gene')) return;
+      var n = r.nextElementSibling, any = false;
+      while (n && !n.classList.contains('gene')) { if (!n.hidden) any = true; n = n.nextElementSibling; }
+      r.hidden = !any;
+    });
+    buttons.forEach(function(b){ b.setAttribute('aria-pressed', b.getAttribute('data-f') === f ? 'true' : 'false'); });
+  }
+  buttons.forEach(function(b){ b.addEventListener('click', function(){ apply(b.getAttribute('data-f')); }); });
+})();
+</script>
+</body>
+</html>
