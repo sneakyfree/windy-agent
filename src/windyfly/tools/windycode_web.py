@@ -231,9 +231,23 @@ def _clean_fills(fills: Any) -> dict[str, str]:
     return {str(k): str(v) for k, v in fills.items() if str(v).strip()}
 
 
-def windycodeweb_start(prompt: str, fills: dict[str, str] | None = None) -> dict[str, Any]:
+def windycodeweb_start(
+    prompt: str = "",
+    fills: dict[str, str] | None = None,
+    template: str = "",
+    name: str = "",
+    blank: bool = False,
+    kind: str = "site",
+) -> dict[str, Any]:
+    """The one model-facing way to start a builder project (tool trim phase 1): blank=True is the
+    builder's create_project, a template slug is start_from_template, otherwise start_from_prompt."""
+    if blank:
+        return windycodeweb_create_project(name, kind or "site")
+    if template and template.strip():
+        return windycodeweb_start_from_template(template, name, fills)
     if not prompt or not prompt.strip():
-        return {"status": "failed", "error": "prompt is empty: say what to build in a few words"}
+        return {"status": "failed",
+                "error": "prompt is empty: say what to build in a few words (or give a template, or blank=true)"}
     args: dict[str, Any] = {"prompt": prompt.strip()[:200]}
     if _clean_fills(fills):
         args["fills"] = _clean_fills(fills)
@@ -532,19 +546,11 @@ def register_windycodeweb_tools(registry: ToolRegistry) -> None:
     """Register the browser-builder tools."""
     _pid = {
         "type": "string",
-        "description": "The project id returned by windycodeweb_create_project / list.",
+        "description": "The project id from windycodeweb_start or windycodeweb_list_projects.",
     }
 
-    registry.register(
-        name="windycodeweb_status",
-        description=(
-            "Check whether the browser builder (Windy Code on the web) is "
-            "configured and reachable. Call this first if a windycodeweb_* "
-            "tool returns 'unavailable'."
-        ),
-        parameters={"type": "object", "properties": {}, "required": []},
-        fn=windycodeweb_status,
-    )
+    # No windycodeweb_status tool (tool trim phase 1): every builder call already answers
+    # {status: 'unavailable'|'failed', error} when the builder is not there. windycodeweb_status() stays.
 
     registry.register(
         name="windycodeweb_list_projects",
@@ -567,7 +573,11 @@ def register_windycodeweb_tools(registry: ToolRegistry) -> None:
     registry.register(
         name="windycodeweb_start",
         description=(
-            "Start a site from what the user asked for in plain words plus your first words (fills); Windy Code picks the closest finished example. Then use windycodeweb_edit_text / windycodeweb_add_files. Returns {project, template, filled, editables, speak}."
+            "Start a new project in Windy Code, the owner's browser builder (a private draft website). "
+            "prompt: the builder picks the closest finished example. template: start from that example "
+            "(slug from windycodeweb_list_templates); the result also carries a short interview. "
+            "blank=true: an empty project called name. fills put first words into the example. "
+            "Returns {project, template, filled, editables, speak}."
         ),
         parameters={
             "type": "object",
@@ -575,8 +585,16 @@ def register_windycodeweb_tools(registry: ToolRegistry) -> None:
                 "prompt": {"type": "string",
                            "description": "What they asked for, e.g. 'a page for my bakery'."},
                 "fills": _fills,
+                "template": {"type": "string",
+                             "description": "A template slug from windycodeweb_list_templates."},
+                "name": {"type": "string",
+                         "description": "Their name for the project, e.g. 'Garden Club'."},
+                "blank": {"type": "boolean",
+                          "description": "true = an empty project (needs name), no example."},
+                "kind": {"type": "string",
+                         "description": "With blank: site (default) | scrapbook | pamphlet."},
             },
-            "required": ["prompt"],
+            "required": [],
         },
         fn=windycodeweb_start,
     )
@@ -586,26 +604,6 @@ def register_windycodeweb_tools(registry: ToolRegistry) -> None:
         description="The finished examples a project can start from (slug, title, what it suits).",
         parameters={"type": "object", "properties": {}, "required": []},
         fn=windycodeweb_list_templates,
-    )
-
-    registry.register(
-        name="windycodeweb_start_from_template",
-        description=(
-            "Start a project from a specific example (slug from "
-            "windycodeweb_list_templates), with optional first words (fills). "
-            "Returns the project and a short interview: ask its questions ONE "
-            "AT A TIME, then put the answers in with windycodeweb_edit_text."
-        ),
-        parameters={
-            "type": "object",
-            "properties": {
-                "slug": {"type": "string"},
-                "name": {"type": "string", "description": "Their name for it."},
-                "fills": _fills,
-            },
-            "required": ["slug"],
-        },
-        fn=windycodeweb_start_from_template,
     )
 
     registry.register(
@@ -639,36 +637,16 @@ def register_windycodeweb_tools(registry: ToolRegistry) -> None:
     )
 
     registry.register(
-        name="windycodeweb_create_project",
-        description=(
-            "Start a new project in Windy Code, the user's browser builder (private draft website). The default way to build a website for the user unless they are at a desktop with Windy Code open (then use windycode_*). Returns {project:{id,...}, speak}."
-        ),
-        parameters={
-            "type": "object",
-            "properties": {
-                "name": {"type": "string",
-                         "description": "Plain-words project name, e.g. 'Garden Club'."},
-                "kind": {"type": "string",
-                         "description": "site (default) | scrapbook | pamphlet"},
-            },
-            "required": ["name"],
-        },
-        fn=windycodeweb_create_project,
-    )
-
-    registry.register(
         name="windycodeweb_add_files",
         description=(
-            "Save files into a builder project as ONE checkpoint the user can "
-            "undo to. Send ONLY the files you changed: they are laid over the "
-            "current version and every other file is kept. files = {path: full "
-            "text content}; binary_files = {path: base64} for images; delete = "
-            "paths to remove; replace=true only to start the whole site over. "
-            "label = a short HUMAN sentence describing the change ('Added the "
-            "beach photos') — the user reads these, never filenames. LAW: "
-            "every editable text node/image in your HTML must carry "
-            'data-windy-edit-id="<stable-key>" so click-to-edit works. '
-            "Idempotent: identical content is not saved twice."
+            "Save files into a builder project as ONE checkpoint the owner can "
+            "undo to. The files given are laid over the current version; every "
+            "other file is kept (replace=true makes them the whole site). "
+            "files = {path: full text}; binary_files = {path: base64}; delete = "
+            "paths to remove. label is the line the owner reads in their Undo "
+            "list ('Added the beach photos'). Click-to-edit works only on text "
+            'nodes and images that carry data-windy-edit-id="<stable-key>". '
+            "Identical content is not saved twice."
         ),
         parameters={
             "type": "object",

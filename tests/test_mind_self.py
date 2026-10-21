@@ -146,7 +146,8 @@ class TestCapabilities:
         reg = CapabilityRegistry()
         register_mind_model_capabilities(reg)
         caps = {c.id: c for c in reg.all()}
-        assert set(caps) == {"mind.status", "mind.list_models", "mind.switch_model"}  # tool trim 10-10
+        # tool trim 10-10 + phase 1 (mind.list_models folded into mind.status, a one-release alias)
+        assert set(caps) == {"mind.status", "mind.switch_model"}
         assert caps["mind.status"].band_required == Band.USER
         assert caps["mind.switch_model"].band_required == Band.OWNER
 
@@ -154,12 +155,21 @@ class TestCapabilities:
         monkeypatch.setattr(mind_self, "status", lambda: {"model": "m"})
         monkeypatch.setattr(mind_self, "my_usage", lambda: {"calls": 1})
         monkeypatch.setattr(mind_self, "why_paused", lambda: {"paused": False})
+        monkeypatch.setattr(mind_self, "list_models", lambda: {"ok": True, "models": ["grok-4"], "mode": "list"})
         monkeypatch.setattr(mind_self, "reset_model", lambda: {"ok": True, "reset": True})
         monkeypatch.setattr(mind_self, "switch_model", lambda m: {"ok": True, "model": m})
         reg = CapabilityRegistry()
         register_mind_model_capabilities(reg)
         caps = {c.id: c for c in reg.all()}
-        assert caps["mind.status"].handler() == {"model": "m", "usage": {"calls": 1}, "paused": {"paused": False}}
+        assert caps["mind.status"].handler() == {"model": "m", "allowed_models": ["grok-4"],
+                                                 "usage": {"calls": 1}, "paused": {"paused": False}}
+        # Owner hasn't allowed any pick: the plain sentence travels with the empty list.
+        monkeypatch.setattr(mind_self, "list_models", lambda: {"ok": True, "models": [], "say": "not yet"})
+        out = caps["mind.status"].handler()
+        assert out["allowed_models"] == [] and out["allowed_models_say"] == "not yet"
+        # Mind unreachable for the pick list: status still answers, without allowed_models.
+        monkeypatch.setattr(mind_self, "list_models", lambda: {"ok": False})
+        assert "allowed_models" not in caps["mind.status"].handler()
         assert caps["mind.switch_model"].handler(model="reset") == {"ok": True, "reset": True}
         assert caps["mind.switch_model"].handler(model="x-1") == {"ok": True, "model": "x-1"}
 

@@ -179,7 +179,7 @@ def switch_model(model: str) -> dict[str, Any]:
     allowed = list(mp.get("models") or [])
     if mp.get("mode") == "none" or not allowed:
         return {"ok": False, "say": _plain_refusal(403, {"code": "not_allowed_for_agent", "allowed": []})}
-    # The model passes the exact id from mind.list_models; the owner's words are its job, not ours.
+    # The model passes the exact id from mind.status allowed_models; the owner's words are its job, not ours.
     want = (model or "").strip().lower()
     exact = next((m for m in allowed if m.lower() == want), None)
     if exact is None:
