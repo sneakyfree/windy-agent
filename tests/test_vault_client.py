@@ -95,21 +95,41 @@ def test_a_lease_to_a_key_we_no_longer_hold_reregisters_once(vault, monkeypatch)
         return VECTOR["kid"]
 
     monkeypatch.setattr(vc.lease_key, "register", register)
-    answers.extend([(200, _lease_body()), (200, _lease_body())])
+    answers.extend([(200, _lease_body()), (200, {"released": True}), (200, _lease_body())])
     assert vc.lease("itm_x").value == VECTOR["plaintext_utf8"] and regs == [1]
+    assert [r["url"].rsplit("/v1/agent/", 1)[1] for r in sent] == ["lease", "lease/lse_l6kpl4pyah7use6z/release", "lease"]
 
     held["have"] = False
     monkeypatch.setattr(vc.lease_key, "register", lambda put: VECTOR["kid"])  # still not held: give up
-    answers.extend([(200, _lease_body()), (200, _lease_body())])
+    sent.clear()
+    answers.extend([(200, _lease_body()), (200, {"released": True}), (200, _lease_body()), (200, {"released": True})])
     with pytest.raises(vc.VaultError) as e:
         vc.lease("itm_x")
     assert e.value.code == "unknown_lease_key"
+    assert sum(r["url"].endswith("/release") for r in sent) == 2  # both undecryptable leases given back
 
 
 def test_a_refused_token_is_reminted_once(vault):
     sent, answers, forgot = vault
-    answers.extend([(401, {"error": "dpop_replay"}), (200, CAPS)])
+    answers.extend([(401, {"error": "unauthenticated"}), (200, CAPS)])  # vault-api's one auth code
     assert len(vc.capabilities()) == 2 and forgot == [1] and len(sent) == 2
+
+
+def test_a_second_refusal_is_surfaced_never_looped(vault):
+    sent, answers, forgot = vault
+    answers.extend([(401, {"error": "unauthenticated"}), (401, {"error": "unauthenticated"})])
+    with pytest.raises(vc.VaultError) as e:
+        vc.capabilities()
+    assert (e.value.code, e.value.status) == ("unauthenticated", 401) and forgot == [1] and len(sent) == 2
+
+
+def test_vault_unavailable_carries_its_back_off_and_is_not_reminted(vault):
+    sent, answers, forgot = vault
+    answers.append((503, {"error": "vault_unavailable", "retry_after_s": 20}))
+    with pytest.raises(vc.VaultError) as e:
+        vc.capabilities()
+    assert (e.value.code, e.value.status, e.value.retry_after) == ("vault_unavailable", 503, 20.0)
+    assert forgot == [] and len(sent) == 1
 
 
 def test_other_refusals_carry_vaults_code_and_are_not_retried(vault):
@@ -141,3 +161,11 @@ def test_register_lease_key_puts_through_the_agent_route(vault, monkeypatch):
     assert vc.register_lease_key() == "65df274c2f8401b7"
     assert seen["reply"] == (200, {"kid": "65df274c2f8401b7"})
     assert sent[0]["method"] == "PUT" and sent[0]["url"].endswith("/v1/agent/lease-key")
+
+
+@pytest.mark.parametrize("bad", ["lse_../../admin", "lse_a/b", "../lse_x", "itm_x", "", "lse_", "lse_x\n"])
+def test_release_refuses_an_id_that_could_escape_the_path(vault, bad):
+    sent, _answers, _ = vault
+    with pytest.raises(vc.VaultError) as e:
+        vc.release(bad)
+    assert e.value.code == "bad_lease_id" and sent == []
