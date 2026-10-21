@@ -75,20 +75,27 @@ def _num(value: Any, default: float) -> float:
 
 
 DEFAULT_DAILY_BUDGET_USD = 5.0
-_warned_daily_not_positive = False
+MIN_DAILY_BUDGET_USD = 0.01
+_warned_daily_values: set[str] = set()
 
 
 def daily_budget(costs: dict[str, Any]) -> float:
-    """The daily budget from ``[costs] daily_budget_usd``. Text, nan or a value of 0 or less would block every
-    turn, so it falls back to the default; the 0-or-less case is logged once (Hub's deferral on #601)."""
-    global _warned_daily_not_positive
-    n = _num(costs.get("daily_budget_usd", DEFAULT_DAILY_BUDGET_USD), DEFAULT_DAILY_BUDGET_USD)
-    if n > 0:
+    """The daily budget from ``[costs] daily_budget_usd``: the ONE reader for the gate and every display.
+
+    Text, nan, infinity or anything under $0.01 would block every turn (or crash a display), so it falls back to
+    the default, with one warning per distinct bad value (Hub on #607)."""
+    raw = costs.get("daily_budget_usd", DEFAULT_DAILY_BUDGET_USD)
+    try:
+        n = float(raw)
+    except (TypeError, ValueError):
+        n = math.nan
+    if math.isfinite(n) and n >= MIN_DAILY_BUDGET_USD:
         return n
-    if not _warned_daily_not_positive:
-        _warned_daily_not_positive = True
-        logger.warning("costs.daily_budget_usd is %s (0 or less); using the default %.2f", n,
-                       DEFAULT_DAILY_BUDGET_USD)
+    key = repr(raw)
+    if key not in _warned_daily_values:
+        _warned_daily_values.add(key)
+        logger.warning("costs.daily_budget_usd = %s is not a budget of at least $%.2f; using the default $%.2f",
+                       key[:40], MIN_DAILY_BUDGET_USD, DEFAULT_DAILY_BUDGET_USD)
     return DEFAULT_DAILY_BUDGET_USD
 
 

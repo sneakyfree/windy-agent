@@ -180,8 +180,9 @@ def _register_all():
         from windyfly import __version__
         ver = __version__
         model = os.environ.get("DEFAULT_MODEL", "not set")
-        # The limit the budget gate actually uses ([costs] daily_budget_usd), not DAILY_BUDGET_USD.
-        budget = f"{float(((_config or {}).get('costs') or {}).get('daily_budget_usd', 5.0)):.2f}"
+        # The limit the budget gate actually uses ([costs] daily_budget_usd, through the gate's own reader).
+        from windyfly.memory.cost_tracker import daily_budget
+        budget = f"{daily_budget((_config or {}).get('costs') or {}):.2f}"
         return (f"🪰 Windy Fly v{ver}\n"
                 f"Python {platform.python_version()} | {platform.system()} {platform.machine()}\n"
                 f"Model: {model} | Budget: ${budget}/day")
@@ -532,10 +533,8 @@ def _register_all():
                         f"estimate (Max plan)"
                     )
                 else:
-                    budget = float(
-                        ((_config or {}).get("costs") or {})
-                        .get("daily_budget_usd", 5.0)
-                    )
+                    from windyfly.memory.cost_tracker import daily_budget
+                    budget = daily_budget((_config or {}).get("costs") or {})
                     pct_used = (
                         (spend / budget) * 100 if budget else 0.0
                     )
@@ -707,9 +706,8 @@ def _register_all():
                 )
                 daily = get_daily_spend(_db)
                 monthly = get_monthly_spend(_db)
-                daily_budget = (_config or {}).get("costs", {}).get(
-                    "daily_budget_usd", 5.0,
-                )
+                from windyfly.memory.cost_tracker import daily_budget as _daily_budget
+                daily_budget = _daily_budget((_config or {}).get("costs") or {})
                 monthly_budget = (_config or {}).get("costs", {}).get(
                     "monthly_budget_usd", 50.0,
                 )

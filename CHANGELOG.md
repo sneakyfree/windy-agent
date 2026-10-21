@@ -14,10 +14,11 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
   shows that file's daily budget, through the same reader as the budget gate. Before, it only followed
   WINDYFLY_CONFIG or windyfly.toml, so an agent started with --config showed another file's budget.
 
-- **A daily budget of 0 no longer silences the agent.** `[costs] daily_budget_usd` set to 0 or less used to
-  block every turn. It now falls back to the default ($5.00/day) and logs one warning, the same as a
-  value that isn't a number. `/budget continue` reads the same value, so it always extends today by the
-  budget the gate uses.
+- **A daily budget that can't work no longer silences the agent.** `[costs] daily_budget_usd` set to 0 or
+  less, under $0.01, text, nan or infinity used to block every turn (or crash `/version`). It now falls back
+  to the default ($5.00/day) with one warning per distinct bad value. The budget gate, `/budget continue`,
+  `/version`, `/status`, `/pulse`, `windy version`, `windy status` and the dashboard all read it through
+  one reader, so they always show the number the gate uses.
 
 - **"Stop" means stop.** When the owner writes "stop" (or "please stop", "enough", "be quiet") in a room
   where agents are talking, the agent stops answering the other agents there at once.

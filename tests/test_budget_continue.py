@@ -116,18 +116,43 @@ def test_budget_set_refuses_a_value_that_is_not_a_number(db, value):
     assert check_budget(db, CFG)["allowed"]
 
 
-@pytest.mark.parametrize("bad", [0, -3, "0"])
-def test_a_daily_budget_of_zero_or_less_uses_the_default_and_warns_once(db, caplog, monkeypatch, bad):
+@pytest.mark.parametrize("bad", [0, -3, "0", "abc", float("nan"), float("inf"), 1e-12, 0.009])
+def test_a_daily_budget_that_cannot_work_uses_the_default_and_warns_once(db, caplog, monkeypatch, bad):
     from windyfly.memory import cost_tracker as ct
 
-    monkeypatch.setattr(ct, "_warned_daily_not_positive", False)
+    monkeypatch.setattr(ct, "_warned_daily_values", set())
     CFG["costs"] = {"daily_budget_usd": bad}
     with caplog.at_level("WARNING", logger="windyfly.memory.cost_tracker"):
         assert check_budget(db, CFG)["allowed"]
         assert check_budget(db, CFG)["daily_budget"] == ct.DEFAULT_DAILY_BUDGET_USD
-    assert sum("0 or less" in r.getMessage() for r in caplog.records) == 1
+    assert sum("using the default" in r.getMessage() for r in caplog.records) == 1
     assert "nothing to extend" not in _say("/budget continue")
     assert extra_today(db) == ct.DEFAULT_DAILY_BUDGET_USD
+
+
+def test_a_real_small_budget_is_kept_and_each_bad_value_warns_once(caplog, monkeypatch):
+    from windyfly.memory import cost_tracker as ct
+
+    monkeypatch.setattr(ct, "_warned_daily_values", set())
+    assert ct.daily_budget({"daily_budget_usd": 0.01}) == 0.01
+    assert ct.daily_budget({"daily_budget_usd": "2.50"}) == 2.5
+    with caplog.at_level("WARNING", logger="windyfly.memory.cost_tracker"):
+        for bad in (0, 0, "abc", "abc", -1):
+            assert ct.daily_budget({"daily_budget_usd": bad}) == 5.0
+    assert sum("using the default" in r.getMessage() for r in caplog.records) == 3
+
+
+@pytest.mark.parametrize("bad", [0, "abc"])
+def test_every_budget_display_shows_the_gate_s_number(db, monkeypatch, bad):
+    from windyfly.cli_status import print_status
+    from windyfly.dashboard import data as dash
+
+    CFG["costs"] = {"daily_budget_usd": bad}
+    assert "Budget: $5.00/day" in _say("/version")
+    assert "of $5.00 budget" in _say("/status")
+    assert "/ $5.00 (" in _say("/pulse")
+    assert dash.get_dashboard_summary(db, config=CFG)["config"]["daily_budget"] == 5.0
+    print_status(CFG)  # must not raise on text
 
 
 def test_eight_threads_get_one_grant_and_one_row(tmp_path):
