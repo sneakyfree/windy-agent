@@ -266,8 +266,8 @@ class TestDecaySchedulerRunsIntentDecay:
         real_sleep = time.sleep
 
         def _stop_sleep(seconds):
-            # Only the 24h wait ends the loop; any other sleep is real.
-            if seconds == wf_main._DECAY_INTERVAL_SECONDS:
+            # Only the loop's own wait ends it; any other sleep is real.
+            if seconds == wf_main._BACKUP_CHECK_SECONDS:
                 raise _StopLoop()
             real_sleep(seconds)
 
