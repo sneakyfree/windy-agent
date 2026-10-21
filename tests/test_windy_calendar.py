@@ -247,8 +247,8 @@ def test_no_other_module_issues_the_trusted_band():
 
 @pytest.mark.parametrize("aud,method,dpop", [
     ("windy-calendar", "GET", True), ("windy-calendar", "POST", True),
-    ("windy-chat", "GET", True), ("windy-mind", "GET", False), ("windy-mind", "POST", True),
-    ("windy-vault", "GET", False),
+    ("windy-chat", "GET", True), ("windy-mind", "GET", True), ("windy-mind", "POST", True),
+    ("windy-vault", "GET", True),
 ])
 def test_dpop_proof_rules_per_service(monkeypatch, aud, method, dpop):
     monkeypatch.setattr("windyfly.eternitas.agent_keys.request_agent_token", lambda a: {"token": "t"})

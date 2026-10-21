@@ -1,9 +1,9 @@
 """How windyfly authenticates to Windy Mind (plan v2.1 S10.8, R5).
 
 A Windy-born agent presents an ``EPT+agent`` for ``aud=windy-mind``: a short-lived
-token bound to the agent's own registered key, with its LIVE ei/band. Every non-GET
-also carries a DPoP proof for THAT request (htm + htu, fresh jti). GETs are
-bearer-only. This replaces the long-lived "legacy" EPT, which Mind counts from
+token bound to the agent's own registered key, with its LIVE ei/band. Every
+request, GETs included, carries a DPoP proof for THAT request (htm + htu, fresh jti)
+(Eternitas verifier.v1.1). This replaces the long-lived "legacy" EPT, which Mind counts from
 10-18, refuses on non-GET from 11-03 and stops accepting 12-03 (Eternitas + Mind
 sunset agreed 10-04).
 
@@ -79,7 +79,7 @@ def forget_token() -> None:
 
 
 def _call(send: Any, method: str, url: str, ept: str) -> Any:
-    """Send one request with EPT+agent (+ a fresh DPoP proof on non-GET).
+    """Send one request with EPT+agent + a fresh DPoP proof.
 
     ``send(auth_headers)`` performs the request. One refused-credential retry with a
     fresh mint and proof, then one with the legacy EPT (until the sunset). Any other
@@ -121,7 +121,7 @@ def client_post(client: Any, path: str, ept: str, body: dict[str, Any]) -> Any:
 
 def request(method: str, url: str, ept: str, body: dict[str, Any] | None = None,
             timeout: float = 10.0, extra_headers: dict[str, str] | None = None) -> Any:
-    """Any method to Mind with EPT+agent (a fresh DPoP proof on non-GET), same retry/fallback as post()."""
+    """Any method to Mind with EPT+agent + a fresh DPoP proof, same retry/fallback as post()."""
     import httpx
 
     def _send(auth: dict[str, str]) -> Any:
@@ -134,7 +134,7 @@ def request(method: str, url: str, ept: str, body: dict[str, Any] | None = None,
 
 
 def get(url: str, ept: str, timeout: float) -> Any:
-    """GET from Mind, bearer-only. A refused credential retries once with the legacy EPT."""
+    """GET from Mind with EPT+agent + a DPoP proof. A refused credential retries once with the legacy EPT."""
     import httpx
 
     auth, agent = headers("GET", url, ept)

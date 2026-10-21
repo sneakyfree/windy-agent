@@ -10,6 +10,11 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
 
 ## Unreleased
 
+- **Every request the agent signs carries a proof, reads included.** Requests made with the agent's short
+  Eternitas token (EPT+agent) now always add a DPoP proof for that exact method and address (query left out),
+  GETs to Windy Mind, Windy Cloud and Windy Vault included; before, only Calendar and Chat reads had one. A
+  leaked token is useless without the agent's key (Eternitas verifier.v1.1, phase A: clients always send a proof).
+
 - **`windy version --config <file>`.** `windy version` now takes the config file the agent runs with and
   shows that file's daily budget, through the same reader as the budget gate. Before, it only followed
   WINDYFLY_CONFIG or windyfly.toml, so an agent started with --config showed another file's budget.
