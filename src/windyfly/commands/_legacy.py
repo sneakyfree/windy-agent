@@ -1527,18 +1527,15 @@ def cmd_budget(args: argparse.Namespace) -> None:
         _budget_set(amount)
 
 
+def _budget_config_path() -> Path:
+    """The config file `windy budget` reads and writes: WINDYFLY_CONFIG, else windyfly.toml in the project."""
+    env = os.environ.get("WINDYFLY_CONFIG")
+    return Path(env) if env else PROJECT_ROOT / "windyfly.toml"
+
+
 def _get_daily_budget() -> float:
-    """Read daily_budget from windyfly.toml."""
-    toml_file = PROJECT_ROOT / "windyfly.toml"
-    if toml_file.exists():
-        try:
-            import tomllib
-            with open(toml_file, "rb") as f:
-                config = tomllib.load(f)
-            return float(config.get("budget", {}).get("daily_budget", 0))
-        except Exception as e:
-            logger.debug("Failed to read daily budget config: %s", e)
-    return 0.0
+    """The daily limit the budget gate uses ([costs] daily_budget_usd through cost_tracker.daily_budget)."""
+    return _gate_daily_budget(str(_budget_config_path()))
 
 
 def _budget_today() -> None:
@@ -1643,7 +1640,11 @@ def _budget_history() -> None:
 
 
 def _budget_set(amount: str) -> None:
-    """Update daily_budget in windyfly.toml."""
+    """Set [costs] daily_budget_usd, the key the budget gate reads (the old [budget] daily_budget was never read)."""
+    import math
+
+    from windyfly.memory.cost_tracker import MIN_DAILY_BUDGET_USD
+
     if not amount:
         console.print("[red]Usage: windy budget set <amount>[/red]")
         return
@@ -1653,48 +1654,38 @@ def _budget_set(amount: str) -> None:
     except ValueError:
         console.print(f"[red]Invalid amount: '{amount}'. Must be a number.[/red]")
         return
+    if not math.isfinite(budget_val) or budget_val < MIN_DAILY_BUDGET_USD:
+        console.print(f"[red]The daily budget must be at least ${MIN_DAILY_BUDGET_USD:.2f}.[/red]")
+        return
 
-    toml_file = PROJECT_ROOT / "windyfly.toml"
+    toml_file = _budget_config_path()
     if not toml_file.exists():
         console.print("[yellow]No windyfly.toml found. Run [bold]windy init[/bold] first.[/yellow]")
         return
 
-    content = toml_file.read_text(encoding="utf-8")
-    lines = content.splitlines()
-    in_budget = False
-    found = False
-    new_lines = []
-
+    lines = toml_file.read_text(encoding="utf-8").splitlines()
+    new_lines: list[str] = []
+    in_costs = found = False
     for line in lines:
         stripped = line.strip()
-        if stripped == "[budget]":
-            in_budget = True
-        elif stripped.startswith("[") and stripped.endswith("]"):
-            # If we were in [budget] and didn't find the key, add it before leaving
-            if in_budget and not found:
-                new_lines.append(f"daily_budget = {budget_val}")
+        if stripped.startswith("[") and stripped.endswith("]"):
+            if in_costs and not found:
+                new_lines.append(f"daily_budget_usd = {budget_val}")
                 found = True
-            in_budget = False
-
-        if in_budget and (stripped.startswith("daily_budget =") or stripped.startswith("daily_budget=")):
-            new_lines.append(f"daily_budget = {budget_val}")
+            in_costs = stripped == "[costs]"
+        if in_costs and stripped.split("=", 1)[0].strip() == "daily_budget_usd":
+            new_lines.append(f"daily_budget_usd = {budget_val}")
             found = True
             continue
-
         new_lines.append(line)
-
-    # If [budget] section doesn't exist, add it
     if not found:
-        if in_budget:
-            # We were in budget section at end of file but didn't find key
-            new_lines.append(f"daily_budget = {budget_val}")
+        if in_costs:
+            new_lines.append(f"daily_budget_usd = {budget_val}")
         else:
-            new_lines.append("")
-            new_lines.append("[budget]")
-            new_lines.append(f"daily_budget = {budget_val}")
+            new_lines += ["", "[costs]", f"daily_budget_usd = {budget_val}"]
 
     toml_file.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
-    console.print(f"  [green]✓[/green] Daily budget set to [bold]${budget_val:.2f}[/bold]")
+    console.print(f"  [green]✓[/green] Daily budget set to [bold]${budget_val:.2f}[/bold] ([costs] daily_budget_usd)")
 
 
 # ═══════════════════════════════════════════════════════════════════════
