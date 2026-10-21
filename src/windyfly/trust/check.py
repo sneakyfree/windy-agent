@@ -243,10 +243,25 @@ def invalidate_trust_cache(passport: str | None = None, db=None) -> None:
     db.conn.commit()
 
 
+_missing_status_warned: set[str] = set()
+
+
+def _status_of(passport: str, data: dict) -> str:
+    """The passport status from a trust response. A response with no status is NOT read as active:
+    it becomes "unknown", which allows() refuses (fail closed). Logged once per passport."""
+    status = data.get("status")
+    if isinstance(status, str) and status.strip():
+        return status.strip()
+    if passport not in _missing_status_warned:
+        _missing_status_warned.add(passport)
+        logger.warning("Trust response for %s has no status; treating it as unknown (actions refused)", passport)
+    return "unknown"
+
+
 def _snapshot_from_response(passport: str, data: dict) -> TrustSnapshot:
     return TrustSnapshot(
         passport=data.get("passport_number", passport),
-        status=data.get("status", "active"),
+        status=_status_of(passport, data),
         band=data.get("band", "unknown"),
         clearance_level=data.get("clearance_level", "registered"),
         tier_multiplier=float(data.get("tier_multiplier", 0.0)),
