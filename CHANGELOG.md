@@ -18,6 +18,15 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
   call may still be placed" instead of "failed". The tool is offered only with
   WINDY_OWNER_CALL=1. The old body called a frozen service whose host no longer resolves, so every call failed.
 
+- **`windy version --config <file>`.** `windy version` now takes the config file the agent runs with and
+  shows that file's daily budget, through the same reader as the budget gate. Before, it only followed
+  WINDYFLY_CONFIG or windyfly.toml, so an agent started with --config showed another file's budget.
+
+- **A daily budget that can't work no longer silences the agent.** `[costs] daily_budget_usd` set to 0 or
+  less, under $0.01, text, nan or infinity used to block every turn (or crash `/version`). It now falls back
+  to the default ($5.00/day) with one warning per distinct bad value. The budget gate, `/budget continue`,
+  `/version`, `/status`, `/pulse`, `windy version`, `windy status` and the dashboard all read it through
+  one reader, so they always show the number the gate uses.
 - **/stop never shuts the agent down from a chat.** /stop, /restart, /shutdown and /kill run only from the
   owner's terminal on every chat platform, not just Matrix. Before, a Telegram /stop with anything after
   it (or /kill, /restart, /shutdown) still stopped the service, and the agent stayed dead until someone

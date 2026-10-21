@@ -116,10 +116,43 @@ def test_budget_set_refuses_a_value_that_is_not_a_number(db, value):
     assert check_budget(db, CFG)["allowed"]
 
 
-def test_no_daily_budget_means_nothing_to_extend(db):
-    CFG["costs"] = {"daily_budget_usd": 0}
-    assert "nothing to extend" in _say("/budget continue")
-    assert extra_today(db) == 0.0
+@pytest.mark.parametrize("bad", [0, -3, "0", "abc", float("nan"), float("inf"), 1e-12, 0.009])
+def test_a_daily_budget_that_cannot_work_uses_the_default_and_warns_once(db, caplog, monkeypatch, bad):
+    from windyfly.memory import cost_tracker as ct
+
+    monkeypatch.setattr(ct, "_warned_daily_values", set())
+    CFG["costs"] = {"daily_budget_usd": bad}
+    with caplog.at_level("WARNING", logger="windyfly.memory.cost_tracker"):
+        assert check_budget(db, CFG)["allowed"]
+        assert check_budget(db, CFG)["daily_budget"] == ct.DEFAULT_DAILY_BUDGET_USD
+    assert sum("using the default" in r.getMessage() for r in caplog.records) == 1
+    assert "nothing to extend" not in _say("/budget continue")
+    assert extra_today(db) == ct.DEFAULT_DAILY_BUDGET_USD
+
+
+def test_a_real_small_budget_is_kept_and_each_bad_value_warns_once(caplog, monkeypatch):
+    from windyfly.memory import cost_tracker as ct
+
+    monkeypatch.setattr(ct, "_warned_daily_values", set())
+    assert ct.daily_budget({"daily_budget_usd": 0.01}) == 0.01
+    assert ct.daily_budget({"daily_budget_usd": "2.50"}) == 2.5
+    with caplog.at_level("WARNING", logger="windyfly.memory.cost_tracker"):
+        for bad in (0, 0, "abc", "abc", -1):
+            assert ct.daily_budget({"daily_budget_usd": bad}) == 5.0
+    assert sum("using the default" in r.getMessage() for r in caplog.records) == 3
+
+
+@pytest.mark.parametrize("bad", [0, "abc"])
+def test_every_budget_display_shows_the_gate_s_number(db, monkeypatch, bad):
+    from windyfly.cli_status import print_status
+    from windyfly.dashboard import data as dash
+
+    CFG["costs"] = {"daily_budget_usd": bad}
+    assert "Budget: $5.00/day" in _say("/version")
+    assert "of $5.00 budget" in _say("/status")
+    assert "/ $5.00 (" in _say("/pulse")
+    assert dash.get_dashboard_summary(db, config=CFG)["config"]["daily_budget"] == 5.0
+    print_status(CFG)  # must not raise on text
 
 
 def test_eight_threads_get_one_grant_and_one_row(tmp_path):
@@ -198,3 +231,34 @@ def test_budget_set_refuses_zero_and_below(db, value):
 def test_a_bad_daily_budget_in_the_config_falls_back_instead_of_blocking(db, bad):
     allowed = check_budget(db, {"costs": {"daily_budget_usd": bad}})
     assert allowed["allowed"] is True
+
+
+def test_windy_version_reads_the_budget_from_the_config_it_is_given(tmp_path, monkeypatch, capsys):
+    import argparse
+
+    from windyfly.commands import _legacy
+
+    cfg = tmp_path / "agent.toml"
+    cfg.write_text("[costs]\ndaily_budget_usd = 7.25\n", encoding="utf-8")
+    monkeypatch.delenv("WINDYFLY_CONFIG", raising=False)
+    monkeypatch.chdir(tmp_path)
+    assert _legacy._gate_daily_budget(str(cfg)) == 7.25
+    assert _legacy._gate_daily_budget(str(tmp_path / "missing.toml")) == 5.0
+    _legacy.cmd_version(argparse.Namespace(config=str(cfg)))
+    assert "$7.25/day" in capsys.readouterr().out
+
+
+def test_windy_version_accepts_config_on_the_command_line(monkeypatch):
+    import sys
+
+    from windyfly import cli
+    from windyfly import commands as _commands
+
+    seen = []
+    monkeypatch.setattr(_commands, "cmd_version", lambda a: seen.append(a.config))
+    monkeypatch.setattr(sys, "argv", ["windy", "version", "--config", "x.toml"])
+    try:
+        cli.main()
+    except SystemExit as e:
+        assert e.code in (0, None)
+    assert seen == ["x.toml"]

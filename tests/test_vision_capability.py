@@ -478,3 +478,19 @@ def test_a_refused_picture_does_not_bench_mind_for_the_next_turn(monkeypatch):
         with pytest.raises(RuntimeError):
             _call_anthropic_vision({"type": "url", "url": "https://e.example/a.png"}, "s", "q", 10)
     assert not models._is_provider_in_cooldown("windy-mind")
+
+
+def test_mind_busy_503_on_a_picture_says_try_again(monkeypatch):
+    from unittest.mock import MagicMock
+
+    from windyfly.agent import models
+
+    models._provider_cooldowns.pop("windy-mind", None)
+    monkeypatch.setenv("ETERNITAS_PASSPORT_TOKEN", "ept_test")
+    monkeypatch.setattr(models.time, "sleep", lambda s: None)
+    resp = MagicMock(status_code=503, text="busy", headers={"x-mind-training-policy": "no_train"})
+    with patch("httpx.post", return_value=resp), patch.object(models, "_call_openai") as lifeboat:
+        with pytest.raises(RuntimeError, match="picture helper is busy"):
+            _call_anthropic_vision({"type": "url", "url": "https://e.example/a.png"}, "s", "q", 10)
+    lifeboat.assert_not_called()
+    models._provider_cooldowns.pop("windy-mind", None)

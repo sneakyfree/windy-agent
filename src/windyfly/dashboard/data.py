@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 from windyfly.control_panel import PRESETS, estimate_monthly_cost, get_sliders
+from windyfly.memory.cost_tracker import daily_budget as _daily_budget
 from windyfly.memory.database import Database
 from windyfly.personality.versioning import get_drift_alert
 
@@ -65,7 +66,7 @@ def get_dashboard_summary(
         # config is passed (e.g. brain-offline fallbacks).
         "config": {
             "model": agent.get("default_model"),
-            "daily_budget": costs_cfg.get("daily_budget_usd"),
+            "daily_budget": _daily_budget(costs_cfg),
         },
         "ecosystem": {
             "eternitas_url": eco.get("eternitas_url"),
