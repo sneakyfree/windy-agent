@@ -27,6 +27,7 @@ import hashlib
 import json
 import logging
 import os
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -41,6 +42,13 @@ logger = logging.getLogger(__name__)
 PROJECT_ROOT = get_project_root()
 _BACKUP_STATE_FILE = PROJECT_ROOT / "data" / "backup_state.json"
 _RETENTION_COUNT = 5  # keep the 5 most recent backups (Cloud enforces)
+# Scheduled-backup safety (Hub 10-21, after Zero's 10-19 memory collapse sent near-empty backups to Cloud):
+_BACKOFF_S = 6 * 3600          # after a failed scheduled upload, wait this long before trying again
+_GATE_RATIO = 0.5              # hold a backup whose memory has under half the episodes of the last good one
+_GATE_MIN_BASELINE = 20        # ...only when that last good backup had at least this many (small agents: noise)
+_NOTICE_EVERY_S = 24 * 3600    # while held: one ERROR line + one owner notice per day, not per hourly check
+_HOLD_RELEASE_S = 72 * 3600    # unanswered for this long: upload anyway marked suspect, ONLY when the switch is on
+SUSPECT_UPLOAD_ENV = "WINDY_BACKUP_SUSPECT_UPLOAD"  # off until Windy Cloud's suspect-rotation rule is live
 _derived_key_refusals = 0  # uploads refused for want of an owner-held key (counts only)
 
 # A backup is a BULK transfer, not an interactive call. The old flat
@@ -194,7 +202,46 @@ def owner_key_missing() -> bool:
     return not os.environ.get("WINDY_BACKUP_KEY", "")
 
 
-async def backup_to_cloud(config: dict | None = None) -> dict:
+def _db_path(config: dict | None) -> Path:
+    db_path = PROJECT_ROOT / "data" / "windyfly.db"
+    if config:
+        db_path = Path(config.get("memory", {}).get("db_path", "data/windyfly.db"))
+    return db_path
+
+
+def episode_count(db_path: Path) -> int | None:
+    """How many episodes the memory holds (a short read-only connection), or None if it can't be read."""
+    import sqlite3
+
+    try:
+        con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=10)
+        try:
+            return int(con.execute("SELECT count(*) FROM episodes").fetchone()[0])
+        finally:
+            con.close()
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def accept_memory(config: dict | None = None) -> int | None:
+    """The owner says the smaller memory is expected: the next scheduled check uploads it and it becomes the new
+    baseline. Returns the episode count accepted (None if the memory can't be read)."""
+    n = episode_count(_db_path(config))
+    if n is None:
+        return None
+    state = get_backup_state()
+    state["accept_episodes"] = n
+    _save_backup_state(state)
+    return n
+
+
+def hold_status() -> dict | None:
+    """The current hold (since, baseline, now), or None when no backup is held."""
+    hold = get_backup_state().get("hold")
+    return hold if isinstance(hold, dict) and hold.get("since") else None
+
+
+async def backup_to_cloud(config: dict | None = None, *, suspect: bool = False) -> dict:
     """Encrypt and upload the agent database to Windy Cloud.
 
     Returns dict with backup_id, size, and timestamp on success.
@@ -229,9 +276,7 @@ async def backup_to_cloud(config: dict | None = None) -> dict:
     cred = await get_bot_key()
     audit_key_id = cred.key_id if cred else ""
 
-    db_path = PROJECT_ROOT / "data" / "windyfly.db"
-    if config:
-        db_path = Path(config.get("memory", {}).get("db_path", "data/windyfly.db"))
+    db_path = _db_path(config)
 
     if not db_path.exists():
         return {"success": False, "error": f"Database not found: {db_path}"}
@@ -269,6 +314,9 @@ async def backup_to_cloud(config: dict | None = None) -> dict:
         "timestamp": ts.isoformat(),
         # keep a few backups; Cloud enforces retention server-side
         "retention_count": _RETENTION_COUNT,
+        "episodes": episode_count(db_path),
+        # Windy Cloud's rotation never lets a suspect backup push out the newest good one (its rule A/B).
+        **({"suspect": True} if suspect else {}),
     })
 
     try:
@@ -290,12 +338,16 @@ async def backup_to_cloud(config: dict | None = None) -> dict:
             resp.raise_for_status()
             result = resp.json()
 
+            # A fresh state: the hold, the failure backoff and any owner accept are all settled by this upload,
+            # and its episode count is the baseline the next backups are compared with.
             _save_backup_state({
                 "last_backup": ts.isoformat(),
                 "backup_id": backup_name,
                 "file_id": result.get("file_id", ""),
                 "size_bytes": len(raw_data),
                 "checksum": checksum,
+                "episodes": json.loads(metadata).get("episodes"),
+                **({"suspect": True} if suspect else {}),
             })
 
             logger.info("Backup uploaded: %s (%d bytes)", backup_name, len(raw_data))
@@ -398,8 +450,46 @@ def _parse_interval(interval: str) -> float:
     return float(interval)
 
 
+async def _gate(config: dict | None, state: dict, now: float) -> str:
+    """"ok", "hold" or "suspect" for a DUE scheduled backup (see the _GATE_* constants)."""
+    n = episode_count(_db_path(config))
+    baseline = state.get("episodes")
+    if state.get("accept_episodes") is not None:
+        return "ok"  # the owner accepted the smaller memory: this upload becomes the new baseline
+    if n is None or not isinstance(baseline, int) or baseline < _GATE_MIN_BASELINE or n >= baseline * _GATE_RATIO:
+        if state.pop("hold", None) is not None:
+            _save_backup_state(state)
+        return "ok"
+    raw_hold = state.get("hold")
+    hold: dict[str, Any] = raw_hold if isinstance(raw_hold, dict) else {}
+    since = float(hold.get("since") or now)
+    if now - since >= _HOLD_RELEASE_S and os.environ.get(SUSPECT_UPLOAD_ENV, "") == "1":
+        return "suspect"
+    last_notice = float(hold.get("last_notice_at") or 0)
+    if now - last_notice >= _NOTICE_EVERY_S:
+        text = (f"Your agent's memory has {n} episodes; its last backup had {baseline}. I'm holding the backup so it "
+                "doesn't push out the good ones. If this is expected, run /backup accept in your agent's terminal "
+                "(or ask whoever runs your agent to).")
+        logger.error("BACKUP HELD: memory %d episodes vs %d in the last backup (under %d%%)",
+                     n, baseline, int(_GATE_RATIO * 100))
+        try:
+            from windyfly.agent.owner_mail import send
+
+            await send("Your agent's backup is on hold", text)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("backup hold: owner notice not sent (%s)", type(exc).__name__)
+        last_notice = now
+    state["hold"] = {"since": since, "baseline": baseline, "now": n, "last_notice_at": last_notice}
+    _save_backup_state(state)
+    return "hold"
+
+
 async def run_backup_if_due(config: dict | None = None) -> dict | None:
-    """Run backup if the interval has elapsed. Called by the scheduler."""
+    """Run backup if the interval has elapsed. Called by the scheduler (hourly).
+
+    A failed upload waits _BACKOFF_S before the next try; a memory that collapsed is HELD (_gate) rather than
+    uploaded over the good backups. ``/backup now`` (backup_to_cloud directly) is the owner's own choice and
+    is never held."""
     if not should_backup(config):
         return None
 
@@ -408,10 +498,24 @@ async def run_backup_if_due(config: dict | None = None) -> dict | None:
         logger.debug("Backup skipped: no cloud token")
         return None
 
-    logger.info("Starting scheduled backup to Windy Cloud...")
-    result = await backup_to_cloud(config)
+    state = get_backup_state()
+    now = time.time()
+    last_failure = state.get("last_failure_at")
+    if isinstance(last_failure, (int, float)) and now - last_failure < _BACKOFF_S:
+        return None  # backing off after a failure (logged once, when it failed)
+
+    decision = await _gate(config, state, now)
+    if decision == "hold":
+        return None
+
+    logger.info("Starting scheduled backup to Windy Cloud%s...", " (marked SUSPECT after 72 h on hold)"
+                if decision == "suspect" else "")
+    result = await backup_to_cloud(config, suspect=decision == "suspect")
     if result.get("success"):
         logger.info("Scheduled backup complete")
     else:
-        logger.warning("Scheduled backup failed: %s", result.get("error"))
+        state = get_backup_state()
+        state["last_failure_at"] = now
+        _save_backup_state(state)
+        logger.warning("Scheduled backup failed: %s (next try in %d h)", result.get("error"), _BACKOFF_S // 3600)
     return result

@@ -92,10 +92,18 @@ def announce(db_path: str | Path) -> bool:
                          f"Windy Agent (automatic, memory collapse): {text}\n")
         except OSError as exc:
             logger.error("memory collapse: BOARD line not written (%s)", type(exc).__name__)
+    sent = False
     try:
-        from windyfly.agent.owner_mail import send_sync
+        from windyfly.agent import owner_mail
 
-        send_sync("Your agent's memory could not be read: it started fresh", text)
+        if owner_mail.configured():
+            sent = owner_mail.send_sync("Your agent's memory could not be read: it started fresh", text)
+            if not sent:
+                # Mail is set up but the send failed (Mail down, a 5xx): put the marker back so the NEXT start
+                # tries again (once per start), unless a newer collapse already wrote one.
+                if not m.exists():
+                    os.rename(claimed, m)
+                logger.error("memory collapse: owner mail failed; it will be retried at the next start")
     except Exception as exc:  # noqa: BLE001
         logger.error("memory collapse: owner mail not sent (%s)", type(exc).__name__)
     return True

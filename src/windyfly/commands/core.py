@@ -2408,7 +2408,9 @@ def _register_budget_through_help():
         action = args[0] if args else "status"
         from windyfly.cloud_backup import backup_to_cloud, list_backups, get_backup_state
         if action == "now":
-            result = await backup_to_cloud()
+            # The CONFIGURED memory file. Without the config this backed up the default data/windyfly.db, which
+            # on Windy 0 is an idle file, not Zero's memory, and still reported success.
+            result = await backup_to_cloud(_config)
             if result.get("success"):
                 return f"\u2705 Backup complete: {result.get('backup_id', 'ok')} ({result.get('size_bytes', 0)} bytes)"
             return f"\u274c Backup failed: {result.get('error', 'unknown')}"
@@ -2441,15 +2443,32 @@ def _register_budget_through_help():
                 lines.append(f"  {b.get('filename', '?')}  {when} UTC  {int(b.get('size_bytes') or 0) / 1048576:.1f} MB")
             lines.append("\n/backup restore <name> (or latest) checks one and asks before changing anything.")
             return "\n".join(lines)
+        if action == "accept":
+            from windyfly.cloud_backup import accept_memory, hold_status
+
+            if not hold_status():
+                return "No backup is on hold. Nothing to accept."
+            n = accept_memory(_config)
+            if n is None:
+                return "I couldn't read the memory, so nothing was accepted."
+            return (f"Accepted: {n} episodes is the new normal. The next scheduled check uploads it "
+                    "(within the hour) and future backups are compared with it.")
         # Default: show status
         state = get_backup_state()
         last = state.get("last_backup", "never")
+        from windyfly.cloud_backup import hold_status
+
+        held = hold_status()
+        if held:
+            return (f"\u26a0\ufe0f Backup ON HOLD: your memory has {held.get('now')} episodes, the last backup had "
+                    f"{held.get('baseline')}. Holding so it doesn't push out the good backups. "
+                    "If this is expected: /backup accept. Last backup at " + str(last))
         from windyfly.cloud_backup import owner_key_missing
         off = ("\n\u26a0\ufe0f Cloud backups are OFF: this agent has no backup key of its own (WINDY_BACKUP_KEY). "
                "A key derived from the passport is never used for uploads.") if owner_key_missing() else ""
         return f"\U0001f4be Backup status: last backup at {last}{off}\nUsage: /backup [now | list | restore [name] | undo]"
     _r("backup", "Cloud backup: run, list, restore (asks first) or undo a restore", "10_cloud", cmd_backup,
-       usage="backup [now | list | restore [name] | yes | undo | cancel | status]")
+       usage="backup [now | list | restore [name] | yes | undo | cancel | accept | status]")
 
     # ═══════════════════════════════════════════════════════════════
     # CONFIGURATION (87-94)

@@ -13,6 +13,10 @@ import httpx
 logger = logging.getLogger(__name__)
 
 
+def configured() -> bool:
+    return bool(os.environ.get("OWNER_EMAIL", "") and os.environ.get("WINDYMAIL_API_URL", ""))
+
+
 async def send(subject: str, body: str) -> bool:
     owner_email = os.environ.get("OWNER_EMAIL", "")
     mail_api = os.environ.get("WINDYMAIL_API_URL", "")
