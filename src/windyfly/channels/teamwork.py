@@ -243,6 +243,7 @@ class Task:
     turns: int = 0           # on a root: every agent message on its lineage
     local_root: bool = False  # the owner's own task, kept here, never sent
     reason: str | None = None  # why it blocked (a result's reason, budget_seconds on expiry, a root's own budget)
+    ended: float = 0.0       # when it stopped being open (a result came, or it expired): "the FIRST child that blocked"
     pseudo: str = ""         # on a pseudo-root: its "sender|room" key
 
 
@@ -259,7 +260,10 @@ PSEUDO_CEILING_PER_HOUR, _HOUR_S = 60, 3600.0   # x-runtime.pseudo_root_ceiling_
 # past LEDGER_MAX are refused (silently, like any receiver guard), and refused request ids are kept in a
 # bounded record (least recently refused dropped first).
 LEDGER_MAX, REFUSED_MAX = 2000, 1000
-_refused: "OrderedDict[str, tuple[float, str]]" = OrderedDict()   # request id -> (when, why)
+# (sender, request id) -> (when, why, to). Keyed by SENDER: one agent's refused request can never block another
+# agent's requests, even under the same id (Hub on #605: a rogue reusing the chief's root id).
+_refused: "OrderedDict[tuple[str, str], tuple[float, str, str]]" = OrderedDict()
+_full_logged = False
 
 
 def _prune(now: float) -> None:
@@ -281,13 +285,13 @@ def _prune(now: float) -> None:
     # replayed after it was pruned here (1 h for tasks, or evicted from the bounded refused record) is judged
     # again as new, exactly as after a restart; the pseudo-root budget, its hourly ceiling and the per-room cap
     # still bound what such a replay can get.
-    for tid in [k for k, (at, _) in _refused.items() if now - at > _KEEP_S]:
-        _refused.pop(tid, None)
+    for rkey in [k for k, v in _refused.items() if now - v[0] > _KEEP_S]:
+        _refused.pop(rkey, None)
 
 
-def _remember_refused(task_id: str, why: str, now: float) -> None:
-    _refused.pop(task_id, None)
-    _refused[task_id] = (now, why)
+def _remember_refused(sender: str, task_id: str, to: str, why: str, now: float) -> None:
+    _refused.pop((sender, task_id), None)
+    _refused[(sender, task_id)] = (now, why, to)
     while len(_refused) > REFUSED_MAX:
         _refused.popitem(last=False)
 
@@ -497,6 +501,7 @@ def on_agent_message(room: str, me: str, sender: str, content: object, now: floa
         if sender != req.to or req.status != "open":
             return Verdict("ignore", why="not the answer to an open request")
         req.status, req.summary, req.reason = t["status"], t["summary"], t.get("reason")
+        req.ended = now
         _count(req, now)
         if req.sender != me:
             return Verdict("ignore", why="a result for another agent")
@@ -514,19 +519,27 @@ def _on_request(room: str, me: str, sender: str, t: dict[str, Any], thread: str 
     only once all of them pass (Hub on #605: a rogue sibling must not spend another agent's budget). Each
     refusal is silent and final: a replay of a refused id stays refused."""
     tid = t["task_id"]
-    if tid in _tasks or tid in _refused:
+    if tid in _tasks or (sender, tid) in _refused:
         return Verdict("ignore", why="a request already seen (one result per request)")
+    if any(x.parent == tid or x.root == tid for x in _tasks.values()):
+        # An id already in use as a task or a parent here (e.g. the chief's root, which its requests show as
+        # their parent) can't be re-used by another request. Not recorded as refused: a re-used id must never
+        # make the real owner's later requests under it look refused (Hub on #605).
+        return Verdict("ignore", why="a task id already in use")
     if t["parent"] is None:
         # The contract: parent is never null agent-to-agent (null only means the person gave the task,
         # which never travels as a request). Not stored, not counted, no turn.
         return Verdict("ignore", why="a request with no parent task")
 
     def refuse(why: str) -> Verdict:
-        _remember_refused(tid, why, now)
+        _remember_refused(sender, tid, t["to"], why, now)
         return Verdict("ignore", why=why)
 
-    if t["parent"] in _refused:          # the lineage of a refused request stays refused
-        return refuse(f"under a refused request ({_refused[t['parent']][1]})")
+    # The lineage of a refused request stays refused: a request under a refused one, from the agent that refused
+    # request was given to (its `to`). Another sender's refusal of the same id never counts.
+    under = next((v for (s, k), v in _refused.items() if k == t["parent"] and v[2] == sender), None)
+    if under is not None:
+        return refuse(f"under a refused request ({under[1]})")
     parent = _tasks.get(t["parent"])
     if parent is not None:
         if parent.room != room:          # a task lives in ONE room
@@ -572,6 +585,11 @@ def _on_request(room: str, me: str, sender: str, t: dict[str, Any], thread: str 
     if t["to"] == me and _room_cap_hit(room, now):
         return refuse("too many typed requests in this room (10-minute cap)")
     if len(_tasks) >= LEDGER_MAX:
+        global _full_logged
+        if not _full_logged:
+            _full_logged = True
+            logger.warning("teamwork: the task ledger is full (%d); incoming requests are refused until it prunes",
+                           LEDGER_MAX)
         return refuse("the task ledger is full")
     # Every check passed: record and count.
     turns, seconds = t["budget"]["turns"], t["budget"]["seconds"]
@@ -618,6 +636,7 @@ def children(root: Task, me: str) -> list[Task]:
 # word joiner family and the BOM are removed (Hub on #605: U+200B, U+202E, ESC and NUL survived).
 _CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
 _INVISIBLE = re.compile(r"[\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]")
+_FENCE_LOOKALIKES = {0xFF1C: "<", 0xFF1E: ">", 0xFE64: "<", 0xFE65: ">"}
 
 
 def _clean(text: str) -> str:
@@ -627,7 +646,8 @@ def _clean(text: str) -> str:
 def _flat(text: str, limit: int) -> str:
     """One line, no control, zero-width or bidi characters, no fence markers, at most ``limit`` characters:
     agent text is data, never structure."""
-    flat = " ".join(_clean(text).replace("<<<", "‹‹‹").replace(">>>", "›››").split())
+    wide = _clean(text).translate(_FENCE_LOOKALIKES)          # fullwidth / small forms count as < and > too
+    flat = " ".join(wide.replace("<<<", "‹‹‹").replace(">>>", "›››").split())
     return flat if len(flat) <= limit else flat[: limit - 1] + "…"
 
 
@@ -690,7 +710,7 @@ def report_status(root: Task, me: str) -> tuple[str, str | None]:
     """The owner-facing status (contract NEEDS_INPUT, REASONS): needs_input when a part asks the person;
     otherwise blocked ONLY when no part is done, with the FIRST blocking child's reason (else the root's own
     budget reason); otherwise done. -> (status, reason or None)."""
-    kids = sorted(children(root, me), key=lambda x: x.created)
+    kids = sorted(children(root, me), key=lambda x: x.ended or x.created)   # "FIRST to block": by when it ended
     if any(x.status == "needs_input" for x in kids):
         return "needs_input", None
     if any(x.status == "done" for x in kids):
@@ -722,7 +742,7 @@ def expire(root: Task, now: float | None = None) -> bool:
         if root_why is None and any(now - x.created < x.budget_seconds for x in kids):
             return False
         for x in kids:              # an expired request counts as blocked, budget_seconds (contract EXPIRY)
-            x.status, x.reason = "blocked", root_why or "budget_seconds"
+            x.status, x.reason, x.ended = "blocked", root_why or "budget_seconds", now
         root.status, root.reason = "blocked", root_why
         return True
 

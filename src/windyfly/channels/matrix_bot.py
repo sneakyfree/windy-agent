@@ -727,10 +727,12 @@ class WindyFlyMatrixBot(ChannelAdapter):
             logger.debug("stop look-back failed: %s", type(e).__name__)
             return fail_closed
         team = self._wide_stop_room(room)
+        found = False
         for ev in chunk:                        # newest first (dir=b)
             if not isinstance(ev, dict):
                 continue
             if anchor and ev.get("event_id") == anchor:
+                found = True
                 break                           # everything older came before the anchor
             if int(ev.get("origin_server_ts") or 0) < since_ms - skew_ms:
                 continue
@@ -753,6 +755,8 @@ class WindyFlyMatrixBot(ChannelAdapter):
                                           or (team and _tw.enabled() and _tw.is_contract_stop(body))):
                 _stop.stop(room.room_id)        # the queued stop event still cancels tasks and confirms
                 return True
+        if anchor and fail_closed and not found:
+            return True                         # the anchor wasn't in the window: unknown = stopped (Hub on #605)
         return False
 
     async def _send_owner_result(self, room_id: str, root: Any, text: str, status: str,
