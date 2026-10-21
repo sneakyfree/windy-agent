@@ -334,6 +334,28 @@ def test_the_refusal_names_the_quiet_switch_that_exists_there(monkeypatch):
     assert "/pause" not in out and "say stop" not in out
 
 
+@pytest.mark.parametrize("ctx", [None, {}, {"platform": None}, {"platform": ""}, {"platform": "unknown"},
+                                 {"platform": "Terminal"}, {"platform": "web"}, {"platform": "email"},
+                                 {"platform": "sms"}])
+def test_process_control_is_refused_unless_the_platform_is_terminal_or_cli(monkeypatch, ctx):
+    import asyncio
+
+    from windyfly.commands.registry import registry
+    from windyfly.commands.setup import init_all_commands
+    from windyfly.memory.database import Database
+    from windyfly.commands import core as _core
+    from windyfly import platform as _platform
+
+    init_all_commands(db=Database(":memory:"), config={})
+    ran = []
+    monkeypatch.setattr(_platform, "find_systemd_unit_for_pattern", lambda *a: ran.append(a) or None)
+    monkeypatch.setattr(_platform, "systemctl_stop", lambda *a: ran.append(a) or (True, ""))
+    monkeypatch.setattr(_core.os, "kill", lambda *a: ran.append(a))
+    monkeypatch.setattr(_core.os, "system", lambda *a: ran.append(a) or 0)
+    out = asyncio.run(registry.execute("/stop", ctx))
+    assert "doesn't run from a chat" in out and ran == []
+
+
 def test_process_control_still_runs_from_the_terminal(monkeypatch):
     out, ran = _process_control(monkeypatch, "stop", "terminal")
     assert "doesn't run from a chat" not in out and ran
