@@ -25,7 +25,15 @@
 #   - trap: channels are unconditionally started again on ANY exit.
 #
 # Env: WINDY_ENV_FILE (default ~/.windy/windy-0.env) for tokens.
-# Results: ~/.windy/fire-drill.status + fire_drill.* telemetry events.
+# Results: ~/.windy/fire-drill.status + fire_drill.* telemetry events, and one line appended to
+# $WINDY_DRILL_BOARD_FILE when that is set (the fleet BOARD on Windy 0; unset = no post).
+#
+# Safety (Boss 10-21, after the 10-18 drill was the moment Zero's DB broke):
+#   - BACKUP GATE before anything is stopped: the agent's own encrypted cloud backup must be at most
+#     WINDY_FIRE_DRILL_BACKUP_MAX_AGE_S old (default 3600), else the drill takes one now
+#     (cloud_backup.backup_to_cloud: SQLite backup API, owner key). No fresh backup = FAIL, nothing touched.
+#   - AUTO-STOP after every step: any 'not a database' / split / locked / DatabaseError line from the
+#     agent units since the drill started ends the drill at once (result=FAIL, the remaining steps never run).
 
 set -uo pipefail
 
@@ -34,12 +42,20 @@ STATUS_FILE="${WINDY_FIRE_DRILL_STATUS:-$HOME/.windy/fire-drill.status}"
 AGENT_DIR="${WINDY_AGENT_DIR:-$HOME/.local/share/windyfly/agent}"
 PROBE="${WINDY_PROBE_BIN:-$HOME/.local/bin/windy-probe-telegram-liveness.sh}"
 SCRATCH="$(mktemp -d /tmp/windy-fire-drill.XXXXXX)"
+CONFIG="${WINDYFLY_CONFIG:-$HOME/.local/share/windyfly/soul/config.toml}"
+UNITS="${WINDY_DRILL_UNITS:-windy-0@telegram windy-0@matrix}"
+BACKUP_MAX_AGE_S="${WINDY_FIRE_DRILL_BACKUP_MAX_AGE_S:-3600}"
+BOARD_FILE="${WINDY_DRILL_BOARD_FILE:-}"
+DB_LINE_RE='not a database|memory split|DatabaseError|is locked|database.*locked'
+START_EPOCH="$(date +%s)"
 NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 [[ -f "$ENV_FILE" ]] && { set -a; source "$ENV_FILE"; set +a; }
 
 declare -A RESULT
 FAILED=0
+ABORTED=""
+DETAIL=""
 
 finish_guard() {
     # No matter what happened, the live agent comes back.
@@ -75,6 +91,58 @@ step() { # step <name> <fn>
     t1=$(date +%s%3N); dur=$((t1 - t0))
     emit "$name" "$([[ ${RESULT[$name]} == PASS ]] && echo pass || echo fail)" "$dur"
     echo "[fire-drill] $name: ${RESULT[$name]} (${dur}ms)"
+    local n
+    n=$(db_lines)
+    if (( n > 0 )); then
+        ABORTED="$name"; FAILED=1; DETAIL="AUTO-STOP: $n DB line(s) from the agent units after step $name"
+        echo "[fire-drill] $DETAIL"
+    fi
+}
+
+db_lines() { # agent-unit DB alarm lines since the drill started
+    local args=() u
+    for u in $UNITS; do args+=(-u "$u"); done
+    journalctl --user "${args[@]}" --since "@$START_EPOCH" --no-pager 2>/dev/null | grep -ciE "$DB_LINE_RE" || true
+}
+
+write_status() { # write_status <result>
+    {
+        echo "ts=$NOW"
+        echo "result=$1"
+        [[ -n "$DETAIL" ]] && echo "detail=$DETAIL"
+        for k in backup probe_heal lifeboat engine_swap turnover; do
+            echo "step_$k=${RESULT[$k]:-NOT_RUN}"
+        done
+    } > "$STATUS_FILE"
+}
+
+post_board() { # one line on the fleet BOARD, when configured
+    [[ -n "$BOARD_FILE" && -w "$BOARD_FILE" ]] || return 0
+    printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        "Windy Agent (weekly fire drill, automatic): $(tr '\n' ' ' < "$STATUS_FILE")" >> "$BOARD_FILE"
+}
+
+# ── Step 0: backup gate (before anything is stopped) ───────────────
+drill_backup() {
+    (cd "$AGENT_DIR" && WINDYFLY_CONFIG="$CONFIG" MAX_AGE="$BACKUP_MAX_AGE_S" uv run python - <<'PY'
+import asyncio, os, sys
+from datetime import datetime, timezone
+from windyfly import cloud_backup as cb
+from windyfly.config import load_config
+last = cb.get_backup_state().get("last_backup")
+if last:
+    age = (datetime.now(timezone.utc) - datetime.fromisoformat(last)).total_seconds()
+    if age <= float(os.environ["MAX_AGE"]):
+        print(f"BACKUP_FRESH age={int(age)}s")
+        sys.exit(0)
+r = asyncio.run(cb.backup_to_cloud(load_config(os.environ["WINDYFLY_CONFIG"])))
+if r.get("success"):
+    print(f"BACKUP_TAKEN {r.get('backup_id', '')}")
+    sys.exit(0)
+print(f"BACKUP_FAILED {str(r.get('error', ''))[:160]}")
+sys.exit(1)
+PY
+    )
 }
 
 # ── Guard: never drill mid-conversation ────────────────────────────
@@ -208,18 +276,21 @@ PY
     )
 }
 
-step probe_heal drill_probe_heal
-step lifeboat drill_lifeboat
-step engine_swap drill_engine_swap
-step turnover drill_turnover
+step backup drill_backup
+if [[ "${RESULT[backup]}" != PASS ]]; then
+    DETAIL="no fresh encrypted backup of the agent DB: nothing was stopped"
+    write_status FAIL
+    post_board
+    logger -t windy-fire-drill "fire drill FAILED before start: $DETAIL"
+    exit 1
+fi
+for s in probe_heal:drill_probe_heal lifeboat:drill_lifeboat engine_swap:drill_engine_swap turnover:drill_turnover; do
+    [[ -n "$ABORTED" ]] && break
+    step "${s%%:*}" "${s#*:}"
+done
 
 # ── Report ─────────────────────────────────────────────────────────
-{
-    echo "ts=$NOW"
-    echo "result=$([[ $FAILED == 0 ]] && echo PASS || echo FAIL)"
-    for k in probe_heal lifeboat engine_swap turnover; do
-        echo "step_$k=${RESULT[$k]:-MISSING}"
-    done
-} > "$STATUS_FILE"
+write_status "$([[ $FAILED == 0 ]] && echo PASS || echo FAIL)"
+post_board
 logger -t windy-fire-drill "fire drill $([[ $FAILED == 0 ]] && echo PASSED || echo FAILED): $(tr '\n' ' ' < "$STATUS_FILE")"
 exit $FAILED
