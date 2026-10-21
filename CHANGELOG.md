@@ -19,6 +19,11 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
   to the default ($5.00/day) with one warning per distinct bad value. The budget gate, `/budget continue`,
   `/version`, `/status`, `/pulse`, `windy version`, `windy status` and the dashboard all read it through
   one reader, so they always show the number the gate uses.
+- **/stop never shuts the agent down from a chat.** /stop, /restart, /shutdown and /kill run only from the
+  owner's terminal on every chat platform, not just Matrix. Before, a Telegram /stop with anything after
+  it (or /kill, /restart, /shutdown) still stopped the service, and the agent stayed dead until someone
+  restarted it from a terminal. The reply names the quiet switch where one exists: "say stop" in a Matrix
+  room, /pause on Telegram. A plain /stop on Telegram was already the same as /pause and still is.
 
 - **"Stop" means stop.** When the owner writes "stop" (or "please stop", "enough", "be quiet") in a room
   where agents are talking, the agent stops answering the other agents there at once.
