@@ -10,6 +10,13 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
 
 ## Unreleased
 
+- **One hallway: windyfly can no longer mint a passport itself.** Every agent is born through Hub's hatch
+  ceremony, and Eternitas (the one certifying authority) mints there. The old direct doors in this code
+  (`EternitasClient.register()` -> `/bots/register`, `auto_hatch()` -> `/bots/auto-hatch`,
+  `provision_eternitas()` and `link_passport_with_identity()`) had no callers left and are removed, with their
+  tests. A tripwire test fails if a direct minting call comes back. Reads (verify, lookup, certificate) and
+  revoke are unchanged.
+
 - **`windy version --config <file>`.** `windy version` now takes the config file the agent runs with and
   shows that file's daily budget, through the same reader as the budget gate. Before, it only followed
   WINDYFLY_CONFIG or windyfly.toml, so an agent started with --config showed another file's budget.
