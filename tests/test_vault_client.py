@@ -163,7 +163,7 @@ def test_register_lease_key_puts_through_the_agent_route(vault, monkeypatch):
     assert sent[0]["method"] == "PUT" and sent[0]["url"].endswith("/v1/agent/lease-key")
 
 
-@pytest.mark.parametrize("bad", ["lse_../../admin", "lse_a/b", "../lse_x", "itm_x", "", "lse_"])
+@pytest.mark.parametrize("bad", ["lse_../../admin", "lse_a/b", "../lse_x", "itm_x", "", "lse_", "lse_x\n"])
 def test_release_refuses_an_id_that_could_escape_the_path(vault, bad):
     sent, _answers, _ = vault
     with pytest.raises(vc.VaultError) as e:

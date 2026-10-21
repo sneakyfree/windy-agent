@@ -34,7 +34,7 @@ ENV_FLAG = "WINDY_VAULT_LEASE"
 ENV_URL = "WINDY_VAULT_API_URL"
 AUD = "windy-vault"
 _TIMEOUT_S = 15.0
-_LEASE_ID_RE = re.compile(r"^lse_[A-Za-z0-9_-]+$")
+_LEASE_ID_RE = re.compile(r"lse_[A-Za-z0-9_-]+")  # used with fullmatch: no trailing-newline loophole
 # vault-api answers EVERY agent-auth failure with one code, 401 {"error": "unauthenticated"} (no oracle; Windy
 # Vault 10-21, workers/vault-api/src/index.ts:130-151). A blocked passport gets it too, so re-mint ONCE, never loop.
 REMINT_CODES = frozenset({"unauthenticated"})
@@ -146,7 +146,7 @@ def lease(item_id: str) -> Lease:
         if not isinstance(data, dict) or data.get("mode") != "static_key" or not isinstance(data.get("value_jwe"), str):
             raise VaultError("bad_response")
         lid, kid, exp = data.get("lease_id"), data.get("kid"), data.get("expires_at")
-        if not (isinstance(lid, str) and _LEASE_ID_RE.match(lid) and isinstance(kid, str) and isinstance(exp, int)):
+        if not (isinstance(lid, str) and _LEASE_ID_RE.fullmatch(lid) and isinstance(kid, str) and isinstance(exp, int)):
             raise VaultError("bad_response")
         try:
             value = lease_jwe.decrypt_lease(data["value_jwe"], lambda k: lease_key.private_for(k), lease_kid=kid)
@@ -172,7 +172,7 @@ def _release_quietly(lease_id: str) -> None:
 
 def release(lease_id: str) -> bool:
     """End a lease early. True = Vault confirmed; False = Vault keeps retrying (stop using it either way)."""
-    if not isinstance(lease_id, str) or not _LEASE_ID_RE.match(lease_id):
+    if not isinstance(lease_id, str) or not _LEASE_ID_RE.fullmatch(lease_id):
         raise VaultError("bad_lease_id")  # never let a "/" or ".." into the URL path
     data = _call("POST", f"/v1/agent/lease/{lease_id}/release")
     return bool(isinstance(data, dict) and data.get("released") is True)
