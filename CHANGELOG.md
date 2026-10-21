@@ -10,6 +10,12 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
 
 ## Unreleased
 
+- **make_call phones only the owner, and is off until switched on.** It now calls windy-text's owner-call route
+  with just a message (1-500 characters): the server dials the owner's verified phone from the agent's own number,
+  and the audio comes from Windy Mind. There is no destination, no voice choice and no retry, and refusals
+  (voice_unavailable, quiet_hours, spend caps...) come back as their codes. The tool is offered only with
+  WINDY_OWNER_CALL=1. The old body called a frozen service whose host no longer resolves, so every call failed.
+
 - **/stop never shuts the agent down from a chat.** /stop, /restart, /shutdown and /kill run only from the
   owner's terminal on every chat platform, not just Matrix. Before, a Telegram /stop with anything after
   it (or /kill, /restart, /shutdown) still stopped the service, and the agent stayed dead until someone
