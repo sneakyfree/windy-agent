@@ -202,6 +202,18 @@ def owner_key_missing() -> bool:
     return not os.environ.get("WINDY_BACKUP_KEY", "")
 
 
+def _next_state(prev: dict, uploaded: dict, *, suspect: bool) -> dict:
+    """backup_state.json after a successful upload. Normal: a fresh state (hold, backoff and accept settled; this
+    upload's episodes are the new baseline). Suspect: the OLD baseline and the hold stay, so the next due backup
+    is suspect too until the owner accepts or the memory recovers past the ratio."""
+    if not suspect:
+        return dict(uploaded)
+    out = {**uploaded, "suspect": True, "episodes": prev.get("episodes")}
+    if isinstance(prev.get("hold"), dict):
+        out["hold"] = prev["hold"]
+    return out
+
+
 def _db_path(config: dict | None) -> Path:
     db_path = PROJECT_ROOT / "data" / "windyfly.db"
     if config:
@@ -338,17 +350,18 @@ async def backup_to_cloud(config: dict | None = None, *, suspect: bool = False) 
             resp.raise_for_status()
             result = resp.json()
 
-            # A fresh state: the hold, the failure backoff and any owner accept are all settled by this upload,
-            # and its episode count is the baseline the next backups are compared with.
-            _save_backup_state({
+            # A normal upload starts a fresh state: the hold, the failure backoff and any owner accept are settled,
+            # and its episode count becomes the baseline. A SUSPECT upload must NOT move the baseline or end the
+            # hold (Hub 10-21): otherwise the next day's check sees the collapsed count as normal, uploads a
+            # non-suspect copy of it, and Cloud's rule A then protects that instead of the good one.
+            _save_backup_state(_next_state(get_backup_state(), {
                 "last_backup": ts.isoformat(),
                 "backup_id": backup_name,
                 "file_id": result.get("file_id", ""),
                 "size_bytes": len(raw_data),
                 "checksum": checksum,
                 "episodes": json.loads(metadata).get("episodes"),
-                **({"suspect": True} if suspect else {}),
-            })
+            }, suspect=suspect))
 
             logger.info("Backup uploaded: %s (%d bytes)", backup_name, len(raw_data))
             return {

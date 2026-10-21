@@ -98,3 +98,17 @@ def test_without_mail_configured_the_marker_is_not_put_back(tmp_path, monkeypatc
     db = _collapse(tmp_path)
     monkeypatch.delenv("OWNER_EMAIL", raising=False)
     assert ca.announce(db) is True and not ca.marker_path(db).exists()
+
+
+def test_a_mail_retry_does_not_repeat_the_board_line(tmp_path, monkeypatch):
+    db = _collapse(tmp_path)
+    board = tmp_path / "BOARD.md"
+    board.write_text("")
+    monkeypatch.setenv(ca.ENV_BOARD, str(board))
+    monkeypatch.setenv("OWNER_EMAIL", "owner@example.invalid")
+    monkeypatch.setenv("WINDYMAIL_API_URL", "https://mail.example.invalid")
+    tries = []
+    monkeypatch.setattr("windyfly.agent.owner_mail.send_sync", lambda s, b: tries.append(1) or len(tries) > 2)
+    for _ in range(3):
+        ca.announce(db)
+    assert len(tries) == 3 and len(board.read_text().splitlines()) == 1
