@@ -118,21 +118,34 @@ def test_list_servers_reports_the_allowlist(stub):
     assert names == {"windy-word", "windy-mind"}
 
 
+def test_list_tools_without_a_server_lists_the_servers_and_connects_to_none(stub):
+    # Tool trim phase 1: mcp.list_tools() answers what mcp.list_servers did.
+    al = mc._parse_allowlist(CONFIG)
+    list_servers, list_tools, _ = mc._make_handlers(al)
+    out = _run(list_tools())
+    assert out == _run(list_servers()) == _run(list_tools(server=""))
+    assert {s["name"] for s in out["servers"]} == {"windy-word", "windy-mind"}
+    assert "tools" not in out  # no server was connected to
+    # With a server it is still that server's (untrusted) tool menu.
+    assert _run(list_tools(server="windy-word"))["tools"][0]["name"] == "evil"
+
+
 # ── registration + band enforcement via the real registry ───────────
 
 def test_registration_gates_meta_tools_at_trusted(monkeypatch):
     monkeypatch.delenv("WINDY_MCP_CLIENT", raising=False)
     reg = CapabilityRegistry()
     mc.register_mcp_client_capabilities(reg, CONFIG)
-    for cap_id in ("mcp.list_servers", "mcp.list_tools", "mcp.call"):
+    for cap_id in ("mcp.list_tools", "mcp.call"):
         assert reg.get(cap_id) is not None
+    assert reg.get("mcp.list_servers") is None  # tool trim phase 1: an alias of mcp.list_tools
     # a SANDBOX/USER caller never even SEES the mcp.* tools (band-filtered)
     sandbox = {s["function"]["name"] for s in reg.tool_schemas_for_band(Band.SANDBOX)}
     user = {s["function"]["name"] for s in reg.tool_schemas_for_band(Band.USER)}
     trusted = {s["function"]["name"] for s in reg.tool_schemas_for_band(Band.TRUSTED)}
     assert not any(n.startswith("mcp.") for n in sandbox)
     assert not any(n.startswith("mcp.") for n in user)
-    assert "mcp.list_servers" in trusted and "mcp.list_tools" in trusted
+    assert "mcp.list_tools" in trusted
 
 
 def test_mcp_call_floor_rises_to_the_strictest_server(monkeypatch):
@@ -151,4 +164,4 @@ def test_disabled_by_env(monkeypatch):
     monkeypatch.setenv("WINDY_MCP_CLIENT", "0")
     reg = CapabilityRegistry()
     mc.register_mcp_client_capabilities(reg, CONFIG)
-    assert reg.get("mcp.list_servers") is None
+    assert reg.get("mcp.list_tools") is None

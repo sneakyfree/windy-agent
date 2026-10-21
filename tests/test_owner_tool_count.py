@@ -16,12 +16,14 @@ import sys
 import pytest
 
 MIND_MAX_TOOLS = 128
-# Boss (10-10, after the tool trim): today's count (78 for this env) + 10, so growth is a decision, not an
-# accident. Raising it needs a reason in the PR. Integrations add their tools only when configured.
-TOOL_BUDGET = 88
+# Boss (10-10, after the tool trim): a budget, so growth is a decision, not an accident. Raising it needs a
+# reason in the PR. Integrations add their tools only when configured.
+# Tool trim phase 1 (10-21): Google Calendar only when connected, the two builder/IDE status probes gone,
+# builder start / vision / mcp / mind / cloudflare / setup merges. Budget = the measured count (was 88).
+TOOL_BUDGET = 66
 # Every optional family configured (GitHub, Cloudflare, SSH, Windy Word, health, the IDE, Calendar, the Code
-# cabinet): 112 on 10-10. Budget 118 keeps at least 10 under Mind's hard cap (Boss: never hit the cap again).
-FULL_BUDGET = 118
+# cabinet): 112 on 10-10. Phase 1: the measured count (was 118), at least 10 under Mind's hard cap.
+FULL_BUDGET = 89
 
 _COUNT = r"""
 import json, os, sys
@@ -105,3 +107,13 @@ def test_a_fully_configured_agent_stays_well_under_mind_s_cap(fully_configured_t
 def test_no_tool_is_offered_twice(owner_tools, fully_configured_tools):
     assert len(owner_tools) == len(set(owner_tools))
     assert len(fully_configured_tools) == len(set(fully_configured_tools))
+
+
+def test_retired_names_are_never_offered(owner_tools, fully_configured_tools):
+    """Tool trim phase 1: an alias is honoured at dispatch only, never offered in a schema."""
+    from windyfly.tools.aliases import TOOL_ALIASES
+
+    offered = set(owner_tools) | set(fully_configured_tools)
+    assert not offered & set(TOOL_ALIASES)
+    # every alias lands on a tool a fully configured owner turn really has
+    assert {a.target for a in TOOL_ALIASES.values()} <= set(fully_configured_tools)

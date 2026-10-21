@@ -223,7 +223,12 @@ def setup_calendar_oauth() -> bool:
 
 
 def register_calendar_tools(registry: ToolRegistry) -> None:
-    """Register calendar tools with the LLM."""
+    """Register the Google Calendar tools, only when Google Calendar is connected at start (a saved token;
+    principle 4: register only when configured). Connected it later? The tools appear on the next start.
+    The /calendar command calls the functions directly and keeps working either way."""
+    if not _is_configured():
+        logger.info("calendar: Google Calendar tools not registered (not connected)")
+        return
     registry.register(
         name="get_today_events",
         description=(

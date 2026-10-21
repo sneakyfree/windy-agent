@@ -137,7 +137,7 @@ def register_windy_sites_tools(registry: ToolRegistry) -> None:
         name="create_site",
         description=(
             "LOW-LEVEL: start a bare Windy Sites website called X (a private "
-            "draft until published). If windycodeweb_create_project is "
+            "draft until published). If windycodeweb_start is "
             "available, use it instead to build a site FOR the user, so it "
             "shows up in their Windy Code builder with preview and Undo. "
             "Returns { site: {id, slug, state}, speak }."

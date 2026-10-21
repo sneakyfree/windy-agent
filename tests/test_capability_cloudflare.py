@@ -273,12 +273,30 @@ def test_register_cloudflare_capabilities_adds_three_capabilities(monkeypatch):
     register_cloudflare_capabilities(registry, config={})
     for cap_id in (
         "cloudflare.list_zones",
-        "cloudflare.zone_details",
         "cloudflare.list_dns_records",
     ):
         cap = registry.get(cap_id)
         assert cap is not None, f"{cap_id} not registered"
         assert cap.audit_required is True
+    # Tool trim phase 1: zone details are list_zones(zone_name=/zone_id=); the old name is an alias.
+    assert registry.get("cloudflare.zone_details") is None
+
+
+@respx.mock
+def test_list_zones_with_a_zone_returns_that_zones_details(monkeypatch):
+    monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "cf-test")
+    registry = CapabilityRegistry()
+    register_cloudflare_capabilities(registry, config={})
+    cap = registry.get("cloudflare.list_zones")
+    assert {"zone_name", "zone_id"} <= set(cap.input_schema["properties"])
+    detail = respx.get(f"{_BASE}/zones/zone-aaa").respond(200, json={"result": {
+        "id": "zone-aaa", "name": "windycloud.com", "status": "active", "development_mode": 0}})
+    listing = respx.get(f"{_BASE}/zones").respond(200, json={"result": [], "result_info": {}})
+    out = cap.handler(zone_id="zone-aaa")
+    assert out["ok"] and out["name"] == "windycloud.com" and "development_mode" in out
+    assert detail.called and not listing.called
+    out = cap.handler()
+    assert out["ok"] and out["zones"] == [] and listing.called
 
 
 def test_not_registered_without_a_token(monkeypatch):
@@ -590,7 +608,6 @@ def test_register_cloudflare_capabilities_now_includes_writes(monkeypatch):
     register_cloudflare_capabilities(registry, config={})
     for cap_id in (
         "cloudflare.list_zones",
-        "cloudflare.zone_details",
         "cloudflare.list_dns_records",
         "cloudflare.set_dns_record",
         "cloudflare.delete_dns_record",
