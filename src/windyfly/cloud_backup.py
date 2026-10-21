@@ -209,8 +209,9 @@ def _next_state(prev: dict, uploaded: dict, *, suspect: bool) -> dict:
     if not suspect:
         return dict(uploaded)
     out = {**uploaded, "suspect": True, "episodes": prev.get("episodes")}
-    if isinstance(prev.get("hold"), dict):
-        out["hold"] = prev["hold"]
+    for key in ("hold", "accept_episodes"):  # an owner's /backup accept made during the upload is kept
+        if prev.get(key) is not None:
+            out[key] = prev[key]
     return out
 
 
@@ -476,13 +477,13 @@ async def _gate(config: dict | None, state: dict, now: float) -> str:
     raw_hold = state.get("hold")
     hold: dict[str, Any] = raw_hold if isinstance(raw_hold, dict) else {}
     since = float(hold.get("since") or now)
-    if now - since >= _HOLD_RELEASE_S and os.environ.get(SUSPECT_UPLOAD_ENV, "") == "1":
-        return "suspect"
+    suspect = now - since >= _HOLD_RELEASE_S and os.environ.get(SUSPECT_UPLOAD_ENV, "") == "1"
     last_notice = float(hold.get("last_notice_at") or 0)
-    if now - last_notice >= _NOTICE_EVERY_S:
-        text = (f"Your agent's memory has {n} episodes; its last backup had {baseline}. I'm holding the backup so it "
-                "doesn't push out the good ones. If this is expected, run /backup accept in your agent's terminal "
-                "(or ask whoever runs your agent to).")
+    if now - last_notice >= _NOTICE_EVERY_S:  # the daily notice continues on suspect days too (Hub on #633)
+        doing = ("I'm uploading it marked SUSPECT, so it never replaces your good backups"
+                 if suspect else "I'm holding the backup so it doesn't push out the good ones")
+        text = (f"Your agent's memory has {n} episodes; its last good backup had {baseline}. {doing}. If this is "
+                "expected, run /backup accept in your agent's terminal (or ask whoever runs your agent to).")
         logger.error("BACKUP HELD: memory %d episodes vs %d in the last backup (under %d%%)",
                      n, baseline, int(_GATE_RATIO * 100))
         try:
@@ -494,7 +495,7 @@ async def _gate(config: dict | None, state: dict, now: float) -> str:
         last_notice = now
     state["hold"] = {"since": since, "baseline": baseline, "now": n, "last_notice_at": last_notice}
     _save_backup_state(state)
-    return "hold"
+    return "suspect" if suspect else "hold"
 
 
 async def run_backup_if_due(config: dict | None = None) -> dict | None:

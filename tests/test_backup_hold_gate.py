@@ -29,10 +29,12 @@ def env(tmp_path, monkeypatch):
         if fake_upload.fail:
             return {"success": False, "error": "Upload failed: 503"}
         cb._save_backup_state(cb._next_state(cb.get_backup_state(), {   # the real post-upload state rule
-            "last_backup": (datetime.now(timezone.utc) - timedelta(hours=25)).isoformat(), "backup_id": "x",
+            "last_backup": (datetime.now(timezone.utc) - timedelta(hours=fake_upload.age_h)).isoformat(),
+            "backup_id": "x",
             "episodes": cb.episode_count(db)}, suspect=suspect))
         return {"success": True}
     fake_upload.fail = False
+    fake_upload.age_h = 25  # most tests want the next check due again; one uses 0 (a real upload's last_backup)
     monkeypatch.setattr(cb, "backup_to_cloud", fake_upload)
 
     async def fake_send(subject, body):
@@ -187,3 +189,46 @@ def test_after_a_suspect_upload_the_old_baseline_and_the_hold_stay(env, monkeypa
     env["run"]()
     assert env["uploads"] == [True, True, False] and cb.get_backup_state()["episodes"] == 60
     assert cb.hold_status() is None and "suspect" not in cb.get_backup_state()
+
+
+def test_suspect_days_keep_the_daily_notice_and_refresh_the_count(env, monkeypatch):
+    env["memory"](10)
+    env["last_backup"](100)
+    env["run"]()                                   # held, notice 1
+    monkeypatch.setenv(cb.SUSPECT_UPLOAD_ENV, "1")
+    for day in range(1, 5):                        # days 1-4; from 72 h on, suspect uploads
+        env["clock"]["now"] += 24 * HOUR + 60
+        env["memory"](10 + day)
+        env["run"]()
+    assert len(env["notices"]) == 5 and "SUSPECT" in env["notices"][-1]
+    assert cb.hold_status()["now"] == 14 and env["uploads"] == [True, True]
+
+
+def test_an_accept_made_during_a_suspect_upload_is_kept(env, monkeypatch):
+    env["memory"](10)
+    env["last_backup"](100)
+    env["run"]()
+    env["clock"]["now"] += 73 * HOUR
+    monkeypatch.setenv(cb.SUSPECT_UPLOAD_ENV, "1")
+    inner = cb.backup_to_cloud
+
+    async def upload_with_accept_midway(config=None, *, suspect=False):
+        cb.accept_memory(env["config"])          # the owner accepts while the upload runs
+        return await inner(config, suspect=suspect)
+
+    monkeypatch.setattr(cb, "backup_to_cloud", upload_with_accept_midway)
+    env["run"]()
+    assert cb.get_backup_state().get("accept_episodes") == 10
+
+
+def test_no_hourly_re_upload_after_a_suspect_upload(env, monkeypatch):
+    env["memory"](10)
+    env["last_backup"](100)
+    env["run"]()
+    env["clock"]["now"] += 73 * HOUR
+    monkeypatch.setenv(cb.SUSPECT_UPLOAD_ENV, "1")
+    env["upload"].age_h = 0                       # like a real upload: last_backup = now
+    env["run"]()
+    env["clock"]["now"] += HOUR
+    env["run"]()
+    assert env["uploads"] == [True]

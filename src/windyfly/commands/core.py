@@ -2462,7 +2462,8 @@ def _register_budget_through_help():
         if held:
             return (f"\u26a0\ufe0f Backup ON HOLD: your memory has {held.get('now')} episodes, the last backup had "
                     f"{held.get('baseline')}. Holding so it doesn't push out the good backups. "
-                    "If this is expected: /backup accept. Last backup at " + str(last))
+                    "If this is expected: /backup accept. (/backup now uploads it anyway and makes it the new "
+                    "normal.) Last backup at " + str(last))
         from windyfly.cloud_backup import owner_key_missing
         off = ("\n\u26a0\ufe0f Cloud backups are OFF: this agent has no backup key of its own (WINDY_BACKUP_KEY). "
                "A key derived from the passport is never used for uploads.") if owner_key_missing() else ""
