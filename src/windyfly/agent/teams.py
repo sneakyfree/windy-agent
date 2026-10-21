@@ -323,6 +323,13 @@ def siblings_stale() -> bool:
         return time.time() - float(_siblings["at"]) > SIBLING_TTL_S
 
 
+def siblings_known() -> bool:
+    """Has the owner's agent list ever been read in this process? (False right after a restart, until the
+    first good read.)"""
+    with _lock:
+        return float(_siblings["at"]) > 0
+
+
 def refresh_siblings() -> None:
     """Blocking refresh; callers run it in a thread. A failure keeps the last good list."""
     try:
