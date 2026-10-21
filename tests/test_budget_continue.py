@@ -206,3 +206,34 @@ def test_budget_set_refuses_zero_and_below(db, value):
 def test_a_bad_daily_budget_in_the_config_falls_back_instead_of_blocking(db, bad):
     allowed = check_budget(db, {"costs": {"daily_budget_usd": bad}})
     assert allowed["allowed"] is True
+
+
+def test_windy_version_reads_the_budget_from_the_config_it_is_given(tmp_path, monkeypatch, capsys):
+    import argparse
+
+    from windyfly.commands import _legacy
+
+    cfg = tmp_path / "agent.toml"
+    cfg.write_text("[costs]\ndaily_budget_usd = 7.25\n", encoding="utf-8")
+    monkeypatch.delenv("WINDYFLY_CONFIG", raising=False)
+    monkeypatch.chdir(tmp_path)
+    assert _legacy._gate_daily_budget(str(cfg)) == 7.25
+    assert _legacy._gate_daily_budget(str(tmp_path / "missing.toml")) == 5.0
+    _legacy.cmd_version(argparse.Namespace(config=str(cfg)))
+    assert "$7.25/day" in capsys.readouterr().out
+
+
+def test_windy_version_accepts_config_on_the_command_line(monkeypatch):
+    import sys
+
+    from windyfly import cli
+    from windyfly import commands as _commands
+
+    seen = []
+    monkeypatch.setattr(_commands, "cmd_version", lambda a: seen.append(a.config))
+    monkeypatch.setattr(sys, "argv", ["windy", "version", "--config", "x.toml"])
+    try:
+        cli.main()
+    except SystemExit as e:
+        assert e.code in (0, None)
+    assert seen == ["x.toml"]

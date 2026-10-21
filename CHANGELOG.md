@@ -10,6 +10,10 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
 
 ## Unreleased
 
+- **`windy version --config <file>`.** `windy version` now takes the config file the agent runs with and
+  shows that file's daily budget, through the same reader as the budget gate. Before, it only followed
+  WINDYFLY_CONFIG or windyfly.toml, so an agent started with --config showed another file's budget.
+
 - **A daily budget of 0 no longer silences the agent.** `[costs] daily_budget_usd` set to 0 or less used to
   block every turn. It now falls back to the default ($5.00/day) and logs one warning, the same as a
   value that isn't a number. `/budget continue` reads the same value, so it always extends today by the
