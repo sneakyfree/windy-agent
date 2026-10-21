@@ -1,0 +1,560 @@
+{
+ "items": [
+  {
+   "code": "N10.3",
+   "section": "N10 The owner sees and deletes the agent's memory (planned, Boss 10-17)",
+   "promise": "When the helper or the account is deleted, the agent learns it by pulling a signed status (agent-status.v1) and acts: blocked keeps memory and stops model calls and backups; purged (signed, twice 6 h apart) wipes memory on Windy-run hosts; unknown never deletes anything; Windy Cloud erases the helper's backups on the same identity.purged / tombstone",
+   "base": "(not in strand)",
+   "master": "planned: Windy Agent with Windy Hub and Windy Cloud: contract first, Boss's GO and policy for owner machines",
+   "zero_live": false,
+   "pending": [],
+   "pending_promise": null
+  },
+  {
+   "code": "N4.30",
+   "section": "N4 Windy Mail: the agent's own mailbox",
+   "promise": "The inbox watch runs on Matrix as well as Telegram, in exactly one process per agent (Telegram when a Telegram bot is configured, else Matrix, or as WINDY_MAINTENANCE_RUNNER says)",
+   "base": "planned: Windy Agent: only the Telegram runtime starts the job (telegram_bot.py); start it on Matrix or correct the docstring",
+   "master": "live",
+   "zero_live": false,
+   "pending": [],
+   "pending_promise": null
+  },
+  {
+   "code": "N5.19",
+   "section": "N5 Windy Calendar",
+   "promise": "The appointments and block tools work end to end",
+   "base": "planned: Windy Agent: their handlers have no test (capabilities/windy_calendar.py)",
+   "master": "live",
+   "zero_live": false,
+   "pending": [],
+   "pending_promise": null
+  },
+  {
+   "code": "N8.10",
+   "section": "N8 Windy Vault (agent side, dark)",
+   "promise": "A corrupt or unreadable lease key file is not replaced silently: one WARNING names the file and the reason (never its contents) before a new key replaces it",
+   "base": "planned: Windy Agent: _load treats it as empty and a new key is minted over it (safe: old leases re-lease); log it or keep the bad file aside (Windy Vault note, 10-12)",
+   "master": "live",
+   "zero_live": false,
+   "pending": [],
+   "pending_promise": null
+  },
+  {
+   "code": "N9.1",
+   "section": "N9 Agent's Hands: the agent side of phone tools (planning, Boss 10-16)",
+   "promise": "The agent offers any phone kind the pinned contract defines and the phone advertises, not a fixed pair; unknown kinds are refused",
+   "base": "(not in strand)",
+   "master": "planned: Windy Agent: phone-tools v2 per-kind schemas from Chat/Mobile",
+   "zero_live": false,
+   "pending": [],
+   "pending_promise": null
+  },
+  {
+   "code": "N9.10",
+   "section": "N9 Agent's Hands: the agent side of phone tools (planning, Boss 10-16)",
+   "promise": "A simulated phone drives every kind through done, declined, expired and unknown in CI; lab phones only",
+   "base": "(not in strand)",
+   "master": "planned: Windy Agent: tests/phone_sim.py",
+   "zero_live": false,
+   "pending": [],
+   "pending_promise": null
+  },
+  {
+   "code": "N9.11",
+   "section": "N9 Agent's Hands: the agent side of phone tools (planning, Boss 10-16)",
+   "promise": "HQ gets one counts-only event per phone request (kind, class, outcome, duration, platform)",
+   "base": "(not in strand)",
+   "master": "planned: Windy Agent: Admin's event family",
+   "zero_live": false,
+   "pending": [],
+   "pending_promise": null
+  },
+  {
+   "code": "N9.2",
+   "section": "N9 Agent's Hands: the agent side of phone tools (planning, Boss 10-16)",
+   "promise": "Every phone kind has a risk class that maps to a capability tier and a confirm rule; a kind with no class is refused",
+   "base": "(not in strand)",
+   "master": "planned: Windy Agent: phone-tools v2 risk field",
+   "zero_live": false,
+   "pending": [],
+   "pending_promise": null
+  },
+  {
+   "code": "N9.3",
+   "section": "N9 Agent's Hands: the agent side of phone tools (planning, Boss 10-16)",
+   "promise": "Anything that sends, changes, deletes, shares or pays waits for the owner's tap on the confirm card; no tap or a \"no\" is \"not done\", never retried",
+   "base": "(not in strand)",
+   "master": "planned: Windy Agent: the phone's local confirm (Mobile); approval.v1 for server-side classes (Hub)",
+   "zero_live": false,
+   "pending": [],
+   "pending_promise": null
+  },
+  {
+   "code": "N9.4",
+   "section": "N9 Agent's Hands: the agent side of phone tools (planning, Boss 10-16)",
+   "promise": "Each phone request runs at most once: no resend after a timeout, a restart, an unknown outcome or a model retry",
+   "base": "(not in strand)",
+   "master": "planned: Windy Agent: phone-tools v2 request_id",
+   "zero_live": false,
+   "pending": [],
+   "pending_promise": null
+  },
+  {
+   "code": "N9.5",
+   "section": "N9 Agent's Hands: the agent side of phone tools (planning, Boss 10-16)",
+   "promise": "Every phone answer is read once and wiped; memory keeps a stub; files never reach the model as raw bytes",
+   "base": "(not in strand)",
+   "master": "planned: Windy Agent: extend N7.5/N7.6 to every kind",
+   "zero_live": false,
+   "pending": [],
+   "pending_promise": null
+  },
+  {
+   "code": "N9.6",
+   "section": "N9 Agent's Hands: the agent side of phone tools (planning, Boss 10-16)",
+   "promise": "Phone requests have per-kind limits, and a pause stops every phone request at once",
+   "base": "(not in strand)",
+   "master": "planned: Windy Agent: caps + pause check",
+   "zero_live": false,
+   "pending": [],
+   "pending_promise": null
+  },
+  {
+   "code": "N9.7",
+   "section": "N9 Agent's Hands: the agent side of phone tools (planning, Boss 10-16)",
+   "promise": "The no-confirm / confirm / never policy table is code and tested; the \"never\" column cannot be asked away",
+   "base": "(not in strand)",
+   "master": "planned: Windy Agent: phone_policy.py",
+   "zero_live": false,
+   "pending": [],
+   "pending_promise": null
+  },
+  {
+   "code": "N9.8",
+   "section": "N9 Agent's Hands: the agent side of phone tools (planning, Boss 10-16)",
+   "promise": "Android accessibility actions: reading runs, a send/pay/delete/confirm tap waits for the card, password fields are never read",
+   "base": "(not in strand)",
+   "master": "planned: Windy Agent: after Mobile's power-mode build",
+   "zero_live": false,
+   "pending": [],
+   "pending_promise": null
+  },
+  {
+   "code": "N9.9",
+   "section": "N9 Agent's Hands: the agent side of phone tools (planning, Boss 10-16)",
+   "promise": "A shell on an owner machine over Windy Mesh is FULL_MACHINE: owner only, a card per session start, start/stop counts only; agents never attach to or type into a session through the broker (v1)",
+   "base": "(not in strand)",
+   "master": "planned: Windy Agent: after Windy Code's session broker and Mind S20",
+   "zero_live": false,
+   "pending": [],
+   "pending_promise": null
+  },
+  {
+   "code": "P1.02.1",
+   "section": "P1.02 Config (gene 0.2)",
+   "promise": "One default model: windyfly.config.DEFAULT_MODEL; windyfly.toml names the same one, .env.example sets none, and no code names its own fallback",
+   "base": "planned: Windy Agent: four defaults disagree (windyfly.toml, DEFAULT_CONFIG, .env.example, the loop's fallback); pick one, the others read it",
+   "master": "live",
+   "zero_live": false,
+   "pending": [],
+   "pending_promise": null
+  },
+  {
+   "code": "P1.02.2",
+   "section": "P1.02 Config (gene 0.2)",
+   "promise": "[agent] temperature / max_response_tokens / max_context_tokens are honoured",
+   "base": "planned: Windy Agent: never read (the creativity and response-length sliders decide); honour them or drop them from the file",
+   "master": "planned: Windy Agent: never read (the creativity and response-length sliders decide); honour them or drop them from the file",
+   "zero_live": false,
+   "pending": [],
+   "pending_promise": null
+  },
+  {
+   "code": "P1.02.4",
+   "section": "P1.02 Config (gene 0.2)",
+   "promise": "[memory] max_episodes_per_context is honoured",
+   "base": "planned: Windy Agent: never read (5 + 5 x context_window slider decides); honour it or drop it",
+   "master": "planned: Windy Agent: never read (5 + 5 x context_window slider decides); honour it or drop it",
+   "zero_live": false,
+   "pending": [],
+   "pending_promise": null
+  },
+  {
+   "code": "P1.03.21",
+   "section": "P1.03 Database layer (gene 0.3)",
+   "promise": "MEDIUM writes run as one transaction per batch of up to 50",
+   "base": "planned: Windy Agent: the queue batches up to 50 but each write commits itself; share one transaction, or restate the promise as \"batched for fairness\"",
+   "master": "planned: Windy Agent: the queue batches up to 50 but each write commits itself; share one transaction, or restate the promise as \"batched for fairness\"",
+   "zero_live": false,
+   "pending": [],
+   "pending_promise": null
+  },
+  {
+   "code": "P1.03.22",
+   "section": "P1.03 Database layer (gene 0.3)",
+   "promise": "Timestamps keep parsing on future Python versions (explicit adapters and converters, not the defaults deprecated in 3.12)",
+   "base": "planned: Windy Agent: P1.03.2 relies on sqlite3's default timestamp converter, deprecated since Python 3.12 (warning in the strand run); register explicit adapters/converters",
+   "master": "live",
+   "zero_live": false,
+   "pending": [],
+   "pending_promise": null
+  },
+  {
+   "code": "P1.03.4",
+   "section": "P1.03 Database layer (gene 0.3)",
+   "promise": "Each migration is applied atomically: one run is one transaction, statement by statement (no executescript), and a failure leaves nothing behind",
+   "base": "planned: Windy Agent: SQL-string migrations run through executescript, which commits each statement; make them atomic, or record that only callable migrations are",
+   "master": "live",
+   "zero_live": false,
+   "pending": [],
+   "pending_promise": null
+  },
+  {
+   "code": "P1.04.6",
+   "section": "P1.04 Personality engine (gene 0.4)",
+   "promise": "The personality block stays under 600 tokens",
+   "base": "planned: Windy Agent: not enforced; about 474 tokens with the default SOUL.md at maximum sliders, but a custom SOUL.md has no cap",
+   "master": "planned: Windy Agent: not enforced; about 474 tokens with the default SOUL.md at maximum sliders, but a custom SOUL.md has no cap",
+   "zero_live": false,
+   "pending": [],
+   "pending_promise": null
+  },
+  {
+   "code": "P1.06.5",
+   "section": "P1.06 Prompt and agent loop (gene 0.6)",
+   "promise": "The whole prompt stays under the effective limit (the model's window or the owner's /memory cap, less room for the answer): the oldest history goes first, never the soul or the current message",
+   "base": "planned: Windy Agent: no overall cap (each block has its own budget; the system message alone is about 8.2k characters on an empty database); see P1.02.2",
+   "master": "live",
+   "zero_live": false,
+   "pending": [],
+   "pending_promise": null
+  },
+  {
+   "code": "P2.11.13",
+   "section": "P2.11 Matrix channel (gene 1.1)",
+   "promise": "The sender's windy_lang is read from the incoming event",
+   "base": "planned: Windy Agent: never read (only outbound sets it); use it to answer in the sender's language, or retire the promise",
+   "master": "planned: Windy Agent: never read (only outbound sets it); use it to answer in the sender's language, or retire the promise",
+   "zero_live": false,
+   "pending": [],
+   "pending_promise": null
+  },
+  {
+   "code": "P2.13.4",
+   "section": "P2.13 Offline queue and reconnection (gene 1.3)",
+   "promise": "Kept replies go out on the next successful sync (not only after a reconnect), at most once every 30 s",
+   "base": "planned: Windy Agent: the queue flushes only at reconnect and shutdown, so while sync stays healthy a failed reply waits; flush from the sync-success callback",
+   "master": "live",
+   "zero_live": false,
+   "pending": [],
+   "pending_promise": null
+  },
+  {
+   "code": "P2.21.11",
+   "section": "P2.21 Soul import (gene 2.1)",
+   "promise": "The owner can review flagged items: /soul review lists them by number and kind, /soul review <n> opens one, /soul keep <n> lets the agent use it",
+   "base": "planned: Windy Agent: needs_review is stored but nothing reads it; the preview offers \"review sensitive\" with no flow behind it",
+   "master": "live",
+   "zero_live": false,
+   "pending": [],
+   "pending_promise": null
+  },
+  {
+   "code": "P2.21.12",
+   "section": "P2.21 Soul import (gene 2.1)",
+   "promise": "An imported tone (humour, formality, verbosity) can be applied to the sliders: /soul apply shows the changes, /soul yes sets them, /soul undo puts them back",
+   "base": "planned: Windy Agent: shown in the preview, then dropped by the importer",
+   "master": "live",
+   "zero_live": false,
+   "pending": [],
+   "pending_promise": null
+  },
+  {
+   "code": "P2.21.13",
+   "section": "P2.21 Soul import (gene 2.1)",
+   "promise": "The owner can start an import without a terminal: /soul import, send the export in chat, see the preview, /soul approve or /soul reject (the file is wiped either way); or upload it on the dashboard's Personality page (up to 90 MB, a one-time token, never a host path)",
+   "base": "planned: Windy Agent: reachable only through the bridge and the gateway API; no command or dashboard page calls it",
+   "master": "live",
+   "zero_live": false,
+   "pending": [
+    "safe restore"
+   ],
+   "pending_promise": "The owner can start an import without a terminal: /soul import, send the export in chat, see the preview, /soul approve or /soul reject (the file is wiped either way)"
+  },
+  {
+   "code": "P2.21.14",
+   "section": "P2.21 Soul import (gene 2.1)",
+   "promise": "Imported personality traits are added to the SOUL.md the agent loads, shown first, after a snapshot, with /soul undo",
+   "base": "(not in strand)",
+   "master": "planned: Windy Agent: waits on Boss's ruling on which SOUL.md Zero loads",
+   "zero_live": false,
+   "pending": [],
+   "pending_promise": null
+  },
+  {
+   "code": "P2.21.3",
+   "section": "P2.21 Soul import (gene 2.1)",
+   "promise": "Hermes's SQLite store is read",
+   "base": "planned: Windy Agent: the reader guesses table names and no test drives it; prove it on a real-shaped Hermes database or drop it",
+   "master": "planned: Windy Agent: the reader guesses table names and no test drives it; prove it on a real-shaped Hermes database or drop it",
+   "zero_live": false,
+   "pending": [],
+   "pending_promise": null
+  },
+  {
+   "code": "P2.21.5",
+   "section": "P2.21 Soul import (gene 2.1)",
+   "promise": "ChatGPT's communication style is extracted: humour, formality and verbosity from plain counts over the owner's own messages (never the assistant's), no model call",
+   "base": "planned: Windy Agent: personality is always empty for ChatGPT exports",
+   "master": "live",
+   "zero_live": false,
+   "pending": [],
+   "pending_promise": null
+  },
+  {
+   "code": "P2.22.11",
+   "section": "P2.22 The cockpit: presets and sliders (gene 2.2)",
+   "promise": "/preset says when raw mode means the preset won't change the tone",
+   "base": "planned: Windy Agent: raw mode is the default (Grant 07-25), so buddy and engineer give the same prompt while /preset still answers \"applied\"",
+   "master": "live",
+   "zero_live": false,
+   "pending": [],
+   "pending_promise": null
+  },
+  {
+   "code": "P2.24.3",
+   "section": "P2.24 \"Never Wrong Twice\" (gene 2.4)",
+   "promise": "Common corrections (\"That is wrong\", \"Incorrect, it was ...\", \"Actually ...\") are detected",
+   "base": "planned: Windy Agent: the patterns were tuned for precision and miss these; widen them without breaking P2.24.2",
+   "master": "live",
+   "zero_live": false,
+   "pending": [],
+   "pending_promise": null
+  },
+  {
+   "code": "P3.31.10",
+   "section": "P3.31 Skills (gene 3.1)",
+   "promise": "Success and failure uses are counted separately: a skill the agent used is judged on the owner's next message (friction = failure, otherwise success)",
+   "base": "planned: Windy Agent: increment_usage has no callers; viewing counts a use without success or failure",
+   "master": "live",
+   "zero_live": false,
+   "pending": [],
+   "pending_promise": null
+  },
+  {
+   "code": "P3.32.6",
+   "section": "P3.32 Cost ledger and budget (gene 3.2)",
+   "promise": "Over budget, the owner can choose to go on anyway",
+   "base": "planned: Windy Agent: a hard block today; the only way past is raising the budget in settings",
+   "master": "planned: Windy Agent: a hard block today; the only way past is raising the budget in settings",
+   "zero_live": false,
+   "pending": [],
+   "pending_promise": null
+  },
+  {
+   "code": "P3.33.11",
+   "section": "P3.33 Intents (gene 3.3)",
+   "promise": "Edges link memories into a graph",
+   "base": "planned: Windy Agent: the edges table exists but nothing writes to it; build the graph or drop the table",
+   "master": "planned: Windy Agent: the edges table exists but nothing writes to it; build the graph or drop the table",
+   "zero_live": false,
+   "pending": [],
+   "pending_promise": null
+  },
+  {
+   "code": "P3.41.10",
+   "section": "P3.41 Brain bridge and gateway (gene 4.1)",
+   "promise": "Gateway HTTP and WebSocket chat are proven end to end without a live stack (gateway/tests/e2e-bridge.test.ts: the real gateway against a stand-in brain socket, run by CI)",
+   "base": "planned: Windy Agent: only live-gated tests cover the gateway boot and the /ws/chat proxy; add a hermetic bun test gateway -> bridge",
+   "master": "live",
+   "zero_live": false,
+   "pending": [],
+   "pending_promise": null
+  },
+  {
+   "code": "P3.41.8",
+   "section": "P3.41 Brain bridge and gateway (gene 4.1)",
+   "promise": "Bridge memory search also searches past conversations (none in guest mode; a 300-character preview each)",
+   "base": "planned: Windy Agent: memory.search returns nodes only; episodes are not searched",
+   "master": "live",
+   "zero_live": false,
+   "pending": [],
+   "pending_promise": null
+  },
+  {
+   "code": "P4.11.12",
+   "section": "P4.11 Windy ecosystem map (Part 4 \u00a711)",
+   "promise": "Read receipts: the agent marks a message read when it takes it up, before it starts typing",
+   "base": "planned: Windy Agent: the agent sends none; send them or drop the promise",
+   "master": "live",
+   "zero_live": false,
+   "pending": [],
+   "pending_promise": null
+  },
+  {
+   "code": "P4.11.14",
+   "section": "P4.11 Windy ecosystem map (Part 4 \u00a711)",
+   "promise": "The directory (K3) lists the agent as discoverable",
+   "base": "planned: Windy Agent: no registration call (teams only reads the owner's roster); decide with Windy Chat whether agents are listed",
+   "master": "planned: Windy Agent: no registration call (teams only reads the owner's roster); decide with Windy Chat whether agents are listed",
+   "zero_live": false,
+   "pending": [],
+   "pending_promise": null
+  },
+  {
+   "code": "P4.11.15",
+   "section": "P4.11 Windy ecosystem map (Part 4 \u00a711)",
+   "promise": "Push (K6) delivers the agent's replies to the phone",
+   "base": "planned: Windy Agent: server-side, nothing in this repo; Windy Chat to confirm push covers agent replies",
+   "master": "planned: Windy Agent: server-side, nothing in this repo; Windy Chat to confirm push covers agent replies",
+   "zero_live": false,
+   "pending": [],
+   "pending_promise": null
+  },
+  {
+   "code": "P4.11.2",
+   "section": "P4.11 Windy ecosystem map (Part 4 \u00a711)",
+   "promise": "The gateway serves the web UI (localhost:3000 by default)",
+   "base": "planned: Windy Agent: proven by bun tests in CI, not yet by a scorecard test (see P3.41.10)",
+   "master": "live",
+   "zero_live": false,
+   "pending": [],
+   "pending_promise": null
+  },
+  {
+   "code": "P4.11.21",
+   "section": "P4.11 Windy ecosystem map (Part 4 \u00a711)",
+   "promise": "The supported-languages list from the account server",
+   "base": "planned: Windy Agent: not wrapped; wrap it or drop it",
+   "master": "planned: Windy Agent: not wrapped; wrap it or drop it",
+   "zero_live": false,
+   "pending": [],
+   "pending_promise": null
+  },
+  {
+   "code": "P4.11.22",
+   "section": "P4.11 Windy ecosystem map (Part 4 \u00a711)",
+   "promise": "The JWT is verified with /auth/me",
+   "base": "planned: Windy Agent: identity is the passport (EPT/JWKS) now; record the retirement in a PR",
+   "master": "planned: Windy Agent: identity is the passport (EPT/JWKS) now; record the retirement in a PR",
+   "zero_live": false,
+   "pending": [],
+   "pending_promise": null
+  },
+  {
+   "code": "P4.11.26",
+   "section": "P4.11 Windy ecosystem map (Part 4 \u00a711)",
+   "promise": "The agent can query and tune WindySense",
+   "base": "planned: Windy Agent: no integration; Hub decides whether it is still wanted",
+   "master": "planned: Windy Agent: no integration; Hub decides whether it is still wanted",
+   "zero_live": false,
+   "pending": [],
+   "pending_promise": null
+  },
+  {
+   "code": "P4.11.28",
+   "section": "P4.11 Windy ecosystem map (Part 4 \u00a711)",
+   "promise": "Files are stored on Windy Cloud",
+   "base": "live",
+   "master": "planned: Windy Agent: broken in production since it shipped: upload_to_cloud posts to /api/v1/archive/file, which Windy Cloud does not have (404, Cloud 10-17 reading prod 1045b17); the test passed only against a mock of that guessed route. Move to POST /api/v1/storage/upload",
+   "zero_live": true,
+   "pending": [
+    "cloud storage routes"
+   ],
+   "pending_promise": "Files are stored on Windy Cloud (POST /api/v1/storage/upload; only files in the allowed folders or named by the owner, never keys, env files, the agent's data or hidden folders; 5 files / 200 MB per message)"
+  },
+  {
+   "code": "P4.11.29",
+   "section": "P4.11 Windy ecosystem map (Part 4 \u00a711)",
+   "promise": "Files on Windy Cloud are listed",
+   "base": "live",
+   "master": "planned: Windy Agent: broken in production since it shipped: list_cloud_files reads /api/v1/archive/files, which Windy Cloud does not have (404, Cloud 10-17); the test passed only against a mock. Move to GET /api/v1/storage/files",
+   "zero_live": true,
+   "pending": [
+    "cloud storage routes"
+   ],
+   "pending_promise": "Files on Windy Cloud are listed (GET /api/v1/storage/files; names framed as data)"
+  },
+  {
+   "code": "P4.11.3",
+   "section": "P4.11 Windy ecosystem map (Part 4 \u00a711)",
+   "promise": "The gateway's WebSocket chat works end to end",
+   "base": "planned: Windy Agent: live-gated only (see P3.41.10)",
+   "master": "live",
+   "zero_live": false,
+   "pending": [],
+   "pending_promise": null
+  },
+  {
+   "code": "P4.11.30",
+   "section": "P4.11 Windy ecosystem map (Part 4 \u00a711)",
+   "promise": "Files on Windy Cloud are retrieved",
+   "base": "planned: Windy Agent: download is not wrapped",
+   "master": "planned: Windy Agent: download is not wrapped",
+   "zero_live": false,
+   "pending": [
+    "cloud storage routes"
+   ],
+   "pending_promise": "Files on Windy Cloud are retrieved (GET /api/v1/storage/files/{file_id} into the agent's downloads folder, 0600, never overwriting, capped)"
+  },
+  {
+   "code": "P4.13.2",
+   "section": "P4.13 Roadmap (Part 4 \u00a713)",
+   "promise": "The version line is clear: the CHANGELOG explains that the v0.4.0/v0.5.0/v1.0.0 tags were phase markers, not the package releases of the same numbers",
+   "base": "planned: Windy Agent: one CHANGELOG note explaining the reset",
+   "master": "live",
+   "zero_live": false,
+   "pending": [],
+   "pending_promise": null
+  },
+  {
+   "code": "P4.C2.5",
+   "section": "P4.C2 Phase 2 checklist (Part 4 \u00a714)",
+   "promise": "The owner can approve, reject or review the sensitive items; /soul drop, then /soul yes, deletes flagged items leaving no readable copy",
+   "base": "planned: Windy Agent: approve and reject work; reviewing flagged items has no surface (P2.21.11)",
+   "master": "live",
+   "zero_live": false,
+   "pending": [],
+   "pending_promise": null
+  },
+  {
+   "code": "P4.C4.2",
+   "section": "P4.C4 Phase 4 checklist (Part 4 \u00a714)",
+   "promise": "The Bun gateway serves HTTP on port 3000 (by default)",
+   "base": "planned: Windy Agent: bun tests in CI only (see P3.41.10)",
+   "master": "live",
+   "zero_live": false,
+   "pending": [],
+   "pending_promise": null
+  },
+  {
+   "code": "P4.C4.3",
+   "section": "P4.C4 Phase 4 checklist (Part 4 \u00a714)",
+   "promise": "WebSocket chat works end to end",
+   "base": "planned: Windy Agent: live-gated only (see P3.41.10)",
+   "master": "live",
+   "zero_live": false,
+   "pending": [],
+   "pending_promise": null
+  },
+  {
+   "code": "P5.92.4",
+   "section": "P5.92 Relationship moments (gene C9.2)",
+   "promise": "Moments are captured only when emotional sensitivity is 3 or more (the old warmth gate)",
+   "base": "planned: Windy Agent: the gate in the turn is untested",
+   "master": "live",
+   "zero_live": false,
+   "pending": [],
+   "pending_promise": null
+  }
+ ],
+ "counts": {
+  "base_rows": 562,
+  "master_rows": 578,
+  "base_live": 523,
+  "master_live": 549,
+  "master_planned": 29,
+  "master_retired": 0
+ }
+}
