@@ -97,3 +97,14 @@ def test_a_db_line_during_the_backup_stops_before_anything_is_stopped(drill):
     r, st, calls, _board = run(FAKE_BACKUP="taken")
     assert st["result"] == "FAIL" and st["step_backup"] == "PASS" and st["step_probe_heal"] == "NOT_RUN"
     assert "systemctl --user stop" not in calls
+
+
+def test_a_failed_heal_does_not_leave_matrix_down_for_the_next_steps(drill, tmp_path):
+    run, _ = drill
+    noheal = tmp_path / "noheal.sh"
+    noheal.write_text("#!/usr/bin/env bash\nexit 0\n")  # the probe does NOT start the unit
+    noheal.chmod(0o755)
+    r, st, calls, _board = run(FAKE_BACKUP="fresh", WINDY_PROBE_BIN=str(noheal))
+    assert st["step_probe_heal"] == "FAIL" and st["step_lifeboat"] == "PASS"
+    restart = calls.index("systemctl --user start windy-0@telegram windy-0@matrix")
+    assert restart < calls.index("uv step")  # units back before the scratch steps run

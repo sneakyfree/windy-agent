@@ -91,6 +91,10 @@ step() { # step <name> <fn>
     t1=$(date +%s%3N); dur=$((t1 - t0))
     emit "$name" "$([[ ${RESULT[$name]} == PASS ]] && echo pass || echo fail)" "$dur"
     echo "[fire-drill] $name: ${RESULT[$name]} (${dur}ms)"
+    # A failed step (e.g. probe_heal when the probe did not heal) must not leave a unit down for the
+    # rest of the drill: start them now (a no-op when active); finish_guard stays the backstop.
+    # shellcheck disable=SC2086
+    systemctl --user start $UNITS 2>/dev/null || true
     local n
     n=$(db_lines)
     if (( n > 0 )); then
