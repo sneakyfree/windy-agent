@@ -86,3 +86,17 @@ def test_trust_allows_only_an_active_passport(status):
     snap = TrustSnapshot(passport="ET26-X", status=status, band="good", allowed_actions=["*"])
     assert snap.allows("send_email") is False
     assert TrustSnapshot(passport="ET26-X", status="active", band="good", allowed_actions=["*"]).allows("send_email")
+
+
+def test_a_trust_response_without_status_is_unknown_and_refused(monkeypatch, caplog):
+    from windyfly.trust import check
+
+    monkeypatch.setattr(check, "_missing_status_warned", set())
+    with caplog.at_level(logging.WARNING, logger="windyfly.trust.check"):
+        snap = check._snapshot_from_response("ET26-X", {"band": "good", "allowed_actions": ["*"]})
+        again = check._snapshot_from_response("ET26-X", {"band": "good", "allowed_actions": ["*"]})
+    assert snap.status == again.status == "unknown"
+    assert snap.allows("send_email") is False
+    assert len([r for r in caplog.records if "no status" in r.getMessage()]) == 1  # logged once
+    ok = check._snapshot_from_response("ET26-X", {"status": "active", "band": "good", "allowed_actions": ["*"]})
+    assert ok.status == "active" and ok.allows("send_email")
