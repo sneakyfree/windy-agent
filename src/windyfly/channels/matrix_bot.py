@@ -1437,11 +1437,9 @@ class WindyFlyMatrixBot(ChannelAdapter):
 
         while not self._shutting_down:
             try:
-                base, ept = _sms._windy_text_env()
-                if ept:
-                    items = await asyncio.to_thread(sms_inbox.fetch_inbox, base, ept)
-                    await sms_inbox.handle_new(
-                        items, seen, send_dm=send_dm, run_owner_turn=run_owner_turn)
+                items = await asyncio.to_thread(sms_inbox.fetch_inbox, _sms._windy_text_base())
+                await sms_inbox.handle_new(
+                    items, seen, send_dm=send_dm, run_owner_turn=run_owner_turn)
             except Exception as e:  # a poll failure must never take the bot down
                 logger.warning("sms inbox poll failed: %s", e)
             await asyncio.sleep(sms_inbox.POLL_S)

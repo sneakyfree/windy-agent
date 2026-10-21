@@ -2,7 +2,8 @@
 
 Windy Text decides consent (GET /sms/recipient) and labels every text; the agent
 keeps no local list, adds no footer, uses the approved first-text wording, and
-reports a send without the label (prefix_applied) to the owner.
+reports a send without the label (prefix_applied) to the owner. Every request is mode B only
+(EPT+agent for windy-telephony + a DPoP proof for that request); the legacy passport token is never sent.
 """
 import httpx
 import pytest
@@ -18,13 +19,18 @@ def _env(monkeypatch):
     monkeypatch.setenv("WINDYFLY_AGENT_NAME", "Ava")
     monkeypatch.setenv("WINDY_OWNER_NAME", "Grant Whitmer")
     monkeypatch.delenv("WINDY_PASSPORT_EPT", raising=False)
+    from windyfly.eternitas import agent_keys as ak
+
+    monkeypatch.setattr(ak, "request_agent_token", lambda aud: {"token": f"tok-{aud}"})
+    monkeypatch.setattr(ak, "service_dpop", lambda m, u: f"proof-{m}-{u}")
 
 
 def _server(monkeypatch, recipient=None, send_status=200, send_body=None, recipient_status=200):
     calls = {"get": [], "post": []}
 
     def get(url, params=None, headers=None, timeout=None):
-        calls["get"].append({"url": url, "params": params, "auth": headers["Authorization"]})
+        calls["get"].append({"url": url, "params": params, "auth": headers["Authorization"],
+                             "dpop": headers.get("DPoP")})
         return httpx.Response(recipient_status, json=recipient or {}, request=httpx.Request("GET", url))
 
     def post(url, json=None, headers=None, timeout=None):
@@ -43,12 +49,12 @@ CONTACT_FIRST = {"approved": True, "opted_out": False, "first_contact": True, "k
 CONTACT_LATER = {"approved": True, "opted_out": False, "first_contact": False, "kind": "contact"}
 
 
-def test_texts_the_owner_with_the_agents_ept_no_from_no_footer(monkeypatch):
+def test_texts_the_owner_in_mode_b_no_from_no_footer(monkeypatch):
     calls = _server(monkeypatch, OWNER_OK)
     out = sms.send_sms(body="Your flight is delayed")
     assert out["status"] == "sent" and out["sent"] is True
     post = calls["post"][0]
-    assert post["auth"] == "Bearer ept-own" and post["url"].endswith("/sms/send")
+    assert post["auth"] == "Bearer tok-windy-telephony" and post["url"].endswith("/sms/send")
     assert post["json"] == {"body": "Your flight is delayed"}  # no to, no from, no footer
     assert calls["get"][0]["params"] is None  # recipient check for the owner
 
@@ -148,31 +154,44 @@ def test_off_keeps_the_old_behavior(monkeypatch):
     assert out["status"] == "unavailable"  # legacy WINDY_PASSPORT_EPT unset: SMS stays off
 
 
-def test_send_uses_mode_b_dpop_when_available(monkeypatch):
+def test_every_request_is_mode_b_with_a_proof_for_its_own_method_and_url(monkeypatch):
+    calls = _server(monkeypatch, {"approved": False, "opted_out": False, "first_contact": True, "kind": "contact"},
+                    send_status=202, send_body={"status": "pending"})
+    sms.send_sms(to="+15551230000", body="hi")
+    get, req = calls["get"][0], calls["post"][0]
+    assert get["auth"] == req["auth"] == "Bearer tok-windy-telephony"
+    assert get["dpop"] == "proof-GET-https://api.windytext.com/sms/recipient"  # no query in htu
+    assert req["dpop"] == "proof-POST-https://api.windytext.com/sms/recipient/request"
+
+    calls = _server(monkeypatch, OWNER_OK)
+    sms.send_sms(body="hi")
+    assert calls["post"][0]["dpop"] == "proof-POST-https://api.windytext.com/sms/send"
+
+
+def test_the_legacy_passport_token_is_never_sent(monkeypatch):
+    calls = _server(monkeypatch, CONTACT_LATER)
+    sms.send_sms(to="+15551230000", body="hi")
+    sent = [c["auth"] for c in calls["get"] + calls["post"]]
+    assert sent and all("ept-own" not in a for a in sent)
+
+
+@pytest.mark.parametrize("code", ["no_key", "unknown_audience", "unreachable", "passport_not_born"])
+def test_no_agent_token_means_nothing_is_sent(monkeypatch, code):
     from windyfly.eternitas import agent_keys as ak
 
     calls = _server(monkeypatch, OWNER_OK)
-    monkeypatch.setattr(ak, "request_agent_token", lambda aud: {"token": f"tok-{aud}"})
-    monkeypatch.setattr(ak, "service_dpop", lambda m, u: f"proof-{m}-{u.rsplit('/', 1)[-1]}")
-    sms.send_sms(body="hi")
-    assert calls["post"][0]["auth"] == "Bearer tok-windy-telephony"
-    assert calls["post"][0]["dpop"] == "proof-POST-send"  # bound to POST /sms/send
+
+    def refuse(aud):
+        raise ak.AgentTokenError(code)
+
+    monkeypatch.setattr(ak, "request_agent_token", refuse)
+    out = sms.send_sms(body="hi")
+    assert out["status"] == "failed" and out["sent"] is False and out["error_code"] == code
+    assert "couldn't sign in to Windy Text" in out["error"]
+    assert calls["get"] == [] and calls["post"] == []  # not even the consent read
 
 
-def test_mode_b_unavailable_falls_back_to_legacy(monkeypatch):
-    from windyfly.eternitas import agent_keys as ak
-
-    calls = _server(monkeypatch, OWNER_OK)
-
-    def no_key(aud):
-        raise ak.AgentTokenError("unknown_audience")
-
-    monkeypatch.setattr(ak, "request_agent_token", no_key)
-    sms.send_sms(body="hi")
-    assert calls["post"][0]["auth"] == "Bearer ept-own"
-
-
-def test_revoked_passport_is_refused_not_fallen_back(monkeypatch):
+def test_revoked_passport_is_refused_in_plain_words(monkeypatch):
     from windyfly.eternitas import agent_keys as ak
 
     calls = _server(monkeypatch, OWNER_OK)
@@ -182,7 +201,14 @@ def test_revoked_passport_is_refused_not_fallen_back(monkeypatch):
 
     monkeypatch.setattr(ak, "request_agent_token", revoked)
     out = sms.send_sms(body="hi")
-    assert out["status"] == "failed" and calls["post"] == []
+    assert out["status"] == "failed" and "standing" in out["error"]
+    assert calls["get"] == [] and calls["post"] == []
+
+
+def test_byo_needs_no_legacy_token(monkeypatch):
+    monkeypatch.delenv("ETERNITAS_PASSPORT_TOKEN")
+    calls = _server(monkeypatch, OWNER_OK)
+    assert sms.send_sms(body="hi")["status"] == "sent" and len(calls["post"]) == 1
 
 
 def test_owner_asked_in_inbox_wording(monkeypatch):
@@ -190,3 +216,10 @@ def test_owner_asked_in_inbox_wording(monkeypatch):
             send_status=202, send_body={"status": "pending", "owner_asked": "inbox"})
     out = sms.send_sms(to="+15551230000", body="hi")
     assert out["error"].startswith("I've asked Grant in the Windy Inbox")
+
+
+def test_agent_auth_signs_the_url_without_query_or_fragment():
+    headers, code = sms.agent_auth("https://api.windytext.com/sms/recipient?to=%2B1555#x", "get")
+    assert code is None
+    assert headers == {"Authorization": "Bearer tok-windy-telephony",
+                       "DPoP": "proof-GET-https://api.windytext.com/sms/recipient"}
