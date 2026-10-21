@@ -508,21 +508,28 @@ def register_sms_tools(registry: ToolRegistry, db: Database | None = None) -> No
     """Register ``send_sms`` and ``confirm_sms`` with the tool registry."""
     global _db
     _db = db
+    if byo_enabled():
+        consent = (
+            "Omit `to` to text the owner. A number the owner has not approved returns "
+            "{status: 'needs_owner_approval'}: the owner approves it in Windy, nothing is sent "
+            "until then; never approve on your own. "
+        )
+    else:
+        consent = (
+            "The FIRST text to any number returns {status: 'confirm_required', question, "
+            "confirm_token}: RELAY THE QUESTION VERBATIM to your owner and call confirm_sms "
+            "with the token ONLY after they say yes. Never confirm on your own. Texts to an "
+            "approved number send directly. Every text ends with a sign-off naming you and "
+            "offering STOP. "
+        )
     registry.register(
         name="send_sms",
         description=(
-            "Send a text message (SMS) from the agent to a phone number. "
-            "The destination must be E.164 (`+1` + 10 digits for US, etc.). "
-            "The FIRST text to any number returns {status: 'confirm_required', "
-            "question, confirm_token}: RELAY THE QUESTION VERBATIM to your "
-            "owner and call confirm_sms with the token ONLY after they say yes. "
-            "Never confirm on your own. Later texts to an approved number send "
-            "directly. Every text ends with a sign-off naming you and offering "
-            "STOP. Other results: {status: 'sent', sid, ...}; {status: "
-            "'unavailable'} when SMS isn't available for this agent; "
-            "{status: 'opted_out'} when the person replied STOP (never text "
-            "them again); {status: 'failed', error, http_status?, error_code?} "
-            "on validation / rate-limit / carrier errors."
+            "Send a text message (SMS) to an E.164 number (+, country code, digits). "
+            + consent
+            + "Other results: 'sent' {sid}; 'unavailable' (no SMS for this agent); "
+            "'opted_out' (the person replied STOP: never text them again); "
+            "'failed' {error, http_status?, error_code?}."
         ),
         parameters={
             "type": "object",

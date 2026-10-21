@@ -387,16 +387,8 @@ def register_windycode_tools(registry: ToolRegistry) -> None:
         "description": "The project name (a simple slug like 'bake-sale-website').",
     }
 
-    registry.register(
-        name="windycode_status",
-        description=(
-            "Check whether Windy Code (the user's IDE) is open and reachable. "
-            "Call this first if a windycode_* tool returns 'unavailable'. "
-            "Returns {status: connected|unavailable|error}."
-        ),
-        parameters={"type": "object", "properties": {}, "required": []},
-        fn=windycode_status,
-    )
+    # No windycode_status tool (tool trim phase 1): every bus-backed tool already answers
+    # {status: 'unavailable', message} when the IDE is closed. windycode_status() stays for code.
 
     registry.register(
         name="windycode_list_projects",

@@ -42,6 +42,7 @@ from windyfly.memory.nodes import upsert_node
 from windyfly.memory.write_queue import Priority, WriteQueue
 from windyfly.observability.events import log_event
 from windyfly.personality.engine import apply_adaptive_overrides
+from windyfly.tools import aliases as tool_aliases
 from windyfly.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -282,8 +283,10 @@ TAINT_FORBIDDEN_TOOLS = frozenset({
     "windycode_create_project",
     # Browser builder + direct Sites writes: content from an injected page/email
     # must not land on a site the user owns (publish is confirm-gated too).
-    "windycodeweb_create_project", "windycodeweb_add_files",
-    "windycodeweb_start", "windycodeweb_start_from_template", "windycodeweb_edit_text",
+    # (windycodeweb_create_project / _start_from_template are aliases of windycodeweb_start now,
+    # resolved before this gate: windyfly.tools.aliases.)
+    "windycodeweb_add_files",
+    "windycodeweb_start", "windycodeweb_edit_text",
     "windycodeweb_undo", "windycodeweb_publish", "windycodeweb_unpublish",
     "windycodeweb_connect_domain",
     "create_site", "add_or_edit_files", "publish_site", "undo_to_version",
@@ -304,6 +307,9 @@ def _taint_gate(fn_name: str, turn_tainted: bool, band: Any) -> tuple[bool, Any]
         (USER and below) stay available.
     """
     from windyfly.agent.capabilities import Band
+    from windyfly.tools.aliases import canonical
+
+    fn_name = canonical(fn_name)  # a retired name is judged as the tool that does its job now
     if turn_tainted and fn_name in TAINT_FORBIDDEN_TOOLS:
         return True, band
     if turn_tainted and band is not None and band > Band.USER:
@@ -613,8 +619,10 @@ def _dispatch_tool_call(*args: Any, **kwargs: Any) -> str:
     # A typed-task turn (agent-teamwork.v1) may call only its allowlist, on every dispatch path.
     from windyfly.tools.bands import task_turn_allowlist
 
+    from windyfly.tools.aliases import canonical
+
     allow = task_turn_allowlist()
-    fn_name = args[0] if args else kwargs.get("fn_name")
+    fn_name = canonical(str(args[0] if args else kwargs.get("fn_name", "")))
     if allow is not None and fn_name not in allow:
         logger.warning("Task turn: refusing %s (not on the task-turn allowlist)", fn_name)
         return json.dumps({"error": ("task_turn_denied: a task from another agent may use public reads only "
@@ -650,8 +658,12 @@ def _dispatch_tool_call_inner(
     name collision (Wave 2 #5 will migrate legacy tools to caps; until
     then prefer the new path). Capability calls go through invoke_sync
     so band-gating + audit fire automatically. The result is JSON-
-    encoded if non-string so the LLM can parse it.
+    encoded if non-string so the LLM can parse it. A retired tool name (tool trim phase 1) runs as
+    the tool that does its job now (windyfly.tools.aliases); aliases are never offered to the model.
     """
+    from windyfly.tools.aliases import resolve as _resolve_alias
+
+    fn_name, fn_args = _resolve_alias(fn_name, fn_args)
     cap = capability_registry.get(fn_name)
     if cap is not None:
         if isinstance(fn_args, str):
@@ -1635,8 +1647,7 @@ def _agent_respond_turn(
             # Execute each tool call
             tool_results = []
             for tc in tool_calls:
-                fn_name = tc["function"]["name"]
-                fn_args = tc["function"]["arguments"]
+                fn_name, fn_args = tool_aliases.resolve(tc["function"]["name"], tc["function"]["arguments"])
                 _turn_tool_names.add(fn_name)
                 _turn_tool_exec_count += 1
                 logger.info("Executing tool: %s (round %d)", fn_name, _round + 1)
@@ -1757,8 +1768,7 @@ def _agent_respond_turn(
             )
             tool_results = []
             for tc in tool_calls:
-                fn_name = tc["function"]["name"]
-                fn_args = tc["function"]["arguments"]
+                fn_name, fn_args = tool_aliases.resolve(tc["function"]["name"], tc["function"]["arguments"])
                 logger.info("Executing tool: %s (confab-retry)", fn_name)
                 tool_result = _dispatch_tool_call(
                     fn_name, fn_args, tool_registry, capability_registry,
