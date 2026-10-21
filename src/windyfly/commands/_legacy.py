@@ -1708,7 +1708,7 @@ def _budget_set(amount: str) -> None:
         except tomllib.TOMLDecodeError:
             after = None
     expected = {**before, "costs": {**(before.get("costs") or {}), "daily_budget_usd": budget_val}}
-    if after != expected:
+    if new_text is None or after != expected:
         console.print(f"[red]Couldn't change {toml_file} safely, so nothing was written. Set [bold][costs] "
                       f"daily_budget_usd = {budget_val}[/bold] in it by hand.[/red]")
         return
