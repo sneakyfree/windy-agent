@@ -73,13 +73,12 @@ def test_registration_adds_all_tools() -> None:
     registry = ToolRegistry()
     register_windycodeweb_tools(registry)
     names = {s["function"]["name"] for s in registry.get_schemas()}
+    # Tool trim phase 1: _status is gone, _start_from_template / _create_project are windycodeweb_start
+    # (aliases in windyfly.tools.aliases).
     assert names == {
-        "windycodeweb_status",
         "windycodeweb_list_projects",
         "windycodeweb_list_templates",
         "windycodeweb_start",
-        "windycodeweb_start_from_template",
-        "windycodeweb_create_project",
         "windycodeweb_add_files",
         "windycodeweb_list_editables",
         "windycodeweb_edit_text",
@@ -219,6 +218,27 @@ def test_start_sends_prompt_and_fills(builder_env: None) -> None:
     assert out["status"] == "ok"
     assert _sent(post) == ("start_from_prompt",
                            {"prompt": "a recipe book", "fills": {"headline": "Nana's Kitchen"}})
+
+
+def test_start_with_a_template_or_blank_makes_the_same_builder_calls(builder_env: None) -> None:
+    # Tool trim phase 1: windycodeweb_start absorbed start_from_template and create_project.
+    from windyfly.tools.windycode_web import windycodeweb_start
+
+    with patch(POST) as post:
+        post.return_value = _mcp({"project": {"id": "p2"}, "speak": "ok"})
+        windycodeweb_start(template="recipe-book", name="Nana's", fills={"headline": "Hi"})
+        assert _sent(post) == ("start_from_template",
+                               {"slug": "recipe-book", "name": "Nana's", "fills": {"headline": "Hi"}})
+        windycodeweb_start(blank=True, name="Garden Club")
+        assert _sent(post) == ("create_project", {"name": "Garden Club", "kind": "site"})
+        windycodeweb_start(blank=True, name="Trip", kind="scrapbook", prompt="ignored")
+        assert _sent(post) == ("create_project", {"name": "Trip", "kind": "scrapbook"})
+        windycodeweb_start("a bakery page")
+        assert _sent(post) == ("start_from_prompt", {"prompt": "a bakery page"})
+        n = post.call_count
+        assert windycodeweb_start()["status"] == "failed"          # nothing to start from
+        assert windycodeweb_start(blank=True)["status"] == "failed"  # a blank project needs a name
+        assert post.call_count == n
 
 
 def test_edit_text_and_editables(builder_env: None) -> None:

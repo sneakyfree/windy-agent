@@ -1092,12 +1092,10 @@ def register_filesystem_capabilities(
     registry.register(Capability(
         id="fs.delete_file",
         description=(
-            "Delete a single file. Captures the file's contents to the "
-            "undo journal first so fs.undo_last_action can restore it "
-            "(within the journal's 30-day retention window, for files "
-            "≤5MB). Refuses directories; use fs.delete_directory in a "
-            "future PR for that. dry_run=true returns the plan without "
-            "deleting."
+            "Delete a single file. Its contents go to the undo journal "
+            "first, so fs.undo_last_action can restore it (30-day "
+            "retention, files ≤5MB). Refuses directories. dry_run=true "
+            "returns the plan without deleting."
         ),
         handler=fs_delete_file,
         input_schema={

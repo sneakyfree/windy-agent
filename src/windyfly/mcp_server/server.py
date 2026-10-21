@@ -104,6 +104,9 @@ async def serve_stdio(band: Band = Band.OWNER) -> None:
 
     @server.call_tool()
     async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
+        from windyfly.tools.aliases import resolve  # a retired name (tool trim phase 1) still works
+
+        name, arguments = resolve(name, arguments or {})
         try:
             result = await registry.invoke(name, arguments or {}, band)
             block = capability_result_to_mcp(result)

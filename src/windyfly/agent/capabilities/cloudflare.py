@@ -4,7 +4,7 @@ Read-only first cut of the Cloudflare API surface so the bot can
 answer normal questions about the operator's zones:
 
   - ``cloudflare.list_zones`` — every zone on the account
-  - ``cloudflare.zone_details(zone)`` — status, plan, name servers
+  - ``cloudflare.list_zones(zone_name=)`` — one zone: status, plan, name servers
   - ``cloudflare.list_dns_records(zone, type=, name=)`` — DNS records
 
 Read-only because Cloudflare DNS edits cross a high-blast-radius
@@ -569,22 +569,18 @@ def register_cloudflare_capabilities(
         bool(token), _BASE_URL,
     )
 
-    def list_zones(*, page_size: int = _DEFAULT_PAGE_SIZE) -> dict[str, Any]:
-        # Re-read env each call so a token added without restart can work
-        # in the next invocation (the boot-time log is informational).
-        return _list_zones_handler(
-            token=os.environ.get("CLOUDFLARE_API_TOKEN", token),
-            page_size=page_size,
-        )
-
-    def zone_details(
-        *, zone_name: str | None = None,
+    def list_zones(
+        *, page_size: int = _DEFAULT_PAGE_SIZE,
+        zone_name: str | None = None,
         zone_id: str | None = None,
     ) -> dict[str, Any]:
-        return _zone_details_handler(
-            zone_name=zone_name, zone_id=zone_id,
-            token=os.environ.get("CLOUDFLARE_API_TOKEN", token),
-        )
+        # Re-read env each call so a token added without restart can work
+        # in the next invocation (the boot-time log is informational).
+        live = os.environ.get("CLOUDFLARE_API_TOKEN", token)
+        if zone_name or zone_id:
+            # One zone's full details (formerly cloudflare.zone_details; tool trim phase 1).
+            return _zone_details_handler(zone_name=zone_name, zone_id=zone_id, token=live)
+        return _list_zones_handler(token=live, page_size=page_size)
 
     def list_dns_records(
         *, zone_name: str | None = None,
@@ -632,11 +628,11 @@ def register_cloudflare_capabilities(
     registry.register(Capability(
         id="cloudflare.list_zones",
         description=(
-            "List every Cloudflare zone on the configured account. "
-            "Returns id, name, status, plan, and name servers per zone. "
-            "Use this first when the operator asks something general "
-            "like 'what domains do I have?' or 'are any of my zones "
-            "paused?'. Requires CLOUDFLARE_API_TOKEN with Zone:Read."
+            "List every Cloudflare zone on the configured account: id, "
+            "name, status, plan and name servers per zone. With zone_name "
+            "(e.g. 'windycloud.com') or zone_id: that one zone's full "
+            "details instead (status, name servers, plan, dev-mode flag, "
+            "activation date; a name costs one extra lookup)."
         ),
         handler=list_zones,
         input_schema={
@@ -650,40 +646,13 @@ def register_cloudflare_capabilities(
                         "all cases."
                     ),
                 },
-            },
-            "required": [],
-        },
-        tier=Tier.READ_EXTERNAL,
-        scope="cloudflare",
-        audit_required=True,
-    ))
-
-    registry.register(Capability(
-        id="cloudflare.zone_details",
-        description=(
-            "Get full details of a single Cloudflare zone — status, "
-            "name servers, plan, dev-mode flag, activation date. Pass "
-            "either zone_name (e.g. 'windycloud.com') or zone_id; "
-            "name lookup adds one extra request. Use cloudflare."
-            "list_zones first if you don't know either."
-        ),
-        handler=zone_details,
-        input_schema={
-            "type": "object",
-            "properties": {
                 "zone_name": {
                     "type": "string",
-                    "description": (
-                        "Domain name (e.g. 'windycloud.com'). Either "
-                        "this or zone_id must be provided."
-                    ),
+                    "description": "Domain name (e.g. 'windycloud.com') for one zone's details.",
                 },
                 "zone_id": {
                     "type": "string",
-                    "description": (
-                        "Cloudflare zone id (32-char hash). Either "
-                        "this or zone_name must be provided."
-                    ),
+                    "description": "Cloudflare zone id (32-char hash) for one zone's details.",
                 },
             },
             "required": [],
