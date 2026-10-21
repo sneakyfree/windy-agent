@@ -1,7 +1,8 @@
 """Inbound texts from Windy Text (dark: rides WINDY_TEXT_BYO=1, off by default).
 
-Polls GET {WINDY_TEXT_BASE_URL}/sms/inbox/mine with the agent's own EPT (a 24 h
-buffer; items carry message_sid, body, channel:"sms", from_kind owner|contact).
+Polls GET {WINDY_TEXT_BASE_URL}/sms/inbox/mine in mode B only (tools/sms.py ``agent_auth``:
+EPT+agent for windy-telephony + a DPoP proof; never the legacy passport token). A 24 h buffer;
+items carry message_sid, body, channel:"sms", from_kind owner|contact.
 
 Rules (Windy Hub, 10-01):
 - from_kind=contact: NEVER acted on. It is only relayed to the owner's DM (stranger
@@ -28,9 +29,18 @@ POLL_S = 60.0
 _SEEN_CAP = 500
 
 
-def fetch_inbox(base_url: str, ept: str, *, timeout: float = 10.0) -> list[dict[str, Any]]:
-    resp = httpx.get(f"{base_url}/sms/inbox/mine",
-                     headers={"Authorization": f"Bearer {ept}"}, timeout=timeout)
+class InboxAuthError(RuntimeError):
+    """No agent token or proof could be made, so the inbox was not asked."""
+
+
+def fetch_inbox(base_url: str, *, timeout: float = 10.0) -> list[dict[str, Any]]:
+    from windyfly.tools.sms import agent_auth
+
+    url = f"{base_url}/sms/inbox/mine"
+    headers, code = agent_auth(url, "GET")
+    if headers is None:
+        raise InboxAuthError(f"no agent token for Windy Text ({code})")
+    resp = httpx.get(url, headers=headers, timeout=timeout)
     resp.raise_for_status()
     data = resp.json()
     msgs = data.get("messages") if isinstance(data, dict) else None
