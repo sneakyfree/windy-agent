@@ -10,6 +10,21 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
 
 ## Unreleased
 
+- **Fewer, plainer tools on every owner turn (tool trim, phase 1).** The agent does all the same jobs with
+  fewer tools: 62 instead of 71 on a fresh install.
+  - Google Calendar's tools (today's events, upcoming events, add an event) appear only when Google Calendar
+    is connected. /calendar still answers either way.
+  - One tool starts a website in Windy Code: from the owner's words, from a template, or a blank project.
+  - Looking at a picture and reading the text in it are one tool. So are: listing external MCP servers and
+    their tools; Cloudflare zones and one zone's details; setup status and how to connect an integration.
+    The Windy Mind status now includes the models the agent may switch to.
+  - The two "is the builder / Windy Code reachable?" checks are gone: every builder and Windy Code tool
+    already says so when it is not.
+  - Tool descriptions say what the tool does, not when to use it. The owner's confirm steps (a first text
+    to a number, publishing a site) are unchanged.
+  - Good to know: a saved skill or an older reply that names a retired tool still works for one release (it
+    runs the tool that does the job now).
+
 - **/stop never shuts the agent down from a chat.** /stop, /restart, /shutdown and /kill run only from the
   owner's terminal on every chat platform, not just Matrix. Before, a Telegram /stop with anything after
   it (or /kill, /restart, /shutdown) still stopped the service, and the agent stayed dead until someone

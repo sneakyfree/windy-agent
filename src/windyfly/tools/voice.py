@@ -164,7 +164,9 @@ def register_voice_tools(registry: ToolRegistry) -> None:
     registry.register(
         name="make_call",
         description=(
-            "Place a phone call; the agent's message is read aloud by text-to-speech. Destination E.164. Pricier than SMS: prefer send_sms unless voice is really needed. Returns {status: 'sent'|'unavailable'|'failed', sid?, error?}; error_code 21219 = the Twilio trial needs the number verified."
+            "Place a phone call to an E.164 number; the message is read aloud by text-to-speech. "
+            "Calls bill by the minute and cost more than a text. Returns {status: 'sent'|'unavailable'|"
+            "'failed', sid?, error?}; error_code 21219 = the Twilio trial needs the number verified."
         ),
         parameters={
             "type": "object",

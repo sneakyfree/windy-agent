@@ -1,4 +1,4 @@
-"""vision.describe + vision.ocr capability tests.
+"""vision.describe capability tests (with read_text=true it reads text, formerly vision.ocr).
 
 Pins the contract:
 
@@ -352,13 +352,13 @@ class TestModelSelection:
 
 class TestRegistration:
 
-    def test_both_caps_registered(self):
+    def test_one_vision_tool_registered(self):
+        # Tool trim phase 1: vision.ocr folded into vision.describe(read_text=true).
         from windyfly.agent.capabilities.registry import CapabilityRegistry
         reg = CapabilityRegistry()
         register_vision_capabilities(reg, {})
         ids = {cap.id for cap in reg.all()}
-        assert "vision.describe" in ids
-        assert "vision.ocr" in ids
+        assert ids == {"vision.describe"}
 
     def test_tier_is_read_external(self):
         from windyfly.agent.capabilities.registry import CapabilityRegistry
@@ -375,13 +375,33 @@ class TestRegistration:
         cap = next(c for c in reg.all() if c.id == "vision.describe")
         assert "question" in cap.input_schema["properties"]
 
-    def test_ocr_schema_has_no_question_field(self):
-        # OCR doesn't take a question — the prompt is fixed.
+    def test_describe_schema_has_read_text(self):
         from windyfly.agent.capabilities.registry import CapabilityRegistry
         reg = CapabilityRegistry()
         register_vision_capabilities(reg, {})
-        cap = next(c for c in reg.all() if c.id == "vision.ocr")
-        assert "question" not in cap.input_schema["properties"]
+        cap = next(c for c in reg.all() if c.id == "vision.describe")
+        assert cap.input_schema["properties"]["read_text"]["type"] == "boolean"
+
+    def test_read_text_is_the_same_call_with_the_ocr_prompt(self, monkeypatch):
+        from windyfly.agent.capabilities import vision as v
+        from windyfly.agent.capabilities.registry import CapabilityRegistry
+
+        seen = []
+
+        def fake(src, system, question, timeout_s, **kw):
+            seen.append((src, system, question))
+            return {"text": "STOP", "model": "m", "input_tokens": 1, "output_tokens": 1}
+
+        monkeypatch.setattr(v, "_call_anthropic_vision", fake)
+        reg = CapabilityRegistry()
+        register_vision_capabilities(reg, {})
+        cap = reg.get("vision.describe")
+        out = cap.handler(url="https://x/sign.png", read_text=True)
+        assert out["text"] == "STOP" and out["no_text_in_image"] is False
+        assert seen[-1][1] == v._OCR_SYSTEM
+        out = cap.handler(url="https://x/sign.png", question="What colour?")
+        assert out["description"] == "STOP"
+        assert seen[-1][1] == v._DESCRIBE_SYSTEM and seen[-1][2] == "What colour?"
 
 
 # ─── Boss 10-07: a passport agent's pictures go through Windy Mind, never a provider key ──

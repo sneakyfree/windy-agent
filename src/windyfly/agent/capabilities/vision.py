@@ -1,11 +1,12 @@
-"""vision.describe + vision.ocr capabilities — Tier 0 Stock Toolkit.
+"""vision.describe capability — Tier 0 Stock Toolkit.
 
-Two ways for the agent to look at an image:
+One tool, two ways for the agent to look at an image (tool trim phase 1 folded
+``vision.ocr`` into ``vision.describe``; the old name is a one-release alias):
 
   - ``vision.describe`` — natural-language description ("a cat sitting on
     a windowsill, sunlit, mid-afternoon").
-  - ``vision.ocr`` — extract visible text verbatim ("STOP", "Exit 14",
-    or the contents of a screenshot).
+  - ``vision.describe(read_text=true)`` — extract visible text verbatim
+    ("STOP", "Exit 14", or the contents of a screenshot).
 
 Both routes hit Anthropic's vision-capable Claude API directly (no
 agent-loop recursion) with different prompts. We deliberately don't
@@ -300,29 +301,23 @@ def register_vision_capabilities(
     registry: CapabilityRegistry,
     config: dict[str, Any] | None = None,
 ) -> None:
-    """Register ``vision.describe`` and ``vision.ocr`` on the registry."""
+    """Register ``vision.describe`` (it also reads text: ``read_text=true``) on the registry."""
     del config  # unused at v1; would carry model/timeout overrides later
     logger.info(
-        "Registering vision.{describe,ocr} — model=%s", _model_for_vision(),
+        "Registering vision.describe — model=%s", _model_for_vision(),
     )
 
     def describe(
         *, path: str | None = None,
         url: str | None = None,
         question: str = "Describe this image.",
+        read_text: bool = False,
         timeout_s: int = _DEFAULT_TIMEOUT_S,
     ) -> dict[str, Any]:
+        if read_text:
+            return _vision_ocr_handler(path=path, url=url, timeout_s=timeout_s)
         return _vision_describe_handler(
             path=path, url=url, question=question, timeout_s=timeout_s,
-        )
-
-    def ocr(
-        *, path: str | None = None,
-        url: str | None = None,
-        timeout_s: int = _DEFAULT_TIMEOUT_S,
-    ) -> dict[str, Any]:
-        return _vision_ocr_handler(
-            path=path, url=url, timeout_s=timeout_s,
         )
 
     image_input_schema: dict[str, Any] = {
@@ -362,37 +357,26 @@ def register_vision_capabilities(
                     "'Describe this image.'"
                 ),
             },
+            "read_text": {
+                "type": "boolean",
+                "description": (
+                    "true = return the image's visible text verbatim "
+                    "({text, no_text_in_image}) instead of a description."
+                ),
+            },
         },
     }
 
     registry.register(Capability(
         id="vision.describe",
         description=(
-            "Describe an image in natural language. Accepts a local file "
-            "path OR an http(s) URL (exactly one). Uses Anthropic's "
-            "vision-capable Claude — no local Tesseract install needed. "
-            "Returns a two-to-four-sentence description. For text "
-            "extraction use vision.ocr instead."
+            "Look at an image: a local file path OR an http(s) URL (exactly "
+            "one). Returns a two-to-four-sentence description, or with "
+            "read_text=true the visible text verbatim ('(no text in image)' "
+            "when there is none)."
         ),
         handler=describe,
         input_schema=describe_schema,
-        tier=Tier.READ_EXTERNAL,
-        sandbox_tier=SandboxTier.NONE,
-        reversibility=Reversibility.READ,
-        scope="vision_api",
-    ))
-
-    registry.register(Capability(
-        id="vision.ocr",
-        description=(
-            "Extract visible text from an image. Accepts a local file "
-            "path OR an http(s) URL (exactly one). Uses Anthropic's "
-            "vision API — no local Tesseract needed. Returns the text "
-            "verbatim (or '(no text in image)' if blank). For natural-"
-            "language description use vision.describe instead."
-        ),
-        handler=ocr,
-        input_schema=image_input_schema,
         tier=Tier.READ_EXTERNAL,
         sandbox_tier=SandboxTier.NONE,
         reversibility=Reversibility.READ,

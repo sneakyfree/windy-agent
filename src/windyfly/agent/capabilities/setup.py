@@ -4,7 +4,7 @@ chat-driven setup flow for integrations.
 Wave 4-and-a-half / grandma-mode:
   Tier 1 (this module's `setup.status`): centralized introspection so
     the LLM can ask once "what's dormant?" instead of probing each.
-  Tier 2 (this module's `setup.start` + `setup.save_credential`):
+  Tier 2 (this module's `setup.status(integration=...)` + `setup.save_credential`):
     bot walks the user through getting a token, then accepts it via
     chat, validates against the live API, atomically writes it to
     the env file, AND hot-loads it into ``os.environ`` so the running
@@ -14,7 +14,7 @@ End-to-end Cloudflare grandma loop (the only integration this PR
 fully closes):
 
     User: "set up cloudflare"
-    LLM:  setup.start("cloudflare") → walkthrough steps
+    LLM:  setup.status(integration="cloudflare") → walkthrough steps
     LLM:  relays steps in plain English
     User: pastes token in chat
     LLM:  setup.save_credential("cloudflare", "<token>") →
@@ -439,16 +439,16 @@ def register_setup_capabilities(
     registry: CapabilityRegistry,
     config: dict[str, Any] | None = None,
 ) -> None:
-    """Register setup.status, setup.start, and setup.save_credential."""
+    """Register setup.status and setup.save_credential. setup.status with an integration returns its
+    walkthrough (the read-only setup.start folded in by tool trim phase 1; the old name is an alias)."""
     logger.info(
         "Registering setup.* capabilities (status + chat-driven flow)"
     )
 
-    def setup_status() -> dict[str, Any]:
+    def setup_status(*, integration: str | None = None) -> dict[str, Any]:
+        if integration and integration.strip():
+            return _start_handler(integration=integration.strip())
         return get_setup_status()
-
-    def setup_start(*, integration: str) -> dict[str, Any]:
-        return _start_handler(integration=integration)
 
     def setup_save_credential(
         *, integration: str, value: str,
@@ -474,30 +474,12 @@ def register_setup_capabilities(
     registry.register(Capability(
         id="setup.status",
         description=(
-            "Check which optional integrations (Cloudflare, "
-            "Calendar, GitHub) are connected. Returns a snapshot of "
-            "configured + dormant integrations with friendly setup "
-            "hints. Call this at conversation start or when the user "
-            "asks 'what can you do?' so you can give an accurate "
-            "answer."
+            "Which optional integrations (Cloudflare, Calendar, GitHub) are "
+            "connected and which are dormant. With integration: the steps "
+            "to connect that one and whether it is already connected; a "
+            "pasted credential is saved with setup.save_credential."
         ),
         handler=setup_status,
-        tier=Tier.READ_EXTERNAL,
-        scope="introspection",
-        audit_required=True,
-        input_schema={
-            "type": "object",
-            "properties": {},
-            "required": [],
-        },
-    ))
-
-    registry.register(Capability(
-        id="setup.start",
-        description=(
-            "Get the steps for connecting an integration (for example how to create a Cloudflare API token). After the user pastes the credential, call setup.save_credential."
-        ),
-        handler=setup_start,
         tier=Tier.READ_EXTERNAL,
         scope="introspection",
         audit_required=True,
@@ -507,13 +489,12 @@ def register_setup_capabilities(
                 "integration": {
                     "type": "string",
                     "description": (
-                        "Integration key: 'cloudflare', 'github' "
-                        "or 'calendar'. Use setup.status to "
-                        "see all keys + which are dormant."
+                        "Optional integration key: 'cloudflare', 'github' "
+                        "or 'calendar'."
                     ),
                 },
             },
-            "required": ["integration"],
+            "required": [],
         },
     ))
 

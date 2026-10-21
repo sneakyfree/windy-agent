@@ -28,7 +28,7 @@ from windyfly.agent.capabilities.descriptor import Band
 # Public information only: nothing about the owner, nothing written anywhere.
 _PUBLIC_READ = (
     "fetch_url", "get_news", "get_weather", "web_search", "windy_plans",
-    "search_domain", "suggest_domains", "windycodeweb_list_templates", "windycodeweb_status",
+    "search_domain", "suggest_domains", "windycodeweb_list_templates",
     "calculate", "convert_units", "flip_coin", "roll_dice", "list_languages",
 )
 # The owner's private data, read only (translate_text runs on the owner's account).
@@ -39,13 +39,12 @@ _PRIVATE_READ = (
     "windycodeweb_preview",
     "get_clone_status", "get_recordings", "get_translation_history", "translate_text",
     "list_my_sites", "list_site_versions", "site_status",
-    "windycode_list_projects", "windycode_read_file", "windycode_status", "windycodeweb_list_cabinet",
+    "windycode_list_projects", "windycode_read_file", "windycodeweb_list_cabinet",
 )
 # Writes to the owner's own data (lists, calendar, private drafts).
 _LOCAL_WRITE = (
     "add_todo", "complete_todo", "set_reminder", "cancel_reminder", "create_event",
-    "windycodeweb_create_project", "windycodeweb_add_files", "windycodeweb_edit_text",
-    "windycodeweb_start", "windycodeweb_start_from_template", "windycodeweb_undo",
+    "windycodeweb_add_files", "windycodeweb_edit_text", "windycodeweb_start", "windycodeweb_undo",
     "set_timer", "windycode_create_project", "windycode_write_file", "download_cloud_file",
     "windycodeweb_file_project", "windycodeweb_log_activity",
 )

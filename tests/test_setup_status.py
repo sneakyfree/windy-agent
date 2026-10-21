@@ -189,6 +189,20 @@ def test_setup_status_capability_returns_same_shape_as_helper(monkeypatch):
     assert "cloudflare" in out["configured_keys"]
 
 
+def test_setup_status_with_an_integration_is_the_walkthrough(monkeypatch):
+    # Tool trim phase 1: setup.status(integration=X) answers what setup.start(X) did, same handler.
+    monkeypatch.delenv("GITHUB_PAT", raising=False)
+    from windyfly.agent.capabilities.setup import _start_handler, register_setup_capabilities
+    registry = CapabilityRegistry()
+    register_setup_capabilities(registry, config={})
+    cap = registry.get("setup.status")
+    assert "integration" in cap.input_schema["properties"]
+    assert cap.input_schema.get("required") == []
+    assert cap.handler(integration="github") == _start_handler(integration="github")
+    assert cap.handler(integration="nope")["ok"] is False
+    assert "integrations" in cap.handler(integration="")
+
+
 # ── Boot wiring ────────────────────────────────────────────────────
 
 
@@ -551,17 +565,18 @@ def test_atomic_upsert_writes_through_symlink_does_not_replace_link(tmp_path):
     assert link.read_text(encoding="utf-8") == real_text
 
 
-# ── Capability registration: 3 caps total now ─────────────────────
+# ── Capability registration: 2 caps (tool trim phase 1 folded setup.start into setup.status) ──
 
 
-def test_setup_module_registers_three_capabilities():
+def test_setup_module_registers_two_capabilities():
     from windyfly.agent.capabilities.setup import register_setup_capabilities
     registry = CapabilityRegistry()
     register_setup_capabilities(registry, config={})
-    for cap_id in ("setup.status", "setup.start", "setup.save_credential"):
+    for cap_id in ("setup.status", "setup.save_credential"):
         cap = registry.get(cap_id)
         assert cap is not None, f"{cap_id} not registered"
         assert cap.audit_required is True
+    assert registry.get("setup.start") is None  # a one-release alias of setup.status now
     # save_credential must require a higher band than status/start
     from windyfly.agent.capabilities.descriptor import Band, Tier
     assert registry.get("setup.save_credential").tier == Tier.WRITE_DESTRUCTIVE
