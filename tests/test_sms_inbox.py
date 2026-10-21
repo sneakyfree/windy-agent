@@ -97,3 +97,66 @@ def test_poller_only_starts_when_byo_is_on(monkeypatch):
 
     monkeypatch.delenv("WINDY_TEXT_BYO", raising=False)
     assert sms.byo_enabled() is False
+
+
+def test_poll_health_warns_on_change_and_hourly_then_says_recovered():
+    now = [0.0]
+    h = sms_inbox.PollHealth(clock=lambda: now[0])
+    assert h.failed("no_key") is True          # first failure
+    now[0] = 60
+    assert h.failed("no_key") is False         # same reason a minute later: debug only
+    assert h.failed("unreachable") is True     # the reason changed
+    now[0] = 60 + 3600
+    assert h.failed("unreachable") is True     # still failing an hour later
+    assert h.ok() is True and h.ok() is False  # "recovered" once
+    assert h.failed("unreachable") is True     # a new outage warns again
+
+
+def test_poll_loop_fails_quietly_then_recovers_and_relays_once(monkeypatch, tmp_path, caplog):
+    import logging
+    from unittest.mock import AsyncMock, MagicMock
+
+    from windyfly.channels import matrix_bot as mb
+    from windyfly.eternitas import agent_keys as ak
+
+    monkeypatch.setattr("windyfly.platform.windy_state_dir", lambda: tmp_path)
+    bot = object.__new__(mb.WindyFlyMatrixBot)
+    bot._shutting_down = False
+    bot._hatch_dm_room_id = "!dm"
+    bot.client = MagicMock()
+    bot.client.room_send = AsyncMock()
+    monkeypatch.setattr(mb, "_room_session", lambda self, r: "s")
+    state = {"n": 0, "auth": []}
+
+    def mint(aud):
+        state["n"] += 1
+        if state["n"] <= 3:
+            raise ak.AgentTokenError("passport_not_born", status=409)
+        return {"token": "T"}
+
+    monkeypatch.setattr(ak, "request_agent_token", mint)
+    monkeypatch.setattr(ak, "service_dpop", lambda m, u: f"P-{m}-{u}")
+
+    def get(url, headers=None, timeout=None):
+        state["auth"].append(headers)
+        return httpx.Response(200, json={"messages": [{"message_sid": "SM1", "body": "hi", "from_kind": "contact"}]},
+                              request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(sms_inbox.httpx, "get", get)
+    sleeps = []
+
+    async def fake_sleep(s):
+        sleeps.append(s)
+        if len(sleeps) >= 5:
+            bot._shutting_down = True
+
+    monkeypatch.setattr(mb.asyncio, "sleep", fake_sleep)
+    with caplog.at_level(logging.DEBUG, logger="windyfly.channels.matrix_bot"):
+        asyncio.run(bot._sms_inbox_loop())
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert sleeps == [sms_inbox.POLL_S] * 5
+    assert len(warnings) == 1 and "passport_not_born" in warnings[0].getMessage()  # 3 failures, 1 warning
+    assert any(r.levelno == logging.INFO and "recovered" in r.getMessage() for r in caplog.records)
+    assert state["auth"][0] == {"Authorization": "Bearer T",
+                                "DPoP": "P-GET-https://api.windytext.com/sms/inbox/mine"}
+    assert bot.client.room_send.await_count == 1  # relayed once, not on every later poll

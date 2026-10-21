@@ -160,6 +160,26 @@ _PLAIN_ERRORS: dict[str, str] = {
 }
 
 
+_NO_SIGN_IN = "I couldn't sign in to Windy Text just now, so I didn't send it."
+_STANDING = "My Eternitas standing doesn't allow sending texts right now, so I didn't send it."
+_BRIEFLY_DOWN = "Texting is briefly unavailable on Windy's side, so I didn't send it. Try again shortly."
+
+
+def refusal_sentence(status: int, code: str | None) -> str:
+    """A Windy Text refusal as one plain sentence: the known code's sentence, else one chosen by
+    HTTP status. Windy Text's own wording (e.g. "EPT invalid: <code>") is never passed on."""
+    plain = plain_error(code)
+    if plain:
+        return plain
+    if status == 401:
+        return _NO_SIGN_IN
+    if status == 403:
+        return _STANDING
+    if status in (502, 503, 504):
+        return _BRIEFLY_DOWN
+    return f"Windy Text couldn't take that text (it answered {status}), so I didn't send it."
+
+
 def plain_error(code: str | None) -> str | None:
     """Map a Windy Text error code (e.g. 'spend_cap_reached:daily') to a plain sentence."""
     if not code:
@@ -296,10 +316,7 @@ def agent_auth(url: str, method: str = "POST") -> tuple[dict[str, str] | None, s
 
 def _no_auth(code: str | None) -> dict[str, Any]:
     """Nothing was sent: the plain sentence for a credential that could not be made."""
-    if any(w in (code or "") for w in _STANDING_WORDS):
-        msg = "My Eternitas standing doesn't allow sending texts right now, so I didn't send it."
-    else:
-        msg = "I couldn't sign in to Windy Text just now, so I didn't send it."
+    msg = _STANDING if any(w in (code or "") for w in _STANDING_WORDS) else _NO_SIGN_IN
     return {"status": "failed", "sent": False, "error_code": code, "error": msg}
 
 
@@ -343,8 +360,8 @@ def _request_approval(base_url: str, to: str) -> dict[str, Any]:
     if r.status_code == 429:
         return {"status": "needs_owner_approval", "sent": False,
                 "error": "There are already a lot of texting requests waiting for your OK in Windy. Please review them first."}
-    plain = plain_error(detail.split(":", 1)[0]) if detail else None
-    return {"status": "failed", "sent": False, "error": plain or f"Windy Text answered {r.status_code}"}
+    return {"status": "failed", "sent": False, "http_status": r.status_code,
+            "error": refusal_sentence(r.status_code, detail.split(":", 1)[0] if detail else None)}
 
 
 def _send_byo(base_url: str, to: str | None, body: str) -> dict[str, Any]:
@@ -359,7 +376,11 @@ def _send_byo(base_url: str, to: str | None, body: str) -> dict[str, Any]:
         r = httpx.get(rec_url, params={"to": to} if to else None, headers=headers, timeout=_TIMEOUT)
         rec = r.json() if r.status_code == 200 else None
     except (httpx.HTTPError, ValueError):
-        rec = None
+        r, rec = None, None
+    if r is not None and r.status_code in (401, 403):
+        # Windy Text refused the credential itself: say so, not "couldn't check".
+        return {"status": "failed", "sent": False, "http_status": r.status_code,
+                "error": refusal_sentence(r.status_code, None)}
     if not isinstance(rec, dict):
         # Fail closed: without the server's consent answer, don't text anyone.
         return {"status": "failed", "sent": False,
@@ -408,7 +429,7 @@ def _send_byo(base_url: str, to: str | None, body: str) -> dict[str, Any]:
     plain = plain_error(raw_code if isinstance(raw_code, str) else None)
     return {"status": "failed", "sent": False, "http_status": resp.status_code,
             "error_code": raw_code,
-            "error": plain or err.get("detail") or f"Windy Text answered {resp.status_code}"}
+            "error": plain or refusal_sentence(resp.status_code, None)}
 
 
 def _deliver(base_url: str, ept: str, to: str | None, body: str) -> dict[str, Any]:

@@ -29,6 +29,32 @@ POLL_S = 60.0
 _SEEN_CAP = 500
 
 
+class PollHealth:
+    """When the inbox poll should log at WARNING: on the first failure, when the reason changes,
+    and at most once an hour while it lasts; everything else is DEBUG. ``ok()`` says whether the
+    poll just recovered (log that once at INFO)."""
+
+    REPEAT_S = 3600.0
+
+    def __init__(self, clock: Callable[[], float] | None = None) -> None:
+        import time
+
+        self._clock = clock or time.monotonic
+        self._reason: str | None = None
+        self._warned_at = 0.0
+
+    def failed(self, reason: str) -> bool:
+        now = self._clock()
+        if reason != self._reason or now - self._warned_at >= self.REPEAT_S:
+            self._reason, self._warned_at = reason, now
+            return True
+        return False
+
+    def ok(self) -> bool:
+        recovered, self._reason = self._reason is not None, None
+        return recovered
+
+
 class InboxAuthError(RuntimeError):
     """No agent token or proof could be made, so the inbox was not asked."""
 
