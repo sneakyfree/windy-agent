@@ -146,6 +146,7 @@ def test_windy_texts_own_wording_is_never_passed_on(monkeypatch):
     (403, "passport_not_in_good_standing", "standing doesn't allow"),
     (503, "keys_unavailable", "briefly unavailable"),
     (503, "revocation_unavailable", "briefly unavailable"),
+    (500, "Internal Server Error", "briefly unavailable"),
 ])
 def test_auth_refusals_on_send_are_plain_and_never_echo_detail(monkeypatch, status, detail, phrase):
     _server(monkeypatch, OWNER_OK, send_status=status, send_body={"detail": detail})

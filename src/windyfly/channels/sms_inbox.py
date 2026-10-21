@@ -58,6 +58,22 @@ class PollHealth:
 class InboxAuthError(RuntimeError):
     """No agent token or proof could be made, so the inbox was not asked."""
 
+    def __init__(self, code: str | None) -> None:
+        super().__init__(f"no agent token for Windy Text ({code})")
+        self.code = code
+
+
+def failure_key(exc: BaseException) -> str:
+    """A STABLE key for PollHealth: the error's type plus its code or HTTP status, never its full text (a
+    timeout's message can name a changing address or duration, which would warn every minute)."""
+    import httpx
+
+    if isinstance(exc, InboxAuthError):
+        return f"InboxAuthError:{exc.code}"
+    if isinstance(exc, httpx.HTTPStatusError):
+        return f"HTTPStatusError:{exc.response.status_code}"
+    return type(exc).__name__
+
 
 def fetch_inbox(base_url: str, *, timeout: float = 10.0) -> list[dict[str, Any]]:
     from windyfly.tools.sms import agent_auth
@@ -65,7 +81,7 @@ def fetch_inbox(base_url: str, *, timeout: float = 10.0) -> list[dict[str, Any]]
     url = f"{base_url}/sms/inbox/mine"
     headers, code = agent_auth(url, "GET")
     if headers is None:
-        raise InboxAuthError(f"no agent token for Windy Text ({code})")
+        raise InboxAuthError(code)
     resp = httpx.get(url, headers=headers, timeout=timeout)
     resp.raise_for_status()
     data = resp.json()

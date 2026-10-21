@@ -160,3 +160,52 @@ def test_poll_loop_fails_quietly_then_recovers_and_relays_once(monkeypatch, tmp_
     assert state["auth"][0] == {"Authorization": "Bearer T",
                                 "DPoP": "P-GET-https://api.windytext.com/sms/inbox/mine"}
     assert bot.client.room_send.await_count == 1  # relayed once, not on every later poll
+
+
+def test_failure_key_ignores_changing_error_text():
+    import httpx
+
+    a = httpx.ConnectTimeout("timed out after 9.81 s to 10.0.0.7")
+    b = httpx.ConnectTimeout("timed out after 10.02 s to 10.0.0.9")
+    assert sms_inbox.failure_key(a) == sms_inbox.failure_key(b) == "ConnectTimeout"
+    req = httpx.Request("GET", "https://api.windytext.com/sms/inbox/mine")
+    e401 = httpx.HTTPStatusError("x", request=req, response=httpx.Response(401, request=req))
+    e503 = httpx.HTTPStatusError("y", request=req, response=httpx.Response(503, request=req))
+    assert sms_inbox.failure_key(e401) != sms_inbox.failure_key(e503)
+    assert sms_inbox.failure_key(sms_inbox.InboxAuthError("no_key")) == "InboxAuthError:no_key"
+    h = sms_inbox.PollHealth(clock=lambda: 0.0)
+    assert h.failed(sms_inbox.failure_key(a)) is True and h.failed(sms_inbox.failure_key(b)) is False
+
+
+def test_poll_loop_warns_once_for_timeouts_whose_text_changes(monkeypatch, tmp_path, caplog):
+    import logging
+    from unittest.mock import AsyncMock, MagicMock
+
+    from windyfly.channels import matrix_bot as mb
+
+    monkeypatch.setattr("windyfly.platform.windy_state_dir", lambda: tmp_path)
+    bot = object.__new__(mb.WindyFlyMatrixBot)
+    bot._shutting_down = False
+    bot._hatch_dm_room_id = "!dm"
+    bot.client = MagicMock()
+    bot.client.room_send = AsyncMock()
+    monkeypatch.setattr(mb, "_room_session", lambda self, r: "s")
+    n = {"i": 0}
+
+    def fetch(base_url):
+        n["i"] += 1
+        raise httpx.ConnectTimeout(f"timed out after {9 + n['i'] / 10:.2f} s to 10.0.0.{n['i']}")
+
+    monkeypatch.setattr(sms_inbox, "fetch_inbox", fetch)
+    sleeps = []
+
+    async def fake_sleep(s):
+        sleeps.append(s)
+        if len(sleeps) >= 4:
+            bot._shutting_down = True
+
+    monkeypatch.setattr(mb.asyncio, "sleep", fake_sleep)
+    with caplog.at_level(logging.DEBUG, logger="windyfly.channels.matrix_bot"):
+        asyncio.run(bot._sms_inbox_loop())
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert n["i"] == 4 and len(warnings) == 1  # four different texts, one outage, one warning
