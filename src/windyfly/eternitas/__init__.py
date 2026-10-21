@@ -8,7 +8,7 @@ from windyfly.eternitas.models import (
 )
 from windyfly.eternitas.client import EternitasClient
 from windyfly.eternitas.mock import MockEternitasClient
-from windyfly.eternitas.provision import provision_eternitas, get_eternitas_client
+from windyfly.eternitas.provision import get_eternitas_client
 
 __all__ = [
     "BotIdentity",
@@ -18,5 +18,4 @@ __all__ = [
     "RegistrationRequest",
     "RevocationResult",
     "get_eternitas_client",
-    "provision_eternitas",
 ]

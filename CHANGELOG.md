@@ -19,6 +19,12 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
   inbox poll used the old token, and the send fell back to it when no agent key was registered. Windy Text confirmed (10-21) that both consent routes
   already accept the agent token.
 
+- **One hallway: windyfly can no longer mint a passport itself.** Every agent is born through Hub's hatch
+  ceremony, and Eternitas (the one certifying authority) mints there. The old direct doors in this code
+  (`EternitasClient.register()` -> `/bots/register`, `auto_hatch()` -> `/bots/auto-hatch`,
+  `provision_eternitas()` and `link_passport_with_identity()`) had no callers left and are removed, with their
+  tests. A tripwire test fails if a direct minting call comes back. Reads (verify, lookup, certificate) and
+  revoke are unchanged.
 - **make_call phones only the owner, and is off until switched on.** It now calls windy-text's owner-call route
   with just a message (1-500 characters): the server dials the owner's verified phone from the agent's own number,
   and the audio comes from Windy Mind. There is no destination, no voice choice and no retry, and refusals
