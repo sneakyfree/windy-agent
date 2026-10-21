@@ -301,8 +301,7 @@ async def test_no_form_of_slash_stop_from_the_owner_reaches_the_process_stop(mon
     assert rs.stopped(ROOM) and stopped_process == []
 
 
-@pytest.mark.parametrize("name", ["stop", "restart", "shutdown", "kill"])
-def test_process_control_never_runs_from_matrix(monkeypatch, name):
+def _process_control(monkeypatch, name, platform):
     import asyncio
 
     from windyfly.commands.registry import registry
@@ -316,5 +315,25 @@ def test_process_control_never_runs_from_matrix(monkeypatch, name):
     monkeypatch.setattr(_platform, "find_systemd_unit_for_pattern", lambda *a: ran.append(a) or None)
     monkeypatch.setattr(_platform, "systemctl_stop", lambda *a: ran.append(a) or (True, ""))
     monkeypatch.setattr(_core.os, "kill", lambda *a: ran.append(a))
-    out = asyncio.run(registry.execute(f"/{name}", {"platform": "matrix", "sender_id": OWNER}))
-    assert "doesn't run from a chat room" in out and ran == []
+    monkeypatch.setattr(_core.os, "system", lambda *a: ran.append(a) or 0)
+    out = asyncio.run(registry.execute(f"/{name}", {"platform": platform, "sender_id": OWNER}))
+    return out, ran
+
+
+@pytest.mark.parametrize("name", ["stop", "restart", "shutdown", "kill"])
+@pytest.mark.parametrize("platform", ["matrix", "telegram", "discord", "slack", "whatsapp", "signal", "teams", "irc"])
+def test_process_control_never_runs_from_a_chat(monkeypatch, name, platform):
+    out, ran = _process_control(monkeypatch, name, platform)
+    assert "doesn't run from a chat" in out and f"`windy {name}`" in out and ran == []
+
+
+def test_the_refusal_names_the_quiet_switch_that_exists_there(monkeypatch):
+    assert "say stop" in _process_control(monkeypatch, "stop", "matrix")[0]
+    assert "/pause" in _process_control(monkeypatch, "stop", "telegram")[0]
+    out = _process_control(monkeypatch, "stop", "discord")[0]
+    assert "/pause" not in out and "say stop" not in out
+
+
+def test_process_control_still_runs_from_the_terminal(monkeypatch):
+    out, ran = _process_control(monkeypatch, "stop", "terminal")
+    assert "doesn't run from a chat" not in out and ran
