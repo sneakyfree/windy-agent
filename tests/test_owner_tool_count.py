@@ -34,6 +34,12 @@ from windyfly.config import load_config
 from windyfly.memory.database import Database
 from windyfly.memory.write_queue import WriteQueue
 from windyfly.tools.registry import ToolRegistry
+# The count must not depend on the host: Windy Code's IDE leaves /tmp/windycode-agent.sock on a machine that
+# runs it (Veron since 10-21 16:07), and windycode.configured() also counts a socket that merely exists. Unless
+# this run configures the IDE on purpose (WINDYCODE_AGENT_SOCK), the default socket never counts here.
+if not os.environ.get("WINDYCODE_AGENT_SOCK"):
+    import windyfly.tools.windycode as _wc
+    _wc._socket_path = lambda: "/nonexistent/windycode-agent.sock"
 tools, caps = ToolRegistry(), CapabilityRegistry()
 BootSequence(default_capability_registration_sequence()).run(BootContext(
     config=load_config(sys.argv[1]), db=Database(os.environ["WINDYFLY_DB_PATH"]), write_queue=WriteQueue(),
