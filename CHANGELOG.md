@@ -10,13 +10,20 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
 
 ## Unreleased
 
-- **A Windy Vault client for the agent, off until switched on.** It sets up the agent's side of Vault: it
-  registers the agent's lease key, reads what the owner has shared, leases one item and decrypts its value on the
-  agent's own machine, and releases a lease early. It is off unless both WINDY_VAULT_LEASE=1 and
-  WINDY_VAULT_API_URL are set, and it has no default address. Every call uses the agent's short token with a
-  proof. A value is never logged, written to disk or shown in an error. Nothing uses the client yet; which tools
-  switch from saved settings to leased logins is decided after Vault's V1.G release.
-
+- **Fewer, plainer tools on every owner turn (tool trim, phase 1).** The agent does all the same jobs with
+  fewer tools: 62 instead of 71 on a fresh install.
+  - Google Calendar's tools (today's events, upcoming events, add an event) appear only when Google Calendar
+    is connected. /calendar still answers either way.
+  - One tool starts a website in Windy Code: from the owner's words, from a template, or a blank project.
+  - Looking at a picture and reading the text in it are one tool. So are: listing external MCP servers and
+    their tools; Cloudflare zones and one zone's details; setup status and how to connect an integration.
+    The Windy Mind status now includes the models the agent may switch to.
+  - The two "is the builder / Windy Code reachable?" checks are gone: every builder and Windy Code tool
+    already says so when it is not.
+  - Tool descriptions say what the tool does, not when to use it. The owner's confirm steps (a first text
+    to a number, publishing a site) are unchanged.
+  - Good to know: a saved skill or an older reply that names a retired tool still works for one release (it
+    runs the tool that does the job now).
 - **A plain Windy Text 500 now says "briefly unavailable", and the inbox poll's warning holds through changing
   error text.** The poll used to warn whenever an error's wording changed, for example a timeout naming a different
   address or duration. It now goes by the kind of error and its code, so one outage still gives one warning.

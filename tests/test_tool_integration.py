@@ -36,7 +36,9 @@ def _full_registry():
     register_todo_tools(registry, db)
     register_weather_tool(registry)
     register_news_tool(registry)
-    register_calendar_tools(registry)
+    # Google Calendar's tools register only when it is connected (tool trim phase 1): connected here.
+    with patch("windyfly.tools.calendar._is_configured", return_value=True):
+        register_calendar_tools(registry)
     register_utility_tools(registry)
     return registry, db
 

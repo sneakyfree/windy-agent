@@ -140,3 +140,42 @@ def test_cli_dispatch_includes_setup_calendar():
     assert '"setup-calendar"' in src, (
         "setup-calendar must have an add_parser entry"
     )
+
+
+# ── tool trim phase 1: the Google tools register only when Google Calendar is connected ──
+
+_GOOGLE_TOOLS = {"get_today_events", "get_upcoming_events", "create_event"}
+
+
+def _registered_names() -> set[str]:
+    from windyfly.tools.calendar import register_calendar_tools
+    from windyfly.tools.registry import ToolRegistry
+
+    reg = ToolRegistry()
+    register_calendar_tools(reg)
+    return {s["function"]["name"] for s in reg.get_schemas()}
+
+
+def test_google_tools_absent_without_a_token(tmp_path, monkeypatch):
+    import windyfly.tools.calendar as calendar_module
+
+    monkeypatch.setattr(calendar_module, "_TOKEN_PATH", tmp_path / "missing-token.json")
+    assert _registered_names() & _GOOGLE_TOOLS == set()
+
+
+def test_google_tools_present_with_a_token(tmp_path, monkeypatch):
+    import windyfly.tools.calendar as calendar_module
+
+    token = tmp_path / "token.json"
+    token.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(calendar_module, "_TOKEN_PATH", token)
+    assert _registered_names() == _GOOGLE_TOOLS
+
+
+def test_the_calendar_command_still_answers_without_the_tools(tmp_path, monkeypatch):
+    """/calendar calls the functions directly, so it keeps telling the owner how to connect."""
+    import windyfly.tools.calendar as calendar_module
+
+    monkeypatch.setattr(calendar_module, "_TOKEN_PATH", tmp_path / "missing-token.json")
+    out = calendar_module.get_today_events()
+    assert out["kind"] == "dormant_integration" and out["integration"] == "calendar"
