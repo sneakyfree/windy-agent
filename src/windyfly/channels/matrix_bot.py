@@ -1440,8 +1440,8 @@ class WindyFlyMatrixBot(ChannelAdapter):
             try:
                 items = await asyncio.to_thread(sms_inbox.fetch_inbox, _sms._windy_text_base())
             except Exception as e:  # a poll failure must never take the bot down
-                reason = f"{type(e).__name__}: {e}"
-                (logger.warning if health.failed(reason) else logger.debug)("sms inbox poll failed: %s", reason)
+                warn = health.failed(sms_inbox.failure_key(e))
+                (logger.warning if warn else logger.debug)("sms inbox poll failed: %s: %s", type(e).__name__, e)
             else:
                 if health.ok():
                     logger.info("sms inbox poll recovered")

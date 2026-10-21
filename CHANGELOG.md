@@ -10,6 +10,10 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
 
 ## Unreleased
 
+- **A plain Windy Text 500 now says "briefly unavailable", and the inbox poll's warning holds through changing
+  error text.** The poll used to warn whenever an error's wording changed, for example a timeout naming a different
+  address or duration. It now goes by the kind of error and its code, so one outage still gives one warning.
+
 - **The liveness probe no longer puts the Telegram bot token on a command line.** The token used to sit in curl's
   arguments for about 10 s every 5 minutes, where `ps` could show it; it now goes to curl on standard input. The
   reply file has a random name instead of a guessable one. With WINDY_LIVENESS_SKIP_TELEGRAM=1 the probe also

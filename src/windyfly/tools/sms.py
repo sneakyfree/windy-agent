@@ -175,7 +175,7 @@ def refusal_sentence(status: int, code: str | None) -> str:
         return _NO_SIGN_IN
     if status == 403:
         return _STANDING
-    if status in (502, 503, 504):
+    if status in (500, 502, 503, 504):
         return _BRIEFLY_DOWN
     return f"Windy Text couldn't take that text (it answered {status}), so I didn't send it."
 
