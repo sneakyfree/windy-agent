@@ -10,6 +10,18 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
 
 ## Unreleased
 
+- **"Still being born" is a quiet wait, never a revocation.** Under Eternitas's birth reservation (eternitas
+  #265), a passport in the middle of the Birth Canal gets 409 `passport_not_born` with Retry-After: 30 on every
+  credential route. The agent now treats that as waiting:
+  - the token error keeps Retry-After (on 429 too);
+  - the Mind sign-in logs it as information, not a warning;
+  - the daily EPT refresh reports `not_born_yet`, never the "suspended or revoked" hint;
+  - texting says "not fully set up yet".
+
+  The trust check now allows actions only for an `active` passport. `being_born`, `not_born` or any status it
+  doesn't know is refused, as its own rule already said. A last-known `being_born` or `not_born` is not forgotten
+  during an outage.
+
 - **A plain Windy Text 500 now says "briefly unavailable", and the inbox poll's warning holds through changing
   error text.** The poll used to warn whenever an error's wording changed, for example a timeout naming a different
   address or duration. It now goes by the kind of error and its code, so one outage still gives one warning.

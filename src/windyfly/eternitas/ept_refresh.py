@@ -299,8 +299,12 @@ def _refresh(force: bool, transport, now) -> dict[str, Any]:
             return {"status": "failed", "error": "unreachable"}
 
     if resp.status_code != 200:
-        from windyfly.eternitas.agent_keys import error_code
+        from windyfly.eternitas.agent_keys import error_code, is_not_born, retry_after_s
         code, detail = error_code(resp)
+        if is_not_born(code):
+            # Mid-canal (birth reservation v1): nothing to renew yet. Wait quietly; never the revoked hint.
+            logger.info("EPT refresh for %s: passport still being born; retry later", _passport_prefix(passport))
+            return {"status": "not_born_yet", "retry_after": retry_after_s(resp)}
         logger.warning("EPT refresh for %s via %s: HTTP %s %s %s",
                        _passport_prefix(passport), path_used, resp.status_code, code, detail)
         if resp.status_code == 403 and path_used == "own_ept":

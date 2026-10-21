@@ -103,7 +103,7 @@ class TrustSnapshot:
         those cases, but we double-check here so a malformed response
         fails closed.
         """
-        if self.status in ("suspended", "revoked"):
+        if self.status != "active":  # suspended, revoked, being_born, not_born, anything new: fail closed
             return False
         if self.band == "critical":
             return False
@@ -368,7 +368,7 @@ async def check_trust(action: str, passport: str | None = None, db=None) -> Trus
     snap: TrustSnapshot | None = await get_trust(passport=pp, db=db)
     if snap is None:
         last_known = _cache_read_last_known_status(pp, db=db)
-        if last_known in ("suspended", "revoked"):
+        if last_known in ("suspended", "revoked", "being_born", "not_born"):
             logger.warning(
                 "Trust service unreachable; denying '%s' because the last "
                 "verdict we received for %s was '%s'. Going offline does not "

@@ -316,7 +316,10 @@ def agent_auth(url: str, method: str = "POST") -> tuple[dict[str, str] | None, s
 
 def _no_auth(code: str | None) -> dict[str, Any]:
     """Nothing was sent: the plain sentence for a credential that could not be made."""
-    msg = _STANDING if any(w in (code or "") for w in _STANDING_WORDS) else _NO_SIGN_IN
+    if code == "passport_not_born":
+        msg = "I'm not fully set up yet (my Eternitas birth isn't finished), so I didn't send it."
+    else:
+        msg = _STANDING if any(w in (code or "") for w in _STANDING_WORDS) else _NO_SIGN_IN
     return {"status": "failed", "sent": False, "error_code": code, "error": msg}
 
 
