@@ -50,16 +50,24 @@ def _dynamic_doors(tree: ast.AST):
             parts = node.values
             for i, part in enumerate(parts[:-1]):
                 nxt, after = parts[i + 1], parts[i + 2] if i + 2 < len(parts) else None
-                ends_path = after is None or (isinstance(after, ast.Constant) and str(after.value)[:1] in "?#")
+                ends_path = after is None or (isinstance(after, ast.Constant)
+                                              and re.match(r"/?(?:$|[?#])", str(after.value)) is not None)
                 if (isinstance(part, ast.Constant) and str(part.value).endswith("/bots/")
                         and isinstance(nxt, ast.FormattedValue) and ends_path
                         and not _PASSPORTISH.search(ast.unparse(nxt.value))):
                     yield node
-        elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        elif isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Add, ast.Mod)):
             left = node.left
-            if (isinstance(left, ast.Constant) and isinstance(left.value, str) and left.value.endswith("/bots/")
-                    and not _PASSPORTISH.search(ast.unparse(node.right))):
-                yield node
+            if isinstance(left, ast.Constant) and isinstance(left.value, str):
+                plus = isinstance(node.op, ast.Add) and left.value.endswith("/bots/")
+                pct = isinstance(node.op, ast.Mod) and re.search(r"/bots/%[sdr]/?(?:$|[?#])", left.value)
+                if (plus or pct) and not _PASSPORTISH.search(ast.unparse(node.right)):
+                    yield node
+        elif (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "format"
+              and isinstance(node.func.value, ast.Constant) and isinstance(node.func.value.value, str)
+              and re.search(r"/bots/\{[^}]*\}/?(?:$|[?#])", node.func.value.value)
+              and not _PASSPORTISH.search(" ".join(ast.unparse(a) for a in [*node.args, *[k.value for k in node.keywords]]))):
+            yield node
 
 
 def test_no_source_file_builds_a_minting_door_at_run_time():
@@ -77,6 +85,11 @@ def test_the_dynamic_check_catches_a_door_and_spares_real_routes():
     assert found('door = "register"\nurl = f"{base}/api/v1/bots/{door}"') == 1
     assert found('url = f"/api/v1/bots/{kind}?x=1"') == 1
     assert found('url = "/api/v1/bots/" + door') == 1
+    assert found('url = f"{base}/api/v1/bots/{door}/"') == 1           # trailing slash
+    assert found('url = "/api/v1/bots/{}".format(door)') == 1
+    assert found('url = "/api/v1/bots/%s" % door') == 1
+    assert found('url = "/api/v1/bots/{}/keys".format(passport)') == 0  # a route below a passport
+    assert found('url = "/api/v1/bots/%s" % passport') == 0
     assert found('url = f"{base}/api/v1/bots/{passport}"') == 0       # the lookup
     assert found('url = f"/api/v1/bots/{pp}/ept/refresh"') == 0       # a route below a passport
     assert found('url = f"/api/v1/bots/{self.passport_id}/keys"') == 0
