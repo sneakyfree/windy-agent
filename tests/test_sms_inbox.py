@@ -58,15 +58,38 @@ def test_items_without_an_id_are_skipped(tmp_path):
 def test_fetch_reads_messages_with_the_agents_ept(monkeypatch):
     seen = {}
 
+    from windyfly.eternitas import agent_keys as ak
+
+    monkeypatch.setenv("ETERNITAS_PASSPORT_TOKEN", "ept-own")
+    monkeypatch.setattr(ak, "request_agent_token", lambda aud: {"token": f"tok-{aud}"})
+    monkeypatch.setattr(ak, "service_dpop", lambda m, u: f"proof-{m}-{u}")
+
     def get(url, headers=None, timeout=None):
-        seen["url"], seen["auth"] = url, headers["Authorization"]
+        seen["url"], seen["auth"], seen["dpop"] = url, headers["Authorization"], headers.get("DPoP")
         return httpx.Response(200, json={"count": 1, "messages": [{"message_sid": "SM1"}]},
                               request=httpx.Request("GET", url))
 
     monkeypatch.setattr(sms_inbox.httpx, "get", get)
-    out = sms_inbox.fetch_inbox("https://api.windytext.com", "ept-own")
+    out = sms_inbox.fetch_inbox("https://api.windytext.com")
     assert out == [{"message_sid": "SM1"}]
-    assert seen["url"].endswith("/sms/inbox/mine") and seen["auth"] == "Bearer ept-own"
+    assert seen["url"].endswith("/sms/inbox/mine") and seen["auth"] == "Bearer tok-windy-telephony"
+    assert seen["dpop"] == "proof-GET-https://api.windytext.com/sms/inbox/mine"  # never the legacy token
+
+
+def test_fetch_without_an_agent_token_asks_nothing_and_says_so(monkeypatch):
+    import pytest
+
+    from windyfly.eternitas import agent_keys as ak
+
+    def no_key(aud):
+        raise ak.AgentTokenError("no_key")
+
+    calls = []
+    monkeypatch.setattr(ak, "request_agent_token", no_key)
+    monkeypatch.setattr(sms_inbox.httpx, "get", lambda *a, **k: calls.append(1))
+    with pytest.raises(sms_inbox.InboxAuthError, match="no_key"):  # the poll loop logs it as a warning
+        sms_inbox.fetch_inbox("https://api.windytext.com")
+    assert calls == []
 
 
 def test_poller_only_starts_when_byo_is_on(monkeypatch):
@@ -74,3 +97,115 @@ def test_poller_only_starts_when_byo_is_on(monkeypatch):
 
     monkeypatch.delenv("WINDY_TEXT_BYO", raising=False)
     assert sms.byo_enabled() is False
+
+
+def test_poll_health_warns_on_change_and_hourly_then_says_recovered():
+    now = [0.0]
+    h = sms_inbox.PollHealth(clock=lambda: now[0])
+    assert h.failed("no_key") is True          # first failure
+    now[0] = 60
+    assert h.failed("no_key") is False         # same reason a minute later: debug only
+    assert h.failed("unreachable") is True     # the reason changed
+    now[0] = 60 + 3600
+    assert h.failed("unreachable") is True     # still failing an hour later
+    assert h.ok() is True and h.ok() is False  # "recovered" once
+    assert h.failed("unreachable") is True     # a new outage warns again
+
+
+def test_poll_loop_fails_quietly_then_recovers_and_relays_once(monkeypatch, tmp_path, caplog):
+    import logging
+    from unittest.mock import AsyncMock, MagicMock
+
+    from windyfly.channels import matrix_bot as mb
+    from windyfly.eternitas import agent_keys as ak
+
+    monkeypatch.setattr("windyfly.platform.windy_state_dir", lambda: tmp_path)
+    bot = object.__new__(mb.WindyFlyMatrixBot)
+    bot._shutting_down = False
+    bot._hatch_dm_room_id = "!dm"
+    bot.client = MagicMock()
+    bot.client.room_send = AsyncMock()
+    monkeypatch.setattr(mb, "_room_session", lambda self, r: "s")
+    state = {"n": 0, "auth": []}
+
+    def mint(aud):
+        state["n"] += 1
+        if state["n"] <= 3:
+            raise ak.AgentTokenError("passport_not_born", status=409)
+        return {"token": "T"}
+
+    monkeypatch.setattr(ak, "request_agent_token", mint)
+    monkeypatch.setattr(ak, "service_dpop", lambda m, u: f"P-{m}-{u}")
+
+    def get(url, headers=None, timeout=None):
+        state["auth"].append(headers)
+        return httpx.Response(200, json={"messages": [{"message_sid": "SM1", "body": "hi", "from_kind": "contact"}]},
+                              request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(sms_inbox.httpx, "get", get)
+    sleeps = []
+
+    async def fake_sleep(s):
+        sleeps.append(s)
+        if len(sleeps) >= 5:
+            bot._shutting_down = True
+
+    monkeypatch.setattr(mb.asyncio, "sleep", fake_sleep)
+    with caplog.at_level(logging.DEBUG, logger="windyfly.channels.matrix_bot"):
+        asyncio.run(bot._sms_inbox_loop())
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert sleeps == [sms_inbox.POLL_S] * 5
+    assert len(warnings) == 1 and "passport_not_born" in warnings[0].getMessage()  # 3 failures, 1 warning
+    assert any(r.levelno == logging.INFO and "recovered" in r.getMessage() for r in caplog.records)
+    assert state["auth"][0] == {"Authorization": "Bearer T",
+                                "DPoP": "P-GET-https://api.windytext.com/sms/inbox/mine"}
+    assert bot.client.room_send.await_count == 1  # relayed once, not on every later poll
+
+
+def test_failure_key_ignores_changing_error_text():
+    import httpx
+
+    a = httpx.ConnectTimeout("timed out after 9.81 s to 10.0.0.7")
+    b = httpx.ConnectTimeout("timed out after 10.02 s to 10.0.0.9")
+    assert sms_inbox.failure_key(a) == sms_inbox.failure_key(b) == "ConnectTimeout"
+    req = httpx.Request("GET", "https://api.windytext.com/sms/inbox/mine")
+    e401 = httpx.HTTPStatusError("x", request=req, response=httpx.Response(401, request=req))
+    e503 = httpx.HTTPStatusError("y", request=req, response=httpx.Response(503, request=req))
+    assert sms_inbox.failure_key(e401) != sms_inbox.failure_key(e503)
+    assert sms_inbox.failure_key(sms_inbox.InboxAuthError("no_key")) == "InboxAuthError:no_key"
+    h = sms_inbox.PollHealth(clock=lambda: 0.0)
+    assert h.failed(sms_inbox.failure_key(a)) is True and h.failed(sms_inbox.failure_key(b)) is False
+
+
+def test_poll_loop_warns_once_for_timeouts_whose_text_changes(monkeypatch, tmp_path, caplog):
+    import logging
+    from unittest.mock import AsyncMock, MagicMock
+
+    from windyfly.channels import matrix_bot as mb
+
+    monkeypatch.setattr("windyfly.platform.windy_state_dir", lambda: tmp_path)
+    bot = object.__new__(mb.WindyFlyMatrixBot)
+    bot._shutting_down = False
+    bot._hatch_dm_room_id = "!dm"
+    bot.client = MagicMock()
+    bot.client.room_send = AsyncMock()
+    monkeypatch.setattr(mb, "_room_session", lambda self, r: "s")
+    n = {"i": 0}
+
+    def fetch(base_url):
+        n["i"] += 1
+        raise httpx.ConnectTimeout(f"timed out after {9 + n['i'] / 10:.2f} s to 10.0.0.{n['i']}")
+
+    monkeypatch.setattr(sms_inbox, "fetch_inbox", fetch)
+    sleeps = []
+
+    async def fake_sleep(s):
+        sleeps.append(s)
+        if len(sleeps) >= 4:
+            bot._shutting_down = True
+
+    monkeypatch.setattr(mb.asyncio, "sleep", fake_sleep)
+    with caplog.at_level(logging.DEBUG, logger="windyfly.channels.matrix_bot"):
+        asyncio.run(bot._sms_inbox_loop())
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert n["i"] == 4 and len(warnings) == 1  # four different texts, one outage, one warning

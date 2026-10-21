@@ -27,12 +27,12 @@ def _resp(status=200, err=None):
     return r
 
 
-def test_aud_is_a_parameter_and_get_has_no_proof(ak):
+def test_aud_is_a_parameter_and_every_request_has_a_proof(ak):
     minted, proofs, _ = ak
-    assert sa.agent_headers("windy-vault", "GET", "https://v/x") == {"Authorization": "Bearer tok-1"}
+    assert sa.agent_headers("windy-vault", "GET", "https://v/x") == {"Authorization": "Bearer tok-1", "DPoP": "proof-1"}
     h = sa.agent_headers("windy-vault", "POST", "https://v/lease")
-    assert h == {"Authorization": "Bearer tok-2", "DPoP": "proof-1"} and minted == ["windy-vault"] * 2
-    assert proofs == [("POST", "https://v/lease")]
+    assert h == {"Authorization": "Bearer tok-2", "DPoP": "proof-2"} and minted == ["windy-vault"] * 2
+    assert proofs == [("GET", "https://v/x"), ("POST", "https://v/lease")]
 
 
 def test_a_mint_failure_is_a_service_auth_error_with_a_code(monkeypatch):

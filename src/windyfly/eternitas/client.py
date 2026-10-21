@@ -1,83 +1,33 @@
-"""Eternitas API client — talks to the real Eternitas registry service.
+"""Eternitas API client: reads and lifecycle calls to the real Eternitas registry.
 
-Eternitas is a third-party identity platform, not part of the Windy
-ecosystem: it issues, it does not orchestrate. This client is how we ask.
-
-**Two minting doors, and picking the wrong one breaks a fresh install:**
-
-* ``auto_hatch()`` → ``POST /bots/auto-hatch`` — the CONSUMER door. Anonymous,
-  creates the self-registered operator for us. This is what every hatch uses,
-  in this repo and in windy-pro.
-* ``register()`` → ``POST /bots/register`` — the ENTERPRISE door. Requires
-  ``ETERNITAS_OPERATOR_KEY`` for an already-VERIFIED operator. That key is
-  blank on a fresh machine, so a consumer hatch through this door 401s and
-  produces no passport. Kept for programmatic callers who hold such a key.
+Eternitas is a third-party identity platform, not part of the Windy ecosystem: it issues, it does not
+orchestrate. windyfly NEVER mints a passport. Every agent is born through the ONE hallway, Hub's hatch
+ceremony (windyfly.hub_hatch, ADR-059); Eternitas, the one certifying authority, mints there. The old
+direct doors (register() -> /bots/register, auto_hatch() -> /bots/auto-hatch) were removed on 2026-10-21
+so no second hallway is left in this code.
 """
 
 from __future__ import annotations
 
 import logging
 import os
-import re
 
 import httpx
 
 from windyfly.eternitas.models import (
     BotIdentity,
     EternitasPassport,
-    RegistrationRequest,
     RevocationResult,
 )
 
 logger = logging.getLogger(__name__)
 
-_HATCH_ID_RE = re.compile(r"[A-Za-z0-9._+-]{1,64}")
 
 _TIMEOUT = 10.0
-# Registration is measurably slow on prod (~30s): operator X-API-Key auth
-# bcrypt-scans every operator row (eternitas issue — O(n) auth). 10s made
-# the desktop hatch time out AFTER the server had already minted the
-# passport+certificate. Generous ceiling until eternitas indexes the key.
-_REGISTER_TIMEOUT = 60.0
 
 
 
-class HatchAuthRequired(RuntimeError):
-    """Eternitas refused the hatch for lack of (or a rejected) sign-in."""
 
-
-def auto_hatch_credential() -> tuple[str, str]:
-    """Pick the Bearer for ``/bots/auto-hatch`` → (token, source label).
-
-    Precedence: the OWNER'S HUB TOKEN always wins.
-      1. ``WINDY_HUB_JWT``: a hub login token handed in by a caller
-         (shape-checked: RS256, type human, carries a Windy identity).
-      2. The stored ``windy login`` session (refreshed if near expiry).
-      3. ``ETERNITAS_OPERATOR_JWT``: used only when there is NO hub token.
-      4. Nothing. That's the anonymous door, which Eternitas is closing.
-    Why the hub token must win (Eternitas lane, 2026-09-23): auto-hatch trusts
-    a hub human JWT and binds the owner from its windy_identity_id. An operator
-    JWT only counts as "authenticated", so the owner is resolved from the
-    unverified contact email and the bot lands on a new placeholder operator,
-    not the owner's account.
-    The token itself is never logged, only the source label.
-    """
-    from windyfly import hub_login
-
-    hub_jwt = os.environ.get("WINDY_HUB_JWT", "").strip()
-    if hub_jwt and hub_login.looks_like_hub_human_token(hub_jwt):
-        return hub_jwt, "WINDY_HUB_JWT"
-    try:
-        session_token = hub_login.get_access_token()
-    except Exception as exc:  # never let a sign-in problem crash the hatch
-        logger.debug("hub session lookup failed: %s", exc)
-        session_token = None
-    if session_token:
-        return session_token, "windy login session"
-    operator_jwt = os.environ.get("ETERNITAS_OPERATOR_JWT", "").strip()
-    if operator_jwt:
-        return operator_jwt, "operator JWT"
-    return "", "none"
 
 class EternitasClient:
     """HTTP client for the Eternitas bot registry API.
@@ -93,125 +43,12 @@ class EternitasClient:
         self.operator_key = operator_key or os.environ.get("ETERNITAS_OPERATOR_KEY", "")
         self.admin_token = os.environ.get("ETERNITAS_ADMIN_TOKEN", "")
 
-    def _reg_headers(self) -> dict[str, str]:
-        """Headers for registration (operator API key)."""
-        h: dict[str, str] = {"Content-Type": "application/json"}
-        if self.operator_key:
-            h["X-API-Key"] = self.operator_key
-        return h
-
     def _admin_headers(self) -> dict[str, str]:
         """Headers for admin endpoints (Bearer token)."""
         h: dict[str, str] = {"Content-Type": "application/json"}
         if self.admin_token:
             h["Authorization"] = f"Bearer {self.admin_token}"
         return h
-
-    async def register(self, request: RegistrationRequest) -> EternitasPassport:
-        """Register a new bot and receive a passport.
-
-        POST /api/v1/bots/register
-        Auth: X-API-Key (operator key)
-        """
-        try:
-            async with httpx.AsyncClient(timeout=_REGISTER_TIMEOUT) as client:
-                resp = await client.post(
-                    f"{self.api_url}/api/v1/bots/register",
-                    json=request.to_api_payload(),
-                    headers=self._reg_headers(),
-                )
-                resp.raise_for_status()
-                return EternitasPassport.from_api_response(resp.json())
-        except httpx.ConnectError as e:
-            logger.error("Eternitas registration connection error: %s", e)
-            raise
-        except httpx.HTTPStatusError as e:
-            logger.error("Eternitas registration failed: %s", e)
-            raise
-
-    async def auto_hatch(self, request: RegistrationRequest) -> EternitasPassport:
-        """Hatch a passport through the CONSUMER door.
-
-        POST /api/v1/bots/auto-hatch
-        Auth: none required — this is the anonymous human door, and the
-        route's own docstring calls it "the normie path for `windy go`
-        hatches". It creates the self-registered operator for us.
-
-        This is the door the browser and mobile lanes already come through
-        (via windy-pro), so the terminal door using it is what "one issuer,
-        one door" means. The alternative, /bots/register, demands an
-        operator API key belonging to an already-VERIFIED operator —
-        `ETERNITAS_OPERATOR_KEY` is blank on a fresh machine, so the
-        terminal door simply 401d and produced no passport.
-
-        A credential is sent when one is available (see
-        ``auto_hatch_credential``). Eternitas is closing the anonymous door
-        (``AUTO_HATCH_REQUIRE_PRO_JWT``), after which an unauthenticated
-        call gets 401. The terminal's credential is the owner's hub sign-in
-        (``windy login``).
-        """
-        headers: dict[str, str] = {"Content-Type": "application/json"}
-        bearer, source = auto_hatch_credential()
-        if bearer:
-            headers["Authorization"] = f"Bearer {bearer}"
-        logger.info("Eternitas auto-hatch credential: %s", source)
-        # Eternitas #185: one opaque id per hatch attempt, the same on
-        # retries, joins the birth across services in Windy Admin.
-        if _HATCH_ID_RE.fullmatch(request.hatch_id or ""):
-            headers["X-Windy-Hatch-Id"] = request.hatch_id
-
-        payload = request.to_auto_hatch_payload()
-        # Only relevant if the deployment has turned Turnstile on. A terminal
-        # has no browser to solve a challenge in, so this is normally empty
-        # and the gate is expected to be satisfied by the JWT above instead.
-        turnstile_token = os.environ.get("ETERNITAS_TURNSTILE_TOKEN", "")
-        if turnstile_token:
-            payload["turnstile_token"] = turnstile_token
-
-        try:
-            async with httpx.AsyncClient(timeout=_REGISTER_TIMEOUT) as client:
-                resp = await client.post(
-                    f"{self.api_url}/api/v1/bots/auto-hatch",
-                    json=payload,
-                    headers=headers,
-                )
-                resp.raise_for_status()
-                return EternitasPassport.from_api_response(resp.json())
-        except httpx.ConnectError as e:
-            logger.error("Eternitas auto-hatch connection error: %s", e)
-            raise
-        except httpx.HTTPStatusError as e:
-            # Translate the gate responses into something a person can act
-            # on. These surface in the hatch's error list and, for the
-            # terminal door, on a human's screen.
-            status = e.response.status_code
-            if status == 401:
-                if not bearer:
-                    raise HatchAuthRequired(
-                        "Eternitas now requires you to sign in with your Windy "
-                        "account (account.windyword.ai) to hatch an agent. Run "
-                        "`windy login`, then run "
-                        "this again (an interactive `windy go` asks you to sign "
-                        "in automatically)."
-                    ) from e
-                raise HatchAuthRequired(
-                    f"Eternitas didn't accept your Windy sign-in ({source}). It "
-                    "may have expired or not be a personal account. Run "
-                    "`windy login` again, then retry."
-                ) from e
-            if status == 403:
-                raise RuntimeError(
-                    "Eternitas could not confirm a human is running this hatch. "
-                    "Hatch from the web app at account.windyword.ai, or run "
-                    "`windy login` to sign in from the terminal."
-                ) from e
-            if status == 429:
-                raise RuntimeError(
-                    "Eternitas rate limit: at most 5 hatches per hour. Wait an "
-                    "hour and try again."
-                ) from e
-            logger.error("Eternitas auto-hatch failed: %s", e)
-            raise
 
     async def verify(self, passport_id: str) -> EternitasPassport | None:
         """Verify a passport is valid and active.

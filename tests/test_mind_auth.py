@@ -1,7 +1,7 @@
 """S10.8: Windy Mind calls carry an EPT+agent + a per-request DPoP proof.
 
 Mind (windy-mind S4.6, live 10-04) takes ``Authorization: Bearer <EPT+agent>`` plus a
-``DPoP:`` header on every non-GET; GETs are bearer-only. The legacy EPT stays as the
+``DPoP:`` header on every request, GETs included (Eternitas verifier.v1.1). The legacy EPT stays as the
 fallback until the sunset (non-GET refused from 11-03).
 """
 
@@ -57,10 +57,10 @@ class TestHeaders:
         assert h == {"Authorization": "Bearer agent-tok-1", "DPoP": "proof-1"}
         assert proofs == [("POST", URL)]
 
-    def test_get_is_bearer_only(self):
+    def test_get_carries_a_proof_too(self):
         h, agent = mind_auth.headers("GET", "https://api.windymind.ai/v1/grants/me", "legacy-ept")
         assert agent is True
-        assert h == {"Authorization": "Bearer agent-tok-1"}
+        assert h["Authorization"] == "Bearer agent-tok-1" and h.get("DPoP")
 
     def test_mint_failure_falls_back_to_the_legacy_ept(self, monkeypatch):
         from windyfly.eternitas import agent_keys as ak
@@ -202,3 +202,15 @@ class TestClientPost:
         with self._client(handler) as c:
             mind_auth.client_post(c, "/v1/runtime/claim", "legacy-ept", {})
         assert seen[0]["authorization"] == "Bearer legacy-ept" and "dpop" not in seen[0]
+
+
+@pytest.mark.parametrize("aud,method", [("windy-mind", "GET"), ("windy-cloud", "GET"), ("windy-calendar", "GET"),
+                                        ("windy-chat", "GET"), ("windy-mind", "POST"), ("windy-vault", "DELETE")])
+def test_every_request_carries_a_proof_for_its_url_without_the_query(monkeypatch, aud, method):
+    from windyfly.agent import service_auth
+    from windyfly.eternitas import agent_keys as ak
+
+    monkeypatch.setattr(ak, "request_agent_token", lambda a: {"token": f"t-{a}"})
+    monkeypatch.setattr(ak, "service_dpop", lambda m, u: f"dpop:{m}:{u}")
+    h = service_auth.agent_headers(aud, method, "https://x.example/v1/thing?page=2#frag")
+    assert h == {"Authorization": f"Bearer t-{aud}", "DPoP": f"dpop:{method}:https://x.example/v1/thing"}

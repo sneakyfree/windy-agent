@@ -1,7 +1,8 @@
 """Inbound texts from Windy Text (dark: rides WINDY_TEXT_BYO=1, off by default).
 
-Polls GET {WINDY_TEXT_BASE_URL}/sms/inbox/mine with the agent's own EPT (a 24 h
-buffer; items carry message_sid, body, channel:"sms", from_kind owner|contact).
+Polls GET {WINDY_TEXT_BASE_URL}/sms/inbox/mine in mode B only (tools/sms.py ``agent_auth``:
+EPT+agent for windy-telephony + a DPoP proof; never the legacy passport token). A 24 h buffer;
+items carry message_sid, body, channel:"sms", from_kind owner|contact.
 
 Rules (Windy Hub, 10-01):
 - from_kind=contact: NEVER acted on. It is only relayed to the owner's DM (stranger
@@ -28,9 +29,60 @@ POLL_S = 60.0
 _SEEN_CAP = 500
 
 
-def fetch_inbox(base_url: str, ept: str, *, timeout: float = 10.0) -> list[dict[str, Any]]:
-    resp = httpx.get(f"{base_url}/sms/inbox/mine",
-                     headers={"Authorization": f"Bearer {ept}"}, timeout=timeout)
+class PollHealth:
+    """When the inbox poll should log at WARNING: on the first failure, when the reason changes,
+    and at most once an hour while it lasts; everything else is DEBUG. ``ok()`` says whether the
+    poll just recovered (log that once at INFO)."""
+
+    REPEAT_S = 3600.0
+
+    def __init__(self, clock: Callable[[], float] | None = None) -> None:
+        import time
+
+        self._clock = clock or time.monotonic
+        self._reason: str | None = None
+        self._warned_at = 0.0
+
+    def failed(self, reason: str) -> bool:
+        now = self._clock()
+        if reason != self._reason or now - self._warned_at >= self.REPEAT_S:
+            self._reason, self._warned_at = reason, now
+            return True
+        return False
+
+    def ok(self) -> bool:
+        recovered, self._reason = self._reason is not None, None
+        return recovered
+
+
+class InboxAuthError(RuntimeError):
+    """No agent token or proof could be made, so the inbox was not asked."""
+
+    def __init__(self, code: str | None) -> None:
+        super().__init__(f"no agent token for Windy Text ({code})")
+        self.code = code
+
+
+def failure_key(exc: BaseException) -> str:
+    """A STABLE key for PollHealth: the error's type plus its code or HTTP status, never its full text (a
+    timeout's message can name a changing address or duration, which would warn every minute)."""
+    import httpx
+
+    if isinstance(exc, InboxAuthError):
+        return f"InboxAuthError:{exc.code}"
+    if isinstance(exc, httpx.HTTPStatusError):
+        return f"HTTPStatusError:{exc.response.status_code}"
+    return type(exc).__name__
+
+
+def fetch_inbox(base_url: str, *, timeout: float = 10.0) -> list[dict[str, Any]]:
+    from windyfly.tools.sms import agent_auth
+
+    url = f"{base_url}/sms/inbox/mine"
+    headers, code = agent_auth(url, "GET")
+    if headers is None:
+        raise InboxAuthError(code)
+    resp = httpx.get(url, headers=headers, timeout=timeout)
     resp.raise_for_status()
     data = resp.json()
     msgs = data.get("messages") if isinstance(data, dict) else None
