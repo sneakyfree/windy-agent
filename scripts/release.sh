@@ -8,6 +8,9 @@ VERSION="${1:?Usage: ./scripts/release.sh <version>}"
 echo "🪰 Releasing Windy Fly v${VERSION}"
 echo ""
 
+# 0. Fold the changelog fragments (changelog.d/) into CHANGELOG.md "## Unreleased"
+python3 scripts/changelog_fold.py
+
 # 1. Update version in __init__.py
 sed -i '' "s/__version__ = \".*\"/__version__ = \"${VERSION}\"/" src/windyfly/__init__.py
 echo "✓ Version bumped to ${VERSION}"
@@ -23,7 +26,7 @@ uv run pytest tests/ -v --tb=short
 echo "✓ Tests passed"
 
 # 4. Commit version bump
-git add src/windyfly/__init__.py
+git add src/windyfly/__init__.py CHANGELOG.md changelog.d
 git commit -m "release: v${VERSION}"
 echo "✓ Version commit created"
 
