@@ -33,6 +33,8 @@
 #   WINDY_AGENT_SCOPE           user
 #   WINDY_AGENT_LOG             ~/.windy/windy-0-telegram.log
 #   HEARTBEAT_MAX_AGE_SEC       900 (15 min — 3× the heartbeat interval)
+#   WINDY_LIVENESS_SKIP_TELEGRAM 0; 1 = the Telegram channel is off on purpose: skip getMe and
+#                               the heartbeat, still check (and heal) the listed units
 
 set -uo pipefail
 
@@ -52,7 +54,11 @@ if [[ -f "$ENV_FILE" ]]; then
     set -a; source "$ENV_FILE"; set +a
 fi
 
-if [[ -z "${TELEGRAM_BOT_TOKEN:-}" ]]; then
+# WINDY_LIVENESS_SKIP_TELEGRAM=1: the Telegram channel is OFF on purpose (e.g. the 09-24 @Windy_0_bot
+# token compromise). Skip getMe + the polling heartbeat; only check that the listed units are alive.
+SKIP_TG="${WINDY_LIVENESS_SKIP_TELEGRAM:-0}"
+
+if [[ "$SKIP_TG" != "1" && -z "${TELEGRAM_BOT_TOKEN:-}" ]]; then
     echo "FATAL: TELEGRAM_BOT_TOKEN not set after sourcing $ENV_FILE" >&2
     exit 2
 fi
@@ -103,6 +109,7 @@ attempt_restart() {
 }
 
 # ── Check 1: bot token + Telegram reachable ────────────────────────
+if [[ "$SKIP_TG" != "1" ]]; then
 
 URL="https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getMe"
 HTTP_CODE=$(curl -sS -o /tmp/probe-getme.$$ -w "%{http_code}" \
@@ -157,6 +164,8 @@ if [[ "$HTTP_CODE" != "200" ]] || [[ "$BODY" != *'"ok":true'* ]]; then
     exit 1
 fi
 
+fi  # SKIP_TG (check 1)
+
 # ── Check 2: agent processes are actually active ───────────────────
 
 DEAD_UNITS=()
@@ -175,7 +184,7 @@ fi
 
 # ── Check 3: log shows recent polling heartbeat ────────────────────
 
-if [[ -r "$AGENT_LOG" ]]; then
+if [[ "$SKIP_TG" != "1" && -r "$AGENT_LOG" ]]; then
     LAST_HB_LINE=$(grep "polling=" "$AGENT_LOG" 2>/dev/null | tail -1 || true)
     if [[ -n "$LAST_HB_LINE" ]]; then
         # Heartbeat lines start "HH:MM:SS" — combine with file mtime
@@ -200,5 +209,9 @@ if [[ -r "$AGENT_LOG" ]]; then
 fi
 
 # All three checks passed.
-write_status OK 0 "getMe ok, units active ($UNITS), heartbeat fresh"
+if [[ "$SKIP_TG" == "1" ]]; then
+    write_status OK 0 "telegram checks skipped (channel off on purpose), units active ($UNITS)"
+else
+    write_status OK 0 "getMe ok, units active ($UNITS), heartbeat fresh"
+fi
 exit 0

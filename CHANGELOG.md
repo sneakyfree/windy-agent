@@ -10,6 +10,11 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
 
 ## Unreleased
 
+- **The liveness probe's "Telegram off" switch is now in the repo.** Since the 09-24 Telegram token incident,
+  Windy 0 has run a hand-edited probe: with WINDY_LIVENESS_SKIP_TELEGRAM=1 it skips the Telegram checks and still
+  checks (and restarts) the agent's units. That edit was never committed, so reinstalling the probe from the repo
+  would have quietly removed it. The repo copy now matches what runs on Windy 0, and three tests cover it.
+
 - **Every request the agent signs carries a proof, reads included.** Requests made with the agent's short
   Eternitas token (EPT+agent) now always add a DPoP proof for that exact method and address (query left out),
   GETs to Windy Mind, Windy Cloud and Windy Vault included; before, only Calendar and Chat reads had one. A
