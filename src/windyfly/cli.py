@@ -1728,7 +1728,9 @@ def main() -> None:
     rollback_parser.add_argument("version", nargs="?", help="Version to rollback to (e.g. 0.5.0)")
 
     # windy version
-    sub.add_parser("version", help="Show version info")
+    version_parser = sub.add_parser("version", help="Show version info")
+    version_parser.add_argument("--config", default=None,
+                                help="Config file the agent runs with (default: WINDYFLY_CONFIG, else windyfly.toml)")
 
     # windy export
     sub.add_parser("export", help="Backup everything")

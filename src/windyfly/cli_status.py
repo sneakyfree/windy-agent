@@ -105,7 +105,8 @@ def print_status(config: dict[str, Any] | None = None) -> None:
     total_skills = 0
     unresolved_failures = 0
     daily_spend = 0.0
-    daily_budget = _safe_get(config, "costs", "daily_budget_usd", default=5.0)
+    from windyfly.memory.cost_tracker import daily_budget as _daily_budget
+    daily_budget = _daily_budget((config or {}).get("costs") or {})
     preset = _safe_get(config, "personality", "preset", default="unknown")
     personality = _safe_get(config, "personality", "personality", default="?")
     humor = _safe_get(config, "personality", "humor_level", default="?")
