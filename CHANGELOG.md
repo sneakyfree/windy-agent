@@ -10,6 +10,11 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
 
 ## Unreleased
 
+- **The liveness probe no longer puts the Telegram bot token on a command line.** The token used to sit in curl's
+  arguments for about 10 s every 5 minutes, where `ps` could show it; it now goes to curl on standard input. The
+  reply file has a random name instead of a guessable one. With WINDY_LIVENESS_SKIP_TELEGRAM=1 the probe also
+  leaves the Telegram unit alone, since it is stopped on purpose, instead of restarting it. The flag's doc line
+  says to set it in the env file, because the installer doesn't carry it.
 - **Texting refusals are plain sentences, and the inbox poll stops repeating its warning.** When Windy Text
   refuses the agent's sign-in (401), its standing (403) or is briefly down (503), the owner now hears one plain
   sentence for each. Windy Text's own wording, such as "EPT invalid: <code>", is never passed on. A consent check

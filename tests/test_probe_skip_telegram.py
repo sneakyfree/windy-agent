@@ -70,3 +70,45 @@ def test_skip_telegram_still_heals_a_dead_unit(env):
     log = calls.read_text()
     assert "restart b.service" in log and "restart a.service" not in log
     assert "curl" not in log
+
+
+def test_skip_mode_ignores_a_stale_telegram_heartbeat(env, tmp_path):
+    e, calls, status, _state = env
+    log = tmp_path / "telegram.log"
+    log.write_text("00:00:01 [windyfly] INFO: polling=ok\n")
+    os.utime(log, (0, 0))  # 1970: hopelessly stale if anyone looked
+    r = _run({**e, "WINDY_AGENT_LOG": str(log), "WINDY_LIVENESS_FAIL_LIMIT": "1"})
+    assert r.returncode == 0 and "telegram checks skipped" in status.read_text()
+    assert "restart" not in calls.read_text()
+
+
+def test_skip_mode_never_restarts_the_telegram_unit_it_was_told_is_off(env):
+    e, calls, status, state = env
+    state.write_text("windy-0@telegram.service\n")  # stopped on purpose
+    e = {**e, "WINDY_AGENT_UNITS": "windy-0@telegram.service windy-0@matrix.service"}
+    for _ in range(3):
+        r = _run(e)
+        assert r.returncode == 0
+    log = calls.read_text()
+    assert "is-active windy-0@telegram" not in log and "restart" not in log
+    assert "is-active windy-0@matrix.service" in log
+
+
+def test_the_bot_token_never_reaches_curls_argv(tmp_path, env):
+    e, calls, status, _state = env
+    bin_dir = Path(e["PATH"].split(":", 1)[0])
+    stdin_log = tmp_path / "curl-stdin.log"
+    _stub(bin_dir, "curl", f"""echo "curl $*" >> {calls}
+cat > {stdin_log}
+out=""; prev=""; for a in "$@"; do [[ "$prev" == "-o" ]] && out="$a"; prev="$a"; done
+printf '{{"ok":true}}' > "$out"; printf 200
+""")
+    token = "123456:FAKE-token-for-probe-test-only"
+    (Path(e["WINDY_ENV_FILE"])).write_text(f"TELEGRAM_BOT_TOKEN={token}\n")
+    r = _run({**e, "WINDY_LIVENESS_SKIP_TELEGRAM": "0"})
+    assert r.returncode == 0, r.stderr
+    argv = calls.read_text()
+    assert "curl" in argv and token not in argv            # not visible in ps / /proc
+    assert f"/bot{token}/getMe" in stdin_log.read_text()   # it went on stdin (-K -)
+    out_path = [a for a in argv.split() if a.startswith(("/tmp/tmp.", "/tmp/"))]
+    assert not any(p.startswith("/tmp/probe-getme.") for p in out_path)  # mktemp, not a guessable name
