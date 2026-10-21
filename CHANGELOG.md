@@ -10,6 +10,12 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
 
 ## Unreleased
 
+- **`windy budget set` now changes the budget.** It wrote `[budget] daily_budget`, which the budget gate never
+  read, so the owner's new limit did nothing. It now writes `[costs] daily_budget_usd` (in WINDYFLY_CONFIG, else
+  the project's windyfly.toml), refuses anything under $0.01 or not a number, and `windy budget` shows the limit
+  the gate uses. The edited file is read back before it is saved: unless it parses and holds the new value with
+  every other setting unchanged, nothing is written and it says so (an inline `costs = {...}` table is left for
+  the owner to edit). The save is atomic.
 - **Fewer, plainer tools on every owner turn (tool trim, phase 1).** The agent does all the same jobs with
   fewer tools: 62 instead of 71 on a fresh install.
   - Google Calendar's tools (today's events, upcoming events, add an event) appear only when Google Calendar
