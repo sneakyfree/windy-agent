@@ -10,6 +10,11 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
 
 ## Unreleased
 
+- **The DPoP proof signs the address exactly as it is sent.** A file name with a space or an accented letter
+  used to be signed as typed ("a b") while "a%20b" went over the wire. Windy Cloud's stricter check would refuse
+  that. The proof now signs the percent-encoded path, with `./` and `../` removed and the default port dropped,
+  the same bytes httpx sends.
+
 - **A plain Windy Text 500 now says "briefly unavailable", and the inbox poll's warning holds through changing
   error text.** The poll used to warn whenever an error's wording changed, for example a timeout naming a different
   address or duration. It now goes by the kind of error and its code, so one outage still gives one warning.
