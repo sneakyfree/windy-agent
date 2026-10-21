@@ -17,6 +17,10 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
   starts failing, when the reason changes, and at most once an hour while it lasts, then says when it recovers.
   Before, it warned every minute, about 1,440 lines a day.
 
+- **The liveness probe's "Telegram off" switch is now in the repo.** Since the 09-24 Telegram token incident,
+  Windy 0 has run a hand-edited probe: with WINDY_LIVENESS_SKIP_TELEGRAM=1 it skips the Telegram checks and still
+  checks (and restarts) the agent's units. That edit was never committed, so reinstalling the probe from the repo
+  would have quietly removed it. The repo copy now matches what runs on Windy 0, and three tests cover it.
 - **Texting on the owner's own Twilio signs in only with a short agent token.** With WINDY_TEXT_BYO=1, all
   three calls to Windy Text (the consent check, the request for the owner's OK, and the send) now carry a short
   agent token for windy-telephony plus a proof for that exact request. The old 365-day passport token is never
