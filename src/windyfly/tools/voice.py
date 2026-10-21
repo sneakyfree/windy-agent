@@ -4,8 +4,9 @@ POST {WINDY_TEXT_BASE_URL}/call/v1/owner-call {"mode": "announce", "message": ..
 the destination (the owner's verified phone) and the caller id (the agent's own number); there is no ``to``,
 no voice choice and no retry (a call costs money). The spoken audio comes from Windy Mind on the server side.
 
-Auth is the one send_sms uses (tools/sms.py ``_send_auth``): a short EPT+agent for aud windy-telephony plus a
-DPoP proof for this exact URL; a refused passport is never retried with another credential.
+Auth is mode B only (tools/sms.py ``agent_auth``): a short EPT+agent for aud windy-telephony plus a DPoP proof
+for this exact URL. When either cannot be made the call is refused locally with that code; the long passport
+token is never sent (Hub on #609).
 
 DARK: registered only when WINDY_OWNER_CALL=1. The old body (api.windycall.com/voice/call, any number, Twilio
 <Say> voices) is gone: that service is frozen and its host no longer resolves.
@@ -40,20 +41,16 @@ def make_call(message: str) -> dict[str, Any]:
     """Phone the owner. Returns the server's facts: {status: 'calling', call_id, call_status, time_limit_seconds},
     {status: 'refused', http_status, code}, {status: 'unknown', error} (no answer after the request may have
     arrived) or {status: 'failed', error} (nothing was placed)."""
-    from windyfly.tools.sms import _send_auth
+    from windyfly.tools.sms import agent_auth
 
     text = (message or "").strip()
     if not 1 <= len(text) <= MAX_MESSAGE:
         return {"status": "failed", "error": f"message must be 1-{MAX_MESSAGE} characters"}
     base = os.environ.get("WINDY_TEXT_BASE_URL", _DEFAULT_BASE_URL).rstrip("/")
     url = f"{base}{_PATH}"
-    passport = os.environ.get("ETERNITAS_PASSPORT_TOKEN", "")
-    legacy = {"Authorization": f"Bearer {passport}"} if passport else {}
-    headers, refused = _send_auth(url, legacy)
-    if refused is not None:
-        return {"status": "refused", "code": "passport_not_allowed"}
-    if "Authorization" not in headers:
-        return {"status": "failed", "error": "no agent credential for windy-text"}
+    headers, code = agent_auth(url)
+    if headers is None:
+        return {"status": "refused", "code": code}
     try:
         resp = httpx.post(url, json={"mode": "announce", "message": text}, headers=headers, timeout=_TIMEOUT)
     except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout) as exc:
