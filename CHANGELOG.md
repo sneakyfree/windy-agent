@@ -10,6 +10,15 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
 
 ## Unreleased
 
+- **make_call phones only the owner, and is off until switched on.** It now calls windy-text's owner-call route
+  with just a message (1-500 characters): the server dials the owner's verified phone from the agent's own number,
+  and the audio comes from Windy Mind. There is no destination, no voice choice and no retry, and refusals
+  (voice_unavailable, quiet_hours, spend caps...) come back as their codes. It waits up to 90 s (the server
+  renders its voice clips before it dials), and a timeout after the request may have arrived says "unknown, a
+  call may still be placed" instead of "failed". It signs in only with a short agent token and a proof for that
+  exact address; if either cannot be made it refuses and sends nothing. The tool is offered only with
+  WINDY_OWNER_CALL=1. The old body called a frozen service whose host no longer resolves, so every call failed.
+
 - **`windy version --config <file>`.** `windy version` now takes the config file the agent runs with and
   shows that file's daily budget, through the same reader as the budget gate. Before, it only followed
   WINDYFLY_CONFIG or windyfly.toml, so an agent started with --config showed another file's budget.
