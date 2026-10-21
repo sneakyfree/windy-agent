@@ -152,8 +152,9 @@ def turn_marked_tainted() -> bool:
 
 # A turn another agent triggered with a typed task (agent-teamwork.v1) gets ONLY these tools: public reads,
 # nothing that writes, sends or asks another agent (Hub on #602: TRUSTED alone still offered message_agent).
-# agent/loop.py offers only these and refuses any other call on such a turn.
-TASK_TURN_TOOLS = frozenset(_PUBLIC_READ)
+# agent/loop.py offers only these and refuses any other call on such a turn. Not fetch_url: a GET to a URL
+# another agent chose can carry data out in its query string (Hub on #605).
+TASK_TURN_TOOLS = frozenset(_PUBLIC_READ) - {"fetch_url"}
 _task_turn: contextvars.ContextVar[frozenset[str] | None] = contextvars.ContextVar("windy_task_turn", default=None)
 
 

@@ -76,7 +76,7 @@ def _default_dm_room() -> str:
     return os.environ.get("MATRIX_DM_ROOM", "")
 
 
-def send_chat_message(body: str, to_room: str | None = None) -> dict[str, Any]:
+def send_chat_message(body: str, to_room: str | None = None, mentions: list[str] | None = None) -> dict[str, Any]:
     """Send a Matrix chat message to a room.
 
     ``to_room`` defaults to ``MATRIX_DM_ROOM`` (the agent's owner DM).
@@ -147,7 +147,8 @@ def send_chat_message(body: str, to_room: str | None = None) -> dict[str, Any]:
         resp = httpx.put(
             url,
             headers={"Authorization": f"Bearer {bot_token}"},  # never in the URL: httpx logs URLs
-            json={"msgtype": "m.text", "body": body},
+            json={"msgtype": "m.text", "body": body,
+                  **({"m.mentions": {"user_ids": list(mentions)}} if mentions else {})},
             timeout=_TIMEOUT,
         )
     except httpx.ConnectError as exc:

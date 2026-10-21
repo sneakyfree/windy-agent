@@ -38,7 +38,7 @@ _TIMEOUT_S = 10.0
 SIBLING_TTL_S = 300.0
 
 _lock = threading.Lock()
-_siblings: dict[str, Any] = {"ids": frozenset(), "at": 0.0}
+_siblings: dict[str, Any] = {"ids": frozenset(), "names": {}, "at": 0.0}
 
 
 def _base() -> str:
@@ -78,8 +78,16 @@ call = _call  # the invite gate (channels/invite_gate.py) asks Chat through the 
 
 def _remember(agents: list[dict[str, Any]]) -> None:
     ids = frozenset(str(a["matrix_id"]) for a in agents if a.get("matrix_id") and not a.get("self"))
+    names = {str(a["matrix_id"]): str(a.get("name") or "")[:60] for a in agents
+             if a.get("matrix_id") and not a.get("self") and a.get("name")}
     with _lock:
-        _siblings["ids"], _siblings["at"] = ids, time.time()
+        _siblings["ids"], _siblings["names"], _siblings["at"] = ids, names, time.time()
+
+
+def sibling_name(matrix_id: str) -> str:
+    """The name Windy Chat lists for one of the owner's agents ('' when unknown)."""
+    with _lock:
+        return str((_siblings.get("names") or {}).get(matrix_id, ""))
 
 
 def list_my_agents() -> dict[str, Any]:
@@ -250,13 +258,34 @@ def message_agent(to: str, text: str) -> dict[str, Any]:
         return _unavailable("Windy Chat could not open the room.")
     from windyfly.tools.chat import send_chat_message
 
-    sent = send_chat_message(text, to_room=room_id)
+    # Teamwork on: addressed by mention (agent-teamwork.v1: an agent's message is a turn only for the agents
+    # it mentions; "only two of us in the room" no longer counts), so mention the other agent account(s).
+    from windyfly.channels import teamwork
+
+    sent = (send_chat_message(text, to_room=room_id, mentions=_other_agents(room_id) or None)
+            if teamwork.enabled() else send_chat_message(text, to_room=room_id))
     if sent.get("status") != "sent":
         return _unavailable(str(sent.get("error") or "the message was not sent"))
     result: dict[str, Any] = {"ok": True, "to": to}
     if not partner_joined:
         result["note"] = f"{to} has not joined the room yet; your message is there for them"
     return result
+
+
+def _other_agents(room_id: str) -> list[str]:
+    """The agent accounts joined or invited in a pair room, other than this agent. Unknown = []."""
+    from windyfly.channels import parity
+
+    me = os.environ.get("MATRIX_BOT_USER", "")
+    try:
+        status, data = _mx("GET", f"rooms/{room_id}/joined_members")
+    except Exception as e:  # noqa: BLE001
+        logger.debug("teams: members not read: %s", type(e).__name__)
+        return []
+    if status != 200:
+        return []
+    joined = data.get("joined") if isinstance(data, dict) else None
+    return sorted(u for u in (joined or {}) if isinstance(u, str) and u != me and parity.passport_of(u))[:4]
 
 
 def room_has_other_agent(room_id: str, me: str) -> bool:
@@ -292,6 +321,13 @@ def sibling_ids() -> frozenset[str]:
 def siblings_stale() -> bool:
     with _lock:
         return time.time() - float(_siblings["at"]) > SIBLING_TTL_S
+
+
+def siblings_known() -> bool:
+    """Has the owner's agent list ever been read in this process? (False right after a restart, until the
+    first good read.)"""
+    with _lock:
+        return float(_siblings["at"]) > 0
 
 
 def refresh_siblings() -> None:

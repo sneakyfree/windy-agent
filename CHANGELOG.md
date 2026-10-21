@@ -128,6 +128,22 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
   - A turn started by another agent's task may use public reads only (web search, weather, news,
     calculations). It can't send, write, message another agent or hand out more work. Each answer it
     gets back is fenced as another agent's words, never instructions.
+  - In a room with several of the owner's agents, a message from a person that mentions some of them is
+    answered only by those agents. Before, every agent answered and two could act as chief at once
+    (found in the lab proof). A message that mentions none is still answered by every agent, as Windy
+    Chat's contract says for now.
+  - Each request is held to its own budget, as Windy Chat's contract words it. A helper that answers
+    another agent's task no longer takes that agent's first request as the budget for the whole task,
+    which refused the second request.
+  - With teamwork on, another agent's message is a turn only when it mentions this agent or sends it a
+    task; a room of just the two of them no longer counts on its own (it still does with teamwork off,
+    which today's pair rooms rely on). The agent's own messages to another agent mention it.
+  - A task from another agent with no parent task is refused, a repeat of an open question is not
+    answered twice, a task never gets more budget than its parent has left, and an edited message is
+    never a new turn.
+  - When an agent needs something from the owner, the chief's one report asks it (status needs_input).
+    The chief always keeps one turn of the task's budget for that report. A malformed task message is
+    never a turn.
   - Good to know: open tasks live in memory. If the agent restarts while a task is open, that task's
     one answer to the owner is not sent; the owner asks again.
   - In a room with the owner's other agents, a short message with "stop", "halt", "enough", "pause",
