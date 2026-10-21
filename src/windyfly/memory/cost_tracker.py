@@ -74,6 +74,24 @@ def _num(value: Any, default: float) -> float:
     return n if math.isfinite(n) else default
 
 
+DEFAULT_DAILY_BUDGET_USD = 5.0
+_warned_daily_not_positive = False
+
+
+def daily_budget(costs: dict[str, Any]) -> float:
+    """The daily budget from ``[costs] daily_budget_usd``. Text, nan or a value of 0 or less would block every
+    turn, so it falls back to the default; the 0-or-less case is logged once (Hub's deferral on #601)."""
+    global _warned_daily_not_positive
+    n = _num(costs.get("daily_budget_usd", DEFAULT_DAILY_BUDGET_USD), DEFAULT_DAILY_BUDGET_USD)
+    if n > 0:
+        return n
+    if not _warned_daily_not_positive:
+        _warned_daily_not_positive = True
+        logger.warning("costs.daily_budget_usd is %s (0 or less); using the default %.2f", n,
+                       DEFAULT_DAILY_BUDGET_USD)
+    return DEFAULT_DAILY_BUDGET_USD
+
+
 def month_capped(db: Database, config: dict[str, Any]) -> bool:
     """True when a monthly budget is set and this month's spend has reached it."""
     monthly_budget = _num((config.get("costs") or {}).get("monthly_budget_usd", 0.0), 0.0)
@@ -84,15 +102,13 @@ def continue_today(db: Database, config: dict[str, Any]) -> dict[str, Any]:
     """Grant one more day's budget for the rest of today (once). Returns what happened.
 
     The monthly budget is checked first: when the month is capped the grant would change nothing, so it is
-    refused and kept for another day (Hub on #601). No daily budget (0 or less): nothing to extend."""
+    refused and kept for another day (Hub on #601)."""
     import json
 
     from windyfly.memory.soul import upsert_soul
 
     costs = config.get("costs") or {}
-    extra = _num(costs.get("daily_budget_usd", 5.0), 5.0)
-    if extra <= 0:
-        return {"granted": False, "no_daily": True}
+    extra = daily_budget(costs)
     if month_capped(db, config):
         return {"granted": False, "monthly": True,
                 "monthly_spend": round(get_monthly_spend(db), 2),
@@ -123,8 +139,8 @@ def check_budget(
     - Alert messages for the agent to relay to the user
     """
     costs_config = config.get("costs", {})
-    # An owner-edited nan or text in windyfly.toml falls back to the default instead of blocking every turn.
-    daily_budget = _num(costs_config.get("daily_budget_usd", 5.0), 5.0)
+    # An owner-edited nan, text or 0-or-less in windyfly.toml falls back to the default instead of blocking every turn.
+    daily_limit = daily_budget(costs_config)
     monthly_budget = _num(costs_config.get("monthly_budget_usd", 0.0), 0.0)  # 0 = no monthly limit
     warn_pct = costs_config.get("warn_at_percent", 80)
 
@@ -133,8 +149,8 @@ def check_budget(
     extra = extra_today(db)
 
     # Daily budget check (plus the owner's "continue today", if granted today)
-    daily_allowed = daily_spend <= daily_budget + extra
-    daily_pct = (daily_spend / daily_budget * 100) if daily_budget > 0 else 0
+    daily_allowed = daily_spend <= daily_limit + extra
+    daily_pct = (daily_spend / daily_limit * 100) if daily_limit > 0 else 0
 
     # Monthly budget check
     monthly_allowed = True
@@ -156,17 +172,17 @@ def check_budget(
     elif not daily_allowed and extra > 0:
         alert = (
             f"I've used today's budget and the extra you allowed (${daily_spend:.2f} / "
-            f"${daily_budget + extra:.2f}). I'll be back tomorrow, or you can increase the budget in settings."
+            f"${daily_limit + extra:.2f}). I'll be back tomorrow, or you can increase the budget in settings."
         )
     elif not daily_allowed:
         alert = (
-            f"I've hit my daily budget (${daily_spend:.2f} / ${daily_budget:.2f}). "
+            f"I've hit my daily budget (${daily_spend:.2f} / ${daily_limit:.2f}). "
             f"I'll be back tomorrow. To keep going today, my owner can type /budget continue "
-            f"(up to another ${daily_budget:.2f} today), or increase the budget in settings."
+            f"(up to another ${daily_limit:.2f} today), or increase the budget in settings."
         )
     elif daily_pct >= warn_pct:
         alert = (
-            f"Heads up: I've used ${daily_spend:.2f} of your ${daily_budget:.2f} daily budget "
+            f"Heads up: I've used ${daily_spend:.2f} of your ${daily_limit:.2f} daily budget "
             f"({daily_pct:.0f}%)."
         )
     elif monthly_budget > 0 and monthly_pct >= warn_pct:
@@ -178,7 +194,7 @@ def check_budget(
     return {
         "allowed": allowed,
         "daily_spend": round(daily_spend, 4),
-        "daily_budget": daily_budget,
+        "daily_budget": daily_limit,
         "extra_today": round(extra, 4),
         "daily_percent": round(daily_pct, 1),
         "monthly_spend": round(monthly_spend, 4),

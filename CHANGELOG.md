@@ -10,6 +10,11 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
 
 ## Unreleased
 
+- **A daily budget of 0 no longer silences the agent.** `[costs] daily_budget_usd` set to 0 or less used to
+  block every turn. It now falls back to the default ($5.00/day) and logs one warning, the same as a
+  value that isn't a number. `/budget continue` reads the same value, so it always extends today by the
+  budget the gate uses.
+
 - **"Stop" means stop.** When the owner writes "stop" (or "please stop", "enough", "be quiet") in a room
   where agents are talking, the agent stops answering the other agents there at once.
   - The stop itself gets no reply and no model call, so nothing more lands on the phone.

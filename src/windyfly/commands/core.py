@@ -2120,8 +2120,6 @@ def _register_budget_through_help():
             cfg = _config if isinstance(_config, dict) else {}
             if args and args[0] == "continue":
                 done = continue_today(_db, cfg)
-                if done.get("no_daily"):
-                    return "There's no daily budget set, so there is nothing to extend."
                 if done.get("monthly"):
                     return (f"I've hit my monthly budget (${done['monthly_spend']:.2f} / "
                             f"${done['monthly_budget']:.2f}), so going on today wouldn't help: /budget continue "
