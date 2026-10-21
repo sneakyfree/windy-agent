@@ -1,7 +1,7 @@
 """Mode-B (EPT+agent + DPoP) authentication to ANY Windy service (strand gene A0.3).
 
 One implementation for Windy Mind (``aud=windy-mind``) and Windy Vault (``aud=windy-vault``).
-``Authorization: Bearer <EPT+agent>`` plus a fresh ``DPoP:`` proof header on every non-GET
+``Authorization: Bearer <EPT+agent>`` plus a fresh ``DPoP:`` proof header on EVERY request, reads included
 (the wire form Mind, Text and the Vault accept). A refused credential is re-minted once with a
 fresh proof; there is NO legacy fallback here (``mind_auth`` adds the Mind-only legacy EPT
 fallback on top until Mind's 11-03 sunset).
@@ -29,20 +29,16 @@ class ServiceAuthError(Exception):
         self.code = code
 
 
-# Services whose contract wants a DPoP proof on EVERY request, GET included (Mind and Vault: non-GET only).
-DPOP_ON_GET = frozenset({"windy-calendar", "windy-chat"})
-
-
 def agent_headers(aud: str, method: str, url: str) -> dict[str, str]:
     """Auth headers for ONE request. ``url`` is the absolute URL of that request (no query)."""
     try:
         from windyfly.eternitas import agent_keys as ak
 
         token = ak.request_agent_token(aud)["token"]
-        out = {"Authorization": f"Bearer {token}"}
-        if method.upper() != "GET" or aud in DPOP_ON_GET:
-            out["DPoP"] = ak.service_dpop(method.upper(), url)
-        return out
+        # A proof on EVERY request, reads included (Eternitas verifier.v1.1, RFC 9449 s7.1): an EPT+agent carries
+        # cnf.jkt, so a leaked token without the agent's key is useless. htu never includes the query.
+        htu = url.split("?", 1)[0].split("#", 1)[0]
+        return {"Authorization": f"Bearer {token}", "DPoP": ak.service_dpop(method.upper(), htu)}
     except Exception as exc:  # noqa: BLE001  (AgentTokenError, key IO, network)
         raise ServiceAuthError(str(getattr(exc, "code", type(exc).__name__))) from exc
 

@@ -16,6 +16,53 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
   the gate uses. The edited file is read back before it is saved: unless it parses and holds the new value with
   every other setting unchanged, nothing is written and it says so (an inline `costs = {...}` table is left for
   the owner to edit). The save is atomic.
+- **A plain Windy Text 500 now says "briefly unavailable", and the inbox poll's warning holds through changing
+  error text.** The poll used to warn whenever an error's wording changed, for example a timeout naming a different
+  address or duration. It now goes by the kind of error and its code, so one outage still gives one warning.
+
+- **The liveness probe no longer puts the Telegram bot token on a command line.** The token used to sit in curl's
+  arguments for about 10 s every 5 minutes, where `ps` could show it; it now goes to curl on standard input. The
+  reply file has a random name instead of a guessable one. With WINDY_LIVENESS_SKIP_TELEGRAM=1 the probe also
+  leaves the Telegram unit alone, since it is stopped on purpose, instead of restarting it. The flag's doc line
+  says to set it in the env file, because the installer doesn't carry it.
+- **Texting refusals are plain sentences, and the inbox poll stops repeating its warning.** When Windy Text
+  refuses the agent's sign-in (401), its standing (403) or is briefly down (503), the owner now hears one plain
+  sentence for each. Windy Text's own wording, such as "EPT invalid: <code>", is never passed on. A consent check
+  refused for the agent's standing no longer says "I couldn't check". The 60 s inbox poll logs a warning when it
+  starts failing, when the reason changes, and at most once an hour while it lasts, then says when it recovers.
+  Before, it warned every minute, about 1,440 lines a day.
+
+- **The liveness probe's "Telegram off" switch is now in the repo.** Since the 09-24 Telegram token incident,
+  Windy 0 has run a hand-edited probe: with WINDY_LIVENESS_SKIP_TELEGRAM=1 it skips the Telegram checks and still
+  checks (and restarts) the agent's units. That edit was never committed, so reinstalling the probe from the repo
+  would have quietly removed it. The repo copy now matches what runs on Windy 0, and three tests cover it.
+- **Texting on the owner's own Twilio signs in only with a short agent token.** With WINDY_TEXT_BYO=1, all
+  three calls to Windy Text (the consent check, the request for the owner's OK, and the send) now carry a short
+  agent token for windy-telephony plus a proof for that exact request. The old 365-day passport token is never
+  sent, and it is no longer needed for texting. The inbox poll for incoming texts (every 60 s) moves the same
+  way. If the token or proof cannot be made, nothing is sent, not even the consent check: the owner gets a plain
+  sentence, and the inbox poll logs a warning each round instead of asking. Before, the consent calls and the
+  inbox poll used the old token, and the send fell back to it when no agent key was registered. Windy Text confirmed (10-21) that both consent routes
+  already accept the agent token.
+
+- **Every request the agent signs carries a proof, reads included.** Requests made with the agent's short
+  Eternitas token (EPT+agent) now always add a DPoP proof for that exact method and address (query left out),
+  GETs to Windy Mind, Windy Cloud and Windy Vault included; before, only Calendar and Chat reads had one. A
+  leaked token is useless without the agent's key (Eternitas verifier.v1.1, phase A: clients always send a proof).
+- **One hallway: windyfly can no longer mint a passport itself.** Every agent is born through Hub's hatch
+  ceremony, and Eternitas (the one certifying authority) mints there. The old direct doors in this code
+  (`EternitasClient.register()` -> `/bots/register`, `auto_hatch()` -> `/bots/auto-hatch`,
+  `provision_eternitas()` and `link_passport_with_identity()`) had no callers left and are removed, with their
+  tests. A tripwire test fails if a direct minting call comes back. Reads (verify, lookup, certificate) and
+  revoke are unchanged.
+- **make_call phones only the owner, and is off until switched on.** It now calls windy-text's owner-call route
+  with just a message (1-500 characters): the server dials the owner's verified phone from the agent's own number,
+  and the audio comes from Windy Mind. There is no destination, no voice choice and no retry, and refusals
+  (voice_unavailable, quiet_hours, spend caps...) come back as their codes. It waits up to 90 s (the server
+  renders its voice clips before it dials), and a timeout after the request may have arrived says "unknown, a
+  call may still be placed" instead of "failed". It signs in only with a short agent token and a proof for that
+  exact address; if either cannot be made it refuses and sends nothing. The tool is offered only with
+  WINDY_OWNER_CALL=1. The old body called a frozen service whose host no longer resolves, so every call failed.
 
 - **`windy version --config <file>`.** `windy version` now takes the config file the agent runs with and
   shows that file's daily budget, through the same reader as the budget gate. Before, it only followed

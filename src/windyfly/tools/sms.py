@@ -89,16 +89,18 @@ _pending: dict[str, dict[str, Any]] = {}  # confirm_token -> {to, body, body_sha
 
 def byo_enabled() -> bool:
     """WINDY_TEXT_BYO=1 (OFF by default; enabled only on Windy Hub's word): texting goes
-    through Windy Text on the OWNER's own Twilio account, authenticated with the agent's
-    own EPT (it carries the owner's windy_identity_id). Spec: TEXT_BYO_TWILIO.md."""
+    through Windy Text on the OWNER's own Twilio account, authenticated ONLY in mode B
+    (``agent_auth``: a short EPT+agent for windy-telephony + a DPoP proof). Spec: TEXT_BYO_TWILIO.md."""
     return os.environ.get("WINDY_TEXT_BYO", "") == "1"
 
 
+def _windy_text_base() -> str:
+    return os.environ.get("WINDY_TEXT_BASE_URL", _DEFAULT_BASE_URL).rstrip("/")
+
+
 def _windy_text_env() -> tuple[str, str]:
-    """Return (base_url, ept). Either may be empty when unconfigured."""
-    base = os.environ.get("WINDY_TEXT_BASE_URL", _DEFAULT_BASE_URL).rstrip("/")
-    if byo_enabled():
-        return base, os.environ.get("ETERNITAS_PASSPORT_TOKEN", "")
+    """Return (base_url, ept) for the old non-BYO sender. Either may be empty when unconfigured."""
+    base = _windy_text_base()
     return (
         base,
         # Do NOT switch to ETERNITAS_PASSPORT_TOKEN until a sender enforces
@@ -158,6 +160,26 @@ _PLAIN_ERRORS: dict[str, str] = {
 }
 
 
+_NO_SIGN_IN = "I couldn't sign in to Windy Text just now, so I didn't send it."
+_STANDING = "My Eternitas standing doesn't allow sending texts right now, so I didn't send it."
+_BRIEFLY_DOWN = "Texting is briefly unavailable on Windy's side, so I didn't send it. Try again shortly."
+
+
+def refusal_sentence(status: int, code: str | None) -> str:
+    """A Windy Text refusal as one plain sentence: the known code's sentence, else one chosen by
+    HTTP status. Windy Text's own wording (e.g. "EPT invalid: <code>") is never passed on."""
+    plain = plain_error(code)
+    if plain:
+        return plain
+    if status == 401:
+        return _NO_SIGN_IN
+    if status == 403:
+        return _STANDING
+    if status in (500, 502, 503, 504):
+        return _BRIEFLY_DOWN
+    return f"Windy Text couldn't take that text (it answered {status}), so I didn't send it."
+
+
 def plain_error(code: str | None) -> str | None:
     """Map a Windy Text error code (e.g. 'spend_cap_reached:daily') to a plain sentence."""
     if not code:
@@ -174,13 +196,13 @@ def send_sms(to: str | None = None, body: str = "") -> dict[str, Any]:
     a yes. Otherwise ``sent`` / ``unavailable`` / ``failed`` /
     ``opted_out`` as before.
     """
+    if byo_enabled():
+        return _send_byo(_windy_text_base(), to, body)
+
     base_url, ept = _windy_text_env()
     if not ept:
         logger.debug("SMS unavailable: WINDY_PASSPORT_EPT unset (SMS stays off until a sender enforces STOP)")
         return {"status": "unavailable", "error": _UNAVAILABLE}
-
-    if byo_enabled():
-        return _send_byo(base_url, ept, to, body)
 
     if not to:
         return {"status": "failed", "error": "`to` is required."}
@@ -272,40 +294,44 @@ def first_text(message: str) -> str:
 
 
 TELEPHONY_AUD = "windy-telephony"
-# Mode-B is unavailable (not refused) for these: fall back to the legacy EPT Bearer,
-# which works until Windy Text sets TELEPHONY_REQUIRE_MODE_B (then its 401 is final).
-_MODE_B_UNAVAILABLE = {"no_key", "unknown_audience", "unreachable"}
+_STANDING_WORDS = ("revoked", "suspended")
 
 
-def _send_auth(url: str, legacy: dict[str, str]) -> tuple[dict[str, str], dict[str, Any] | None]:
-    """Auth for the money route POST /sms/send: a ≤5-min EPT+agent token for
-    aud windy-telephony bound to the agent's registered key, plus a DPoP proof for
-    this exact URL. A revoked/suspended passport is refused (never a fallback)."""
+def agent_auth(url: str, method: str = "POST") -> tuple[dict[str, str] | None, str | None]:
+    """ONLY mode B: a <=5-min EPT+agent for aud windy-telephony plus a DPoP proof for this exact request
+    (htu = the URL without query or fragment). Returns (headers, None), or (None, code) when either cannot
+    be made. No other credential is ever tried: the legacy 365-day passport token is never sent to Windy Text."""
     from windyfly.eternitas import agent_keys as ak
 
+    htu = url.split("?", 1)[0].split("#", 1)[0]
     try:
         tok = ak.request_agent_token(TELEPHONY_AUD)["token"]
-        proof = ak.service_dpop("POST", url)
+        proof = ak.service_dpop(method.upper(), htu)
     except ak.AgentTokenError as e:
-        if e.code in _MODE_B_UNAVAILABLE:
-            return legacy, None
-        return legacy, {"status": "failed", "sent": False,
-                        "error": "My Eternitas standing doesn't allow sending texts right now, so I didn't send it."}
-    except Exception:
-        return legacy, None  # no key store yet, etc.
-    # "Bearer" + the DPoP header: what windy-text prod verifies today (it accepts the
-    # "DPoP" scheme too once windy-text #73 is live); the proof still binds the key.
-    return {**legacy, "Authorization": f"Bearer {tok}", "DPoP": proof}, None
+        return None, e.code or "agent_token_refused"
+    except Exception:  # noqa: BLE001  (no key store, key IO)
+        return None, "no_agent_key"
+    return {"Authorization": f"Bearer {tok}", "DPoP": proof}, None
 
 
-def _request_approval(base_url: str, headers: dict[str, str], to: str) -> dict[str, Any]:
+def _no_auth(code: str | None) -> dict[str, Any]:
+    """Nothing was sent: the plain sentence for a credential that could not be made."""
+    msg = _STANDING if any(w in (code or "") for w in _STANDING_WORDS) else _NO_SIGN_IN
+    return {"status": "failed", "sent": False, "error_code": code, "error": msg}
+
+
+def _request_approval(base_url: str, to: str) -> dict[str, Any]:
     """Ask Windy Text to put an approval request in the owner's Windy Inbox
     (POST /sms/recipient/request, windy-text c98c2e0). Only the owner's tap there
     approves; the agent never approves a recipient itself, and doesn't retry until
     GET /sms/recipient says approved."""
+    url = f"{base_url}/sms/recipient/request"
+    headers, code = agent_auth(url, "POST")
+    if headers is None:
+        return _no_auth(code)
     try:
-        r = httpx.post(f"{base_url}/sms/recipient/request", json={"to": to},
-                       headers=headers, timeout=_TIMEOUT)
+        r = httpx.post(url, json={"to": to}, headers={**headers, "Content-Type": "application/json"},
+                       timeout=_TIMEOUT)
     except httpx.HTTPError:
         return {"status": "needs_owner_approval", "sent": False,
                 "error": "I need your OK before texting this number, and I couldn't ask Windy just now."}
@@ -334,21 +360,27 @@ def _request_approval(base_url: str, headers: dict[str, str], to: str) -> dict[s
     if r.status_code == 429:
         return {"status": "needs_owner_approval", "sent": False,
                 "error": "There are already a lot of texting requests waiting for your OK in Windy. Please review them first."}
-    plain = plain_error(detail.split(":", 1)[0]) if detail else None
-    return {"status": "failed", "sent": False, "error": plain or f"Windy Text answered {r.status_code}"}
+    return {"status": "failed", "sent": False, "http_status": r.status_code,
+            "error": refusal_sentence(r.status_code, detail.split(":", 1)[0] if detail else None)}
 
 
-def _send_byo(base_url: str, ept: str, to: str | None, body: str) -> dict[str, Any]:
+def _send_byo(base_url: str, to: str | None, body: str) -> dict[str, Any]:
     if to and not _E164_RE.match(to):
         return {"status": "failed",
                 "error": f"`to` must be E.164 (start with +, country code, then digits). Got {to!r}."}
-    headers = {"Authorization": f"Bearer {ept}", "Content-Type": "application/json"}
+    rec_url = f"{base_url}/sms/recipient"
+    headers, code = agent_auth(rec_url, "GET")
+    if headers is None:
+        return _no_auth(code)
     try:
-        r = httpx.get(f"{base_url}/sms/recipient", params={"to": to} if to else None,
-                      headers=headers, timeout=_TIMEOUT)
+        r = httpx.get(rec_url, params={"to": to} if to else None, headers=headers, timeout=_TIMEOUT)
         rec = r.json() if r.status_code == 200 else None
     except (httpx.HTTPError, ValueError):
-        rec = None
+        r, rec = None, None
+    if r is not None and r.status_code in (401, 403):
+        # Windy Text refused the credential itself: say so, not "couldn't check".
+        return {"status": "failed", "sent": False, "http_status": r.status_code,
+                "error": refusal_sentence(r.status_code, None)}
     if not isinstance(rec, dict):
         # Fail closed: without the server's consent answer, don't text anyone.
         return {"status": "failed", "sent": False,
@@ -360,19 +392,19 @@ def _send_byo(base_url: str, ept: str, to: str | None, body: str) -> dict[str, A
         if not to:
             return {"status": "failed", "sent": False,
                     "error": "Your phone isn't set up for texting yet, so I didn't send it."}
-        return _request_approval(base_url, headers, to)
+        return _request_approval(base_url, to)
     text = first_text(body) if rec.get("first_contact") and rec.get("kind") == "contact" else body
     if len(text) > _MAX_SMS_CHARS:
         return {"status": "failed", "sent": False,
                 "error": f"Text too long ({len(text)} characters; the limit is {_MAX_SMS_CHARS})."}
     send_url = f"{base_url}/sms/send"
-    send_headers, refused = _send_auth(send_url, headers)
-    if refused:
-        return refused
+    send_headers, code = agent_auth(send_url, "POST")
+    if send_headers is None:
+        return _no_auth(code)
     try:
         resp = httpx.post(send_url,
                           json={"body": text} if to is None else {"to": to, "body": text},
-                          headers=send_headers, timeout=_TIMEOUT)
+                          headers={**send_headers, "Content-Type": "application/json"}, timeout=_TIMEOUT)
     except httpx.HTTPError as exc:
         return {"status": "failed", "sent": False, "error": f"Couldn't reach Windy Text: {type(exc).__name__}"}
     if resp.status_code in (200, 201):
@@ -397,7 +429,7 @@ def _send_byo(base_url: str, ept: str, to: str | None, body: str) -> dict[str, A
     plain = plain_error(raw_code if isinstance(raw_code, str) else None)
     return {"status": "failed", "sent": False, "http_status": resp.status_code,
             "error_code": raw_code,
-            "error": plain or err.get("detail") or f"Windy Text answered {resp.status_code}"}
+            "error": plain or refusal_sentence(resp.status_code, None)}
 
 
 def _deliver(base_url: str, ept: str, to: str | None, body: str) -> dict[str, Any]:
