@@ -768,17 +768,18 @@ def _config_path() -> None:
 # ═══════════════════════════════════════════════════════════════════════
 
 
-def _gate_daily_budget() -> float:
-    """The daily limit the budget gate uses ([costs] daily_budget_usd), not DAILY_BUDGET_USD (never read)."""
-    import math
+def _gate_daily_budget(config_path: str | None = None) -> float:
+    """The daily limit the budget gate uses: cost_tracker.daily_budget over [costs] of the config the agent
+    runs with (--config, else WINDYFLY_CONFIG, else windyfly.toml)."""
+    from windyfly.memory.cost_tracker import DEFAULT_DAILY_BUDGET_USD, daily_budget
 
     try:
         from windyfly.config import load_config
 
-        value = float(((load_config() or {}).get("costs") or {}).get("daily_budget_usd", 5.0))
+        costs = (load_config(config_path) or {}).get("costs") or {}
     except Exception:  # noqa: BLE001
-        return 5.0
-    return value if math.isfinite(value) else 5.0
+        return DEFAULT_DAILY_BUDGET_USD
+    return daily_budget(costs)
 
 
 def cmd_version(_args: argparse.Namespace) -> None:
@@ -790,7 +791,7 @@ def cmd_version(_args: argparse.Namespace) -> None:
     console.print(f"  Python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro} | {SYSTEM}")
 
     model = _os.environ.get("DEFAULT_MODEL", "not set")
-    console.print(f"  Brain: {model} | Budget: ${_gate_daily_budget():.2f}/day")
+    console.print(f"  Brain: {model} | Budget: ${_gate_daily_budget(getattr(_args, 'config', None)):.2f}/day")
 
     # Bun version
     if can_run("bun"):
