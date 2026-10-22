@@ -58,8 +58,8 @@ ABORTED=""
 DETAIL=""
 
 finish_guard() {
-    # No matter what happened, the live agent comes back.
-    systemctl --user start windy-0@telegram windy-0@matrix 2>/dev/null || true
+    # No matter what happened, the live agent comes back: every unit this drill covers (WINDY_DRILL_UNITS).
+    systemctl --user start $UNITS 2>/dev/null || true
     rm -rf "$SCRATCH"
 }
 trap finish_guard EXIT
