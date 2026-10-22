@@ -357,7 +357,10 @@ def test_book_says_it_is_for_another_person_and_what_to_tell_the_owner(calls):
     assert d.startswith("Books a time on the owner's calendar for another person: their name and email are required.")
     assert "It can't add an event or meeting of the owner's own." in d
     assert d.endswith(f'say: "{SAY_OWN_MEETING}"')
-    for untrue in ("open slot", "booking page does", "nobody", "can't add meetings"):  # Calendar / Hub #9, 10-28
+    # Calendar / Hub #9, 10-28. "Books an open slot" was untrue for the own agent; "Every other caller gets open
+    # slots only" (Calendar's own-agent rule, #638) is true, so the ban is on the claim, not the words "open slot".
+    for untrue in ("Books an open slot", "not an open slot is refused", "booking page does", "nobody",
+                   "can't add meetings"):
         assert untrue not in d
     assert _cap("windy_calendar.create_meeting") is not None  # the sentence offers it, so it must be there
 
@@ -479,3 +482,19 @@ def test_the_same_event_twice_sends_the_same_key_and_a_different_one_does_not(ad
     monkeypatch.setenv("ETERNITAS_PASSPORT", "ET26-TEST-CCCC-DDDD")
     h(**EVENT)
     assert add_on[-1][1]["json"]["arguments"]["idempotency_key"] != keys[0]  # another agent: another key
+
+
+def test_book_description_is_calendars_own_agent_rule(calls):
+    """Grant's Build-131 note 9: the old text said a time outside the open slots is refused, which is untrue for the
+    calendar's own agent after windy-calendar #96. The description is Calendar's own wording, facts only."""
+    _answer(calls, _resp(200, {"ok": True, "result": "https://windycalendar.com/book/c-abc"}))
+    text = _cap("windy_calendar.book").description
+    assert "not an open slot is refused" not in text
+    assert "own agent may book any future time that overlaps no booking" in text
+    assert "outside_open_hours: true" in text and "every other caller gets open slots only" in text
+
+
+def test_book_passes_outside_open_hours_through(calls):
+    _answer(calls, _resp(200, {"ok": True, "result": {"outcome": "booked", "outside_open_hours": True}}))
+    out = _cap("windy_calendar.book").handler(starts_at_utc="2026-10-23T01:00:00Z", booker_name="A", booker_email="a@b.c")
+    assert out["ok"] is True and out["outside_open_hours"] is True
