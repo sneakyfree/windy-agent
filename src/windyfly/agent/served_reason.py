@@ -59,15 +59,20 @@ def parse(body: Any, headers: Mapping[str, str] | None = None) -> dict[str, Any]
     return {"line": line, "added": added}
 
 
-# The most recent reply's line per session (what the next turn's RUNTIME CONTEXT shows).
+# The most recent reply's line per session (what the next turn's RUNTIME CONTEXT shows), at most _LAST_MAX
+# sessions: the oldest goes first (Hub on #640).
 _LAST: dict[str, str] = {}
+_LAST_MAX = 1000
 
 
 def note(session_id: str, served: dict[str, Any] | None) -> None:
     """After each reply. Only a reply Mind marked as replaced (and whose prompt didn't already carry the line)
     leaves a line; anything else clears it, so it never carries over once the pick is serving again."""
     if served and served.get("line") and not served.get("added"):
+        _LAST.pop(session_id, None)                        # re-insert: the newest is last
         _LAST[session_id] = str(served["line"])
+        while len(_LAST) > _LAST_MAX:
+            _LAST.pop(next(iter(_LAST)))
     else:
         _LAST.pop(session_id, None)
 

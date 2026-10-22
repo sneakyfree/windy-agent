@@ -1,0 +1,1983 @@
+{
+ "owner": "windy-mind",
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://api.windymind.ai/contracts/menu.v1.json",
+ "title": "Windy Mind menu contract v1 (SKELETON, 2026-10-01)",
+ "description": "The versioned API behind the windymind.ai menu sheet (Compute Hub plan). STATUS: SKELETON for the UI lane to build against with mocks: the shapes are the contract; the endpoints are not live yet (see contracts/menu-mock). Additive changes only within v1; a breaking change bumps `v` and is announced to every consumer lane BEFORE shipping. Source of truth: windy-mind/contracts; consumers vendor this file with a drift test.\n\nHONESTY RULES (non-negotiable, the UI must honor them): (1) every number that is a quota or token total is a TokenAmount carrying its `basis` (measured | published | mixed | unknown) and `as_of`; `value: null` means UNKNOWN and MUST be shown as 'unknown', never as 0 and never guessed; (2) the finish headline ('~X M free tokens/day across N models from P providers') may only be shown when its basis is measured or published; (3) names of agents are NOT in this API (they belong to the owner's own Hub screens; the UI asks the Hub); (4) an API key is write-only: it is never returned, only a key_hint (last 4); (5) BYOC: a person's connected quota serves only that person's own agents.\n\nAUTH: a Hub token (human) via the BFF; an agent's own EPT may read its own /v1/agents/{passport}/power. Errors: NEW menu endpoints return the Error envelope {error:{code,message,retry_after_s}}; the EXISTING endpoints (/v1/connections*, /v1/models) keep FastAPI's LegacyError {detail} (the Hub keychain page depends on it: they do NOT change); the UI must handle both. v1.1 note (2026-10-01): ConnectResult was replaced by ConnectionOut to match the live endpoint (found by Windy Code's preview e2e). 1.7.0 (2026-10-11, Mobile ask after the Build-123 agent loop; Boss GO via Hub): OwnerGrantView (GET /v1/grants/owner) gains optional state, state_reason, state_by, updated_at so the owner can READ BACK pause-all. Additive, nothing required. 1.6.0 (2026-10-10): optional ModelRow.training_note, a plain sentence shown next to trains_on_data when the provider's no-train terms do not cover that model (first use: Groq Preview models, Hub ruling 10-10; their trains_on_data is 'unknown'). Additive, nothing required. 1.5.0 (2026-10-10): PUT /v1/grants/agents/{passport} documented; every writer of an agent's or owner's default_model (PUT /v1/grants/owner, PUT /v1/grants/agents/{passport}, PUT /v1/agents/{passport}/power) accepts only 'auto' or the owner's catalog/me models. 1.8.0 (2026-10-13, Hub (iii) 10-12 + Mobile 123-1): GET /v1/catalog/me is documented here (contract C6) and gains an OPT-IN agent view. `?for_agent=<passport>` (the caller must OWN that passport; else 404) answers what Mind would actually serve FOR THAT AGENT: each row gains `served_as` (the model that would really run if the agent picked that row; null = served as picked), and the body gains `agent` {passport, pick_applies, reason} (pick_applies false + reason surface_pinned when the agent's recent calls carry a product surface, which pins the model and skips the owner's default). An agent calling for itself gets the same agent view. The owner's own view (no for_agent) is unchanged. Additive: nothing new is required. 1.8.1 (2026-10-13, Hub): doc-only patch on the catalog/me agent view: the owner's for_agent view models the agent as a real (EPT) agent; for an agent on a passport-bound legacy wm_ key served_as can read null where chat serves Haiku, and surface_pinned reads false (known limitation; goes away with legacy keys). pick_applies reads the latest chat call of any age. No shape change. 1.9.0 (2026-10-17, S18.6, Boss 10-17 for Code's Compute page): POST /v1/agents/power/bulk switches ALL of an owner's agents to one model chain (or back to the owner's order) in two steps: a dry run returning the count, every agent's current and would-be setting, and a short-lived confirm token; then the apply with that token, refused (409) if anything changed since. Each changed agent becomes its own C15 switch with an undo that restores THAT agent's exact prior setting. Dark behind MIND_AGENT_BULK_POWER. No telemetry. Additive: nothing new is required elsewhere. 1.10.0 (2026-10-18, Hub; Mobile 127, Chat #162): catalog/me rows gain an optional unavailable_reason (closed enum + unknown: outside_ai_switch_off, breaker_open, not_installed, provider_unconfigured, quota_exhausted) so the app can say WHY a row is off, and the body gains an optional my_ai_url (the web My AI page with the outside-AI switch). Additive: nothing new is required. 1.11.0 (2026-10-18, Boss option 2 + Hub conditions): CatalogMeAgent.reason gains pick_blocked_by_switch and unknown; pick_applies can be true on the owner's DM surface when a person's pick wins there (dark until the flag flips). Additive. 1.11.1 (2026-10-21, Grant: the web page is now called 'Windy Mind'): text only; my_ai_url's description names the live page app.windyword.ai/app/mind. Older entries above keep the old name as history. No shape change. 1.12.0 (2026-10-21, Grant's iPhone test: 'not normie friendly'; Mobile 131): catalog/me takes an optional include=connectable. With it, the OWNER's own view (never an agent view, never a free-preset token) also lists the paid models of providers the owner has NOT connected yet but could, as rows with source connectable, available_now false, unavailable_reason needs_connection and connect_provider = the provider id to connect, so the app can show a lock and a 'Connect <company>' button BEFORE the tap. Without the parameter nothing changes. Additive. 1.13.0 (2026-10-22, g131-01: Grant picked Haiku, another model answered, and the agent invented a reason): ONE closed list of served reasons, $defs.ServedReason, with ONE set of fixed words, x-served-reason-words, used by every runtime. (a) CatalogMeAgent.reason gains outside_ai_not_allowed, unservable, blocked, quota_exhausted and budget. (b) GrantOut (the PUT /v1/grants/agents/{passport} response) gains optional pick_applies + pick_reason, so the picker says why AT PICK TIME. (c) Chat (POST /v1/chat and /v1/chat/completions): whenever the model that served differs from the person's pick (or from the model the caller named), the response carries x-mind-requested-model (the pick) and x-mind-served-reason (a ServedReason), plus the same in the body as windy_served (WindyServed: ids, display names and the reason); there is no silent replacement any more. (d) Behind Mind's dark flag, Mind adds ONE system line to the agent's request: the template in x-served-reason-line with those words, in THIS request's prompt (the model that serves sees it now), and marks it (windy_served.line_added true + header x-mind-served-line: added) so a runtime that renders the line itself never adds it twice. Additive.",
+ "x-endpoints": [
+  {
+   "method": "GET",
+   "path": "/v1/menu",
+   "auth": "human",
+   "response": "Menu",
+   "notes": "The person's whole menu: sources, models, honest totals, ranking, defaults, agents."
+  },
+  {
+   "method": "GET",
+   "path": "/v1/menu/catalog",
+   "auth": "human",
+   "response": "Catalog",
+   "notes": "Providers a person can connect (the tour cards), from the provider registry."
+  },
+  {
+   "method": "GET",
+   "path": "/v1/menu/tour",
+   "auth": "human",
+   "response": "Tour",
+   "notes": "Onboarding state: what is done, what is next, the finish headline when honest."
+  },
+  {
+   "method": "PUT",
+   "path": "/v1/menu/tour/skip/{provider}",
+   "auth": "human",
+   "response": "Tour",
+   "notes": "Skip a provider in the tour."
+  },
+  {
+   "method": "GET",
+   "path": "/v1/connections",
+   "auth": "human",
+   "response": "ConnectionOut[]",
+   "errors": "LegacyError",
+   "notes": "EXISTING endpoint: my connected sources (an array of ConnectionOut)."
+  },
+  {
+   "method": "PUT",
+   "path": "/v1/connections/{provider}",
+   "auth": "human",
+   "request": "ConnectBody",
+   "response": "ConnectionOut",
+   "notes": "EXISTING endpoint (live today, used by the Hub keychain page: do NOT change it): paste a key; probed live; a REJECTED key is 422 LegacyError and is not stored; never echoed back.",
+   "errors": "LegacyError"
+  },
+  {
+   "method": "POST",
+   "path": "/v1/connections/{provider}/verify",
+   "auth": "human",
+   "response": "ConnectionOut",
+   "notes": "EXISTING endpoint: re-check a connected key.",
+   "errors": "LegacyError"
+  },
+  {
+   "method": "DELETE",
+   "path": "/v1/connections/{provider}",
+   "auth": "human",
+   "response": null,
+   "notes": "EXISTING endpoint: remove a key.",
+   "errors": "LegacyError"
+  },
+  {
+   "method": "POST",
+   "path": "/v1/menu/connect/{provider}/oauth/start",
+   "auth": "human",
+   "response": "OAuthStart",
+   "notes": "One-tap providers (e.g. OpenRouter PKCE): returns the URL to open."
+  },
+  {
+   "method": "POST",
+   "path": "/v1/menu/connect/{provider}/oauth/finish",
+   "auth": "human",
+   "request": "OAuthFinish",
+   "response": "ConnectionOut",
+   "notes": "Exchange the code server-side; stores the key in Mind's keychain."
+  },
+  {
+   "method": "GET",
+   "path": "/v1/agents/{passport}/power",
+   "auth": "human|agent-self",
+   "response": "AgentPower",
+   "notes": "What powers agent X now, and what it burned."
+  },
+  {
+   "method": "PUT",
+   "path": "/v1/agents/{passport}/power",
+   "auth": "human",
+   "request": "AgentPowerPut",
+   "response": "AgentPower",
+   "notes": "Set the agent's model/chain, pause (state off), clear (state on), or reset to inherit. 1.3.0: may_pick sets what this agent may switch itself to (null = the owner's default). 1.5.0 (Hub 10-10): default_model follows the SAME rule as the grant writes: 'auto' (reset_to_inherit) or a model in this owner's GET /v1/catalog/me; else Error envelope with code own_key_required (402) or model_not_offered (403) and error.model = the id. Stored settings are never rewritten.",
+   "errors": "Error"
+  },
+  {
+   "method": "GET",
+   "path": "/v1/agents/power",
+   "auth": "human",
+   "response": "AgentList",
+   "notes": "All of the owner's agents with burn in one call (additive within v1)."
+  },
+  {
+   "method": "POST",
+   "path": "/v1/agents/power/bulk",
+   "auth": "human",
+   "request": "BulkPowerBody",
+   "response": "BulkPowerResult",
+   "errors": "Error",
+   "notes": "1.9.0 (S18.6, Boss 10-17): switch ALL of the owner's agents in two steps. (1) dry_run true -> BulkPowerPlan: the count to show in a confirm step, and a confirm_token. (2) the same target + that confirm_token -> BulkPowerApplied. Only each agent's own C4 chain changes, never its on/off state, default_model or may_pick. Errors (Error envelope): 404 not_found (feature off, MIND_AGENT_BULK_POWER), 403 humans_only / no_identity (owner sign-in only), 422 invalid_value (no target, both targets, a bad chain), 422 confirm_required (apply without a token), 422 too_many_agents (over 100), 403 no_third_party_model (every model in the chain refused by the owner's privacy switch; error.model = the first), 409 confirm_stale (the agents, any of their settings, or the target changed since the dry run), 409 confirm_expired (over 300 s), 409 confirm_invalid (not a token). On 409: run the dry run again and show the new count. Per-agent undo: POST /v1/switches/{switch_id}/undo (switch.v1), owner only. No telemetry."
+  },
+  {
+   "method": "GET",
+   "path": "/v1/grants/owner",
+   "auth": "human",
+   "response": "OwnerGrantView",
+   "errors": "LegacyError",
+   "notes": "1.4.0 (Hub 10-06, My AI 'Models my helpers may pick'): the owner's EFFECTIVE default for what all their agents may switch themselves to. Owner sign-in only (an agent's EPT or any Mind key/token = 403). Not gated by the menu flag (same as the PUT). Read-only; changes go through PUT /v1/grants/owner."
+  },
+  {
+   "method": "PUT",
+   "path": "/v1/grants/owner",
+   "auth": "human",
+   "request": "PauseAllBody",
+   "response": "GrantOut",
+   "notes": "PAUSE ALL / clear all (state off/on) and the owner's default model. Existing endpoint (windy-mind main). 1.3.0: may_pick = the owner's default for all agents. 1.5.0 (Hub 10-10): default_model must be 'auto' or a model in THIS owner's GET /v1/catalog/me (the same function decides both). A paid model without the owner's own key for its provider = 402 own_key_required; a model the owner's catalog doesn't offer for any other reason (training-blocked, retired, not in the lineup) = 403 model_not_offered. Refusal body = the Error envelope: error.code (own_key_required 402 / model_not_offered 403) + error.message + error.model only (no key or provider detail); other 422s keep their old shape. Grants stored before 1.5.0 are never rewritten; if an owner later loses a key, 'auto' resolution falls back as before (never a 5xx).",
+   "errors": "Error"
+  },
+  {
+   "method": "PUT",
+   "path": "/v1/grants/agents/{passport}",
+   "auth": "human",
+   "request": "AgentGrantPut",
+   "response": "GrantOut",
+   "errors": "Error",
+   "notes": "The owner sets ONE agent's default model / state / paid ceiling (existing endpoint, documented in 1.5.0; Windy Mobile's agent card uses it). 1.5.0 (Hub 10-10): default_model must be 'auto' or a model in THIS owner's GET /v1/catalog/me (the same function decides both). A paid model without the owner's own key for its provider = 402 own_key_required; a model the owner's catalog doesn't offer for any other reason (training-blocked, retired, not in the lineup) = 403 model_not_offered. Refusal body = the Error envelope: error.code (own_key_required 402 / model_not_offered 403) + error.message + error.model only (no key or provider detail); other 422s keep their old shape. Grants stored before 1.5.0 are never rewritten; if an owner later loses a key, 'auto' resolution falls back as before (never a 5xx)."
+  },
+  {
+   "method": "GET",
+   "path": "/v1/catalog/me",
+   "auth": "human or agent",
+   "query": {
+    "for_agent": "optional passport (1.8.0): the owner asks for ONE of its agents; 404 Error code not_your_agent otherwise. 1.8.1: The owner's for_agent view treats the agent as a real (EPT) agent. An agent that calls Mind with a passport-bound legacy wm_ key is test-class in chat, so for it served_as can read null where chat serves Haiku, and surface_pinned reads false. Known limitation (Hub 10-13); it goes away with legacy keys.",
+    "include": "optional (1.12.0): 'connectable' adds the owner's not-yet-connected paid models as locked rows (source connectable, unavailable_reason needs_connection, connect_provider). Ignored in an agent view and for a free-preset token. Any other value is ignored."
+   },
+   "response": "CatalogMe",
+   "errors": "Error",
+   "notes": "The catalog as THIS caller may use it (contract C6): only models the caller's token, keys and terms allow; allowed-but-down rows stay listed with available_now false. 1.8.0: the agent view (for_agent, or an agent caller) adds served_as per row and the agent block. served_as never reveals keys or providers' terms; it names a model id from the lineup."
+  }
+ ],
+ "$defs": {
+  "Basis": {
+   "enum": [
+    "measured",
+    "published",
+    "mixed",
+    "unknown"
+   ],
+   "description": "Where a number comes from. `measured` = Mind counted/probed it; `published` = the provider publishes it (cited in the provider registry); `unknown` = nobody knows (the value is null). `mixed` MEANS A LOWER BOUND: the value sums the parts that ARE known while at least one part is unknown or only partly measured, so it must be shown as 'at least N', never as an exact total. Only `published` or `measured` totals are exact."
+  },
+  "TokenAmount": {
+   "type": "object",
+   "description": "A token quantity with its provenance. value null = UNKNOWN (render 'unknown', never 0).",
+   "required": [
+    "value",
+    "basis"
+   ],
+   "properties": {
+    "value": {
+     "type": [
+      "integer",
+      "null"
+     ],
+     "minimum": 0
+    },
+    "basis": {
+     "$ref": "#/$defs/Basis"
+    },
+    "as_of": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "source_url": {
+     "type": [
+      "string",
+      "null"
+     ]
+    }
+   },
+   "additionalProperties": false
+  },
+  "ModelRow": {
+   "type": "object",
+   "required": [
+    "id",
+    "label",
+    "provider",
+    "free",
+    "available",
+    "trains_on_data",
+    "free_daily_tokens"
+   ],
+   "properties": {
+    "id": {
+     "type": "string"
+    },
+    "label": {
+     "type": "string"
+    },
+    "provider": {
+     "type": "string"
+    },
+    "free": {
+     "type": "boolean"
+    },
+    "available": {
+     "type": "boolean"
+    },
+    "unavailable_reason": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "switched_off_by": {
+     "enum": [
+      "you",
+      "house",
+      null
+     ]
+    },
+    "trains_on_data": {
+     "enum": [
+      "yes",
+      "no",
+      "conditional",
+      "unknown"
+     ]
+    },
+    "training_note": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "description": "1.6.0: one plain sentence to show next to trains_on_data when the provider's general no-train terms do NOT cover this model (e.g. a provider's Preview/Beta model). Null = nothing to add. Shown wherever the training label is shown (Hub 10-10)."
+    },
+    "free_daily_tokens": {
+     "$ref": "#/$defs/TokenAmount"
+    },
+    "rank": {
+     "type": [
+      "integer",
+      "null"
+     ],
+     "minimum": 1
+    },
+    "tags": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    }
+   },
+   "additionalProperties": false
+  },
+  "Source": {
+   "type": "object",
+   "required": [
+    "provider",
+    "name",
+    "state",
+    "adapter",
+    "free_kind",
+    "requires_card",
+    "trains_on_data",
+    "models",
+    "daily"
+   ],
+   "properties": {
+    "provider": {
+     "type": "string"
+    },
+    "name": {
+     "type": "string"
+    },
+    "state": {
+     "enum": [
+      "connected",
+      "available",
+      "needs_attention",
+      "coming_soon"
+     ]
+    },
+    "adapter": {
+     "enum": [
+      "exists",
+      "planned",
+      "none"
+     ]
+    },
+    "free_kind": {
+     "enum": [
+      "standing_free",
+      "trial_credit",
+      "data_sharing_free",
+      "paid_only",
+      "unknown"
+     ]
+    },
+    "requires_card": {
+     "enum": [
+      "yes",
+      "no",
+      "unknown"
+     ]
+    },
+    "trains_on_data": {
+     "enum": [
+      "yes",
+      "no",
+      "conditional",
+      "unknown"
+     ]
+    },
+    "connected": {
+     "type": [
+      "object",
+      "null"
+     ],
+     "required": [
+      "key_hint",
+      "how"
+     ],
+     "properties": {
+      "key_hint": {
+       "type": "string"
+      },
+      "how": {
+       "enum": [
+        "key",
+        "oauth"
+       ]
+      },
+      "verified_at": {
+       "type": [
+        "string",
+        "null"
+       ]
+      },
+      "last_error": {
+       "type": [
+        "string",
+        "null"
+       ]
+      }
+     },
+     "additionalProperties": false
+    },
+    "models": {
+     "type": "array",
+     "items": {
+      "$ref": "#/$defs/ModelRow"
+     }
+    },
+    "daily": {
+     "type": "object",
+     "required": [
+      "limit",
+      "used_today",
+      "remaining"
+     ],
+     "properties": {
+      "limit": {
+       "$ref": "#/$defs/TokenAmount"
+      },
+      "used_today": {
+       "$ref": "#/$defs/TokenAmount"
+      },
+      "remaining": {
+       "$ref": "#/$defs/TokenAmount"
+      },
+      "reset_utc": {
+       "type": [
+        "string",
+        "null"
+       ]
+      }
+     },
+     "additionalProperties": false
+    }
+   },
+   "additionalProperties": false
+  },
+  "AgentRef": {
+   "type": "object",
+   "description": "An agent the person owns. NO name here (the Hub supplies names to the owner's own screens).",
+   "required": [
+    "passport",
+    "state"
+   ],
+   "properties": {
+    "passport": {
+     "type": "string"
+    },
+    "state": {
+     "enum": [
+      "on",
+      "throttled",
+      "off"
+     ]
+    },
+    "default_model": {
+     "type": [
+      "string",
+      "null"
+     ]
+    }
+   },
+   "additionalProperties": false
+  },
+  "Menu": {
+   "type": "object",
+   "required": [
+    "v",
+    "generated_at",
+    "totals",
+    "sources",
+    "ranking",
+    "defaults",
+    "agents"
+   ],
+   "properties": {
+    "v": {
+     "const": 1
+    },
+    "generated_at": {
+     "type": "string"
+    },
+    "totals": {
+     "type": "object",
+     "required": [
+      "free_tokens_per_day",
+      "models",
+      "providers_connected",
+      "providers_available"
+     ],
+     "properties": {
+      "free_tokens_per_day": {
+       "$ref": "#/$defs/TokenAmount"
+      },
+      "models": {
+       "type": "integer",
+       "minimum": 0
+      },
+      "providers_connected": {
+       "type": "integer",
+       "minimum": 0
+      },
+      "providers_available": {
+       "type": "integer",
+       "minimum": 0
+      }
+     },
+     "additionalProperties": false
+    },
+    "sources": {
+     "type": "array",
+     "items": {
+      "$ref": "#/$defs/Source"
+     }
+    },
+    "ranking": {
+     "type": [
+      "object",
+      "null"
+     ],
+     "description": "ONE simple ranking, with its basis and date; null until a licensed benchmark source is verified.",
+     "required": [
+      "basis",
+      "updated_at",
+      "order"
+     ],
+     "properties": {
+      "basis": {
+       "type": "string"
+      },
+      "updated_at": {
+       "type": "string"
+      },
+      "order": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     },
+     "additionalProperties": false
+    },
+    "defaults": {
+     "type": "object",
+     "required": [
+      "helper"
+     ],
+     "properties": {
+      "helper": {
+       "type": "object",
+       "required": [
+        "model",
+        "chain"
+       ],
+       "properties": {
+        "model": {
+         "type": "string",
+         "description": "a model id or 'auto'"
+        },
+        "chain": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         }
+        }
+       },
+       "additionalProperties": false
+      }
+     },
+     "additionalProperties": false
+    },
+    "agents": {
+     "type": "array",
+     "items": {
+      "$ref": "#/$defs/AgentRef"
+     }
+    }
+   },
+   "additionalProperties": false
+  },
+  "CatalogProvider": {
+   "type": "object",
+   "required": [
+    "provider",
+    "name",
+    "tagline",
+    "state",
+    "adapter",
+    "free_kind",
+    "requires_card",
+    "trains_on_data",
+    "estimated_free_tokens_per_day",
+    "signup",
+    "key_provisioning"
+   ],
+   "properties": {
+    "provider": {
+     "type": "string"
+    },
+    "name": {
+     "type": "string"
+    },
+    "tagline": {
+     "type": "string"
+    },
+    "state": {
+     "enum": [
+      "connected",
+      "available",
+      "coming_soon"
+     ]
+    },
+    "adapter": {
+     "enum": [
+      "exists",
+      "planned",
+      "none"
+     ]
+    },
+    "free_kind": {
+     "enum": [
+      "standing_free",
+      "trial_credit",
+      "data_sharing_free",
+      "paid_only",
+      "unknown"
+     ]
+    },
+    "requires_card": {
+     "enum": [
+      "yes",
+      "no",
+      "unknown"
+     ]
+    },
+    "trains_on_data": {
+     "enum": [
+      "yes",
+      "no",
+      "conditional",
+      "unknown"
+     ]
+    },
+    "estimated_free_tokens_per_day": {
+     "$ref": "#/$defs/TokenAmount"
+    },
+    "models_free_count": {
+     "type": [
+      "integer",
+      "null"
+     ],
+     "minimum": 0
+    },
+    "signup": {
+     "type": "object",
+     "required": [
+      "url",
+      "login_options",
+      "grandma_steps"
+     ],
+     "properties": {
+      "url": {
+       "type": "string"
+      },
+      "login_options": {
+       "type": "array",
+       "items": {
+        "enum": [
+         "windy",
+         "google",
+         "apple",
+         "github",
+         "microsoft",
+         "email"
+        ]
+       }
+      },
+      "grandma_steps": {
+       "type": "array",
+       "maxItems": 5,
+       "items": {
+        "type": "string"
+       }
+      },
+      "region_notes": {
+       "type": [
+        "string",
+        "null"
+       ]
+      }
+     },
+     "additionalProperties": false
+    },
+    "key_provisioning": {
+     "type": "object",
+     "required": [
+      "method"
+     ],
+     "properties": {
+      "method": {
+       "enum": [
+        "oauth_pkce",
+        "deep_link_paste"
+       ]
+      },
+      "key_shape": {
+       "type": [
+        "string",
+        "null"
+       ]
+      },
+      "url": {
+       "type": [
+        "string",
+        "null"
+       ]
+      }
+     },
+     "additionalProperties": false
+    }
+   },
+   "additionalProperties": false
+  },
+  "Catalog": {
+   "type": "object",
+   "required": [
+    "v",
+    "generated_at",
+    "providers"
+   ],
+   "properties": {
+    "v": {
+     "const": 1
+    },
+    "generated_at": {
+     "type": "string"
+    },
+    "providers": {
+     "type": "array",
+     "items": {
+      "$ref": "#/$defs/CatalogProvider"
+     }
+    }
+   },
+   "additionalProperties": false
+  },
+  "TourStep": {
+   "type": "object",
+   "required": [
+    "provider",
+    "status"
+   ],
+   "properties": {
+    "provider": {
+     "type": "string"
+    },
+    "status": {
+     "enum": [
+      "todo",
+      "done",
+      "skipped"
+     ]
+    }
+   },
+   "additionalProperties": false
+  },
+  "Tour": {
+   "type": "object",
+   "required": [
+    "v",
+    "steps",
+    "next",
+    "finish"
+   ],
+   "properties": {
+    "v": {
+     "const": 1
+    },
+    "steps": {
+     "type": "array",
+     "items": {
+      "$ref": "#/$defs/TourStep"
+     }
+    },
+    "next": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "description": "the best next provider to connect, or null when done"
+    },
+    "finish": {
+     "type": [
+      "object",
+      "null"
+     ],
+     "description": "Present only when honest: basis measured or published. null = do not show a headline.",
+     "required": [
+      "headline",
+      "free_tokens_per_day",
+      "models",
+      "providers"
+     ],
+     "properties": {
+      "headline": {
+       "type": "string"
+      },
+      "free_tokens_per_day": {
+       "$ref": "#/$defs/TokenAmount"
+      },
+      "models": {
+       "type": "integer",
+       "minimum": 0
+      },
+      "providers": {
+       "type": "integer",
+       "minimum": 0
+      }
+     },
+     "additionalProperties": false
+    }
+   },
+   "additionalProperties": false
+  },
+  "ConnectBody": {
+   "type": "object",
+   "description": "Request body of PUT /v1/connections/{provider} (EXISTING endpoint; `api_key` is write-only).",
+   "required": [
+    "api_key"
+   ],
+   "properties": {
+    "api_key": {
+     "type": "string"
+    },
+    "label": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "account_id": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "description": "Cloudflare Workers AI only (two-field form)"
+    }
+   },
+   "additionalProperties": false
+  },
+  "OAuthStart": {
+   "type": "object",
+   "required": [
+    "auth_url",
+    "state"
+   ],
+   "properties": {
+    "auth_url": {
+     "type": "string"
+    },
+    "state": {
+     "type": "string"
+    }
+   },
+   "additionalProperties": false
+  },
+  "OAuthFinish": {
+   "type": "object",
+   "required": [
+    "code",
+    "state"
+   ],
+   "properties": {
+    "code": {
+     "type": "string"
+    },
+    "state": {
+     "type": "string"
+    }
+   },
+   "additionalProperties": false
+  },
+  "AgentPower": {
+   "type": "object",
+   "required": [
+    "v",
+    "passport",
+    "source",
+    "default_model",
+    "chain",
+    "state",
+    "effective",
+    "burn"
+   ],
+   "properties": {
+    "v": {
+     "const": 1
+    },
+    "passport": {
+     "type": "string"
+    },
+    "source": {
+     "enum": [
+      "inherit",
+      "custom"
+     ]
+    },
+    "default_model": {
+     "type": "string",
+     "description": "a model id or 'auto' (the owner's default decides)"
+    },
+    "chain": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "state": {
+     "enum": [
+      "on",
+      "throttled",
+      "off"
+     ]
+    },
+    "state_reason": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "state_by": {
+     "enum": [
+      "owner",
+      "auto",
+      "admin",
+      null
+     ]
+    },
+    "effective": {
+     "type": "object",
+     "description": "What an AUTO request from this agent would use right now (its default). A request that names a model gets that model instead; what actually served is in last_served.",
+     "required": [
+      "model",
+      "provider",
+      "funded_by"
+     ],
+     "properties": {
+      "model": {
+       "type": [
+        "string",
+        "null"
+       ]
+      },
+      "provider": {
+       "type": [
+        "string",
+        "null"
+       ]
+      },
+      "funded_by": {
+       "enum": [
+        "own",
+        "free_pack",
+        "house",
+        "unknown"
+       ]
+      }
+     },
+     "additionalProperties": false
+    },
+    "burn": {
+     "type": "object",
+     "required": [
+      "window_hours",
+      "calls",
+      "tokens_in",
+      "tokens_out"
+     ],
+     "properties": {
+      "window_hours": {
+       "type": "integer",
+       "minimum": 1
+      },
+      "calls": {
+       "type": "integer",
+       "minimum": 0
+      },
+      "tokens_in": {
+       "type": "integer",
+       "minimum": 0
+      },
+      "tokens_out": {
+       "type": "integer",
+       "minimum": 0
+      },
+      "cost_usd": {
+       "type": "number",
+       "minimum": 0,
+       "description": "Owner callers only (menu.v1 1.2.0, Hub 10-06): never sent to an agent reading its own power."
+      }
+     },
+     "additionalProperties": false
+    },
+    "chain_detail": {
+     "type": "array",
+     "maxItems": 8,
+     "description": "1.1.0: the chain this agent walks, with positions. With an agent chain (PUT chain) it is that chain (max 3); otherwise the owner's order.",
+     "items": {
+      "type": "object",
+      "required": [
+       "model",
+       "provider",
+       "position"
+      ],
+      "additionalProperties": false,
+      "properties": {
+       "model": {
+        "type": "string"
+       },
+       "provider": {
+        "type": [
+         "string",
+         "null"
+        ]
+       },
+       "position": {
+        "type": "integer",
+        "minimum": 0
+       },
+       "role": {
+        "enum": [
+         "primary",
+         "backup",
+         "second_backup",
+         null
+        ]
+       }
+      }
+     }
+    },
+    "last_served": {
+     "description": "1.1.0: the model that answered this agent's last successful call (from Mind's ledger), or null.",
+     "oneOf": [
+      {
+       "type": "null"
+      },
+      {
+       "type": "object",
+       "required": [
+        "model",
+        "provider",
+        "at"
+       ],
+       "additionalProperties": false,
+       "properties": {
+        "model": {
+         "type": "string"
+        },
+        "provider": {
+         "type": [
+          "string",
+          "null"
+         ]
+        },
+        "position": {
+         "type": [
+          "integer",
+          "null"
+         ],
+         "minimum": 0,
+         "description": "its place in chain_detail, null if it served outside it (a named model)"
+        },
+        "at": {
+         "type": "string",
+         "format": "date-time"
+        }
+       }
+      }
+     ]
+    },
+    "tier": {
+     "enum": [
+      "free",
+      "paid",
+      null
+     ],
+     "description": "1.1.0: whether last_served's model (or effective's when none) is a free or a paid model."
+    },
+    "key": {
+     "description": "1.1.0: the key behind last_served (or effective): the owner's own connection, or null on the free lane / house. Only the LAST 4 characters ever; never more of a key.",
+     "oneOf": [
+      {
+       "type": "null"
+      },
+      {
+       "type": "object",
+       "required": [
+        "type",
+        "last4",
+        "source"
+       ],
+       "additionalProperties": false,
+       "properties": {
+        "type": {
+         "enum": [
+          "api",
+          "oauth"
+         ]
+        },
+        "last4": {
+         "type": "string",
+         "minLength": 1,
+         "maxLength": 4
+        },
+        "source": {
+         "enum": [
+          "own",
+          "account"
+         ]
+        }
+       }
+      }
+     ]
+    },
+    "account_kind": {
+     "enum": [
+      "personal",
+      "windy",
+      null
+     ],
+     "description": "1.1.0: 'personal' = the owner's own key paid; 'windy' = Windy's free lane; null = unknown."
+    },
+    "may_pick": {
+     "$ref": "#/$defs/MayPick"
+    }
+   },
+   "additionalProperties": false
+  },
+  "AgentPowerPut": {
+   "type": "object",
+   "properties": {
+    "default_model": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "chain": {
+     "type": [
+      "array",
+      "null"
+     ],
+     "maxItems": 3,
+     "items": {
+      "type": "string"
+     },
+     "description": "1.1.0: this agent's own chain [primary, backup1, backup2] (max 3), each a model the owner may use (GET /v1/catalog/me). [] (or reset_to_inherit) = back to the owner's order. The agent walks ONLY this chain: a model that can't serve is skipped honestly (x-mind-fellback-from) and is never replaced by a model outside it. A request that names a model still gets that model."
+    },
+    "state": {
+     "enum": [
+      "on",
+      "throttled",
+      "off",
+      null
+     ]
+    },
+    "reset_to_inherit": {
+     "type": "boolean"
+    },
+    "may_pick": {
+     "$ref": "#/$defs/MayPickPut"
+    }
+   },
+   "additionalProperties": false
+  },
+  "Error": {
+   "type": "object",
+   "required": [
+    "error"
+   ],
+   "properties": {
+    "error": {
+     "type": "object",
+     "required": [
+      "code",
+      "message"
+     ],
+     "properties": {
+      "code": {
+       "type": "string",
+       "description": "machine-readable, e.g. key_rejected, unknown_model, not_your_agent, rate_limited, mind_unavailable"
+      },
+      "message": {
+       "type": "string"
+      },
+      "retry_after_s": {
+       "type": [
+        "integer",
+        "null"
+       ],
+       "minimum": 0
+      },
+      "model": {
+       "type": [
+        "string",
+        "null"
+       ],
+       "description": "1.5.0: the model id a default_model refusal is about (own_key_required / model_not_offered); never a key or provider detail"
+      }
+     },
+     "additionalProperties": false
+    }
+   },
+   "additionalProperties": false
+  },
+  "ConnectionOut": {
+   "type": "object",
+   "description": "LIVE shape (today) of PUT /v1/connections/{provider}, POST .../verify and each row of GET /v1/connections. A connection whose live probe failed for a NON-auth reason is still stored: last_error is set and last_verified_at is null (state 'needs_attention'). A key the provider REJECTS is not stored: that is a 422 LegacyError, not a ConnectionOut.",
+   "required": [
+    "provider",
+    "key_hint",
+    "created_at"
+   ],
+   "properties": {
+    "provider": {
+     "type": "string"
+    },
+    "key_hint": {
+     "type": "string"
+    },
+    "label": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "created_at": {
+     "type": "string"
+    },
+    "last_verified_at": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "last_error": {
+     "type": [
+      "string",
+      "null"
+     ]
+    }
+   },
+   "additionalProperties": false
+  },
+  "LegacyError": {
+   "type": "object",
+   "description": "The error shape of the EXISTING endpoints (/v1/connections*, /v1/models, ...): FastAPI's `{detail}`. `detail` is plain-language text for HTTP errors (e.g. 422 'groq rejected this key - check it and try again', 429 probe throttle, 403 agent keys cannot manage connections, 503 connections disabled, 404 not connected) and a list of field problems for request-validation 422s. Show string details as written; NEVER show a machine code. NEW menu endpoints use the Error envelope instead; the UI handles both.",
+   "required": [
+    "detail"
+   ],
+   "properties": {
+    "detail": {
+     "type": [
+      "string",
+      "array"
+     ]
+    }
+   },
+   "additionalProperties": false
+  },
+  "AgentList": {
+   "type": "object",
+   "description": "Every agent the owner has, with burn, in ONE call (the phone's Compute screen and the sheet's 'Your helpers' list). Same AgentPower rows as GET /v1/agents/{passport}/power. NO names (the Hub supplies names to the owner's own screens).",
+   "required": [
+    "v",
+    "window_hours",
+    "agents"
+   ],
+   "properties": {
+    "v": {
+     "const": 1
+    },
+    "window_hours": {
+     "type": "integer",
+     "minimum": 1
+    },
+    "agents": {
+     "type": "array",
+     "items": {
+      "$ref": "#/$defs/AgentPower"
+     }
+    }
+   },
+   "additionalProperties": false
+  },
+  "PauseAllBody": {
+   "type": "object",
+   "description": "Body of PUT /v1/grants/owner (EXISTING in v1.1): `state: off` pauses EVERY agent the owner has (the worst state wins), `on` clears it. A pause never locks the owner out: clearing is always available. Takes effect on each agent's NEXT call within about 10 seconds; a call already running finishes.",
+   "properties": {
+    "state": {
+     "enum": [
+      "on",
+      "throttled",
+      "off",
+      null
+     ]
+    },
+    "default_model": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "clear_default_model": {
+     "type": "boolean"
+    },
+    "may_pick": {
+     "$ref": "#/$defs/MayPickPut",
+     "description": "1.3.0: the owner's default for all agents (S18.3)"
+    }
+   },
+   "additionalProperties": false
+  },
+  "GrantOut": {
+   "type": "object",
+   "required": [
+    "scope_type",
+    "scope_id",
+    "state"
+   ],
+   "properties": {
+    "scope_type": {
+     "enum": [
+      "owner",
+      "agent"
+     ]
+    },
+    "scope_id": {
+     "type": "string"
+    },
+    "state": {
+     "enum": [
+      "on",
+      "throttled",
+      "off"
+     ]
+    },
+    "default_model": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "anthropic_allowed": {
+     "type": [
+      "boolean",
+      "null"
+     ]
+    },
+    "paid_daily_limit": {
+     "type": [
+      "integer",
+      "null"
+     ]
+    },
+    "state_reason": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "state_by": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "updated_at": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "may_pick": {
+     "type": [
+      "object",
+      "null"
+     ],
+     "description": "1.3.0, owner rows: {mode, models} the owner's default for all agents"
+    },
+    "pick_applies": {
+     "type": [
+      "boolean",
+      "null"
+     ],
+     "description": "1.13.0, agent rows on PUT /v1/grants/agents/{passport}: whether this pick will actually serve the agent's chats now (the same rule as catalog/me's agent view); null when unknown."
+    },
+    "pick_reason": {
+     "enum": [
+      "surface_pinned",
+      "pick_blocked_by_switch",
+      "outside_ai_not_allowed",
+      "unservable",
+      "blocked",
+      "quota_exhausted",
+      "budget",
+      "unknown",
+      null
+     ],
+     "description": "1.13.0: why pick_applies is false (a ServedReason), else null."
+    }
+   },
+   "additionalProperties": false
+  },
+  "MayPick": {
+   "type": "object",
+   "required": [
+    "mode",
+    "models"
+   ],
+   "additionalProperties": false,
+   "description": "S18.3 (Hub 10-06): which models this agent may switch itself to. free_and_own = free models + models on the owner's own connected keys (never house-paid); none = only the owner chooses; list = the owner's explicit list. `models` = the ids the agent may pick RIGHT NOW (resolved), never prices. Existing owners start at none; owners/helpers created after the flag start at free_and_own.",
+   "properties": {
+    "mode": {
+     "enum": [
+      "free_and_own",
+      "none",
+      "list"
+     ]
+    },
+    "models": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "source": {
+     "enum": [
+      "owner",
+      "agent"
+     ],
+     "description": "owner = the owner's default for all agents; agent = this agent's own override"
+    }
+   }
+  },
+  "MayPickPut": {
+   "type": [
+    "object",
+    "null"
+   ],
+   "additionalProperties": false,
+   "required": [
+    "mode"
+   ],
+   "description": "S18.3: set the switch. models is required for mode list (catalog ids the owner may use) and ignored otherwise. On PUT /v1/agents/{passport}/power, null = back to the owner's default.",
+   "properties": {
+    "mode": {
+     "enum": [
+      "free_and_own",
+      "none",
+      "list"
+     ]
+    },
+    "models": {
+     "type": "array",
+     "maxItems": 32,
+     "items": {
+      "type": "string"
+     }
+    }
+   }
+  },
+  "OwnerGrantView": {
+   "type": "object",
+   "required": [
+    "may_pick"
+   ],
+   "additionalProperties": false,
+   "description": "1.4.0: GET /v1/grants/owner. 1.7.0: + the owner's pause-all state (state, state_reason, state_by, updated_at), so a client can show what the owner set instead of remembering its own press.",
+   "properties": {
+    "may_pick": {
+     "$ref": "#/$defs/OwnerMayPick"
+    },
+    "state": {
+     "enum": [
+      "on",
+      "throttled",
+      "off"
+     ],
+     "description": "the OWNER row's state: off = pause-all (every helper refused 403 grant_off). 'on' when no row exists."
+    },
+    "state_reason": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "state_by": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "description": "who set a non-on state (owner, auto, admin, ...); null when on"
+    },
+    "updated_at": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "description": "ISO 8601 time of the last change to the owner row; null when no row"
+    }
+   }
+  },
+  "OwnerMayPick": {
+   "type": "object",
+   "required": [
+    "mode",
+    "is_default"
+   ],
+   "additionalProperties": false,
+   "description": "1.4.0: the owner's default for all agents, as the owner set it (not resolved against connected keys). is_default = true when the owner never set it (or cleared it with may_pick null) and Windy's rule applies: existing owners read mode none until they opt in. A per-agent override (PUT /v1/agents/{passport}/power may_pick) still wins for that agent; see AgentPower.may_pick.",
+   "properties": {
+    "mode": {
+     "enum": [
+      "free_and_own",
+      "none",
+      "list"
+     ]
+    },
+    "models": {
+     "type": "array",
+     "maxItems": 32,
+     "items": {
+      "type": "string"
+     },
+     "description": "Only when mode is list: the owner's chosen catalog ids, in their order."
+    },
+    "is_default": {
+     "type": "boolean"
+    }
+   }
+  },
+  "AgentGrantPut": {
+   "type": "object",
+   "additionalProperties": false,
+   "description": "Body of PUT /v1/grants/agents/{passport} (existing endpoint, documented in 1.5.0). All fields optional; send only what changes.",
+   "properties": {
+    "default_model": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "maxLength": 64,
+     "description": "'auto' or a model id from this owner's GET /v1/catalog/me (1.5.0)"
+    },
+    "state": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "description": "on | off | throttled"
+    },
+    "paid_daily_limit": {
+     "type": [
+      "integer",
+      "null"
+     ],
+     "minimum": 0,
+     "maximum": 1000000,
+     "description": "cannot exceed the owner's ceiling (422)"
+    },
+    "clear_default_model": {
+     "type": "boolean",
+     "default": false
+    }
+   }
+  },
+  "CatalogMeRow": {
+   "type": "object",
+   "required": [
+    "id",
+    "display_name",
+    "source",
+    "available_now",
+    "may_train",
+    "price_hint"
+   ],
+   "properties": {
+    "id": {
+     "type": "string"
+    },
+    "display_name": {
+     "type": "string"
+    },
+    "power_rating": {
+     "type": [
+      "integer",
+      "null"
+     ]
+    },
+    "parameters": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "source": {
+     "enum": [
+      "pack",
+      "house",
+      "connectable"
+     ],
+     "description": "pack = the owner's own connected key; house = Windy's free lanes; 1.12.0 connectable = only with include=connectable: a paid model of a provider the owner can connect but hasn't (never callable as is)"
+    },
+    "available_now": {
+     "type": "boolean"
+    },
+    "quota_left_today": {
+     "type": [
+      "integer",
+      "null"
+     ]
+    },
+    "quota_limit_today": {
+     "type": [
+      "integer",
+      "null"
+     ]
+    },
+    "resets_at": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "may_train": {
+     "type": [
+      "boolean",
+      "null"
+     ],
+     "description": "null = unknown: on the owner own key their own plan decides"
+    },
+    "training_note": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "price_hint": {
+     "type": "string",
+     "description": "words, never a figure"
+    },
+    "served_as": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "description": "1.8.0, agent view only: the model id Mind would actually serve if THIS agent picked this row (e.g. an owner's agent-model rule or a live newer-model swap); null = served as picked. Absent in the owner's own view. 1.8.1: The owner's for_agent view treats the agent as a real (EPT) agent. An agent that calls Mind with a passport-bound legacy wm_ key is test-class in chat, so for it served_as can read null where chat serves Haiku, and surface_pinned reads false. Known limitation (Hub 10-13); it goes away with legacy keys."
+    },
+    "unavailable_reason": {
+     "enum": [
+      "outside_ai_switch_off",
+      "breaker_open",
+      "not_installed",
+      "provider_unconfigured",
+      "quota_exhausted",
+      "unknown",
+      "needs_connection",
+      null
+     ],
+     "description": "1.10.0: why available_now is false, as a stable code the app maps to its own words; null when available_now is true. outside_ai_switch_off = the model runs at an outside AI company and the owner's 'Use outside AI companies' switch is off (point them to my_ai_url); breaker_open = resting after errors; not_installed / provider_unconfigured = not ready yet; quota_exhausted = used up for today (resets_at when known). Clients map any code they don't know, and unknown, to a neutral 'not available right now'. Owner-scoped and coarse by design: never a quota number, key id or provider internal. Optional: absent from servers older than 1.10.0. 1.12.0: needs_connection = only on include=connectable rows: connect the provider named in connect_provider first."
+    },
+    "connect_provider": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "description": "1.12.0, only on include=connectable rows: the provider id the owner connects (PUT /v1/connections/{provider}, or the one-tap where the catalog offers it) to make this row callable. Absent on every other row."
+    }
+   },
+   "additionalProperties": false
+  },
+  "CatalogMeAgent": {
+   "type": "object",
+   "required": [
+    "passport",
+    "pick_applies",
+    "reason"
+   ],
+   "properties": {
+    "passport": {
+     "type": "string"
+    },
+    "pick_applies": {
+     "type": "boolean",
+     "description": "false when the agent's LATEST chat call (any age; no call ever = true) carried a product surface: the surface pins the model and the owner's default is skipped. 1.8.1: The owner's for_agent view treats the agent as a real (EPT) agent. An agent that calls Mind with a passport-bound legacy wm_ key is test-class in chat, so for it served_as can read null where chat serves Haiku, and surface_pinned reads false. Known limitation (Hub 10-13); it goes away with legacy keys. 1.11.0 (Boss option 2, Hub 10-18; DARK behind MIND_PICK_WINS_ON_SURFACES): on the owner's DM surface (Mind's pick-surface list, today midwife) a person's pick wins: true when the agent has a pick (its own model chain, or a grant default_model on the agent or owner row) that the outside-AI switch does not fully block. Group rooms (chat_group) and system turns (chat_system) keep the surface model."
+    },
+    "reason": {
+     "enum": [
+      "surface_pinned",
+      "pick_blocked_by_switch",
+      "unknown",
+      "outside_ai_not_allowed",
+      "unservable",
+      "blocked",
+      "quota_exhausted",
+      "budget",
+      null
+     ],
+     "description": "1.11.0: why pick_applies is false. surface_pinned = the agent's latest call came from a surface whose operator model wins (every surface outside Mind's pick-surface list, e.g. a group room); pick_blocked_by_switch = the person's pick needs an outside AI company and their 'Use outside AI companies' switch is off, so the surface model answers (point them to my_ai_url); unknown = anything newer. null when pick_applies is true. 1.13.0: also outside_ai_not_allowed, unservable, blocked, quota_exhausted, budget (see ServedReason)."
+    }
+   },
+   "additionalProperties": false
+  },
+  "CatalogMe": {
+   "type": "object",
+   "required": [
+    "object",
+    "data"
+   ],
+   "properties": {
+    "object": {
+     "const": "list"
+    },
+    "data": {
+     "type": "array",
+     "items": {
+      "$ref": "#/$defs/CatalogMeRow"
+     }
+    },
+    "terms": {
+     "type": [
+      "object",
+      "null"
+     ]
+    },
+    "note": {
+     "type": "string",
+     "description": "read-only token: why the list is empty"
+    },
+    "agent": {
+     "$ref": "#/$defs/CatalogMeAgent",
+     "description": "1.8.0: present only in the agent view"
+    },
+    "my_ai_url": {
+     "type": "string",
+     "format": "uri",
+     "pattern": "^https://[^?#]+$",
+     "description": "1.10.0: the web page that holds the owner's Windy Mind settings, including the 'Use outside AI companies' switch (https://app.windyword.ai/app/mind; 1.11.1: corrected from windyword.ai/app/mind, which never served it, Hub 10-21). Plain https: no query, no ids, no token. Same for every caller. Optional."
+    }
+   },
+   "additionalProperties": false
+  },
+  "BulkCurrent": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "source",
+    "mode",
+    "chain"
+   ],
+   "description": "1.9.0: one agent's own C4 setting. source inherit = it follows the owner's order (mode null, chain []); custom = its own setting (mode models = its model chain, or a C4 order/auto of sources).",
+   "properties": {
+    "source": {
+     "enum": [
+      "inherit",
+      "custom"
+     ]
+    },
+    "mode": {
+     "enum": [
+      "models",
+      "order",
+      "auto",
+      null
+     ]
+    },
+    "chain": {
+     "type": "array",
+     "maxItems": 8,
+     "items": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+     }
+    }
+   }
+  },
+  "BulkPowerBody": {
+   "type": "object",
+   "additionalProperties": false,
+   "description": "1.9.0 (S18.6): EXACTLY one target: chain (1-3 models; the same rules as one agent's PUT chain: each a model the owner may use, no repeats, and not every model refused by the owner's privacy switch) or reset_to_inherit (every agent back to the owner's order). Send dry_run true first; then the SAME target with the confirm_token it returned.",
+   "properties": {
+    "chain": {
+     "type": [
+      "array",
+      "null"
+     ],
+     "minItems": 1,
+     "maxItems": 3,
+     "items": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+     }
+    },
+    "reset_to_inherit": {
+     "type": "boolean"
+    },
+    "dry_run": {
+     "type": "boolean"
+    },
+    "confirm_token": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "maxLength": 64,
+     "description": "the confirm_token from the dry run (see BulkPowerPlan.confirm_token)"
+    }
+   }
+  },
+  "BulkPowerRow": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "passport",
+    "current",
+    "would_be",
+    "changes"
+   ],
+   "properties": {
+    "passport": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 64
+    },
+    "current": {
+     "$ref": "#/$defs/BulkCurrent"
+    },
+    "would_be": {
+     "$ref": "#/$defs/BulkCurrent"
+    },
+    "changes": {
+     "type": "boolean"
+    }
+   }
+  },
+  "BulkPowerPlan": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "v",
+    "dry_run",
+    "count",
+    "agents",
+    "confirm_token",
+    "expires_at"
+   ],
+   "description": "1.9.0: the dry run. count = agents that WOULD change (show it in the confirm step). agents = every agent of the owner (the GET /v1/agents/power list plus Mind's agent records), oldest passport order, with changes false where it already matches. Nothing is written.",
+   "properties": {
+    "v": {
+     "const": 1
+    },
+    "dry_run": {
+     "const": true
+    },
+    "count": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "agents": {
+     "type": "array",
+     "maxItems": 100,
+     "items": {
+      "$ref": "#/$defs/BulkPowerRow"
+     }
+    },
+    "confirm_token": {
+     "type": "string",
+     "maxLength": 64,
+     "description": "NOT a credential and NOT single-use. It binds an apply to exactly what this dry run showed: the owner, the target and every agent's current setting. It expires 300 s after the dry run. While those stay unchanged (for example after an apply and its undo) the same token is valid again. It is keyed by the server (HMAC), so treat it as opaque. Apply still needs the owner's own sign-in, and the server re-checks every agent's current setting at apply time (409 confirm_stale if anything changed)."
+    },
+    "expires_at": {
+     "type": "string",
+     "format": "date-time"
+    }
+   }
+  },
+  "BulkPowerApplied": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "v",
+    "dry_run",
+    "count",
+    "agents"
+   ],
+   "description": "1.9.0: applied. One row per agent that CHANGED. Each change is a C15 switch on the owner's board (GET /v1/switches: scope agent, action switch, pressed_by owner, reason_code owner_bulk, origin agent_switch) whose undo puts THAT agent back to its exact prior setting: POST /v1/switches/{switch_id}/undo.",
+   "properties": {
+    "v": {
+     "const": 1
+    },
+    "dry_run": {
+     "const": false
+    },
+    "count": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "agents": {
+     "type": "array",
+     "maxItems": 100,
+     "items": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+       "passport",
+       "switch_id"
+      ],
+      "properties": {
+       "passport": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64
+       },
+       "switch_id": {
+        "type": "string",
+        "pattern": "^sw_[0-9a-f]{16}$",
+        "description": "per agent (derived from the passport), not per press: a later bulk on the same agent reuses it, and the board shows that agent's newest switch"
+       }
+      }
+     }
+    }
+   }
+  },
+  "BulkPowerResult": {
+   "description": "1.9.0: POST /v1/agents/power/bulk answers a BulkPowerPlan when dry_run is true, else a BulkPowerApplied (dry_run tells them apart).",
+   "oneOf": [
+    {
+     "$ref": "#/$defs/BulkPowerPlan"
+    },
+    {
+     "$ref": "#/$defs/BulkPowerApplied"
+    }
+   ]
+  },
+  "ServedReason": {
+   "enum": [
+    "surface_pinned",
+    "pick_blocked_by_switch",
+    "outside_ai_not_allowed",
+    "unservable",
+    "blocked",
+    "quota_exhausted",
+    "budget",
+    "unknown"
+   ],
+   "description": "1.13.0: why the model that served is not the person's pick (or not the model the caller named). surface_pinned = an operator surface (group room, system turn) uses its own model; pick_blocked_by_switch = the pick is an outside company's model and the owner's 'Use outside AI companies' switch is off (seen at pick time); outside_ai_not_allowed = the same gate refused an outside model at SERVE time; unservable = the pick isn't offered to this account (e.g. a paid model with no own key); blocked = the model is switched off (a breaker); quota_exhausted = the model's free allowance is used up for today; budget = a spending limit was reached; unknown = anything else. Consumers MUST treat an unknown value as unknown."
+  },
+  "WindyServed": {
+   "type": "object",
+   "required": [
+    "requested_model",
+    "served_model",
+    "reason"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "requested_model": {
+     "type": "string",
+     "description": "the model id of the person's pick (or the model the caller named)"
+    },
+    "served_model": {
+     "type": "string",
+     "description": "the model id that actually served"
+    },
+    "requested_name": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "description": "display name of requested_model (catalog label)"
+    },
+    "served_name": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "description": "display name of served_model (catalog label)"
+    },
+    "reason": {
+     "$ref": "#/$defs/ServedReason"
+    },
+    "line_added": {
+     "type": "boolean",
+     "description": "true when Mind added x-served-reason-line to THIS request's prompt, so the model that served already saw it in this same turn (behind Mind's dark flag; false or absent = not added). A runtime that renders the line itself (e.g. into the next turn's identity block) MUST skip it when this is true. The response header x-mind-served-line: added says the same."
+    }
+   },
+   "description": "1.13.0: the chat response body's windy_served object, present whenever the served model differs from the pick or the named model (the same facts as x-mind-requested-model / x-mind-served-reason). On a streamed reply, windy_served rides the terminal chunk; the headers are sent as usual."
+  }
+ },
+ "x-fixtures": {
+  "bulk_dry_run": "#/$defs/BulkPowerPlan",
+  "bulk_applied": "#/$defs/BulkPowerApplied",
+  "catalog_me_agent": "#/$defs/CatalogMe",
+  "catalog_me_connectable": "#/$defs/CatalogMe"
+ },
+ "x-served-reason-words": {
+  "surface_pinned": "this kind of conversation uses a fixed model",
+  "pick_blocked_by_switch": "the owner's 'Use outside AI companies' setting is off",
+  "outside_ai_not_allowed": "the owner's 'Use outside AI companies' setting is off",
+  "unservable": "the picked model isn't available on this account",
+  "blocked": "the picked model isn't available right now",
+  "quota_exhausted": "the picked model has reached its usage limit for now",
+  "budget": "the spending limit for this agent has been reached",
+  "unknown": "the picked model couldn't be used for this message"
+ },
+ "x-served-reason-line": "Windy Mind: you are answering as {served_name}, not {requested_name}, because {words}. If anyone asks which model you are, say so plainly. Don't give any other reason.",
+ "x-served-reason-line-note": "{served_name} and {requested_name} are the models' DISPLAY names from Mind's catalog (e.g. 'Claude Haiku', 'GPT-OSS 20B'), never model ids/slugs; {words} is x-served-reason-words[reason]. The line is fixed text: no runtime adds or changes words."
+}
