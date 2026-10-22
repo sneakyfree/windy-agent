@@ -75,6 +75,18 @@ _CLAUDE_PRICES_PER_MTOK: dict[str, dict[str, float | None]] = {
                         "cache_write_1h": 4.0, "cache_read": 0.20},
     "claude-haiku-4-5": {"input": 1.0, "output": 5.0, "cache_write_5m": 1.25,
                          "cache_write_1h": 2.0, "cache_read": 0.10},
+    # Haiku 5.5 (Anthropic pricing page, read 2026-10-22 via Windy Mind; Kit 0's Mind serves haiku-4-5 requests
+    # with it): prompts up to 100k tokens. Longer prompts: _LONG_CONTEXT_PRICES.
+    "claude-haiku-5-5": {"input": 0.10, "output": 0.50, "cache_write_5m": 0.125,
+                         "cache_write_1h": 0.20, "cache_read": 0.01},
+}
+
+# Models priced by prompt length: (threshold, prices above it). The page's rule: a request's prompt length counts ALL
+# its input tokens, cache reads and writes included, and a request over the threshold pays the higher prices for
+# EVERY category, output included. (US-only inference, x1.1, is not used by this agent.)
+_LONG_CONTEXT_PRICES: dict[str, tuple[int, dict[str, float | None]]] = {
+    "claude-haiku-5-5": (100_000, {"input": 0.50, "output": 2.50, "cache_write_5m": 0.625,
+                                   "cache_write_1h": 1.00, "cache_read": 0.05}),
 }
 
 
@@ -89,21 +101,32 @@ def _price_table() -> dict[str, dict[str, float | None]]:
     return table
 
 
-def model_prices(model: str) -> dict[str, float | None] | None:
-    """Per-MTok prices for ``model``: exact id, else the LONGEST known
-    prefix (so claude-opus-5-5 never gets claude-opus-5's price and a
-    dated id like claude-opus-5-20260101 gets claude-opus-5's). None
-    when the model is unknown."""
+def _price_key(model: str) -> str | None:
+    """The price-table entry for ``model``: exact id, else the LONGEST known prefix. None when unknown."""
     name = (model or "").strip()
     if name.startswith("anthropic/"):
         name = name.split("/", 1)[1]
     table = _price_table()
     if name in table:
-        return table[name]
+        return name
     matches = [key for key in table if name.startswith(key)]
-    if not matches:
+    return max(matches, key=len) if matches else None
+
+
+def model_prices(model: str, prompt_tokens: int = 0) -> dict[str, float | None] | None:
+    """Per-MTok prices for ``model``: exact id, else the LONGEST known
+    prefix (so claude-opus-5-5 never gets claude-opus-5's price and a
+    dated id like claude-opus-5-20260101 gets claude-opus-5's). None
+    when the model is unknown. ``prompt_tokens`` (input + cache writes +
+    cache reads) above a model's long-context threshold selects its
+    higher prices."""
+    key = _price_key(model)
+    if key is None:
         return None
-    return table[max(matches, key=len)]
+    tier = _LONG_CONTEXT_PRICES.get(key)
+    if tier is not None and prompt_tokens > tier[0]:
+        return tier[1]
+    return _price_table()[key]
 
 # Per-provider circuit breaker. After N consecutive failures, skip the
 # provider for an exponentially-growing cooldown window so we don't burn
@@ -263,7 +286,8 @@ def estimate_cost(
     partial number would read as the real total. Callers store None as
     "unknown", not $0.
     """
-    prices = model_prices(model)
+    prompt_tokens = input_tokens + cache_write_5m_tokens + cache_write_1h_tokens + cache_read_tokens
+    prices = model_prices(model, prompt_tokens)
     if prices is None:
         if model not in _warned_unknown_models:
             _warned_unknown_models.add(model)

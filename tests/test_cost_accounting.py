@@ -306,3 +306,41 @@ def test_voice_bridge_turn_logs_every_call(tmp_path):
     finally:
         wq.stop()
         db.close()
+
+
+# ── Haiku 5.5: priced by prompt length (Anthropic pricing page, read 2026-10-22) ─────────────────
+
+def test_haiku_5_5_short_prompt_prices():
+    from windyfly.agent.models import estimate_cost
+
+    # 10k in + 1k out: 10_000 * 0.10/M + 1_000 * 0.50/M
+    assert estimate_cost("claude-haiku-5-5", 10_000, 1_000) == pytest.approx(0.0015)
+    assert estimate_cost("claude-haiku-5-5", 1_000, 0, cache_read_tokens=50_000) == pytest.approx(0.0001 + 0.0005)
+
+
+def test_haiku_5_5_over_100k_pays_the_higher_row_for_everything_output_included():
+    from windyfly.agent.models import estimate_cost
+
+    # The prompt is 120k: 20k input + 100k cache read. Over the threshold, so the higher row applies throughout.
+    got = estimate_cost("claude-haiku-5-5", 20_000, 2_000, cache_read_tokens=100_000)
+    assert got == pytest.approx(20_000 * 0.50 / 1e6 + 2_000 * 2.50 / 1e6 + 100_000 * 0.05 / 1e6)
+
+
+def test_haiku_5_5_threshold_is_strictly_over_100k():
+    from windyfly.agent.models import estimate_cost
+
+    assert estimate_cost("claude-haiku-5-5", 100_000, 0) == pytest.approx(0.01)        # exactly 100k: base row
+    assert estimate_cost("claude-haiku-5-5", 100_001, 0) == pytest.approx(100_001 * 0.50 / 1e6)
+
+
+def test_haiku_5_5_cache_writes_count_toward_the_prompt():
+    from windyfly.agent.models import estimate_cost
+
+    got = estimate_cost("claude-haiku-5-5", 1_000, 0, cache_write_5m_tokens=60_000, cache_write_1h_tokens=40_000)
+    assert got == pytest.approx(1_000 * 0.50 / 1e6 + 60_000 * 0.625 / 1e6 + 40_000 * 1.00 / 1e6)   # 101k: higher row
+
+
+def test_haiku_4_5_is_unchanged_and_never_tiered():
+    from windyfly.agent.models import estimate_cost
+
+    assert estimate_cost("claude-haiku-4-5", 200_000, 0) == pytest.approx(0.2)
