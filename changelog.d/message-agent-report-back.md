@@ -5,6 +5,6 @@
   no extra turn is taken in that room. ONE report goes to the chat the owner asked from when everyone has
   answered or after 5 minutes, saying who didn't answer. The answers reach the model only as fenced data, the
   report turn has no tools, and the owner's stop cancels it. While an agent is still answering, a second question
-  to it is not sent (the agent is told to ask again after), so an answer can never land in the wrong chat. On with WINDY_TEAMS;
-  WINDY_REPORT_BACK=0 turns it off. Asks made from Telegram are not tracked yet. Agent text shown to the model
+  to it is not sent (the agent is told to ask again after), so an answer can never land in the wrong chat. Dark: on only with
+  WINDY_REPORT_BACK=1 (and WINDY_TEAMS). Asks made from Telegram are not tracked yet. Agent text shown to the model
   also loses any run of three angle marks, spaced or look-alike, so it can't imitate a fence.

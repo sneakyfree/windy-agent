@@ -261,10 +261,14 @@ def message_agent(to: str, text: str) -> dict[str, Any]:
     # answer joined to the first and reported in the wrong chat (Hub's probe on Chat #456 and #639).
     from windyfly.channels import report_back
 
-    partner = _partner_mxid(to, room_id) if report_back.waiting_in(room_id) else None
-    if partner and report_back.busy(room_id, partner):
+    origin = report_back.current()
+    why = report_back.busy(room_id, origin.room if origin is not None else None)
+    if why == "answering":
         return _unavailable(f"{to} is still answering an earlier question; nothing was sent. That answer is "
                             "reported first; ask again after it.")
+    if why == "recent":
+        return _unavailable(f"{to} just answered a question asked from another chat; nothing was sent, so its "
+                            "replies can't be mixed up. Ask again in a few minutes.")
     from windyfly.tools.chat import send_chat_message
 
     # Teamwork on: addressed by mention (agent-teamwork.v1: an agent's message is a turn only for the agents
@@ -281,7 +285,7 @@ def message_agent(to: str, text: str) -> dict[str, Any]:
     # Report-back (Grant's Build-131 note 8): on an owner turn in Matrix, the answer is caught in the pair room
     # and brought back to the chat the owner asked from, in one report.
     if report_back.tracking():
-        partner = partner or _partner_mxid(to, room_id)
+        partner = _partner_mxid(to, room_id)
         event_id = str(sent.get("event_id") or "")
         if not partner or not event_id:
             pass                                   # unknown partner or event: not tracked, nothing promised

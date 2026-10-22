@@ -707,13 +707,17 @@ class WindyFlyMatrixBot(ChannelAdapter):
             return
         room = self.client.rooms.get(rnd.origin_room) or SimpleNamespace(room_id=rnd.origin_room, users={})
         # A stop on the server that this process hasn't read yet: look back over the room since the round began,
-        # by time (no anchor, which a busy room could push out of the window). A failed read drops the report.
+        # by time (no anchor, which a busy room could push out of the window). A stop found drops the report; a
+        # look-back that can't be read sends only the plain line, never a model turn (Hub on #639).
+        unread: list[bool] = []
         if _stop.stopped(rnd.origin_room) or await self._owner_stopped_since(
-                room, rnd.started_ms, limit=_STOP_LOOKBACK_EVENTS, fail_closed=True):
-            logger.info("report-back: the owner stopped the room (or the look-back failed); no report")
+                room, rnd.started_ms, limit=_STOP_LOOKBACK_EVENTS, failed=unread):
+            logger.info("report-back: the owner stopped the room; no report")
             return
         text = ""
-        if any(a.answer is not None for a in rnd.asks):
+        if unread:
+            logger.info("report-back: the stop look-back could not be read; the plain line only")
+        elif any(a.answer is not None for a in rnd.asks):
             started_ms = int(time.time() * 1000)
             try:
                 text = str(await run_turn(_no_tools_turn(agent_respond), self.config, self.db, self.write_queue,
@@ -850,7 +854,8 @@ class WindyFlyMatrixBot(ChannelAdapter):
         await self._send_owner_result(room_id, task, str(text or ""), *_tw.report_status(task, me))
 
     async def _owner_stopped_since(self, room: Any, since_ms: int, *, anchor: str | None = None, limit: int = 20,
-                                   skew_ms: int = 0, fail_closed: bool = False) -> bool:
+                                   skew_ms: int = 0, fail_closed: bool = False,
+                                   failed: list[bool] | None = None) -> bool:
         """Did the room's owner stop the agents after ``since_ms``? Reads the room's latest ``limit`` events (the
         stop callback may still be queued behind this turn). ``anchor``: an event id; the timeline older than it
         is not looked at (timeline order, not clocks). ``skew_ms``: how far the server's clock may lag ours.
@@ -876,6 +881,8 @@ class WindyFlyMatrixBot(ChannelAdapter):
                 raise RuntimeError("no chunk")
         except Exception as e:  # noqa: BLE001
             logger.debug("stop look-back failed: %s", type(e).__name__)
+            if failed is not None:
+                failed.append(True)               # the caller can tell "no stop" from "couldn't read"
             return fail_closed
         team = self._wide_stop_room(room)
         found = False

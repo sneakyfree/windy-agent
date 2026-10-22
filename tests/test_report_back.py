@@ -39,7 +39,7 @@ def _clean(monkeypatch, tmp_path):
     monkeypatch.setenv("WINDY_STATE_DIR", str(tmp_path / "state"))
     monkeypatch.setenv("WINDY_TEAMS", "1")
     monkeypatch.delenv("WINDY_TEAMWORK", raising=False)
-    monkeypatch.delenv("WINDY_REPORT_BACK", raising=False)
+    monkeypatch.setenv("WINDY_REPORT_BACK", "1")
     rs.reset_for_tests()
     tb.reset_for_tests()
     rb.reset_for_tests()
@@ -298,9 +298,9 @@ async def test_hub_probe_b_ack_then_answer_is_one_answer_and_a_second_origin_can
                during=lambda: rb.record_ask("Flights", FLIGHTS, PAIR_F, "$askF1", ASK_TS))
     second = []
     await _run(bot, group, _ev(OWNER, "ask Flights too", "$o2"), reply="Asked.",
-               during=lambda: second.append((rb.busy(PAIR_F, FLIGHTS),
+               during=lambda: second.append((rb.busy(PAIR_F, "!group:x"),
                                              rb.record_ask("Flights", FLIGHTS, PAIR_F, "$askF2", ASK_TS + 1000))))
-    assert second == [(True, None)]
+    assert second == [("answering", None)]
     (rnd,) = list(rb._rounds.values())
     t0 = time.time()
     assert bot._catch_answer(PAIR_F, FLIGHTS, _ev(FLIGHTS, "On it, checking now."), "On it, checking now.")
@@ -309,7 +309,8 @@ async def test_hub_probe_b_ack_then_answer_is_one_answer_and_a_second_origin_can
     assert not a1.done and rb.settle(a1, now=t0 + 5) is not None            # still talking: not done yet
     assert rb.settle(a1, now=t0 + rb.SETTLE_S + 1) is None and a1.done       # quiet for 15 s: one answer
     assert a1.answer == "On it, checking now. PRIVATE: clinic flight booked"
-    assert not rb.busy(PAIR_F, FLIGHTS)                                      # free for the next question
+    assert rb.busy(PAIR_F, DM) is None                                       # the same chat may ask again at once
+    assert rb.busy(PAIR_F, "!group:x") == "recent"                          # another chat waits for the deadline
     with patch("windyfly.channels.matrix_bot.agent_respond", side_effect=lambda *a, **k: "Flights booked it."):
         await bot._report_round(rnd)
     assert _sent(bot)[-1] == (DM, {**_sent(bot)[-1][1], "body": "Flights booked it."})
@@ -365,3 +366,89 @@ async def test_stop_cancels_the_timers():
     bot._graceful_shutdown = AsyncMock()
     await bot.stop()
     assert not bot._report_timers
+
+
+def _ask_from(room, event_id, ask_event, ts, partner=FLIGHTS, pair=PAIR_F):
+    rb.bind(rb.Origin(room=room, session=room, event_id=event_id, started_ms=ts))
+    try:
+        return rb.record_ask("Flights", partner, pair, ask_event, ts)
+    finally:
+        rb.bind(None)
+
+
+def test_hub_probe_1_a_reply_to_a_settled_ask_is_never_given_to_another():
+    r1 = _ask_from(DM, "$o1", "$askF1", ASK_TS)
+    rb.add_part(PAIR_F, FLIGHTS, "On it", ASK_TS + 1000, None)
+    assert rb.settle(r1.asks[0], now=time.time() + rb.SETTLE_S + 1) is None     # settled on the ack
+    r2 = _ask_from(DM, "$o2", "$askF2", ASK_TS + 2000)                           # same chat: allowed
+    assert r2 is not None
+    assert rb.add_part(PAIR_F, FLIGHTS, "PRIVATE: for the first", ASK_TS + 3000, "$askF1") is None
+    assert r2.asks[0].parts == []
+
+
+def test_hub_required_rule_another_chat_waits_for_the_first_rounds_deadline():
+    r1 = _ask_from(DM, "$o1", "$askF1", ASK_TS)
+    rb.add_part(PAIR_F, FLIGHTS, "On it", ASK_TS + 1000, None)
+    rb.settle(r1.asks[0], now=time.time() + rb.SETTLE_S + 1)
+    assert _ask_from("!group:x", "$o2", "$askF2", ASK_TS + 2000) is None           # refused until the deadline
+    assert rb.busy(PAIR_F, "!group:x", now=r1.deadline + 1) is None              # then free
+    assert rb.busy(PAIR_F, None) == "recent"                                      # an untracked turn waits too
+
+
+def test_hub_probe_2_an_unknown_partner_is_still_refused(monkeypatch):
+    from unittest.mock import MagicMock as MM
+
+    def resp(status=200, body=None):
+        r = MM()
+        r.status_code, r.json.return_value = status, body or {}
+        return r
+
+    def route(method, url, **kw):
+        if url.endswith("/pair-room"):
+            return resp(200, {"ok": True, "room_id": PAIR_F, "created": False})
+        return resp(500, {})                                                     # joined_members fails
+
+    _ask_from(DM, "$o1", "$askF1", ASK_TS)
+    monkeypatch.setenv("MATRIX_HOMESERVER", "https://chat.example")
+    monkeypatch.setenv("MATRIX_BOT_TOKEN", "tok")
+    monkeypatch.setattr("windyfly.eternitas.agent_keys.request_agent_token", lambda aud: {"token": "t"})
+    monkeypatch.setattr("windyfly.eternitas.agent_keys.service_dpop", lambda m, u: "p")
+    sends = []
+    monkeypatch.setattr("windyfly.tools.chat.send_chat_message",
+                        lambda body, to_room=None, mentions=None: sends.append(body) or {"status": "sent", "event_id": "$x"})
+    monkeypatch.setattr("httpx.request", route)
+    monkeypatch.setattr("httpx.post", lambda url, **kw: resp(200, {}))
+    out = teams.message_agent("Someone Unlisted", "hello?")
+    assert out["error"] == "unavailable" and "nothing was sent" in out["detail"] and sends == []
+
+
+def test_an_ask_whose_time_was_never_learned_says_so():
+    r = _ask_from(DM, "$o1", "$askF1", None)
+    assert "I couldn't confirm when I asked Flights, so I didn't count its reply." in rb.plain_line(r)
+    assert "couldn't confirm when I asked" in rb.report_turn_text(r)
+
+
+@pytest.mark.asyncio
+async def test_an_unreadable_stop_look_back_sends_the_plain_line_only():
+    bot = _bot()
+    r = _ask_from(DM, "$o1", "$askF1", ASK_TS)
+    rb.add_part(PAIR_F, FLIGHTS, "Three flights.", ASK_TS + 1000, "$askF1")
+
+    async def unreadable(room, since_ms, **kw):
+        kw["failed"].append(True)
+        return False
+
+    bot._owner_stopped_since = unreadable
+    with patch("windyfly.channels.matrix_bot.agent_respond", side_effect=AssertionError("no model turn")):
+        await bot._report_round(r)
+    assert _sent(bot)[-1][1]["body"] == "Your agents answered.\nFlights: \u201cThree flights.\u201d"
+
+
+def test_dark_by_default(monkeypatch):
+    monkeypatch.delenv("WINDY_REPORT_BACK", raising=False)
+    assert rb.enabled() is False
+    rb.bind(rb.Origin(room=DM, session="s", event_id="$o", started_ms=1))
+    try:
+        assert rb.record_ask("Flights", FLIGHTS, PAIR_F, "$a", ASK_TS) is None and not rb.tracking()
+    finally:
+        rb.bind(None)
