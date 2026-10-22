@@ -2089,6 +2089,10 @@ def _agent_respond_turn(
     _served_now = result.get("mind_model") or result.get("model")
     if _served_now:
         _SERVED_FOR_PROMPT[session_id] = str(_served_now)
+    # Why Mind replaced the pick, in Mind's words, for the next turn's RUNTIME CONTEXT; this reply only (Build-131 #1).
+    from windyfly.agent import served_reason as _served_reason
+
+    _served_reason.note(session_id, None if _mind_fb else result.get("mind_served"))
     response_text = maybe_prepend_header(
         response_text, session_total, max_tokens=_max_ctx,
         # Engine transparency: what actually served this reply —

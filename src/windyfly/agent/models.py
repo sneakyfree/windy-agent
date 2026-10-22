@@ -23,6 +23,7 @@ import time
 from typing import Any, Callable
 
 from windyfly.agent import mind_auth
+from windyfly.agent import served_reason as _served_reason
 from windyfly.agent.providers import get_provider_for_model
 
 logger = logging.getLogger(__name__)
@@ -1388,6 +1389,8 @@ def _translate_mind_response(resp: Any) -> dict[str, Any] | None:
         "mind_model": data.get("model"),
         "mind_provider": data.get("provider"),
         "finish_reason": (choices[0] or {}).get("finish_reason"),
+        # Mind's own word on a replaced pick (menu.v1 windy_served), for the agent's RUNTIME CONTEXT.
+        "mind_served": _served_reason.parse(data, getattr(resp, "headers", None)),
     }
 
 
