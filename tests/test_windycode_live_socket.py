@@ -71,3 +71,29 @@ def test_a_live_socket_owned_by_another_user_does_not(sock_path, monkeypatch):
         assert wc.available() is False
     finally:
         srv.close()
+
+
+def test_every_connect_checks_the_owner_too(sock_path, monkeypatch):
+    """available() runs at boot; a socket another user puts at the same path later is refused at the connect."""
+    srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    srv.bind(sock_path)
+    srv.listen(1)
+    real_stat = os.stat
+
+    class _Other:
+        def __init__(self, st):
+            self.st_mode, self.st_uid = st.st_mode, os.getuid() + 1
+
+    monkeypatch.setattr(wc.os, "stat", lambda p, *a, **k: _Other(real_stat(p)) if p == sock_path else real_stat(p, *a, **k))
+    try:
+        with pytest.raises(wc.WindyCodeUnavailable, match="doesn't belong to this user"):
+            with wc._BusConnection():
+                pass
+    finally:
+        srv.close()
+
+
+def test_no_socket_at_connect_is_unavailable(sock_path):
+    with pytest.raises(wc.WindyCodeUnavailable, match="doesn't appear to be running"):
+        with wc._BusConnection():
+            pass

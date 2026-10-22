@@ -107,11 +107,23 @@ class _BusConnection:
 
     def __enter__(self) -> "_BusConnection":
         path = _socket_path()
-        if sys.platform != "win32" and not os.path.exists(path):
-            raise WindyCodeUnavailable(
-                "Windy Code doesn't appear to be running (no agent socket). "
-                "Ask the user to open Windy Code, then try again."
-            )
+        if sys.platform != "win32":
+            import stat as _stat
+
+            try:
+                st = os.stat(path)
+            except OSError:
+                raise WindyCodeUnavailable(
+                    "Windy Code doesn't appear to be running (no agent socket). "
+                    "Ask the user to open Windy Code, then try again."
+                ) from None
+            # Checked on EVERY connect, not only at boot: the default path is in a shared /tmp, and after this
+            # user's IDE exits another user could put a socket there (Hub on #644).
+            if not _stat.S_ISSOCK(st.st_mode) or st.st_uid != os.getuid():
+                raise WindyCodeUnavailable(
+                    "The Windy Code agent socket here doesn't belong to this user, so it wasn't used. "
+                    "Ask the user to open their own Windy Code, then try again."
+                )
         s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         s.settimeout(_CONNECT_TIMEOUT)
         try:
