@@ -83,9 +83,11 @@ def announce(db_path: str | Path) -> bool:
     except (OSError, ValueError):
         info = {"file": Path(db_path).name, "reason": "marker unreadable"}
     text = message(info)
-    logger.error("MEMORY COLLAPSE: %s", text)
+    first = not info.get("announced")
+    (logger.error if first else logger.warning)(
+        "MEMORY COLLAPSE%s: %s", "" if first else " (retrying the owner mail)", text)
     board = os.environ.get(ENV_BOARD, "").strip()
-    if board and os.access(board, os.W_OK):
+    if first and board and os.access(board, os.W_OK):
         try:
             with open(board, "a", encoding="utf-8") as fh:
                 fh.write(f"{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} "
@@ -102,6 +104,8 @@ def announce(db_path: str | Path) -> bool:
                 # Mail is set up but the send failed (Mail down, a 5xx): put the marker back so the NEXT start
                 # tries again (once per start), unless a newer collapse already wrote one.
                 if not m.exists():
+                    info["announced"] = True  # the BOARD line and the ERROR are not repeated on the retry
+                    claimed.write_text(json.dumps(info), encoding="utf-8")
                     os.rename(claimed, m)
                 logger.error("memory collapse: owner mail failed; it will be retried at the next start")
     except Exception as exc:  # noqa: BLE001

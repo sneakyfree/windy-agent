@@ -28,8 +28,9 @@ def env(tmp_path, monkeypatch):
         uploads.append(suspect)
         if fake_upload.fail:
             return {"success": False, "error": "Upload failed: 503"}
-        cb._save_backup_state({"last_backup": datetime.now(timezone.utc).isoformat(), "backup_id": "x",
-                               "episodes": cb.episode_count(db), **({"suspect": True} if suspect else {})})
+        cb._save_backup_state(cb._next_state(cb.get_backup_state(), {   # the real post-upload state rule
+            "last_backup": (datetime.now(timezone.utc) - timedelta(hours=25)).isoformat(), "backup_id": "x",
+            "episodes": cb.episode_count(db)}, suspect=suspect))
         return {"success": True}
     fake_upload.fail = False
     monkeypatch.setattr(cb, "backup_to_cloud", fake_upload)
@@ -167,3 +168,22 @@ def test_the_owner_sees_the_hold_and_accepts_it(env, commands):
 
 def test_accept_without_a_hold_does_nothing(env, commands):
     assert "No backup is on hold" in _cmd("/backup accept")
+
+
+def test_after_a_suspect_upload_the_old_baseline_and_the_hold_stay(env, monkeypatch):
+    env["memory"](10)
+    env["last_backup"](100)
+    env["run"]()                                  # held
+    env["clock"]["now"] += 73 * HOUR
+    monkeypatch.setenv(cb.SUSPECT_UPLOAD_ENV, "1")
+    env["run"]()                                  # day 3: suspect upload
+    state = cb.get_backup_state()
+    assert env["uploads"] == [True] and state["episodes"] == 100 and cb.hold_status() is not None
+    env["clock"]["now"] += 24 * HOUR
+    env["run"]()                                  # two days on: still compared with 100, still suspect
+    assert env["uploads"] == [True, True] and cb.get_backup_state()["episodes"] == 100
+    env["memory"](60)                             # memory recovers past 50%: a normal upload, a new baseline
+    env["clock"]["now"] += 24 * HOUR
+    env["run"]()
+    assert env["uploads"] == [True, True, False] and cb.get_backup_state()["episodes"] == 60
+    assert cb.hold_status() is None and "suspect" not in cb.get_backup_state()
