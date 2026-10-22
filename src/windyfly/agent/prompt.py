@@ -362,6 +362,17 @@ def assemble_prompt(
         runtime_context_parts.append(f"- Model: {served} (it answered your last reply in this conversation)")
     else:
         runtime_context_parts.append("- Model: not known yet in this conversation (Windy Mind picks it for each reply)")
+    # Why it isn't the model the owner picked: Mind's own line, from the last reply only, and the rule that no
+    # other reason may be given (Build-131 note 1: the agent invented "the setting only tweaks phrasing").
+    try:
+        from windyfly.agent import served_reason as _served_reason
+
+        _why = _served_reason.line_for_prompt(session_id)
+        if _why:
+            runtime_context_parts.append(f"- {_why}")
+        runtime_context_parts.append(_served_reason.RULE)
+    except Exception:  # noqa: BLE001
+        pass
 
     # Anthropic auth path — answers "am I on Max plan?" without
     # introspection or env access.
