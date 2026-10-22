@@ -107,7 +107,8 @@ def announce(db_path: str | Path) -> bool:
                     info["announced"] = True  # the BOARD line and the ERROR are not repeated on the retry
                     claimed.write_text(json.dumps(info), encoding="utf-8")
                     os.rename(claimed, m)
-                logger.error("memory collapse: owner mail failed; it will be retried at the next start")
+                (logger.error if first else logger.warning)(
+                    "memory collapse: owner mail failed; it will be retried at the next start")
     except Exception as exc:  # noqa: BLE001
         logger.error("memory collapse: owner mail not sent (%s)", type(exc).__name__)
     return True
