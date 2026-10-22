@@ -5,16 +5,23 @@ message_agent posts in a separate pair room (owner + both agents) and returns at
 landed in that pair room as a new turn there, and nothing brought it home. Now (Hub's plan 10-22, the same as
 Chat's roster, team-tools.v1 REPORT-BACK):
 
-1. Each ask made on an OWNER turn in Matrix is recorded: the origin room and session, the pair room, the
-   partner, when it was sent, and a deadline (DEADLINE_S). All asks made on one owner message form one round.
-2. The partner's next message in that pair room is caught BEFORE this agent takes a turn there: it is stored as
-   the answer, and no turn is spent in the pair room.
-3. When everyone asked has answered, or the deadline passes, ONE report goes to the ORIGIN chat. The answers
-   are fenced as data (teamwork's helpers). If the model fails or says nothing, a plain line goes instead,
-   naming who answered and who didn't. An owner stop in the origin room cancels the round.
+1. Each ask made on an OWNER turn in Matrix is recorded with the partner's Matrix id, the ask's own event id and
+   its server time. All asks made on one owner message form one round, with a deadline (DEADLINE_S).
+   While that ask is open, message_agent sends NOTHING more to that partner in that pair room, on any turn
+   (``busy``): a second question's answer could be joined to the first one's and reported in the wrong chat
+   (Hub's probe on Chat #456 and #639; Chat refuses the same way).
+2. Only the asked partner's plain messages, strictly LATER than the ask on the server clock, are its answer. They
+   are caught before this agent takes a turn there. A reply (m.in_reply_to) to the ask's own event completes it
+   at once (team-tools.v1 1.4.0 REPORT-BACK). The answer is complete at a reply to the ask's own event, or
+   when the partner goes quiet for SETTLE_S (capped at SETTLE_CAP_S after its first message): "On it" followed by
+   the real answer is one answer, not two.
+3. When every ask in the round is complete, or the deadline passes, ONE report goes to the ORIGIN chat. The
+   answers are fenced as data (teamwork's helpers) and the report turn has no tools. If the model fails or says
+   nothing, a plain line goes instead, naming who answered and who didn't. An owner stop in the origin room
+   cancels the round. A stop in the pair room does not (it stops that room's agent replies, as before).
 
 In memory only: a restart forgets open rounds (the answers are still in the pair rooms). A Telegram turn has
-no Matrix origin room, so its asks are not tracked and the tool says where the answer will be.
+no Matrix origin room, so its asks are not tracked and the tool says nothing about a report.
 On with WINDY_TEAMS (message_agent's own flag); WINDY_REPORT_BACK=0 turns it off.
 """
 
@@ -30,9 +37,12 @@ from typing import Callable
 from windyfly.channels.teamwork import _flat, _name
 
 DEADLINE_S = 300.0
+SETTLE_S = 15.0           # the answer is complete once the partner has been quiet this long
+SETTLE_CAP_S = 60.0       # ... or this long after its first message, whichever comes first
 _KEEP_S = 2 * DEADLINE_S
 ANSWER_MAX = 1500
-SKEW_MS = 10_000          # the homeserver's clock may run behind ours: an answer stamped up to 10 s "early" still counts
+MAX_OPEN_ROUNDS = 50
+MAX_ASKS_PER_ROUND = 8
 
 
 def enabled() -> bool:
@@ -42,10 +52,18 @@ def enabled() -> bool:
 @dataclass
 class Ask:
     partner: str                       # the name the model used ("Flights")
+    partner_mxid: str
     pair_room: str
-    sent_ms: int
-    answer: str | None = None
-    answered_by: str | None = None     # the Matrix id that answered
+    event_id: str                      # the ask's own message
+    ts_ms: int | None                  # its server time (None until known: an answer waits for it)
+    parts: list[str] = field(default_factory=list)
+    first_part_at: float | None = None
+    last_part_at: float | None = None
+    done: bool = False
+
+    @property
+    def answer(self) -> str | None:
+        return _flat(" ".join(self.parts), ANSWER_MAX) if self.parts else None
 
 
 @dataclass
@@ -60,7 +78,7 @@ class Round:
     status: str = "open"               # open | reported | cancelled
 
     def complete(self) -> bool:
-        return bool(self.asks) and all(a.answer is not None for a in self.asks)
+        return bool(self.asks) and all(a.done for a in self.asks)
 
 
 @dataclass
@@ -91,54 +109,115 @@ def _prune(now: float) -> None:
         del _rounds[rid]
 
 
-def record_ask(partner: str, pair_room: str, sent_ms: int | None = None, now: float | None = None) -> Round | None:
-    """Called by message_agent after its message went out. None when this is not an owner turn in Matrix."""
+def _open_asks(pair_room: str, partner_mxid: str) -> list[Ask]:
+    """The asks still waiting on this partner in this pair room, oldest first (FIFO)."""
+    asks = [a for r in _rounds.values() if r.status == "open" for a in r.asks
+            if a.pair_room == pair_room and a.partner_mxid == partner_mxid and not a.done]
+    return sorted(asks, key=lambda a: (a.ts_ms is None, a.ts_ms or 0))
+
+
+def tracking() -> bool:
+    """Is this an owner turn whose asks are tracked?"""
+    return current() is not None and enabled()
+
+
+def busy(pair_room: str, partner_mxid: str) -> bool:
+    """Is this partner still answering an earlier tracked ask in this pair room?"""
+    with _lock:
+        return bool(_open_asks(pair_room, partner_mxid))
+
+
+def record_ask(partner: str, partner_mxid: str, pair_room: str, event_id: str, ts_ms: int | None,
+               now: float | None = None) -> Round | None:
+    """Called by message_agent after its message went out. None when it is not tracked: not an owner turn in
+    Matrix, the flag is off, the partner is still answering an earlier ask (message_agent refuses that before
+    sending), or a cap is hit."""
     origin = current()
-    if origin is None or not enabled():
+    if origin is None or not enabled() or not (partner_mxid and pair_room and event_id):
         return None
     now = time.time() if now is None else now
     first = False
     with _lock:
         _prune(now)
+        if _open_asks(pair_room, partner_mxid):
+            return None
         rnd = next((r for r in _rounds.values() if r.status == "open" and r.origin_room == origin.room
                     and r.started_ms == origin.started_ms and r.origin_event_id == origin.event_id), None)
         if rnd is None:
+            if sum(1 for r in _rounds.values() if r.status == "open") >= MAX_OPEN_ROUNDS:
+                return None
             rnd = Round(round_id=uuid.uuid4().hex[:12], origin_room=origin.room, origin_session=origin.session,
                         origin_event_id=origin.event_id, started_ms=origin.started_ms, deadline=now + DEADLINE_S)
             _rounds[rnd.round_id] = rnd
             first = True
-        rnd.asks.append(Ask(partner=partner, pair_room=pair_room,
-                            sent_ms=int(now * 1000) if sent_ms is None else sent_ms))
+        if len(rnd.asks) >= MAX_ASKS_PER_ROUND:
+            return None
+        rnd.asks.append(Ask(partner=partner, partner_mxid=partner_mxid, pair_room=pair_room, event_id=event_id,
+                            ts_ms=ts_ms))
     if first and origin.on_first_ask is not None:
         origin.on_first_ask(rnd)
     return rnd
 
 
+def note_own_event(pair_room: str, event_id: str, ts_ms: int) -> None:
+    """This agent's own ask came back in sync: its server time, when message_agent could not read it."""
+    with _lock:
+        for r in _rounds.values():
+            for a in r.asks:
+                if a.pair_room == pair_room and a.event_id == event_id and a.ts_ms is None:
+                    a.ts_ms = ts_ms
+
+
 def waiting_in(pair_room: str) -> bool:
     with _lock:
-        return any(r.status == "open" and any(a.pair_room == pair_room and a.answer is None for a in r.asks)
+        return any(r.status == "open" and any(a.pair_room == pair_room and not a.done for a in r.asks)
                    for r in _rounds.values())
 
 
-def catch(pair_room: str, sender: str, body: str, ts_ms: int) -> Round | None:
-    """Store ``body`` as the answer to the oldest open ask in ``pair_room`` sent before it. -> its round, or None."""
+def add_part(pair_room: str, sender: str, body: str, ts_ms: int, reply_to: str | None,
+             now: float | None = None) -> tuple[Round, Ask] | None:
+    """One message from the asked partner, strictly after the ask on the server clock: a part of its answer.
+    A reply to the ask's own event completes the answer at once. -> (round, ask), or None when it is not one."""
+    now = time.time() if now is None else now
     with _lock:
-        for rnd in sorted(_rounds.values(), key=lambda r: r.started_ms):
-            if rnd.status != "open":
-                continue
-            for ask in rnd.asks:
-                if ask.pair_room == pair_room and ask.answer is None and ts_ms >= ask.sent_ms:
-                    ask.answer, ask.answered_by = _flat(body or "", ANSWER_MAX) or "(nothing)", sender
-                    return rnd
-    return None
+        waiting = [a for a in _open_asks(pair_room, sender) if a.ts_ms is not None and ts_ms > a.ts_ms]
+        ask = next((a for a in waiting if reply_to and a.event_id == reply_to), None) or (waiting[0] if waiting else None)
+        if ask is None:
+            return None
+        rnd = next(r for r in _rounds.values() if ask in r.asks)
+        ask.parts.append(body or "")
+        ask.first_part_at = ask.first_part_at or now
+        ask.last_part_at = now
+        if reply_to and reply_to == ask.event_id:
+            ask.done = True
+        return rnd, ask
+
+
+def settle(ask: Ask, now: float | None = None) -> float | None:
+    """Complete the answer if the partner has gone quiet (or the cap passed). -> seconds to wait, None when done."""
+    now = time.time() if now is None else now
+    with _lock:
+        if ask.done:
+            return None
+        if ask.last_part_at is None or ask.first_part_at is None:
+            return SETTLE_S
+        quiet = now - ask.last_part_at
+        if quiet >= SETTLE_S or now - ask.first_part_at >= SETTLE_CAP_S:
+            ask.done = True
+            return None
+        return min(SETTLE_S - quiet, SETTLE_CAP_S - (now - ask.first_part_at))
 
 
 def claim(rnd: Round) -> bool:
-    """One report per round: True for the first caller only (the last answer or the deadline)."""
+    """One report per round: True for the first caller only (the last answer or the deadline). Parts already
+    caught for an ask still settling count as its answer."""
     with _lock:
         if rnd.status != "open":
             return False
         rnd.status = "reported"
+        for a in rnd.asks:
+            if a.parts:
+                a.done = True
         return True
 
 

@@ -637,6 +637,7 @@ def children(root: Task, me: str) -> list[Task]:
 _CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
 _INVISIBLE = re.compile(r"[\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]")
 _FENCE_LOOKALIKES = {0xFF1C: "<", 0xFF1E: ">", 0xFE64: "<", 0xFE65: ">"}
+_FENCE_RUN = re.compile(r"[<>\u2039\u203a\u00ab\u00bb](?:\s*[<>\u2039\u203a\u00ab\u00bb]){2,}")
 
 
 def _clean(text: str) -> str:
@@ -647,7 +648,9 @@ def _flat(text: str, limit: int) -> str:
     """One line, no control, zero-width or bidi characters, no fence markers, at most ``limit`` characters:
     agent text is data, never structure."""
     wide = _clean(text).translate(_FENCE_LOOKALIKES)          # fullwidth / small forms count as < and > too
-    flat = " ".join(wide.replace("<<<", "‹‹‹").replace(">>>", "›››").split())
+    # Any run of 3+ angle marks, spaced or not and including the look-alike ‹ ›, becomes one dot: no fence a model
+    # could read as ours ("<<<", ">>>", "> > >", "›››"; Hub on #639).
+    flat = _FENCE_RUN.sub("\u00b7", " ".join(wide.split()))
     return flat if len(flat) <= limit else flat[: limit - 1] + "…"
 
 
