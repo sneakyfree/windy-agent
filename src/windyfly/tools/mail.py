@@ -355,17 +355,20 @@ def my_mailbox() -> dict[str, Any]:
 
 
 def _send_email_description() -> str:
-    """Honest about who confirms: with WINDY_SEND_CONFIRM=1 the OWNER approves the held draft (card or
-    'send'), so the model must not ask in text first (that was a second confirmation, Grant's Build-116
-    note); with it OFF nothing else confirms, so the model confirms the draft in chat before sending."""
+    """Honest about who confirms: with WINDY_SEND_CONFIRM=1 the OWNER approves the held draft by replying
+    'send', so the model must not ask in text first (that was a second confirmation, Grant's Build-116
+    note); with it OFF nothing else confirms, so the model confirms the draft in chat before sending.
+    Text only: no client tells this agent it shows an approval card or buttons, so none is ever named
+    (Grant's Build-131 note 7: "tap send on the email draft card", and the phone had no such card)."""
     base = (
         "Send ONE email from the agent's own mailbox to everyone: recipients in 'to' "
         "(comma-separated), copies in 'cc' and 'bcc'; never call this once per person. "
     )
     if send_confirm_enabled():
         return base + (
-            "The owner approves it once (the approval card or their 'send'), so do not ask for a "
-            "yes in text first. Ask only if an address is missing or unclear."
+            "The owner approves it once by replying 'send' to send it or 'cancel' to drop it, so do "
+            "not ask for a yes in text first. Ask only if an address is missing or unclear. Never "
+            "mention a card or a button to tap."
         )
     return base + (
         "Nothing else confirms it: show the owner the recipients, subject and body and get a "
