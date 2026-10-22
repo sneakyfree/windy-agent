@@ -308,6 +308,11 @@ def main() -> None:
 
     load_dotenv(get_project_root() / ".env")
     load_dotenv()
+    # Synthetic marking again, now that the .env is in: a test-born agent's passport may live only there (windy
+    # bring-home writes it), so the CLI's earlier install() could not see it yet (Hub on #647). Idempotent.
+    from windyfly.observability import synthetic
+
+    synthetic.install()
 
     parser = argparse.ArgumentParser(description="Windy Fly — AI agent brain")
     sub = parser.add_subparsers(dest="subcommand")

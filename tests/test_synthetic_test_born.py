@@ -58,3 +58,37 @@ def test_a_test_born_agent_marks_windy_hosts_only(monkeypatch):
         c.get("https://api.windymind.ai/v1/x")
         c.get("https://api.anthropic.com/v1/x")
     assert seen == {"api.windymind.ai": "1", "api.anthropic.com": None}
+
+
+def test_a_passport_only_in_the_agents_env_file_is_seen_at_boot(monkeypatch, tmp_path):
+    """windy bring-home writes ETERNITAS_PASSPORT into the agent's .env, not the process env: main() loads it and then
+    installs the marking (the CLI's earlier install() ran before the .env was read). Hub on #647."""
+    import httpx
+
+    from windyfly import main as wmain
+
+    (tmp_path / ".env").write_text("ETERNITAS_PASSPORT=ET26-TEST-BH01\n", encoding="utf-8")
+    monkeypatch.setenv("ETERNITAS_PASSPORT", "placeholder")          # so teardown restores "absent" ...
+    monkeypatch.delenv("ETERNITAS_PASSPORT")                         # ... after load_dotenv sets it
+    monkeypatch.setattr(synthetic, "_installed", False)
+    monkeypatch.setattr(httpx.Client, "send", httpx.Client.send)
+    monkeypatch.setattr(httpx.AsyncClient, "send", httpx.AsyncClient.send)
+    monkeypatch.setattr("windyfly.platform.get_project_root", lambda: tmp_path)
+    # conftest stubs load_dotenv suite-wide; here main() gets the real one, for an EXPLICIT path only (the bare
+    # upward search stays off, so no real .env can leak in).
+    from dotenv.main import load_dotenv as real_load_dotenv
+
+    monkeypatch.setattr(wmain, "load_dotenv", lambda path=None, **k: real_load_dotenv(path) if path else False)
+    monkeypatch.chdir(tmp_path)
+
+    class _Stop(Exception):
+        pass
+
+    def stop(*a, **k):
+        raise _Stop
+
+    monkeypatch.setattr(wmain.argparse, "ArgumentParser", stop)      # boot stops right after the .env + install
+    assert synthetic.active() is False
+    with pytest.raises(_Stop):
+        wmain.main()
+    assert synthetic.active() is True and synthetic._installed is True
