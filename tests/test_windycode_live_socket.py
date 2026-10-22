@@ -53,3 +53,21 @@ def test_a_plain_file_or_nothing_does_not(sock_path):
 def test_the_env_setting_still_configures_it(sock_path, monkeypatch):
     monkeypatch.setenv("WINDYCODE_AGENT_SOCK", sock_path)
     assert wc.available() is True
+
+
+def test_a_live_socket_owned_by_another_user_does_not(sock_path, monkeypatch):
+    """The default path is in a shared /tmp: another user's IDE must never be driven by this agent."""
+    srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    srv.bind(sock_path)
+    srv.listen(1)
+    real_stat = os.stat
+
+    class _Other:
+        def __init__(self, st):
+            self.st_mode, self.st_uid = st.st_mode, os.getuid() + 1
+
+    monkeypatch.setattr(wc.os, "stat", lambda p, *a, **k: _Other(real_stat(p)) if p == sock_path else real_stat(p, *a, **k))
+    try:
+        assert wc.available() is False
+    finally:
+        srv.close()

@@ -373,13 +373,15 @@ def windycode_save_to_git(project: str, message: str) -> dict[str, Any]:
 
 
 def _socket_live(path: str, timeout: float = 0.5) -> bool:
-    """Is something listening on this Unix socket? A file left behind by an IDE that has exited is not (10-21:
-    a stale /tmp/windycode-agent.sock registered the Windy Code tools on every agent on the host)."""
+    """Is THIS user's IDE listening on this Unix socket? A file left behind by an IDE that has exited is not (10-21:
+    a stale /tmp/windycode-agent.sock registered the Windy Code tools on every agent on the host). The default path
+    is in a shared /tmp: a live socket owned by ANOTHER user is someone else's IDE and never counts (Hub on #644)."""
     import socket
     import stat
 
     try:
-        if not stat.S_ISSOCK(os.stat(path).st_mode):
+        st = os.stat(path)
+        if not stat.S_ISSOCK(st.st_mode) or st.st_uid != os.getuid():
             return False
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
             s.settimeout(timeout)
@@ -396,6 +398,7 @@ def available() -> bool:
         return True
     path = _socket_path()
     if sys.platform == "win32":
+        # The named pipe is per session on Windows; no owner check is made here (no portable pipe-owner API).
         return os.path.exists(path)
     return _socket_live(path)
 
