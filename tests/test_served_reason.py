@@ -118,3 +118,24 @@ class TestPrompt:
         assert "- Windy Mind: you are answering as GPT-OSS 20B, not Claude Haiku, because the picked model has " \
                "reached its usage limit for now." in text
         assert sr.RULE in text
+
+
+def test_words_and_line_are_the_contracts_verbatim():
+    """menu.v1 1.13.0 vendored as-is from windy-contracts 21ca16da (blob 0d0fe5a0): a contract bump that changes the
+    words or the line fails here until both copies move together (Hub on #640)."""
+    import json
+    from pathlib import Path
+
+    menu = json.loads((Path(__file__).parent / "contracts" / "mind" / "menu.v1.json").read_text("utf-8"))
+    assert sr.LINE == menu["x-served-reason-line"]
+    assert sr.WORDS == menu["x-served-reason-words"]
+
+
+def test_the_remembered_lines_are_capped_oldest_out(monkeypatch):
+    monkeypatch.setattr(sr, "_LAST_MAX", 3)
+    for i in range(5):
+        sr.note(f"s{i}", sr.parse({"windy_served": SERVED}))
+    assert list(sr._LAST) == ["s2", "s3", "s4"]
+    sr.note("s2", sr.parse({"windy_served": SERVED}))                 # touched again: now the newest
+    sr.note("s5", sr.parse({"windy_served": SERVED}))
+    assert list(sr._LAST) == ["s4", "s2", "s5"]
