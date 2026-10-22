@@ -490,8 +490,8 @@ def test_book_description_is_calendars_own_agent_rule(calls):
     _answer(calls, _resp(200, {"ok": True, "result": "https://windycalendar.com/book/c-abc"}))
     text = _cap("windy_calendar.book").description
     assert "not an open slot is refused" not in text
-    assert "own agent may book any future time that overlaps no booking" in text
-    assert "outside_open_hours: true" in text and "every other caller gets open slots only" in text
+    assert "own agent may book any future time up to two years ahead that overlaps no booking" in text
+    assert "outside_open_hours, overlaps_blocked_time" in text and "Every other caller gets open slots only" in text
 
 
 def test_book_passes_outside_open_hours_through(calls):
