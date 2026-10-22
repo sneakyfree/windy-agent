@@ -269,6 +269,13 @@ def message_agent(to: str, text: str) -> dict[str, Any]:
     result: dict[str, Any] = {"ok": True, "to": to}
     if not partner_joined:
         result["note"] = f"{to} has not joined the room yet; your message is there for them"
+    # Report-back (Grant's Build-131 note 8): on an owner turn in Matrix, the answer is caught in the pair room
+    # and brought back to the chat the owner asked from, in one report.
+    from windyfly.channels import report_back
+
+    if report_back.record_ask(to, room_id) is not None:
+        result["report_back"] = (f"{to}'s answer will be brought back here when it comes (or after "
+                                 f"{int(report_back.DEADLINE_S // 60)} minutes, saying who didn't answer).")
     return result
 
 
