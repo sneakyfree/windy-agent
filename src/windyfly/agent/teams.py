@@ -256,6 +256,19 @@ def message_agent(to: str, text: str) -> dict[str, Any]:
                 out["detail"] = str(data["detail"])[:200]
             return out
         return _unavailable("Windy Chat could not open the room.")
+    # Report-back (team-tools.v1 1.4.0): while this partner is still answering an earlier question in this room,
+    # nothing more is sent to it, on any turn. Its next message is that answer; a second question could have its
+    # answer joined to the first and reported in the wrong chat (Hub's probe on Chat #456 and #639).
+    from windyfly.channels import report_back
+
+    origin = report_back.current()
+    why = report_back.busy(room_id, origin.room if origin is not None else None)
+    if why == "answering":
+        return _unavailable(f"{to} is still answering an earlier question; nothing was sent. That answer is "
+                            "reported first; ask again after it.")
+    if why == "recent":
+        return _unavailable(f"{to} just answered a question asked from another chat; nothing was sent, so its "
+                            "replies can't be mixed up. Ask again in a few minutes.")
     from windyfly.tools.chat import send_chat_message
 
     # Teamwork on: addressed by mention (agent-teamwork.v1: an agent's message is a turn only for the agents
@@ -269,7 +282,42 @@ def message_agent(to: str, text: str) -> dict[str, Any]:
     result: dict[str, Any] = {"ok": True, "to": to}
     if not partner_joined:
         result["note"] = f"{to} has not joined the room yet; your message is there for them"
+    # Report-back (Grant's Build-131 note 8): on an owner turn in Matrix, the answer is caught in the pair room
+    # and brought back to the chat the owner asked from, in one report.
+    if report_back.tracking():
+        partner = _partner_mxid(to, room_id)
+        event_id = str(sent.get("event_id") or "")
+        if not partner or not event_id:
+            pass                                   # unknown partner or event: not tracked, nothing promised
+        elif report_back.record_ask(to, partner, room_id, event_id, _event_ts(room_id, event_id)) is not None:
+            result["report_back"] = (f"{to}'s answer will be brought back here when it comes (or after "
+                                     f"{int(report_back.DEADLINE_S // 60)} minutes, saying who didn't answer).")
     return result
+
+
+def _partner_mxid(to: str, room_id: str) -> str | None:
+    """The one other agent in the pair room, else the owner's agent named ``to`` (Windy Chat's list)."""
+    others = _other_agents(room_id)
+    if len(others) == 1:
+        return others[0]
+    want = to.strip().lstrip("@").casefold()
+    with _lock:
+        names = dict(_siblings.get("names") or {})
+        ids = set(_siblings.get("ids") or ())
+    hits = {mx for mx in ids if mx.casefold() == to.strip().casefold() or mx.lstrip("@").split(":")[0].casefold() == want
+            or names.get(mx, "").strip().casefold() == want}
+    return hits.pop() if len(hits) == 1 else None
+
+
+def _event_ts(room_id: str, event_id: str) -> int | None:
+    """The server time of this agent's own message (the answer must be strictly later). None if unread: the
+    bot fills it in when the message comes back in sync."""
+    try:
+        status, data = _mx("GET", f"rooms/{room_id}/event/{event_id}")
+    except Exception:  # noqa: BLE001
+        return None
+    ts = data.get("origin_server_ts") if status == 200 else None
+    return int(ts) if isinstance(ts, int) else None
 
 
 def _other_agents(room_id: str) -> list[str]:

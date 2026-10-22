@@ -87,6 +87,31 @@ def _bound_turn(team_room: Any, fn: Any) -> Any:
     return call
 
 
+def _bound_origin(origin: Any, fn: Any) -> Any:
+    """``fn`` run with the owner's turn bound in the agent-turn thread (message_agent records its asks there)."""
+    from windyfly.channels import report_back as _rb
+
+    def call(*args: Any, **kwargs: Any) -> Any:
+        _rb.bind(origin)
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            _rb.bind(None)
+
+    return call
+
+
+def _no_tools_turn(fn: Any) -> Any:
+    """``fn`` run with NO tools offered or allowed (report-back: the turn only tells the owner what came back)."""
+    from windyfly.tools.bands import task_turn_tools
+
+    def call(*args: Any, **kwargs: Any) -> Any:
+        with task_turn_tools(frozenset()):
+            return fn(*args, **kwargs)
+
+    return call
+
+
 def _task_tools_turn(fn: Any) -> Any:
     """``fn`` run with the task-turn allowlist set in the agent-turn thread (public reads only)."""
     from windyfly.tools.bands import task_turn_tools
@@ -228,6 +253,7 @@ class WindyFlyMatrixBot(ChannelAdapter):
 
         # Track boot time to ignore old messages
         self._boot_time = time.time()
+        self._report_timers: set[Any] = set()      # report-back deadline and settle timers (cancelled on stop)
 
         # Shutdown flag for graceful termination
         self._shutting_down = False
@@ -440,6 +466,10 @@ class WindyFlyMatrixBot(ChannelAdapter):
             if _stop.is_stop_word(body) or (_tw.enabled() and _tw.is_contract_stop(body)
                                             and self._wide_stop_room(room)):
                 _stop.stop(room_id)
+                from windyfly.channels import report_back as _rb_stop
+
+                if _rb_stop.cancel_room(room_id):
+                    logger.info("owner stop: report-back for room %s cancelled", _budget.room_ref(room_id))
                 logger.info("owner stop in room %s: replies to agents silenced", _budget.room_ref(room_id))
                 if room_id not in self._stopped_here:      # this process's own record: the shared file
                     self._stopped_here.add(room_id)        # may already say stopped (Hub on #602)
@@ -505,6 +535,9 @@ class WindyFlyMatrixBot(ChannelAdapter):
             logger.info("owner resume in room %s", _budget.room_ref(room.room_id))
             return
         _stop.stop(room.room_id)
+        from windyfly.channels import report_back as _rb_stop
+
+        _rb_stop.cancel_room(room.room_id)
         logger.info("owner stop event in room %s: replies to agents silenced", _budget.room_ref(room.room_id))
         if room.room_id not in self._stopped_here:
             self._stopped_here.add(room.room_id)
@@ -583,6 +616,128 @@ class WindyFlyMatrixBot(ChannelAdapter):
                     "msgtype": "m.notice", "body": _tw.STOP_LINE, "windy_original": True})
             except Exception as e:
                 logger.error("stop line failed: %s", e)
+
+    # ── report-back for message_agent (windyfly.channels.report_back) ─────────────────────────
+
+    def _report_origin(self, room_id: str, session_id: str, event: Any, band: Any) -> Any:
+        """The owner's own turn: where message_agent's answers come back to. None for anyone else."""
+        from windyfly.agent.capabilities.descriptor import Band
+        from windyfly.channels import report_back as _rb
+        from windyfly.channels import silence as _silence
+
+        if not (_silence.enabled() and _rb.enabled()) or band is None or int(band) < int(Band.OWNER):
+            return None
+        loop = asyncio.get_running_loop()
+        event_id = getattr(event, "event_id", None)
+
+        def on_first_ask(rnd: Any) -> None:
+            loop.call_soon_threadsafe(self._schedule_report, rnd)
+
+        return _rb.Origin(room=room_id, session=session_id, event_id=event_id if isinstance(event_id, str) else None,
+                          started_ms=int(time.time() * 1000), on_first_ask=on_first_ask)
+
+    def _catch_answer(self, room_id: str, sender: str, event: Any, body: str) -> bool:
+        """The asked partner's plain message in a pair room this agent is waiting on, strictly after the ask on the
+        server clock: a part of its answer (no turn). A reply to the ask completes it; else it completes after the
+        partner goes quiet. The last answer of a round sends its report."""
+        from windyfly.agent import teams as _teams
+        from windyfly.channels import report_back as _rb
+
+        if not _rb.waiting_in(room_id) or sender == self.bot_user_id or sender not in _teams.sibling_ids():
+            return False
+        src = getattr(event, "source", None)
+        content = src.get("content") if isinstance(src, dict) else None
+        if not isinstance(content, dict) or content.get("msgtype") != "m.text":
+            return False                                   # an agent's notice or typed task is not an answer
+        rel = content.get("m.relates_to")
+        rel = rel if isinstance(rel, dict) else {}
+        if rel.get("rel_type") == "m.replace":
+            return False                                   # an edit is never the answer
+        reply = rel.get("m.in_reply_to")
+        reply_to = reply.get("event_id") if isinstance(reply, dict) else None
+        got = _rb.add_part(room_id, sender, body, int(getattr(event, "server_timestamp", 0) or 0),
+                           reply_to if isinstance(reply_to, str) else None)
+        if got is None:
+            return False
+        rnd, ask = got
+        logger.info("report-back: a message from the asked agent caught in a pair room (%d part(s))", len(ask.parts))
+        self._settle_later(rnd, ask, 0.0)
+        return True
+
+    def _later(self, delay: float, fn: Any) -> None:
+        """A timer this bot cancels on shutdown."""
+        loop = asyncio.get_running_loop()
+        handle: Any = None
+
+        def run() -> None:
+            self._report_timers.discard(handle)
+            fn()
+
+        handle = loop.call_later(delay, run)
+        self._report_timers.add(handle)
+
+    def _settle_later(self, rnd: Any, ask: Any, delay: float) -> None:
+        from windyfly.channels import report_back as _rb
+
+        def check() -> None:
+            wait = _rb.settle(ask)
+            if wait is not None:
+                self._settle_later(rnd, ask, wait)
+            elif rnd.complete():
+                asyncio.ensure_future(self._report_round(rnd))
+
+        if delay <= 0:
+            check()
+        else:
+            self._later(delay, check)
+
+    def _schedule_report(self, rnd: Any) -> None:
+        delay = max(1.0, rnd.deadline - time.time()) + 1.0
+        self._later(delay, lambda: asyncio.ensure_future(self._report_round(rnd)))
+
+    async def _report_round(self, rnd: Any) -> None:
+        """ONE report in the chat the owner asked from: a model turn on the fenced answers with NO tools, or the
+        plain line when nobody answered, the model fails or it says nothing. An owner stop drops it."""
+        from windyfly.agent.capabilities.descriptor import Band
+        from windyfly.agent.executor import run_turn
+        from windyfly.channels import report_back as _rb
+        from windyfly.channels import room_stop as _stop
+
+        if not _rb.claim(rnd):
+            return
+        room = self.client.rooms.get(rnd.origin_room) or SimpleNamespace(room_id=rnd.origin_room, users={})
+        # A stop on the server that this process hasn't read yet: look back over the room since the round began,
+        # by time (no anchor, which a busy room could push out of the window). A stop found drops the report; a
+        # look-back that can't be read sends only the plain line, never a model turn (Hub on #639).
+        unread: list[bool] = []
+        if _stop.stopped(rnd.origin_room) or await self._owner_stopped_since(
+                room, rnd.started_ms, limit=_STOP_LOOKBACK_EVENTS, failed=unread):
+            logger.info("report-back: the owner stopped the room; no report")
+            return
+        text = ""
+        if unread:
+            logger.info("report-back: the stop look-back could not be read; the plain line only")
+        elif any(a.answer is not None for a in rnd.asks):
+            started_ms = int(time.time() * 1000)
+            try:
+                text = str(await run_turn(_no_tools_turn(agent_respond), self.config, self.db, self.write_queue,
+                                          _rb.report_turn_text(rnd), rnd.origin_session, self.tool_registry,
+                                          band=Band.USER) or "").strip()   # other agents' words: no tools at all
+            except Exception as e:  # noqa: BLE001
+                from windyfly.channels.errors import classify
+
+                logger.error("report-back turn failed: %s", classify(e).log_message)
+                text = ""
+            if _stop.stopped(rnd.origin_room) or await self._owner_stopped_since(room, started_ms):
+                logger.info("report-back: the owner stopped the room during the report turn; dropped")
+                return
+        body = text or _rb.plain_line(rnd)
+        content = {"msgtype": "m.text", "body": body, "windy_original": True}
+        content["windy_lang"] = self._detect_lang(body)
+        try:
+            await self.client.room_send(rnd.origin_room, "m.room.message", content)
+        except Exception as e:
+            logger.error("report-back send failed: %s", e)
 
     # ── agent teamwork (agent-teamwork.v1; windyfly.channels.teamwork) ───────────────────────
 
@@ -699,7 +854,8 @@ class WindyFlyMatrixBot(ChannelAdapter):
         await self._send_owner_result(room_id, task, str(text or ""), *_tw.report_status(task, me))
 
     async def _owner_stopped_since(self, room: Any, since_ms: int, *, anchor: str | None = None, limit: int = 20,
-                                   skew_ms: int = 0, fail_closed: bool = False) -> bool:
+                                   skew_ms: int = 0, fail_closed: bool = False,
+                                   failed: list[bool] | None = None) -> bool:
         """Did the room's owner stop the agents after ``since_ms``? Reads the room's latest ``limit`` events (the
         stop callback may still be queued behind this turn). ``anchor``: an event id; the timeline older than it
         is not looked at (timeline order, not clocks). ``skew_ms``: how far the server's clock may lag ours.
@@ -725,6 +881,8 @@ class WindyFlyMatrixBot(ChannelAdapter):
                 raise RuntimeError("no chunk")
         except Exception as e:  # noqa: BLE001
             logger.debug("stop look-back failed: %s", type(e).__name__)
+            if failed is not None:
+                failed.append(True)               # the caller can tell "no stop" from "couldn't read"
             return fail_closed
         team = self._wide_stop_room(room)
         found = False
@@ -814,8 +972,12 @@ class WindyFlyMatrixBot(ChannelAdapter):
         event: nio.RoomMessageText,
     ) -> None:
         """Handle incoming text messages (unencrypted rooms; see _on_encrypted_event)."""
-        # Ignore our own messages
+        # Ignore our own messages (report-back reads the server time of its own ask here, when it had to wait)
         if event.sender == self.bot_user_id:
+            from windyfly.channels import report_back as _rb_own
+
+            if isinstance(getattr(event, "event_id", None), str):
+                _rb_own.note_own_event(room.room_id, event.event_id, int(getattr(event, "server_timestamp", 0) or 0))
             return
         # An m.notice is never a turn, except a typed task message (agent-teamwork.v1) with teamwork on.
         if isinstance(event, nio.RoomMessageNotice):
@@ -903,6 +1065,11 @@ class WindyFlyMatrixBot(ChannelAdapter):
                     "msgtype": "m.text", "body": _parity.REFUSED_LINE, "windy_original": True})
             except Exception as e:
                 logger.error("parity refusal notice failed: %s", e)
+            return
+
+        # Report-back (Grant's Build-131 note 8): another agent's message in a pair room where this agent is waiting
+        # for an answer IS that answer. It is stored for the report in the owner's chat; no turn here.
+        if self._catch_answer(room_id, sender, event, body):
             return
 
         # /agents off: a PEER agent (not one of the owner's own) is not heard. Never stored, never fed to
@@ -1094,6 +1261,9 @@ class WindyFlyMatrixBot(ChannelAdapter):
                 team_room = await self._team_room_for(room, event, body, turn_band)
                 if team_room is not None:
                     respond = _bound_turn(team_room, agent_respond)
+                origin = self._report_origin(room_id, session_id, event, turn_band)
+                if origin is not None:
+                    respond = _bound_origin(origin, respond)
             response_text = await run_turn(
                 respond,
                 self.config, self.db, self.write_queue,
@@ -1877,6 +2047,9 @@ class WindyFlyMatrixBot(ChannelAdapter):
     async def stop(self) -> None:
         """Stop the bot gracefully."""
         self._shutting_down = True
+        for handle in list(self._report_timers):
+            handle.cancel()
+        self._report_timers.clear()
         await self._graceful_shutdown()
 
     @staticmethod
