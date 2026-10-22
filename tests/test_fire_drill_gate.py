@@ -108,3 +108,11 @@ def test_a_failed_heal_does_not_leave_matrix_down_for_the_next_steps(drill, tmp_
     assert st["step_probe_heal"] == "FAIL" and st["step_lifeboat"] == "PASS"
     restart = calls.index("systemctl --user start windy-0@telegram windy-0@matrix")
     assert restart < calls.index("uv step")  # units back before the scratch steps run
+
+
+def test_the_finish_guard_starts_every_unit_the_drill_covers(drill):
+    """The EXIT trap starts $UNITS (WINDY_DRILL_UNITS), not a fixed pair: a third unit the drill stopped comes back."""
+    run, _ = drill
+    _, _, calls, _ = run(WINDY_DRILL_UNITS="windy-0@telegram windy-0@matrix windy-0@extra")
+    starts = [ln for ln in calls.splitlines() if ln.startswith("systemctl --user start")]
+    assert starts and starts[-1] == "systemctl --user start windy-0@telegram windy-0@matrix windy-0@extra"
