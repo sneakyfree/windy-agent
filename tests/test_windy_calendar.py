@@ -342,3 +342,19 @@ def test_appointments_and_block_work_end_to_end(calls):
     _answer(calls, _resp(403, {"ok": False, "error": "denied", "reason": "agent_blocked"}))
     refused = _cap("windy_calendar.block").handler(starts_at_utc="2026-10-21T13:00:00Z", ends_at_utc="2026-10-21T14:00:00Z")
     assert refused["ok"] is False
+
+
+def test_book_description_is_calendars_own_agent_rule(calls):
+    """Grant's Build-131 note 9: the old text said a time outside the open slots is refused, which is untrue for the
+    calendar's own agent after windy-calendar #96. The description is Calendar's own wording, facts only."""
+    _answer(calls, _resp(200, {"ok": True, "result": "https://windycalendar.com/book/c-abc"}))
+    text = _cap("windy_calendar.book").description
+    assert "not an open slot is refused" not in text
+    assert "own agent may book any future time that overlaps no booking" in text
+    assert "outside_open_hours: true" in text and "every other caller gets open slots only" in text
+
+
+def test_book_passes_outside_open_hours_through(calls):
+    _answer(calls, _resp(200, {"ok": True, "result": {"outcome": "booked", "outside_open_hours": True}}))
+    out = _cap("windy_calendar.book").handler(starts_at_utc="2026-10-23T01:00:00Z", booker_name="A", booker_email="a@b.c")
+    assert out["ok"] is True and out["outside_open_hours"] is True
