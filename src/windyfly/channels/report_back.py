@@ -20,7 +20,9 @@ Chat's roster, team-tools.v1 REPORT-BACK):
    nothing, a plain line goes instead, naming who answered and who didn't. An owner stop in the origin room
    cancels the round. A stop in the pair room does not (it stops that room's agent replies, as before).
 
-In memory only: a restart forgets open rounds (the answers are still in the pair rooms). A Telegram turn has
+In memory only: a restart forgets open rounds (the answers are still in the pair rooms). An ask whose own server
+time was never learned (the GET after the send failed and its echo never came back) counts no reply: the
+partner's message stays an ordinary pair-room message, and the report says "I couldn't confirm when I asked". A Telegram turn has
 no Matrix origin room, so its asks are not tracked and the tool says nothing about a report.
 Dark: needs WINDY_REPORT_BACK=1 (and WINDY_TEAMS, message_agent's own flag).
 """
@@ -131,6 +133,7 @@ def busy(pair_room: str, origin_room: str | None, now: float | None = None) -> s
     (a turn that isn't tracked) counts as a different chat. -> "answering", "recent" or None."""
     now = time.time() if now is None else now
     with _lock:
+        _prune(now)                                        # closed rounds long past their deadline go first
         for r in _rounds.values():
             for a in r.asks:
                 if a.pair_room != pair_room:

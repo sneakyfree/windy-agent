@@ -452,3 +452,11 @@ def test_dark_by_default(monkeypatch):
         assert rb.record_ask("Flights", FLIGHTS, PAIR_F, "$a", ASK_TS) is None and not rb.tracking()
     finally:
         rb.bind(None)
+
+
+def test_busy_prunes_rounds_long_past_their_deadline():
+    r = _ask_from(DM, "$o1", "$askF1", ASK_TS)
+    rb.claim(r)
+    assert rb.busy(PAIR_F, "!group:x") == "recent"
+    assert rb.busy(PAIR_F, "!group:x", now=r.deadline + rb._KEEP_S + 1) is None
+    assert r.round_id not in rb._rounds                                   # pruned, not just skipped
