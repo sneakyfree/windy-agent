@@ -135,10 +135,11 @@ def register_windy_calendar_capabilities(registry: CapabilityRegistry, config: d
     registry.register(Capability(
         id="windy_calendar.book", name="Book a time",
         # Calendar's own words (contracts/control.mcp.v1.json at windy-calendar #96, Grant's Build-131 note 9).
-        description="Books a time on the owner's calendar. The calendar's own agent may book any future time that "
-                    "overlaps no booking (outside_open_hours: true when it is outside the open hours, at the owner's "
-                    "usual length); every other caller gets open slots only. Atomic: a time taken at the same "
-                    "instant returns 'just taken' with the next open times.",
+        description="Books a time on the owner's calendar. The calendar's own agent may book any future time up to "
+                    "two years ahead that overlaps no booking, at the owner's usual length for that day; the answer "
+                    "then says outside_open_hours, overlaps_blocked_time (the owner's own block) or overlaps_busy "
+                    "(another calendar) when true. Every other caller gets open slots only. Atomic: a time taken at "
+                    "the same instant returns 'just taken' with the next open times.",
         handler=book,
         input_schema={"type": "object", "properties": {
             "starts_at_utc": s, "booker_name": s, "booker_email": s, "booker_phone": s,
