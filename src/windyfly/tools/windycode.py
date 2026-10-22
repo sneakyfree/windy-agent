@@ -372,9 +372,32 @@ def windycode_save_to_git(project: str, message: str) -> dict[str, Any]:
 # ─── Registration ────────────────────────────────────────────────────
 
 
+def _socket_live(path: str, timeout: float = 0.5) -> bool:
+    """Is something listening on this Unix socket? A file left behind by an IDE that has exited is not (10-21:
+    a stale /tmp/windycode-agent.sock registered the Windy Code tools on every agent on the host)."""
+    import socket
+    import stat
+
+    try:
+        if not stat.S_ISSOCK(os.stat(path).st_mode):
+            return False
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+            s.settimeout(timeout)
+            s.connect(path)
+        return True
+    except OSError:
+        return False
+
+
 def available() -> bool:
-    """The IDE's Agent Bus is configured (WINDYCODE_AGENT_SOCK) or its socket exists at boot."""
-    return bool(os.environ.get("WINDYCODE_AGENT_SOCK")) or os.path.exists(_socket_path())
+    """The IDE's Agent Bus is configured (WINDYCODE_AGENT_SOCK) or its default socket is LIVE at boot (something
+    answers on it); a leftover socket file with nothing listening doesn't count."""
+    if os.environ.get("WINDYCODE_AGENT_SOCK"):
+        return True
+    path = _socket_path()
+    if sys.platform == "win32":
+        return os.path.exists(path)
+    return _socket_live(path)
 
 
 def register_windycode_tools(registry: ToolRegistry) -> None:
