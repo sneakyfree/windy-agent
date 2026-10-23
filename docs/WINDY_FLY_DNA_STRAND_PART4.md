@@ -174,7 +174,7 @@
 │         ▼                                                                │
 │  SYNAPSE HOMESERVER (chat.windychat.ai:8008)                            │
 │  ├── @windyfly:chat.windychat.ai (bot user)                             │
-│  ├── All Windy Chat rooms (E2E encrypted)                               │
+│  ├── All Windy Chat rooms (TLS in transit; NOT end-to-end)              │
 │  └── Presence, typing, read receipts                                    │
 │         │                                                                │
 │  CHAT SERVICES                                                          │
