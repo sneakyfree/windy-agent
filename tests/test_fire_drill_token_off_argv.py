@@ -85,3 +85,26 @@ def test_emit_is_silent_without_the_ingest_env(tmp_path):
         timeout=10,
     )
     assert r.returncode == 0 and not argv_log.exists()
+
+
+@pytest.mark.parametrize("bad", ['tok"en', "tok\\en", 'tok\nheader = "X: 1"', "tok en"])
+def test_a_token_curl_config_cannot_carry_is_skipped_not_sent(tmp_path, bad):
+    """A quote, backslash, newline or space would corrupt the -K config or inject a line: skip the report, warn,
+    keep the drill going (Hub nit on #651)."""
+    argv_log = tmp_path / "argv.log"
+    b = tmp_path / "bin"
+    b.mkdir()
+    (b / "curl").write_text(f"#!/usr/bin/env bash\necho called >> {argv_log}\n")
+    (b / "curl").chmod(0o755)
+    r = subprocess.run(
+        ["bash", "-c", f'{_emit_fn()}\nemit backup pass 1\necho "rc=$?"\n'],
+        env={
+            "PATH": f"{b}:/usr/bin:/bin",
+            "WINDY_ADMIN_INGEST_URL": "http://127.0.0.1:9/",
+            "WINDY_ADMIN_INGEST_TOKEN": bad,
+        },
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert "rc=0" in r.stdout and "unexpected characters" in r.stderr and not argv_log.exists()
