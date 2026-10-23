@@ -1,0 +1,1 @@
+- The fire drill skips its telemetry report (with a warning) if the ingest token holds a character curl config cannot carry safely (quote, backslash, newline, space).

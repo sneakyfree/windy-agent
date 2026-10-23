@@ -69,6 +69,11 @@ emit() { # emit <step> <pass|fail|skip> <duration_ms>
     # Our own drill, not a user: synthetic (Telemetry UPDATE 3). The ingest
     # answers 202 even when it quarantines a row, so read the body.
     local body
+    # Curl config syntax: a quote, backslash or newline in the token would corrupt it or inject a config line (Hub).
+    if [[ ! "$WINDY_ADMIN_INGEST_TOKEN" =~ ^[A-Za-z0-9._~+/=-]+$ ]]; then
+        echo "WARNING: fire-drill telemetry skipped: ingest token has unexpected characters" >&2
+        return 0
+    fi
     # The token goes in on stdin as curl config (printf is a builtin): never in argv, where every account sees it in ps.
     body=$(printf 'header = "Authorization: Bearer %s"\n' "$WINDY_ADMIN_INGEST_TOKEN" | curl -s -m 3 -K - \
         -X POST "${WINDY_ADMIN_INGEST_URL%/}/v1/events" \
