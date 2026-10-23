@@ -1,0 +1,1 @@
+- The fire drill now sends the Windy Admin ingest token to curl on stdin, not on the command line, where every local account could read it with `ps` while the drill reported a step.
