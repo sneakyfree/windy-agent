@@ -10,6 +10,145 @@ No package 1.0.0 was ever released. The release line runs 0.5.1, then 0.6.0 (202
 
 ## Unreleased
 
+## 0.7.7
+
+- **A Windy Vault client for the agent, off until switched on.** It sets up the agent's side of Vault: it
+  registers the agent's lease key, reads what the owner has shared, leases one item and decrypts its value on the
+  agent's own machine, and releases a lease early. It is off unless both WINDY_VAULT_LEASE=1 and
+  WINDY_VAULT_API_URL are set, and it has no default address. Every call uses the agent's short token with a
+  proof. A value is never logged, written to disk or shown in an error. Nothing uses the client yet; which tools
+  switch from saved settings to leased logins is decided after Vault's V1.G release.
+
+- **The DPoP proof signs the address exactly as it is sent.** A file name with a space or an accented letter
+  used to be signed as typed ("a b") while "a%20b" went over the wire. Windy Cloud's stricter check would refuse
+  that. The proof now signs the percent-encoded path, with `./` and `../` removed and the default port dropped,
+  the same bytes httpx sends.
+
+- **"Still being born" is a quiet wait, never a revocation.** Under Eternitas's birth reservation (eternitas
+  #265), a passport in the middle of the Birth Canal gets 409 `passport_not_born` with Retry-After: 30 on every
+  credential route. The agent now treats that as waiting:
+  - the token error keeps Retry-After (on 429 too);
+  - the Mind sign-in logs it as information, not a warning;
+  - the daily EPT refresh reports `not_born_yet`, never the "suspended or revoked" hint;
+  - texting says "not fully set up yet".
+
+  The trust check now allows actions only for an `active` passport. `being_born`, `not_born` or any status it
+  doesn't know is refused, as its own rule already said. A last-known `being_born` or `not_born` is not forgotten
+  during an outage.
+
+- **Agent teamwork closes the reviewer's gaps, still off until switched on (WINDY_TEAMWORK=1).** A specialist's
+  shared allowance for a chief it does not know now starts fresh only when the owner writes in the room (never on
+  a timer, a stop, a resume or anyone else's message), and is capped at 60 turns an hour whatever happens. Another
+  agent can no longer spend the chief's allowance by naming one of its requests, or by asking from another room.
+  Malformed task messages (a request sent as a normal message, or one that does not mention who it is for) are
+  never answered and count toward the chatter limit. A task's wording and a sender's display name reach the model
+  only as fenced, cleaned-up data. When time runs out, the owner's summary is dropped if the owner already said
+  stop on the server (or the check fails), and it says "done" when any part is done, "blocked" with its reason only
+  when nothing is. "Everyone pause" stops the team right after a restart too. Task turns can no longer fetch web
+  pages, and asking an agent by an accented or emoji-only name works.
+
+- **A backup of a collapsed memory is held instead of pushing out the good ones.** If the agent's memory has under
+  half the episodes it had at the last good backup (and that backup had at least 20), the scheduled backup is
+  held. While it's held, the agent logs one error a day and sends the owner one notice a day, with counts only.
+  The owner can accept the smaller memory with `/backup accept` in the agent's terminal; the next check then
+  uploads it as the new normal. After a failed upload the agent waits 6 hours before trying again, not every
+  hour. `/backup now` now backs up the agent's configured memory file. Before, it backed up the default file,
+  which on Windy 0 is an idle file, and still reported success. If the memory-collapse email fails to send, it
+  is tried again at the next start.
+
+- **The agent's cloud backup really runs daily now, and only once.** Whether a backup is due is now checked every
+  hour against the 24-hour interval. A restart no longer pushes the next backup back by a day: on Windy 0 the
+  gaps had grown to 34-48 hours. When an agent runs both Telegram and Matrix, only the one process that runs
+  maintenance uploads. Before, both uploaded the same backup, so Cloud's 5 slots held duplicates.
+
+- **A "suspect" backup never becomes the new normal.** If a held backup is ever uploaded marked suspect (still
+  switched off), it keeps the earlier good backup as the comparison point and the hold stays on. The next
+  backups stay suspect too, until the owner accepts the smaller memory or the memory recovers. Before, the next
+  day's backup went up as a normal one, and Cloud would then have protected that copy instead of the good one.
+  A memory-collapse alert whose email fails no longer repeats its board line on every retry.
+
+- **While a backup is suspect, the owner keeps hearing about it.** The daily notice continues on days a held
+  backup goes up marked suspect, with the current count. An owner's `/backup accept` made while such an upload
+  is running is no longer lost. `/backup` says plainly that `/backup now` during a hold uploads the smaller
+  memory and makes it the new normal.
+
+- **Changelog notes no longer collide.** Each change now adds its note as its own small file in `changelog.d/`,
+  and `scripts/changelog_fold.py` gathers them into this file at release time. Before, every change added a line
+  in the same spot here, so each merge forced the next waiting change to be redone.
+
+- **The fire drill's last-resort restart covers every unit it drilled.** Its exit guard now starts WINDY_DRILL_UNITS,
+  not a fixed pair, so a unit added to the drill always comes back.
+
+- **The weekly fire drill backs up first and stops itself at the first sign of database trouble.** Before it
+  stops anything, it now needs a fresh encrypted cloud backup of the agent's memory: one from the last hour, or
+  it takes one. With no backup, it fails plainly and touches nothing. After every step it checks the agent's
+  logs for a database warning ("not a database", split, locked), and on the first one it stops, skipping the
+  remaining steps. It can post its result as one line to a board file (WINDY_DRILL_BOARD_FILE). The 10-18 drill
+  was the moment Zero's memory broke; these are Boss's conditions for running it weekly again.
+
+- **A failed drill step no longer leaves part of the agent stopped.** After every fire-drill step the agent's
+  units are started again (nothing happens if they're already running). If the self-heal step fails, the chat
+  side doesn't stay down for the rest of the drill.
+
+- **The email tool no longer mentions an approval card.** With owner confirmation on, the agent tells the owner to
+  reply 'send' to send a held draft or 'cancel' to drop it, and never names a card or a button to tap: no client tells
+  the agent it shows one (Grant's Build-131 note 7).
+
+- **If the agent's memory file can't be read at startup, the owner hears about it right away.** The agent still
+  sets the damaged file aside and starts fresh, so it can run. Now, at that same moment, it also leaves a small
+  note (file names and sizes only). The first process to start the agent's routine work then reports it once: an
+  error line in the log, one email to the owner, and one line on the operators' board when that is configured.
+  On Windy 0 this happened on 10-19, and nobody noticed for two days.
+
+- **When the agent asks another of the owner's agents something, the answer comes back to the owner.** Before,
+  `message_agent` posted in a separate room and the answer stayed there, so the owner never heard it (Grant's
+  Build-131 note 8). Now an ask made on the owner's own turn in Windy Chat is tracked. Only the asked agent's
+  messages sent after the ask count, joined until it goes quiet for 15 seconds (or a direct reply to the ask), and
+  no extra turn is taken in that room. ONE report goes to the chat the owner asked from when everyone has
+  answered or after 5 minutes, saying who didn't answer. The answers reach the model only as fenced data, the
+  report turn has no tools, and the owner's stop cancels it. While an agent is still answering, a second question
+  to it is not sent (the agent is told to ask again after), so an answer can never land in the wrong chat. Dark: on only with
+  WINDY_REPORT_BACK=1 (and WINDY_TEAMS). Asks made from Telegram are not tracked yet. Agent text shown to the model
+  also loses any run of three angle marks, spaced or look-alike, so it can't imitate a fence.
+
+- **The agent no longer makes up why a different model answered.** When Windy Mind serves a reply with another
+  model than the one picked, it now says why (`windy_served`, menu.v1 1.13.0). The agent's runtime facts carry
+  Mind's one line, built only from Mind's own template and words, and only for the most recent reply. A standing
+  rule says only that line may give the reason; without one, the agent says it doesn't know. Before, Grant picked
+  Haiku, another model answered, and the agent invented a reason (Build-131 note 1). Nothing changes until
+  windy-mind #490 is live.
+
+- **Haiku 5.5 calls get a real cost.** Windy Mind now serves Haiku requests with claude-haiku-5-5, which had no price, so
+  its cost read as unknown. Its prices come from Anthropic's pricing page (read 2026-10-22), including the higher
+  row for a request whose prompt (input plus cache reads and writes) is over 100,000 tokens.
+
+- **Report-back forgets finished rounds sooner.** The check that holds a second question to the same agent also clears
+  rounds long past their deadline (still dark behind WINDY_REPORT_BACK).
+
+- **Mind's model-reason words are pinned to the contract.** A test now checks the line and words against a vendored
+  copy of windy-contracts menu.v1, and the per-conversation memory of that line is capped at 1,000 conversations.
+
+- **A test-born agent marks its own traffic as test traffic.** An agent whose passport number starts with ET26-TEST-
+  now sends X-Windy-Synthetic: 1 to Windy services (never to third parties), the same as a probe with
+  WINDY_SYNTHETIC=1, so Windy's counts never mistake it for a person. A real passport never matches.
+
+- **A trust answer with no status is no longer read as "active".** It now reads as "unknown", which the trust
+  check refuses, and it is logged once per passport.
+
+- **The Vault client speaks Vault's real answers.**
+  - vault-api reports every sign-in failure with one code, `unauthenticated`. The client now re-mints once on
+    that code, then reports it; it never loops.
+  - `vault_unavailable` carries Vault's back-off time to the caller.
+  - A lease the agent can't open is given back before it asks again, so it doesn't count against the owner's
+    budget.
+  - A lease id is checked before it goes into an address.
+
+- **Windy Code tools appear only where the IDE is really running.** A socket file left behind by an IDE that has exited
+  no longer counts: the agent checks that something answers on it at start (WINDYCODE_AGENT_SOCK still configures it).
+
+- **Windy Code's socket owner is checked on every call, not only at start.** A socket another user puts at the
+  shared path after this user's IDE exits is refused at the connect.
+
 - **`windy budget set` now changes the budget.** It wrote `[budget] daily_budget`, which the budget gate never
   read, so the owner's new limit did nothing. It now writes `[costs] daily_budget_usd` (in WINDYFLY_CONFIG, else
   the project's windyfly.toml), refuses anything under $0.01 or not a number, and `windy budget` shows the limit
