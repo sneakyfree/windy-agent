@@ -69,8 +69,9 @@ emit() { # emit <step> <pass|fail|skip> <duration_ms>
     # Our own drill, not a user: synthetic (Telemetry UPDATE 3). The ingest
     # answers 202 even when it quarantines a row, so read the body.
     local body
-    body=$(curl -s -m 3 -X POST "${WINDY_ADMIN_INGEST_URL%/}/v1/events" \
-        -H "Authorization: Bearer $WINDY_ADMIN_INGEST_TOKEN" \
+    # The token goes in on stdin as curl config (printf is a builtin): never in argv, where every account sees it in ps.
+    body=$(printf 'header = "Authorization: Bearer %s"\n' "$WINDY_ADMIN_INGEST_TOKEN" | curl -s -m 3 -K - \
+        -X POST "${WINDY_ADMIN_INGEST_URL%/}/v1/events" \
         -H 'Content-Type: application/json' \
         -H 'X-Windy-Synthetic: 1' \
         -d "{\"events\":[{\"ts\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"platform\":\"windy-agent\",\"service\":\"fly\",\"event_type\":\"fire_drill.$2\",\"actor_type\":\"agent\",\"actor_id\":\"${ETERNITAS_PASSPORT:-unknown}\",\"duration_ms\":$3,\"metadata\":{\"step\":\"$1\",\"synthetic\":true}}]}" \
