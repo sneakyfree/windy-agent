@@ -141,6 +141,7 @@ class TestUploadContract:
         assert "file" in captured["kw"]["files"]
         meta = json.loads(captured["kw"]["data"]["metadata"])
         assert meta["encrypted"] is True and "checksum_sha256" in meta
+        assert meta["key"] == "owner"   # Cloud can tell the key: only an owner-held key uploads (since #573)
         assert out["backup_id"].startswith("windyfly-") and out["backup_id"].endswith(".enc")
 
 
