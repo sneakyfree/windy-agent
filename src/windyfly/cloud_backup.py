@@ -318,6 +318,10 @@ async def backup_to_cloud(config: dict | None = None, *, suspect: bool = False) 
     backup_name = f"windyfly-{ts.strftime('%Y%m%dT%H%M%SZ')}.enc"
     metadata = json.dumps({
         "encrypted": True,
+        # Which key sealed it, so Cloud can tell (10-23): since #573 only an owner-held WINDY_BACKUP_KEY uploads,
+        # so every new archive says "owner". Archives without this field predate it (0.7.6 and earlier could use a
+        # passport-derived key Windy could reconstruct).
+        "key": "owner",
         "compressed": "gzip",
         "checksum_sha256": checksum,
         "size_bytes": len(raw_data),
