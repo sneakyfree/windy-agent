@@ -89,7 +89,7 @@ def _strict_args_problem(schema: dict[str, Any], args: dict[str, Any]) -> str | 
             bad += 1
         elif isinstance(value, str) and "maxLength" in spec and len(value) > int(spec["maxLength"]):
             bad += 1
-        elif isinstance(value, str) and "pattern" in spec and not re.search(spec["pattern"], value):
+        elif isinstance(value, str) and "pattern" in spec and not re.fullmatch(spec["pattern"], value):
             bad += 1
     return f"{bad} argument value(s) not allowed" if bad else None
 

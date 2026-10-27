@@ -1,0 +1,1 @@
+- Strict tool arguments match their pattern in full: a value with a trailing newline no longer passes (Python's `$` matches before a final newline).
