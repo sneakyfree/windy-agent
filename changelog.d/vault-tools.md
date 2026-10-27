@@ -1,0 +1,1 @@
+- Vault everywhere, step 1 (dark): owner-only tools vault.list, vault.request_access, vault.offer_save (no-value path, Vault V7.9 c6) and vault.request_status, behind WINDY_VAULT_TOOLS=1 plus the lease client's flags. No tool ever handles a secret's value. Requests are validated against the vendored, hash-pinned agent-routes.v1 1.4.0.

@@ -167,7 +167,11 @@ def test_n7_the_phone_tools_are_not_registered_when_off(monkeypatch):
 
 # ── N8 Windy Vault ───────────────────────────────────────────────────────────────────────
 
-def test_n8_nothing_outside_the_vault_package_imports_it():
+# The ONE allowed user (Vault everywhere step 1, V7.9 c6): owner-band tools, dark behind WINDY_VAULT_TOOLS.
+_N8_ALLOWED_USERS = ["agent/capabilities/vault.py"]
+
+
+def test_n8_only_the_owner_vault_tools_import_the_vault_package():
     src = ROOT / "src" / "windyfly"
     users = []
     for py in src.rglob("*.py"):
@@ -180,7 +184,7 @@ def test_n8_nothing_outside_the_vault_package_imports_it():
                 names += [f"windyfly.{a.name}" for a in node.names]
             if any(n == "windyfly.vault" or n.startswith("windyfly.vault.") for n in names):
                 users.append(str(py.relative_to(src)))
-    assert users == []
+    assert sorted(set(users)) == _N8_ALLOWED_USERS
 
 
 

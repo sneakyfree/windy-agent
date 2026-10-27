@@ -1113,7 +1113,7 @@ own behaviour.
 | N8.8 | No private material in what the agent stores or sends: the wire body is only {public_key: base64 of the 32 raw bytes} | live | `tests/test_vault_kid_and_wire.py::test_registration_body_is_only_the_raw_public_key` |
 | N8.8b | Vault's reply must carry this key's own kid, or the registration is refused and nothing is stored | live | `tests/test_vault_kid_and_wire.py::test_the_kid_vault_returns_is_stored_and_a_mismatch_is_refused` |
 | N8.8c | A lease sealed to the 16-hex kid decrypts, and a Lease.kid that differs from the header is refused | live | `tests/test_vault_kid_and_wire.py::test_a_lease_sealed_to_the_16_hex_kid_decrypts` |
-| N8.9 | (ours) Nothing outside the vault package imports it: no tool, no loop call | live | `tests/strand/test_n4_n8_mail_calendar_cloud_phone_vault.py::test_n8_nothing_outside_the_vault_package_imports_it` |
+| N8.9 | (ours) Only the owner-band Vault tools (`agent/capabilities/vault.py`, dark behind WINDY_VAULT_TOOLS, Vault everywhere step 1 / V7.9 c6, Grant 2026-10-26) import the vault package: no other tool, no loop call | live | `tests/strand/test_n4_n8_mail_calendar_cloud_phone_vault.py::test_n8_only_the_owner_vault_tools_import_the_vault_package` |
 | N8.10 | A corrupt or unreadable lease key file is not replaced silently: one WARNING names the file and the reason (never its contents) before a new key replaces it | live | `tests/strand/test_n4_n8_mail_calendar_cloud_phone_vault.py::test_n8_a_bad_lease_key_file_is_logged_not_replaced_silently` |
 
 ### N9 Agent's Hands: the agent side of phone tools (planning, Boss 10-16)
