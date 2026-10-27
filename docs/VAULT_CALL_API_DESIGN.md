@@ -1,6 +1,7 @@
-# vault.call_api: design (Vault everywhere item 3), revision 3
+# vault.call_api: design (Vault everywhere item 3), revision 4
 
-Revision 2 folded in Hub's review (2026-10-27); revision 3 adopts Windy Vault's V7.6 c2e for host bindings. It builds on Vault plan V7.6: c2 (a lease value reaches only the
+Revision 2 folded in Hub's review (2026-10-27); revision 3 adopts Windy Vault's V7.6 c2e for host bindings;
+revision 4 makes the redactor whole-forms-only (Hub on #655) and states the limits as built. It builds on Vault plan V7.6: c2 (a lease value reaches only the
 tool, never the model) and c2b (the redactor returns with the first lease-using tool, which is this one). Dark
 behind `WINDY_VAULT_TOOLS`, OWNER band, lab only (zero-lab + Vault sandbox). The params, enums and say-states go
 into Hub's shared windy-contracts tool doc, so Windy Fly and the roster use one definition.
@@ -31,12 +32,21 @@ DNS rebinding). Refuse loopback, private, link-local, 0.0.0.0/8, 100.64/10, fc00
 multicast. No redirects followed. HTTP(S)_PROXY env vars ignored. A vault value containing CR or LF is refused
 (header injection). Timeout 20 s; URL ≤ 2 KiB; request body ≤ 64 KiB.
 
-**G3 Redactor (c2b, revived for this tool).** Before the call, register the value in every form a server can echo: raw, hex (both cases),
-base64, base64url, JSON-escaped, percent-encoded (upper and lower), base64 of `user:value` for basic auth, and
-any run of 8 or more characters of the value (partial echoes like a key prefix plus "..."). Scrub AFTER
-decompression (gzip/br): the response body, headers and error text, before anything reaches the model, a log, an
-audit row or a stored episode. Release the lease in `finally`. Tests run against an echo server that reflects the
-Authorization header and body in every encoding.
+**G3 Redactor (c2b, revived for this tool), WHOLE FORMS ONLY.** Before the call, register every COMPLETE form a
+server can echo: raw, hex (both cases), base64 and base64url at byte offsets 0, 1 and 2 (unstable edge characters
+trimmed, so the value is found inside a larger base64 blob at any alignment), JSON-escaped, percent-encoded (upper
+and lower), and base64 of `user:value` for basic auth. Scrub AFTER decompression: the response body, every header
+(a redirect's Location included) and error text, before anything reaches the model, a log, an audit row or a
+stored episode. Release the lease in `finally`.
+*Why whole forms only:* masking partial runs of a value (an earlier draft masked every 8-character window) is an
+ORACLE. A model that can make an allowed server echo its guesses learns the key one character per response from
+which guesses come back masked; Hub recovered a 48-character synthetic key in 40 responses. "Withhold the whole
+answer on a partial match" is still a one-bit oracle. So: whole forms only, plus three bounds on what's left:
+- a value shorter than 16 characters is refused (`key_unusable`): whole-form masking can't protect it;
+- a per-item call budget, 30 calls per hour per item per agent (`too_many_calls`), bounds any remaining guessing;
+- a server that echoes a short fragment (a "last 4" display) is accepted leakage: it shows that much anyway.
+Tests run against an echo server that reflects the Authorization header and body in every encoding, for two values
+(one with a quote, backslash and non-ASCII character, so its JSON, percent and hex forms all differ).
 
 **G4 Writes ask the owner (principle #10).** DELETE always asks first. POST/PUT/PATCH ask first by default. The
 ask is the RUNTIME's own confirm for the exact call it is about to make (not a Vault card; Vault 2026-10-27:
@@ -50,7 +60,12 @@ once untrusted content (a web fetch, an email body, a non-owner message) is in t
 card until the session is cleared. "Allow writes to this host without asking" is a LATER owner opt-in; its words go
 to Grant via Boss, and it's never a default (same rule as auto-save). GET with a bound host runs without a card.
 
-**G5 Limits.** One lease per call; response capped at 64 KiB (`truncated`); no value in any exception message.
+**G5 Limits (as built in windy-agent #655).** One lease per call. URL ≤ 2 KiB; request body ≤ 64 KiB. The DECODED
+response is streamed and refused over 1 MiB (`call_failed`; a gzip bomb stops there); the model gets at most 64 KiB
+of it (`truncated`). 20 s per network step and a 30 s overall deadline. Only gzip/deflate are accepted; no redirects
+are followed; proxy environment variables are ignored; certificates are always verified. Dot-segments (`.`, `..`,
+`%2e`) are refused so the path sent is the path shown. No value in any exception message. Codes and words: windy-
+contracts `schema/agent/vault-tools.v1.json` (merged 0c37d1c8), shared with the roster.
 
 ## Dependencies (owners)
 
