@@ -436,3 +436,14 @@ def test_a_sane_retry_after_is_kept(vault):
     _, answers = vault
     answers.append((503, {"error": "vault_unavailable", "retry_after_s": 45}))
     assert r.get("vault.list").handler()["retry_after_s"] == 45
+
+
+@pytest.mark.parametrize("cid,args", [
+    ("vault.request_access", {"item_id": "itm_abc\n"}),
+    ("vault.request_status", {"request_id": "req_abc\n"}),
+])
+def test_a_trailing_newline_does_not_slip_past_the_pattern(vault, cid, args):
+    """Python's $ matches before a final newline; the strict check uses fullmatch (Hub on #654)."""
+    r = _registry(vault)
+    msg = _denied_before_hooks(r, cid, args)
+    assert "1 argument value(s) not allowed" in msg
