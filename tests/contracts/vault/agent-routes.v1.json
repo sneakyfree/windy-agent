@@ -1,0 +1,536 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://windyvault.invalid/contracts/agent-routes.v1.json",
+  "title": "Windy Vault agent routes, minimal v1 (plan v3.0; 1.3.0 adds the V7.9 save offer; 1.4.0 adds capabilities' vault field)",
+  "owner": "windy-vault",
+  "x-fixtures": {
+    "capabilities.response": "#/$defs/capabilities/response",
+    "lease.github.request": "#/$defs/lease/request",
+    "lease.github.response": "#/$defs/lease/response",
+    "lease.release.response": "#/$defs/lease.release/response",
+    "lease.response": "#/$defs/lease/response",
+    "leasekey.response": "#/$defs/leasekey/response",
+    "requests.create.response": "#/$defs/requests.create/response",
+    "requests.get.response": "#/$defs/requests.get/response",
+    "lease.release.pending.response": "#/$defs/lease.release/response",
+    "requests.create.save.request": "#/$defs/requests.create/request",
+    "requests.get.saved.response": "#/$defs/requests.get/response"
+  },
+  "description": "Agent-facing routes under /v1/agent. Auth: Eternitas EPT+agent (aud windy-vault) with DPoP on every non-GET call. The owner is the EPT's windy_identity_id claim (absent = 403 forbidden 'not linked to an owner'). An ITEM lease is the stored value sealed as a compact JWE to the agent's own registered X25519 lease key; item leases are NOT revocable once delivered (revocable:false) and last 15 minutes or until the grant ends. Errors: errors.v1 (needs_owner, grant_expired, vault_locked for the kill switch, budget_exhausted = 429). Requests carry ENUMS only, with ONE exception in 1.3.0: a save offer may carry `value`, a secret the person already pasted in chat. That value is OPAQUE: never on the owner's card, Inbox message or push; shown only escaped and masked on the owner's confirm or reveal screen; it always becomes a NEW item that is never granted back to the agent. Nothing else an agent writes reaches the owner. 1.1.0 (2026-10-11): capabilities items[].expires_at may be null = the grant has no expiry (lease expires_at is unchanged: always set, 15 min). 1.2.0 (2026-10-17, windy-vault #111, ADDITIVE): POST /v1/agent/lease also takes a GitHub read lease {connection_id, class: \"github_read\", repo_id} (oneOf beside the item lease {item_id}); its answer is a GitHub installation token for that ONE repository, read-only, as the same JWE to the agent's lease key, mode \"token\", revocable: true. Its expires_at is the Vault's lease expiry (at most 15 minutes after issue): when the agent must stop using it. The GitHub token behind it can stay valid for up to about 60 minutes (GitHub's own expiry) unless the Vault revokes it at GitHub, which it does on release, kill, grant revoke and disconnect; expires_at is NOT when the GitHub token dies. The Vault keeps it only sealed for revoke. Refusals: needs_owner (not shared / connection off / repo changed: the grant is suspended until the owner re-confirms), forbidden (a hard-denied or canary repository; the Vault raises a CRITICAL alarm), grant_expired, vault_locked (kill switch), budget_exhausted (429). POST /v1/agent/lease/{lease_id}/release (no body) revokes it at GitHub; idempotent; another agent's lease is 404 not_found. Item leases are unchanged. 1.2.1 (2026-10-17, windy-vault #112): the release answer's released is a boolean: false while GitHub has not yet confirmed the revoke (the Vault retries every minute).",
+  "x-routes": [
+    {
+      "method": "PUT",
+      "path": "/v1/agent/lease-key",
+      "def": "leasekey"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/agent/capabilities",
+      "def": "capabilities"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/agent/lease",
+      "def": "lease"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/agent/lease/{lease_id}/release",
+      "def": "lease.release"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/agent/requests",
+      "def": "requests.create"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/agent/requests/{id}",
+      "def": "requests.get"
+    }
+  ],
+  "$defs": {
+    "leasekey": {
+      "request": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "public_key": {
+            "type": "string",
+            "description": "base64, 32 raw bytes"
+          }
+        },
+        "required": [
+          "public_key"
+        ]
+      },
+      "response": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kid": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{16}$"
+          }
+        },
+        "required": [
+          "kid"
+        ]
+      }
+    },
+    "capabilities": {
+      "response": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "grant_id": {
+                  "type": "string"
+                },
+                "item_id": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "expires_at": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "description": "Unix seconds when the grant ends, or null = no expiry (since 1.1.0)."
+                }
+              },
+              "required": [
+                "grant_id",
+                "item_id",
+                "label",
+                "expires_at"
+              ]
+            }
+          },
+          "vault": {
+            "enum": [
+              "ready",
+              "none"
+            ],
+            "description": "Since 1.4.0 (Vault plan V7.9 c1). 'ready' = the agent MAY offer \"I can save this in your Windy Vault\" now (saving is switched on, the agent is linked to an owner, and that owner's Vault is ready, not locked, not in a recovery hold, and this agent is not stopped). 'none' = do not offer. Exactly two values on purpose: capabilities never says WHY a Vault is not taking saves. (A save offer itself may still be refused with 423 vault_locked, whose say text can name a lock or a kill switch; a recovery hold is never named to an agent.) OPTIONAL and sent only while saving is switched on: a reader MUST treat a missing field as 'none'."
+          }
+        },
+        "required": [
+          "items"
+        ]
+      }
+    },
+    "lease": {
+      "request": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/ItemLeaseRequest"
+          },
+          {
+            "$ref": "#/$defs/GithubLeaseRequest"
+          }
+        ]
+      },
+      "response": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/ItemLease"
+          },
+          {
+            "$ref": "#/$defs/GithubLease"
+          }
+        ]
+      }
+    },
+    "requests.create": {
+      "request": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "item_type": {
+                "type": "string",
+                "enum": [
+                  "api_key",
+                  "token",
+                  "password",
+                  "ssh_private_key",
+                  "wireguard_key",
+                  "note",
+                  "github_app_installation",
+                  "cloudflare_token"
+                ]
+              },
+              "provider": {
+                "enum": [
+                  "github",
+                  "cloudflare",
+                  "other"
+                ]
+              },
+              "item_id": {
+                "type": "string",
+                "description": "hint only"
+              }
+            },
+            "description": "ACCESS (v3.0 KEEP 5): the agent asks for a key. Enums only (prompt-injection defence)."
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "class",
+              "item_type"
+            ],
+            "description": "SAVE (Vault plan V7.9, 1.3.0; DARK until the Vault's AGENT_SAVE_ENABLED is on: until then the Vault answers 404). The agent offers to save a credential in the person's Vault. ENUMS ONLY: there is NO label (the PERSON names it on Hub's confirm screen; an agent label is refused with 400). `value` ONLY for a secret the person already pasted in chat (sealed by the Vault until the person's yes); by default the person types the secret into the Vault's own screen, so it never passes through the model. Saving never grants the item back to the agent.",
+            "properties": {
+              "class": {
+                "const": "save"
+              },
+              "item_type": {
+                "type": "string",
+                "enum": [
+                  "api_key",
+                  "token",
+                  "password",
+                  "ssh_private_key",
+                  "wireguard_key",
+                  "note",
+                  "github_app_installation",
+                  "cloudflare_token"
+                ]
+              },
+              "provider": {
+                "enum": [
+                  "github",
+                  "cloudflare",
+                  "other"
+                ]
+              },
+              "value": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 65536,
+                "description": "at most 64 KiB as UTF-8 bytes"
+              }
+            }
+          }
+        ]
+      },
+      "response": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "pattern": "^req_"
+          },
+          "state": {
+            "const": "pending"
+          },
+          "expires_at": {
+            "type": "integer"
+          },
+          "retry_after_s": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "request_id",
+          "state",
+          "expires_at",
+          "retry_after_s"
+        ]
+      }
+    },
+    "requests.get": {
+      "response": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "state": {
+            "enum": [
+              "pending",
+              "approved",
+              "denied",
+              "expired",
+              "saved",
+              "declined"
+            ],
+            "description": "per class: access = pending | approved | denied | expired; save = pending | saved | declined | expired"
+          },
+          "expires_at": {
+            "type": "integer"
+          },
+          "retry_after_s": {
+            "type": "integer"
+          },
+          "class": {
+            "enum": [
+              "access",
+              "save"
+            ]
+          }
+        },
+        "required": [
+          "class",
+          "state",
+          "expires_at",
+          "retry_after_s"
+        ],
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "class": {
+                  "const": "save"
+                }
+              },
+              "required": [
+                "class"
+              ]
+            },
+            "then": {
+              "properties": {
+                "state": {
+                  "enum": [
+                    "pending",
+                    "saved",
+                    "declined",
+                    "expired"
+                  ]
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "state": {
+                  "enum": [
+                    "pending",
+                    "approved",
+                    "denied",
+                    "expired"
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "ItemLeaseRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "item_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "item_id"
+      ]
+    },
+    "ItemLease": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "lease_id": {
+          "type": "string",
+          "pattern": "^lse_"
+        },
+        "item_id": {
+          "type": "string"
+        },
+        "mode": {
+          "const": "static_key"
+        },
+        "value_jwe": {
+          "type": "string"
+        },
+        "kid": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{16}$"
+        },
+        "issued_at": {
+          "type": "integer"
+        },
+        "expires_at": {
+          "type": "integer"
+        },
+        "revocable": {
+          "const": false
+        }
+      },
+      "required": [
+        "lease_id",
+        "item_id",
+        "mode",
+        "value_jwe",
+        "kid",
+        "issued_at",
+        "expires_at",
+        "revocable"
+      ]
+    },
+    "GithubLeaseRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "connection_id": {
+          "type": "string",
+          "pattern": "^con_[a-z2-7]{16,40}$"
+        },
+        "class": {
+          "const": "github_read"
+        },
+        "repo_id": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "numeric GitHub repository id (never a name)",
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "connection_id",
+        "class",
+        "repo_id"
+      ]
+    },
+    "GithubLease": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "lease_id": {
+          "type": "string",
+          "pattern": "^lse_"
+        },
+        "connection_id": {
+          "type": "string",
+          "pattern": "^con_[a-z2-7]{16,40}$"
+        },
+        "repo_id": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "class": {
+          "const": "github_read"
+        },
+        "mode": {
+          "const": "token"
+        },
+        "value_jwe": {
+          "type": "string",
+          "description": "compact JWE to the agent's lease key; the plaintext is a GitHub installation token for ONE repository with read permissions only",
+          "pattern": "^[A-Za-z0-9_-]+(\\.[A-Za-z0-9_-]*){4}$",
+          "maxLength": 8192
+        },
+        "kid": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{16}$"
+        },
+        "issued_at": {
+          "type": "integer"
+        },
+        "expires_at": {
+          "type": "integer",
+          "description": "the Vault's lease expiry, at most 15 minutes after issued_at: stop using the token by then. The GitHub token itself can outlive it (GitHub's expiry, about 60 minutes) until the Vault revokes it at GitHub."
+        },
+        "revocable": {
+          "const": true,
+          "description": "the Vault revokes it at GitHub on release, kill or grant revoke"
+        }
+      },
+      "required": [
+        "lease_id",
+        "connection_id",
+        "repo_id",
+        "class",
+        "mode",
+        "value_jwe",
+        "kid",
+        "issued_at",
+        "expires_at",
+        "revocable"
+      ]
+    },
+    "lease.release": {
+      "request": null,
+      "response": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "released": {
+            "type": "boolean",
+            "description": "true = GitHub confirmed the token is revoked. false = the revoke did not go through yet: the Vault keeps retrying every minute until GitHub confirms (the agent must stop using the token either way)."
+          }
+        },
+        "required": [
+          "released"
+        ]
+      }
+    }
+  },
+  "x-changelog": [
+    "1.3.0 (2026-10-21, Vault plan V7.9, windy-vault #129): requests.create gains the SAVE offer; requests.get gains class and per-class states. Additive.",
+    "1.4.0 (2026-10-21, Vault plan V7.9 c1, windy-vault #135): capabilities.response gains the OPTIONAL vault: ready | none, sent ONLY while the Vault's saving switch is on. The response stays additionalProperties:false, so a reader that VALIDATES against 1.3.0 rejects it: every reader (Windy Agent, Windy Chat) moves to 1.4.0 before the Vault turns saving on."
+  ],
+  "x-save-rules": [
+    "Sealing: a pasted value is sealed under the OWNER key (AES-GCM, AAD bound to request_id) while pending. TTL 24 h.",
+    "Erasure: the sealed value and its keyed fingerprint (kept only to spot a repeated offer while it is open) are destroyed when the offer is declined, expires, is ended by the owner or agent kill switch or the canary, when the Vault is locked (an identity lock, or the lock of a recovery cancel), when a 7-day recovery hold starts, when the passport is revoked or suspended, when the owner is purged, and on any other end (an hourly sweep). Neither a pending value nor its fingerprint is EVER in the replica, the backup copy or an export.",
+    "One terminal state per offer: pending -> saved | declined | expired. Approve and deny are compare-and-set from pending only; the loser gets 404 and never a second item.",
+    "Refused offers (errors.v1 codes only; each refusal has its own say text): 403 forbidden (helper not linked to an owner); 404 not_found (no Vault yet, or the save class while the Vault's AGENT_SAVE_ENABLED is off); 423 vault_locked (kill switch on the owner or this agent, a locked Vault, or a 7-day recovery hold: the say text tells which); 429 rate_limited with retry_after_s (this helper's last offer was DECLINED less than 10 minutes ago, counted from the decline); 409 invalid_request (an offer from this helper is already open and this one differs: the first stands, nothing is dropped silently); 400 invalid_request (unknown field, a label, an unknown type, a value over 64 KiB of UTF-8 BYTES); 401 unauthenticated.",
+    "One open offer per helper per class. The SAME offer again (a retry, new DPoP jti) returns the SAME request_id and makes no second card; a DIFFERENT offer while one is open is 409 invalid_request and the first one stands.",
+    "Audit: request ids and has_value only, never the value. Offers do not count against the owner's daily lease cap.",
+    "The Inbox card is fixed text naming the helper and the item type, and says when the offer holds a pasted value; nothing the agent wrote appears.",
+    "Owner side (owner-routes.v1 1.4.0): approvals.approve on a save offer is 400 invalid_request (a save is answered with approvals.save); a deny (app or Inbox) is compare-and-set from pending, for saves as for access requests.",
+    "D1 Time Travel keeps the database's earlier state for 7 days, so an erased value is fully gone only after that window (Vault plan V7.9 c8)."
+  ],
+  "x-conformance": [
+    {
+      "case": "save offer with a label",
+      "expect": "400 invalid_request"
+    },
+    {
+      "case": "approve twice at once",
+      "expect": "one 200 saved, one 404; exactly one item"
+    },
+    {
+      "case": "deny then approve",
+      "expect": "approve 404; no item"
+    },
+    {
+      "case": "pasted value, then decline / expiry / kill / lock / passport revoke",
+      "expect": "value and fingerprint destroyed; requests.get state declined or expired"
+    },
+    {
+      "case": "replica written while an offer is pending",
+      "expect": "no replica object contains the sealed value or its fingerprint"
+    },
+    {
+      "case": "new offer within 10 min of a decline, same helper",
+      "expect": "429 rate_limited with retry_after_s"
+    },
+    {
+      "case": "offer during a recovery hold or on a locked Vault",
+      "expect": "423"
+    },
+    {
+      "case": "a second, DIFFERENT offer while one is open",
+      "expect": "409 invalid_request; the first offer stands"
+    },
+    {
+      "case": "a value of 16,385 four-byte characters (65,540 UTF-8 bytes)",
+      "expect": "schema-valid (the schema counts characters) but the Vault answers 400 invalid_request; 65,536 ASCII characters pass"
+    }
+  ],
+  "x-conformance-file": "conformance/vault-save.v1.vectors.json (run by make check: tests/test_vault_save_vectors.py)"
+}

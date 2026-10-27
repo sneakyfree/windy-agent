@@ -167,21 +167,68 @@ def test_n7_the_phone_tools_are_not_registered_when_off(monkeypatch):
 
 # ── N8 Windy Vault ───────────────────────────────────────────────────────────────────────
 
-def test_n8_nothing_outside_the_vault_package_imports_it():
-    src = ROOT / "src" / "windyfly"
-    users = []
-    for py in src.rglob("*.py"):
-        if py.is_relative_to(src / "vault"):
-            continue
-        for node in ast.walk(ast.parse(py.read_text(encoding="utf-8"))):
-            names = ([a.name for a in node.names] if isinstance(node, ast.Import)
-                     else [node.module or ""] if isinstance(node, ast.ImportFrom) else [])
-            if isinstance(node, ast.ImportFrom) and node.module == "windyfly":
-                names += [f"windyfly.{a.name}" for a in node.names]
-            if any(n == "windyfly.vault" or n.startswith("windyfly.vault.") for n in names):
-                users.append(str(py.relative_to(src)))
-    assert users == []
+# The ONE allowed user (Vault everywhere step 1, V7.9 c6): owner-band tools, dark behind WINDY_VAULT_TOOLS.
+_N8_ALLOWED_USERS = ["agent/capabilities/vault.py"]
+# ...and the tools module itself is wired in by boot only, so nothing can reach the client through it.
+_N8_TOOLS_IMPORTERS = ["agent/boot.py"]
 
+
+def _n8_imports(src, py):
+    """Every module this file imports, absolute or relative, plus any 'windyfly.…' string (importlib, __import__)."""
+    rel = py.relative_to(src).with_suffix("")
+    pkg = ["windyfly", *rel.parts[:-1]]  # the package this file lives in (same for __init__.py)
+    out = set()
+    for node in ast.walk(ast.parse(py.read_text(encoding="utf-8"))):
+        if isinstance(node, ast.Import):
+            out |= {a.name for a in node.names}
+        elif isinstance(node, ast.ImportFrom):
+            if node.level:
+                base = pkg[: len(pkg) - (node.level - 1)] if node.level > 1 else pkg
+                mod = ".".join(base + ([node.module] if node.module else []))
+            else:
+                mod = node.module or ""
+            out.add(mod)
+            out |= {f"{mod}.{a.name}" for a in node.names}
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value.startswith("windyfly."):
+            out.add(node.value)
+    return out
+
+
+def _n8_users_of(src, target, skip_pkg=None):
+    users = set()
+    for py in src.rglob("*.py"):
+        if skip_pkg is not None and py.is_relative_to(skip_pkg):
+            continue
+        if any(m == target or m.startswith(target + ".") for m in _n8_imports(src, py)):
+            users.add(str(py.relative_to(src)))
+    return sorted(users)
+
+
+def test_n8_only_the_owner_vault_tools_import_the_vault_package():
+    src = ROOT / "src" / "windyfly"
+    assert _n8_users_of(src, "windyfly.vault", skip_pkg=src / "vault") == _N8_ALLOWED_USERS
+    tools = [u for u in _n8_users_of(src, "windyfly.agent.capabilities.vault") if u not in _N8_ALLOWED_USERS]
+    assert tools == _N8_TOOLS_IMPORTERS
+
+
+def test_n8_the_tools_module_does_not_re_export_the_client():
+    import types
+
+    from windyfly.agent.capabilities import vault as tools
+
+    assert not [n for n, v in vars(tools).items()
+                if (isinstance(v, types.ModuleType) and v.__name__.startswith("windyfly.vault"))
+                or str(getattr(v, "__module__", "") or "").startswith("windyfly.vault")]
+
+
+def test_n8_the_import_scan_sees_relative_and_importlib_imports(tmp_path):
+    src = tmp_path / "windyfly"
+    (src / "agent").mkdir(parents=True)
+    (src / "agent" / "a.py").write_text("from ..vault import client\n", encoding="utf-8")
+    (src / "agent" / "b.py").write_text("import importlib\nimportlib.import_module('windyfly.vault.client')\n",
+                                        encoding="utf-8")
+    (src / "agent" / "c.py").write_text("from windyfly import vault\n", encoding="utf-8")
+    assert _n8_users_of(src, "windyfly.vault") == ["agent/a.py", "agent/b.py", "agent/c.py"]
 
 
 def test_n8_a_bad_lease_key_file_is_logged_not_replaced_silently(tmp_path, caplog):

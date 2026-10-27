@@ -243,6 +243,11 @@ class Capability:
     # mid-execution and rely on their own internal limits.
     timeout_s: float | None = None
 
+    # Refuse any argument not named in input_schema["properties"], BEFORE the pre-invoke hooks (the audit row) see
+    # it. Off by default (the schema's additionalProperties is otherwise advertised, not enforced). The Vault tools
+    # set it so a stray "value" can never reach a handler or an audit row (Hub on #654).
+    strict_args: bool = False
+
     def resolved(self) -> "Capability":
         """Return a copy with tier-default fallbacks filled in.
 

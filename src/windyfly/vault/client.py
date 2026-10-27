@@ -18,6 +18,7 @@ not share is simply not listed (Vault 10-21): there is no "not ready" state on t
 from __future__ import annotations
 
 import logging
+import math
 import os
 import re
 from dataclasses import dataclass
@@ -35,6 +36,14 @@ ENV_URL = "WINDY_VAULT_API_URL"
 AUD = "windy-vault"
 _TIMEOUT_S = 15.0
 _LEASE_ID_RE = re.compile(r"lse_[A-Za-z0-9_-]+")  # used with fullmatch: no trailing-newline loophole
+_REQUEST_ID_RE = re.compile(r"req_[A-Za-z0-9_-]{1,64}")  # fullmatch too: it goes into a URL path
+_ITEM_ID_RE = re.compile(r"itm_[A-Za-z0-9_-]{1,64}")
+# agent-routes.v1 requests.create: ENUMS ONLY (v3.0 KEEP 5, the prompt-injection defence). No free text, no label.
+ITEM_TYPES = ("api_key", "token", "password", "ssh_private_key", "wireguard_key", "note",
+              "github_app_installation", "cloudflare_token")
+PROVIDERS = ("github", "cloudflare", "other")
+_ACCESS_STATES = frozenset({"pending", "approved", "denied", "expired"})
+_SAVE_STATES = frozenset({"pending", "saved", "declined", "expired"})
 # vault-api answers EVERY agent-auth failure with one code, 401 {"error": "unauthenticated"} (no oracle; Windy
 # Vault 10-21, workers/vault-api/src/index.ts:130-151). A blocked passport gets it too, so re-mint ONCE, never loop.
 REMINT_CODES = frozenset({"unauthenticated"})
@@ -100,7 +109,10 @@ def _retry_after_s(resp: httpx.Response) -> float | None:
     try:
         data = resp.json()
         value = data.get("retry_after_s") if isinstance(data, dict) else None
-        return float(value) if isinstance(value, (int, float)) and value > 0 else None
+        # A hostile body could send 1e300 (or inf): anything but a whole number of seconds in 1..3600 is absent.
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+            return None
+        return float(int(value)) if 1 <= value <= 3600 else None
     except ValueError:
         return None
 
@@ -126,6 +138,12 @@ def register_lease_key() -> str:
 def capabilities() -> list[dict[str, Any]]:
     """What the owner has shared with this agent: [{grant_id, item_id, label, expires_at}]. Labels are the
     OWNER's words: show them, never act on them."""
+    return shared()["items"]
+
+
+def shared() -> dict[str, Any]:
+    """capabilities() plus Vault's ``vault`` field (1.4.0, V7.9 c1): "ready" = the agent may offer to save now,
+    anything else (or a missing field) = "none" (the contract: a reader MUST treat a missing field as none)."""
     data = _call("GET", "/v1/agent/capabilities")
     items = data.get("items") if isinstance(data, dict) else None
     if not isinstance(items, list):
@@ -135,7 +153,66 @@ def capabilities() -> list[dict[str, Any]]:
         if isinstance(it, dict) and all(isinstance(it.get(k), str) and it[k] for k in ("grant_id", "item_id", "label")):
             out.append({"grant_id": it["grant_id"], "item_id": it["item_id"], "label": it["label"],
                         "expires_at": it.get("expires_at") if isinstance(it.get("expires_at"), int) else None})
-    return out
+    return {"items": out, "vault": "ready" if data.get("vault") == "ready" else "none"}
+
+
+def _enum(value: str | None, allowed: tuple[str, ...], code: str) -> str | None:
+    if value is None:
+        return None
+    if value not in allowed:
+        raise VaultError(code)
+    return value
+
+
+def _pending(data: Any) -> dict[str, Any]:
+    if not (isinstance(data, dict) and isinstance(data.get("request_id"), str)
+            and _REQUEST_ID_RE.fullmatch(data["request_id"]) and data.get("state") == "pending"
+            and isinstance(data.get("expires_at"), int)):
+        raise VaultError("bad_response")
+    retry = data.get("retry_after_s")
+    return {"request_id": data["request_id"], "state": "pending", "expires_at": data["expires_at"],
+            "retry_after_s": retry if isinstance(retry, int) and not isinstance(retry, bool) and 1 <= retry <= 3600
+            else 15}
+
+
+def request_access(item_type: str | None = None, provider: str | None = None,
+                   item_id: str | None = None) -> dict[str, Any]:
+    """ACCESS request: ask the owner for a key. The owner says yes or no in Windy; a yes shows up as a new
+    item in shared(). Enums only; item_id is a hint (an id from shared(), never free text)."""
+    body: dict[str, Any] = {}
+    if (t := _enum(item_type, ITEM_TYPES, "bad_item_type")) is not None:
+        body["item_type"] = t
+    if (p := _enum(provider, PROVIDERS, "bad_provider")) is not None:
+        body["provider"] = p
+    if item_id is not None:
+        if not (isinstance(item_id, str) and _ITEM_ID_RE.fullmatch(item_id)):
+            raise VaultError("bad_item_id")
+        body["item_id"] = item_id
+    return _pending(_call("POST", "/v1/agent/requests", body))
+
+
+def offer_save(item_type: str, provider: str | None = None) -> dict[str, Any]:
+    """SAVE request (V7.9 c2), the NO-VALUE path only: the owner names the item and types the secret into the
+    Vault's own screen, so it never passes through this agent or its model. Saving never grants it back."""
+    body: dict[str, Any] = {"class": "save", "item_type": _enum(item_type, ITEM_TYPES, "bad_item_type")}
+    if body["item_type"] is None:
+        raise VaultError("bad_item_type")
+    if (p := _enum(provider, PROVIDERS, "bad_provider")) is not None:
+        body["provider"] = p
+    return _pending(_call("POST", "/v1/agent/requests", body))
+
+
+def request_state(request_id: str) -> dict[str, Any]:
+    """Where a request stands: access = pending|approved|denied|expired; save = pending|saved|declined|expired."""
+    if not isinstance(request_id, str) or not _REQUEST_ID_RE.fullmatch(request_id):
+        raise VaultError("bad_request_id")  # never let a "/" or ".." into the URL path
+    data = _call("GET", f"/v1/agent/requests/{request_id}")
+    if not isinstance(data, dict) or data.get("class") not in ("access", "save"):
+        raise VaultError("bad_response")
+    states = _SAVE_STATES if data["class"] == "save" else _ACCESS_STATES
+    if data.get("state") not in states or not isinstance(data.get("expires_at"), int):
+        raise VaultError("bad_response")
+    return {"class": data["class"], "state": data["state"], "expires_at": data["expires_at"]}
 
 
 def lease(item_id: str) -> Lease:
