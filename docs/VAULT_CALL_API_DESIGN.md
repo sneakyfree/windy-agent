@@ -39,7 +39,13 @@ audit row or a stored episode. Release the lease in `finally`. Tests run against
 Authorization header and body in every encoding.
 
 **G4 Writes ask the owner (principle #10).** DELETE always asks first. POST/PUT/PATCH ask first by default. The
-ask is a Vault approval card showing method + host + path, hash-bound to the exact request. TAINT is sticky:
+ask is the RUNTIME's own confirm for the exact call it is about to make (not a Vault card; Vault 2026-10-27:
+compatible with KEEP 5 under these conditions): (a) code writes every word in one fixed sentence, e.g. "Your agent
+wants to send a DELETE to api.github.com with this path:"; the method comes from the fixed set, and the host comes
+from the PARSED URL and must already be in `lease.targets`; (b) the path is shown as DATA: monospace, escaped,
+labelled "path (written by your agent)", never part of the sentence, cut with a visible "..." when long and shown in
+full on tap; (c) bound to the hash of the exact request: single use, short expiry, so a different request needs a
+new yes; (d) no body text in v1, only "a body of N bytes". Its words go to Grant first, and Hub reads the design. TAINT is sticky:
 once untrusted content (a web fetch, an email body, a non-owner message) is in the context, every write goes to a
 card until the session is cleared. "Allow writes to this host without asking" is a LATER owner opt-in; its words go
 to Grant via Boss, and it's never a default (same rule as auto-save). GET with a bound host runs without a card.
@@ -52,9 +58,6 @@ to Grant via Boss, and it's never a default (same rule as auto-save). GET with a
   the shared FillTarget type. Plan codon + contract draft to Hub this week; it ships dark in the next sandbox release.
   The redactor (c2b, DEFERRED by Boss 10-07, #457) comes back with this tool: stated in the call_api GO ask so the
   plan is aligned, with Vault updating c2b's text.
-- **OPEN (Hub + Vault):** G4's write card shows method + host + path from the exact request. The host is from
-  `targets` (owner-set), but the PATH is request text. Hub and Vault: is a code-built, hash-bound card that shows
-  the request's path compatible with KEEP 5, or should v1 writes ask in another way?
-- **Windy Hub + Mobile + desktop:** the two cards (words to Grant first).
+- **Windy Hub + Mobile + desktop:** the write-confirm screen on phone and desktop (G4 a-d; words to Grant first).
 - **Windy Agent:** the tool, G2/G3/G4 in the Windy Fly harness, and the echo-server tests. Coded against Vault's
   contract once Vault fixes it.
