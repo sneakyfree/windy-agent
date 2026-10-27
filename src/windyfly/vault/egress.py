@@ -1,13 +1,16 @@
 """Where a leased key may go, and how the call is made (vault.call_api design rev 3, G1/G2).
 
-- ``parse_target``: strict https URL parse. Userinfo, fragments, a path or query with characters outside a small
-  set (Hub 2026-10-27: a path is shown as sent, percent-encoded and NEVER decoded, so it can't carry readable prose)
-  and over-long URLs are refused. The host is lower-cased, IDN-encoded to punycode and its trailing dot stripped.
+- ``parse_target``: strict https URL parse. Userinfo, fragments, dot-segments (``.``/``..``, encoded too: httpx
+  would normalise them, so the path sent would differ from the path shown), a path or query with characters
+  outside a small set (Hub 2026-10-27: a path is shown percent-encoded and NEVER decoded, so it can't carry
+  readable prose) and over-long URLs are refused. The host is lower-cased, IDN-encoded to punycode and its
+  trailing dot stripped.
 - ``origin_allowed``: exact origin compare against the item's owner-set ``targets`` (Vault V7.6 c2e; FillTarget
   form: lowercase host, :443 implied, no path, no subdomain wildcard). Empty = refused (fail closed).
 - ``send``: resolve once, refuse any non-public address, then CONNECT to that pinned IP with SNI and Host still the
-  name (defeats DNS rebinding). No redirects, no proxy env vars, only encodings we can decode (so the redactor
-  always sees plain text).
+  name (defeats DNS rebinding). Certificates are always verified (``verify`` may be a CA context in tests, never
+  False). No redirects, no proxy env vars, only encodings we can decode (so the redactor always sees plain text),
+  the DECODED response streamed and capped at MAX_RESPONSE, and one overall deadline for the whole call.
 """
 
 from __future__ import annotations
@@ -15,6 +18,8 @@ from __future__ import annotations
 import ipaddress
 import re
 import socket
+import ssl
+import time
 from dataclasses import dataclass
 from typing import Callable
 from urllib.parse import urlsplit
@@ -23,7 +28,9 @@ import httpx
 
 MAX_URL = 2048
 MAX_BODY = 64 * 1024
-TIMEOUT_S = 20.0
+MAX_RESPONSE = 1024 * 1024   # decoded bytes; a gzip bomb stops here
+TIMEOUT_S = 20.0             # per network step
+DEADLINE_S = 30.0            # the whole call
 _PATH_RE = re.compile(r"/[A-Za-z0-9/._~%-]*")
 _QUERY_RE = re.compile(r"[A-Za-z0-9._~%&=+,-]*")
 _DECODABLE = frozenset({"", "identity", "gzip", "deflate"})
@@ -82,6 +89,8 @@ def parse_target(url: str) -> Target:
     path = parts.path or "/"
     if not _PATH_RE.fullmatch(path) or not _QUERY_RE.fullmatch(parts.query):
         raise EgressError("path_characters")
+    if any(seg.lower().replace("%2e", ".") in (".", "..") for seg in path.split("/")):
+        raise EgressError("dot_segments")
     return Target(host=_norm_host(parts.hostname), port=port, path=path, query=parts.query)
 
 
@@ -132,9 +141,14 @@ def resolve_pinned(host: str, port: int) -> str:
 
 def send(method: str, target: Target, headers: dict[str, str], body: bytes | None = None, *,
          resolver: Callable[[str, int], str] = resolve_pinned,
-         transport: httpx.BaseTransport | None = None) -> httpx.Response:
+         transport: httpx.BaseTransport | None = None,
+         verify: ssl.SSLContext | bool = True) -> tuple[httpx.Response, bytes]:
+    """Make the call; return the response (headers, status) and its DECODED body, capped at MAX_RESPONSE."""
+    if verify is not True and not isinstance(verify, ssl.SSLContext):
+        raise ValueError("certificate verification can't be switched off")
     if body is not None and len(body) > MAX_BODY:
         raise EgressError("body_too_large")
+    deadline = time.monotonic() + DEADLINE_S
     ip = resolver(target.host, target.port)
     if not is_public_ip(ip):
         raise EgressError("private_address")
@@ -142,14 +156,27 @@ def send(method: str, target: Target, headers: dict[str, str], body: bytes | Non
     url = f"https://{ip_host}:{target.port}{target.path}" + (f"?{target.query}" if target.query else "")
     hdrs = {**headers, "Host": target.host_header, "Accept-Encoding": "gzip, deflate"}
     try:
-        with httpx.Client(trust_env=False, follow_redirects=False, timeout=TIMEOUT_S, transport=transport) as c:
+        with httpx.Client(trust_env=False, follow_redirects=False, timeout=TIMEOUT_S, transport=transport,
+                          verify=verify) as c:
             req = c.build_request(method, url, headers=hdrs, content=body,
                                   extensions={"sni_hostname": target.host})
-            resp = c.send(req)
-            if resp.headers.get("content-encoding", "").strip().lower() not in _DECODABLE:
+            resp = c.send(req, stream=True)
+            try:
+                if resp.headers.get("content-encoding", "").strip().lower() not in _DECODABLE:
+                    raise EgressError("undecodable_response")
+                if time.monotonic() > deadline:
+                    raise EgressError("timeout")
+                chunks: list[bytes] = []
+                size = 0
+                for chunk in resp.iter_bytes():
+                    size += len(chunk)
+                    if size > MAX_RESPONSE:
+                        raise EgressError("response_too_large")
+                    if time.monotonic() > deadline:
+                        raise EgressError("timeout")
+                    chunks.append(chunk)
+                return resp, b"".join(chunks)
+            finally:
                 resp.close()
-                raise EgressError("undecodable_response")
-            resp.read()
-            return resp
     except httpx.HTTPError:
         raise EgressError("unreachable") from None

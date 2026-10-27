@@ -1,10 +1,14 @@
 """Redact a leased value from anything a call returns (Vault plan V7.6 c2b, triggered by vault.call_api).
 
-Every form a server can echo is registered BEFORE the call: raw, hex (both cases), base64, base64url (padded and
-not), JSON-escaped, percent-encoded (upper and lower case), base64 of ``user:value`` for basic auth, plus any run
-of 8 or more characters of any of those forms (partial echoes such as a key prefix followed by "..."). The caller
-applies ``scrub`` to the decoded response body, headers and error text before anything reaches the model, a log,
-an audit row or a stored episode. A Redactor never prints its values (``repr`` names counts only).
+WHOLE FORMS ONLY (design rev 4, Hub on #655). Masking partial runs of a value in place is an ORACLE: a model that can
+make a server echo its guesses learns the key one character per response from which guesses come back masked.
+So only complete encodings of the value are masked: raw, hex (both cases), base64 and base64url at byte offsets
+0, 1 and 2 (so the value is still found inside a larger base64 blob; the unstable edge characters are trimmed),
+JSON-escaped, percent-encoded (upper and lower case), and base64 of ``user:value`` for basic auth. A value shorter
+than MIN_SECRET is refused at registration (call_api refuses that item). A server that echoes a short fragment of
+a key (a "last 4" display) is accepted leakage: it shows that much anyway. The caller scrubs the decoded body,
+every header (a redirect's Location included) and error text before anything reaches the model, a log, an audit
+row or a stored episode. A Redactor never prints its values (``repr`` gives a count only).
 """
 
 from __future__ import annotations
@@ -12,26 +16,44 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+import math
+import re
 from urllib.parse import quote
 
 MASK = "[REDACTED]"
-MIN_RUN = 8
+MIN_SECRET = 16
 
 
-def _forms(value: str, username: str | None = None) -> set[str]:
+class SecretTooShort(ValueError):
+    """The value is shorter than MIN_SECRET: whole-form masking can't protect it, so it is not used."""
+
+
+def _b64_at_offsets(raw: bytes) -> set[str]:
+    """The base64/base64url text of ``raw`` that is the same whatever bytes surround it, for offsets 0, 1, 2."""
+    out: set[str] = set()
+    for enc in (base64.b64encode, base64.urlsafe_b64encode):
+        for k in (0, 1, 2):
+            text = enc(b"\0" * k + raw).decode().rstrip("=")
+            start = math.ceil(4 * k / 3)               # characters that still hold prefix bits are unstable
+            end = ((k + len(raw)) * 8) // 6            # characters that would hold bits of what follows are too
+            piece = text[start:end]
+            if len(piece) >= MIN_SECRET:
+                out.add(piece)
+        out.add(enc(raw).decode())                     # the plain, padded form
+    return out
+
+
+def _forms(value: str, username: str | None) -> set[str]:
     raw = value.encode("utf-8")
     pct = quote(value, safe="")
     forms = {
         value,
         binascii.hexlify(raw).decode(),
         binascii.hexlify(raw).decode().upper(),
-        base64.b64encode(raw).decode(),
-        base64.urlsafe_b64encode(raw).decode(),
-        base64.urlsafe_b64encode(raw).decode().rstrip("="),
-        base64.b64encode(raw).decode().rstrip("="),
         json.dumps(value)[1:-1],
         pct,
-        pct.lower() if "%" in pct else pct,
+        re.sub(r"%[0-9A-F]{2}", lambda m: m.group(0).lower(), pct),
+        *_b64_at_offsets(raw),
     }
     if username is not None:
         basic = base64.b64encode(f"{username}:{value}".encode("utf-8")).decode()
@@ -42,47 +64,22 @@ def _forms(value: str, username: str | None = None) -> set[str]:
 class Redactor:
     def __init__(self) -> None:
         self._forms: set[str] = set()
-        self._runs: set[str] = set()
+        self._re: re.Pattern[str] | None = None
 
     def __repr__(self) -> str:
         return f"Redactor(forms={len(self._forms)})"
 
     def register(self, value: str, username: str | None = None) -> None:
-        for form in _forms(value, username):
-            self._forms.add(form)
-            for i in range(len(form) - MIN_RUN + 1):
-                self._runs.add(form[i:i + MIN_RUN])
+        if not isinstance(value, str) or len(value) < MIN_SECRET:
+            raise SecretTooShort("secret_too_short")
+        self._forms |= _forms(value, username)
+        # Longest first, so a form that contains another is masked whole.
+        self._re = re.compile("|".join(re.escape(f) for f in sorted(self._forms, key=len, reverse=True)))
 
     def scrub(self, text: str) -> str:
-        if not text or not self._forms:
+        if not text or self._re is None:
             return text
-        n = len(text)
-        hit = [False] * n
-        # Whole forms first (covers values shorter than MIN_RUN), then every 8-character window of any form.
-        for form in self._forms:
-            start = text.find(form)
-            while start != -1:
-                for k in range(start, start + len(form)):
-                    hit[k] = True
-                start = text.find(form, start + 1)
-        if self._runs:
-            for i in range(n - MIN_RUN + 1):
-                if text[i:i + MIN_RUN] in self._runs:
-                    for k in range(i, i + MIN_RUN):
-                        hit[k] = True
-        if not any(hit):
-            return text
-        out: list[str] = []
-        i = 0
-        while i < n:
-            if hit[i]:
-                while i < n and hit[i]:
-                    i += 1
-                out.append(MASK)
-            else:
-                out.append(text[i])
-                i += 1
-        return "".join(out)
+        return self._re.sub(MASK, text)
 
     def scrub_obj(self, obj):
         """Scrub every string inside a JSON-like value (dict keys too)."""
