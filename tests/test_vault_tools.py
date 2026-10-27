@@ -239,7 +239,7 @@ def test_save_switched_off_at_the_vault_says_so_in_plain_words(vault):
     _, answers = vault
     answers += [(200, {**CAPS, "vault": "ready"}), (404, {"error": "not_found"})]
     out = r.get("vault.offer_save").handler(item_type="token")
-    assert out["ok"] is False and out["say"] == "Saving to your Windy Vault isn't switched on yet."
+    assert out == {"ok": False, "code": "save_off", "say": "Saving to your Windy Vault isn't available yet."}
 
 
 def test_access_request_and_status_say_fixed_words(vault):
@@ -314,19 +314,14 @@ def test_the_vaults_own_error_text_never_reaches_the_model_or_the_log(vault, cap
 
 def test_a_stray_value_is_refused_before_the_audit_hook_and_never_written(vault):
     r = _registry(vault)
-    seen: list[dict] = []
-    r.add_pre_invoke_hook(lambda cap, args, band: seen.append(dict(args)))
     sent, _ = vault
     n = len(sent)
-    from windyfly.agent.capabilities.descriptor import CapabilityDenied
-
-    with pytest.raises(CapabilityDenied) as e:
-        r.invoke_sync(
-            "vault.offer_save", {"item_type": "password", "value": "hunter2-secret"}, Band.OWNER
-        )
-    assert seen == [] and len(sent) == n and "hunter2" not in str(e.value)
+    out = _refused_before_hooks(
+        r, "vault.offer_save", {"item_type": "password", "value": "hunter2-secret"}
+    )
+    assert out == BAD_ARGS and "hunter2" not in str(out) and len(sent) == n
     for cid in ("vault.list", "vault.request_access", "vault.request_status"):
-        assert r.get(cid).strict_args is True
+        assert r.get(cid).strict_args is True and r.get(cid).strict_args_refusal == BAD_ARGS
 
 
 def test_switching_the_flag_off_takes_effect_on_the_next_call(vault, monkeypatch):
@@ -385,37 +380,50 @@ def test_the_pin_matches_upstream_when_a_contracts_checkout_is_given():
     assert upstream == (CONTRACT_DIR / "agent-routes.v1.json").read_bytes()
 
 
-def _denied_before_hooks(r, cid, args):
-    from windyfly.agent.capabilities.descriptor import CapabilityDenied
+BAD_ARGS = {"ok": False, "code": "bad_arguments", "say": "I couldn't make sense of that request, so nothing was done."}
 
+
+def _refused_before_hooks(r, cid, args):
+    """vault-tools.v1: a call that doesn't fit gets the contract's bad_arguments shape, and no hook sees the args."""
     seen: list[dict] = []
     r.add_pre_invoke_hook(lambda cap, a, band: seen.append(dict(a)))
-    with pytest.raises(CapabilityDenied) as e:
-        r.invoke_sync(cid, args, Band.OWNER)
+    out = r.invoke_sync(cid, args, Band.OWNER)
     assert seen == []
-    return str(e.value)
+    return out
 
 
 def test_a_secret_in_an_enum_field_is_refused_before_the_audit_hook(vault):
     r = _registry(vault)
     sent, _ = vault
     n = len(sent)
-    msg = _denied_before_hooks(r, "vault.offer_save", {"item_type": "sk-pasted-secret-1234567890"})
-    assert "sk-pasted" not in msg and "1 argument value(s) not allowed" in msg and len(sent) == n
+    out = _refused_before_hooks(r, "vault.offer_save", {"item_type": "sk-pasted-secret-1234567890"})
+    assert out == BAD_ARGS and len(sent) == n
 
 
 def test_a_bad_id_pattern_or_length_is_refused_before_the_audit_hook(vault):
     r = _registry(vault)
-    msg = _denied_before_hooks(r, "vault.request_access", {"item_id": "itm_" + "a" * 65})
-    assert "aaaa" not in msg
-    msg = _denied_before_hooks(r, "vault.request_status", {"request_id": "req_x; DROP"})
-    assert "DROP" not in msg
+    assert _refused_before_hooks(r, "vault.request_access", {"item_id": "itm_" + "a" * 65}) == BAD_ARGS
+    assert _refused_before_hooks(r, "vault.request_status", {"request_id": "req_x; DROP"}) == BAD_ARGS
 
 
-def test_the_denial_names_no_argument(vault):
+def test_an_unknown_argument_gets_the_same_fixed_answer(vault):
     r = _registry(vault)
-    msg = _denied_before_hooks(r, "vault.list", {"please_approve_this": "x"})
-    assert "please_approve_this" not in msg and "1 unknown argument(s)" in msg
+    assert _refused_before_hooks(r, "vault.list", {"please_approve_this": "x"}) == BAD_ARGS
+
+
+def test_a_strict_capability_without_a_refusal_still_raises_with_counts_only():
+    from windyfly.agent.capabilities.descriptor import Capability, CapabilityDenied
+
+    r = CapabilityRegistry()
+    r.register(Capability(id="t.x", name="x", description="x", handler=lambda **k: {"ok": True},
+                          input_schema={"type": "object", "properties": {"a": {"type": "string", "enum": ["y"]}}},
+                          tier=Tier.READ_EXTERNAL, band_required=Band.OWNER, strict_args=True))
+    with pytest.raises(CapabilityDenied) as e:
+        r.invoke_sync("t.x", {"please_approve_this": "x"}, Band.OWNER)
+    assert "please_approve_this" not in str(e.value) and "1 unknown argument(s)" in str(e.value)
+    with pytest.raises(CapabilityDenied) as e:
+        r.invoke_sync("t.x", {"a": "secret-value"}, Band.OWNER)
+    assert "secret-value" not in str(e.value) and "1 argument value(s) not allowed" in str(e.value)
 
 
 @pytest.mark.parametrize("retry", ["1e300", "1e400", "-5", "0", "3601", '"30"', "true", "NaN"])
@@ -445,5 +453,4 @@ def test_a_sane_retry_after_is_kept(vault):
 def test_a_trailing_newline_does_not_slip_past_the_pattern(vault, cid, args):
     """Python's $ matches before a final newline; the strict check uses fullmatch (Hub on #654)."""
     r = _registry(vault)
-    msg = _denied_before_hooks(r, cid, args)
-    assert "1 argument value(s) not allowed" in msg
+    assert _refused_before_hooks(r, cid, args) == BAD_ARGS

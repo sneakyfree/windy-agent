@@ -1,0 +1,1 @@
+- Windy Fly's vault.* tools now match the shared contract windy-contracts vault-tools.v1 1.0.1 word for word: the approved sentences, the per-tool code mapping (e.g. a 404 is no_vault / save_off / bad_request_id by tool; 409 is save_pending; 403 forbidden is not_linked), and a call that doesn't fit answers bad_arguments in the contract's shape. Still dark.
