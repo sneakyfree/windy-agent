@@ -247,6 +247,9 @@ class Capability:
     # it. Off by default (the schema's additionalProperties is otherwise advertised, not enforced). The Vault tools
     # set it so a stray "value" can never reach a handler or an audit row (Hub on #654).
     strict_args: bool = False
+    # With strict_args: the result returned (instead of raising CapabilityDenied) when the arguments don't fit, so a
+    # tool can answer in its contract's own refusal shape (vault-tools.v1 bad_arguments). Still before any hook.
+    strict_args_refusal: dict[str, Any] | None = None
 
     def resolved(self) -> "Capability":
         """Return a copy with tier-default fallbacks filled in.

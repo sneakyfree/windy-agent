@@ -258,6 +258,8 @@ class CapabilityRegistry:
         if cap.strict_args:
             problem = _strict_args_problem(cap.input_schema or {}, args)
             if problem:
+                if cap.strict_args_refusal is not None:
+                    return dict(cap.strict_args_refusal)  # the tool's own refusal shape; no hook ever sees the args
                 # Fixed words only: argument names and values are model-written text.
                 raise CapabilityDenied(f"capability {capability_id!r}: {problem}")
 
