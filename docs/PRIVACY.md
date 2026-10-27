@@ -61,6 +61,16 @@ file in `~/.windy`), logs one warning, and doesn't retry in between. If the
 ingest says "slow down", the agent waits as asked and keeps a bounded queue;
 the oldest rows are dropped if it fills.
 
+## Backups
+
+No backup Windy could open remains; the last one was removed by 2026-10-27.
+
+<!-- Evidence (not shown to people). Windy Cloud, BOARD 2026-10-27T04:11:16Z, proved by retention with no data
+opened: "product windy_fly held 5, OLDEST 2026-10-23 03:31Z = newer than Zero's first owner-key-only run
+2026-10-21 12:45Z; archives from before that run: 0." Words: Boss decision under Grant's 10-27 delegation, BOARD
+2026-10-27T04:32:18Z ("Privacy sentence APPROVED"). Placement: Windy Hub. The non-author #9 fact-check is recorded as
+the Hub review on this PR. -->
+
 ## Test traffic
 
 Windy's own probes set `WINDY_SYNTHETIC=1`. Their rows are marked
