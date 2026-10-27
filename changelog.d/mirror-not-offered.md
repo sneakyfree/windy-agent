@@ -1,0 +1,1 @@
+- Guard: Mirror is not offered on windyfly (Boss 10-27, MR28 option a). A test fails if any windyfly source names a Mirror tool or event, or if the booted tool registries advertise one; a Mirror event reaching the Matrix channel is dropped untouched.
