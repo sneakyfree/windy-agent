@@ -34,8 +34,14 @@ class FakeQueue:
 
 @pytest.fixture(autouse=True)
 def _clean(monkeypatch, tmp_path):
-    for k in ("WINDY_TELEMETRY", "WINDY_SYNTHETIC", "WINDY_AGENT_PASSPORT",
-              "ETERNITAS_PASSPORT", "ETERNITAS_PASSPORT_TOKEN", "WINDY_PASSPORT_EPT"):
+    for k in (
+        "WINDY_TELEMETRY",
+        "WINDY_SYNTHETIC",
+        "WINDY_AGENT_PASSPORT",
+        "ETERNITAS_PASSPORT",
+        "ETERNITAS_PASSPORT_TOKEN",
+        "WINDY_PASSPORT_EPT",
+    ):
         monkeypatch.delenv(k, raising=False)
     monkeypatch.setenv("WINDY_ADMIN_INGEST_URL", "https://ingest.test")
     monkeypatch.setenv("WINDY_ADMIN_INGEST_TOKEN", "svc-token")
@@ -56,7 +62,8 @@ class _Sent(list):
     def __init__(self) -> None:
         super().__init__()
         self.reply: dict[str, Any] = {
-            "body": {"accepted": 1, "quarantined": 0, "rejections": []}, "status": 202,
+            "body": {"accepted": 1, "quarantined": 0, "rejections": []},
+            "status": 202,
         }
 
 
@@ -88,17 +95,29 @@ def _sent(sent: list[dict]) -> list[dict]:
 
 # ── agent.run_failed ────────────────────────────────────────────────
 
+
 def test_run_failed_row_shape(posted):
     q = FakeQueue()
-    ah.emit_run_failed("rate_limited", write_queue=q, stage="llm", http_status=429,
-                       channel="matrix", model="claude-opus-5", provider="anthropic",
-                       duration_ms=812)
+    ah.emit_run_failed(
+        "rate_limited",
+        write_queue=q,
+        stage="llm",
+        http_status=429,
+        channel="matrix",
+        model="claude-opus-5",
+        provider="anthropic",
+        duration_ms=812,
+    )
     (row,) = _rows(posted)
     assert row["event_type"] == "agent.run_failed"
     assert row["platform"] == "windy-agent" and row["service"] == "fly"
     assert row["actor_type"] == "agent" and row["actor_id"] == "ET26-TEST-0001"
-    assert row["metadata"] == {"code": "rate_limited", "stage": "llm",
-                               "http_status": 429, "channel": "matrix"}
+    assert row["metadata"] == {
+        "code": "rate_limited",
+        "stage": "llm",
+        "http_status": 429,
+        "channel": "matrix",
+    }
     assert row["model"] == "claude-opus-5" and row["duration_ms"] == 812
 
 
@@ -155,19 +174,25 @@ def test_failure_code_classification():
 
 # ── agent.model_demoted ─────────────────────────────────────────────
 
+
 def test_demotion_emits_once_per_transition(posted):
     q = FakeQueue()
-    assert ah.note_demotion("claude-opus-5", "llama3.2:3b", "credential_missing",
-                            write_queue=q) is not None
+    assert (
+        ah.note_demotion("claude-opus-5", "llama3.2:3b", "credential_missing", write_queue=q)
+        is not None
+    )
     # steady demoted state: no repeat
-    assert ah.note_demotion("claude-opus-5", "llama3.2:3b", "credential_missing",
-                            write_queue=q) is None
+    assert (
+        ah.note_demotion("claude-opus-5", "llama3.2:3b", "credential_missing", write_queue=q)
+        is None
+    )
     assert ah.is_demoted()
     ah.note_recovered()
     assert not ah.is_demoted()
     # recovery then a fresh demotion emits again
-    assert ah.note_demotion("claude-opus-5", "llama3.2:3b", "rate_limited",
-                            write_queue=q) is not None
+    assert (
+        ah.note_demotion("claude-opus-5", "llama3.2:3b", "rate_limited", write_queue=q) is not None
+    )
     rows = _rows(posted)
     assert [r["metadata"]["reason"] for r in rows] == ["credential_missing", "rate_limited"]
     assert rows[0]["metadata"]["from_model"] == "claude-opus-5"
@@ -201,12 +226,19 @@ def test_call_llm_failover_is_a_demotion_and_primary_is_recovery(monkeypatch, po
     keys = {"claude-opus-5": "", "llama3.2:3b": "x"}
 
     def provider_for(m, _cfg):
-        return {"provider_key": m, "type": "openai", "api_key": keys[m],
-                "base_url": "http://localhost:11434/v1" if m.startswith("llama") else "https://x"}
+        return {
+            "provider_key": m,
+            "type": "openai",
+            "api_key": keys[m],
+            "base_url": "http://localhost:11434/v1" if m.startswith("llama") else "https://x",
+        }
 
     monkeypatch.setattr(models, "get_provider_for_model", provider_for)
-    monkeypatch.setattr(models, "_call_openai", lambda *a, **k: {
-        "content": "hi", "input_tokens": 1, "output_tokens": 1})
+    monkeypatch.setattr(
+        models,
+        "_call_openai",
+        lambda *a, **k: {"content": "hi", "input_tokens": 1, "output_tokens": 1},
+    )
     cfg = {"agent": {"failover_chain": ["claude-opus-5", "llama3.2:3b"]}}
     models.call_llm([{"role": "user", "content": "x"}], config=cfg)
     (row,) = _rows(posted)
@@ -223,16 +255,28 @@ def test_explicit_model_calls_never_touch_demotion_state(monkeypatch, posted):
 
     monkeypatch.setattr(models, "_max_oauth_active", lambda: True)
     monkeypatch.setattr(models, "_record_llm_call", lambda _r: None)
-    monkeypatch.setattr(models, "get_provider_for_model", lambda m, c: {
-        "provider_key": "p", "type": "openai", "api_key": "k", "base_url": "https://x"})
-    monkeypatch.setattr(models, "_call_openai", lambda *a, **k: {
-        "content": "hi", "input_tokens": 1, "output_tokens": 1})
+    monkeypatch.setattr(
+        models,
+        "get_provider_for_model",
+        lambda m, c: {
+            "provider_key": "p",
+            "type": "openai",
+            "api_key": "k",
+            "base_url": "https://x",
+        },
+    )
+    monkeypatch.setattr(
+        models,
+        "_call_openai",
+        lambda *a, **k: {"content": "hi", "input_tokens": 1, "output_tokens": 1},
+    )
     ah.note_demotion("claude-opus-5", "llama3.2:3b", "rate_limited", write_queue=FakeQueue())
     models.call_llm([{"role": "user", "content": "x"}], model="claude-haiku-4-5")
     assert ah.is_demoted()  # a helper's own model choice isn't a recovery
 
 
 # ── service.health / service.boot ──────────────────────────────────
+
 
 def test_health_counts_the_interval_then_resets(posted):
     q = FakeQueue()
@@ -272,6 +316,7 @@ def test_boot_row_once_per_process(posted, monkeypatch):
 
 # ── ingest answer: quarantine + drops ──────────────────────────────
 
+
 def test_quarantine_is_warned_and_counted(posted, caplog):
     posted.reply["body"] = {"accepted": 0, "quarantined": 1, "rejections": ["bad enum"]}
     q = FakeQueue()
@@ -297,6 +342,7 @@ def test_failed_send_counts_as_dropped(monkeypatch):
 
 # ── opt-out, auth, privacy ─────────────────────────────────────────
 
+
 def test_opt_out_sends_nothing(posted, monkeypatch):
     monkeypatch.setenv("WINDY_TELEMETRY", "0")
     q = FakeQueue()
@@ -310,6 +356,7 @@ def test_opt_out_sends_nothing(posted, monkeypatch):
 def _ept(sub: str) -> str:
     def b(d: dict) -> str:
         return base64.urlsafe_b64encode(json.dumps(d).encode()).decode().rstrip("=")
+
     return f"{b({'alg': 'ES256'})}.{b({'sub': sub})}.sig"
 
 
@@ -399,6 +446,7 @@ def test_content_like_metadata_keys_are_never_sent(posted):
 
 # ── synthetic ─────────────────────────────────────────────────────
 
+
 def test_synthetic_stamps_rows_and_adds_the_header(posted, monkeypatch):
     monkeypatch.setenv("WINDY_SYNTHETIC", "1")
     ah.emit_run_failed("auth", write_queue=FakeQueue())
@@ -432,9 +480,16 @@ def test_synthetic_header_only_goes_to_windy_hosts(monkeypatch):
             return httpx.Response(200)
 
         assert synthetic.install()
-        hosts = ["api.anthropic.com", "api.openai.com", "huggingface.co",
-                 "windyword.ai.evil.com", "notwindymind.ai",
-                 "account.windyword.ai", "api.eternitas.ai", "windycloud.com"]
+        hosts = [
+            "api.anthropic.com",
+            "api.openai.com",
+            "huggingface.co",
+            "windyword.ai.evil.com",
+            "notwindymind.ai",
+            "account.windyword.ai",
+            "api.eternitas.ai",
+            "windycloud.com",
+        ]
         with httpx.Client(transport=httpx.MockTransport(handler)) as c:
             for h in hosts:
                 c.get(f"https://{h}/x")
@@ -455,6 +510,7 @@ def test_real_traffic_is_never_marked(posted):
 
 # ── disclosure ────────────────────────────────────────────────────
 
+
 def test_disclosure_shown_once(tmp_path):
     shown: list[str] = []
     assert disclosure.maybe_show(shown.append)
@@ -472,6 +528,7 @@ def test_disclosure_not_shown_when_opted_out(monkeypatch):
 
 # ── agent loop wiring ─────────────────────────────────────────────
 
+
 def test_agent_respond_lifeboat_turn_emits_run_failed_and_demotion(monkeypatch, posted):
     from windyfly.agent import loop, offline
 
@@ -479,8 +536,7 @@ def test_agent_respond_lifeboat_turn_emits_run_failed_and_demotion(monkeypatch, 
     monkeypatch.setattr(offline, "_pick_offline_model", lambda: "llama3.2:3b")
 
     def fake_turn(config, db, wq, user_message, session_id, **kw):
-        loop._lifeboat_telemetry("claude-opus-5", "network", "provider_unreachable",
-                                 "matrix", wq)
+        loop._lifeboat_telemetry("claude-opus-5", "network", "provider_unreachable", "matrix", wq)
         return "🛟 local answer"
 
     monkeypatch.setattr(loop, "_agent_respond_turn", fake_turn)
@@ -489,7 +545,8 @@ def test_agent_respond_lifeboat_turn_emits_run_failed_and_demotion(monkeypatch, 
     assert rows["agent.run_failed"]["metadata"]["code"] == "network"
     assert rows["agent.run_failed"]["metadata"]["channel"] == "matrix"
     assert rows["agent.model_demoted"]["metadata"] == {
-        "from_model": "claude-opus-5", "to_model": "llama3.2:3b",
+        "from_model": "claude-opus-5",
+        "to_model": "llama3.2:3b",
         "reason": "provider_unreachable",
     }
     assert ah.health_row(q)["metadata"]["lifeboat_turns"] == 1
@@ -508,6 +565,7 @@ def test_tool_dispatch_counts_calls_and_errors(monkeypatch):
 
 # ── circuit breaker ──────────────────────────────────────────────
 
+
 @pytest.mark.parametrize("status", [401, 403])
 def test_refused_credentials_trip_the_breaker_once(posted, caplog, tmp_path, status):
     posted.reply["status"] = status
@@ -517,8 +575,7 @@ def test_refused_credentials_trip_the_breaker_once(posted, caplog, tmp_path, sta
         for _ in range(5):
             ah.emit_run_failed("auth", write_queue=q)
     assert len(_sent(posted)) == 1  # one request, then silence: no retry storm
-    warnings = [r for r in caplog.records
-                if "refused this install's credentials" in r.getMessage()]
+    warnings = [r for r in caplog.records if "refused this install's credentials" in r.getMessage()]
     assert len(warnings) == 1 and "not sending for 24h" in warnings[0].getMessage()
     marker = tmp_path / "telemetry_refused"
     assert marker.exists() and (marker.stat().st_mode & 0o777) == 0o600
@@ -548,6 +605,7 @@ def test_breaker_marker_survives_restart_then_expires(posted, tmp_path, monkeypa
 
 # ── batching, 429, 413, 401 refresh ─────────────────────────────────
 
+
 def test_many_events_go_in_one_request(posted):
     q = FakeQueue()
     for _ in range(40):
@@ -574,11 +632,11 @@ def test_429_backs_off_without_the_breaker_then_resumes(posted, monkeypatch):
     for _ in range(3):
         ah.emit_run_failed("auth", write_queue=q)
     assert len(_sent(posted)) == 1
-    assert len(at.pending()) == 3            # re-queued, not dropped
+    assert len(at.pending()) == 3  # re-queued, not dropped
     assert not at.breaker_open()
-    assert at._retry_at > time.time() + 30   # default Retry-After 60 s
+    assert at._retry_at > time.time() + 30  # default Retry-After 60 s
     at.flush()
-    assert len(posted) == 1                  # still waiting: no retry storm
+    assert len(posted) == 1  # still waiting: no retry storm
     posted.reply["status"] = 202
     posted.reply["body"] = {"accepted": 3, "quarantined": 0}
     monkeypatch.setattr(at, "_retry_at", 0.0)  # the wait is over
@@ -590,8 +648,9 @@ def test_429_backs_off_without_the_breaker_then_resumes(posted, monkeypatch):
 def test_429_honours_retry_after(monkeypatch):
     import time
 
-    monkeypatch.setattr(httpx, "post", lambda *a, **k: httpx.Response(
-        429, headers={"Retry-After": "7"}, json={}))
+    monkeypatch.setattr(
+        httpx, "post", lambda *a, **k: httpx.Response(429, headers={"Retry-After": "7"}, json={})
+    )
     ah.emit_run_failed("auth", write_queue=FakeQueue())
     at.flush()
     assert time.time() + 5 < at._retry_at < time.time() + 9
@@ -626,14 +685,21 @@ def test_413_splits_and_resends_with_a_warning(monkeypatch, caplog):
     assert at.pending() == [] and ah._iv.dropped == 0
 
 
-@pytest.mark.parametrize("detail", [
-    "EPT expired", "unpublished kid: a re-issued EPT will verify",
-])
+@pytest.mark.parametrize(
+    "detail",
+    [
+        "EPT expired",
+        "unpublished kid: a re-issued EPT will verify",
+    ],
+)
 def test_401_expired_or_unpublished_kid_refreshes_once_and_retries(monkeypatch, detail):
     monkeypatch.delenv("WINDY_ADMIN_INGEST_TOKEN")
     monkeypatch.setenv("ETERNITAS_PASSPORT_TOKEN", _ept("ET26-TEST-0001"))
-    monkeypatch.setattr(at, "_ingest_target", lambda: (
-        "https://ingest.test", os.environ["ETERNITAS_PASSPORT_TOKEN"]))
+    monkeypatch.setattr(
+        at,
+        "_ingest_target",
+        lambda: ("https://ingest.test", os.environ["ETERNITAS_PASSPORT_TOKEN"]),
+    )
     refreshed: list[bool] = []
 
     def fake_refresh(force=False, **_k):
@@ -642,6 +708,7 @@ def test_401_expired_or_unpublished_kid_refreshes_once_and_retries(monkeypatch, 
         return {"status": "refreshed"}
 
     import windyfly.eternitas.ept_refresh as er
+
     monkeypatch.setattr(er, "refresh_ept", fake_refresh)
     tokens: list[str] = []
 
@@ -662,8 +729,11 @@ def test_401_expired_or_unpublished_kid_refreshes_once_and_retries(monkeypatch, 
 def test_401_expired_that_still_fails_after_refresh_trips_the_breaker(monkeypatch):
     monkeypatch.delenv("WINDY_ADMIN_INGEST_TOKEN")
     monkeypatch.setenv("ETERNITAS_PASSPORT_TOKEN", _ept("ET26-TEST-0001"))
-    monkeypatch.setattr(at, "_ingest_target", lambda: (
-        "https://ingest.test", os.environ["ETERNITAS_PASSPORT_TOKEN"]))
+    monkeypatch.setattr(
+        at,
+        "_ingest_target",
+        lambda: ("https://ingest.test", os.environ["ETERNITAS_PASSPORT_TOKEN"]),
+    )
     import windyfly.eternitas.ept_refresh as er
 
     def fake_refresh(force=False, **_k):
@@ -684,14 +754,22 @@ def test_401_expired_that_still_fails_after_refresh_trips_the_breaker(monkeypatc
     assert at.breaker_open()
 
 
-@pytest.mark.parametrize("status,detail", [
-    (401, "passport revoked"), (401, "issuer mismatch"), (403, "Unknown service token"),
-])
+@pytest.mark.parametrize(
+    "status,detail",
+    [
+        (401, "passport revoked"),
+        (401, "issuer mismatch"),
+        (403, "Unknown service token"),
+    ],
+)
 def test_revoked_issuer_or_403_trips_the_breaker_without_refresh(monkeypatch, status, detail):
     monkeypatch.delenv("WINDY_ADMIN_INGEST_TOKEN")
     monkeypatch.setenv("ETERNITAS_PASSPORT_TOKEN", _ept("ET26-TEST-0001"))
-    monkeypatch.setattr(at, "_ingest_target", lambda: (
-        "https://ingest.test", os.environ["ETERNITAS_PASSPORT_TOKEN"]))
+    monkeypatch.setattr(
+        at,
+        "_ingest_target",
+        lambda: ("https://ingest.test", os.environ["ETERNITAS_PASSPORT_TOKEN"]),
+    )
     import windyfly.eternitas.ept_refresh as er
 
     def no_refresh(*a, **k):
@@ -712,6 +790,7 @@ def test_revoked_issuer_or_403_trips_the_breaker_without_refresh(monkeypatch, st
 
 # ── consent gate: nothing leaves a customer machine before disclosure ──
 
+
 def _customer(monkeypatch):
     """A customer install: no fleet pair, an EPT, outside pytest's guard."""
     monkeypatch.delenv("PYTEST_CURRENT_TEST")
@@ -721,8 +800,13 @@ def _customer(monkeypatch):
     monkeypatch.setattr(at, "_ensure_flusher", lambda: None)
     monkeypatch.setenv("ETERNITAS_PASSPORT_TOKEN", _ept("ET26-ABCD-1234"))
     seen: list[dict] = []
-    monkeypatch.setattr(httpx, "post", lambda url, json=None, headers=None, timeout=None:  # noqa: A006
-                        seen.append(json) or httpx.Response(202, json={"accepted": 1}))
+    monkeypatch.setattr(
+        httpx,
+        "post",
+        lambda url, json=None, headers=None, timeout=None: (  # noqa: A006
+            seen.append(json) or httpx.Response(202, json={"accepted": 1})
+        ),
+    )
     return seen
 
 
@@ -785,7 +869,7 @@ def test_windy_telemetry_cli_status_on_off(monkeypatch, capsys):
     seen = _customer(monkeypatch)
     cli._cmd_telemetry(argparse.Namespace(action="status"))
     out = capsys.readouterr().out
-    assert "never your" in out                     # status discloses
+    assert "never your" in out  # status discloses
     assert "own passport token" in out and "Disclosed:   yes" in out
     assert "Paused:      no" in out
     cli._cmd_telemetry(argparse.Namespace(action="off"))
@@ -809,3 +893,34 @@ def test_status_shows_the_breaker(monkeypatch, capsys, tmp_path):
     (tmp_path / "telemetry_refused").write_text("x\n")
     cli._cmd_telemetry(argparse.Namespace(action="status"))
     assert "refused this install's credentials" in capsys.readouterr().out
+
+
+def test_the_health_beat_is_every_5_minutes_by_default(posted, monkeypatch):
+    """HQ's windy_zero_silent alarm fires after 15 minutes of silence: a 5-minute beat means 3 missed beats
+    (Boss 10-27). A 15-minute beat would trip it on one late row."""
+    monkeypatch.delenv("WINDY_HEALTH_INTERVAL_S", raising=False)
+    targets = []
+
+    class _T:
+        def __init__(self, target=None, name=None, daemon=None):
+            targets.append(target)
+
+        def start(self):
+            pass
+
+    monkeypatch.setattr(ah.threading, "Thread", _T)
+    ah.start(FakeQueue(), channel="matrix")
+    assert ah.HEALTH_INTERVAL_S == 300 and len(targets) == 1
+    slept = []
+
+    class _Stop(Exception):
+        pass
+
+    def sleep(s):
+        slept.append(s)
+        raise _Stop
+
+    monkeypatch.setattr(ah.time, "sleep", sleep)
+    with pytest.raises(_Stop):
+        targets[0]()
+    assert slept == [300.0]

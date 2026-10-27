@@ -33,7 +33,7 @@ an interactive `windy` command, sends nothing until someone runs
 | Event | When | Fields |
 |---|---|---|
 | `service.boot` | once per process | version, install (`pip` / `checkout`), channel_count |
-| `service.health` | every 15 min | interval_s, turns, turn_errors, tool_calls, tool_errors, retries_429, p95_turn_ms, lifeboat_turns, degraded, telemetry_quarantined, telemetry_dropped |
+| `service.health` | every 5 min | interval_s, turns, turn_errors, tool_calls, tool_errors, retries_429, p95_turn_ms, lifeboat_turns, degraded, telemetry_quarantined, telemetry_dropped |
 | `agent.run_failed` | a turn where you got no real answer | code (e.g. `rate_limited`, `auth`, `lifeboat`), stage, http_status, channel, model, duration_ms |
 | `agent.model_demoted` | when the agent falls back to a weaker/local model (once per switch) | from_model, to_model, reason |
 | `llm.call` | each model API call | model, provider, tokens in/out, cache tokens, list-price cost, billing |

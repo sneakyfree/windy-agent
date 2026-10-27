@@ -116,7 +116,7 @@ def install_cost_sink(db: Database, write_queue: WriteQueue) -> None:
 
     models.set_cost_sink(sink, owner)
     try:
-        # Once per process: service.boot + the 15-min service.health timer.
+        # Once per process: service.boot + the 5-min service.health timer.
         from windyfly.observability import agent_health
         agent_health.start(write_queue)
     except Exception:
