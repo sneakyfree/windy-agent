@@ -1,0 +1,1 @@
+- Test fix: `_check_port`'s free-port test reserves its own port (bind, no listen) instead of assuming 39999 is free; a parallel CI job took 39999 on 2026-10-27.

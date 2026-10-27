@@ -72,10 +72,13 @@ class TestCmdDoctor:
 
 class TestCheckPort:
     def test_free_port_returns_false(self):
-        """A port that's definitely free should return False."""
-        # Port 39999 is very unlikely to be in use
-        result = _check_port(39999)
-        assert result is False
+        """A port nothing listens on returns False. The port is reserved by binding (not listening) for the whole
+        check, so a parallel CI job's ephemeral socket can't take it (39999 was taken on the runner 2026-10-27)."""
+        import socket
+
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as held:
+            held.bind(("127.0.0.1", 0))
+            assert _check_port(held.getsockname()[1]) is False
 
     def test_returns_bool(self):
         """_check_port should always return a boolean."""
