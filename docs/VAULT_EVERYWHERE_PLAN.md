@@ -28,7 +28,7 @@ session in mind. A Windy agent today has:
 |---|------|-------|-----------|
 | 1 | **"Use my Vault" for the agent**: list what the person shared, ask for access (ACCESS request), offer to save (SAVE request, V7.9 c6) | Windy Agent (Windy Fly first, Zero as the first user); Chat for the roster | agent-routes.v1 (`capabilities`, `requests`, `lease`) |
 | 2 | **The person's yes/no screens**: "A helper asks to use ...", "A helper offers to save ..." as a pop-up on phone and desktop, plus an "always save" choice | Windy Hub (confirm screen, V7.9) + Windy Mobile + desktop Word | owner-api approval card |
-| 3 | **"Call any service with a Vault key"**: one owner-only tool that makes a web request using a leased key inside the runtime. The model never sees the value: the redactor registers it BEFORE any tool output reaches the model (Vault plan V7.6 c2b), and the lease is released after the call. Later: a sandboxed code runner | Windy Agent (Windy Fly), then Chat | `lease` + local decrypt (`vault/client.py`) |
+| 3 | **"Call any service with a Vault key"**: one owner-only tool that makes a web request using a leased key inside the runtime. The model never sees the value: the redactor registers it BEFORE any tool output reaches the model (Vault plan V7.6 c2b), and the lease is released after the call. Design terms: docs/VAULT_CALL_API_DESIGN.md (allowed destinations are owner-set on the Vault item, never in a file the agent can write; sticky taint while untrusted content is in context; writes ask first, DELETE always; pinned resolved IP; full-encoding redactor). Later: a sandboxed code runner | Windy Agent (Windy Fly), then Chat | `lease` + local decrypt (`vault/client.py`) |
 | 4 | **The person's model choice sticks**: an easy opt-in to outside AI, and the app says WHY when a pick is switched | Windy Mind + Mobile + Chat (`served_reason` on reply events, proposed 10-25) | `agent_pick.dm_verdict` |
 | 5 | **Longer memory** for roster agents | Windy Chat | roster prompt builder |
 | 6 | **One runtime, not two**: converge the roster and Windy Fly so each new ability is built once | Hub + Boss decide | - |
@@ -42,6 +42,8 @@ Windy Vault's flags (`AGENT_SAVE_ENABLED`, real-secret V1.G) and Vault's own ord
 - Every new ability ships DARK behind a flag, with tests, Hub OK at the exact head, and a lab run on a synthetic
   owner first. A live flip needs Boss's GO; for Windy Zero, Grant's typed OK too.
 - An item the person saves is never granted back to the agent automatically (V7.9 c5).
+- "Always save" is an owner opt-in, never the default. Its words, and the yes/no screens' words, go to Grant via
+  Boss first (Boss 2026-10-27 00:40Z item 4; principle #10).
 
 ## First step (Windy Agent, now)
 
