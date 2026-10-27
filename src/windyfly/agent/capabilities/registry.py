@@ -227,6 +227,16 @@ class CapabilityRegistry:
                 f"{cap.band_required.name}; session is {band.name}"
             )
 
+        if cap.strict_args:
+            allowed = set((cap.input_schema or {}).get("properties") or {})
+            unexpected = [k for k in args if k not in allowed]
+            if unexpected:
+                # Names only the count: an argument name is model-written text.
+                raise CapabilityDenied(
+                    f"capability {capability_id!r} takes only: {', '.join(sorted(allowed)) or 'no arguments'} "
+                    f"({len(unexpected)} other argument(s) refused)"
+                )
+
         # Runtime tier escalation (Wave 4 #1). Some capabilities raise
         # their band requirement based on the actual call args — e.g.,
         # fs.write_file is USER+ for new files but TRUSTED+ when

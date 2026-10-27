@@ -35,7 +35,8 @@ ENV_URL = "WINDY_VAULT_API_URL"
 AUD = "windy-vault"
 _TIMEOUT_S = 15.0
 _LEASE_ID_RE = re.compile(r"lse_[A-Za-z0-9_-]+")  # used with fullmatch: no trailing-newline loophole
-_REQUEST_ID_RE = re.compile(r"req_[A-Za-z0-9_-]+")  # fullmatch too: it goes into a URL path
+_REQUEST_ID_RE = re.compile(r"req_[A-Za-z0-9_-]{1,64}")  # fullmatch too: it goes into a URL path
+_ITEM_ID_RE = re.compile(r"itm_[A-Za-z0-9_-]{1,64}")
 # agent-routes.v1 requests.create: ENUMS ONLY (v3.0 KEEP 5, the prompt-injection defence). No free text, no label.
 ITEM_TYPES = ("api_key", "token", "password", "ssh_private_key", "wireguard_key", "note",
               "github_app_installation", "cloudflare_token")
@@ -179,7 +180,7 @@ def request_access(item_type: str | None = None, provider: str | None = None,
     if (p := _enum(provider, PROVIDERS, "bad_provider")) is not None:
         body["provider"] = p
     if item_id is not None:
-        if not (isinstance(item_id, str) and re.fullmatch(r"itm_[A-Za-z0-9_-]+", item_id)):
+        if not (isinstance(item_id, str) and _ITEM_ID_RE.fullmatch(item_id)):
             raise VaultError("bad_item_id")
         body["item_id"] = item_id
     return _pending(_call("POST", "/v1/agent/requests", body))
