@@ -3,7 +3,7 @@
 Four event families, all declared at Windy Admin (windy-admin #290):
 
 * ``service.boot``: once per process.
-* ``service.health``: every 15 minutes, from one in-process daemon timer.
+* ``service.health``: every 5 minutes, from one in-process daemon timer.
   Counts cover the interval since the last row. A count the process can't
   know is left out, never sent as a fake 0.
 * ``agent.run_failed``: one row per turn where the human got no real answer
@@ -49,7 +49,7 @@ DEMOTION_REASONS = frozenset({
 })
 INSTALL_KINDS = frozenset({"pip", "checkout"})
 
-HEALTH_INTERVAL_S = 15 * 60
+HEALTH_INTERVAL_S = 5 * 60  # HQ alarms after 15 min of silence (windy_zero_silent), i.e. 3 missed beats (Boss 10-27)
 
 # Metadata key names the ingest treats as content (and rejects).
 _CONTENT_WORDS = ("text", "body", "message", "email", "prompt")

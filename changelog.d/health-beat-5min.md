@@ -1,0 +1,1 @@
+- The fly's `service.health` heartbeat to Windy Admin is now every 5 minutes (was 15), so HQ's 15-minute silence alarm (windy_zero_silent) fires only after 3 missed beats. Override with WINDY_HEALTH_INTERVAL_S.
