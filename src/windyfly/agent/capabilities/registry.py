@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import threading
 from typing import Any, Callable
 
@@ -64,6 +65,33 @@ def _ensure_worker_loop() -> asyncio.AbstractEventLoop:
 # will register a hook that writes to the agent_actions ledger table.
 PreInvokeHook = Callable[[Capability, dict[str, Any], Band], None]
 PostInvokeHook = Callable[[Capability, dict[str, Any], Band, Any, Exception | None], None]
+
+
+def _strict_args_problem(schema: dict[str, Any], args: dict[str, Any]) -> str | None:
+    """For strict capabilities, BEFORE any pre-invoke hook (the audit row): refuse unknown arguments and values
+    outside the schema's type / enum / pattern / maxLength, so nothing invalid is ever recorded (Hub on #654).
+    Covers the subset the strict tools use; returns fixed words, never a name or value."""
+    props = schema.get("properties") or {}
+    unknown = sum(1 for k in args if k not in props)
+    if unknown:
+        return f"{unknown} unknown argument(s)"
+    missing = sum(1 for k in schema.get("required") or [] if k not in args)
+    if missing:
+        return f"{missing} required argument(s) missing"
+    bad = 0
+    for name, value in args.items():
+        spec = props.get(name) or {}
+        if value is None and name not in (schema.get("required") or []):
+            continue
+        if spec.get("type") == "string" and not isinstance(value, str):
+            bad += 1
+        elif "enum" in spec and value not in spec["enum"]:
+            bad += 1
+        elif isinstance(value, str) and "maxLength" in spec and len(value) > int(spec["maxLength"]):
+            bad += 1
+        elif isinstance(value, str) and "pattern" in spec and not re.search(spec["pattern"], value):
+            bad += 1
+    return f"{bad} argument value(s) not allowed" if bad else None
 
 
 class CapabilityRegistry:
@@ -228,14 +256,10 @@ class CapabilityRegistry:
             )
 
         if cap.strict_args:
-            allowed = set((cap.input_schema or {}).get("properties") or {})
-            unexpected = [k for k in args if k not in allowed]
-            if unexpected:
-                # Names only the count: an argument name is model-written text.
-                raise CapabilityDenied(
-                    f"capability {capability_id!r} takes only: {', '.join(sorted(allowed)) or 'no arguments'} "
-                    f"({len(unexpected)} other argument(s) refused)"
-                )
+            problem = _strict_args_problem(cap.input_schema or {}, args)
+            if problem:
+                # Fixed words only: argument names and values are model-written text.
+                raise CapabilityDenied(f"capability {capability_id!r}: {problem}")
 
         # Runtime tier escalation (Wave 4 #1). Some capabilities raise
         # their band requirement based on the actual call args — e.g.,

@@ -73,7 +73,7 @@ def _refused(e: Exception) -> dict[str, Any]:
     code = _code_for(str(getattr(e, "code", "")), int(getattr(e, "status", 0) or 0))
     out: dict[str, Any] = {"ok": False, "code": code, "say": _SAY[code]}
     retry = getattr(e, "retry_after", None)
-    if isinstance(retry, (int, float)) and retry > 0:
+    if isinstance(retry, (int, float)) and not isinstance(retry, bool) and 1 <= retry <= 3600:
         out["retry_after_s"] = int(retry)
     return out
 

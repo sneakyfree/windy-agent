@@ -57,6 +57,10 @@ def vault(monkeypatch):
     def request(method, url, headers=None, json=None, timeout=None):
         sent.append({"method": method, "url": url, "json": json})
         status, body = answers.pop(0)
+        if isinstance(
+            body, bytes
+        ):  # raw JSON text, e.g. a number json.dumps won't write (1e400 -> inf)
+            return httpx.Response(status, content=body, request=httpx.Request(method, url))
         return httpx.Response(status, json=body, request=httpx.Request(method, url))
 
     monkeypatch.setattr(vc.httpx, "request", request)
@@ -379,3 +383,56 @@ def test_the_pin_matches_upstream_when_a_contracts_checkout_is_given():
         ["git", "-C", repo, "show", f"{src[1]}:{src[2]}"], capture_output=True, check=True
     ).stdout
     assert upstream == (CONTRACT_DIR / "agent-routes.v1.json").read_bytes()
+
+
+def _denied_before_hooks(r, cid, args):
+    from windyfly.agent.capabilities.descriptor import CapabilityDenied
+
+    seen: list[dict] = []
+    r.add_pre_invoke_hook(lambda cap, a, band: seen.append(dict(a)))
+    with pytest.raises(CapabilityDenied) as e:
+        r.invoke_sync(cid, args, Band.OWNER)
+    assert seen == []
+    return str(e.value)
+
+
+def test_a_secret_in_an_enum_field_is_refused_before_the_audit_hook(vault):
+    r = _registry(vault)
+    sent, _ = vault
+    n = len(sent)
+    msg = _denied_before_hooks(r, "vault.offer_save", {"item_type": "sk-pasted-secret-1234567890"})
+    assert "sk-pasted" not in msg and "1 argument value(s) not allowed" in msg and len(sent) == n
+
+
+def test_a_bad_id_pattern_or_length_is_refused_before_the_audit_hook(vault):
+    r = _registry(vault)
+    msg = _denied_before_hooks(r, "vault.request_access", {"item_id": "itm_" + "a" * 65})
+    assert "aaaa" not in msg
+    msg = _denied_before_hooks(r, "vault.request_status", {"request_id": "req_x; DROP"})
+    assert "DROP" not in msg
+
+
+def test_the_denial_names_no_argument(vault):
+    r = _registry(vault)
+    msg = _denied_before_hooks(r, "vault.list", {"please_approve_this": "x"})
+    assert "please_approve_this" not in msg and "1 unknown argument(s)" in msg
+
+
+@pytest.mark.parametrize("retry", ["1e300", "1e400", "-5", "0", "3601", '"30"', "true", "NaN"])
+def test_a_hostile_retry_after_is_dropped_not_echoed_or_crashing(vault, retry):
+    r = _registry(vault)
+    _, answers = vault
+    answers.append((503, ('{"error": "vault_unavailable", "retry_after_s": %s}' % retry).encode()))
+    out = r.get("vault.list").handler()
+    assert out == {
+        "ok": False,
+        "code": "unavailable",
+        "say": "I can't reach your Windy Vault right now.",
+    }
+
+
+def test_a_sane_retry_after_is_kept(vault):
+    r = _registry(vault)
+    _, answers = vault
+    answers.append((503, {"error": "vault_unavailable", "retry_after_s": 45}))
+    assert r.get("vault.list").handler()["retry_after_s"] == 45

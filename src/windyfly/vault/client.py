@@ -18,6 +18,7 @@ not share is simply not listed (Vault 10-21): there is no "not ready" state on t
 from __future__ import annotations
 
 import logging
+import math
 import os
 import re
 from dataclasses import dataclass
@@ -108,7 +109,10 @@ def _retry_after_s(resp: httpx.Response) -> float | None:
     try:
         data = resp.json()
         value = data.get("retry_after_s") if isinstance(data, dict) else None
-        return float(value) if isinstance(value, (int, float)) and value > 0 else None
+        # A hostile body could send 1e300 (or inf): anything but a whole number of seconds in 1..3600 is absent.
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+            return None
+        return float(int(value)) if 1 <= value <= 3600 else None
     except ValueError:
         return None
 
@@ -167,7 +171,8 @@ def _pending(data: Any) -> dict[str, Any]:
         raise VaultError("bad_response")
     retry = data.get("retry_after_s")
     return {"request_id": data["request_id"], "state": "pending", "expires_at": data["expires_at"],
-            "retry_after_s": retry if isinstance(retry, int) and retry > 0 else 15}
+            "retry_after_s": retry if isinstance(retry, int) and not isinstance(retry, bool) and 1 <= retry <= 3600
+            else 15}
 
 
 def request_access(item_type: str | None = None, provider: str | None = None,

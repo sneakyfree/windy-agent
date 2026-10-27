@@ -217,7 +217,8 @@ def test_n8_the_tools_module_does_not_re_export_the_client():
     from windyfly.agent.capabilities import vault as tools
 
     assert not [n for n, v in vars(tools).items()
-                if isinstance(v, types.ModuleType) and v.__name__.startswith("windyfly.vault")]
+                if (isinstance(v, types.ModuleType) and v.__name__.startswith("windyfly.vault"))
+                or str(getattr(v, "__module__", "") or "").startswith("windyfly.vault")]
 
 
 def test_n8_the_import_scan_sees_relative_and_importlib_imports(tmp_path):
