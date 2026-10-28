@@ -1,0 +1,1 @@
+- CI: the ADR-046 compose-naming lint now runs on every PR (its paths filter is gone), and a test fails if any workflow trigger gets a paths / paths-ignore filter again.
