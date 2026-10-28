@@ -149,3 +149,59 @@ def test_a_match_inside_another_match_is_one_mask():
     r.register(inner)
     r.register(outer)
     assert r.scrub("<" + "&#112;re" + inner + "post" + ">") == "<" + MASK + ">"
+
+
+# ── Hub on #667: line-wrapped base64 and mixed-case hex ─────────────────────
+
+
+def _wrap(text: str, width: int, brk: str) -> str:
+    return brk.join(text[i:i + width] for i in range(0, len(text), width))
+
+
+def _stable_b64(value: str, k: int, enc) -> str:
+    text = enc(b"\0" * k + value.encode()).decode().rstrip("=")
+    return text[-(-4 * k // 3):((k + len(value.encode())) * 8) // 6]
+
+
+@pytest.mark.parametrize("value", VALUES)
+@pytest.mark.parametrize("width", [12, 64, 76])
+@pytest.mark.parametrize("brk", ["\n", "\r\n", "\n  "])
+def test_line_wrapped_base64_is_masked(value, width, brk):
+    import base64
+    import json
+
+    r = Redactor()
+    r.register(value)
+    whole = _wrap(base64.b64encode(value.encode()).decode(), width, brk)
+    assert r.scrub(PREFIX + whole + SUFFIX) == PREFIX + MASK + SUFFIX
+    assert r.scrub(json.dumps({"pem": whole})) == json.dumps({"pem": MASK})  # wrapped inside a JSON string
+    for k in (1, 2):  # inside a larger wrapped blob: no stable piece of the value survives
+        for enc in (base64.b64encode, base64.urlsafe_b64encode):
+            blob = enc(b"Q" * k + value.encode() + b"tail-bytes").decode()
+            out = r.scrub(_wrap(blob, width, brk))
+            assert MASK in out
+            joined = out.replace("\r", "").replace("\n", "").replace(" ", "")
+            assert _stable_b64(value, k, enc) not in joined
+
+
+@pytest.mark.parametrize("value", VALUES)
+def test_hex_in_any_case_mix_is_masked_and_a_near_miss_is_not(value):
+    r = Redactor()
+    r.register(value)
+    for seed in range(RUNS):
+        rng = random.Random(f"hex|{value}|{seed}")
+        hexed = _hexcase(rng, value.encode().hex())
+        assert r.scrub(PREFIX + hexed + SUFFIX) == PREFIX + MASK + SUFFIX, f"seed {seed}"
+        i = rng.randrange(len(value))
+        near = (value[:i] + ("Q" if value[i] != "Q" else "R") + value[i + 1:]).encode().hex()
+        near = _hexcase(rng, near)
+        assert r.scrub(PREFIX + near + SUFFIX) == PREFIX + near + SUFFIX, f"seed {seed}: near miss masked"
+
+
+def test_wrapped_lines_cannot_stall_the_decoders():
+    r = Redactor()
+    r.register(VALUES[0])
+    for hostile in ("a" + " " * (1 << 20) + "\n", ("a \t\n" * (1 << 18)), ("a" + "\r\n" * (1 << 19) + "b")):
+        t0 = time.monotonic()
+        assert MASK not in r.scrub(hostile)
+        assert time.monotonic() - t0 < 10

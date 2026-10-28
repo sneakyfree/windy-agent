@@ -13,8 +13,10 @@ row or a stored episode. A Redactor never prints its values (``repr`` gives a co
 NORMALIZED, not only listed (Boss 10-28: a list of forms always misses the next one). Besides the listed forms in the
 raw text, scrub() DECODES the text through JSON string escapes (\\uXXXX in any case, surrogate pairs, \\" \\\\ \\/ and
 the rest), percent-encoding (any case, UTF-8) and HTML character references, one layer and every ordered pair of
-two layers, finds the whole forms in each decoded text, and masks the exact source span each one came from. The
-decoders are single linear passes (no backtracking pattern a hostile server could stall).
+two layers, finds the whole forms in each decoded text, and masks the exact source span each one came from. A fourth
+decoder joins base64 wrapped across lines (PEM or MIME style, any width, CRLF and indentation too). Hex matches in
+any case, mixed included. The decoders are single linear passes (no backtracking pattern a hostile server could
+stall).
 """
 
 from __future__ import annotations
@@ -60,8 +62,7 @@ def _forms(value: str, username: str | None) -> set[str]:
     pct = quote(value, safe="")
     forms = {
         value,
-        binascii.hexlify(raw).decode(),
-        binascii.hexlify(raw).decode().upper(),
+        binascii.hexlify(raw).decode(),  # matched in any case, even mixed (Hub on #667)
         json.dumps(value)[1:-1],
         # JSON with non-ASCII left as-is (JSON.stringify, most servers) and with upper-case \uXXXX escapes.
         json.dumps(value, ensure_ascii=False)[1:-1],
@@ -182,7 +183,22 @@ def _decode_pct(text: str) -> _Decoded | None:
     return out
 
 
-_DECODERS = (_decode_json, _decode_pct, _decode_html)
+# A line break (with any indentation around it) between two base64-alphabet characters: wrapped base64 (Hub on #667).
+_WRAP = re.compile(r"(?<=[A-Za-z0-9+/=_-])[ \t]*\r?\n[ \t]*(?=[A-Za-z0-9+/=_-])")
+
+
+def _decode_wrap(text: str) -> _Decoded | None:
+    if "\n" not in text:
+        return None
+    out, pos = _Decoded(), 0
+    for m in _WRAP.finditer(text):
+        out.add(text[pos:m.start()], pos, m.start(), True)  # the break itself decodes to nothing
+        pos = m.end()
+    out.add(text[pos:], pos, len(text), True)
+    return out
+
+
+_DECODERS = (_decode_json, _decode_pct, _decode_html, _decode_wrap)
 Mapper = Callable[[int, int], tuple[int, int]]
 
 
@@ -223,6 +239,7 @@ def _mask(text: str, spans: list[tuple[int, int]]) -> str:
 class Redactor:
     def __init__(self) -> None:
         self._forms: set[str] = set()
+        self._hex: set[str] = set()
         self._re: re.Pattern[str] | None = None
 
     def __repr__(self) -> str:
@@ -232,8 +249,10 @@ class Redactor:
         if not isinstance(value, str) or len(value) < MIN_SECRET:
             raise SecretTooShort("secret_too_short")
         self._forms |= _forms(value, username)
+        self._hex.add(binascii.hexlify(value.encode("utf-8")).decode())
         # Longest first, so a form that contains another is masked whole.
-        self._re = re.compile("|".join(re.escape(f) for f in sorted(self._forms, key=len, reverse=True)))
+        self._re = re.compile("|".join(f"(?i:{re.escape(f)})" if f in self._hex else re.escape(f)
+                                       for f in sorted(self._forms, key=len, reverse=True)))
 
     def scrub(self, text: str) -> str:
         if not text or self._re is None:
