@@ -134,12 +134,13 @@ def register_windy_calendar_capabilities(registry: CapabilityRegistry, config: d
         tier=Tier.READ_EXTERNAL, band_required=Band.TRUSTED))
     registry.register(Capability(
         id="windy_calendar.book", name="Book a time",
-        # Words: Boss 2026-10-28 17:26-17:28Z (P136-5), facts checked by Calendar against e0a3ba44 (true before AND after its
+        # Words: Boss 2026-10-28 17:26-17:49Z (P136-5), facts checked by Calendar against e0a3ba44 (true before AND after its
         # 10-29 deploy, when the owner's own agent may book any free time); then Hub #9.
         description="Books a time on the owner's calendar for another person: their name and email are required. "
                     "It can't add an event or meeting of the owner's own. If the owner asks for a meeting of their "
-                    "own, say: \"I can't add meetings to your calendar yet. I can hold that time so it can't be "
-                    "booked on your booking page.\"",
+                    "own, say: \"I can't add an event just for you yet. I can set up a meeting with the people you "
+                    "name for you to approve in your Windy Inbox, or hold that time so it can't be booked on your "
+                    "booking page.\"",
         handler=book,
         input_schema={"type": "object", "properties": {
             "starts_at_utc": s, "booker_name": s, "booker_email": s, "booker_phone": s,

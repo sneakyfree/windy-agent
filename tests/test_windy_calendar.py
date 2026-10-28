@@ -346,8 +346,10 @@ def test_appointments_and_block_work_end_to_end(calls):
 
 # P136-5 (Boss 2026-10-28): "no permission" came from tools that didn't say what they do. The words are pinned so a
 # change goes back through Boss, Calendar's fact check and Hub #9.
-# Boss 17:28Z: no owner can add a personal event by hand yet (Calendar), so no "You can add it" clause until then.
-SAY_OWN_MEETING = "I can't add meetings to your calendar yet. I can hold that time so it can't be booked on your booking page."
+# Boss 17:49Z: each agent's sentence is true for ITS tools. windyfly has create_meeting (owner approves in the Inbox;
+# Calendar 17:51Z: an approved one creates the meeting and sends invites today), so the sentence offers it.
+SAY_OWN_MEETING = ("I can't add an event just for you yet. I can set up a meeting with the people you name for you to "
+                   "approve in your Windy Inbox, or hold that time so it can't be booked on your booking page.")
 
 
 def test_book_says_it_is_for_another_person_and_what_to_tell_the_owner(calls):
@@ -355,8 +357,9 @@ def test_book_says_it_is_for_another_person_and_what_to_tell_the_owner(calls):
     assert d.startswith("Books a time on the owner's calendar for another person: their name and email are required.")
     assert "It can't add an event or meeting of the owner's own." in d
     assert d.endswith(f'say: "{SAY_OWN_MEETING}"')
-    for untrue in ("open slot", "booking page does", "nobody"):  # Calendar's fact check, 10-28
+    for untrue in ("open slot", "booking page does", "nobody", "can't add meetings"):  # Calendar / Hub #9, 10-28
         assert untrue not in d
+    assert _cap("windy_calendar.create_meeting") is not None  # the sentence offers it, so it must be there
 
 
 def test_block_says_what_it_holds_and_that_it_makes_no_meeting(calls):
