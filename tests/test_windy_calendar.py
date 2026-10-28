@@ -459,3 +459,23 @@ def test_arguments_outside_the_contract_are_refused_before_any_call(add_on, bad)
     with pytest.raises(Exception):
         r.invoke_sync("windy_calendar.add_event", {**EVENT, **bad}, Band.OWNER)
     assert len(add_on) == n
+
+
+def test_the_same_event_twice_sends_the_same_key_and_a_different_one_does_not(add_on, monkeypatch):
+    # Hub on #670: a retried or doubled add_event must dedupe at Calendar, not add a second copy.
+    import re
+
+    monkeypatch.setenv("ETERNITAS_PASSPORT", "ET26-TEST-AAAA-BBBB")
+    h = _cap("windy_calendar.add_event").handler
+    h(**EVENT)
+    h(**EVENT)
+    h(**{**EVENT, "note": "a different note"})              # the same event, other words: still the same key
+    h(**{**EVENT, "starts_at_utc": "2026-11-05T16:00:00Z"})  # another time: another event
+    h(**{**EVENT, "title": "Dentist, again"})               # another title: another event
+    h(**{**EVENT, "duration_minutes": 30})                  # another length: another event
+    keys = [c[1]["json"]["arguments"]["idempotency_key"] for c in add_on]
+    assert keys[0] == keys[1] == keys[2] and len(set(keys[2:])) == 4
+    assert all(re.fullmatch(r"[A-Za-z0-9._:-]{8,128}", k) for k in keys)  # Calendar's idempotency_key pattern
+    monkeypatch.setenv("ETERNITAS_PASSPORT", "ET26-TEST-CCCC-DDDD")
+    h(**EVENT)
+    assert add_on[-1][1]["json"]["arguments"]["idempotency_key"] != keys[0]  # another agent: another key

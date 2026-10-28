@@ -11,6 +11,7 @@ at registration and on every call. OWNER band only: the owner's own ask is the a
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import uuid
@@ -30,6 +31,14 @@ _UTC = r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$"
 
 def add_event_enabled() -> bool:
     return os.environ.get(ADD_EVENT_FLAG, "") == "1"
+
+
+def _add_event_key(args: dict[str, Any]) -> str:
+    """The SAME event gets the SAME key (Hub on #670): a retried or doubled add_event is deduped by Calendar instead of
+    adding a second copy (events of the owner's own may overlap each other). A different event gets its own key."""
+    parts = (os.environ.get("ETERNITAS_PASSPORT", ""), str(args.get("title", "")), str(args.get("starts_at_utc", "")),
+             str(args.get("duration_minutes", "")))
+    return "ae-" + hashlib.sha256("\x1f".join(parts).encode("utf-8")).hexdigest()[:48]
 
 
 def _add_event_audit_args(args: dict[str, Any]) -> dict[str, Any]:
@@ -126,7 +135,7 @@ def register_windy_calendar_capabilities(registry: CapabilityRegistry, config: d
         if not add_event_enabled():
             return {"ok": False, "outcome": "not_enabled"}  # Calendar's own word for a switched-off add_event
         args = {k: kw[k] for k in ("title", "starts_at_utc", "duration_minutes", "location", "note") if kw.get(k)}
-        args["idempotency_key"] = str(uuid.uuid4())
+        args["idempotency_key"] = _add_event_key(args)
         out = wc.invoke("add_event", args, write=True)
         raw = out.get("result")
         res: dict[str, Any] = raw if isinstance(raw, dict) else {}
