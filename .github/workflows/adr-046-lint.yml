@@ -8,14 +8,8 @@ name: adr-046-lint
 on:
   push:
     branches: [main, master]
+  # Every PR, no path filter: a gate that skips "docs-only" PRs is a gate that can be walked around (Boss 10-28).
   pull_request:
-    paths:
-      - '**/docker-compose*.yml'
-      - '**/docker-compose*.yaml'
-      - '**/compose.yml'
-      - '**/compose.yaml'
-      - '.github/lint/lint-adr-046-compose-naming.sh'
-      - '.github/workflows/adr-046-lint.yml'
 
 jobs:
   lint:
