@@ -5,11 +5,14 @@ factual one-liners (GET /tools, #9). TRUSTED band = the owner and the owner's ow
 stranger agent has none of them. Calendar enforces its own rules (a per-agent daily write ceiling the owner can lower, owner tap for cancel).
 Dark: needs WINDY_CALENDAR=1, and the tools register only when Calendar answers for this agent at boot
 (a calendar exists and the agent can see it), so an owner without Windy Calendar spends no tool budget.
+windy_calendar.add_event (P136-5, tools-invoke 1.3.0) is darker still: it also needs WINDY_CALENDAR_ADD_EVENT=1, read
+at registration and on every call. OWNER band only: the owner's own ask is the approval (principle 10).
 """
 
 from __future__ import annotations
 
 import logging
+import os
 import uuid
 from typing import Any
 
@@ -21,6 +24,17 @@ logger = logging.getLogger(__name__)
 
 MAX_SLOTS = 50
 DEFAULT_COUNT = 20
+ADD_EVENT_FLAG = "WINDY_CALENDAR_ADD_EVENT"
+_UTC = r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$"
+
+
+def add_event_enabled() -> bool:
+    return os.environ.get(ADD_EVENT_FLAG, "") == "1"
+
+
+def _add_event_audit_args(args: dict[str, Any]) -> dict[str, Any]:
+    """The audit row for add_event: when and how long only. The title, location and note are the owner's own words."""
+    return {"starts_at_utc": args.get("starts_at_utc"), "duration_minutes": args.get("duration_minutes")}
 
 
 def _link_from(result: Any) -> str | None:
@@ -108,6 +122,17 @@ def register_windy_calendar_capabilities(registry: CapabilityRegistry, config: d
                     "say": out.get("say")}
         return out
 
+    def add_event(**kw: Any) -> dict[str, Any]:
+        if not add_event_enabled():
+            return {"ok": False, "outcome": "not_enabled"}  # Calendar's own word for a switched-off add_event
+        args = {k: kw[k] for k in ("title", "starts_at_utc", "duration_minutes", "location", "note") if kw.get(k)}
+        args["idempotency_key"] = str(uuid.uuid4())
+        out = wc.invoke("add_event", args, write=True)
+        raw = out.get("result")
+        res: dict[str, Any] = raw if isinstance(raw, dict) else {}
+        logger.info("windy calendar: add_event outcome=%s", res.get("outcome") if out["ok"] else "refused")
+        return {"ok": True, **res} if out["ok"] else out
+
     date = {"type": "string", "pattern": r"^\d{4}-\d{2}-\d{2}$"}
     s = {"type": "string"}
     registry.register(Capability(
@@ -176,3 +201,21 @@ def register_windy_calendar_capabilities(registry: CapabilityRegistry, config: d
         # The generic audit row stores the arguments (invitee addresses); this tool logs counts only instead.
         # OWNER only: a sibling must not park meeting requests (with invitee addresses) in the owner's Inbox.
         tier=Tier.EXTERNAL_EFFECT, band_required=Band.OWNER, audit_required=False))
+    if add_event_enabled():
+        registry.register(Capability(
+            id="windy_calendar.add_event", name="Add an event",
+            description="Adds an event of the owner's own to their calendar: a title, a start time and a length. "
+                        "Nobody else is invited and nothing is emailed except the owner's own reminders. Use it "
+                        "when the owner asks you to put something on their calendar.",
+            handler=add_event,
+            input_schema={"type": "object", "properties": {
+                "title": {"type": "string", "minLength": 1, "maxLength": 120},
+                "starts_at_utc": {"type": "string", "pattern": _UTC},
+                "duration_minutes": {"type": "integer", "minimum": 5, "maximum": 720},
+                "location": {"type": "string", "minLength": 1, "maxLength": 500,
+                             "description": "A street address or an https link."},
+                "note": {"type": "string", "maxLength": 1000, "description": "Only the owner sees it."}},
+                "required": ["title", "starts_at_utc", "duration_minutes"], "additionalProperties": False},
+            # OWNER only: the owner's own ask is the approval. The audit row keeps when and how long, never the words.
+            tier=Tier.EXTERNAL_EFFECT, band_required=Band.OWNER, audit_required=True, strict_args=True,
+            audit_args=_add_event_audit_args))

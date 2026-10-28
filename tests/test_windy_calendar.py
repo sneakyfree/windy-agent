@@ -367,3 +367,95 @@ def test_block_says_what_it_holds_and_that_it_makes_no_meeting(calls):
     assert d.startswith("Holds a time range on the owner's calendar so it can't be booked on their booking page.")
     assert "It doesn't create a meeting or send an invite." in d
     assert "nobody" not in d
+
+
+# ── windy_calendar.add_event (P136-5; tools-invoke.v1 1.3.0, windy-contracts #238) ─────────────────────────
+
+
+from windyfly.agent.capabilities import audit  # noqa: E402
+from windyfly.agent.capabilities import windy_calendar as wcal  # noqa: E402
+
+EVENT = {"title": "Dentist", "starts_at_utc": "2026-11-05T15:00:00Z", "duration_minutes": 45,
+         "location": "12 Main St", "note": "bring the card"}
+
+
+@pytest.fixture
+def add_on(calls, monkeypatch):
+    monkeypatch.setenv(wcal.ADD_EVENT_FLAG, "1")
+    return calls
+
+
+def test_add_event_is_dark_without_its_own_flag(calls, monkeypatch):
+    monkeypatch.delenv(wcal.ADD_EVENT_FLAG, raising=False)
+    r = _registered()
+    assert r.get("windy_calendar.block") is not None and r.get("windy_calendar.add_event") is None
+
+
+def test_add_event_is_owner_only_audited_and_strict(add_on):
+    c = _cap("windy_calendar.add_event")
+    assert c.band_required == Band.OWNER and c.tier == Tier.EXTERNAL_EFFECT and c.audit_required and c.strict_args
+    assert c.input_schema["required"] == ["title", "starts_at_utc", "duration_minutes"]
+    assert "invitees" not in c.input_schema["properties"]  # an event of the owner's own: nobody else
+    assert c.description.startswith("Adds an event of the owner's own to their calendar")
+
+
+def test_add_event_wire_and_outcome_as_data(add_on):
+    _answer(add_on, _resp(200, {"ok": True, "result": {"outcome": "added", "outside_open_hours": True}}))
+    out = _cap("windy_calendar.add_event").handler(**EVENT)
+    body = add_on[0][1]["json"]
+    assert body["name"] == "add_event"
+    assert {k: body["arguments"][k] for k in EVENT} == EVENT and body["arguments"]["idempotency_key"]
+    assert out == {"ok": True, "outcome": "added", "outside_open_hours": True}
+
+
+@pytest.mark.parametrize("outcome", ["overlaps_booking", "in_the_past", "too_far_ahead", "not_enabled", "in_progress"])
+def test_every_calendar_outcome_reaches_the_model_unchanged(add_on, outcome):
+    _answer(add_on, _resp(200, {"ok": True, "result": {"outcome": outcome}}))
+    assert _cap("windy_calendar.add_event").handler(**EVENT) == {"ok": True, "outcome": outcome}
+
+
+def test_a_refusal_is_the_clients_plain_sentence(add_on):
+    _answer(add_on, _resp(429, {"ok": False, "error": "rate_limited"}))
+    out = _cap("windy_calendar.add_event").handler(**EVENT)
+    assert out["ok"] is False and out["say"] == "I've reached my daily limit for changing my owner's calendar."
+
+
+def test_the_flag_off_at_call_time_sends_nothing(add_on, monkeypatch):
+    c = _cap("windy_calendar.add_event")
+    monkeypatch.setenv(wcal.ADD_EVENT_FLAG, "0")
+    n = len(add_on)
+    assert c.handler(**EVENT) == {"ok": False, "outcome": "not_enabled"}
+    assert len(add_on) == n
+
+
+def test_the_audit_row_holds_when_and_how_long_only(add_on, monkeypatch):
+    rows = []
+    monkeypatch.setattr(audit, "record_action_start", lambda db, q, **k: rows.append(k))
+    monkeypatch.setattr(audit, "record_action_end", lambda db, q, **k: None)
+    r = _registered()
+    audit.install_audit_hooks(r, db=None, write_queue=None)
+    _answer(add_on, _resp(200, {"ok": True, "result": {"outcome": "added"}}))
+    r.invoke_sync("windy_calendar.add_event", dict(EVENT), Band.OWNER)
+    import json as _json
+    assert [_json.loads(x["args_json"]) for x in rows] == [{"starts_at_utc": EVENT["starts_at_utc"],
+                                                            "duration_minutes": 45}]
+
+
+@pytest.mark.parametrize("band", [Band.TRUSTED, Band.USER])
+def test_a_sibling_or_stranger_cannot_add_events(add_on, band):
+    r = _registered()
+    n = len(add_on)
+    with pytest.raises(Exception):
+        r.invoke_sync("windy_calendar.add_event", dict(EVENT), band)
+    assert len(add_on) == n
+
+
+@pytest.mark.parametrize("bad", [{"invitees": [{"email": "a@b.c"}]}, {"duration_minutes": 4},
+                                 {"duration_minutes": 721}, {"title": ""}, {"starts_at_utc": "tomorrow"},
+                                 {"duration_minutes": "45"}, {"duration_minutes": True}])
+def test_arguments_outside_the_contract_are_refused_before_any_call(add_on, bad):
+    r = _registered()
+    n = len(add_on)
+    with pytest.raises(Exception):
+        r.invoke_sync("windy_calendar.add_event", {**EVENT, **bad}, Band.OWNER)
+    assert len(add_on) == n
