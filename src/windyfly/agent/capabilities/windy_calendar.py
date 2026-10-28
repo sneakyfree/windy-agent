@@ -134,7 +134,13 @@ def register_windy_calendar_capabilities(registry: CapabilityRegistry, config: d
         tier=Tier.READ_EXTERNAL, band_required=Band.TRUSTED))
     registry.register(Capability(
         id="windy_calendar.book", name="Book a time",
-        description="Books a slot on the owner's calendar. Atomic: a slot taken at the same instant returns 'just taken' with the next open times; a time that is not an open slot is refused.",
+        # Words: Boss 2026-10-28 17:26-17:49Z (P136-5), facts checked by Calendar against e0a3ba44 (true before AND after its
+        # 10-29 deploy, when the owner's own agent may book any free time); then Hub #9.
+        description="Books a time on the owner's calendar for another person: their name and email are required. "
+                    "It can't add an event or meeting of the owner's own. If the owner asks for a meeting of their "
+                    "own, say: \"I can't add an event just for you yet. I can set up a meeting with the people you "
+                    "name for you to approve in your Windy Inbox, or hold that time so it can't be booked on your "
+                    "booking page.\"",
         handler=book,
         input_schema={"type": "object", "properties": {
             "starts_at_utc": s, "booker_name": s, "booker_email": s, "booker_phone": s,
@@ -143,7 +149,9 @@ def register_windy_calendar_capabilities(registry: CapabilityRegistry, config: d
         tier=Tier.EXTERNAL_EFFECT, band_required=Band.TRUSTED, audit_required=True))
     registry.register(Capability(
         id="windy_calendar.block", name="Block time",
-        description="Marks a time range unavailable. Overlapping slots are removed from availability until the range passes.",
+        description="Holds a time range on the owner's calendar so it can't be booked on their booking page. It "
+                    "doesn't create a meeting or send an invite. Overlapping slots are removed from availability "
+                    "until the range passes.",
         handler=block,
         input_schema={"type": "object", "properties": {"starts_at_utc": s, "ends_at_utc": s, "reason": s},
                       "required": ["starts_at_utc", "ends_at_utc"], "additionalProperties": False},
