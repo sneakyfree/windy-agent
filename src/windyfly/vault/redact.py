@@ -43,6 +43,10 @@ def _b64_at_offsets(raw: bytes) -> set[str]:
     return out
 
 
+def _upper_u(m: re.Match[str]) -> str:
+    return "\\u" + m.group(0)[2:].upper()
+
+
 def _forms(value: str, username: str | None) -> set[str]:
     raw = value.encode("utf-8")
     pct = quote(value, safe="")
@@ -51,6 +55,9 @@ def _forms(value: str, username: str | None) -> set[str]:
         binascii.hexlify(raw).decode(),
         binascii.hexlify(raw).decode().upper(),
         json.dumps(value)[1:-1],
+        # JSON with non-ASCII left as-is (JSON.stringify, most servers) and with upper-case \uXXXX escapes.
+        json.dumps(value, ensure_ascii=False)[1:-1],
+        re.sub(r"\\u[0-9a-f]{4}", _upper_u, json.dumps(value)[1:-1]),
         pct,
         re.sub(r"%[0-9A-F]{2}", lambda m: m.group(0).lower(), pct),
         *_b64_at_offsets(raw),
