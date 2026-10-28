@@ -8,6 +8,8 @@ Every tool is strict (an argument outside its schema is refused before the audit
 code from a FIXED set: the Vault's own error text never reaches the model or a log (Hub on #654).
 Dark: needs WINDY_VAULT_TOOLS=1 on top of the lease client's WINDY_VAULT_LEASE=1 + WINDY_VAULT_API_URL, checked at
 registration AND on every call; the tools register only when the Vault answers for this agent at boot.
+vault.call_api (the one tool that USES a value, never showing it) is darker still: it also needs
+WINDY_VAULT_CALL_API=1, read at registration and on every call. Lab only until each next step has its own GO.
 """
 
 from __future__ import annotations
@@ -22,6 +24,7 @@ from windyfly.agent.capabilities.registry import CapabilityRegistry
 logger = logging.getLogger(__name__)
 
 ENV_FLAG = "WINDY_VAULT_TOOLS"
+CALL_API_FLAG = "WINDY_VAULT_CALL_API"
 
 # Fixed words for each answer, VERBATIM from windy-contracts schema/agent/vault-tools.v1.json 1.0.1 x-refusals.say
 # (Boss decision under Grant's 10-27 delegation; a drift test compares them with the vendored contract). The model
@@ -41,7 +44,18 @@ _SAY = {
     "save_off": "Saving to your Windy Vault isn't available yet.",
     "save_pending": "There's already a save offer waiting for your answer in Windy.",
     "bad_request_id": "That isn't a request I filed with your Windy Vault.",
+    "not_shared": "That key isn't shared with me. I can ask you for it first.",
+    "bad_url": "I can't use that web address with a key. It has to be a plain https address.",
+    "host_not_allowed": "That key isn't set up for that website. To let me use it there, add the website to the key "
+                        "in your Windy Vault.",
+    "blocked_address": "That address isn't on the public internet, so I won't send your key there.",
+    "key_unusable": "That key can't be used for web calls from here.",
+    "request_too_large": "That request is too big to send.",
+    "call_failed": "The call didn't go through: the website didn't answer in time or the connection failed.",
+    "owner_said_no": "You said no to that call, so I didn't send it.",
+    "too_many_calls": "I've used that key a lot in the last hour, so I'm pausing it for a little while.",
 }
+_NEEDS_OWNER_OK_SAY = "I've asked you to confirm that call in Windy."
 # vault-tools.v1 x-mapping: a 404 means something different per tool.
 _NOT_FOUND = {"vault.request_access": "no_vault", "vault.offer_save": "save_off", "vault.request_status": "bad_request_id"}
 _LOCAL_CODES = frozenset({"bad_item_type", "bad_provider", "bad_item_id", "bad_request_id"})
@@ -99,6 +113,19 @@ def _refused(tool: str, e: Exception) -> dict[str, Any]:
 
 def _off() -> dict[str, Any] | None:
     return None if enabled() else {"ok": False, "code": "switched_off", "say": _SAY["switched_off"]}
+
+
+def call_api_enabled() -> bool:
+    return enabled() and os.environ.get(CALL_API_FLAG, "") == "1"
+
+
+def _call_api_audit_args(args: dict[str, Any]) -> dict[str, Any]:
+    """The audit row for vault.call_api: the method and the parsed host only (G3). Never the path, query, body,
+    header name or username: the model wrote them and they can carry anything."""
+    from windyfly.vault import call_api as ca
+
+    method = args.get("method")
+    return {"method": method if method in ca.METHODS else "?", "host": ca.host_of(args.get("url"))}
 
 
 def register_vault_capabilities(registry: CapabilityRegistry, config: dict[str, Any] | None = None) -> None:
@@ -159,6 +186,30 @@ def register_vault_capabilities(registry: CapabilityRegistry, config: dict[str, 
             return _refused("vault.request_status", e)
         return {"ok": True, **r, "say": _STATE_SAY[(r["class"], r["state"])]}
 
+    def call_api(*, item_id: str, method: str, url: str, auth: str, header_name: str | None = None,
+                 username: str | None = None, query: dict[str, Any] | None = None, body: Any = None) -> dict[str, Any]:
+        if (off := _off()) is not None:
+            return off
+        if not call_api_enabled():
+            return {"ok": False, "code": "switched_off", "say": _SAY["switched_off"]}
+        from windyfly.tools.bands import mark_turn_tainted
+        from windyfly.vault import call_api as ca
+
+        try:
+            r = ca.call(item_id=item_id, method=method, url=url, auth=auth, header_name=header_name,
+                        username=username, query=query, body=body)
+        except vc.VaultError as e:
+            return _refused("vault.call_api", e)
+        if r.get("ok"):
+            mark_turn_tainted()  # the answer is text a website chose (R16): no outward tool runs on it this turn
+            return r
+        if r.get("needs_owner_ok"):
+            return {**r, "say": _NEEDS_OWNER_OK_SAY}
+        out = {"ok": False, "code": r["code"], "say": _SAY[r["code"]]}
+        if "retry_after_s" in r:
+            out["retry_after_s"] = r["retry_after_s"]
+        return out
+
     item_type = {"type": "string", "enum": list(vc.ITEM_TYPES)}
     provider = {"type": "string", "enum": list(vc.PROVIDERS)}
     registry.register(Capability(
@@ -196,3 +247,33 @@ def register_vault_capabilities(registry: CapabilityRegistry, config: dict[str, 
             "request_id": {"type": "string", "pattern": "^req_[A-Za-z0-9_-]{1,64}$"}},
             "required": ["request_id"], "additionalProperties": False},
         tier=Tier.READ_EXTERNAL, band_required=Band.OWNER, strict_args=True, strict_args_refusal=_BAD_ARGS))
+    if call_api_enabled():
+        # CallApiArgs (vault-tools.v1 1.0.1) without its top-level allOf, which tool schemas can't carry: the
+        # header_name / username / GET-body pairings are enforced in windyfly.vault.call_api instead.
+        registry.register(Capability(
+            id="vault.call_api", name="Use a key for one web call",
+            description="Makes one https call to a website with a key the owner shared with you (an item_id from "
+                        "vault.list). You never see the key: it is added to the call for you, and anything in the "
+                        "answer that matches it is blanked out. The key only works with the websites the owner set "
+                        "on it in their Windy Vault. Changing or deleting something asks the owner first.",
+            handler=call_api,
+            input_schema={"type": "object", "properties": {
+                "item_id": {"type": "string", "pattern": "^itm_[A-Za-z0-9_-]{1,64}$", "maxLength": 68,
+                            "description": "an item_id from vault.list"},
+                "method": {"type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"]},
+                "url": {"type": "string", "maxLength": 2048,
+                        "pattern": r"^https://[^/?#@\s:]+(:[0-9]{1,5})?(/[A-Za-z0-9/._~%-]*)?(\?[A-Za-z0-9._~%&=+,-]*)?$",
+                        "description": "a plain https address on one of the websites the owner set on this key"},
+                "auth": {"type": "string", "enum": ["bearer", "header", "basic"],
+                         "description": "how the key is sent: bearer = Authorization: Bearer; header = in "
+                                        "header_name; basic = Authorization: Basic with username"},
+                "header_name": {"type": "string", "pattern": "^[A-Za-z0-9-]{1,64}$",
+                                "description": "only with auth header, e.g. X-Api-Key"},
+                "username": {"type": "string", "pattern": "^[A-Za-z0-9._@+-]{1,128}$",
+                             "description": "only with auth basic"},
+                "query": {"type": "object", "maxProperties": 32,
+                          "additionalProperties": {"type": "string", "maxLength": 512}},
+                "body": {"description": "JSON sent as application/json; at most 64 KiB; never with GET"}},
+                "required": ["item_id", "method", "url", "auth"], "additionalProperties": False},
+            tier=Tier.EXTERNAL_EFFECT, band_required=Band.OWNER, audit_required=True, strict_args=True,
+            strict_args_refusal=_BAD_ARGS, audit_args=_call_api_audit_args))

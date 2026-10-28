@@ -1,6 +1,6 @@
 """Vault everywhere, step 1 (Vault plan V7.9 c6): the owner-band vault.* tools and the client calls behind them.
 
-Every request body is validated against the vendored, hash-pinned agent-routes.v1 1.4.0 (windy-contracts 3f30d30).
+Every request body is validated against the vendored, hash-pinned agent-routes.v1 1.5.0 (windy-contracts 0b4fa1e).
 Nothing here ever handles a secret's value: list = names, access = ask, save = the NO-VALUE offer, status = state.
 """
 

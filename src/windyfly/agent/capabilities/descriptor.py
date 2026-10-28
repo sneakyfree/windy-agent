@@ -250,6 +250,9 @@ class Capability:
     # With strict_args: the result returned (instead of raising CapabilityDenied) when the arguments don't fit, so a
     # tool can answer in its contract's own refusal shape (vault-tools.v1 bad_arguments). Still before any hook.
     strict_args_refusal: dict[str, Any] | None = None
+    # What the AUDIT row may record of the args (default: all, redacted). vault.call_api keeps host + method only:
+    # a path, query or body can hold ids or personal data (Hub on the call_api design).
+    audit_args: Callable[[dict[str, Any]], dict[str, Any]] | None = None
 
     def resolved(self) -> "Capability":
         """Return a copy with tier-default fallbacks filled in.

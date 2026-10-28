@@ -25,7 +25,7 @@ CAPS = json.loads(
         Path(__file__).parent / "fixtures" / "vault-agent-routes.capabilities.response.json"
     ).read_text()
 )
-TOOLS = ("vault.list", "vault.request_access", "vault.offer_save", "vault.request_status")
+TOOLS = ("vault.list", "vault.request_access", "vault.offer_save", "vault.request_status", "vault.call_api")
 PENDING = {
     "request_id": "req_ynnmfmo2zwh4mmej",
     "state": "pending",
@@ -67,6 +67,7 @@ def vault(monkeypatch):
     monkeypatch.setenv(vc.ENV_FLAG, "1")
     monkeypatch.setenv(vc.ENV_URL, "https://vault.example")
     monkeypatch.setenv(vt.ENV_FLAG, "1")
+    monkeypatch.setenv(vt.CALL_API_FLAG, "1")
     monkeypatch.setattr(
         vc.service_auth, "agent_headers", lambda aud, m, u: {"Authorization": "Bearer t"}
     )
@@ -204,6 +205,7 @@ def test_switched_off_is_the_contracts(vault, monkeypatch):
         ("vault.request_access", {}),
         ("vault.offer_save", {"item_type": "token"}),
         ("vault.request_status", {"request_id": "req_a"}),
+        ("vault.call_api", {"item_id": "itm_a", "method": "GET", "url": "https://a.example/", "auth": "bearer"}),
     ):
         out = r.invoke_sync(t, args, Band.OWNER)
         assert out["code"] == "switched_off"

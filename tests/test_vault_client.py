@@ -82,6 +82,22 @@ def test_lease_decrypts_locally_and_never_shows_the_value(vault, monkeypatch, ca
     assert VECTOR["plaintext_utf8"] not in repr(got) and VECTOR["plaintext_utf8"] not in caplog.text
 
 
+@pytest.mark.parametrize("targets,expected", [
+    (None, ()),                                        # 1.4.0 answer / no targets set: call_api refuses (fail closed)
+    (["https://api.example.com"], ("https://api.example.com",)),
+    (["https://API.Example.com", "https://api.example.com:443", "https://ok.io:8443/"],
+     ("https://api.example.com", "https://ok.io:8443")),
+    (["http://plain.example", "https://a.com/path", "https://*.b.com", "https://u@c.com", 7], ()),
+    ([f"https://h{i}.example" for i in range(10)], tuple(f"https://h{i}.example" for i in range(8))),
+    ("https://api.example.com", ()),                   # not a list
+])
+def test_a_lease_carries_its_targets_normalized_and_drops_anything_malformed(vault, monkeypatch, targets, expected):
+    _, answers, _ = vault
+    monkeypatch.setattr(vc.lease_key, "private_for", lambda kid: _recipient() if kid == VECTOR["kid"] else None)
+    answers.append((200, {**_lease_body(), **({} if targets is None else {"targets": targets})}))
+    assert vc.lease("itm_x").targets == expected
+
+
 def test_a_lease_to_a_key_we_no_longer_hold_reregisters_once(vault, monkeypatch):
     sent, answers, _ = vault
     held = {"have": False}
