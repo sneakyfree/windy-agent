@@ -216,6 +216,9 @@ def test_an_item_not_shared_is_refused_before_any_lease(lab):
     (vc.VaultError("needs_owner", 403), "not_shared"),
     (vc.VaultError("grant_expired", 403), "not_shared"),
     (vc.VaultError("forbidden", 403), "not_linked"),
+    # Vault 10-28 (main c14b8d91): an ITEM lease has no class, so L2's "non-leasable class" never arises here; a 400
+    # invalid_request on this path is bad_arguments (key_unusable only for a lease naming a class, which call_api never sends).
+    (vc.VaultError("invalid_request", 400), "bad_arguments"),
     (vc.VaultError("vault_locked", 423), "vault_locked"),
     (vc.VaultError("budget_exhausted", 429), "rate_limited"),
     (vc.VaultError("vault_unavailable", 503), "unavailable"),

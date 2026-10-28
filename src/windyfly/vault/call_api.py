@@ -45,7 +45,7 @@ HEADER_ALLOW = ("content-type", "content-length", "content-language", "etag", "l
                 "x-ratelimit-limit", "x-ratelimit-remaining", "x-ratelimit-reset", "x-request-id")
 # vault-tools.v1 x-mapping vault.call_api: a lease refused 404 not_found / 403 needs_owner / grant_expired = not shared.
 # Every other lease refusal propagates and the tool maps it like any vault.* answer (vault_locked, rate_limited, ...).
-# (The mapping's "non-leasable class -> key_unusable" waits for Vault to name that refusal's code.)
+# The mapping's "non-leasable class -> key_unusable" can't arise here: an item lease names no class (Vault, 10-28).
 _NOT_SHARED = frozenset({"not_found", "needs_owner", "grant_expired"})
 FORBIDDEN_HEADERS = frozenset({"host", "content-length", "transfer-encoding", "connection", "cookie",
                                "proxy-authorization", "te", "upgrade", "accept-encoding"})
