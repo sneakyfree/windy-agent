@@ -1,0 +1,1 @@
+- CI: the Release workflow (PyPI publish, GitHub release, ghcr.io image push) runs only when a person starts it on a v* tag; a test fails if any job that deploys, uploads or publishes can run on a push, tag, schedule or PR.

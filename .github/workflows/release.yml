@@ -1,14 +1,19 @@
 name: Release
 
+# MANUAL ONLY (Boss 2026-10-28 live-host-jobs rule): publish-pypi and publish-image push to PyPI, GitHub Releases
+# and ghcr.io, which are public downloads, so a PERSON starts this from the Actions tab on a v* tag ("Use workflow
+# from: <tag>"). Never on a push, tag, schedule or PR. tests/test_ci_live_jobs_manual.py enforces it.
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_dispatch:
 
 jobs:
   test:
     runs-on: ubuntu-latest  # runner-lint-allow — CD/hosted-only; disabled, manual until CD mission
     steps:
+      - name: Started on a v* tag
+        # Every publish job needs this one, so a manual run on a branch stops here and publishes nothing.
+        run: |
+          case "$GITHUB_REF" in refs/tags/v*) ;; *) echo "Run Release on a v* tag, not $GITHUB_REF"; exit 1;; esac
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v4
         # Pinned: setup-uv v4+ resolves "latest" through the releases API at GITHUB_API_URL,
