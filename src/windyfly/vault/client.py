@@ -63,6 +63,8 @@ class Lease:
     item_id: str
     value: str
     expires_at: int
+    # agent-routes 1.5.0 (V7.6 c2e): the item's OWNER-set https origins, normalized; empty = call_api refuses it.
+    targets: tuple[str, ...] = ()
 
     def __repr__(self) -> str:  # never print the value
         return f"Lease(lease_id={self.lease_id!r}, item_id={self.item_id!r}, expires_at={self.expires_at})"
@@ -236,8 +238,19 @@ def lease(item_id: str) -> Lease:
             continue
         except lease_jwe.LeaseDecryptError:
             raise VaultError("bad_lease") from None
-        return Lease(lease_id=lid, item_id=str(data.get("item_id") or item_id), value=value, expires_at=exp)
+        return Lease(lease_id=lid, item_id=str(data.get("item_id") or item_id), value=value, expires_at=exp,
+                     targets=_targets(data.get("targets")))
     raise VaultError("unknown_lease_key")
+
+
+def _targets(raw: Any) -> tuple[str, ...]:
+    """The lease's targets in FillTarget form; anything malformed is dropped (fail closed: no target, no call)."""
+    from windyfly.vault.egress import normalize_origin
+
+    if not isinstance(raw, list):
+        return ()
+    out = [o for o in (normalize_origin(t) for t in raw[:8] if isinstance(t, str)) if o]
+    return tuple(dict.fromkeys(out))
 
 
 def _release_quietly(lease_id: str) -> None:

@@ -138,6 +138,11 @@ def install_audit_hooks(
         action_id = uuid.uuid4().hex
         _current_action_id.set(action_id)
         _current_action_started.set(time.time())
+        if cap.audit_args is not None:
+            try:
+                args = cap.audit_args(args)
+            except Exception:  # noqa: BLE001  (never fall back to the full args)
+                args = {"audit_args": "unavailable"}
         try:
             args_json = _redact(json.dumps(args, default=_json_default))
         except (TypeError, ValueError) as e:
