@@ -69,7 +69,8 @@ PostInvokeHook = Callable[[Capability, dict[str, Any], Band, Any, Exception | No
 
 def _strict_args_problem(schema: dict[str, Any], args: dict[str, Any]) -> str | None:
     """For strict capabilities, BEFORE any pre-invoke hook (the audit row): refuse unknown arguments and values
-    outside the schema's type / enum / pattern / maxLength, so nothing invalid is ever recorded (Hub on #654).
+    outside the schema's type (string, integer) / enum / pattern / minLength / maxLength / minimum / maximum, so
+    nothing invalid is ever recorded (Hub on #654).
     Covers the subset the strict tools use; returns fixed words, never a name or value."""
     props = schema.get("properties") or {}
     unknown = sum(1 for k in args if k not in props)
@@ -85,9 +86,16 @@ def _strict_args_problem(schema: dict[str, Any], args: dict[str, Any]) -> str | 
             continue
         if spec.get("type") == "string" and not isinstance(value, str):
             bad += 1
+        elif spec.get("type") == "integer" and (not isinstance(value, int) or isinstance(value, bool)):
+            bad += 1
         elif "enum" in spec and value not in spec["enum"]:
             bad += 1
         elif isinstance(value, str) and "maxLength" in spec and len(value) > int(spec["maxLength"]):
+            bad += 1
+        elif isinstance(value, str) and "minLength" in spec and len(value) < int(spec["minLength"]):
+            bad += 1
+        elif isinstance(value, int) and not isinstance(value, bool) and (
+                ("minimum" in spec and value < spec["minimum"]) or ("maximum" in spec and value > spec["maximum"])):
             bad += 1
         elif isinstance(value, str) and "pattern" in spec and not re.fullmatch(spec["pattern"], value):
             bad += 1
