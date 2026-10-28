@@ -30,6 +30,8 @@ def _echoes(v: str, user: str = "bot") -> dict[str, str]:
         "b64_nopad": base64.b64encode(raw).decode().rstrip("="),
         "b64url": base64.urlsafe_b64encode(raw).decode().rstrip("="),
         "json": json.dumps(v)[1:-1],
+        "json_unicode": json.dumps(v, ensure_ascii=False)[1:-1],  # JSON.stringify leaves non-ASCII as-is
+        "json_upper_u": re.sub(r"\\u[0-9a-f]{4}", lambda m: "\\u" + m.group(0)[2:].upper(), json.dumps(v)[1:-1]),
         "pct": pct,
         "pct_lower": re.sub(r"%[0-9A-F]{2}", lambda m: m.group(0).lower(), pct),
         "basic": base64.b64encode(f"{user}:{v}".encode()).decode(),
@@ -64,6 +66,7 @@ def test_no_echoed_form_survives_in_any_position(value, name, where):
 
 def test_the_second_value_really_has_distinct_forms():
     forms = _echoes(VALUE2)
+    assert len({VALUE2, forms["json"], forms["json_unicode"], forms["json_upper_u"]}) == 4
     assert forms["json"] != VALUE2 and forms["pct"] != forms["pct_lower"] and forms["hex"] != forms["HEX"]
 
 
@@ -420,3 +423,13 @@ def test_real_tls_verifies_the_name_sent_as_sni(tls_server, monkeypatch):
         eg.send("GET", eg.parse_target(f"https://evil.test:{port}/x"), {}, resolver=lambda h, p: "127.0.0.1",
                 verify=ctx)
     assert e.value.code == "unreachable"
+
+
+def test_regression_a_key_echoed_as_json_with_raw_non_ascii_is_masked_whole():
+    # Before: only the ASCII-escaped JSON form (é) was a mask form, so a server that writes JSON with non-ASCII
+    # left as-is (JSON.stringify) or with upper-case é echoed a piece of the key back unmasked.
+    r = Redactor()
+    r.register(VALUE2)
+    for form in (json.dumps(VALUE2, ensure_ascii=False)[1:-1], json.dumps(VALUE2)[1:-1].replace("\\u00e9", "\\u00E9")):
+        out = r.scrub('{"echo":"' + form + '"}')
+        assert out == '{"echo":"' + MASK + '"}', "a piece of the key survived"
