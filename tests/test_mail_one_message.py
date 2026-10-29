@@ -40,7 +40,8 @@ def test_needs_a_to_and_has_a_sanity_cap():
 
 
 @patch("windyfly.tools.mail._adapter")
-def test_cc_and_bcc_travel_on_the_same_single_call(mock_adapter):
+def test_cc_and_bcc_travel_on_the_same_single_call(mock_adapter, monkeypatch):
+    monkeypatch.setenv("WINDY_SEND_CONFIRM", "0")  # the wire with owner-confirm off (on by default: it would draft)
     adapter = MagicMock()
     adapter.send_email.return_value = {"status": "sent", "message_id": "m"}
     mock_adapter.return_value = adapter
@@ -77,6 +78,7 @@ def test_the_tool_schema_offers_cc_and_bcc_and_says_one_email():
 @pytest.fixture
 def _confirm(monkeypatch):
     monkeypatch.setenv("WINDY_SEND_CONFIRM", "1")
+    monkeypatch.setattr(mail, "_adapter", lambda: object())  # a mailbox exists: drafts are possible
     mail._PENDING.clear()
     yield
     mail._PENDING.clear()
@@ -196,7 +198,7 @@ def test_a_5xx_says_check_sent_before_resending(monkeypatch):
 @pytest.mark.parametrize("flag,must,must_not", [
     ("1", "do not ask for a yes in text first", "BEFORE you call this"),
     ("0", "get a yes in chat BEFORE you call this", "do not ask for a yes in text"),
-    ("", "get a yes in chat BEFORE you call this", "do not ask for a yes in text"),
+    ("", "do not ask for a yes in text first", "BEFORE you call this"),  # unset = on (Boss 10-29)
 ])
 def test_the_description_is_honest_about_who_confirms(monkeypatch, flag, must, must_not):
     from windyfly.tools.registry import ToolRegistry

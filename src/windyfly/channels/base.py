@@ -101,7 +101,7 @@ async def handle_incoming(text: str, context: dict | None = None) -> tuple[bool,
             "just chat with me normally."
         )
 
-    # Owner approval of a drafted outbound email (dark: WINDY_SEND_CONFIRM=1). Handled
+    # Owner approval of a drafted outbound email (on by default; WINDY_SEND_CONFIRM=0 turns it off). Handled
     # here, in code, so the model can never approve its own send.
     from windyfly.tools import mail as _mail
 
