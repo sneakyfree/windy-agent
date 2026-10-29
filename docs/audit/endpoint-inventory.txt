@@ -1,5 +1,7 @@
 # Windy Fly HTTP Endpoint Inventory
-# Source: gateway/src/server.ts (53 routes; the 3 /api/machines* entries were removed when Mission Control was retired 2026-10-10)
+# Source: gateway/src/server.ts. A SNAPSHOT: the count and line numbers have drifted; server.ts is the truth.
+# Removed since: the 3 /api/machines* entries (Mission Control retired 2026-10-10); POST /api/email/send (2026-10-12,
+# it sent around the owner's confirmation; tests/test_no_unconfirmed_email_door.py keeps it out of this list).
 # Authentication: Dashboard password (Bearer/Cookie/query) — bypassed if DASHBOARD_PASSWORD unset or request Host header is localhost
 
 Method  Path                                             server.ts
@@ -11,7 +13,6 @@ GET     /api/cost/daily                                  :282
 GET     /api/cost/monthly                                :292
 GET     /api/dashboard                                   :312
 POST    /api/decay/run                                   :811
-POST    /api/email/send                                  :403
 POST    /api/email/webhook                               :392
 GET     /api/events                                      :901
 GET     /api/failures                                    :857

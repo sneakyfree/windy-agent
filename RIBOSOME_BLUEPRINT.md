@@ -696,6 +696,11 @@ class WindyFlyEmail:
 
 ### Step 4.2 — Add email webhook route to gateway `server.ts`
 
+> **⚠️ HISTORICAL (2026-10-29).** Do NOT build the `/api/email/send` route or the `email.send` bridge method below:
+> both were REMOVED 2026-10-12 (Hub) because they sent around the owner's confirmation. Outbound mail goes only
+> through `tools/mail.send_email` and the agent's own Windy Mail mailbox (no SendGrid), with owner confirmation for
+> a new recipient ON by default since 2026-10-29. `tests/test_no_unconfirmed_email_door.py` pins this.
+
 **File:** `gateway/src/server.ts`
 **Location:** After the SMS routes (added in Step 3.2)
 **Action:** Add:

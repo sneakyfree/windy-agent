@@ -24,7 +24,7 @@ All gateway -> IPC bridge -> Python handler chains verified working.
 | POST /api/sms/webhook | sms.inbound | _handle_sms_inbound | No |
 | POST /api/sms/send | sms.send | _handle_sms_send | No |
 | POST /api/email/webhook | email.inbound | _handle_email_inbound | No |
-| POST /api/email/send | email.send | _handle_email_send | No |
+| ~~POST /api/email/send~~ | ~~email.send~~ | ~~_handle_email_send~~ | REMOVED 2026-10-12 (Hub): it sent around the owner's confirmation. The only send path is tools/mail.send_email (owner-confirm ON by default since 2026-10-29); pinned by tests/test_no_unconfirmed_email_door.py |
 | GET /api/journal | journal.list | _handle_journal_list | No |
 | POST /api/assessment | assessment.run | _handle_assessment_run | No |
 | POST /api/shape-shift | shape_shift.execute | _handle_shape_shift | No |
