@@ -168,10 +168,16 @@ def register_windy_calendar_capabilities(registry: CapabilityRegistry, config: d
         tier=Tier.READ_EXTERNAL, band_required=Band.TRUSTED))
     registry.register(Capability(
         id="windy_calendar.book", name="Book a time",
+        # Calendar's own-agent rule: its own words (control.mcp.v1 at windy-calendar #96, Grant's Build-131 note 9).
         # Words: Boss 2026-10-28 17:26-17:49Z (P136-5), facts checked by Calendar against e0a3ba44 (true before AND after its
         # 10-29 deploy, when the owner's own agent may book any free time); then Hub #9.
         description="Books a time on the owner's calendar for another person: their name and email are required. "
-                    "It can't add an event or meeting of the owner's own. If the owner asks for a meeting of their "
+                    "It can't add an event or meeting of the owner's own. The calendar's own agent may book any "
+                    "future time up to two years ahead that overlaps no booking, at the owner's usual length for that "
+                    "day; the answer then says outside_open_hours, overlaps_blocked_time (the owner's own block) or "
+                    "overlaps_busy (another calendar) when true. Every other caller gets open slots only. Atomic: a "
+                    "time taken at the same instant returns 'just taken' with the next open times. If the owner asks "
+                    "for a meeting of their "
                     "own, say: \"I can't add an event just for you yet. I can set up a meeting with the people you "
                     "name for you to approve in your Windy Inbox, or hold that time so it can't be booked on your "
                     "booking page.\"",
