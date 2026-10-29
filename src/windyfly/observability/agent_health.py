@@ -27,6 +27,7 @@ import contextlib
 import contextvars
 import logging
 import os
+import re
 import threading
 import time
 from collections.abc import Iterator
@@ -78,10 +79,21 @@ _iv = _Interval()
 _demoted: tuple[str, str] | None = None
 _started = False
 _write_queue: Any = None
+# The transport NAME this process serves ("telegram", "matrix", ...), so HQ can alarm per channel (Admin 10-29). Only
+# a short lowercase name ever passes: never a chat, room or user id.
+_channel: str | None = None
+_CHANNEL_RE = re.compile(r"[a-z][a-z0-9_-]{0,19}")
+
+
+def set_channel(name: Any) -> None:
+    """Record the transport name for the boot and health rows; anything but a short lowercase name is dropped."""
+    global _channel
+    with _lock:
+        _channel = name if isinstance(name, str) and _CHANNEL_RE.fullmatch(name) else None
 
 
 def _reset_for_tests() -> None:
-    global _iv, _demoted, _started, _write_queue
+    global _iv, _demoted, _started, _write_queue, _channel
     from windyfly.observability import admin_telemetry
 
     admin_telemetry._reset_for_tests()
@@ -90,6 +102,7 @@ def _reset_for_tests() -> None:
         _demoted = None
         _started = False
         _write_queue = None
+        _channel = None
 
 
 def note_tool_call(ok: bool) -> None:
@@ -312,7 +325,9 @@ def health_row(write_queue: Any = None) -> dict | None:
     with _lock:
         iv, _iv = _iv, _Interval()
         degraded = _demoted is not None
+        channel = _channel
     return _emit("service.health", {
+        "channel": channel,
         "interval_s": int(time.monotonic() - iv.started),
         "turns": iv.turns,
         "turn_errors": iv.turn_errors,
@@ -339,13 +354,16 @@ def start(write_queue: Any, *, channel: str | None = None) -> None:
             return
         _started = True
         _write_queue = write_queue
+    if channel is not None:
+        set_channel(channel)
     if not at.enabled():
         return
     from windyfly import __version__
 
     _emit("service.boot", {
         "version": __version__,
-        "channel_count": 1 if channel else None,
+        "channel": _channel,
+        "channel_count": 1 if _channel else None,
         "install": _install_kind(),
     }, write_queue)
     interval = float(os.environ.get("WINDY_HEALTH_INTERVAL_S") or HEALTH_INTERVAL_S)

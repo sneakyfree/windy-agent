@@ -924,3 +924,40 @@ def test_the_health_beat_is_every_5_minutes_by_default(posted, monkeypatch):
     with pytest.raises(_Stop):
         targets[0]()
     assert slept == [300.0]
+
+
+# ── the transport name, so HQ can alarm per channel (Admin 10-29) ──────────────
+
+
+@pytest.mark.parametrize("name", ["telegram", "matrix", "cli", "discord", "slack"])
+def test_the_health_row_names_its_channel(name):
+    ah.set_channel(name)
+    assert ah.health_row(FakeQueue())["metadata"]["channel"] == name
+
+
+def test_no_channel_set_means_no_channel_key():
+    assert "channel" not in ah.health_row(FakeQueue())["metadata"]
+
+
+@pytest.mark.parametrize("bad", ["!room:chat.windychat.ai", "@grant:chat.windychat.ai", "Telegram", "123456789",
+                                 "-100123", "a" * 21, "", None, 7, "tele gram", "matrix\\n"])
+def test_never_a_chat_room_or_user_id(bad):
+    ah.set_channel("matrix")
+    ah.set_channel(bad)  # a bad value clears it: nothing ever goes out but a plain transport name
+    assert "channel" not in ah.health_row(FakeQueue())["metadata"]
+
+
+def test_the_real_boot_path_names_the_channel(posted, monkeypatch):
+    # main.py sets the channel right after parsing; cost_ledger later calls start(write_queue) with no channel.
+    monkeypatch.setenv("WINDY_HEALTH_INTERVAL_S", "3600")
+    ah.set_channel("telegram")
+    ah.start(FakeQueue())
+    boot = next(r for r in _rows(posted) if r["event_type"] == "service.boot")["metadata"]
+    assert boot["channel"] == "telegram" and boot["channel_count"] == 1
+
+
+def test_main_reports_its_channel_after_parsing():
+    from pathlib import Path
+
+    src = (Path(__file__).resolve().parents[1] / "src" / "windyfly" / "main.py").read_text(encoding="utf-8")
+    assert "agent_health.set_channel(args.channel)" in src
