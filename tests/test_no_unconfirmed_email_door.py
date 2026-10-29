@@ -29,3 +29,9 @@ def test_the_bridge_has_no_email_send_method():
         db.close()
     assert "email.send" not in methods
     assert "email.inbound" in methods  # inbound mail still reaches the agent
+
+
+def test_the_endpoint_inventory_does_not_list_the_removed_send_route():
+    # Hub 10-29: a stale doc row could be taken for a live route.
+    inventory = (ROOT / "docs" / "audit" / "endpoint-inventory.txt").read_text(encoding="utf-8")
+    assert not any(line.split()[:2] == ["POST", "/api/email/send"] for line in inventory.splitlines() if line.strip())
