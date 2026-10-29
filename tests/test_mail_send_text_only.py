@@ -16,7 +16,7 @@ from windyfly.tools import mail
 _UI_WORDS = re.compile(r"\b(card|button|tap)\b", re.IGNORECASE)
 
 
-@pytest.mark.parametrize("confirm", ["1", ""])
+@pytest.mark.parametrize("confirm", ["1", "0", ""])
 def test_description_never_names_a_card_or_button(monkeypatch, confirm):
     monkeypatch.setenv("WINDY_SEND_CONFIRM", confirm)
     text = mail._send_email_description()

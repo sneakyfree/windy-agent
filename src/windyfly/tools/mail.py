@@ -107,6 +107,15 @@ def with_ai_footer(body: str) -> str:
     return f"{body.rstrip()}\n\n--\n{footer}\n"
 
 
+_NO_MAILBOX = {
+    "status": "unavailable",
+    "error": (
+        "This agent's own Windy Mail mailbox isn't ready to send, "
+        "so nothing was sent. Tell the owner."
+    ),
+}
+
+
 def _send_email_now(
     to: Any, subject: str, body: str, *, cc: Any = None, bcc: Any = None,
     approved_by: str | None = None,
@@ -120,13 +129,7 @@ def _send_email_now(
     adapter = _adapter()
     if adapter is None:
         # No fallback by design: nothing leaves except from the agent's own mailbox.
-        return {
-            "status": "unavailable",
-            "error": (
-                "This agent's own Windy Mail mailbox isn't ready to send, "
-                "so nothing was sent. Tell the owner."
-            ),
-        }
+        return dict(_NO_MAILBOX)
     path = "windymail"
 
     try:
@@ -160,7 +163,7 @@ def _send_email_now(
     return result
 
 
-# ── owner confirmation before outbound sends (dark: WINDY_SEND_CONFIRM=1) ────────
+# ── owner confirmation before outbound sends (ON by default; WINDY_SEND_CONFIRM=0 turns it off) ──
 # The MODEL can only DRAFT. The owner's own message ('send' / 'cancel'), handled
 # in code by channels.base (never by the model), is what actually sends.
 _PENDING: dict[str, dict[str, Any]] = {}
@@ -168,7 +171,10 @@ PENDING_TTL_S = 30 * 60
 
 
 def send_confirm_enabled() -> bool:
-    return os.environ.get("WINDY_SEND_CONFIRM", "") == "1"
+    # Boss 2026-10-29 (principle #10, the human's control first): nothing reaches a NEW person without the owner's
+    # yes, so this is ON unless the env says exactly "0" (a lab switch). Unset, empty or anything else = on: a missing
+    # or mistyped setting can't quietly reopen unconfirmed sends. Approved recipients still go straight out.
+    return os.environ.get("WINDY_SEND_CONFIRM", "1").strip() != "0"
 
 
 # Boss ruling 10-07 (rule 4): ask the owner only for a NEW recipient or a bulk/cc send. One
@@ -283,9 +289,12 @@ def cancel_pending() -> int:
 
 def send_email(to: Any, subject: str, body: str, cc: Any = None, bcc: Any = None) -> dict[str, Any]:
     """Model-facing send: ONE email to everybody (to, cc, bcc).
-    With WINDY_SEND_CONFIRM=1 it DRAFTS (owner approves once) unless it is ONE plain recipient
+    With owner-confirm on (the default) it DRAFTS (owner approves once) unless it is ONE plain recipient
     the owner has already approved: a new recipient, or any bulk/cc/bcc send, always asks."""
     if send_confirm_enabled():
+        if _adapter() is None:
+            # No mailbox: say so now, never hold a draft the owner could approve but nothing could send.
+            return dict(_NO_MAILBOX)
         try:
             to_l, cc_l, bcc_l = normalize_recipients(to, cc, bcc)
         except ValueError as exc:

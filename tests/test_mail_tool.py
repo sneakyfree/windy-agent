@@ -25,6 +25,13 @@ from windyfly.tools.registry import ToolRegistry
 
 
 @pytest.fixture(autouse=True)
+def _wire_with_owner_confirm_off(monkeypatch):
+    # These test the send WIRE (one message, footer, failures). Owner-confirm is ON by default since 2026-10-29
+    # (tests/test_send_confirm.py covers it); here it is switched off so a send really goes out.
+    monkeypatch.setenv("WINDY_SEND_CONFIRM", "0")
+
+
+@pytest.fixture(autouse=True)
 def _owner_turn():
     """These call ToolRegistry.execute directly, outside agent_respond: run them as the owner's turn
     (legacy tools are gated on the running turn's band, windyfly.tools.bands)."""

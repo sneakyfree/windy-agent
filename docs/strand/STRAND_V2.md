@@ -1014,7 +1014,8 @@ own behaviour.
 | N4.12 | (ours) A message needs a "to" and carries at most 50 recipients | live | `tests/test_mail_one_message.py::test_needs_a_to_and_has_a_sanity_cap` |
 | N4.13 | (ours) An address carrying a real newline (header injection) is refused | live | `tests/strand/test_n4_n8_mail_calendar_cloud_phone_vault.py::test_n4_an_address_carrying_a_real_newline_header_is_refused` |
 | N4.14 | (ours) Every outgoing mail carries the "an AI agent acting for" footer | live | `tests/test_outbound_consent.py::test_windy_mail_path_gets_the_footer` |
-| N4.15 | (ours) With WINDY_SEND_CONFIRM=1 the model can only draft; nothing goes out | live | `tests/test_send_confirm.py::test_on_only_drafts_and_says_not_sent` |
+| N4.15 | (ours) With owner-confirm on the model can only draft to a new recipient; nothing goes out | live | `tests/test_send_confirm.py::test_on_only_drafts_and_says_not_sent` |
+| N4.15b | (ours) Owner-confirm is ON by default (Boss 2026-10-29, principle 10): only WINDY_SEND_CONFIRM=0 turns it off; unset/empty/anything else = on; approved recipients still go straight out | live | `tests/test_send_confirm.py::test_on_by_default_a_new_recipient_is_only_drafted` |
 | N4.16 | (ours) A stranger cannot approve a held draft | live | `tests/test_send_confirm.py::test_stranger_cannot_approve` |
 | N4.17 | (ours) A trusted sibling agent cannot approve a held draft | live | `tests/test_send_confirm.py::test_a_trusted_sibling_cannot_confirm_a_held_draft` |
 | N4.18 | (ours) A new recipient always asks first | live | `tests/test_send_confirm.py::test_new_recipient_always_asks` |

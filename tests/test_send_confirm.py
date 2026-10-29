@@ -1,4 +1,4 @@
-"""Owner confirmation before outbound sends (dark: WINDY_SEND_CONFIRM=1)."""
+"""Owner confirmation before outbound sends: ON by default since 2026-10-29 (Boss); WINDY_SEND_CONFIRM=0 turns it off."""
 import asyncio
 
 import pytest
@@ -20,6 +20,7 @@ def _clean(monkeypatch):
         return {"status": "sent", "provider": "windymail"}
 
     monkeypatch.setattr(mail, "_send_email_now", fake_now)
+    monkeypatch.setattr(mail, "_adapter", lambda: object())  # a mailbox exists (the no-mailbox test overrides it)
     monkeypatch.setattr(identity, "resolve_band",
                         lambda platform, sender, **kw: Band.OWNER if sender == OWNER else Band.SANDBOX)
     yield sent
@@ -30,9 +31,32 @@ def _incoming(text, sender=OWNER):
     return asyncio.run(base.handle_incoming(text, {"platform": "matrix", "sender_id": sender}))
 
 
-def test_off_by_default_sends_immediately(monkeypatch, _clean):
+@pytest.mark.parametrize("value", [None, "", "1", "yes", " 1 "])
+def test_on_by_default_a_new_recipient_is_only_drafted(monkeypatch, _clean, tmp_path, value):
+    # Boss 2026-10-29: nothing reaches a NEW person without the owner's yes, unless the lab switch says exactly "0".
+    monkeypatch.setattr(mail, "_known_path", lambda: tmp_path / "known.json")
+    monkeypatch.delenv("WINDY_OWNER_EMAILS", raising=False)
+    if value is None:
+        monkeypatch.delenv("WINDY_SEND_CONFIRM", raising=False)
+    else:
+        monkeypatch.setenv("WINDY_SEND_CONFIRM", value)
+    out = mail.send_email("new@b.com", "hi", "body")
+    assert out["status"] != "sent" and _clean == [] and mail.pending_drafts()
+
+
+def test_on_by_default_an_approved_recipient_still_goes_straight_out(monkeypatch, _clean, tmp_path):
+    monkeypatch.setattr(mail, "_known_path", lambda: tmp_path / "known.json")
     monkeypatch.delenv("WINDY_SEND_CONFIRM", raising=False)
-    out = mail.send_email("a@b.com", "hi", "body")
+    monkeypatch.setenv("WINDY_OWNER_EMAILS", "owner@b.com")
+    out = mail.send_email("owner@b.com", "hi", "body")
+    assert out["status"] == "sent" and len(_clean) == 1 and not mail.pending_drafts()
+
+
+@pytest.mark.parametrize("value", ["0", " 0 "])
+def test_only_an_explicit_zero_turns_it_off(monkeypatch, _clean, tmp_path, value):
+    monkeypatch.setattr(mail, "_known_path", lambda: tmp_path / "known.json")
+    monkeypatch.setenv("WINDY_SEND_CONFIRM", value)
+    out = mail.send_email("new@b.com", "hi", "body")
     assert out["status"] == "sent" and len(_clean) == 1 and not mail.pending_drafts()
 
 
@@ -74,7 +98,7 @@ def test_send_word_with_no_draft_is_just_chat(monkeypatch, _clean):
 
 
 def test_flag_off_never_intercepts(monkeypatch, _clean):
-    monkeypatch.delenv("WINDY_SEND_CONFIRM", raising=False)
+    monkeypatch.setenv("WINDY_SEND_CONFIRM", "0")
     mail._PENDING["x"] = {"to": "a@b.com", "subject": "s", "body": "b", "at": 9e18}
     was_cmd, _ = _incoming("send")
     assert not was_cmd and _clean == []
@@ -167,3 +191,11 @@ def test_a_trusted_sibling_cannot_confirm_a_held_draft(monkeypatch, _clean):
     mail.send_email("a@b.com", "hi", "body")
     asyncio.run(base.handle_incoming("send", {"platform": "matrix", "sender_id": sib}))
     assert _clean == [] and mail.pending_drafts()
+
+
+def test_on_with_no_mailbox_says_unavailable_and_holds_no_draft(monkeypatch, _clean):
+    # Never hold a draft the owner could approve when nothing could send it.
+    monkeypatch.delenv("WINDY_SEND_CONFIRM", raising=False)
+    monkeypatch.setattr(mail, "_adapter", lambda: None)
+    out = mail.send_email("new@b.com", "hi", "body")
+    assert out["status"] == "unavailable" and _clean == [] and not mail.pending_drafts()

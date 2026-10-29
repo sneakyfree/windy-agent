@@ -27,6 +27,7 @@ def _env(monkeypatch):
     monkeypatch.setenv("WINDY_SEND_CONFIRM", "1")
     monkeypatch.setenv("WINDY_OWNER_IDS", f"matrix:{OWNER}")
     monkeypatch.setattr(mail, "_send_email_now", lambda *a, **k: {"status": "sent", "provider": "windymail"})
+    monkeypatch.setattr(mail, "_adapter", lambda: object())  # a mailbox exists: drafts are possible
     yield
     mail._PENDING.clear()
 
