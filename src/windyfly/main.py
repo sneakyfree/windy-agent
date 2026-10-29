@@ -397,6 +397,12 @@ def main() -> None:
     # Configure logging
     log_level = args.log_level or config.get("log_level", "INFO")
     _configure_logging(args.channel, log_level)
+    try:  # the transport name on HQ's service.boot / service.health rows (Admin 10-29: alarm per channel)
+        from windyfly.observability import agent_health
+
+        agent_health.set_channel(args.channel)
+    except Exception:  # noqa: BLE001  (telemetry never blocks a boot)
+        pass
 
     # Install secret-redaction filter on the root handler so httpx /
     # telegram.ext / etc. don't leak bot tokens or API keys into the
