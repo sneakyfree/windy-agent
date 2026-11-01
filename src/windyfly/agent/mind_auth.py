@@ -50,6 +50,14 @@ def _warn_once(key: str, msg: str, *args: Any) -> None:
 
 
 def legacy_headers(ept: str) -> dict[str, str]:
+    """The legacy EPT bearer. Every request sent with it is counted for HQ (service.health mind_legacy_auth),
+    so a fallback is an alarm, not something found by hand (Boss 11-01; Mind stops accepting it 12-03)."""
+    try:
+        from windyfly.observability import agent_health
+
+        agent_health.note_mind_legacy_auth()
+    except Exception:  # noqa: BLE001  (telemetry never breaks a call)
+        pass
     return {"Authorization": f"Bearer {ept}"}
 
 
@@ -69,7 +77,8 @@ def headers(method: str, url: str, ept: str) -> tuple[dict[str, str], bool]:
         if is_not_born(exc.code):  # mid-canal: a wait, not a failure (birth reservation v1)
             logger.info("Windy Mind: passport still being born; waiting for birth complete")
         else:
-            _warn_once(f"mint:{exc.code}", "Windy Mind: no EPT+agent (%s); using the legacy EPT", exc.code)
+            _warn_once(f"mint:{exc.code}:{exc.detail}", "Windy Mind: no EPT+agent (%s %s); using the legacy EPT",
+                       exc.code, exc.detail)
         return legacy_headers(ept), False
 
 

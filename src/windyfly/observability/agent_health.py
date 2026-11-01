@@ -70,6 +70,7 @@ class _Interval:
         self.tool_errors = 0
         self.retries_429 = 0
         self.lifeboat_turns = 0
+        self.mind_legacy_auth = 0
         self.turn_ms: list[int] = []
         self.quarantined = 0
         self.dropped = 0
@@ -117,6 +118,12 @@ def note_llm_record(record: dict[str, Any]) -> None:
     if record.get("status") == "failed" and record.get("error_code") == "rate_limited":
         with _lock:
             _iv.retries_429 += 1
+
+
+def note_mind_legacy_auth() -> None:
+    """One request to Windy Mind went out with the legacy 365-day EPT (a failed mint or a refusal)."""
+    with _lock:
+        _iv.mind_legacy_auth += 1
 
 
 def note_ingest_result(quarantined: int) -> None:
@@ -339,6 +346,7 @@ def health_row(write_queue: Any = None) -> dict | None:
         "degraded": degraded,
         "telemetry_quarantined": iv.quarantined,
         "telemetry_dropped": iv.dropped,
+        "mind_legacy_auth": iv.mind_legacy_auth,
     }, write_queue)
 
 

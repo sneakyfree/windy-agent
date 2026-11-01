@@ -961,3 +961,12 @@ def test_main_reports_its_channel_after_parsing():
 
     src = (Path(__file__).resolve().parents[1] / "src" / "windyfly" / "main.py").read_text(encoding="utf-8")
     assert "agent_health.set_channel(args.channel)" in src
+
+
+def test_mind_legacy_auth_is_on_every_health_row_even_at_zero():
+    # HQ's zero_legacy_ept_fallback WARNs on a 24 h sum > 0 and goes "unknown" if the key stops arriving,
+    # so the key must be present at 0 too (Admin 11-01).
+    ah.note_mind_legacy_auth()
+    ah.note_mind_legacy_auth()
+    assert ah.health_row(FakeQueue())["metadata"]["mind_legacy_auth"] == 2
+    assert ah.health_row(FakeQueue())["metadata"]["mind_legacy_auth"] == 0  # reset per interval, still sent

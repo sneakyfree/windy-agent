@@ -24,9 +24,10 @@ REMINT_CODES = frozenset({
 class ServiceAuthError(Exception):
     """The agent could not mint a token for ``aud`` (no registered key, Eternitas down...)."""
 
-    def __init__(self, code: str) -> None:
+    def __init__(self, code: str, detail: str = "") -> None:
         super().__init__(code)
         self.code = code
+        self.detail = detail  # e.g. the network error class (ConnectError, ReadTimeout): never a token or URL
 
 
 def agent_headers(aud: str, method: str, url: str) -> dict[str, str]:
@@ -40,7 +41,8 @@ def agent_headers(aud: str, method: str, url: str) -> dict[str, str]:
         htu = url.split("?", 1)[0].split("#", 1)[0]
         return {"Authorization": f"Bearer {token}", "DPoP": ak.service_dpop(method.upper(), htu)}
     except Exception as exc:  # noqa: BLE001  (AgentTokenError, key IO, network)
-        raise ServiceAuthError(str(getattr(exc, "code", type(exc).__name__))) from exc
+        raise ServiceAuthError(str(getattr(exc, "code", type(exc).__name__)),
+                               str(getattr(exc, "message", "") or "")) from exc
 
 
 def forget_token() -> None:

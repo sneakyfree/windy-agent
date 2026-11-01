@@ -214,3 +214,18 @@ def test_every_request_carries_a_proof_for_its_url_without_the_query(monkeypatch
     monkeypatch.setattr(ak, "service_dpop", lambda m, u: f"dpop:{m}:{u}")
     h = service_auth.agent_headers(aud, method, "https://x.example/v1/thing?page=2#frag")
     assert h == {"Authorization": f"Bearer t-{aud}", "DPoP": f"dpop:{method}:https://x.example/v1/thing"}
+
+
+def test_a_failed_mint_warning_names_the_error_class(monkeypatch, caplog):
+    import logging
+
+    from windyfly.agent import service_auth
+
+    def boom(aud, method, url):
+        raise service_auth.ServiceAuthError("unreachable", "ConnectError")
+
+    monkeypatch.setattr(service_auth, "agent_headers", boom)
+    with caplog.at_level(logging.WARNING, logger="windyfly.agent.mind_auth"):
+        auth, agent = mind_auth.headers("POST", "https://api.windymind.ai/v1/chat", "legacy-ept")
+    assert agent is False and auth == {"Authorization": "Bearer legacy-ept"}
+    assert "unreachable ConnectError" in caplog.text and "legacy-ept" not in caplog.text
