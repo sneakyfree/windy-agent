@@ -130,3 +130,99 @@ def test_service_dpop_is_fresh_per_request_and_strips_query(registered):
     assert ca["htm"] == "POST" and ca["htu"] == "https://api.windycalendar.com/v1/events"
     assert ca["jti"] != cb["jti"]
     assert ak.thumbprint(_seg(a, 0)["jwk"]) == registered
+
+
+# ── resilience (Zero 2026-11-01: ~126 mints died at the network and fell back to the legacy EPT) ──────────────
+
+
+class Flaky:
+    """Fails the first ``fails`` mints with ``exc`` (or answers ``status``), then behaves like FakeTokens."""
+
+    def __init__(self, kid: str, fails: int, exc: type | None = httpx.ConnectError, status: int = 0) -> None:
+        self.ok, self.fails, self.exc, self.status, self.attempts = FakeTokens(kid), fails, exc, status, 0
+
+    def handle(self, req: httpx.Request) -> httpx.Response:
+        self.attempts += 1
+        if self.attempts <= self.fails:
+            if self.exc is not None:
+                raise self.exc("down")
+            return _err(self.status, {503: "unavailable", 403: "passport_suspended"}.get(self.status, "x")) \
+                if self.status != 429 else httpx.Response(429, headers={"Retry-After": "7"}, json={"detail": {}})
+        return self.ok.handle(req)
+
+
+@pytest.fixture
+def fast(monkeypatch):
+    monkeypatch.setattr(ak, "MINT_RETRY_S", 0)
+
+
+def test_a_network_blip_with_nothing_cached_is_retried_once(registered, fast):
+    f = Flaky(registered, fails=1)
+    got = ak.request_agent_token("windy-mind", transport=httpx.MockTransport(f.handle))
+    assert got["token_type"] == "EPT+agent" and f.attempts == 2
+
+
+def test_two_network_failures_raise_unreachable_with_the_error_class(registered, fast):
+    f = Flaky(registered, fails=2, exc=httpx.ConnectTimeout)
+    with pytest.raises(ak.AgentTokenError) as ei:
+        ak.request_agent_token("windy-mind", transport=httpx.MockTransport(f.handle))
+    assert ei.value.code == "unreachable" and ei.value.message == "ConnectTimeout" and f.attempts == 2
+
+
+def _cached_then(registered, monkeypatch, seconds_later: int, flaky: "Flaky") -> tuple[dict, dict | None, Exception | None]:
+    good = ak.request_agent_token("windy-mind", transport=httpx.MockTransport(FakeTokens(registered).handle))
+    real = time.time
+    monkeypatch.setattr(ak.time, "time", lambda: real() + seconds_later)
+    try:
+        return good, ak.request_agent_token("windy-mind", transport=httpx.MockTransport(flaky.handle)), None
+    except ak.AgentTokenError as e:
+        return good, None, e
+
+
+def test_refresh_starts_early_and_a_blip_keeps_the_valid_cached_token(registered, monkeypatch, fast):
+    f = Flaky(registered, fails=5)
+    good, got, err = _cached_then(registered, monkeypatch, 240, f)  # 60 s left: inside REFRESH_EARLY_S
+    assert err is None and got["token"] == good["token"]
+    assert f.attempts == 1  # tried to refresh early; no retry needed while a valid token is cached
+
+
+@pytest.mark.parametrize("status", [503, 429])
+def test_a_5xx_or_429_also_keeps_the_valid_cached_token(registered, monkeypatch, fast, status):
+    good, got, err = _cached_then(registered, monkeypatch, 240, Flaky(registered, fails=5, exc=None, status=status))
+    assert err is None and got["token"] == good["token"]
+
+
+def test_a_refusal_never_reuses_the_cached_token_and_drops_it(registered, monkeypatch, fast):
+    good, got, err = _cached_then(registered, monkeypatch, 240, Flaky(registered, fails=5, exc=None, status=403))
+    assert got is None and err.code == "passport_suspended"
+    assert not [k for k in ak._TOKEN_CACHE if k[1] == "windy-mind"]  # a suspended passport's token is gone
+
+
+def test_a_cached_token_about_to_expire_is_not_reused(registered, monkeypatch, fast):
+    f = Flaky(registered, fails=5)
+    good, got, err = _cached_then(registered, monkeypatch, 297, f)  # 3 s left: under STALE_GRACE_S
+    assert got is None and err.code == "unreachable" and f.attempts == 2  # no usable token: retried, then raised
+
+
+def test_service_auth_keeps_the_error_class(registered, fast, monkeypatch):
+    from windyfly.agent import service_auth
+
+    f = Flaky(registered, fails=5, exc=httpx.ReadTimeout)
+    real = ak.request_agent_token
+    monkeypatch.setattr(ak, "request_agent_token",
+                        lambda aud, **k: real(aud, transport=httpx.MockTransport(f.handle)))
+    with pytest.raises(service_auth.ServiceAuthError) as ei:
+        service_auth.agent_headers("windy-mind", "POST", "https://api.windymind.ai/v1/chat")
+    assert ei.value.code == "unreachable" and ei.value.detail == "ReadTimeout"
+
+
+def test_every_legacy_mind_request_is_counted_on_the_health_row():
+    from windyfly.agent import mind_auth
+    from windyfly.observability import agent_health as ah
+
+    ah._reset_for_tests()
+    mind_auth.legacy_headers("legacy-ept")
+    mind_auth.legacy_headers("legacy-ept")
+    assert ah._iv.mind_legacy_auth == 2
+    ah._reset_for_tests()
+    assert ah._iv.mind_legacy_auth == 0

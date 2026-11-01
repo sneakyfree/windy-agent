@@ -830,14 +830,37 @@ def _active_key(cred_path: Path | None) -> tuple[ec.EllipticCurvePrivateKey, str
     return load_private_key(entry["private_key"]), str(entry["kid"])
 
 
+# Refresh a cached token this long before it expires, so no request waits on a mint at the edge; if that refresh
+# hits a TRANSIENT failure (network, 5xx, 429) the still-valid cached token keeps working until STALE_GRACE_S before
+# expiry. Zero, 2026-11-01: ~126 mints died before reaching Eternitas (network) and each fell back to the legacy EPT.
+REFRESH_EARLY_S = 90
+STALE_GRACE_S = 5
+MINT_RETRY_S = 0.5
+
+
+def _transient(err: "AgentTokenError") -> bool:
+    return err.code == "unreachable" or err.status == 429 or err.status >= 500
+
+
+def _mint(url: str, aud: str, key: Any, transport: httpx.BaseTransport | None) -> httpx.Response:
+    try:
+        with httpx.Client(timeout=15.0, transport=transport) as client:
+            return client.post(url, json={"aud": aud}, headers={"DPoP": dpop_proof(key, "POST", url)})
+    except httpx.HTTPError as exc:
+        # The class (ConnectError, ConnectTimeout, ReadTimeout...) says where it died; never a URL or a token.
+        raise AgentTokenError("unreachable", type(exc).__name__) from exc
+
+
 def request_agent_token(aud: str, *, transport: httpx.BaseTransport | None = None,
-                        cred_path: Path | None = None, min_ttl: int = 30) -> dict[str, Any]:
+                        cred_path: Path | None = None, min_ttl: int = REFRESH_EARLY_S) -> dict[str, Any]:
     """An ``EPT+agent`` for ``aud`` (a Windy service name such as ``windy-calendar``),
     bound to this agent's active registered key (``cnf.jkt``), with LIVE ei/band/clr.
 
     Auth is ONLY a DPoP proof by that key: no bearer, so a leaked EPT can't mint these.
     Cached per (kid, aud) until ``min_ttl`` seconds before expiry (tokens live ≤5 min;
-    Eternitas allows 30 mints/min per passport). Returns Eternitas's body
+    Eternitas allows 30 mints/min per passport). A TRANSIENT mint failure (network, 5xx, 429) returns the cached
+    token while it is still valid; with nothing cached, a network failure is retried once after MINT_RETRY_S.
+    Any other refusal (revoked, suspended...) drops the cached token and raises. Returns Eternitas's body
     ``{token, token_type, expires_in, aud, passport}`` plus ``expires_at`` (epoch s).
     Raises :class:`AgentTokenError`. Services that take the token for WRITES also want a
     per-request proof: see :func:`service_dpop`.
@@ -849,15 +872,27 @@ def request_agent_token(aud: str, *, transport: httpx.BaseTransport | None = Non
         if hit and hit["expires_at"] - min_ttl > now:
             return dict(hit)
     url = f"{_base_url()}{TOKEN_PATH}"
+    usable = hit if hit and hit["expires_at"] - STALE_GRACE_S > now else None
     try:
-        with httpx.Client(timeout=15.0, transport=transport) as client:
-            resp = client.post(url, json={"aud": aud},
-                               headers={"DPoP": dpop_proof(key, "POST", url)})
-    except httpx.HTTPError as exc:
-        raise AgentTokenError("unreachable", type(exc).__name__) from exc
-    if resp.status_code != 200:
-        code, msg = error_code(resp)
-        raise AgentTokenError(code or f"http_{resp.status_code}", msg, resp.status_code, retry_after_s(resp))
+        try:
+            resp = _mint(url, aud, key, transport)
+        except AgentTokenError:
+            if usable is not None:
+                raise
+            time.sleep(MINT_RETRY_S)  # nothing cached to fall back on: one more try
+            resp = _mint(url, aud, key, transport)
+        if resp.status_code != 200:
+            code, msg = error_code(resp)
+            raise AgentTokenError(code or f"http_{resp.status_code}", msg, resp.status_code, retry_after_s(resp))
+    except AgentTokenError as err:
+        if usable is not None and _transient(err):
+            logger.info("agent keys: refresh for %s failed (%s %s); the cached token is still valid", aud,
+                        err.code, err.message)
+            return dict(usable)
+        if not _transient(err):
+            with _TOKEN_LOCK:
+                _TOKEN_CACHE.pop((kid, aud), None)  # revoked/suspended/...: never keep using it
+        raise
     body = resp.json()
     token = str(body.get("token") or "")
     if not token:
