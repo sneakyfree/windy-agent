@@ -14,8 +14,11 @@ DARK: registered only when WINDY_OWNER_CALL=1. The old body (api.windycall.com/v
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import os
+import time
 from typing import Any
 
 import httpx
@@ -31,6 +34,43 @@ _TIMEOUT = 90.0
 _DEFAULT_BASE_URL = "https://api.windytext.com"
 _PATH = "/call/v1/owner-call"
 MAX_MESSAGE = 500
+# After a call that MAY have rung (placed, unknown, or windy-text's "may have dialled" 502), make_call refuses a
+# second call to the owner for this long, in code (Boss 11-01: words to the model are not a control). Shared by
+# every process of this agent through a state file. A clean refusal before any dial never arms it.
+RECENT_CALL_S = 10 * 60
+RECENT_CALL_SAY = "A call may already have been placed; ask your owner before calling again."
+
+
+def _guard_path() -> Any:
+    from windyfly.platform import windy_state_dir
+
+    return windy_state_dir() / "owner_call_guard.json"
+
+
+def _recent_call_until() -> float:
+    try:
+        data = json.loads(_guard_path().read_text(encoding="utf-8"))
+        return float(data.get("until", 0)) if isinstance(data, dict) else 0.0
+    except (OSError, ValueError, TypeError):
+        return 0.0
+
+
+def _arm_recent_call_guard(now: float) -> None:
+    try:
+        path = _guard_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"until": now + RECENT_CALL_S}), encoding="utf-8")
+        tmp.replace(path)
+    except OSError as exc:  # a guard we can't write must not hide the call's real result
+        logger.warning("make_call: could not record the recent-call guard (%s)", type(exc).__name__)
+
+
+def _idempotency_key(text: str) -> str:
+    """The SAME intended call gets the SAME key, so windy-text drops a repeat inside its window (Call 11-01): the
+    agent's passport + the message. Never the message itself on the wire, only its hash."""
+    parts = (os.environ.get("ETERNITAS_PASSPORT", ""), text)
+    return "oc-" + hashlib.sha256("\x1f".join(parts).encode("utf-8")).hexdigest()[:40]
 
 
 def enabled() -> bool:
@@ -46,11 +86,16 @@ def make_call(message: str) -> dict[str, Any]:
     text = (message or "").strip()
     if not 1 <= len(text) <= MAX_MESSAGE:
         return {"status": "failed", "error": f"message must be 1-{MAX_MESSAGE} characters"}
+    now = time.time()
+    if _recent_call_until() > now:
+        logger.info("make_call: refused locally, a call may already have been placed")
+        return {"status": "refused", "code": "recent_call", "note": RECENT_CALL_SAY}
     base = os.environ.get("WINDY_TEXT_BASE_URL", _DEFAULT_BASE_URL).rstrip("/")
     url = f"{base}{_PATH}"
     headers, code = agent_auth(url)
     if headers is None:
         return {"status": "refused", "code": code}
+    headers = {**headers, "Idempotency-Key": _idempotency_key(text)}
     try:
         resp = httpx.post(url, json={"mode": "announce", "message": text}, headers=headers, timeout=_TIMEOUT)
     except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout) as exc:
@@ -58,9 +103,10 @@ def make_call(message: str) -> dict[str, Any]:
         logger.info("make_call: windy-text unreachable (%s)", type(exc).__name__)
         return {"status": "failed", "error": "windy-text unreachable"}
     except httpx.HTTPError as exc:
-        # The request may have arrived: the owner's phone may already be ringing. A second try is safe (the
-        # server answers 409 call_in_progress while a call is active).
+        # The request may have arrived: the owner's phone may already be ringing. A second try is NOT safe: the
+        # server's 409 call_in_progress only covers a call still active (Hub 11-01), so the guard below refuses one.
         logger.info("make_call: no answer from windy-text (%s)", type(exc).__name__)
+        _arm_recent_call_guard(now)
         return {"status": "unknown",
                 "error": f"no answer from windy-text in {int(_TIMEOUT)} s; a call may still be placed"}
     try:
@@ -69,6 +115,8 @@ def make_call(message: str) -> dict[str, Any]:
         body = {}
     if not isinstance(body, dict):
         body = {}
+    if resp.status_code == 200 or resp.status_code == 502:
+        _arm_recent_call_guard(now)  # placed, or windy-text's "may have dialled" (502)
     if resp.status_code == 200:
         return {"status": "calling", "call_id": body.get("call_id"), "call_status": body.get("status"),
                 "time_limit_seconds": body.get("time_limit_seconds")}
@@ -86,7 +134,8 @@ def register_voice_tools(registry: ToolRegistry) -> None:
         description=(
             "Phones your owner, and only your owner, and speaks a short message. Returns {status: 'calling', "
             "call_id, call_status, time_limit_seconds}, {status: 'refused', http_status, code} or "
-            "{status: 'unknown', error} when windy-text did not answer in time (a call may still be placed)."
+            "{status: 'unknown', error} when windy-text did not answer in time (a call may still be placed). "
+            "If the status is unknown, do not call again: tell your owner a call may have been placed."
         ),
         parameters={
             "type": "object",
