@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import re
+import time
+
 import httpx
 import pytest
 
@@ -130,4 +133,67 @@ def test_the_dpop_proof_is_for_the_owner_call_url(monkeypatch):
     with patch("httpx.post", return_value=_resp(200, {})) as post:
         voice.make_call("hi")
     assert seen == ["windy-telephony", ("POST", "https://text.example/call/v1/owner-call")]
-    assert post.call_args.kwargs["headers"] == {"Authorization": "Bearer t", "DPoP": "p"}
+    sent = dict(post.call_args.kwargs["headers"])
+    key = sent.pop("Idempotency-Key")
+    assert sent == {"Authorization": "Bearer t", "DPoP": "p"}
+    assert re.fullmatch(r"[A-Za-z0-9_-]{8,64}", key)  # windy-text's Idempotency-Key format (Call 11-01)
+
+
+
+# ── no double ring (Hub on #609, Boss 11-01: words to the model are not a control) ──────────────
+
+
+@pytest.mark.parametrize("first", ["unknown", "placed", "may_have_dialled"])
+def test_after_a_call_that_may_have_rung_a_repeat_is_refused_in_code(on, first):
+    if first == "unknown":
+        with patch("httpx.post", side_effect=httpx.ReadTimeout("slow")):
+            assert voice.make_call("Dinner is at 7")["status"] == "unknown"
+    else:
+        status = 200 if first == "placed" else 502
+        with patch("httpx.post", return_value=_resp(status, {"call_id": "c1", "error": "twilio_unavailable"})):
+            voice.make_call("Dinner is at 7")
+    with patch("httpx.post") as post:
+        again = voice.make_call("Dinner is at 7, really")
+    assert post.call_count == 0  # nothing reaches windy-text
+    assert again == {"status": "refused", "code": "recent_call", "note": voice.RECENT_CALL_SAY}
+
+
+def test_a_clean_refusal_before_any_dial_does_not_block_the_next_call(on):
+    with patch("httpx.post", return_value=_resp(403, {"error": "calls_not_allowed"})):
+        assert voice.make_call("hi")["code"] == "calls_not_allowed"
+    with patch("httpx.post", return_value=_resp(200, {"call_id": "c2"})) as post:
+        assert voice.make_call("hi")["status"] == "calling" and post.call_count == 1
+
+
+def test_the_guard_ends_after_ten_minutes(on, monkeypatch):
+    with patch("httpx.post", side_effect=httpx.ReadTimeout("slow")):
+        voice.make_call("hi")
+    real = time.time
+    monkeypatch.setattr(voice.time, "time", lambda: real() + voice.RECENT_CALL_S + 1)
+    with patch("httpx.post", return_value=_resp(200, {"call_id": "c3"})) as post:
+        assert voice.make_call("hi")["status"] == "calling" and post.call_count == 1
+
+
+def test_the_guard_is_shared_through_the_state_file(on):
+    # Zero runs one process per channel: a call from telegram must block a call from matrix too.
+    with patch("httpx.post", side_effect=httpx.ReadTimeout("slow")):
+        voice.make_call("hi")
+    assert voice._guard_path().exists() and voice._recent_call_until() > time.time()
+
+
+def test_the_same_intended_call_sends_the_same_key(on, monkeypatch):
+    monkeypatch.setenv("ETERNITAS_PASSPORT", "ET26-TEST-AAAA-BBBB")
+    keys = []
+    for msg in ("Dinner is at 7", "Dinner is at 7", "Dinner moved to 8"):
+        with patch("httpx.post", return_value=_resp(403, {"error": "calls_not_allowed"})) as post:
+            voice.make_call(msg)
+        keys.append(post.call_args.kwargs["headers"]["Idempotency-Key"])
+    assert keys[0] == keys[1] != keys[2]
+    assert "Dinner" not in keys[0]  # only a hash of the message goes on the wire
+
+
+def test_the_description_tells_the_model_not_to_call_again_after_unknown(on):
+    reg = ToolRegistry()
+    voice.register_voice_tools(reg)
+    desc = next(t["function"]["description"] for t in reg.get_schemas() if t["function"]["name"] == "make_call")
+    assert desc.endswith("If the status is unknown, do not call again: tell your owner a call may have been placed.")
