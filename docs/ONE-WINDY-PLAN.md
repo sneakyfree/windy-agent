@@ -29,7 +29,9 @@ Goal: every surface sends the person to the one Windy Accounts app (SSO with Win
 | Windy Text / Call | | [Owner: Text / Call] | | | Windy Text / Call |
 | Windy Traveler | windytraveler.com (windytraveler-site): navbar + hero "Translate free" links | 0 sign-up/login forms, no user store; both links go to app.windyword.ai/translate (Windy sign-in there). DARK #14 adds one "Sign in with Windy" LINK behind a flag. Hourly synthetic journey signs up via app.windyword.ai/auth | YES (links only) | none, or point both links at the final Accounts URL in one small PR | Windy Traveler |
 | Windy Clone, Talk, Hand, Drops, Connect, Translate, Mobile | | [Owners] | | | each lane |
-| Eternitas (operator console) | eternitas.ai | [Owner: Eternitas] | (Eternitas is its own company: say whether the rule applies) | | Eternitas |
+| Eternitas (operator console) | eternitas.ai app (Login.tsx, Register.tsx) | Its OWN email+password sign-up and login (forgot/reset, TOTP), PLUS "Sign in with Windy" (/auth/login-with-windy). 30 days: Windy sign-ins 775; password logins 25 (last 10-29); password sign-ups 2 (last 10-10); resets 1. Not Windy-linked: 2,621 synthetic probes, 42 internal, 23 test, 9 others (0 new in 30 days) | PARTLY | Remove the Register form and password sign-up (the door goes to the Windy Accounts app). Login = "Sign in with Windy" only. Password login stays until the 9 + 1 admin are linked, then retires; the /auth/register and /operators/register APIs close with it. Eternitas can build it this week after approval | Eternitas |
+
+**Not person sign-ups (they stay, Eternitas):** POST /platforms/register (B2B platform keys, 2 in 30 days), /bots/register (an already-signed-in owner registers an agent), agent-key register (agents' own keys, 6,288 in 30 days). "Sign in with Eternitas" (#264) is AGENT identity: an agent proves who it is to a site. It is not a second human login.
 
 ## B. Birth canal: one canal, many doorways
 **Fact (Agent, read 2026-11-02):**
@@ -50,7 +52,11 @@ Goal: every surface sends the person to the one Windy Accounts app (SSO with Win
   - What makes Mind's add-compute step thumb-ready (sign in with Windy / Google / Apple / GitHub; connect Anthropic, OpenAI and others), and its date: [Owner: Mind].
   - The switch to `all` is its own GO after a lab hatch.
 - **Vault stop (Grant 2026-10-21):** where it sits in the canal and its status: [Owner: Vault / Word].
-- **Certificate:** Eternitas is the only certifier, at the end of the canal: [Eternitas: confirm, and confirm no other issuer path is live].
+- **Certificate (Eternitas, 11-02):**
+  - Today the canal reserves a passport (status not_born), and Eternitas activates it and issues the certificate + EPT at the end.
+  - For Grant's gate, Eternitas can REQUIRE "Mind activated" + "compute source added" as fields the canal must report before the passport goes active: no report = no certificate. A small change; owner Eternitas.
+  - Known gap: not_born passports are not yet in the CRL/status feed (open Boss item).
+  - [Eternitas: confirm no other issuer path is live; counts by passport-issue caller, 30 days].
 
 ## C. One runtime for every agent
 **This replaces the convergence plan's "decide after 12-15" (Boss, 2026-11-02 15:01Z).**
@@ -148,7 +154,9 @@ What "one agent" must give a person (Grant): the same agent everywhere, Claude-C
   - Facts only.
   - A platform that is not active is never stated as available: "coming soon" is said as such, and only if asked.
   - It mentions a platform once, when it helps; never a sales pitch.
-- **Source:** one read from Windy Accounts [Owner: Word/Hub: does an endpoint exist, and its shape?], falling back to each platform's own entitlement read.
+- **Source:**
+  - one read from Windy Accounts [Owner: Word/Hub: does an endpoint exist, and its shape?], falling back to each platform's own entitlement read;
+  - the identity facts (passport number, status, trust tier, owner link) LIVE from Eternitas (GET /bots/{passport}; the same values as the EPT claims passport_number / windy_identity_id / tru). They change, so they are never copied at birth (Eternitas, 11-02).
 - **Quick win (Boss):** start NOW in both runtimes, DARK, behind a flag.
 - **Test:** a "grandma journey" on every release. Hatch fresh and ask "where do I keep my passwords / save my photos / make a website": the agent must name the right platform with true facts, on every model, including a local one.
 
