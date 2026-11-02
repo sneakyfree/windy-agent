@@ -124,3 +124,80 @@ class TestMatrixBotOneSoulLogin:
         ):
             with pytest.raises(RuntimeError):
                 _run(bot.login())
+
+
+# ── mode B (dark: WINDY_CHAT_EPT_AGENT=1; Chat 2026-11-01: aud windy-chat + DPoP for this exact URL) ──────────
+
+
+def _session_resp(status=200):
+    resp = MagicMock(status_code=status)
+    resp.json.return_value = {"matrix_user_id": "@agent_x:chat.windychat.ai", "access_token": "syt_x",
+                              "device_id": "D1", "dm_room_id": "!dm:chat.windychat.ai"}
+    resp.raise_for_status = MagicMock()
+    return resp
+
+
+@pytest.fixture
+def mode_b(monkeypatch):
+    from windyfly.agent import service_auth
+
+    monkeypatch.setenv(chat_session.ENV_FLAG, "1")
+    monkeypatch.setenv("ETERNITAS_PASSPORT_TOKEN", "LONG-EPT")
+    seen = []
+
+    def fake_headers(aud, method, url):
+        seen.append((aud, method, url))
+        return {"Authorization": "Bearer agent-tok", "DPoP": "proof"}
+
+    monkeypatch.setattr(service_auth, "agent_headers", fake_headers)
+    return seen
+
+
+class TestModeB:
+    def test_sends_ept_agent_and_a_proof_for_the_exact_url(self, mode_b):
+        ctx, client = _mock_client(_session_resp())
+        with patch("httpx.AsyncClient", return_value=ctx):
+            out = _run(chat_session.fetch_agent_chat_session())
+        assert out["access_token"] == "syt_x" and client.post.call_count == 1
+        url = client.post.call_args.args[0]
+        assert mode_b == [("windy-chat", "POST", url)]  # the proof's htu is the URL actually posted
+        assert client.post.call_args.kwargs["headers"] == {"Authorization": "Bearer agent-tok", "DPoP": "proof"}
+
+    @pytest.mark.parametrize("status", [401, 403])
+    def test_a_refused_ept_agent_retries_once_with_the_legacy_ept(self, mode_b, status):
+        ctx, client = _mock_client(_session_resp())
+        client.post = AsyncMock(side_effect=[_session_resp(status), _session_resp(200)])
+        with patch("httpx.AsyncClient", return_value=ctx):
+            out = _run(chat_session.fetch_agent_chat_session())
+        assert out["access_token"] == "syt_x" and client.post.call_count == 2
+        assert client.post.call_args_list[1].kwargs["headers"] == {"Authorization": "Bearer LONG-EPT"}
+
+    def test_a_failed_mint_uses_the_legacy_ept(self, mode_b, monkeypatch):
+        from windyfly.agent import service_auth
+
+        monkeypatch.setattr(service_auth, "agent_headers",
+                            lambda *a: (_ for _ in ()).throw(service_auth.ServiceAuthError("unreachable", "ConnectError")))
+        ctx, client = _mock_client(_session_resp())
+        with patch("httpx.AsyncClient", return_value=ctx):
+            assert _run(chat_session.fetch_agent_chat_session())["access_token"] == "syt_x"
+        assert client.post.call_args.kwargs["headers"] == {"Authorization": "Bearer LONG-EPT"}
+
+    def test_with_no_legacy_ept_mode_b_still_works(self, mode_b, monkeypatch):
+        monkeypatch.delenv("ETERNITAS_PASSPORT_TOKEN")
+        ctx, client = _mock_client(_session_resp())
+        with patch("httpx.AsyncClient", return_value=ctx):
+            assert _run(chat_session.fetch_agent_chat_session())["access_token"] == "syt_x"
+
+    def test_no_legacy_ept_and_no_mint_gives_up_cleanly(self, mode_b, monkeypatch):
+        from windyfly.agent import service_auth
+
+        monkeypatch.delenv("ETERNITAS_PASSPORT_TOKEN")
+        monkeypatch.setattr(service_auth, "agent_headers",
+                            lambda *a: (_ for _ in ()).throw(service_auth.ServiceAuthError("no_key")))
+        with patch("httpx.AsyncClient") as cls:
+            assert _run(chat_session.fetch_agent_chat_session()) is None
+        assert cls.call_count == 0  # nothing sent
+
+    def test_off_by_default_nothing_changes(self, monkeypatch):
+        monkeypatch.delenv(chat_session.ENV_FLAG, raising=False)
+        assert chat_session.mode_b_enabled() is False

@@ -14,6 +14,10 @@ chat-side midwife (agent-roster) yields — one soul, one voice.
 
 Uses the same EPT bearer pattern as the (since removed) CLI mail
 provisioning (windy-mail #62), with the same never-crash contract.
+
+Mode B (dark: WINDY_CHAT_EPT_AGENT=1, Chat 2026-11-01): an EPT+agent for aud "windy-chat" plus a DPoP proof for
+this exact URL (the shared service_auth helper). A refused one (401/403) or a failed mint falls back to the
+365-day EPT until 2026-12-15, when every legacy fallback goes (windy-agent's EPT plan).
 """
 
 import logging
@@ -22,6 +26,24 @@ import os
 import httpx
 
 logger = logging.getLogger(__name__)
+
+ENV_FLAG = "WINDY_CHAT_EPT_AGENT"
+CHAT_AUD = "windy-chat"
+
+
+def mode_b_enabled() -> bool:
+    return os.environ.get(ENV_FLAG, "") == "1"
+
+
+def _agent_headers(url: str) -> dict[str, str] | None:
+    """EPT+agent + DPoP for this POST, or None when the mint failed (the caller falls back to the legacy EPT)."""
+    from windyfly.agent import service_auth
+
+    try:
+        return service_auth.agent_headers(CHAT_AUD, "POST", url)
+    except service_auth.ServiceAuthError as exc:
+        logger.warning("Chat session: no EPT+agent (%s %s); using the legacy EPT", exc.code, exc.detail)
+        return None
 
 
 async def fetch_agent_chat_session(config: dict | None = None) -> dict | None:
@@ -39,19 +61,24 @@ async def fetch_agent_chat_session(config: dict | None = None) -> dict | None:
         chat_url = os.environ.get("WINDYCHAT_API_URL", "https://chat.windychat.ai")
 
     ept = os.environ.get("ETERNITAS_PASSPORT_TOKEN")
-    if not ept:
+    if not ept and not mode_b_enabled():
         logger.info(
             "No ETERNITAS_PASSPORT_TOKEN — skipping EPT chat session "
             "(legacy MATRIX_BOT_TOKEN/PASSWORD path will be used if set)"
         )
         return None
 
+    url = f"{chat_url.rstrip('/')}/api/v1/onboarding/agent/session"
+    agent = _agent_headers(url) if mode_b_enabled() else None
+    if agent is None and not ept:
+        return None  # mode B couldn't mint and there is no legacy EPT to fall back on
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.post(
-                f"{chat_url.rstrip('/')}/api/v1/onboarding/agent/session",
-                headers={"Authorization": f"Bearer {ept}"},
-            )
+            resp = await client.post(url, headers=agent or {"Authorization": f"Bearer {ept}"})
+            if agent is not None and resp.status_code in (401, 403) and ept:
+                logger.info("[chat-auth] Chat answered %d to the EPT+agent; retried with the old one",
+                            resp.status_code)
+                resp = await client.post(url, headers={"Authorization": f"Bearer {ept}"})
             if resp.status_code == 404:
                 logger.warning(
                     "Chat says this agent was never provisioned — hatch "
