@@ -690,8 +690,12 @@ def _dispatch_tool_call_inner(
     try:
         from windyfly.tools.bands import cap_turn_band
 
+        from windyfly.agent.capabilities.audit import audited_tool_call
+
         with cap_turn_band(band):          # the taint cap may only LOWER the turn's band, never set one
-            return tool_registry.execute(fn_name, fn_args)
+            # ONE ledger (lean Windy Fly): legacy tools are recorded in agent_actions like capabilities.
+            return audited_tool_call(fn_name, fn_args, band,
+                                     lambda: tool_registry.execute(fn_name, fn_args))
     except KeyError:
         logger.warning("LLM called unknown tool: %s", fn_name)
         return json.dumps({"error": f"Unknown tool: {fn_name}"})

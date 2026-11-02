@@ -492,3 +492,14 @@ def _no_owner_pause_check(monkeypatch):
     monkeypatch.setattr(models, "check_owner_pause", lambda force=False: models.owner_paused())
     yield
     models.clear_owner_pause()
+
+
+@pytest.fixture(autouse=True)
+def _no_leftover_tool_ledger():
+    """install_audit_hooks points the legacy-tool ledger at a test's database; never let it reach the next test."""
+    from windyfly.agent.capabilities import audit
+
+    saved = dict(audit._LEDGER)
+    yield
+    audit._LEDGER.clear()
+    audit._LEDGER.update({k: None for k in saved})

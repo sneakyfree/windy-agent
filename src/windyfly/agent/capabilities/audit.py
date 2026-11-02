@@ -131,6 +131,9 @@ def install_audit_hooks(
     if getattr(registry, "_audit_installed", False):
         logger.debug("Audit hooks already installed on this registry")
         return
+    # The legacy ToolRegistry tools (mail, chat, texting, cloud, search, plans) write to the SAME ledger
+    # (lean Windy Fly, 2026-11-02: ONE ledger for every outward action; see audited_tool_call).
+    _LEDGER["db"], _LEDGER["write_queue"], _LEDGER["session_id_provider"] = db, write_queue, session_id_provider
 
     def pre(cap: Capability, args: dict[str, Any], band: Band) -> None:
         if not cap.audit_required:
@@ -201,6 +204,68 @@ def install_audit_hooks(
     # body or use a module-level set. Pre-existing.
     registry._audit_installed = True  # type: ignore[attr-defined]  # sentinel for idempotency
     logger.info("Capability audit hooks installed")
+
+
+_LEDGER: dict[str, Any] = {"db": None, "write_queue": None, "session_id_provider": None}
+
+
+def audited_tool_call(name: str, args: Any, band: Any, run: Callable[[], str]) -> str:
+    """Run a legacy ToolRegistry tool and record it in the agent_actions ledger, like a capability.
+
+    capability_id is ``tool.<name>``. Only the argument NAMES are stored, never their values (a mail body or a
+    phone number is the owner's content). A tool that raises is recorded as failed and the error is raised again.
+    With no ledger installed (tests, a process without audit hooks) the tool simply runs."""
+    db, wq = _LEDGER["db"], _LEDGER["write_queue"]
+    if db is None or wq is None:
+        return run()
+    action_id = uuid.uuid4().hex
+    started = time.time()
+    try:
+        keys = sorted(args) if isinstance(args, dict) else sorted(json.loads(args or "{}"))
+    except Exception:  # noqa: BLE001
+        keys = ["unreadable"]
+    provider = _LEDGER["session_id_provider"]
+    try:
+        record_action_start(
+            db, wq, action_id=action_id, capability_id=f"tool.{name}", tier=0,
+            band=getattr(band, "name", None) or (str(band) if band is not None else "OWNER"),
+            sandbox_tier="none", args_json=json.dumps({"arg_names": [str(k) for k in keys]}),
+            started_at=_now_iso(), session_id=provider() if provider else None,
+        )
+    except Exception as exc:  # noqa: BLE001  (an audit hiccup never blocks the tool)
+        logger.warning("tool audit start failed for %s: %s", name, type(exc).__name__)
+        return run()
+    error: Exception | None = None
+    said_error: str | None = None
+    try:
+        result = run()
+        said_error = _tool_error(result)
+        return result
+    except Exception as exc:
+        error = exc
+        raise
+    finally:
+        try:
+            record_action_end(
+                db, wq, action_id=action_id, success=error is None and said_error is None,
+                duration_ms=int((time.time() - started) * 1000),
+                error_class=type(error).__name__ if error else ("ToolError" if said_error else None),
+                error_message=_redact(str(error) if error else said_error or "")[:300] or None, ended_at=_now_iso(),
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("tool audit end failed for %s: %s", name, type(exc).__name__)
+
+
+def _tool_error(result: Any) -> str | None:
+    """A legacy tool reports failure as JSON with a top-level "error" (ToolRegistry.execute catches exceptions)."""
+    if not isinstance(result, str) or not result.lstrip().startswith("{"):
+        return None
+    try:
+        data = json.loads(result)
+    except ValueError:
+        return None
+    err = data.get("error") if isinstance(data, dict) else None
+    return str(err) if err else None
 
 
 def _now_iso() -> str:
