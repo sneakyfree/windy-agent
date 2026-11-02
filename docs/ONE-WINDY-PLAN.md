@@ -27,7 +27,8 @@ Goal: every surface sends the person to the one Windy Accounts app (SSO with Win
 | Windy Calendar | | [Owner: Calendar] | | | Windy Calendar |
 | Windy Search | | [Owner: Search] | | | Windy Search |
 | Windy Text / Call | | [Owner: Text / Call] | | | Windy Text / Call |
-| Windy Clone, Traveler, Talk, Hand, Drops, Connect, Translate, Mobile | | [Owners] | | | each lane |
+| Windy Traveler | windytraveler.com (windytraveler-site): navbar + hero "Translate free" links | 0 sign-up/login forms, no user store; both links go to app.windyword.ai/translate (Windy sign-in there). DARK #14 adds one "Sign in with Windy" LINK behind a flag. Hourly synthetic journey signs up via app.windyword.ai/auth | YES (links only) | none, or point both links at the final Accounts URL in one small PR | Windy Traveler |
+| Windy Clone, Talk, Hand, Drops, Connect, Translate, Mobile | | [Owners] | | | each lane |
 | Eternitas (operator console) | eternitas.ai | [Owner: Eternitas] | (Eternitas is its own company: say whether the rule applies) | | Eternitas |
 
 ## B. Birth canal: one canal, many doorways
