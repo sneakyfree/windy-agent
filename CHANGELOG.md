@@ -2,7 +2,7 @@
 
 ## 0.7.7
 
-- **Exports are now readable only by your own account.** If you made an export with 0.7.6 or earlier, run: chmod 600 <file>.
+- **Exports are now readable only by your own account** (macOS and Linux). If you made an export with 0.7.6 or earlier, run: chmod 600 <file>. On Windows, keep export files inside your own user folder.
 
 ## 0.7.6
 
