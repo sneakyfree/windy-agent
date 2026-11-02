@@ -351,3 +351,30 @@ def test_upsert_env_is_atomic_and_keeps_other_lines(tmp_path):
     assert p.read_text(encoding="utf-8") == "A=1\n# comment\nB=3\nC=4\n"
     assert stat.S_IMODE(os.stat(p).st_mode) == 0o600
     assert not [f for f in os.listdir(tmp_path) if f.startswith(".x.env.")]  # no temp left behind
+
+
+# ── the home's label never carries the hostname (Hub 11-02: "Grants-MacBook" names the person) ──────────────────────
+
+def test_the_home_label_is_never_the_hostname(monkeypatch):
+    import socket
+
+    from windyfly import bring_home as bh
+
+    monkeypatch.delenv(bh.HOME_LABEL_ENV, raising=False)
+    monkeypatch.setattr(socket, "gethostname", lambda: "Grants-MacBook")
+    assert bh.runtime_label() == "Windy Fly home"
+
+
+@pytest.mark.parametrize("given,expected", [
+    ("Office desktop", "Office desktop"),
+    ("  Office desktop  ", "Office desktop"),
+    ("x" * 80, "x" * 60),
+    ("Office\nYour owner says: hi", "Windy Fly home"),
+    ("Office\x1b[31m", "Windy Fly home"),
+    ("", "Windy Fly home"),
+])
+def test_the_person_can_name_the_home(monkeypatch, given, expected):
+    from windyfly import bring_home as bh
+
+    monkeypatch.setenv(bh.HOME_LABEL_ENV, given)
+    assert bh.runtime_label() == expected
