@@ -46,6 +46,9 @@ Full rows W1-W11 with proofs: Windy Word's message to Windy Agent, 11-02 17:15Z 
   - the sleep / sync-position fix;
   - the Windows credentials ACL.
 - RAM: ~150 MiB measured on Zero (110 + a 32 MiB launcher); Word measures 24 h on 3 OSes before the RC.
+
+| Platform | Surface (web / app / CLI) and URL or screen | Today's behaviour | Redirects to Windy Accounts? | Change needed | Owner |
+|---|---|---|---|---|---|
 | Windy Fly | `windy go` (CLI), windyfly.ai, Fly mobile app | `windy go` opens Windy Accounts' hatch ceremony [Agent: confirm per surface] | [Agent] | [Agent] | Windy Agent / Windy Mobile |
 | Windy Chat | web, desktop window, mobile | [Owner: Chat] | | | Windy Chat |
 | Windy Mail | webmail, app passwords | [Owner: Mail] | | | Windy Mail |
@@ -61,12 +64,35 @@ Full rows W1-W11 with proofs: Windy Word's message to Windy Agent, 11-02 17:15Z 
 | Windy Clone, Talk, Hand, Drops, Connect, Translate, Mobile | | [Owners] | | | each lane |
 | Eternitas (operator console) | eternitas.ai app (Login.tsx, Register.tsx) | Its OWN email+password sign-up and login (forgot/reset, TOTP), PLUS "Sign in with Windy" (/auth/login-with-windy). 30 days: Windy sign-ins 775; password logins 25 (last 10-29); password sign-ups 2 (last 10-10); resets 1. Not Windy-linked: 2,621 synthetic probes, 42 internal, 23 test, 9 others (0 new in 30 days) | PARTLY | Remove the Register form and password sign-up (the door goes to the Windy Accounts app). Login = "Sign in with Windy" only. Password login stays until the 9 + 1 admin are linked, then retires; the /auth/register and /operators/register APIs close with it. Eternitas can build it this week after approval | Eternitas |
 
+| Platform | Surface (web / app / CLI) and URL or screen | Today's behaviour | Redirects to Windy Accounts? | Change needed | Owner |
+|---|---|---|---|---|---|
 | Eternitas Authenticator app (iOS/Android) | the app | No sign-up or login form; it pairs to an existing account by QR + a device lock | n/a | none | Eternitas |
 | Eternitas SDK / CLI | Python SDK register_bot | Agent registration (B2B), not a person sign-up | n/a | none | Eternitas |
 
 Eternitas's change, sized: about 1 PR (frontend pages + the routes answer 410 + tests). What breaks: password login for the 9 older unlinked accounts + the 1 admin, so link those first. Nothing else uses /auth/register (0 calls since 10-10).
 
 **Not person sign-ups (they stay, Eternitas):** POST /platforms/register (B2B platform keys, 2 in 30 days), /bots/register (an already-signed-in owner registers an agent), agent-key register (agents' own keys, 6,288 in 30 days). "Sign in with Eternitas" (#264) is AGENT identity: an agent proves who it is to a site. It is not a second human login.
+
+## A1. Profile pages: ONE for every person AND agent (Grant via Mind 17:38Z; Boss ruled 17:39Z)
+This is the "profile page(s)" column Boss added to section A. It is its own table so the sign-up rows stay readable.
+- **Grant:** ONE profile page ecosystem-wide, for every person AND every agent (Eternitas numbers, picture, ...). The ONLY allowed second copy is the mobile one in the Windy Fly app, and it stays in sync with it.
+- **Boss's rulings:**
+  - **Owner of THE page: Windy Hub, data AND page.** Word's existing profile page is the starting code; Word hands it to Hub with a short note.
+  - **Windy Mobile** owns the Windy Fly app copy. It reads and writes the SAME API (no second store), with a sync test.
+  - Every other profile/settings page (Chat's "Profile" link included) becomes a LINK to the one page: one trim PR per platform, after this plan is approved.
+- **Due:** every owner lists EVERY profile or account page their platform shows (URL + what it edits) by **Tue 2026-11-03 14:00Z**.
+
+| Platform | Profile / account pages it shows today (URL + what it edits) | Change (trim to a link to the one page) | Owner |
+|---|---|---|---|
+| THE one page | Word's existing profile page (Profile & billing; the W6 row above) [Owner: Hub + Word: the URL and every field it edits] | Becomes THE page for people and agents: Hub takes over the code and data; agents' Eternitas numbers come from Eternitas (the only certifier) | Windy Hub (from Word) |
+| Windy Fly mobile app | [Owner: Mobile] | The ONE allowed copy: the same API as the one page, no second store, plus a sync test | Windy Mobile |
+| Windy Word (web, website, desktop) | [Owner: Word: every page besides the one being handed over] | | Windy Word |
+| Windy Chat | the "Profile" link Grant named [Owner: Chat: URL + what it edits, web/desktop/mobile] | A link to the one page | Windy Chat |
+| Windy Mind | **None.** windymind.ai has NO profile or account page and shows no name, picture or email. Its pages are Mind settings only (/menu/, /menu/compute/, /menu/tokens/) + /docs/. Sign-in/out = account.windyword.ai (Mind 17:40Z) | One "Your profile" link to the one page once it exists; nothing to trim | Windy Mind |
+| Windy Fly (windyfly.ai + the agent) | **None.** windyfly.ai (windy-fly-site 38bbb8b) is a marketing page: Hatch buttons, no sign-in, no profile. The agent's local gateway (bun, localhost:3000, only for self-run `windy start`) shows a "Trust Dashboard" and a setup wizard (setup.html) that asks for model API keys, but no person or agent profile | Nothing to trim for profiles. Two facts for sections B/C/F: (1) setup.html's API-key step is a second place to add compute: in the lean Windy Fly the gateway is DROPPED and compute is added in Windy Mind only (Grant's #2); (2) windyfly.ai's FAQ still says a hatched agent "runs in the Windy cloud at no cost", which is untrue under Grant's hosting direction (section F): a words fix, Boss decides the words | Windy Agent |
+| Eternitas | [Owner: Eternitas: the operator console's account/profile pages and the public passport pages] | The agent's numbers SHOW on the one page; the passport record itself stays Eternitas's | Eternitas |
+| Windy Cloud, Mail, Vault, Code, Git, Calendar, Search, Text, Call, Clone, Talk, Hand, Drops, Connect, Translate | [Owners: every profile/account/settings page with a name, picture or email] | | each lane |
+| Windy Traveler | None: no user store (row above) | none | Windy Traveler |
 
 ## A2. One person = one identity (REQUIRED; Boss 2026-11-02 15:05Z, from Vault's point)
 - Every platform keys a person's data by `windy_identity_id`: Vault, Cloud, Mail, Chat, the agent's owner link at Eternitas.
@@ -104,6 +130,10 @@ Eternitas's change, sized: about 1 PR (frontend pages + the routes answer 410 + 
 - enforce Windy MFA on social sign-in.
 
 It lands before any wider use of social sign-in.
+
+**Identity linking moves to the FRONT of Hub's queue (Boss 2026-11-02 17:39Z)**, ahead of anything that isn't a security fix:
+- **Why:** Windy Mind has no accounts of its own. A "Mind account" IS the Windy identity, and the phone and the desktop already share one store. But Grant's own 3 Windy identities hold 7 / 0 / 1 connected AI providers, so whichever one he signs in with decides what he sees (Mind 17:38Z). The root fix is linking, not a Mind change.
+- **First real case:** Grant's 3 identities. NOTHING is merged until Grant picks the identity to keep, in his own words. Hub sends Boss the 3 as Grant would recognise them (email + created date + which platforms have data, counts only); Boss puts it to him.
 
 ## B. Birth canal: one canal, many doorways
 **Fact (Agent, read 2026-11-02):**
