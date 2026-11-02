@@ -297,6 +297,18 @@ What "one agent" must give a person (Grant): the same agent everywhere, Claude-C
    - Proposal: a dated, env-only setting, e.g. 50 real hatches/day, with an HQ alarm at 80%. Its own GO. It protects Friday's friends wave without blocking it.
    - [Owner: Hub: does a global cap exist today? If not, where it sits in the canal and its default.]
 
+## G. Domains: buy, renew, transfer in, under our brand (Grant 11-02: as few suppliers as possible)
+**Today (Cloud, windy-cloud-domains at origin/main, 11-02):**
+- **Registrar = Dynadot**, API3 (`api/app/services/dynadot.py`; live only with REGISTRAR_LIVE=1, fails closed without a key; mock otherwise). Implemented: search, register, balance, set DNS, domain info, transfer OUT (auth code).
+- **Dynadot's Reseller Program is white-label** ("sell domain name registrations and domain management under your own brand", storefront or API). It wants a fresh account ("no existing domains or active orders"). Full legal ToS clause: UNCONFIRMED.
+- **Customer DNS lives at Dynadot** (set_dns2); Cloudflare holds only our own zones.
+- **Money:** .com wholesale $10.97 + the ICANN fee; retail a flat $18 at registration and renewal (Grant, 08-08). Paid from a PREPAID balance: the cell pauses purchases below $50 and alerts below $200.
+- **Gaps:**
+  - **registrar RENEW is not implemented**: renewals charge the customer but never renew at Dynadot. Tracked as **windy-cloud-domains #40, BLOCKER since 2026-09-23**; must be fixed before going live;
+  - transfer IN is not implemented (~M);
+  - only Dynadot's sandbox has been verified (10-06); whether production is funded or enrolled as a reseller is unknown.
+- **Suppliers:** Dynadot does no VPS, and DigitalOcean sells no domains. So the minimum set today is Cloudflare (storage, DNS, sites) + one VPS supplier + Dynadot (domains), unless research finds one vendor that does both VPS and domain reselling well. [Agent: web research running, 11-02.]
+
 ## E. Recommendations by the 10 guiding principles (Windy Agent draft, 2026-11-02; co-authors to counter)
 The principles are in kit-army-config doctrine/00-GUIDING-PRINCIPLES.md. When two collide, #10 decides: stability > the human's control of their own agent > simplicity > capability.
 
