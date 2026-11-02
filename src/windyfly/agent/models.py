@@ -1277,9 +1277,18 @@ def _try_mind_broker(
 
 
 def _mind_helper_enabled() -> bool:
-    from windyfly.agent import mind_helper
+    from windyfly.agent import mind_auth, mind_helper
 
-    return mind_helper.enabled()
+    if not mind_helper.enabled():
+        return False
+    if not mind_auth.legacy_allowed():
+        # Hub on #678: the helper's vendored MindClient sends the 365-day EPT as its bearer, never EPT+agent + DPoP.
+        # With the legacy fallback off it would be the one path still sending the long token (and silent after
+        # 12-03), so it's refused and Mind calls take the mind_auth path instead.
+        mind_auth._warn_once("helper-off", "WINDY_MIND_HELPER=1 ignored: the helper sends the legacy EPT and "
+                             "WINDY_MIND_LEGACY_FALLBACK=0; Mind calls go through mind_auth (EPT+agent)")
+        return False
+    return True
 
 
 def _try_mind_via_helper(
