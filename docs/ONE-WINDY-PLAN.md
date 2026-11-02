@@ -33,6 +33,23 @@ Goal: every surface sends the person to the one Windy Accounts app (SSO with Win
 
 **Not person sign-ups (they stay, Eternitas):** POST /platforms/register (B2B platform keys, 2 in 30 days), /bots/register (an already-signed-in owner registers an agent), agent-key register (agents' own keys, 6,288 in 30 days). "Sign in with Eternitas" (#264) is AGENT identity: an agent proves who it is to a site. It is not a second human login.
 
+## A2. One person = one identity (REQUIRED; Boss 2026-11-02 15:05Z, from Vault's point)
+- Every platform keys a person's data by `windy_identity_id`: Vault, Cloud, Mail, Chat, the agent's owner link at Eternitas.
+- So if the same person signs in with Windy, then Google, then Apple or GitHub, and gets TWO identities, they get two Vaults, two mailboxes, two agents.
+- Grant's "one account, then Windy logins everywhere" only holds if every sign-in method lands on ONE id.
+
+**Questions for Windy Accounts [Owner: Hub, answer by Tue 2026-11-03 12:00Z]:**
+1. Today, does Windy Accounts link Windy + Google + Apple + GitHub sign-ins of the same person to ONE `windy_identity_id`?
+2. How: a verified-email match, an explicit "link this login" step, or never?
+3. Edge cases:
+   - different emails per provider;
+   - Apple's hidden relay address;
+   - a provider email that isn't verified;
+   - an existing account that signs in with a new provider.
+4. Is there a way to merge two identities that already exist? Counts only: how many people have more than one identity today?
+
+**Rule:** if today's answer is "not linked", the fix is a HARD PRECONDITION for adding Google, Apple or GitHub sign-in anywhere.
+
 ## B. Birth canal: one canal, many doorways
 **Fact (Agent, read 2026-11-02):**
 - The canal is the Windy Accounts account server in windy-pro (`account-server/src/services/hatch-steps.ts`, hatch tickets `routes/hatch-tickets.ts`).
