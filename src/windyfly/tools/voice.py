@@ -141,7 +141,7 @@ def register_voice_tools(registry: ToolRegistry) -> None:
             "call_id, call_status, time_limit_seconds}, {status: 'refused', http_status, code} or "
             "{status: 'unknown', error} when windy-text did not answer in time (a call may still be placed). "
             "If the status is unknown, do not call again: tell your owner a call may have been placed. "
-            "replayed: true means this is the same call as before: nothing new was dialled."
+            "replayed: true means this is the same call as before: nothing new was dialed."
         ),
         parameters={
             "type": "object",

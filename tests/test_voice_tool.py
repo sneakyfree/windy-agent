@@ -198,7 +198,7 @@ def test_the_description_tells_the_model_not_to_call_again_after_unknown(on):
     voice.register_voice_tools(reg)
     desc = next(t["function"]["description"] for t in reg.get_schemas() if t["function"]["name"] == "make_call")
     assert "If the status is unknown, do not call again: tell your owner a call may have been placed." in desc
-    assert desc.endswith("replayed: true means this is the same call as before: nothing new was dialled.")
+    assert desc.endswith("replayed: true means this is the same call as before: nothing new was dialed.")
 
 
 @pytest.mark.parametrize("value", ["true", "True", " true "])
