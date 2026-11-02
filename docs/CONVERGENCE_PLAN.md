@@ -1,6 +1,6 @@
 # One agent runtime for everyone: windyfly and the Chat agent-roster (convergence plan)
 
-**Status:** DRAFT for Boss's decision. Due Tue 2026-11-03 18:00Z.
+**Status:** JOINT DRAFT (both lanes' facts in; Chat second-reads Agent's sections, Agent second-read Chat's) for Boss's decision. Due Tue 2026-11-03 18:00Z.
 **Authors:** Windy Agent (this skeleton, §2a and the windyfly side of §3) and Windy Chat (§2b and the roster side of §3; second reader).
 **Scope:** a PLAN only. No code moves in this sprint (Boss 2026-11-02 11:06Z). Facts are marked with their source; "unknown" is said plainly.
 
@@ -49,7 +49,7 @@ The choice: **(A)** move hatched people onto windyfly; **(B)** move Zero onto th
 | Safety | bands, owner-turn-only outward tools, held drafts, stop + loop breaker, quotas; counts-only telemetry, no audit ledger | bands, taint, audit ledger, confirm cards | windyfly (audit) |
 
 ## 4. Migration steps (per option)
-- **(A) hatched -> windyfly:** run windyfly multi-tenant on Kit 0 (one process per agent or a pooled worker), memory store per agent, and a Matrix identity handover (windyfly already takes the session via chat_session; the roster yields while windyfly holds the runtime claim). [sizes TBD]
+- **(A) hatched -> windyfly:** run windyfly multi-tenant on Kit 0 (one process per agent or a pooled worker), memory store per agent, and a Matrix identity handover (windyfly already takes the session via chat_session; the roster yields while windyfly holds the runtime claim). Size: XL (see §6 step 3).
 - **(B) Zero -> roster:** NOT a fit for Zero, from Chat's side. Zero would lose Telegram (the roster is Windy Chat only), its machine tools (shell/fs/ssh/fleet can never run in a shared server) and its durable memory (the roster has none). Making B possible means building in the roster: a per-agent memory store (L), Vault tools (M), and either channel adapters or Grant moving to Windy Chat (product call). Size: XL, and it still drops the machine tools.
 - **(A), Chat's view of the hosting:** 57 windyfly process sets on Kit 0 are not affordable as-is (Kit 0 is 4 vCPU / 15 GB shared by every service, and the roster serves the same 57 in 64 MiB). (A) needs windyfly to run as a pooled multi-tenant worker first, plus the Matrix handover per agent (one voice: the runtime claim) and a per-person memory start (empty, said plainly).
 - **(C) shared contracts only:** keep both, and make every tool and word come from ONE contract (as vault-tools.v1 already does), with conformance tests in both runtimes. Lowest risk, but permanent double work.
@@ -60,13 +60,20 @@ The choice: **(A)** move hatched people onto windyfly; **(B)** move Zero onto th
 - Auth: the legacy EPT sunset (12-03 Mind, 01-15 Eternitas) must not be bundled with a runtime move.
 - Downtime and identity: one Matrix identity, one voice (runtime claim), with no double replies during a handover.
 
-## 6. Recommended order and size (DRAFT; Agent's view, Chat to counter; Chat's counter below the list)
-1. **Now (S):** shared contracts for every overlapping tool (calendar, mail, vault), with conformance tests in both runtimes. That stops P136-5-style drift whichever option wins.
-2. **Measure (S):** per-person cost and quality of each runtime on lab agents (counts only).
-3. **Decide A/B/C** on that data. [size of A/B: Chat + Agent, after §2b]
-No step touches real people's data or runtimes without its own Boss GO.
+## 6. Recommended order and size (JOINT: Windy Agent + Windy Chat, 2026-11-02)
+Both lanes agree: keep both runtimes for now (option C as the base), close the drift and the roster's real gaps first, and decide A vs. "stay C" later, on measured numbers. (B) is not recommended (§4).
 
-**Chat's counter (Windy Chat, 2026-11-02):** agree with 1-3, with two changes.
-- In step 1, name the contract work concretely: calendar (Calendar's tools-invoke.v1 already exists: both runtimes run its conformance vectors), mail (one held-draft/confirm contract), and the words (one shared phrase table, the P136-5 cure). Size S each, Chat + Agent.
-- Add step 2b (M): the roster's two real gaps for hatched people, whichever option wins: a per-agent memory (start with Mind's own memory store, so neither runtime grows its own) and Vault tools from vault-tools.v1. These help every person now and shrink (A)'s or (B)'s distance later.
-- From Chat's side (B) is not recommended (see §4). (A) is only realistic after windyfly runs as a pooled multi-tenant worker; size it in step 2 with real numbers.
+1. **Now (S each, Chat + Agent): one contract per overlapping tool, with conformance tests in BOTH runtimes.**
+   - Calendar: Calendar's tools-invoke.v1 conformance vectors run in windyfly's and the roster's tests.
+   - Mail: one held-draft/confirm contract (when the owner is asked, the confirm word, what a refusal says).
+   - Words: one shared phrase table for every person-facing tool sentence (the P136-5 cure); each new sentence still goes Boss + a non-author #9 in git.
+2. **Close the roster's real gaps for hatched people (M), whichever option wins:**
+   - per-agent memory through Windy Mind's own memory store, so neither runtime grows a third one;
+   - Vault tools from vault-tools.v1 (windyfly already conforms).
+3. **Measure (S):** per-person cost and quality of each runtime on lab agents only (counts only).
+   For (A) this includes a sizing spike for a pooled multi-tenant windyfly worker. A measured starting fact: windyfly reads process-wide settings in 543 places across 132 of its 270 source files (os.environ, 2026-11-02 master), because it was built one-agent-per-process. A shared worker means moving that to per-agent context first. Our estimate: **XL**, not something to start before the measurement.
+4. **Decide** A or "stay C" on step 3's data (Boss). Earliest sensible point: after the legacy-EPT sunset (2026-12-15), so no runtime move is bundled with an auth change (§5).
+
+No step touches real people's data or runtimes without its own Boss GO. Steps 1 and 2 need no decision beyond this plan; step 4 is the decision.
+
+**What Boss is asked to decide now:** (i) approve steps 1-3 as the plan; (ii) confirm (B) is off the table; (iii) confirm the decision point is after 12-15.
