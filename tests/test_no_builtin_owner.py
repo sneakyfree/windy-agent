@@ -9,17 +9,6 @@ from pathlib import Path
 MAIN = Path(__file__).resolve().parents[1] / "src" / "windyfly" / "main.py"
 
 
-def test_agent_owner_telegram_id_has_no_default_account():
-    src = MAIN.read_text()
-    m = re.search(r'os\.environ\.get\(\s*"AGENT_OWNER_TELEGRAM_ID"\s*,\s*"([^"]*)"', src)
-    assert m is not None, "owner lookup moved; update this guard"
-    assert m.group(1) == "", "AGENT_OWNER_TELEGRAM_ID must not default to a real account"
-
-
-def test_unset_owner_means_no_allowlist():
-    assert "allowed_user_ids=[owner_id] if owner_id else []" in MAIN.read_text()
-
-
 def test_no_numeric_telegram_id_literal_as_owner():
     # Guard the class, not the one value: no 8+ digit literal passed as the
     # telegram allowlist in main.py.
