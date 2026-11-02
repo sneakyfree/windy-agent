@@ -64,28 +64,6 @@ def test_p1_06_remembers_the_last_turn_in_the_session(tmp_path):
     assert "my cat is called Biscuit" not in other
 
 
-def test_p1_07_cli_turn_goes_through_the_agent_and_is_printed(tmp_path, monkeypatch):
-    from windyfly.channels import cli
-
-    monkeypatch.delenv("WINDY_JWT", raising=False)
-    printed: list[str] = []
-    calls: list[tuple[str, str]] = []
-
-    def fake_respond(config, db, wq, text, session_id, registry):
-        calls.append((text, session_id))
-        return "hi from the fly"
-
-    monkeypatch.setattr(cli, "agent_respond", fake_respond)
-    lines = iter(["hello fly", "quit"])
-    monkeypatch.setattr(cli.console, "input", lambda prompt="": next(lines))
-    monkeypatch.setattr(cli.console, "print", lambda *a, **k: printed.append(" ".join(map(str, a))))
-    cli.run_cli(_config(tmp_path))
-
-    assert [c[0] for c in calls] == ["hello fly"]
-    assert len(calls[0][1]) == 36   # a UUID4 session id
-    assert any("hi from the fly" in p for p in printed)
-
-
 def test_p1_05_model_names_route_to_their_provider(monkeypatch):
     from windyfly.agent import providers
 

@@ -122,7 +122,7 @@ def test_a_failed_env_write_keeps_every_file_and_the_key_works_this_run(box, cap
     all_sources(box)
     before = {p: p.read_bytes() for p in [box["state"], *[box["gw"] / n for n in provider_salvage.GATEWAY_FILES]]}
 
-    with patch("windyfly.agent.capabilities.setup._atomic_upsert_env_var",
+    with patch("windyfly.env_file._atomic_upsert_env_var",
                side_effect=OSError("read-only")):
         report = run(box)
 

@@ -182,8 +182,6 @@ def cmd_init(_args: argparse.Namespace) -> None:
 
 def cmd_start(args: argparse.Namespace) -> None:
     """Start the Windy Fly stack."""
-    import webbrowser
-
     from dotenv import load_dotenv
     load_dotenv(PROJECT_ROOT / ".env")
 
@@ -245,149 +243,37 @@ def cmd_start(args: argparse.Namespace) -> None:
     except Exception:
         pass  # Never let update check block startup
 
-    channel = getattr(args, "channel", None)
-    if channel:
-        # One chat channel in the foreground (e.g. a body brought home with
-        # `windy bring-home` answering in Windy Chat: --channel matrix).
-        from windyfly.platform import python_cmd
+    # The lean Windy Fly has ONE process and ONE channel: the brain answering in Windy Chat (Matrix). No gateway,
+    # no local dashboard, no terminal chat (cut 2026-11-02).
+    from windyfly.platform import IS_WINDOWS, python_cmd
 
-        console.print(f"  [cyan]Starting {channel}…[/cyan] [dim](Ctrl-C to stop)[/dim]")
+    cmd = [*python_cmd(PROJECT_ROOT), "-m", "windyfly.main", "--channel", "matrix"]
+    if not getattr(args, "daemon", False):
+        console.print("  [cyan]Starting your agent in Windy Chat…[/cyan] [dim](Ctrl-C to stop)[/dim]")
         try:
-            subprocess.run(
-                [*python_cmd(PROJECT_ROOT), "-m", "windyfly.main", "--channel", channel],
-                cwd=str(PROJECT_ROOT),
-            )
+            subprocess.run(cmd, cwd=str(PROJECT_ROOT))
         except KeyboardInterrupt:
             console.print("\n  [dim]Stopped. 🪰[/dim]")
         return
 
-    if getattr(args, "cli", False):
-        # CLI-only mode: run brain interactively in foreground
-        console.print("  [cyan]Starting brain in CLI mode...[/cyan]")
-        console.print("  [dim]Type your messages below; /quit or press Ctrl-D to leave.[/dim]")
-        console.print()
-        try:
-            from windyfly.platform import python_cmd
-
-            subprocess.run(
-                [*python_cmd(PROJECT_ROOT), "-m", "windyfly.main", "--channel", "cli"],
-                cwd=str(PROJECT_ROOT),
-            )
-        except KeyboardInterrupt:
-            console.print("\n  [dim]Goodbye! 🪰[/dim]")
-        return
-
-    daemon = getattr(args, "daemon", False)
-
-    # Ensure log directory exists
+    # Daemon mode: fully detach so the agent survives the shell (Unix: a new session; Windows: a new group).
     get_data_dir(PROJECT_ROOT)
-
-    # Full stack: brain + gateway
-    # In daemon mode, fully detach from the terminal so the process
-    # survives after the shell exits. On Unix this uses
-    # start_new_session=True; on Windows, CREATE_NEW_PROCESS_GROUP.
-    from windyfly.platform import IS_WINDOWS
-
     popen_extra: dict = {}
-    if daemon:
-        if IS_WINDOWS:
-            popen_extra["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
-        else:
-            popen_extra["start_new_session"] = True
-
+    if IS_WINDOWS:
+        popen_extra["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
+    else:
+        popen_extra["start_new_session"] = True
     brain_log = open(get_log_path(PROJECT_ROOT, "brain"), "a")  # noqa: SIM115
-    from windyfly.platform import python_cmd
-
     brain_proc = subprocess.Popen(
-        [*python_cmd(PROJECT_ROOT), "-m", "windyfly.bridge.uds_server"],
-        cwd=str(PROJECT_ROOT),
-        stdout=brain_log,
-        stderr=subprocess.STDOUT,
-        stdin=subprocess.DEVNULL if daemon else None,
-        **popen_extra,
+        cmd, cwd=str(PROJECT_ROOT), stdout=brain_log, stderr=subprocess.STDOUT,
+        stdin=subprocess.DEVNULL, **popen_extra,
     )
     _tracked_child_pids.append(brain_proc.pid)
-    console.print(f"  [green]✓[/green] Brain started [dim](PID {brain_proc.pid})[/dim]")
-
-    # Start gateway (optional — only available in source checkout with Bun)
-    gateway_dir = PROJECT_ROOT / "gateway"
-    gateway_pid = None
-    if gateway_dir.exists() and (gateway_dir / "src" / "server.ts").exists():
-        import shutil
-        if shutil.which("bun"):
-            gateway_log = open(get_log_path(PROJECT_ROOT, "gateway"), "a")  # noqa: SIM115
-            gateway_proc = subprocess.Popen(
-                ["bun", "run", "src/server.ts"],
-                cwd=str(gateway_dir),
-                stdout=gateway_log,
-                stderr=subprocess.STDOUT,
-                stdin=subprocess.DEVNULL if daemon else None,
-                **popen_extra,
-            )
-            gateway_pid = gateway_proc.pid
-            _tracked_child_pids.append(gateway_pid)
-            console.print(f"  [green]✓[/green] Gateway started [dim](PID {gateway_pid})[/dim]")
-        else:
-            console.print("  [dim]○ Gateway skipped (Bun not installed)[/dim]")
-    else:
-        console.print("  [dim]○ Gateway skipped (not available in pip install)[/dim]")
-
-    # Write PID file (new key=value format)
-    write_pid_file(PROJECT_ROOT, brain_proc.pid, gateway_pid)
-
-    # Install SIGTERM/SIGINT cleanup now that the children are tracked.
-    # An explicit kill of this parent (even via `windy go &; kill $!`)
-    # will now take the daemons with it. Normal function return leaves
-    # them running, preserving the daemon-survives-terminal-close path.
+    write_pid_file(PROJECT_ROOT, brain_proc.pid, None)
     _install_signal_cleanup()
-
-    # Wait for gateway to be ready
-    time.sleep(2)
-
-    # ── The Hatching Ceremony ──
-    from windyfly.hatching import play_hatching, show_ecosystem_status
-    play_hatching(animate=True)
-    show_ecosystem_status()
-
-    console.print("  [cyan]Brain log:[/cyan]    data/brain.log")
-    if gateway_pid:
-        console.print("  [cyan]Gateway log:[/cyan]  data/gateway.log")
+    console.print(f"  [green]✓[/green] Your agent is running in Windy Chat [dim](PID {brain_proc.pid})[/dim]")
+    console.print("  Run [bold]windy stop[/bold] to shut down, [bold]windy logs --follow[/bold] to watch.")
     console.print()
-
-    # Dashboard URL + auto-open browser
-    dashboard_url = "http://localhost:3000"
-    if gateway_pid:
-        console.print(f"  [bold cyan]🌐 Dashboard:[/bold cyan]  {dashboard_url}")
-        console.print("  [bold cyan]💬 Chat:[/bold cyan]       Open Windy Chat or visit the dashboard")
-        console.print()
-        agent_name = os.environ.get("WINDYFLY_AGENT_NAME", "Windy Fly")
-        console.print(f"  Your agent [bold]{agent_name}[/bold] is waiting to chat with you.")
-        console.print()
-        no_browser = getattr(args, "no_browser", False)
-        if not no_browser:
-            try:
-                webbrowser.open(dashboard_url)
-            except Exception:
-                pass
-
-    if daemon:
-        console.print("  [bold green]Windy Fly is running in the background.[/bold green]")
-        console.print("  Run [bold]windy stop[/bold] to shut down.")
-        console.print("  Run [bold]windy logs --follow[/bold] to watch logs.")
-        console.print(
-            "  To chat in this terminal instead: [bold]windy stop && windy chat[/bold]"
-        )
-    else:
-        console.print("  (Or type here to chat in the terminal)")
-        console.print("  Run [bold]windy stop[/bold] to shut down.")
-    console.print()
-
-    # Open browser (unless --no-browser)
-    if not getattr(args, "no_browser", False):
-        try:
-            webbrowser.open("http://localhost:3000")
-        except Exception as e:
-            logger.debug("Could not open browser: %s", e)
 
 
 def cmd_stop(_args: argparse.Namespace) -> None:
@@ -459,48 +345,6 @@ def cmd_status(_args: argparse.Namespace) -> None:
     print_status()
 
 
-def cmd_setup_calendar(_args: argparse.Namespace) -> None:
-    """One-time Google Calendar OAuth flow → activates calendar tools.
-
-    Closes the pre-existing dead-end where the bot's graceful refusal
-    text said "Run `windy setup-calendar`" but the subcommand didn't
-    actually exist. ``setup_calendar_oauth`` has been in calendar.py
-    since the tool was first written; this wires it to the CLI.
-
-    Prereqs:
-      1. Google Cloud project with the Calendar API enabled.
-      2. ``calendar`` scope on the OAuth consent screen.
-      3. Desktop-app OAuth Client ID downloaded as
-         ``data/google_calendar_creds.json`` (or path in
-         ``GOOGLE_CALENDAR_CREDENTIALS`` env var).
-
-    Any Google Cloud project with the Calendar API enabled is fine.
-    """
-    console.print("[bold cyan]🪰 Setting up Google Calendar OAuth...[/bold cyan]")
-    console.print()
-    from windyfly.tools.calendar import setup_calendar_oauth
-    ok = setup_calendar_oauth()
-    if ok:
-        console.print()
-        console.print("[bold green]✓ Calendar connected.[/bold green]")
-        console.print(
-            "  Restart the bot to pick up the new token: "
-            "[cyan]systemctl --user restart windy-0.service[/cyan]"
-        )
-    else:
-        console.print()
-        console.print("[bold red]✗ Calendar setup failed.[/bold red]")
-        console.print(
-            "  See the logged reason above. Common fixes:\n"
-            "  • Download the Desktop-app OAuth client JSON from\n"
-            "    Google Cloud Console → APIs & Services → Credentials\n"
-            "  • Save it as data/google_calendar_creds.json (or set\n"
-            "    GOOGLE_CALENDAR_CREDENTIALS to point at it)\n"
-            "  • Add the calendar scope to your OAuth consent screen"
-        )
-        sys.exit(1)
-
-
 def cmd_setup_gmail(_args: argparse.Namespace) -> None:
     """Gmail sending was removed (Hub, 2026-10-02): agents send only from their own
     Windy Mail mailbox. Kept so the old command explains itself."""
@@ -508,69 +352,6 @@ def cmd_setup_gmail(_args: argparse.Namespace) -> None:
         "Your agent sends email from its own Windy Mail address, through Windy Mail. "
         "Sending through Gmail was removed, so there is nothing to set up here."
     )
-
-def cmd_setup(_args: argparse.Namespace) -> None:
-    """Launch the browser-based setup wizard."""
-    import webbrowser
-
-    # Check if gateway is already running
-    try:
-        import httpx
-        r = httpx.get("http://localhost:3000/api/health", timeout=2)
-        if r.status_code == 200:
-            console.print("[bold cyan]🪰 Opening browser setup wizard...[/bold cyan]")
-            console.print()
-            console.print("  [cyan]Setup wizard:[/cyan]  http://localhost:3000/setup.html")
-            console.print()
-            webbrowser.open("http://localhost:3000/setup.html")
-            return
-    except Exception as e:
-        logger.debug("Gateway health check failed: %s", e)
-
-    # Gateway not running — start it first
-    gateway_dir = PROJECT_ROOT / "gateway"
-    if not gateway_dir.exists() or not (gateway_dir / "src" / "server.ts").exists():
-        console.print("[yellow]Gateway not available (pip install does not include it).[/yellow]")
-        console.print("[dim]Use 'windy go' for quickstart, or clone the repo for the full dashboard.[/dim]")
-        return
-
-    import shutil
-    if not shutil.which("bun"):
-        console.print("[yellow]Bun not installed — gateway requires Bun to run.[/yellow]")
-        console.print("[dim]Install: https://bun.sh[/dim]")
-        return
-
-    console.print("[bold cyan]🪰 Starting gateway for browser setup...[/bold cyan]")
-    console.print()
-
-    get_data_dir(PROJECT_ROOT)
-    gateway_log = open(get_log_path(PROJECT_ROOT, "gateway"), "a")
-    gateway_proc = subprocess.Popen(
-        ["bun", "run", "src/server.ts"],
-        cwd=str(gateway_dir),
-        stdout=gateway_log,
-        stderr=subprocess.STDOUT,
-    )
-
-    # Wait for gateway to be ready
-    time.sleep(2)
-
-    console.print(f"  [green]✓[/green] Gateway started [dim](PID {gateway_proc.pid})[/dim]")
-    console.print()
-    console.print("  [cyan]Setup wizard:[/cyan]  http://localhost:3000/setup.html")
-    console.print()
-    console.print("  [dim]Complete the wizard in your browser. Press Ctrl+C when done.[/dim]")
-    console.print()
-
-    webbrowser.open("http://localhost:3000/setup.html")
-
-    # Keep running until user presses Ctrl+C
-    try:
-        gateway_proc.wait()
-    except KeyboardInterrupt:
-        gateway_proc.terminate()
-        console.print("\n  [dim]Gateway stopped. Run `windy start` to launch the full stack.[/dim]")
-
 
 def _do_kill_by_name() -> None:
     """Fallback: try to kill processes by name."""
@@ -585,13 +366,6 @@ def _do_kill_by_name() -> None:
 # ═══════════════════════════════════════════════════════════════════════
 # Lightweight handlers (delegate to other modules)
 # ═══════════════════════════════════════════════════════════════════════
-
-
-def _cmd_chat(args: argparse.Namespace) -> None:
-    """Start CLI chat mode (alias for `windy start --cli`)."""
-    args.cli = True
-    args.no_browser = True
-    cmd_start(args)
 
 
 def _cmd_test(args: argparse.Namespace) -> None:
@@ -1046,7 +820,6 @@ def _check_ecosystem_connectivity() -> None:
         console.print()
         return
 
-    import time
     try:
         import httpx
     except ImportError:
@@ -1152,7 +925,6 @@ _COMMAND_CATEGORIES = [
         ("ps", "Show running processes"),
     ]),
     ("Chat & Interaction", [
-        ("chat", "Start CLI chat mode (alias for start --cli)"),
         ("test", "Run self-test"),
         ("repl", "Developer REPL"),
     ]),
@@ -1198,7 +970,6 @@ _COMMAND_CATEGORIES = [
     ]),
     ("Setup", [
         ("init", "Interactive setup wizard"),
-        ("setup", "Browser-based setup wizard"),
     ]),
     ("Help", [
         ("help", "Show all commands grouped by category"),
@@ -1339,7 +1110,9 @@ def _install_launchd(uv_path: str, brain_log: str) -> None:
         <string>run</string>
         <string>python</string>
         <string>-m</string>
-        <string>windyfly.bridge.uds_server</string>
+        <string>windyfly.main</string>
+        <string>--channel</string>
+        <string>matrix</string>
     </array>
 
     <key>WorkingDirectory</key>
@@ -1397,7 +1170,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory={PROJECT_ROOT}
-ExecStart={uv_path} run python -m windyfly.bridge.uds_server
+ExecStart={uv_path} run python -m windyfly.main --channel matrix
 Restart=on-failure
 RestartSec=5
 StandardOutput=append:{brain_log}
@@ -1540,7 +1313,6 @@ def main() -> None:
     # ── Chat & Interaction ───────────────────────────────────────
 
     # windy chat
-    sub.add_parser("chat", help="Start CLI chat mode (alias for start --cli)")
 
     # windy test / windy selftest — same handler, shared flags. Keeping
     # both names makes smoke-test.sh (which calls `windy test`) and
@@ -1750,15 +1522,6 @@ def main() -> None:
     # windy init
     sub.add_parser("init", help="Interactive setup wizard")
 
-    # windy setup
-    sub.add_parser("setup", help="Browser-based setup wizard")
-
-    # windy setup-calendar
-    sub.add_parser(
-        "setup-calendar",
-        help="One-time Google Calendar OAuth flow (activates calendar tools)",
-    )
-
     # windy setup-gmail
     sub.add_parser(
         "setup-gmail",
@@ -1846,7 +1609,6 @@ def main() -> None:
         "kill": _cmd_kill,
         "ps": _cmd_ps,
         # Chat & Interaction
-        "chat": _cmd_chat,
         "test": _cmd_test,
         "selftest": _cmd_test,
         "repl": _cmd_repl,
@@ -1888,8 +1650,6 @@ def main() -> None:
         "reset": _cmd_reset,
         # Setup
         "init": cmd_init,
-        "setup": cmd_setup,
-        "setup-calendar": cmd_setup_calendar,
         "setup-gmail": cmd_setup_gmail,
         # Help
         "help": _cmd_help,

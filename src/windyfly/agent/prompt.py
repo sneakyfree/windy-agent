@@ -575,32 +575,6 @@ def assemble_prompt(
             "answering about it; don't rely on memory or a search snippet."
         )
 
-    from windyfly.tools.windycode_web import builder_default_enabled
-    if builder_default_enabled():
-        system_parts.append(
-            "BUILDING WEBSITES AND PAGES: if your tool list for this reply has "
-            "windycodeweb_* tools, build in Windy Code: windycodeweb_start with the "
-            "person's own words as fills, then windycodeweb_edit_text or "
-            "windycodeweb_add_files (changed files only) with a short human label "
-            "per change, then windycodeweb_preview. The user sees it in their Windy Code builder "
-            "with Undo. Do not use create_site / add_or_edit_files, file writes "
-            "or shell commands to make a site for the user. Publish only after "
-            "the user says yes to the builder's question."
-        )
-
-    # The filing cabinet (Windy Code contract v1.2): dark behind WINDY_CODE_CABINET=1.
-    from windyfly.tools.windycode_web import cabinet_enabled
-    if cabinet_enabled():
-        system_parts.append(
-            "THE OWNER'S CABINET: if your tool list has windycodeweb_file_project, file "
-            "a project there only when your person asked you to make, build or set up "
-            "something that has a URL, repo or store listing (sites you build in Windy "
-            "Code are filed for you); never for answers or research. After each "
-            "meaningful step, add one plain sentence with windycodeweb_log_activity. "
-            "Anything that publishes, spends money or connects a domain still waits "
-            "for their OK."
-        )
-
     # First-contact guard: when the bot has no prior memory at all,
     # the LLM's default warmth kicks in and produces "welcome back" /
     # "good to see you again" even though it has nothing to remember.
@@ -766,43 +740,6 @@ def assemble_prompt(
                     "role": "system",
                     "content": f"## Last Session Handoff\n{summary}",
                 })
-
-        # 1.6. Skills index — progressive disclosure level 0 (Sprint 3).
-        # Names + one-liners ONLY; the agent loads a body on demand with
-        # skill.view. Never inline the library (the Hermes token-economy
-        # lesson: a ~3k-token index beats a 100k-token dump).
-        try:
-            from windyfly.memory.skills import is_correction_row, list_skills
-            from windyfly.skills import drops as _drops
-            drops_on = _drops.enabled()
-            playbooks = [
-                s for s in list_skills(db, promoted_only=True)
-                if s.get("language") == "playbook"
-                and not is_correction_row(s)  # injected separately as lessons
-                and (drops_on or not _drops.is_drop_row(s))
-            ][:12]
-            if playbooks:
-                skill_lines = [
-                    "## Skills you know (playbooks — load with skill.view before doing these tasks):"
-                ]
-                for s in playbooks:
-                    if _drops.is_drop_row(s):
-                        # Third-party text never reaches the system prompt:
-                        # the slug only (constrained charset), clearly labelled.
-                        skill_lines.append(
-                            f"- {s['name']} — (third-party skill from Windy Drops)"
-                        )
-                        continue
-                    desc = (s.get("description") or "").strip()
-                    skill_lines.append(
-                        f"- {s['name']}" + (f" — {desc[:90]}" if desc else "")
-                    )
-                messages.append({
-                    "role": "system",
-                    "content": "\n".join(skill_lines),
-                })
-        except Exception:
-            pass  # skills index is enrichment — never block prompt assembly
 
     # 1.7. Held memory conflicts (strand C4.6/C4.7) — OWNER only (not a
     # TRUSTED sibling: only the owner may choose). Facts, not advice

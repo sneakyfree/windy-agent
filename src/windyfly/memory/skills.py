@@ -142,17 +142,6 @@ def get_active_correction_skills(
     recurring failures but never applied. v18 e2e harness +
     grep audit caught this; PR ships the read path.
     """
-    # Lazy expiry pass — cheap query against an indexed column,
-    # bounded to skills past their 30-day idle horizon. Safer than
-    # a separate cron because cleanup happens whenever the read
-    # path is exercised.
-    try:
-        from windyfly.skills.manager import expire_stale_correction_skills
-        expire_stale_correction_skills(db)
-    except Exception:
-        # Never fail the read path on an expiry hiccup; future
-        # expiry attempts will catch up.
-        pass
     return db.fetchall(
         """
         SELECT * FROM skills

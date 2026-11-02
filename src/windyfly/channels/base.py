@@ -127,15 +127,6 @@ async def handle_incoming(text: str, context: dict | None = None) -> tuple[bool,
     if rescue_reply is not None:
         return True, rescue_reply
 
-    # Builder publish / unpublish / connect: only the owner's own reply spends the
-    # held confirmation (the model never sees the token).
-    if band >= Band.OWNER:
-        from windyfly.tools import windycode_web as _wcw
-
-        builder_reply = _wcw.owner_confirm(text)
-        if builder_reply is not None:
-            return True, builder_reply
-
     # BYO texting (dark: WINDY_TEXT_BYO=1): the owner's yes/no to a first text.
     if band >= Band.OWNER:
         from windyfly.tools import sms as _sms
@@ -143,15 +134,6 @@ async def handle_incoming(text: str, context: dict | None = None) -> tuple[bool,
         sms_reply = _sms.owner_reply(text)
         if sms_reply is not None:
             return True, sms_reply
-
-    # Skill drops (dark: WINDY_SKILL_DROPS=1): the owner's own "yes, install <name>"
-    # spends a held install. The model has no approve tool; a stranger never gets here.
-    if band >= Band.OWNER:
-        from windyfly.skills import drops as _drops
-
-        drop_reply = _drops.owner_reply(text)
-        if drop_reply is not None:
-            return True, drop_reply
 
     if is_command(text):
         response = await registry.execute(parse_command(text), context)

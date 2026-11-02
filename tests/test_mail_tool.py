@@ -200,5 +200,5 @@ class TestBootSequenceWiring:
         sequence = default_capability_registration_sequence()
         names = [s.name for s in sequence]
         assert "tools.mail" in names
-        # Mail registers between windy_api and web_search per design.
-        assert names.index("tools.mail") == names.index("tools.windy_api") + 1
+        # Mail registers right after the plans tool (the lean Windy Fly, 2026-11-02).
+        assert names.index("tools.mail") == names.index("tools.windy_plans") + 1

@@ -295,7 +295,7 @@ def _salvage(
             env[var] = value  # keep it working this run
             continue
         try:
-            from windyfly.agent.capabilities.setup import _atomic_upsert_env_var
+            from windyfly.env_file import _atomic_upsert_env_var
 
             _atomic_upsert_env_var(env_file, var, value)
         except OSError:

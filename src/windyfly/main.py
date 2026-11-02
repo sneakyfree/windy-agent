@@ -69,14 +69,6 @@ def _start_decay_scheduler(
                 logger.info("Drift check complete: no drift detected")
         except Exception as e:
             logger.error("Drift check failed: %s", e)
-        # Skill-library curation (Sprint 3): demote failing skills,
-        # cap the promoted playbook library (LRU). Demote-only.
-        try:
-            from windyfly.skills.curator import run_curation
-            cstats = run_curation(decay_db)
-            logger.info("Skill curation complete: %s", cstats)
-        except Exception as e:
-            logger.error("Skill curation failed: %s", e)
         # Retention: prune high-churn bookkeeping tables (soul_history
         # heartbeat dupes + stale events) and VACUUM if it freed real
         # space. Runs BEFORE the backup so the uploaded DB is already
@@ -295,15 +287,6 @@ def main() -> None:
     _start_decay_scheduler(config, db_path, args.channel)
     from windyfly.memory.split_check import start_split_watch
     start_split_watch(db_path)
-    # A soul import cut short by a restart leaves its upload in the intake dir: wipe old ones.
-    try:
-        from windyfly.soul_import.intake import sweep as _sweep_soul_intake
-        from windyfly.soul_import.intake import sweep_uploads as _sweep_soul_uploads
-
-        _sweep_soul_intake()
-        _sweep_soul_uploads()
-    except Exception as e:  # noqa: BLE001
-        logger.debug("soul intake sweep skipped: %s", e)
     # A restore's encrypted undo copy is wiped at 24 hours, also across a restart.
     try:
         from windyfly.backup_restore import sweep_undo as _sweep_restore_undo

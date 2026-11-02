@@ -180,9 +180,7 @@ class BootSequence:
 # ─── Step runners ────────────────────────────────────────────────────
 
 
-def _step_register_windy_api(ctx: BootContext) -> None:
-    from windyfly.tools.windy_api import register_windy_tools
-    register_windy_tools(ctx.tool_registry)
+def _step_register_windy_plans(ctx: BootContext) -> None:
     from windyfly.tools.windy_plans import register_windy_plans_tool
     register_windy_plans_tool(ctx.tool_registry)
 
@@ -204,64 +202,14 @@ def _step_register_sms(ctx: BootContext) -> None:
     register_sms_tools(ctx.tool_registry, ctx.db)
 
 
-def _step_register_voice(ctx: BootContext) -> None:
-    from windyfly.tools.voice import register_voice_tools
-    register_voice_tools(ctx.tool_registry)
-
-
 def _step_register_cloud(ctx: BootContext) -> None:
     from windyfly.tools.cloud import register_cloud_tools
     register_cloud_tools(ctx.tool_registry, config=ctx.config, db=ctx.db, write_queue=ctx.write_queue)
 
 
-def _step_register_windy_domains(ctx: BootContext) -> None:
-    from windyfly.tools.windy_domains import register_windy_domains_tools
-    register_windy_domains_tools(ctx.tool_registry)
-
-
-def _step_register_windycode(ctx: BootContext) -> None:
-    from windyfly.tools.windycode import register_windycode_tools
-    register_windycode_tools(ctx.tool_registry)
-
-
-def _step_register_windycode_web(ctx: BootContext) -> None:
-    from windyfly.tools.windycode_web import register_windycodeweb_tools
-    register_windycodeweb_tools(ctx.tool_registry)
-
-
 def _step_register_web_search(ctx: BootContext) -> None:
     from windyfly.tools.web_search import register_web_search_tool
     register_web_search_tool(ctx.tool_registry)
-
-
-def _step_register_reminders(ctx: BootContext) -> None:
-    from windyfly.tools.reminders import register_reminder_tools
-    register_reminder_tools(ctx.tool_registry, ctx.db)
-
-
-def _step_register_todos(ctx: BootContext) -> None:
-    from windyfly.tools.todos import register_todo_tools
-    register_todo_tools(ctx.tool_registry, ctx.db)
-
-
-def _step_register_weather(ctx: BootContext) -> None:
-    from windyfly.tools.weather import register_weather_tool
-    register_weather_tool(ctx.tool_registry)
-
-
-def _step_register_news(ctx: BootContext) -> None:
-    from windyfly.tools.news import register_news_tool
-    register_news_tool(ctx.tool_registry)
-
-
-def _step_register_calendar(ctx: BootContext) -> None:
-    from windyfly.tools.calendar import register_calendar_tools
-    register_calendar_tools(ctx.tool_registry)
-
-
-def _step_start_reminder_checker(ctx: BootContext) -> None:
-    from windyfly.tools.reminders import start_reminder_checker
-    start_reminder_checker(ctx.db)
 
 
 def _step_install_audit_hooks(ctx: BootContext) -> None:
@@ -279,37 +227,6 @@ def _step_register_filesystem(ctx: BootContext) -> None:
 def _step_register_shell(ctx: BootContext) -> None:
     from windyfly.agent.capabilities.shell import register_shell_capabilities
     register_shell_capabilities(ctx.capability_registry, ctx.config)
-
-
-def _step_register_ssh(ctx: BootContext) -> None:
-    from windyfly.agent.capabilities.ssh import register_ssh_capabilities
-    register_ssh_capabilities(ctx.capability_registry, ctx.config)
-
-
-def _step_register_vision(ctx: BootContext) -> None:
-    from windyfly.agent.capabilities.vision import register_vision_capabilities
-    register_vision_capabilities(ctx.capability_registry, ctx.config)
-
-
-def _step_register_github(ctx: BootContext) -> None:
-    from windyfly.agent.capabilities.github import (
-        register_github_capabilities,
-    )
-    register_github_capabilities(ctx.capability_registry, ctx.config)
-
-
-def _step_register_windyword(ctx: BootContext) -> None:
-    from windyfly.agent.capabilities.windyword import (
-        register_windyword_capabilities,
-    )
-    register_windyword_capabilities(ctx.capability_registry, ctx.config)
-
-
-def _step_register_mcp_client(ctx: BootContext) -> None:
-    from windyfly.agent.capabilities.mcp_client import (
-        register_mcp_client_capabilities,
-    )
-    register_mcp_client_capabilities(ctx.capability_registry, ctx.config)
 
 
 def _step_register_mind_model(ctx: BootContext) -> None:
@@ -337,39 +254,6 @@ def _step_register_phone_tools(ctx: BootContext) -> None:
     register_phone_capabilities(ctx.capability_registry, ctx.config)
 
 
-def _step_register_cloudflare(ctx: BootContext) -> None:
-    from windyfly.agent.capabilities.cloudflare import (
-        register_cloudflare_capabilities,
-    )
-    register_cloudflare_capabilities(ctx.capability_registry, ctx.config)
-
-
-def _step_register_setup(ctx: BootContext) -> None:
-    from windyfly.agent.capabilities.setup import register_setup_capabilities
-    register_setup_capabilities(ctx.capability_registry, ctx.config)
-
-
-def _step_register_health(ctx: BootContext) -> None:
-    from windyfly.agent.capabilities.health import register_health_capabilities
-    register_health_capabilities(ctx.capability_registry, ctx.config)
-
-
-def _step_register_auto_repair(ctx: BootContext) -> None:
-    from windyfly.agent.capabilities.auto_repair import (
-        register_auto_repair_capabilities,
-    )
-    register_auto_repair_capabilities(ctx.capability_registry, ctx.config)
-
-
-def _step_register_skill_learning(ctx: BootContext) -> None:
-    from windyfly.agent.capabilities.skill_learning import (
-        register_skill_learning_capabilities,
-    )
-    register_skill_learning_capabilities(
-        ctx.capability_registry, ctx.db, ctx.write_queue, ctx.config,
-    )
-
-
 def _step_register_memory_search(ctx: BootContext) -> None:
     """Chronicle retrieval — the model's key to its own past
     (Chronicle Doctrine MUST-BUILD #2, 2026-07-18)."""
@@ -379,22 +263,6 @@ def _step_register_memory_search(ctx: BootContext) -> None:
     register_memory_search_capabilities(
         ctx.capability_registry, ctx.db, ctx.config,
     )
-
-
-def _step_sync_skill_files(ctx: BootContext) -> None:
-    """Ingest ~/.windy/skills/*.md into the skill lifecycle (Sprint 3).
-    Files are the human-facing mirror of learned skills — dropping a
-    SKILL.md in and restarting teaches the agent."""
-    from windyfly.skills.files import sync_skill_files
-    sync_skill_files(ctx.db)
-
-
-def _step_skill_drops_refresh(ctx: BootContext) -> None:
-    """Skill drops (dark: WINDY_SKILL_DROPS=1): refresh installed Windy Drops skills now
-    and every 6 h on a daemon thread, demoting withdrawn/revoked ones. A no-op (no
-    thread, no network) when the flag is unset."""
-    from windyfly.skills.drops import start_refresh_thread
-    start_refresh_thread(ctx.db)
 
 
 def _step_refresh_ept(ctx: BootContext) -> None:
@@ -439,26 +307,12 @@ def default_capability_registration_sequence() -> list[Step]:
     return [
         # Legacy ToolRegistry first — these are pre-Capability-Plane tools
         # (weather, news, calendar, etc.) the loop still routes through.
-        Step("tools.windy_api",      _step_register_windy_api),
+        Step("tools.windy_plans",    _step_register_windy_plans),
         Step("tools.mail",           _step_register_mail),
         Step("tools.chat",           _step_register_chat),
         Step("tools.sms",            _step_register_sms),
-        Step("tools.voice",          _step_register_voice),
         Step("tools.cloud",          _step_register_cloud),
-        Step("tools.windy_domains",  _step_register_windy_domains),
-        Step("tools.windycode",      _step_register_windycode),
-        Step("tools.windycode_web",  _step_register_windycode_web),
         Step("tools.web_search",     _step_register_web_search),
-        Step("tools.reminders",      _step_register_reminders),
-        Step("tools.todos",          _step_register_todos),
-        Step("tools.weather",        _step_register_weather),
-        Step("tools.news",           _step_register_news),
-        Step("tools.calendar",       _step_register_calendar),
-        Step(
-            "tools.reminder_checker",
-            _step_start_reminder_checker,
-            optional=True,  # background thread; failure is non-fatal
-        ),
 
         # Capability Plane: install audit hooks BEFORE registering caps
         # so every subsequent registration is auditable from the first
@@ -472,31 +326,6 @@ def default_capability_registration_sequence() -> list[Step]:
         Step(
             "capabilities.shell",
             _step_register_shell,
-            requires=("capabilities.audit",),
-        ),
-        Step(
-            "capabilities.ssh",
-            _step_register_ssh,
-            requires=("capabilities.audit",),
-        ),
-        Step(
-            "capabilities.vision",
-            _step_register_vision,
-            requires=("capabilities.audit",),
-        ),
-        Step(
-            "capabilities.github",
-            _step_register_github,
-            requires=("capabilities.audit",),
-        ),
-        Step(
-            "capabilities.windyword",
-            _step_register_windyword,
-            requires=("capabilities.audit",),
-        ),
-        Step(
-            "capabilities.mcp_client",
-            _step_register_mcp_client,
             requires=("capabilities.audit",),
         ),
         Step(
@@ -525,44 +354,9 @@ def default_capability_registration_sequence() -> list[Step]:
             requires=("capabilities.audit",),
         ),
         Step(
-            "capabilities.cloudflare",
-            _step_register_cloudflare,
-            requires=("capabilities.audit",),
-        ),
-        Step(
-            "capabilities.setup",
-            _step_register_setup,
-            requires=("capabilities.audit",),
-        ),
-        Step(
-            "capabilities.health",
-            _step_register_health,
-            requires=("capabilities.audit",),
-        ),
-        Step(
-            "capabilities.auto_repair",
-            _step_register_auto_repair,
-            requires=("capabilities.audit",),
-        ),
-        Step(
-            "capabilities.skill_learning",
-            _step_register_skill_learning,
-            requires=("capabilities.audit",),
-        ),
-        Step(
             "capabilities.memory_search",
             _step_register_memory_search,
             requires=("capabilities.audit",),
-        ),
-        Step(
-            "skills.file_sync",
-            _step_sync_skill_files,
-            optional=True,  # a malformed skill file must not block boot
-        ),
-        Step(
-            "skills.drops_refresh",
-            _step_skill_drops_refresh,
-            optional=True,  # background thread; must never block boot
         ),
         Step(
             "eternitas.ept_refresh",

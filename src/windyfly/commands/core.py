@@ -1568,40 +1568,6 @@ def _register_all():
         args = ctx.get("_args", [])
         if args and args[0] == "edit":
             return "Run 'windy soul edit' from terminal to open SOUL.md in your editor."
-        # Soul import (strand P2.21.13): /soul import -> send the file -> /soul approve | /soul reject.
-        if args and args[0].lower() in ("yes", "apply", "undo"):
-            from windyfly.soul_import import flow as _flow
-
-            if not _db:
-                return "Database not available."
-            key = f"{ctx.get('platform', '?')}:{ctx.get('channel_id', '?')}"
-            fn = {"yes": _flow.confirm, "apply": _flow.apply, "undo": _flow.undo}[args[0].lower()]
-            return fn(_db, key)
-        if args and args[0].lower() in ("review", "keep", "drop"):
-            from windyfly.soul_import import flow as _flow
-
-            if not _db:
-                return "Database not available."
-            key = f"{ctx.get('platform', '?')}:{ctx.get('channel_id', '?')}"
-            fn = {"review": _flow.review, "keep": _flow.keep, "drop": _flow.drop}[args[0].lower()]
-            if args[0].lower() != "review" and len(args) < 2:
-                return f"Usage: /soul {args[0].lower()} <numbers from /soul review | all>"
-            return fn(_db, key, args[1:])
-        if args and args[0].lower() in ("import", "approve", "reject"):
-            from windyfly.soul_import import flow as _flow
-
-            key = f"{ctx.get('platform', '?')}:{ctx.get('channel_id', '?')}"
-            verb = args[0].lower()
-            if verb == "import":
-                return _flow.start(key)
-            if verb == "reject":
-                return _flow.reject(key)
-            if not _db:
-                return "Database not available."
-            import asyncio as _asyncio
-
-            # A big export takes a while to parse: never on the event loop (Hub, #589).
-            return await _asyncio.to_thread(_flow.approve, _db, key)
         # Anchored to the project root: read from the cwd, /soul told the
         # user "No SOUL.md found. Create one" whenever they ran from
         # anywhere else — inviting them to overwrite the one document in
@@ -1611,8 +1577,8 @@ def _register_all():
             content = soul_path.read_text(encoding="utf-8")[:500]
             return f"Current personality:\n{content}{'...' if len(soul_path.read_text(encoding="utf-8")) > 500 else ''}"
         return "No SOUL.md found. Create one to define your agent's personality."
-    _r("soul", "Show your agent's personality, or import one (/soul import)", "05_personality", cmd_soul,
-       aliases=["personality", "persona"], usage="soul | soul import | soul approve | soul reject | soul review [n] | soul keep <n> | soul drop <n|all> | soul apply | soul undo | soul yes")
+    _r("soul", "Show your agent's personality", "05_personality", cmd_soul,
+       aliases=["personality", "persona"], usage="soul")
 
     async def cmd_sliders(ctx):
         if not _db:
@@ -2168,95 +2134,6 @@ def _register_budget_through_help():
         return text
     _r("usage", "What I have used today (cost, counted on this machine)", "08_budget", cmd_usage)
 
-    # ═══════════════════════════════════════════════════════════════
-    # EVERYDAY TOOLS (87-96)
-    # ═══════════════════════════════════════════════════════════════
-
-    async def cmd_remind(ctx):
-        args = ctx.get("_args", [])
-        if not args:
-            return "Usage: /remind <time> <message>\nExample: /remind in 20 minutes take medicine"
-        # Parse: first arg is time-like, rest is message
-        from windyfly.tools.reminders import set_reminder
-        from windyfly.memory.database import Database
-        _db = Database(os.environ.get("WINDYFLY_DB_PATH", "data/windyfly.db"))
-        # Find the time boundary — look for common time starters
-        text = " ".join(args)
-        for sep in ["to ", "that "]:
-            idx = text.find(sep)
-            if idx > 0:
-                time_str = text[:idx].strip()
-                message = text[idx + len(sep):].strip()
-                result = set_reminder(_db, message, time_str)
-                _db.close()
-                return result.get("message", str(result))
-        # Fallback: first 3 words are time, rest is message
-        time_str = " ".join(args[:3])
-        message = " ".join(args[3:]) or "reminder"
-        result = set_reminder(_db, message, time_str)
-        _db.close()
-        return result.get("message", str(result))
-    _r("remind", "Set a reminder", "08a_tools", cmd_remind,
-       aliases=["reminder", "timer"], usage="remind <time> <message>")
-
-    async def cmd_reminders(ctx):
-        from windyfly.tools.reminders import list_reminders
-        from windyfly.memory.database import Database
-        _db = Database(os.environ.get("WINDYFLY_DB_PATH", "data/windyfly.db"))
-        result = list_reminders(_db)
-        _db.close()
-        return result.get("message", "No reminders.")
-    _r("reminders", "List upcoming reminders", "08a_tools", cmd_reminders)
-
-    async def cmd_todo(ctx):
-        args = ctx.get("_args", [])
-        from windyfly.tools.todos import add_todo, list_todos, complete_todo, delete_todo
-        from windyfly.memory.database import Database
-        _db = Database(os.environ.get("WINDYFLY_DB_PATH", "data/windyfly.db"))
-        action = args[0] if args else "list"
-        rest = " ".join(args[1:])
-        if action == "add" and rest:
-            result = add_todo(_db, rest)
-        elif action in ("done", "complete") and rest:
-            result = complete_todo(_db, rest)
-        elif action == "delete" and rest:
-            result = delete_todo(_db, rest)
-        else:
-            result = list_todos(_db)
-        _db.close()
-        return result.get("message", str(result))
-    _r("todo", "Manage to-do list", "08a_tools", cmd_todo,
-       aliases=["todos", "task", "tasks"], usage="todo [add|done|delete] <text>")
-
-    async def cmd_weather(ctx):
-        args = ctx.get("_args", [])
-        location = " ".join(args) if args else "New York"
-        from windyfly.tools.weather import get_weather
-        result = get_weather(location)
-        return result.get("summary", result.get("error", str(result)))
-    _r("weather", "Get current weather", "08a_tools", cmd_weather, usage="weather <location>")
-
-    async def cmd_news(ctx):
-        args = ctx.get("_args", [])
-        topic = " ".join(args) if args else None
-        from windyfly.tools.news import get_news
-        result = get_news(topic)
-        return result.get("message", str(result))
-    _r("news", "Get latest headlines", "08a_tools", cmd_news,
-       aliases=["headlines"], usage="news [topic]")
-
-    async def cmd_calendar(ctx):
-        args = ctx.get("_args", [])
-        from windyfly.tools.calendar import get_today_events, get_upcoming_events
-        action = args[0] if args else "today"
-        if action == "week":
-            result = get_upcoming_events(7)
-        else:
-            result = get_today_events()
-        return result.get("message", str(result))
-    _r("calendar", "Show calendar events", "08a_tools", cmd_calendar,
-       aliases=["cal", "schedule", "events"], usage="calendar [today|week]")
-
     async def cmd_capabilities(ctx):
         from windyfly.agent.capabilities import HELP_TEXT
         return HELP_TEXT
@@ -2373,35 +2250,6 @@ def _register_budget_through_help():
     # ═══════════════════════════════════════════════════════════════
     # VPS & CLOUD (95-104)
     # ═══════════════════════════════════════════════════════════════
-
-    async def cmd_deploy(ctx):
-        args = ctx.get("_args", [])
-        if not args or "--vps" not in args:
-            return "Usage: /deploy --vps [--region us-east-1] [--type t3.small]"
-        from windyfly.vps_deploy import deploy_vps, format_vps_status
-        region = "us-east-1"
-        itype = "t3.small"
-        for i, a in enumerate(args):
-            if a == "--region" and i + 1 < len(args):
-                region = args[i + 1]
-            if a == "--type" and i + 1 < len(args):
-                itype = args[i + 1]
-        instance = await deploy_vps(region=region, instance_type=itype)
-        return format_vps_status(instance)
-    _r("deploy", "Deploy agent to a cloud VPS", "10_cloud", cmd_deploy,
-       usage="deploy --vps [--region us-east-1] [--type t3.small]")
-
-    async def cmd_vps(ctx):
-        args = ctx.get("_args", [])
-        action = args[0] if args else "status"
-        from windyfly.vps_deploy import get_vps_status, stop_vps, destroy_vps, format_vps_status
-        if action == "stop":
-            return format_vps_status(await stop_vps())
-        if action in ("destroy", "terminate"):
-            return format_vps_status(await destroy_vps())
-        return format_vps_status(await get_vps_status())
-    _r("vps", "VPS status, stop, or destroy", "10_cloud", cmd_vps,
-       aliases=["server", "instance"], usage="vps [status | stop | destroy]")
 
     async def cmd_backup(ctx):
         args = ctx.get("_args", [])

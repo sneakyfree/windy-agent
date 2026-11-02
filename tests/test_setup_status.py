@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import os
 
-import pytest
 
 from windyfly.agent.capabilities import CapabilityRegistry
 from windyfly.agent.setup_status import (
@@ -465,14 +464,14 @@ def test_save_credential_malformed_token_refused_before_api_call(tmp_path):
 
 
 def test_atomic_upsert_creates_new_file(tmp_path):
-    from windyfly.agent.capabilities.setup import _atomic_upsert_env_var
+    from windyfly.env_file import _atomic_upsert_env_var
     env_file = tmp_path / "fresh.env"
     _atomic_upsert_env_var(env_file, "FOO", "bar")
     assert env_file.read_text(encoding="utf-8") == "FOO=bar\n"
 
 
 def test_atomic_upsert_appends_to_existing_file(tmp_path):
-    from windyfly.agent.capabilities.setup import _atomic_upsert_env_var
+    from windyfly.env_file import _atomic_upsert_env_var
     env_file = tmp_path / "existing.env"
     env_file.write_text("EXISTING=keep_me\n")
     _atomic_upsert_env_var(env_file, "NEW", "added")
@@ -483,7 +482,7 @@ def test_atomic_upsert_appends_to_existing_file(tmp_path):
 
 def test_atomic_upsert_replaces_existing_var(tmp_path):
     """Idempotent: re-saving a token replaces the old line, doesn't dup it."""
-    from windyfly.agent.capabilities.setup import _atomic_upsert_env_var
+    from windyfly.env_file import _atomic_upsert_env_var
     env_file = tmp_path / "rotate.env"
     env_file.write_text("FOO=old_value\nOTHER=keep\n")
     _atomic_upsert_env_var(env_file, "FOO", "new_value")
@@ -496,7 +495,7 @@ def test_atomic_upsert_replaces_existing_var(tmp_path):
 
 
 def test_atomic_upsert_no_temp_file_left(tmp_path):
-    from windyfly.agent.capabilities.setup import _atomic_upsert_env_var
+    from windyfly.env_file import _atomic_upsert_env_var
     env_file = tmp_path / "x.env"
     _atomic_upsert_env_var(env_file, "FOO", "bar")
     assert not list(tmp_path.glob("*.windy.tmp"))
@@ -513,7 +512,7 @@ def test_atomic_upsert_restricts_to_owner(tmp_path):
     """
     import os
 
-    from windyfly.agent.capabilities.setup import _atomic_upsert_env_var
+    from windyfly.env_file import _atomic_upsert_env_var
     env_file = tmp_path / "secret.env"
     _atomic_upsert_env_var(env_file, "TOKEN", "value")
 
@@ -550,7 +549,7 @@ def test_atomic_upsert_writes_through_symlink_does_not_replace_link(tmp_path):
     _os.symlink(real, link)
     assert link.is_symlink()
 
-    from windyfly.agent.capabilities.setup import _atomic_upsert_env_var
+    from windyfly.env_file import _atomic_upsert_env_var
     _atomic_upsert_env_var(link, "NEW_TOKEN", "abc123")
 
     # The symlink must STILL be a symlink afterwards.

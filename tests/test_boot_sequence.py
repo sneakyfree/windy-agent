@@ -185,12 +185,3 @@ class TestDefaultSequence:
         for handler in ("capabilities.filesystem", "capabilities.shell"):
             assert names.index(handler) > audit_idx
 
-    def test_reminder_checker_is_optional(self):
-        # The background reminder thread shouldn't kill boot if it
-        # fails to start (memory/disk pressure, etc.).
-        steps = default_capability_registration_sequence()
-        for step in steps:
-            if step.name == "tools.reminder_checker":
-                assert step.optional is True
-                return
-        pytest.fail("tools.reminder_checker step missing from sequence")

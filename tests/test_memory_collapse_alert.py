@@ -64,8 +64,7 @@ def test_the_maintenance_loop_announces_right_after_opening_the_db(tmp_path, mon
 
     seen = []
     monkeypatch.setattr(ca, "announce", lambda p: seen.append(str(p)) or False)
-    for name in ("windyfly.memory.decay.run_decay", "windyfly.skills.curator.run_curation",
-                 "windyfly.memory.retention.run_retention"):
+    for name in ("windyfly.memory.decay.run_decay", "windyfly.memory.retention.run_retention"):
         monkeypatch.setattr(name, lambda *a, **k: {})
     monkeypatch.setattr("windyfly.personality.versioning.run_periodic_drift_check", lambda *a, **k: {"drift_detected": False})
 

@@ -11,7 +11,6 @@ from __future__ import annotations
 import io
 import logging
 
-import pytest
 
 from windyfly.observability.redact import (
     RedactingFilter,
@@ -163,26 +162,3 @@ def test_bare_token_pattern_leaves_clock_times_and_ids_alone():
         assert redact(text) == text
 
 
-def test_telegram_reconnect_event_is_redacted(monkeypatch):
-    # The events ledger is written directly, not through the logging
-    # filter, so the reconnect path must redact on its own.
-    import types
-
-    import windyfly.observability.events as events
-    from windyfly.channels.telegram_bot import TelegramChannel
-
-    captured = {}
-    monkeypatch.setattr(
-        events, "log_event",
-        lambda db, wq, etype, props: captured.update(etype=etype, **props),
-    )
-    fake_self = types.SimpleNamespace(_db=object(), _write_queue=object())
-    TelegramChannel._log_reconnect_event(
-        fake_self,
-        "The token `1234567890:AAFAKE-token-for-tests-only_0000000` "
-        "was rejected by the server.",
-        8,
-    )
-    assert captured["etype"] == "telegram.reconnect"
-    assert "KE-token-for-tests-only_0000000" not in captured["error"]
-    assert "***REDACTED***" in captured["error"]

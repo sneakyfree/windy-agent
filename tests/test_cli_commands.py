@@ -25,9 +25,9 @@ class TestCLIHelp:
         assert result.returncode == 0
         output = result.stdout
         expected_commands = [
-            "go", "init", "setup", "start", "stop", "restart",
+            "go", "init", "start", "stop", "restart",
             "status", "doctor", "update", "logs", "config", "version",
-            "chat", "test",
+            "test", "bring-home", "login", "ept",
         ]
         for cmd in expected_commands:
             assert cmd in output, f"Command '{cmd}' not found in --help output"

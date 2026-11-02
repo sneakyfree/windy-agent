@@ -1036,13 +1036,6 @@ def _agent_respond_turn(
             break
 
     friction = detect_friction(user_message, prev_agent_msg)
-    # Skills the last turn used get their verdict from this message (strand P3.31.10).
-    try:
-        from windyfly.skills.manager import judge_skill_uses
-
-        judge_skill_uses(db, write_queue, session_id, friction=bool(friction))
-    except Exception as e:
-        logger.debug("skill verdict skipped: %s", e)
     if friction:
         extra_instruction = handle_friction(db, write_queue, friction)
         if extra_instruction:
@@ -1084,17 +1077,6 @@ def _agent_respond_turn(
     # user's energy" on every turn, and tone is the model's job
     # (Principle #5). emotional_context/trend still feed the episode
     # metadata + adaptive_mode sliders below.
-
-    # 1.72. Skill-capture nudge (Sprint 3, the Hermes pattern): if the
-    # PREVIOUS turn executed heavy tool work, remind the model once
-    # that persisting the workflow via skill.save is an option.
-    try:
-        from windyfly.skills.nudge import pending_nudge
-        _skill_nudge = pending_nudge(session_id)
-        if _skill_nudge:
-            messages.insert(1, {"role": "system", "content": _skill_nudge})
-    except Exception:
-        pass
 
     # 1.75. Budget enforcement
     # Model selection precedence (PR #197):
@@ -1884,17 +1866,6 @@ def _agent_respond_turn(
             )
             response_text = _SELF_ENV_TRUTH_FALLBACK
 
-    # 2.9. Analytics tracking
-    try:
-        from windyfly.analytics import track
-        track(db, "message_received")
-        track(db, "message_sent")
-        if tool_calls:
-            for tc in (tool_calls if isinstance(tool_calls, list) else []):
-                track(db, "tool_invoked", {"tool_name": tc.get("function", {}).get("name", "unknown")})
-    except Exception:
-        pass  # Analytics should never break the agent
-
     # 2.95. Empty-after-tool-loop defense. The tool loop can exit with
     # ``response_text = ""`` when the LLM only called tools and never
     # produced text content (e.g., web_search → fs.glob → ran out of
@@ -1963,15 +1934,6 @@ def _agent_respond_turn(
             })
         except Exception:
             pass
-
-    # 2.97. Record this turn's tool weight for the skill-capture
-    # nudge (Sprint 3): a heavy turn primes a one-shot next-turn
-    # reminder that skill.save exists.
-    try:
-        from windyfly.skills.nudge import record_turn
-        record_turn(session_id, _turn_tool_exec_count)
-    except Exception:
-        pass
 
     # 3. Save episodes via write queue (HIGH priority)
     cost_usd = sum_costs(_turn_costs)
