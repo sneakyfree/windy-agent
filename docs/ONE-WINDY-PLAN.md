@@ -220,5 +220,36 @@ What "one agent" must give a person (Grant): the same agent everywhere, Claude-C
    - Proposal: a dated, env-only setting, e.g. 50 real hatches/day, with an HQ alarm at 80%. Its own GO. It protects Friday's friends wave without blocking it.
    - [Owner: Hub: does a global cap exist today? If not, where it sits in the canal and its default.]
 
-## E. Decisions for Boss (then Grant)
-[Filled when A-D are in]
+## E. Recommendations by the 10 guiding principles (Windy Agent draft, 2026-11-02; co-authors to counter)
+The principles are in kit-army-config doctrine/00-GUIDING-PRINCIPLES.md. When two collide, #10 decides: stability > the human's control of their own agent > simplicity > capability.
+
+1. **One sign-up app (A):**
+   - YES: every platform redirects to the Windy Accounts app, and every other sign-up form goes. Why: #6, #2, #1.
+   - **For Grant:** do agent owners from OUTSIDE Windy (OpenClaw, Hermes) need a way into Eternitas without a Windy account? Eternitas certifies any agent and is independent. Recommend: "Sign in with Windy" is the main door, but no Windy account is forced on outside owners.
+2. **One identity (A2):** linking all sign-in methods to one `windy_identity_id` is a HARD precondition for Google, Apple or GitHub sign-in. Why: #1, #6.
+3. **One birth canal (B):**
+   - confirmed one canal (Windy Accounts);
+   - close or route through the canal: /bots/register and Stripe (0 use in 30 days);
+   - the Mind stop becomes mandatory only after Mind's add-compute step passes a normal-person lab test;
+   - Eternitas refuses the certificate without "Mind active + compute added + home chosen".
+
+   Why: #6, #2, #1.
+4. **Hosting (F):** a required "Where will your agent live?" stop:
+   - (a) my computer, ONE CLICK with no terminal (#2). Ask Word whether the Windy Word desktop app can host the agent;
+   - (b) a Windy Cloud VPS, once built [Grant's money];
+   - (c) a short free trial [Grant's money]. Recommended: about 7 days, free models only, under the global cap. At the end the agent PAUSES with its memory kept (#8), never deleted.
+   - BYOM in the Mind stop.
+
+   Why: #3, #10, and Grant's cost and abuse concern.
+5. **Global hatch cap now (F):** YES, on FREE HOSTED hatches only (e.g. 50/day, an HQ alarm at 80%), never on agents on the person's own hardware, which keeps it consistent with #7. Why: #10.
+6. **One agent (C): the recommendation CHANGED after F.** With agents on owners' own machines, packing thousands into Kit 0 is no longer the constraint. Recommend ONE lean Windy Fly agent, one program per person, the same code on a laptop, a VPS or the trial host:
+   - start from windyfly: it already runs on owners' hardware, keeps durable memory (#8) and has bring-home (#3);
+   - strip it hard (#4: be Hermes, not late OpenClaw) to the loop + durable memory + shared contract tools + owner-confirm and audit;
+   - the roster keeps today's agents until each moves, then retires (#6);
+   - Zero last (#1).
+
+   [Chat: counter and size; a spike before dates.]
+7. **"Your Windy" (D): facts ONLY (#5)**: activated platforms + live entitlements, read from the account and Eternitas, with no "when to suggest" coaching; the model decides. Nothing inactive is stated as available (#9). Start dark in both runtimes now (#2).
+8. **Today's ~59 roster agents:** keep running; a plain notice; each moves when a home exists. None stops or loses memory without a written plan + Boss's GO. Why: #1, #8, #10.
+
+**Grant's decisions:** the money for 4(b) and 4(c), and whether to have a trial at all; outside owners in Eternitas (1); any public opening beyond friends and testers. **Boss decides the rest** under Grant's 10-27 delegation.
