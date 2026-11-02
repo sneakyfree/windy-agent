@@ -10,6 +10,7 @@ plan, Cloud quota and Search allowance wait for their owners' reads (ONE-WINDY p
 
 from __future__ import annotations
 
+import concurrent.futures
 import logging
 import os
 import re
@@ -21,7 +22,10 @@ logger = logging.getLogger(__name__)
 
 ENV_FLAG = "WINDY_YOUR_WINDY"
 SESSION_TTL_S = 1800.0
-_TIMEOUT_S = 4.0
+_TIMEOUT_S = 2.0
+# All live reads together get at most this long, once per session (Boss 11-02: a slow source never costs a turn more
+# than ~2 s, and only on the session's first turn). A source that hasn't answered by then is omitted.
+READ_BUDGET_S = 2.0
 _MB = 1024 * 1024
 
 # x-platform-names of your-windy.v1 (the dashboard's names).
@@ -51,6 +55,11 @@ CAP = 1200  # Y7 / R9
 
 def _valid(field: str, value: Any) -> bool:
     return isinstance(value, str) and re.fullmatch(FIELD_PATTERNS[field], value) is not None
+
+
+def _count(v: Any) -> bool:
+    """A numeric fact (bytes, searches): a non-negative int, never a bool, float or text; else omitted (Y8, Hub)."""
+    return isinstance(v, int) and not isinstance(v, bool) and v >= 0
 
 
 def _clean_agent(a: dict[str, Any]) -> dict[str, Any]:
@@ -90,7 +99,7 @@ def render(doc: dict[str, Any]) -> str:
         out.append(f"Your email: {a['email']}")
     if a.get("chat_handle"):
         out.append(f"Your Windy Chat handle: {a['chat_handle']}")
-    cl: dict[str, Any] = e.get("cloud") or {}
+    cl: dict[str, Any] = {k: v for k, v in (e.get("cloud") or {}).items() if _count(v)}
     parts = []
     if "agent_allowance_bytes" in cl:
         parts.append(f"{_size(cl['agent_allowance_bytes'])} for you")
@@ -100,9 +109,9 @@ def render(doc: dict[str, Any]) -> str:
     if parts:
         out.append("Windy Cloud storage: " + ". ".join(parts) + ".")
     vault: dict[str, Any] = e.get("vault") or {}
-    if "ready" in vault:
+    if isinstance(vault.get("ready"), bool):
         out.append("Windy Vault: ready." if vault["ready"] else "Windy Vault: not set up yet.")
-    s: dict[str, Any] = e.get("search") or {}
+    s: dict[str, Any] = {k: v for k, v in (e.get("search") or {}).items() if _count(v)}
     if "monthly_allowance" in s and "used_this_month" in s:
         out.append(f"Windy Search: {s['used_this_month']} of {s['monthly_allowance']} searches used this month.")
     groups: dict[str, list[str]] = {"Activated for your owner": [], "Your owner can activate": [], "In preview": [],
@@ -183,11 +192,29 @@ def build_document(agent_name: str = "") -> dict[str, Any]:
     agent: dict[str, Any] = {"name": agent_name or "this agent"}
     if passport:
         agent["passport"] = passport
-        agent.update(_eternitas(passport))
-    email = _mail_address()
+    # The live reads run in parallel under ONE deadline (READ_BUDGET_S). A read still running at the deadline is
+    # abandoned (its thread finishes in the background and is ignored) and its fact is omitted.
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=3, thread_name_prefix="your-windy")
+    jobs = {"mail": pool.submit(_mail_address), "chat": pool.submit(_chat_handle)}
+    if passport:
+        jobs["eternitas"] = pool.submit(_eternitas, passport)
+    done, _ = concurrent.futures.wait(list(jobs.values()), timeout=READ_BUDGET_S)
+    pool.shutdown(wait=False, cancel_futures=True)
+
+    def got(key: str) -> Any:
+        f = jobs.get(key)
+        if f is None or f not in done:
+            return None
+        try:
+            return f.result()
+        except Exception:  # noqa: BLE001
+            return None
+
+    agent.update(got("eternitas") or {})
+    email = got("mail")
     if email:
         agent["email"] = email
-    handle = _chat_handle()
+    handle = got("chat")
     if handle:
         agent["chat_handle"] = handle
     doc: dict[str, Any] = {"v": 1, "read_at_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),

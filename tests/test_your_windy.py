@@ -159,3 +159,48 @@ def test_overflow_drops_platform_lines_from_the_end_never_mid_line():
     assert len(text) <= yw.CAP
     assert text.startswith(yw.render({**doc, "platforms": []}))
     assert all(line.endswith(".") or line.startswith(("YOUR WINDY", "Your email", "Your Windy Chat")) for line in text.splitlines())
+
+
+# ── Boss's flag-on preconditions (11-02 16:39Z) ──
+
+
+def test_slow_sources_cost_at_most_two_seconds_once_per_session(monkeypatch):
+    """Every live read can hang; together they cost at most READ_BUDGET_S, on the session's first turn only."""
+    import time as _t
+
+    monkeypatch.setenv(yw.ENV_FLAG, "1")
+    monkeypatch.setenv("ETERNITAS_PASSPORT", "ET26-TEST-AAAA-BBBB")
+    slow = lambda *a, **k: _t.sleep(5) or {}  # noqa: E731
+    monkeypatch.setattr(yw, "_eternitas", slow)
+    monkeypatch.setattr(yw, "_mail_address", lambda: _t.sleep(5) or "robin@windymail.ai")
+    monkeypatch.setattr(yw, "_chat_handle", lambda: _t.sleep(5) or "@a:b")
+    t0 = _t.monotonic()
+    first = yw.block("Robin")
+    took = _t.monotonic() - t0
+    assert took < yw.READ_BUDGET_S + 0.5, took
+    assert first.splitlines()[1:] == ["You: Robin. Eternitas passport ET26-TEST-AAAA-BBBB."]  # slow facts omitted
+    t1 = _t.monotonic()
+    assert yw.block("Robin") == first
+    assert _t.monotonic() - t1 < 0.05  # cached for the session: no second wait
+
+
+def test_reads_run_in_parallel_not_one_after_another(monkeypatch):
+    import time as _t
+
+    monkeypatch.setenv("ETERNITAS_PASSPORT", "ET26-TEST-AAAA-BBBB")
+    monkeypatch.setattr(yw, "_eternitas", lambda p: _t.sleep(1.2) or {"passport_status": "active"})
+    monkeypatch.setattr(yw, "_mail_address", lambda: _t.sleep(1.2) or "robin@windymail.ai")
+    monkeypatch.setattr(yw, "_chat_handle", lambda: _t.sleep(1.2) or "@a:b")
+    t0 = _t.monotonic()
+    doc = yw.build_document("Robin")
+    assert _t.monotonic() - t0 < 2.0  # 3 x 1.2 s in a row would be 3.6 s
+    assert doc["agent"]["email"] == "robin@windymail.ai" and doc["agent"]["passport_status"] == "active"
+
+
+@pytest.mark.parametrize("bad", ["500", True, -1, 1.5, None])
+def test_numeric_facts_must_be_non_negative_ints(bad):
+    doc = {**_doc(), "entitlements": {"cloud": {"agent_allowance_bytes": bad},
+                                      "search": {"monthly_allowance": 300, "used_this_month": bad},
+                                      "vault": {"ready": "yes"}}}
+    out = yw.render(doc)
+    assert "Windy Cloud" not in out and "Windy Search" not in out and "Windy Vault" not in out
