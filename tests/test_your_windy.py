@@ -159,3 +159,182 @@ def test_overflow_drops_platform_lines_from_the_end_never_mid_line():
     assert len(text) <= yw.CAP
     assert text.startswith(yw.render({**doc, "platforms": []}))
     assert all(line.endswith(".") or line.startswith(("YOUR WINDY", "Your email", "Your Windy Chat")) for line in text.splitlines())
+
+
+# ── Boss's flag-on preconditions (11-02 16:39Z) ──
+
+
+def test_slow_sources_cost_at_most_two_seconds_once_per_session(monkeypatch):
+    """Every live read can hang; together they cost at most READ_BUDGET_S, on the session's first turn only."""
+    import time as _t
+
+    monkeypatch.setenv(yw.ENV_FLAG, "1")
+    monkeypatch.setenv("ETERNITAS_PASSPORT", "ET26-TEST-AAAA-BBBB")
+    slow = lambda *a, **k: _t.sleep(5) or {}  # noqa: E731
+    monkeypatch.setattr(yw, "_eternitas", slow)
+    monkeypatch.setattr(yw, "_mail_address", lambda: _t.sleep(5) or "robin@windymail.ai")
+    monkeypatch.setattr(yw, "_chat_handle", lambda: _t.sleep(5) or "@a:b")
+    t0 = _t.monotonic()
+    first = yw.block("Robin")
+    took = _t.monotonic() - t0
+    assert took < yw.READ_BUDGET_S + 0.5, took
+    assert first.splitlines()[1:] == ["You: Robin. Eternitas passport ET26-TEST-AAAA-BBBB."]  # slow facts omitted
+    t1 = _t.monotonic()
+    assert yw.block("Robin") == first
+    assert _t.monotonic() - t1 < 0.05  # cached for the session: no second wait
+
+
+def test_reads_run_in_parallel_not_one_after_another(monkeypatch):
+    import time as _t
+
+    monkeypatch.setenv("ETERNITAS_PASSPORT", "ET26-TEST-AAAA-BBBB")
+    monkeypatch.setattr(yw, "_eternitas", lambda p: _t.sleep(1.2) or {"passport_status": "active"})
+    monkeypatch.setattr(yw, "_mail_address", lambda: _t.sleep(1.2) or "robin@windymail.ai")
+    monkeypatch.setattr(yw, "_chat_handle", lambda: _t.sleep(1.2) or "@a:b")
+    t0 = _t.monotonic()
+    doc = yw.build_document("Robin")
+    assert _t.monotonic() - t0 < 2.0  # 3 x 1.2 s in a row would be 3.6 s
+    assert doc["agent"]["email"] == "robin@windymail.ai" and doc["agent"]["passport_status"] == "active"
+
+
+@pytest.mark.parametrize("bad", ["500", True, -1, 1.5, None])
+def test_numeric_facts_must_be_non_negative_ints(bad):
+    doc = {**_doc(), "entitlements": {"cloud": {"agent_allowance_bytes": bad},
+                                      "search": {"monthly_allowance": 300, "used_this_month": bad},
+                                      "vault": {"ready": "yes"}}}
+    out = yw.render(doc)
+    assert "Windy Cloud" not in out and "Windy Search" not in out and "Windy Vault" not in out
+
+
+# ── suggestions (Grant ~19:25Z "the agent needs to suggest all that"; Boss's bounds 19:31Z) ──────────────────────────
+
+SID = "matrix:!room:v1"
+
+
+def _sdoc(platforms, cloud=None):
+    return {"v": 1, "read_at_utc": "2026-11-02T20:00:00Z", "agent": {"name": "Robin"}, "platforms": platforms,
+            "entitlements": {"cloud": cloud} if cloud else {}}
+
+
+ALL_ON = [{"id": "windy-vault", "activated": True, "status": "active"},
+          {"id": "windy-cloud", "activated": False, "status": "available"},
+          {"id": "windy-calendar", "activated": True, "status": "active"}]
+
+
+@pytest.fixture
+def sdb(monkeypatch):
+    from windyfly.memory.database import Database
+
+    monkeypatch.setenv(yw.ENV_FLAG, "1")
+    monkeypatch.setenv(yw.SUGGEST_FLAG, "1")
+    d = Database(":memory:")
+    yield d
+    d.close()
+
+
+def _with(monkeypatch, doc):
+    monkeypatch.setattr(yw, "build_document", lambda *a, **k: doc)
+
+
+def test_suggestions_are_dark_without_their_own_flag(sdb, monkeypatch):
+    _with(monkeypatch, _sdoc(ALL_ON))
+    monkeypatch.delenv(yw.SUGGEST_FLAG)
+    assert yw.suggestion_block(sdb, SID, "my password is hunter2") == ""
+    monkeypatch.setenv(yw.SUGGEST_FLAG, "1")
+    monkeypatch.delenv(yw.ENV_FLAG)
+    assert yw.suggestion_block(sdb, SID, "my password is hunter2") == ""
+
+
+def test_a_pasted_password_has_vault_to_offer(sdb, monkeypatch):
+    _with(monkeypatch, _sdoc(ALL_ON))
+    tips = yw.suggestion_block(sdb, SID, "here's my netflix password: hunter2")
+    assert "- a password, API key or other login is pasted or mentioned -> Windy Vault" in tips
+    assert "at most once in this conversation, and never again after a no" in tips
+    assert "Never push a paid plan unless they ask about plans" in tips
+
+
+def test_each_feature_is_offered_once_per_conversation(sdb, monkeypatch):
+    from windyfly.memory.episodes import save_episode
+
+    _with(monkeypatch, _sdoc(ALL_ON))
+    save_episode(sdb, "assistant", "Want me to keep that in your Windy Vault?", session_id=SID)
+    tips = yw.suggestion_block(sdb, SID, "ok")
+    assert "Windy Vault" not in tips and "Windy Calendar" in tips
+    # A new conversation may offer it again.
+    assert "Windy Vault" in yw.suggestion_block(sdb, "matrix:!room:v2", "another password: x")
+    # The owner's own words never count as an offer.
+    save_episode(sdb, "user", "what is Windy Calendar?", session_id="matrix:!room:v3")
+    assert "Windy Calendar" in yw.suggestion_block(sdb, "matrix:!room:v3", "hm")
+
+
+def test_nothing_left_to_offer_means_no_rule(sdb, monkeypatch):
+    from windyfly.memory.episodes import save_episode
+
+    _with(monkeypatch, _sdoc(ALL_ON))
+    save_episode(sdb, "assistant", "Windy Vault, Windy Cloud and Windy Calendar are yours.", session_id=SID)
+    assert yw.suggestion_block(sdb, SID, "thanks") == ""
+
+
+@pytest.mark.parametrize("stop", ["stop suggesting things", "Please STOP SUGGESTING", "don't suggest stuff",
+                                  "don’t suggest anything", "no more suggestions please"])
+def test_stop_suggesting_sticks_across_conversations(sdb, monkeypatch, stop):
+    _with(monkeypatch, _sdoc(ALL_ON))
+    assert yw.suggestion_block(sdb, SID, stop) == ""
+    yw.reset_cache()
+    assert yw.suggestion_block(sdb, "matrix:!room:v9", "my password is x") == ""
+    assert yw.suggestion_block(sdb, "matrix:!room:v9", "ok, you can suggest again") != ""
+
+
+def test_stop_wins_over_start_in_the_same_message(sdb, monkeypatch):
+    _with(monkeypatch, _sdoc(ALL_ON))
+    assert yw.suggestion_block(sdb, SID, "don't start suggesting, just stop suggesting") == ""
+
+
+@pytest.mark.parametrize("vault", [
+    {"id": "windy-vault", "activated": False, "status": "coming_soon"},
+    {"id": "windy-vault", "activated": True, "status": "coming_soon"},
+    {"id": "windy-vault", "activated": False, "status": "preview"},
+    None,
+])
+def test_never_offers_a_feature_the_facts_dont_make_usable(sdb, monkeypatch, vault):
+    _with(monkeypatch, _sdoc([p for p in (vault, ALL_ON[2]) if p]))
+    tips = yw.suggestion_block(sdb, SID, "my password is hunter2")
+    assert "Windy Vault" not in tips and "Windy Calendar" in tips
+
+
+def test_only_the_three_features_ever_appear(sdb, monkeypatch):
+    every = [{"id": pid, "activated": True, "status": "active"} for pid in yw.PLATFORM_NAMES]
+    _with(monkeypatch, _sdoc(every))
+    offered = [ln for ln in yw.suggestion_block(sdb, SID, "hi").splitlines() if ln.startswith("- ")]
+    assert [ln.rsplit("-> ", 1)[1].split(" (")[0] for ln in offered] == ["Windy Vault", "Windy Cloud", "Windy Calendar"]
+
+
+def test_cloud_mentions_free_space_only_when_the_facts_have_it(sdb, monkeypatch):
+    _with(monkeypatch, _sdoc(ALL_ON))
+    assert "free space" not in yw.suggestion_block(sdb, SID, "a file")
+    yw.reset_cache()
+    _with(monkeypatch, _sdoc(ALL_ON, cloud={"agent_allowance_bytes": 500 * 1024 * 1024}))
+    assert "-> Windy Cloud (say the free space shown in YOUR WINDY)" in yw.suggestion_block(sdb, SID, "a file")
+
+
+def test_a_broken_suggestion_never_breaks_the_turn(sdb, monkeypatch):
+    _with(monkeypatch, _sdoc(ALL_ON))
+    monkeypatch.setattr(yw, "_already_offered", lambda *a: 1 / 0)
+    assert yw.suggestion_block(sdb, SID, "x") == ""
+
+
+def test_the_prompt_gives_facts_and_suggestions_to_the_owner_only(sdb, monkeypatch):
+    from windyfly.agent.capabilities import Band
+    from windyfly.agent.prompt import assemble_prompt
+
+    _with(monkeypatch, _sdoc(ALL_ON))
+    cfg = {"agent": {"default_model": "gpt-4o-mini"}, "memory": {"db_path": ":memory:", "max_nodes_per_context": 10},
+           "personality": {"soul_path": "SOUL.md", "autonomy": 5}}
+
+    def text(band):
+        return "\n\n".join(m["content"] for m in assemble_prompt(cfg, sdb, "my password is hunter2", SID, band=band))
+
+    owner = text(Band.OWNER)
+    assert "YOUR WINDY (facts" in owner and "-> Windy Vault" in owner
+    stranger = text(Band.USER)
+    assert "YOUR WINDY" not in stranger and "SUGGESTIONS" not in stranger
