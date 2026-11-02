@@ -91,6 +91,13 @@ It lands before any wider use of social sign-in.
     | M3 | A normal-person lab hatch on the phone with Mobile (targets: one-tap <= 60 s, paste <= 3 min, free <= 10 s) | S | Fri 11-06, if Mobile has a build |
     | M4 | Prod switches, each on its own GO | S | after M3 |
     | M5 | The trial clock: after ~7 days with no own key or paid plan, Mind refuses with one plain reason (trial_ended); memory untouched; dark until its GO | S-M | Mon 11-09 |
+
+    **Boss's M5 rules (2026-11-02T15:23:02Z, via Mind):**
+    1. The clock applies ONLY to trials started after launch. Today's ~59 roster agents and Zero are never put on a clock retroactively, and lab/synthetic owners are excluded.
+    2. ONE heads-up line on day 5 (words: Hub #9, then Boss).
+    3. trial_ended at the end, nothing deleted, and adding a key resumes the agent at once.
+
+    Mind is the ONE enforcer. Both runtimes only SHOW Mind's plain line from the refusal reason (windyfly: the mind-refusal.v1 reason, as today).
   - **Boss decided (2026-11-02T15:21:33Z):** the free starter counts as "compute added" ONLY during the ~7-day trial (compute_source "trial" + its end date). At the trial's end the agent PAUSES (its certificate is not revoked) with memory kept, and the person gets one plain line on adding their own AI key.
   - The switch to `all` is its own GO after a lab hatch.
 - **Vault stop (Grant 2026-10-21):** where it sits in the canal and its status: [Owner: Vault / Word].
