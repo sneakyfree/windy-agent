@@ -2105,7 +2105,7 @@ def cmd_reset(args: argparse.Namespace) -> None:
 
 def cmd_export(_args: argparse.Namespace) -> None:
     """Backup everything to a tar.gz archive."""
-    import tarfile
+    from windyfly.memory.snapshot import private_tar
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     backup_name = f"windyfly-backup-{timestamp}.tar.gz"
@@ -2142,7 +2142,7 @@ def cmd_export(_args: argparse.Namespace) -> None:
         return
 
     try:
-        with tarfile.open(str(backup_path), "w:gz") as tar:
+        with private_tar(backup_path) as tar:
             for file_path, arcname in files_to_backup:
                 tar.add(str(file_path), arcname=arcname)
                 console.print(f"  [dim]+ {arcname}[/dim]")
