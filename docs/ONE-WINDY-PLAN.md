@@ -197,5 +197,24 @@ What "one agent" must give a person (Grant): the same agent everywhere, Claude-C
 - **Quick win (Boss):** start NOW in both runtimes, DARK, behind a flag.
 - **Test:** a "grandma journey" on every release. Hatch fresh and ask "where do I keep my passwords / save my photos / make a website": the agent must name the right platform with true facts, on every model, including a local one.
 
+## F. Hosting: the person's own hardware (Grant, 2026-11-02 ~15:10Z)
+**Grant:** hatched agents must run on the PERSON's hardware, not free on Windy's servers: their laptop or desktop, a Windy Cloud VPS plan, or (maybe) a short free introduction. A viral wave or one bad actor making thousands of agents must not be able to land on Windy's bill. **No hatch until a hosting choice is made**, as OpenClaw does it; that moment is also where a Windy Cloud VPS is offered.
+
+**Facts today (Agent, 2026-11-02):**
+- **Runtime:** all 57 hatched agents run inside ONE Chat roster process on Kit 0, about 64 MiB and ~1% of one CPU in total (Chat). Running the agent program costs Windy almost nothing.
+- **The model is the real cost:** every reply goes through Windy Mind. Default = the house's free starter models with a daily limit, paid by Windy, unless the owner connects their own AI account (BYOM).
+- **Own hardware already exists for computers:** Windy Fly runs on a person's own laptop, desktop or server today (`windy go`, `pip install windyfly`); Zero runs that way on Windy 0. One Windy Fly agent uses ~270 MiB (measured).
+- **A phone is a poor always-on host:** iOS suspends background processes, and Android costs battery. The phone is the doorway and the screen; the agent lives on a computer, a VPS, or a hosted trial.
+- **Abuse brakes today:** the free-model daily limits (Mind); the roster's per-owner daily quotas (200 model calls, 50 mails); one passport per agent; one canal.
+
+**Proposal (Agent, for the co-authors):**
+1. **A required "Where will your agent live?" step in the birth canal, beside the Mind step:**
+   - (a) my computer: install Windy Fly, and the phone pairs to it;
+   - (b) a Windy Cloud VPS: paid [Owner: Cloud: is a VPS plan offered today, its price and size?];
+   - (c) [Boss/Grant decide] a short free trial: hosted, time-limited and capped, on free models only, so a first-timer can try before choosing (a) or (b). Or no trial at all.
+2. **BYOM in the Mind step** (Grant's rule above) moves the real cost, inference, to the person's own AI account.
+3. **Effect on section C:** with agents on the person's machine or VPS, the hosted side no longer needs thousands of agents packed into one process, only the capped trial. That favours ONE lean agent that runs as one process per person: the same code on a laptop, a VPS or the trial host. [Recommendation to be re-checked with this in mind.]
+4. **Eternitas's certificate gate (B) can also require "hosting chosen"** next to "Mind activated" + "compute added".
+
 ## E. Decisions for Boss (then Grant)
 [Filled when A-D are in]
