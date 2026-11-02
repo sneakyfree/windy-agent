@@ -2126,7 +2126,6 @@ def cmd_reset(args: argparse.Namespace) -> None:
 
 def cmd_export(_args: argparse.Namespace) -> None:
     """Backup everything to a tar.gz archive."""
-    import tarfile
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     backup_name = f"windyfly-backup-{timestamp}.tar.gz"
@@ -2139,7 +2138,7 @@ def cmd_export(_args: argparse.Namespace) -> None:
     # of a live WAL database leaves out everything not yet checkpointed.
     import tempfile
 
-    from windyfly.memory.snapshot import copy_db
+    from windyfly.memory.snapshot import copy_db, private_tar
     snap_dir = tempfile.TemporaryDirectory(prefix="windyfly-export-")
     db_path = _get_db_path()
     if db_path.exists():
@@ -2172,7 +2171,7 @@ def cmd_export(_args: argparse.Namespace) -> None:
         return
 
     try:
-        with tarfile.open(str(backup_path), "w:gz") as tar:
+        with private_tar(backup_path) as tar:
             for file_path, arcname in files_to_backup:
                 tar.add(str(file_path), arcname=arcname)
                 console.print(f"  [dim]+ {arcname}[/dim]")
