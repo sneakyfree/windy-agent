@@ -1,0 +1,298 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://windyword.ai/contracts/agent/your-windy.v1.json",
+  "title": "Your Windy: the facts an agent gets about its own Windy platforms and entitlements, every session",
+  "owner": "windy-agent",
+  "x-version": "1.0.0",
+  "x-status": "DRAFT 2026-11-02. Grant approved (BOARD 2026-11-02T15:16:05Z, ONE-WINDY plan section E item 7): 'never born clueless', facts only, generated each session from the person's account, started DARK in both runtimes (Windy Fly and Windy Chat's roster). Windy Agent wrote it; Hub (Windy Accounts = the source), Chat (roster rendering), Cloud, Mail, Vault, Search and Eternitas confirm their fields.",
+  "description": "ONE document per agent per session, assembled LIVE from the platforms (never copied at birth), and ONE rendering of it into a short facts block that both runtimes put in the model's context. Facts only (principle #5): no advice, no sales lines; the model decides when a fact helps. A platform that is not usable is never stated as available (principle #9).",
+  "x-rules": [
+    "Y1 FACTS ONLY. The block states what the agent and its owner HAVE. It never tells the model what to do.",
+    "Y2 LIVE. Built at session start from the sources below (cache at most for the session); never copied at birth.",
+    "Y3 UNKNOWN IS OMITTED. A field a source didn't answer is left out, never guessed or defaulted.",
+    "Y4 ONE SOURCE PER FACT (principle #6): see x-sources.",
+    "Y5 PRIVACY: only the AGENT's own addresses and handles, the owner's plan name and storage numbers. Never the owner's email, name, identity id or any content.",
+    "Y6 SAME TEXT IN BOTH RUNTIMES: both render by x-render and pass the x-examples vectors byte for byte.",
+    "Y7 SIZE: the rendered block stays at or under 1,200 characters; platform lists carry names only; overflow per R9.",
+    "Y8 INVALID = OMITTED. A value that fails its schema (every string is ONE line: no control characters, no U+2028/U+2029) is left out, never cleaned or shortened. The block is pasted into the model's context, so a newline in a field could forge a line (Hub, 11-02)."
+  ],
+  "x-sources": {
+    "agent.passport, passport_status, trust_score": "Eternitas GET /api/v1/registry/verify/{passport} (public: passport, status, trust_score, valid; read 2026-11-02)",
+    "agent.email": "Windy Mail mailbox.v1 (GET /api/v1/mailbox)",
+    "agent.chat_handle": "Windy Chat (the agent's own Matrix id from its session) [Chat confirm]",
+    "plan, platforms[].activated, platforms[].status": "Windy Accounts: ONE 'my Windy' read [Hub: endpoint + shape]; status = the dashboard tile status",
+    "entitlements.cloud": "Windy Cloud quota read [Cloud: endpoint]; defaults today: free 500 MB per person, 500 MB per agent for the first 3 active agents (Cloud 11-02)",
+    "entitlements.vault.ready": "Windy Vault GET /v1/agent/capabilities (vault: ready | none)",
+    "entitlements.search": "Windy Search allowance read [Search: endpoint]"
+  },
+  "x-platform-names": {
+    "windy-word": "Windy Word",
+    "windy-chat": "Windy Chat",
+    "windy-mail": "Windy Mail",
+    "windy-cloud": "Windy Cloud",
+    "windy-fly": "Windy Fly",
+    "windy-word-mobile": "Windy Word Mobile",
+    "windy-clone": "Windy Clone",
+    "windy-traveler": "Windy Traveler",
+    "windy-code": "Windy Code",
+    "eternitas": "Eternitas",
+    "windy-text": "Windy Text",
+    "windy-call": "Windy Call",
+    "windy-mobile": "Windy Mobile",
+    "windy-talk": "Windy Talk",
+    "windy-mind": "Windy Mind",
+    "windy-search": "Windy Search",
+    "windy-hand": "Windy Hand",
+    "windy-vault": "Windy Vault",
+    "windy-connect": "Windy Connect",
+    "windy-drops": "Windy Drops",
+    "windy-calendar": "Windy Calendar",
+    "windy-git": "Windy Git",
+    "windy-translate": "Windy Translate"
+  },
+  "x-render": [
+    "R1 Line 1: \"YOUR WINDY (facts, read {read_at_utc})\".",
+    "R2 \"You: {agent.name}. Eternitas passport {agent.passport} ({agent.passport_status}, trust score {agent.trust_score}).\" Omit the parenthesis part that is unknown; omit the line if passport is unknown.",
+    "R3 \"Your email: {agent.email}\" / \"Your Windy Chat handle: {agent.chat_handle}\": each only when known.",
+    "R4 \"Windy Cloud storage: {agent_allowance} for you. Your owner's {plan} plan: {person_used} of {person_quota} used.\" (the two sentences joined by \". \"; without a plan: \"Your owner's plan\"). Sizes are whole MB (bytes / 1048576, rounded down) below 1024 MB, else GB with one decimal. Omit a sentence whose numbers are unknown; omit the line if both are.",
+    "R5 \"Windy Vault: ready.\" or \"Windy Vault: not set up yet.\" from entitlements.vault.ready; omit when unknown.",
+    "R6 \"Windy Search: {used_this_month} of {monthly_allowance} searches used this month.\" only when both are known.",
+    "R7 Platform lines, display names sorted alphabetically, each line only when non-empty: \"Activated for your owner: ...\" (activated true, any status except coming_soon); \"Your owner can activate: ...\" (activated false, status active or available); \"In preview: ...\" (activated false, status preview or developer_api); \"Coming soon (not usable yet): ...\" (status coming_soon).",
+    "R8 Lines joined with a single newline, no trailing newline. Nothing else: no advice, no suggestions, no 'you should' (principle #5).",
+    "R9 OVERFLOW (Y7): if the block exceeds 1,200 characters, drop PLATFORM lines from the end (the last first) until it fits; never cut a line."
+  ],
+  "x-examples": [
+    {
+      "document": {
+        "v": 1,
+        "read_at_utc": "2026-11-05T14:00:00Z",
+        "agent": {
+          "name": "Robin",
+          "passport": "ET26-TEST-AAAA-BBBB",
+          "passport_status": "active",
+          "trust_score": 50,
+          "email": "robin@windymail.ai",
+          "chat_handle": "@agent_et26-test-aaaa-bbbb:chat.windychat.ai"
+        },
+        "plan": "free",
+        "entitlements": {
+          "cloud": {
+            "agent_allowance_bytes": 524288000,
+            "person_quota_bytes": 524288000,
+            "person_used_bytes": 31457280
+          },
+          "vault": {
+            "ready": false
+          },
+          "search": {
+            "monthly_allowance": 300,
+            "used_this_month": 12
+          }
+        },
+        "platforms": [
+          {
+            "id": "windy-chat",
+            "status": "active",
+            "activated": true
+          },
+          {
+            "id": "windy-mail",
+            "status": "active",
+            "activated": true
+          },
+          {
+            "id": "windy-cloud",
+            "status": "active",
+            "activated": true
+          },
+          {
+            "id": "windy-mind",
+            "status": "developer_api",
+            "activated": true
+          },
+          {
+            "id": "windy-calendar",
+            "status": "active",
+            "activated": false
+          },
+          {
+            "id": "windy-code",
+            "status": "available",
+            "activated": false
+          },
+          {
+            "id": "windy-git",
+            "status": "preview",
+            "activated": false
+          },
+          {
+            "id": "windy-vault",
+            "status": "coming_soon",
+            "activated": false
+          }
+        ]
+      },
+      "rendered": "YOUR WINDY (facts, read 2026-11-05T14:00:00Z)\nYou: Robin. Eternitas passport ET26-TEST-AAAA-BBBB (active, trust score 50).\nYour email: robin@windymail.ai\nYour Windy Chat handle: @agent_et26-test-aaaa-bbbb:chat.windychat.ai\nWindy Cloud storage: 500 MB for you. Your owner's free plan: 30 MB of 500 MB used.\nWindy Vault: not set up yet.\nWindy Search: 12 of 300 searches used this month.\nActivated for your owner: Windy Chat, Windy Cloud, Windy Mail, Windy Mind.\nYour owner can activate: Windy Calendar, Windy Code.\nIn preview: Windy Git.\nComing soon (not usable yet): Windy Vault."
+    }
+  ],
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "v",
+    "read_at_utc",
+    "agent",
+    "platforms"
+  ],
+  "properties": {
+    "v": {
+      "const": 1
+    },
+    "read_at_utc": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+    },
+    "agent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[^\\x00-\\x1f\\x7f\\u2028\\u2029]{1,80}$"
+        },
+        "passport": {
+          "type": "string",
+          "pattern": "^ET[0-9]{2}-[A-Z0-9-]{4,40}$"
+        },
+        "passport_status": {
+          "enum": [
+            "active",
+            "suspended",
+            "revoked",
+            "not_born"
+          ]
+        },
+        "trust_score": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000
+        },
+        "email": {
+          "type": "string",
+          "pattern": "^[^\\x00-\\x20\\x7f\\u2028\\u2029@]{1,64}@[^\\x00-\\x20\\x7f\\u2028\\u2029@]{1,255}$"
+        },
+        "chat_handle": {
+          "type": "string",
+          "pattern": "^@[^:\\s\\x00-\\x1f\\x7f\\u2028\\u2029]{1,255}:[^\\s\\x00-\\x1f\\x7f\\u2028\\u2029]{1,255}$"
+        }
+      }
+    },
+    "plan": {
+      "type": "string",
+      "pattern": "^[^\\x00-\\x1f\\x7f\\u2028\\u2029]{1,40}$"
+    },
+    "entitlements": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cloud": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "agent_allowance_bytes": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "person_quota_bytes": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "person_used_bytes": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "vault": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ready": {
+              "type": "boolean"
+            }
+          }
+        },
+        "search": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "monthly_allowance": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "used_this_month": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
+    "platforms": {
+      "type": "array",
+      "maxItems": 40,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "status",
+          "activated"
+        ],
+        "properties": {
+          "id": {
+            "enum": [
+              "windy-word",
+              "windy-chat",
+              "windy-mail",
+              "windy-cloud",
+              "windy-fly",
+              "windy-word-mobile",
+              "windy-clone",
+              "windy-traveler",
+              "windy-code",
+              "eternitas",
+              "windy-text",
+              "windy-call",
+              "windy-mobile",
+              "windy-talk",
+              "windy-mind",
+              "windy-search",
+              "windy-hand",
+              "windy-vault",
+              "windy-connect",
+              "windy-drops",
+              "windy-calendar",
+              "windy-git",
+              "windy-translate"
+            ]
+          },
+          "status": {
+            "enum": [
+              "active",
+              "available",
+              "preview",
+              "developer_api",
+              "coming_soon"
+            ]
+          },
+          "activated": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  }
+}
