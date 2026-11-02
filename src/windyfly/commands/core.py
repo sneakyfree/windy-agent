@@ -2295,7 +2295,7 @@ def _register_budget_through_help():
     # ═══════════════════════════════════════════════════════════════
 
     async def cmd_export(ctx):
-        import tarfile
+        from windyfly.memory.snapshot import private_tar
         from datetime import datetime
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         filename = f"windyfly-backup-{timestamp}.tar.gz"
@@ -2317,7 +2317,7 @@ def _register_budget_through_help():
         for f in sorted((PROJECT_ROOT / "data").glob("birth_certificate_*.pdf")):
             files_to_backup.append((f, str(f.relative_to(PROJECT_ROOT))))
         try:
-            with tarfile.open(filename, "w:gz") as tar:
+            with private_tar(filename) as tar:
                 for src, arcname in files_to_backup:
                     tar.add(src, arcname=arcname)
             saved_to = Path(filename).resolve()

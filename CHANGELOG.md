@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.7
+
+- On macOS and Linux, exports are now readable only by your own account. If you made an export there with 0.7.6 or earlier, run: chmod 600 <file>. On Windows, keep exports inside your own user folder.
+
 ## 0.7.6
 
 - **The agent tells Eternitas which machine it lives on (housing report, ON).**
