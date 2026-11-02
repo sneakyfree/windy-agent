@@ -307,7 +307,28 @@ What "one agent" must give a person (Grant): the same agent everywhere, Claude-C
   - **registrar RENEW is not implemented**: renewals charge the customer but never renew at Dynadot. Tracked as **windy-cloud-domains #40, BLOCKER since 2026-09-23**; must be fixed before going live;
   - transfer IN is not implemented (~M);
   - only Dynadot's sandbox has been verified (10-06); whether production is funded or enrolled as a reseller is unknown.
-- **Suppliers:** Dynadot does no VPS, and DigitalOcean sells no domains. So the minimum set today is Cloudflare (storage, DNS, sites) + one VPS supplier + Dynadot (domains), unless research finds one vendor that does both VPS and domain reselling well. [Agent: web research running, 11-02.]
+- **Suppliers:** Dynadot does no VPS, and DigitalOcean sells no domains.
+
+**Market research (Agent, official pages read 2026-11-02; every price and terms claim has a source URL in the research notes; summary):**
+- **VPS, resale to our customers:**
+  - DigitalOcean: YES (ToS §4.4 names resale); $4 at 512 MiB, $6 at 1 GiB; billed per second.
+  - Akamai/Linode: YES, encouraged, with a partner program + discounts; $5 at 1 GiB, no 512 MiB plan.
+  - Hetzner: YES (§7.1), but EU-cheap only (US from €17.99) and plans showed "unavailable".
+  - Vultr: only with written permission.
+  - AWS Lightsail and Scaleway: NO.
+  - Hostinger, Contabo, OVH: consent needed or unclear; no small hourly plans.
+- **Domains, white-label:**
+  - Dynadot: YES (free, on a fresh account; reseller price unpublished).
+  - OpenSRS / Enom (Tucows): YES (~$11.50 .com, $50-95 start, credited back).
+  - Cloudflare Registrar: NO today (Windy would be the holder of record, nameservers are locked to Cloudflare, no renew API; a reseller offering is announced, not live).
+  - Gandi and Name.com: high renewals.
+  - .com registry floor ≈ $11.17.
+- **Minimum suppliers = 3:** Cloudflare (R2, DNS, sites) + one VPS supplier + one domain wholesaler. Two only if Cloudflare's announced reseller service launches with renewals by API.
+
+**Agent's recommendation (to Grant, 11-02):**
+- **VPS:** DigitalOcean (the only $4 / 512 MiB that fits; resale in its ToS; Cloud's plan targets it). Linode as the second, swappable supplier.
+- **Domains:** keep Dynadot on a fresh reseller account (the code exists; #6). Cloud asks Dynadot's reseller price first; if worse than ~$11.50, switch to OpenSRS. #40 must be fixed before any sale.
+- **Cloudflare:** unchanged (storage, DNS, sites, our own domains); re-check its reseller service when it launches.
 
 ## E. Recommendations by the 10 guiding principles (Windy Agent draft, 2026-11-02; co-authors to counter)
 The principles are in kit-army-config doctrine/00-GUIDING-PRINCIPLES.md. When two collide, #10 decides: stability > the human's control of their own agent > simplicity > capability.
