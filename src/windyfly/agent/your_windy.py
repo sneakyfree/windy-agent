@@ -225,18 +225,101 @@ def build_document(agent_name: str = "") -> dict[str, Any]:
     return doc
 
 
+def _session_doc(agent_name: str = "") -> dict[str, Any]:
+    with _lock:
+        now = time.monotonic()
+        if _cache["doc"] is None or now - _cache["at"] > SESSION_TTL_S:
+            _cache["doc"], _cache["at"] = build_document(agent_name), now
+        doc: dict[str, Any] = _cache["doc"]
+        return doc
+
+
 def block(agent_name: str = "") -> str:
     """The rendered facts block for the prompt, or "" when dark. Read once per session (SESSION_TTL_S)."""
     if not enabled():
         return ""
     try:
-        with _lock:
-            now = time.monotonic()
-            if _cache["doc"] is None or now - _cache["at"] > SESSION_TTL_S:
-                _cache["doc"], _cache["at"] = build_document(agent_name), now
-            return render(_cache["doc"])
+        return render(_session_doc(agent_name))
     except Exception as exc:  # noqa: BLE001  (a facts block never breaks a turn)
         logger.warning("your-windy: not rendered (%s)", type(exc).__name__)
+        return ""
+
+
+# ── suggestions (Grant 2026-11-02 ~19:25Z, "the agent needs to suggest all that"; Boss's bounds 19:31Z) ───────────────
+# The facts block stays facts only. Next to it, a SHORT rule: offer a Windy feature only when it fits what the owner is
+# doing right now, each at most once per conversation, free features only, only features the facts say are usable, and
+# "stop suggesting" sticks. DARK: needs WINDY_SUGGEST_FEATURES=1 as well as WINDY_YOUR_WINDY=1.
+
+SUGGEST_FLAG = "WINDY_SUGGEST_FEATURES"
+SUGGESTIONS_KEY = "windy_suggestions"  # soul row per owner: "off" after "stop suggesting", "on" after "start"
+# (platform id, when it fits). Only these, in this order.
+SUGGESTIONS: tuple[tuple[str, str], ...] = (
+    ("windy-vault", "a password, API key or other login is pasted or mentioned"),
+    ("windy-cloud", "there is a file they want to keep"),
+    ("windy-calendar", "they are booking or planning a time"),
+)
+_STOP = re.compile(r"\b(?:stop|quit|no more)\s+suggest(?:ing|ions)?\b|\bdon['’]?t\s+suggest\b", re.IGNORECASE)
+_START = re.compile(r"\b(?:start|resume)\s+suggest(?:ing|ions)?\b|\byou\s+can\s+suggest\b", re.IGNORECASE)
+
+
+def suggestions_enabled() -> bool:
+    return enabled() and os.environ.get(SUGGEST_FLAG, "") == "1"
+
+
+def _usable(doc: dict[str, Any]) -> set[str]:
+    """Platform ids the facts say the owner has or can turn on now (never coming soon, never in preview)."""
+    out = set()
+    for p in doc.get("platforms") or []:
+        if isinstance(p, dict) and p.get("status") != "coming_soon" and (
+                p.get("activated") is True or p.get("status") in ("active", "available")):
+            out.add(str(p.get("id")))
+    return out
+
+
+def _already_offered(db: Any, session_id: str) -> set[str]:
+    """Features this conversation's earlier replies already named (once per feature per conversation)."""
+    rows = db.fetchall("SELECT content FROM episodes WHERE session_id = ? AND role = 'assistant' "
+                       "ORDER BY created_at DESC, rowid DESC LIMIT 200", (session_id,))
+    said = "\n".join(str(r.get("content") or "") for r in rows).lower()
+    return {pid for pid, _ in SUGGESTIONS if PLATFORM_NAMES[pid].lower() in said}
+
+
+def _owner_switch(db: Any, user_message: str) -> str | None:
+    """Stores the owner's "stop suggesting" / "start suggesting" and returns the current setting."""
+    from windyfly.memory.soul import get_soul, upsert_soul
+
+    if _STOP.search(user_message or ""):
+        upsert_soul(db, SUGGESTIONS_KEY, "off", source="owner")
+    elif _START.search(user_message or ""):
+        upsert_soul(db, SUGGESTIONS_KEY, "on", source="owner")
+    row = get_soul(db, SUGGESTIONS_KEY)
+    return str(row["value"]) if row else None
+
+
+def suggestion_block(db: Any, session_id: str, user_message: str, agent_name: str = "") -> str:
+    """The suggestion rule for the OWNER's prompt, or "" (dark, switched off by the owner, or nothing left to offer).
+    Never raises."""
+    if not suggestions_enabled():
+        return ""
+    try:
+        if _owner_switch(db, user_message) == "off":
+            return ""
+        doc = _session_doc(agent_name)
+        usable, offered = _usable(doc), _already_offered(db, session_id)
+        cloud_facts = any(_count(v) for v in ((doc.get("entitlements") or {}).get("cloud") or {}).values())
+        lines = []
+        for pid, when in SUGGESTIONS:
+            if pid in usable and pid not in offered:
+                extra = " (say the free space shown in YOUR WINDY)" if pid == "windy-cloud" and cloud_facts else ""
+                lines.append(f"- {when} -> {PLATFORM_NAMES[pid]}{extra}")
+        if not lines:
+            return ""
+        return ("SUGGESTIONS (your owner may not know these Windy features exist). Offer one ONLY when it fits what "
+                "they are doing right now, in one short sentence:\n" + "\n".join(lines) + "\n"
+                "Each at most once in this conversation, and never again after a no. Only these features, and only "
+                "what YOUR WINDY says about them. Never push a paid plan unless they ask about plans.")
+    except Exception as exc:  # noqa: BLE001  (a suggestion never breaks a turn)
+        logger.warning("your-windy: no suggestions (%s)", type(exc).__name__)
         return ""
 
 
