@@ -50,8 +50,7 @@ ADD_EVENT_SAY: dict[str, str] = {
     "invalid_time": "That isn't a real date or time, so I didn't add it.",
     "in_progress": "I'm still adding that one. Ask me again in a moment.",
     "not_enabled": "I can't add events to your calendar yet.",
-    "own_agent_only": ("Your calendar only lets its own agent add events, and it didn't accept me as that agent, "
-                       "so nothing was added."),
+    "own_agent_only": "Windy Calendar only lets its owner's own agent add events, so I didn't add it.",
 }
 _ADD_EVENT_OTHER = ("Windy Calendar gave an answer I don't understand, so I can't tell whether it was added. "
                     "Please check your calendar.")
