@@ -261,3 +261,72 @@ def test_kept_without_echoing_the_token_is_unchanged_not_failed(monkeypatch):
     )
     assert out["status"] == "unchanged"
     assert out["reason"] == "not_due"
+
+
+# ── after an EPT cutoff (Eternitas ept-cutoff v1) ────────────────────
+
+def _cutoff_then(calls: list, new_token: str, *, second_status: int = 200):
+    """Eternitas refuses the agent's own pre-cutoff EPT; the next call gets ``second_status``."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        if len(calls) == 1:
+            return httpx.Response(401, json={"detail": {"code": "ept_before_cutoff",
+                                                        "message": "EPT was issued before the passport's cutoff"}})
+        if second_status != 200:
+            return httpx.Response(second_status, json={"detail": "nope"})
+        return httpx.Response(200, json={"passport": PASSPORT, "ept_token": new_token, "reissued": True,
+                                         "reissue_reason": "before_cutoff"})
+    return httpx.MockTransport(handler)
+
+
+def test_cutoff_renews_with_the_owners_windy_sign_in(monkeypatch):
+    monkeypatch.setenv(er.ENV_KEY, make_ept(exp_in=10 * DAY))
+    import windyfly.hub_login as hl
+    monkeypatch.setattr(hl, "get_access_token", lambda *a, **k: "hub-access-token")
+    calls: list = []
+    new = make_ept(exp_in=365 * DAY)
+    r = er.refresh_ept(transport=_cutoff_then(calls, new))
+    assert [c.headers["Authorization"] for c in calls][1] == "Bearer hub-access-token"
+    assert len(calls) == 2
+    assert r["status"] == "refreshed" and r["via"] == "owner_hub_login"
+    assert os.environ[er.ENV_KEY] == new
+
+
+def test_cutoff_without_a_sign_in_says_to_sign_in(monkeypatch):
+    monkeypatch.setenv(er.ENV_KEY, make_ept(exp_in=10 * DAY))
+    calls: list = []
+    r = er.refresh_ept(transport=_cutoff_then(calls, make_ept(exp_in=365 * DAY)))
+    assert len(calls) == 1
+    assert r["status"] == "failed" and r["http"] == 401 and "windy login" in r["hint"]
+
+
+def test_cutoff_tries_the_sign_in_once_only(monkeypatch):
+    monkeypatch.setenv(er.ENV_KEY, make_ept(exp_in=10 * DAY))
+    import windyfly.hub_login as hl
+    monkeypatch.setattr(hl, "get_access_token", lambda *a, **k: "hub-access-token")
+    calls: list = []
+    r = er.refresh_ept(transport=_cutoff_then(calls, "", second_status=401))
+    assert len(calls) == 2
+    assert r == {"status": "failed", "http": 401}
+
+
+def test_a_plain_401_does_not_switch_to_the_sign_in(monkeypatch):
+    # Only Eternitas' ept_before_cutoff code moves to the owner's sign-in; any other 401 keeps today's answer.
+    monkeypatch.setenv(er.ENV_KEY, make_ept(exp_in=10 * DAY))
+    import windyfly.hub_login as hl
+    monkeypatch.setattr(hl, "get_access_token", lambda *a, **k: "hub-access-token")
+    calls: list = []
+    r = er.refresh_ept(transport=transport(calls, status=401))
+    assert len(calls) == 1 and "windy login" in r["hint"]
+
+
+def test_cutoff_never_logs_a_token(monkeypatch, caplog):
+    old = make_ept(exp_in=10 * DAY)
+    monkeypatch.setenv(er.ENV_KEY, old)
+    import windyfly.hub_login as hl
+    monkeypatch.setattr(hl, "get_access_token", lambda *a, **k: "hub-access-token")
+    new = make_ept(exp_in=365 * DAY)
+    with caplog.at_level(logging.DEBUG):
+        er.refresh_ept(transport=_cutoff_then([], new))
+    for secret in (old, new, "hub-access-token"):
+        assert secret not in caplog.text
