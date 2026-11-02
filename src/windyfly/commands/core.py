@@ -2010,65 +2010,6 @@ def _register_all():
     _r("decay", "Run cognitive decay now (prune stale memories)", "06_memory", cmd_decay)
 
     # ═══════════════════════════════════════════════════════════════
-    # SKILLS (63-70)
-    # ═══════════════════════════════════════════════════════════════
-
-    async def cmd_skills(ctx):
-        args = ctx.get("_args", [])
-        if not _db:
-            return "Database not available."
-        try:
-            from windyfly.memory.skills import list_skills
-            show_all = bool(args and args[0] == "all")
-            skills = list_skills(_db, promoted_only=not show_all)
-            if not skills:
-                return "No skills found."
-            label = "All" if show_all else "Promoted"
-            lines = [f"{label} skills:\n"]
-            for s in skills:
-                status = "✓" if s.get("promoted") else "○"
-                lines.append(f"  {status} {s.get('name') or '?'} v{s.get('version') or 1} — {(s.get('description') or '')[:60]}")
-            return "\n".join(lines)
-        except Exception as e:
-            return f"Error: {e}"
-    _r("skills", "List skills (promoted by default, 'skills all' for all)", "07_skills", cmd_skills,
-        usage="skills [all]")
-
-    # skills-run / skills-eval / skills-test were removed 2026-10-10 with
-    # executable skills: skills are text playbooks the agent reads, and
-    # nothing runs or "evaluates" them.
-
-    async def cmd_skills_promote(ctx):
-        args = ctx.get("_args", [])
-        if not args:
-            return "Usage: /skills promote <name>"
-        return f"SKILL_PROMOTE:{args[0]}"
-    _r("skills-promote", "Promote a playbook skill into the agent's index", "07_skills", cmd_skills_promote,
-       usage="skills-promote <name>")
-
-    async def cmd_skills_rollback(ctx):
-        args = ctx.get("_args", [])
-        if not args:
-            return "Usage: /skills rollback <name>"
-        return f"SKILL_ROLLBACK:{args[0]}"
-    _r("skills-rollback", "Rollback to previous skill version", "07_skills", cmd_skills_rollback,
-       usage="skills-rollback <name>")
-
-    async def cmd_skills_create(ctx):
-        args = ctx.get("_args", [])
-        if not args:
-            return "Usage: /skills create <name>"
-        return f"SKILL_CREATE:{args[0]}"
-    _r("skills-create", "Create a new skill", "07_skills", cmd_skills_create, usage="skills-create <name>")
-
-    # Register remaining categories via the second half
-    _register_budget_through_help()
-
-
-def _register_budget_through_help():
-    """Register commands 71-108: Budget, Identity, Config, Maintenance, Developer."""
-
-    # ═══════════════════════════════════════════════════════════════
     # BUDGET & COSTS (71-76)
     # ═══════════════════════════════════════════════════════════════
 
@@ -2506,86 +2447,8 @@ def _register_budget_through_help():
     _r("migrate", "Run database migrations after update", "11_maintenance", cmd_migrate)
 
     # ═══════════════════════════════════════════════════════════════
-    # DEVELOPER & ADVANCED (101-108)
+    # HELP
     # ═══════════════════════════════════════════════════════════════
-
-    async def cmd_repl(ctx):
-        return "Run 'windy repl' from terminal to drop into Python REPL with agent context."
-    _r("repl", "Developer Python REPL with agent context", "12_developer", cmd_repl, dangerous=True)
-
-    async def cmd_test(ctx):
-        return "TEST_SELF"
-    _r("test", "Run self-test (send '2+2' and verify)", "12_developer", cmd_test, aliases=["selftest"])
-
-    async def cmd_run(ctx):
-        cmd = ctx.get("_raw", "")
-        if not cmd:
-            return "Usage: /run <shell command>"
-        try:
-            # NO shell=True — user input is tokenised with shlex so a
-            # trailing `; rm -rf ~` can't reach the interpreter even if
-            # the trust gate and channel policy are somehow bypassed.
-            import shlex
-            argv = shlex.split(cmd)
-            if not argv:
-                return "Usage: /run <shell command>"
-            result = subprocess.run(argv, capture_output=True, text=True, timeout=30)
-            output = result.stdout or result.stderr
-            return output[:2000] if output else "(no output)"
-        except FileNotFoundError:
-            return f"Command not found: {cmd.split()[0]}"
-        except ValueError as e:
-            return f"Could not parse command: {e}"
-        except subprocess.TimeoutExpired:
-            return "Command timed out (30s limit)"
-        except Exception as e:
-            return f"Error: {e}"
-    _r("run", "Execute a shell command", "12_developer", cmd_run,
-       aliases=["exec", "sh"], dangerous=True, usage="run <command>")
-
-    async def cmd_web(ctx):
-        url = ctx.get("_raw", "")
-        if not url:
-            return "Usage: /web <url>"
-        from windyfly.safe_fetch import SSRFBlocked, safe_fetch
-        try:
-            result = safe_fetch(url, timeout=10, max_bytes=2000, allow_one_redirect=True)
-            return (
-                f"Fetched {result.url} ({result.status_code}, {result.length} chars):\n"
-                f"{result.text}"
-            )
-        except SSRFBlocked as blocked:
-            return f"Refused: {blocked}"
-        except Exception as e:
-            return f"Error fetching {url}: {e}"
-    _r("web", "Fetch a URL and show content", "12_developer", cmd_web,
-       aliases=["fetch", "curl"], dangerous=True, usage="web <url>")
-
-    async def cmd_diff(ctx):
-        try:
-            result = subprocess.run(["git", "diff", "--stat"], capture_output=True, text=True)
-            return result.stdout or "No changes."
-        except Exception:
-            return "Git not available."
-    _r("diff", "Show recent git changes", "12_developer", cmd_diff)
-
-    async def cmd_git(ctx):
-        cmd = ctx.get("_raw", "")
-        if not cmd:
-            return "Usage: /git <command> (e.g. /git status, /git log --oneline -5)"
-        try:
-            # NO shell=True — splits /git log;rm -rf ~ into literal argv
-            # rather than piping to the shell.
-            import shlex
-            argv = ["git", *shlex.split(cmd)]
-            result = subprocess.run(argv, capture_output=True, text=True, timeout=15)
-            return result.stdout[:2000] or result.stderr[:500] or "(no output)"
-        except ValueError as e:
-            return f"Could not parse command: {e}"
-        except Exception as e:
-            return f"Error: {e}"
-    _r("git", "Run a git command", "12_developer", cmd_git,
-       dangerous=True, usage="git <command>")
 
     async def cmd_help(ctx):
         args = ctx.get("_args", [])
