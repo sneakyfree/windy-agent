@@ -29,7 +29,7 @@ CONTRACT = json.loads((Path(__file__).parent / "contracts" / "agent" / "vault-to
 SAY = CONTRACT["x-refusals"]["say"]
 ITEM = "itm_k425u5lvzblgqmnl"
 OTHER = "itm_ku5mm5qg3mkdkqg5"
-KEY = "sk_live_51AbCdEfGhIjKlMn0123"
+KEY = "fixture_51AbCdEfGhIjKlMn0123"
 ODD = 'pa"ss\\wörd-0123456789xyz'  # its JSON, percent and hex forms all differ from the raw text
 API = "https://api.example.com"
 PUBLIC_IP = "93.184.216.34"
@@ -246,10 +246,10 @@ def test_a_website_not_on_the_key_is_refused_and_the_lease_released(lab, targets
 
 @pytest.mark.parametrize("value,auth,extra", [
     ("short-key-123", "bearer", {}),                   # < 16: whole-form masking can't guard it
-    ("sk_live_0123456789\r\nX-Evil: 1", "bearer", {}),
-    ("sk_live_0123456789\tabcdef", "header", {"header_name": "X-Api-Key"}),
-    ("sk_live_0123456789\x7fabcdef", "basic", {"username": "grant"}),
-    ("sk_live_0123456789ébcdef", "bearer", {}),        # a header can't carry it as-is
+    ("fixture_0123456789\r\nX-Evil: 1", "bearer", {}),
+    ("fixture_0123456789\tabcdef", "header", {"header_name": "X-Api-Key"}),
+    ("fixture_0123456789\x7fabcdef", "basic", {"username": "grant"}),
+    ("fixture_0123456789ébcdef", "bearer", {}),        # a header can't carry it as-is
 ])
 def test_an_unusable_key_is_refused_before_anything_is_sent(lab, value, auth, extra):
     lab["value"] = value

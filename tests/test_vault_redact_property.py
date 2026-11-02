@@ -16,7 +16,7 @@ import pytest
 from windyfly.vault.redact import MASK, Redactor
 
 VALUES = [
-    "sk_live_51AbCdEfGhIjKlMn0123",
+    "fixture_51AbCdEfGhIjKlMn0123",
     'pa"ss\\wörd-0123456789xyz',             # quote, backslash, non-ASCII
     "ghp_A/b+C=d%41&amp;<x>'y'-0123456789",  # raw %XX and &entity; inside the value itself
     "tök€n-\U0001F600-0123456789abcdef",     # 2-, 3- and 4-byte UTF-8 (a surrogate pair in JSON)
