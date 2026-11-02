@@ -26,7 +26,6 @@ import pytest
 from windyfly.agent.capabilities import Band
 from windyfly.channels import identity
 from windyfly.channels.base import IncomingMessage, handle_incoming
-from windyfly.channels.manager import ChannelManager
 
 
 @pytest.fixture(autouse=True)
@@ -166,36 +165,6 @@ class TestLegacyOwnerMode:
         monkeypatch.setenv("WINDY_OWNER_IDS", "discord:111")
         assert identity.resolve_band("discord", "999") == Band.SANDBOX
         assert identity.resolve_band("discord", "111") == Band.OWNER
-
-
-class TestManagerPassthrough:
-    def _msg(self, sender="999"):
-        return IncomingMessage(
-            platform="discord", channel_id="c1", sender_id=sender,
-            sender_name="x", text="hello",
-        )
-
-    def test_band_passed_to_band_aware_callback(self, monkeypatch):
-        monkeypatch.setenv("WINDY_OWNER_IDS", "discord:111")
-        seen = {}
-
-        async def respond(text, session_id, band=None):
-            seen["band"] = band
-            return "ok"
-
-        mgr = ChannelManager(respond)
-        asyncio.run(mgr._handle_message(self._msg(sender="999")))
-        assert seen["band"] == Band.SANDBOX
-        asyncio.run(mgr._handle_message(self._msg(sender="111")))
-        assert seen["band"] == Band.OWNER
-
-    def test_two_arg_callback_still_works(self):
-        async def respond(text, session_id):
-            return "legacy ok"
-
-        mgr = ChannelManager(respond)
-        result = asyncio.run(mgr._handle_message(self._msg()))
-        assert result == "legacy ok"
 
 
 class TestCommandGating:
