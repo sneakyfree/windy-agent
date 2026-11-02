@@ -345,7 +345,19 @@ The principles are in kit-army-config doctrine/00-GUIDING-PRINCIPLES.md. When tw
 
    Why: #6, #2, #1.
 4. **Hosting (F):** a required "Where will your agent live?" stop:
-   - (a) my computer, ONE CLICK with no terminal (#2). Ask Word whether the Windy Word desktop app can host the agent;
+   - (a) my computer, ONE CLICK with no terminal (#2). Ask Word whether the Windy Word desktop app can host the agent. **Pairing = a QR code (Grant, 2026-11-02):**
+     1. the computer shows a QR code ("Scan this with the Windy Fly app on your phone");
+     2. the person, signed in to the Fly app with their Windy login, taps "Choose a home for my agent", then "This computer", and scans;
+     3. the phone shows which device it is approving ("Make <device name> your agent's home?"), and they tap yes.
+
+     Rules:
+     - The QR holds a ONE-TIME pairing code, never a password or key: it expires in a few minutes and is single use.
+     - The agent's private key is generated ON the computer and never leaves it. The phone's yes, from a signed-in Windy account, authorizes it through the existing owner-handover path (windyfly agent_keys owner handover).
+     - Fallback with no camera: an 8-digit code typed on the phone.
+     - A Windy Cloud VPS needs no QR (Cloud provisions and pairs it for the signed-in person).
+     - ONE pairing method for every doorway (#6).
+
+     Builders: Windy Fly shows the code (Agent); the Fly app's scanner + approve screen (Mobile); one-time pairing codes in Windy Accounts (Hub); the desktop installer (Word).
    - (b) a Windy Cloud VPS, once built [Grant's money];
    - (c) a short free trial [Grant's money]. Recommended: about 7 days, free models only, under the global cap. At the end the agent PAUSES with its memory kept (#8), never deleted.
    - BYOM in the Mind stop.
