@@ -106,3 +106,37 @@ Grant's hands: opening the DigitalOcean and Dynadot accounts. Money and accounts
     fails if the repo grows its own sign-up, login or profile page.
   - **Exception:** windy-pro's account server IS the pathway; its guard pins "one profile route" instead.
   - #687 section A tracks each lane's guard.
+
+## 5. Later decisions on 2026-11-02 (added after #689)
+- **GRANT DECIDED (typed in Boss's terminal ~17:57Z; BOARD 17:57:54Z), verbatim:** "I concur with all of your recommendations, go". On his own Windy identities (Hub owns all three):
+  - **A = YES:** fold the windstormlabs.com identity INTO his main gmail identity as a MOVE (agent, mailboxes, products), nothing deleted.
+    - Only through identity linking (section 4), never a hand SQL edit.
+    - With Boss's daytime GO, BEFORE/AFTER counts, and a real authed call as main.
+    - His 7 Mind providers must show on both phone and web afterwards.
+  - **B = YES:** retire the 61 "+" test-alias accounts in ONE batch after Eternitas's last-seen count, with Boss's GO.
+    - Except the 2 mailboxes with logins since 10-31, and anything Eternitas shows active.
+    - Retire = deactivate; agents' passports suspended, not revoked (undoable within 30 days).
+    - The 30-day delete is its own GO across every lifecycle target.
+  - **C = KEEP:** clearhomeloans.com stays separate and untouched.
+- **Recommendation #7 AMENDED by Grant's own words** (Windy Mobile's terminal ~19:25Z: "the agent needs to suggest all that"; Boss ruled 19:31Z and 19:43Z):
+  - "Your Windy" stays a facts-only block. Next to it, the agent gets a SHORT, bounded suggestion rule:
+    - suggest a Windy feature ONLY when it fits what the person is doing right now (a password pasted: Vault; a file to keep: Cloud, with the free space from the facts; booking: Calendar);
+    - at most once per feature per conversation, and never again after a no;
+    - "stop suggesting" sticks, stored per owner;
+    - never a paid upgrade unasked;
+    - only features the facts say are usable: coming soon stays coming soon.
+  - **Owner only:** a stranger's turn gets neither the facts nor the rule.
+  - A lab proof comes before any flag-on: a password pasted, Vault offered once. It needs Hub's agent-scoped "my Windy" read first.
+- **GRANT DECIDED (Windy Mobile's terminal ~20:13Z; BOARD 20:13:53Z):** "I concur with your recommendations". So:
+  - **ONE lean Windy Fly agent, the best of both runtimes:**
+    - from windyfly: durable memory, owner-confirm before outward actions, the action audit, Vault, Eternitas keys, bring-home;
+    - from the roster: Windy Chat as the one channel, pooled and cheap;
+    - plus raw-by-default sliders, the live "Your Windy" facts and the bounded suggestions;
+    - dropped: skills, extra channels, self-improvement, dashboards.
+  - **Build it NOW, top of the depth chart:** "build the consolidated best of both worlds agent and the transition to it while it's fresh ... focus on that for the rest of the day."
+  - **Boss's goal (20:14Z):** ONE lab agent on the lean Fly by 02:00Z, born through the real hatch path for a synthetic owner, answering in its Windy Chat room via Mind. From the phone it must:
+    - recall a fact from 20+ messages back;
+    - show the model footer;
+    - ask the owner before an outward action;
+    - not get a double reply from the roster.
+  - Lab only: no real person moves and Zero is untouched without Boss's GO. Anything reaching prod goes through the normal reviews and stamps.
