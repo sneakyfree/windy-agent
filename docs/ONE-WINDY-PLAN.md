@@ -124,7 +124,7 @@ The decided part of this plan is merged on main as docs/ONE-WINDY-DECISIONS.md (
 | Windy Drops | | not yet |
 | Windy Connect | | not yet |
 | Windy Translate | | not yet |
-| Windy Traveler | | not yet |
+| Windy Traveler | windytraveler-site #20 MERGED (main 59a71c0): scripts/guard-one-windy.mjs, the last step of `npm run build` over dist + src. It fails on a form, a password field, an own /login|/signup|/register|/account|/profile link or a self-hosted auth route; links to Windy Accounts pass. Self-test first (6 bad caught, 4 good pass); proven on a planted form. windy-traveler (docs + jobs) has no web surface. | DONE |
 | Eternitas | | not yet |
 
 ## A2. One person = one identity (REQUIRED; Boss 2026-11-02 15:05Z, from Vault's point)
