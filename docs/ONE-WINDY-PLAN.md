@@ -15,7 +15,9 @@ Goal: every surface sends the person to the one Windy Accounts app (SSO with Win
 
 | Platform | Surface (web / app / CLI) and URL or screen | Today's behaviour | Redirects to Windy Accounts? | Change needed | Owner |
 |---|---|---|---|---|---|
-| Windy Word (the one app) | app.windyword.ai sign-up; desktop app sign-up | [Owner: Word] | n/a (it is the app) | [Word] | Windy Word |
+| Windy Accounts (THE one app) | **account.windyword.ai**: OAuth doorway GET /api/v1/oauth/authorize + /oauth/signup (routes/oauth.ts:419,692), with HQ doorway counts | the one account app | n/a (it is the app) | none | Windy Hub |
+| Windy Word web app | **app.windyword.ai/auth** (web SPA Auth.jsx) | its OWN form: POSTs to /api/v1/auth/register and /login (Auth.jsx:179,197); its social buttons hit /auth/oauth/<p>/start with no return_to | **NO** | retire the form and redirect to account.windyword.ai (Hub: S-M, touches the web SPA; date Tue 18:00Z) | Windy Hub / Word |
+| Windy Word desktop app | desktop sign-up | [Owner: Word: which sign-in does it use?] | | | Windy Word |
 | Windy Fly | `windy go` (CLI), windyfly.ai, Fly mobile app | `windy go` opens Windy Accounts' hatch ceremony [Agent: confirm per surface] | [Agent] | [Agent] | Windy Agent / Windy Mobile |
 | Windy Chat | web, desktop window, mobile | [Owner: Chat] | | | Windy Chat |
 | Windy Mail | webmail, app passwords | [Owner: Mail] | | | Windy Mail |
@@ -55,6 +57,20 @@ Eternitas's change, sized: about 1 PR (frontend pages + the routes answer 410 + 
 
 **Rule:** if today's answer is "not linked", the fix is a HARD PRECONDITION for adding Google, Apple or GitHub sign-in anywhere.
 
+**Hub's answers (Windy Accounts owner; windy-pro main 2f4133c8; prod read 11-02, counts only):**
+1. **Linked today? YES, within limits.** One person = ONE users row with ONE windy_identity_id (users.email UNIQUE; a unique index on windy_identity_id). Google/Apple/GitHub attach via oauth_identities(provider, provider_user_id): one row can hold many providers, and a provider identity belongs to one row.
+2. **How:**
+   - AUTOMATIC on a provider-VERIFIED email match (Google email_verified, GitHub's primary+verified address, Apple's signed email_verified; Facebook/TikTok never auto-link).
+   - EXPLICIT in Settings: link a provider (a sign-in within 5 min, a one-time 2-min ticket, refused if the identity is on another account, a "wasn't you?" notice).
+   - Otherwise never merged.
+3. **Edge cases:**
+   - Different emails per provider = a SECOND account (prod allows new accounts for github, google); today's cure is the explicit Settings link.
+   - Apple Hide-My-Email: the same, but new Apple accounts are off in prod.
+   - An unverified provider email is never linked; a new account is refused.
+4. **Merge: NO path exists.** Prod: 9 social links in total; 0 accounts with providers from different people (the one account with 3 providers is Grant's own); MFA users 0; unverified rows with a password 563.
+
+**Recommendation (Hub):** no merge tool now. HARD PRECONDITION before social sign-in goes on any NEW doorway: #1641 live + a "link instead of a new account" prompt ("Sign in with your Windy account first, then link Google"). Size M, after #1641.
+
 **SECURITY finding (Hub, while checking this; BOARD 2026-11-02 15:09:57Z, Boss decided):** Windy Accounts' Google/Apple/GitHub sign-in (1) auto-links to an existing UNVERIFIED password account with that email, so a pre-signup by an attacker becomes a shared account; and (2) skips Windy MFA. Boss's fix:
 - kill every pre-proof credential on an unverified matched row;
 - enforce Windy MFA on social sign-in.
@@ -76,7 +92,8 @@ It lands before any wider use of social sign-in.
 | Any other path that mints a passport or provisions an agent | [Eternitas: list every caller of passport issue in 30 days, counts by caller] | Eternitas |
 
 - **Windy Mind stop:** built as BC1, `HATCH_REQUIRES_MIND_SETUP = off | capable | all` (`account-server/tests/hatch-mind-setup-gate.test.ts`); `off` = Mind is never asked.
-  - Prod's value: [Owner: Word/Hub, read it].
+  - **Prod (Hub, read 11-02 16:3xZ): HATCH_REQUIRES_MIND_SETUP UNSET (= off), and MIND_SETUP_READ_TOKEN_HUB NOT set. The Mind stop is OFF in prod.** Code: services/mind-setup-gate.ts:43-54; the gate at routes/agent.ts:440-466.
+  - Plan (Hub): it joins Eternitas's birth-complete stops {mind, compute, home} (eternitas #291 B) rather than staying a second gate (#6).
   - **Mind's add-compute step (Mind, 2026-11-02T15:20Z; full text: Windy Mind lane file one-windy-mind-addcompute-plan-2026-11-02.md, on Veron).** One screen, three choices, in this order:
     1. "Connect with one tap": OpenRouter OAuth, ON in prod. Anthropic, OpenAI, Google and other models on the person's own account; no key copied.
     2. "Use Windy's free starter models for now": the ~7-day trial.
@@ -238,7 +255,7 @@ What "one agent" must give a person (Grant): the same agent everywhere, Claude-C
   - A platform that is not active is never stated as available: "coming soon" is said as such, and only if asked.
   - It mentions a platform once, when it helps; never a sales pitch.
 - **Source:**
-  - one read from Windy Accounts [Owner: Word/Hub: does an endpoint exist, and its shape?], falling back to each platform's own entitlement read;
+  - one read from Windy Accounts. Today it is three (GET /api/v1/identity/me, /identity/ecosystem-status, /api/v1/entitlements + /limits). **Hub proposes ONE agent-scoped GET returning exactly your-windy.v1's plan + platforms[{id, status, activated}]** (size S; shape + date in Hub's Tue row). It falls back to each platform's own entitlement read;
   - the identity facts (passport number, status, trust tier, owner link) LIVE from Eternitas (GET /bots/{passport}; the same values as the EPT claims passport_number / windy_identity_id / tru). They change, so they are never copied at birth (Eternitas, 11-02).
 - **Quick win (Boss):** start NOW in both runtimes, DARK, behind a flag.
 - **Test:** a "grandma journey" on every release. Hatch fresh and ask "where do I keep my passwords / save my photos / make a website": the agent must name the right platform with true facts, on every model, including a local one.
