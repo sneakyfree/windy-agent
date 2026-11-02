@@ -330,8 +330,19 @@ What "one agent" must give a person (Grant): the same agent everywhere, Claude-C
 
 **Size: M-L** for a lab agent: about a third of today's code, cut not rewritten, plus the two gaps. Dates after a 3-day spike.
 
-### Recommendation (Windy Agent's draft; Chat to counter)
-**Option 2.**
+### Recommendation (DECIDED: Grant approved section E #6 on 2026-11-02 15:16Z)
+**The lean Windy Fly** (the sizing above): ONE program per person, the same code on a laptop, a desktop, a VPS or the trial host, started from windyfly and cut hard, with ONE chat channel (Windy Chat), so conversations live in Chat rooms on the server and every doorway sees the same history. It replaced the earlier Option 2 draft below once agents moved to the owners' own homes (section F): pooling thousands of agents on Kit 0 is no longer the constraint.
+
+**Today (Agent, 11-02):** a phone hatch and a desktop hatch get the SAME agent: both go through Hub's hatch page and land on Chat's roster. There is no smaller "phone" agent.
+
+**Dates (targets; firm after the spike):**
+- 3-day spike Wed 11-04 to Fri 11-06, which posts sizes and dates;
+- the first LAB agent on the lean Fly ~Fri 11-20;
+- the first real person, after Boss's GO and with a home to live on (Word's desktop home in 1.9.67, RC Tue 11-24; Cloud's VPS), target the week of Mon 11-30.
+
+Until then every doorway keeps getting the roster agent, and today's ~59 keep running until each has a home.
+
+**The superseded draft (kept for the record):** Option 2.
 - It is the only option that fits Grant's direction: one agent, Claude-Code-like, simple tools, the model in charge.
 - It fits Kit 0's budget: the roster already proves about 1 MiB per agent pooled.
 - It avoids an XL rewrite of the code Grant's Zero depends on.
