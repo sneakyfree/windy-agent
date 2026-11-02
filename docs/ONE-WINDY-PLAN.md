@@ -56,7 +56,19 @@ Goal: every surface sends the person to the one Windy Accounts app (SSO with Win
   - Today the canal reserves a passport (status not_born), and Eternitas activates it and issues the certificate + EPT at the end.
   - For Grant's gate, Eternitas can REQUIRE "Mind activated" + "compute source added" as fields the canal must report before the passport goes active: no report = no certificate. A small change; owner Eternitas.
   - Known gap: not_born passports are not yet in the CRL/status feed (open Boss item).
-  - [Eternitas: confirm no other issuer path is live; counts by passport-issue caller, 30 days].
+- **Every path that creates a passport (Eternitas, main 29ae5c4, prod, 30 days):**
+  - Exactly ONE function creates a passport row (`services/registration.register_bot`). Its only caller is `hallway.mint_passport`, which has 3 callers:
+    1. `POST /bots/auto-hatch` (platform key or a signed-in human);
+    2. `POST /bots/register` (an owner signed in to Eternitas);
+    3. `POST /webhooks/stripe` (a paid checkout).
+  - 30 days: **6,315 passports, ALL via auto-hatch**: 6,264 ET26-TEST (synthetic journeys) and 51 real (47 before 10-16; 4 via a platform key, the last on 10-25). /bots/register: 0. Stripe: 0 (the route answers 503, failing closed).
+  - Auto-hatch callers: **2 distinct platform keys** (6,290 calls); 34 anonymous calls, last 10-13, with no passports; 1 operator call, 10-10.
+  - Outside the routes: the 09-23 fleet mint (11 fleet bots) was an admin script inside the Kit 0 container. That is an ops power, not a doorway.
+  - **For the plan:**
+    - the canal maps onto (1);
+    - (2) and (3) close, or route through the canal, when the certificate gate lands;
+    - **OPEN: which platforms own the 2 platform keys?** If one is not Windy Accounts' canal, it is a second way in. [Eternitas: name them from its platforms table.]
+    - `bots.birth_platform_id` is not filled on auto-hatch today; recording it is part of Eternitas's gate change.
 
 ## C. One runtime for every agent
 **This replaces the convergence plan's "decide after 12-15" (Boss, 2026-11-02 15:01Z).**
