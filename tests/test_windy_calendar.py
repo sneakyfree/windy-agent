@@ -498,3 +498,23 @@ def test_book_passes_outside_open_hours_through(calls):
     _answer(calls, _resp(200, {"ok": True, "result": {"outcome": "booked", "outside_open_hours": True}}))
     out = _cap("windy_calendar.book").handler(starts_at_utc="2026-10-23T01:00:00Z", booker_name="A", booker_email="a@b.c")
     assert out["ok"] is True and out["outside_open_hours"] is True
+
+
+def test_the_same_booking_always_gets_the_same_key(calls):
+    """Boss 11-02 22:14Z: a replayed book_appointment must be dedupable by Calendar (it was a random uuid4 per call)."""
+    for _ in range(2):
+        _answer(calls, _resp(200, {"ok": True, "result": {"outcome": "booked"}}))
+    kw = {"starts_at_utc": "2026-10-12T15:00:00Z", "booker_name": "A", "booker_email": "a@b.c"}
+    _cap("windy_calendar.book").handler(**kw)
+    _cap("windy_calendar.book").handler(**kw)
+    k1, k2 = (c[1]["json"]["arguments"]["idempotency_key"] for c in calls[:2])
+    assert k1 == k2 and k1.startswith("bk-")
+
+
+def test_a_different_booking_gets_a_different_key(calls):
+    for _ in range(2):
+        _answer(calls, _resp(200, {"ok": True, "result": {"outcome": "booked"}}))
+    _cap("windy_calendar.book").handler(starts_at_utc="2026-10-12T15:00:00Z", booker_email="a@b.c")
+    _cap("windy_calendar.book").handler(starts_at_utc="2026-10-12T16:00:00Z", booker_email="a@b.c")
+    k1, k2 = (c[1]["json"]["arguments"]["idempotency_key"] for c in calls[:2])
+    assert k1 != k2

@@ -1019,6 +1019,14 @@ class WindyFlyMatrixBot(ChannelAdapter):
             logger.info("silence: dropped a pre-start message from agent %s", event.sender)
             return
 
+        # AT MOST ONCE, across restarts (Boss 11-02 22:13Z): a message taken before (or older than the newest one
+        # taken in this room) is never processed again. The 11-02 lab restart re-ran the owner's "send" and mailed twice.
+        from windyfly.channels import handled_events as _handled
+
+        if not _handled.claim(room.room_id, str(getattr(event, "event_id", "") or ""), int(event.server_timestamp)):
+            logger.info("already handled: skipped a replayed message in %s", room.room_id)
+            return
+
         room_id = room.room_id
         body = event.body
         sender = event.sender

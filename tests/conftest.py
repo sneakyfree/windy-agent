@@ -476,3 +476,14 @@ def _no_leftover_tool_ledger():
     yield
     audit._LEDGER.clear()
     audit._LEDGER.update({k: None for k in saved})
+
+
+@pytest.fixture(autouse=True)
+def _isolated_handled_events(tmp_path, monkeypatch):
+    """Each test gets its own at-most-once record (channels/handled_events.py), never ~/.windy's."""
+    from windyfly.channels import handled_events
+
+    monkeypatch.setenv(handled_events.ENV_VAR, str(tmp_path / "handled_events.json"))
+    handled_events.reset_cache()
+    yield
+    handled_events.reset_cache()
