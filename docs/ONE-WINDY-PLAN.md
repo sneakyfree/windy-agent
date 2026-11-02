@@ -266,6 +266,14 @@ What "one agent" must give a person (Grant): the same agent everywhere, Claude-C
      - It has NO provider (MOCK only), no deployment, and no retail price (Grant's call).
      - Boss assigned Cloud the build plan + a quoted price, due Tue 11-03 18:00Z.
 
+     **Cloud's plan (windy-cloud-vps #14, docs/AGENT_HOME_PLAN_2026-11.md, to Boss for Grant, 11-02):**
+     - Supplier quote: DigitalOcean $4/mo at 512 MiB, $6/mo at 1 GiB (resale allowed by its ToS).
+     - Pause = back up to Cloud storage + destroy, so a paused agent costs ~$0.
+     - The 7-day trial costs ~$0.93 per person at 512 MiB.
+     - **Grant decides:** the supplier, the account, a retail price ($9 or $12/mo offered), and a spend ceiling ($300/mo suggested).
+     - **Dates:** build B1-B7 takes ~10-12 working days after his yes. Lab ~Wed 11-18 if the yes comes by Wed 11-04; friends no earlier than Fri 11-20. **Friday 11-06's friends wave can NOT use Cloud hosting.**
+     - **Agent's sizing for it (measured on Zero 11-02):** 512 MiB fits one lean agent. Peak ~110 MiB + a 32 MiB launcher; Python 3.12 via uv, a ~215 MB venv, no torch. 1 GiB is needed only with local embeddings or a local fallback model, which the lean agent on a Cloud home doesn't run (its brain is Windy Mind).
+
      **NOT LIVE today** (Cloud, WindyCloud main 11-02: no servers route mounted, an unused "VPS server instance" table, /servers/deploy-fly listed as missing; no price, offer, or self-serve).
      - **Size L** (Cloud): a supplier account [Grant's money], a provisioning API with per-person isolation (never on Kit 0 or Veron), a billing hook, abuse limits + a kill switch, teardown, and its own security read + GO.
      - ~1-2 weeks after the money decision, then a sandbox before real people.
