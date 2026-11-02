@@ -21,9 +21,10 @@ def on(monkeypatch):
     monkeypatch.setattr("windyfly.tools.sms.agent_auth", lambda url: ({"Authorization": "Bearer t", "DPoP": "p"}, None))
 
 
-def _resp(status, body):
+def _resp(status, body, headers=None):
     r = MagicMock(status_code=status)
     r.json.return_value = body
+    r.headers = httpx.Headers(headers or {})
     return r
 
 
@@ -196,4 +197,29 @@ def test_the_description_tells_the_model_not_to_call_again_after_unknown(on):
     reg = ToolRegistry()
     voice.register_voice_tools(reg)
     desc = next(t["function"]["description"] for t in reg.get_schemas() if t["function"]["name"] == "make_call")
-    assert desc.endswith("If the status is unknown, do not call again: tell your owner a call may have been placed.")
+    assert "If the status is unknown, do not call again: tell your owner a call may have been placed." in desc
+    assert desc.endswith("replayed: true means this is the same call as before: nothing new was dialed.")
+
+
+@pytest.mark.parametrize("value", ["true", "True", " true "])
+def test_a_replay_of_the_first_call_says_replayed(on, value):
+    """windy-text #124: the same key in its window answers the FIRST call's 200 again and dials nothing."""
+    body = {"call_id": "c1", "status": "completed", "time_limit_seconds": 60}
+    with patch("httpx.post", return_value=_resp(200, body, {"Idempotent-Replay": value})):
+        out = voice.make_call("Dinner is at 7")
+    assert out == {"status": "calling", "call_id": "c1", "call_status": "completed",
+                   "time_limit_seconds": 60, "replayed": True}
+
+
+@pytest.mark.parametrize("headers", [{}, {"Idempotent-Replay": "false"}, {"Idempotent-Replay": ""}])
+def test_a_first_call_never_says_replayed(on, headers):
+    with patch("httpx.post", return_value=_resp(200, {"call_id": "c1", "status": "queued"}, headers)):
+        assert "replayed" not in voice.make_call("Dinner is at 7")
+
+
+def test_a_replay_still_arms_the_repeat_guard(on):
+    with patch("httpx.post", return_value=_resp(200, {"call_id": "c1"}, {"Idempotent-Replay": "true"})):
+        voice.make_call("Dinner is at 7")
+    with patch("httpx.post") as post:
+        assert voice.make_call("Dinner is at 8")["code"] == "recent_call"
+    post.assert_not_called()
