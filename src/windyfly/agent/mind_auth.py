@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 MIND_AUD = "windy-mind"
 ENV_FLAG = "WINDY_MIND_EPT_AGENT"
+LEGACY_FLAG = "WINDY_MIND_LEGACY_FALLBACK"
 
 # 401 x-mind-error values where a fresh mint and proof can help: shared with every service.
 REMINT_CODES = service_auth.REMINT_CODES
@@ -49,6 +50,19 @@ def _warn_once(key: str, msg: str, *args: Any) -> None:
         logger.warning(msg, *args)
 
 
+def legacy_allowed() -> bool:
+    """May a failed mint or a refusal fall back to the 365-day EPT? Yes until the switch says ``0``.
+    Mind stops accepting the legacy EPT on 2026-12-03 (Eternitas 2027-01-15): from then a fallback only fails,
+    so this goes off first (Boss 11-01: a Zero silenced on 12-03 is the worst outcome). With it off the long
+    token is NEVER sent: a request whose mint failed goes out with no credential and Mind answers 401, which
+    every caller already handles as "Mind unavailable"."""
+    return os.environ.get(LEGACY_FLAG, "1").strip() != "0"
+
+
+def _fallback(ept: str) -> dict[str, str]:
+    return legacy_headers(ept) if legacy_allowed() else {}
+
+
 def legacy_headers(ept: str) -> dict[str, str]:
     """The legacy EPT bearer. Every request sent with it is counted for HQ (service.health mind_legacy_auth),
     so a fallback is an alarm, not something found by hand (Boss 11-01; Mind stops accepting it 12-03)."""
@@ -68,7 +82,7 @@ def headers(method: str, url: str, ept: str) -> tuple[dict[str, str], bool]:
     any mint failure returns the legacy EPT headers and False.
     """
     if not enabled():
-        return legacy_headers(ept), False
+        return _fallback(ept), False
     try:
         return service_auth.agent_headers(MIND_AUD, method, url), True
     except service_auth.ServiceAuthError as exc:
@@ -77,9 +91,10 @@ def headers(method: str, url: str, ept: str) -> tuple[dict[str, str], bool]:
         if is_not_born(exc.code):  # mid-canal: a wait, not a failure (birth reservation v1)
             logger.info("Windy Mind: passport still being born; waiting for birth complete")
         else:
-            _warn_once(f"mint:{exc.code}:{exc.detail}", "Windy Mind: no EPT+agent (%s %s); using the legacy EPT",
-                       exc.code, exc.detail)
-        return legacy_headers(ept), False
+            _warn_once(f"mint:{exc.code}:{exc.detail}", "Windy Mind: no EPT+agent (%s %s); %s",
+                       exc.code, exc.detail,
+                       "using the legacy EPT" if legacy_allowed() else "no legacy fallback, so Mind will refuse")
+        return _fallback(ept), False
 
 
 def refused_auth(resp: Any) -> str | None:
@@ -110,9 +125,11 @@ def _call(send: Any, method: str, url: str, ept: str) -> Any:
         auth, agent = headers(method, url, ept)
         resp = send(auth)
         code = refused_auth(resp) if agent else None
-        if code:
+        if code and legacy_allowed():
             _warn_once(f"refused:{code}", "Windy Mind refused the EPT+agent twice (%s); using the legacy EPT", code)
             resp = send(legacy_headers(ept))
+        elif code:
+            _warn_once(f"refused:{code}", "Windy Mind refused the EPT+agent twice (%s); no legacy fallback", code)
     return resp
 
 
@@ -155,5 +172,6 @@ def get(url: str, ept: str, timeout: float) -> Any:
     resp = httpx.get(url, headers=auth, timeout=timeout)
     if agent and refused_auth(resp):
         forget_token()
-        resp = httpx.get(url, headers=legacy_headers(ept), timeout=timeout)
+        if legacy_allowed():
+            resp = httpx.get(url, headers=legacy_headers(ept), timeout=timeout)
     return resp
