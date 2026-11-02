@@ -21,7 +21,31 @@ Goal: every surface sends the person to the one Windy Accounts app (SSO with Win
 | Windy Word desktop app (W4-W5, W10-W11) | setup wizard account step (installer-v2 account-step.js) + Settings "Sign in / Create account" + Cloud sign-in | The app's OWN email+password form (POST /auth/register, /auth/login); its Google/GitHub/Apple buttons already go to Windy Accounts (loopback PKCE) | **NO** (the form) | The SAME Windy Accounts page in an in-app window, finishing on the loopback listener; an offline "No connection, try again" state; a guard test banning /auth/login and /auth/register in the desktop. **M**, in **1.9.66** (RC Tue 11-10, publish Thu 11-12); Hub reads it | Windy Word |
 | Windy Word desktop windows (W6-W9) | Profile & billing; Chat, Mail, Calendar windows; desktop hatch | Profile = Hub's settings page (live). Chat/Mail/Calendar = each one's own "Sign in with Windy" (silent once SI10 is live: desktop half Mon 11-09 at the earliest, needs Hub's SI10 server half). Desktop hatch = Hub's hatch page in a signed-in window (D8) | YES | SI10 (S-M) | Windy Word |
 
-Full rows W1-W11 with proofs: Windy Word's message to Windy Agent, 11-02 17:15Z (code on main, not a device run). [Word: the open question from Boss's assignment: can the Windy Word desktop app HOST the agent (the one-click "my computer" home + QR pairing)?]
+Full rows W1-W11 with proofs: Windy Word's message to Windy Agent, 11-02 17:15Z (code on main, not a device run).
+
+**The "my computer" home = the Windy Word desktop app (Word, 11-02 17:24Z): YES, as a MANAGED install.**
+- **What it does:**
+  - one click in Windy Word's Fly window installs a pinned uv + a Python 3.12 venv + a pinned windyfly in a per-user folder (not bundled; Word's bundled Python is 3.11.9);
+  - the computer makes the agent's key (it never leaves the 0600 credentials file);
+  - Word shows the QR + fallback code, drawn locally;
+  - the agent runs as its OWN per-user OS service through windyfly's supervisor backends (launchd / systemd user / scheduled task), so it outlives the app;
+  - an On/Off, "Stop and remove" panel.
+- **Size and date:** L for Word (~6-8 days + every-OS lab), behind HOST_AGENT_LOCAL. Earliest **1.9.67** (build 11-16..11-20, lab 11-23, RC 11-24), IF Agent's and Hub's pieces land by Fri 11-13.
+- **What breaks, and the fixes:**
+  1. auto_backup is ON by default in windyfly; a local home should write it OFF unless the person turns it on [Boss decides];
+  2. **SLEEP = LOST MESSAGES today** (Agent, from code): the matrix channel keeps no sync position (no nio store_path) and drops messages older than 120 s, so the owner's messages from while the laptop slept are silently skipped. **MUST-FIX (Agent, S-M):** keep the sync position per agent; on wake, take the owner's missed messages as a turn. The panel says "While this computer is asleep, your agent can't answer";
+  3. one agent per computer user (fixed unit names) in v1;
+  4. two runtimes: Mind's runtime claim decides. It is live in prod (Zero's and zero-lab's boots: POST /v1/runtime/claim 200), but the agent starts anyway when Mind is unreachable [Agent to review];
+  5. hatch/handover wiring: a desktop ticket with then: bring_home [Hub + Agent]; prod's AGENT_HANDOVER_TARGETS / HATCH_CREDENTIALS_KEY [Hub];
+  6. the pairing code shape: existing codes are XXXX-XXXX letters + digits [Hub + Boss];
+  7. Windows: a slow first start (Defender), a per-user ACL on the credentials file [Agent], local TCP 9119;
+  8. updates are separate; uninstalling Word asks about the agent.
+- **Agent owes by Fri 11-13:**
+  - `windy home install --ticket ... --no-backup --json-status`;
+  - the QR / fallback pairing routes (with Hub);
+  - the sleep / sync-position fix;
+  - the Windows credentials ACL.
+- RAM: ~150 MiB measured on Zero (110 + a 32 MiB launcher); Word measures 24 h on 3 OSes before the RC.
 | Windy Fly | `windy go` (CLI), windyfly.ai, Fly mobile app | `windy go` opens Windy Accounts' hatch ceremony [Agent: confirm per surface] | [Agent] | [Agent] | Windy Agent / Windy Mobile |
 | Windy Chat | web, desktop window, mobile | [Owner: Chat] | | | Windy Chat |
 | Windy Mail | webmail, app passwords | [Owner: Mail] | | | Windy Mail |
