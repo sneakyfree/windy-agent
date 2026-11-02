@@ -31,6 +31,11 @@ Goal: every surface sends the person to the one Windy Accounts app (SSO with Win
 | Windy Clone, Talk, Hand, Drops, Connect, Translate, Mobile | | [Owners] | | | each lane |
 | Eternitas (operator console) | eternitas.ai app (Login.tsx, Register.tsx) | Its OWN email+password sign-up and login (forgot/reset, TOTP), PLUS "Sign in with Windy" (/auth/login-with-windy). 30 days: Windy sign-ins 775; password logins 25 (last 10-29); password sign-ups 2 (last 10-10); resets 1. Not Windy-linked: 2,621 synthetic probes, 42 internal, 23 test, 9 others (0 new in 30 days) | PARTLY | Remove the Register form and password sign-up (the door goes to the Windy Accounts app). Login = "Sign in with Windy" only. Password login stays until the 9 + 1 admin are linked, then retires; the /auth/register and /operators/register APIs close with it. Eternitas can build it this week after approval | Eternitas |
 
+| Eternitas Authenticator app (iOS/Android) | the app | No sign-up or login form; it pairs to an existing account by QR + a device lock | n/a | none | Eternitas |
+| Eternitas SDK / CLI | Python SDK register_bot | Agent registration (B2B), not a person sign-up | n/a | none | Eternitas |
+
+Eternitas's change, sized: about 1 PR (frontend pages + the routes answer 410 + tests). What breaks: password login for the 9 older unlinked accounts + the 1 admin, so link those first. Nothing else uses /auth/register (0 calls since 10-10).
+
 **Not person sign-ups (they stay, Eternitas):** POST /platforms/register (B2B platform keys, 2 in 30 days), /bots/register (an already-signed-in owner registers an agent), agent-key register (agents' own keys, 6,288 in 30 days). "Sign in with Eternitas" (#264) is AGENT identity: an agent proves who it is to a site. It is not a second human login.
 
 ## A2. One person = one identity (REQUIRED; Boss 2026-11-02 15:05Z, from Vault's point)
@@ -70,9 +75,9 @@ Goal: every surface sends the person to the one Windy Accounts app (SSO with Win
   - The switch to `all` is its own GO after a lab hatch.
 - **Vault stop (Grant 2026-10-21):** where it sits in the canal and its status: [Owner: Vault / Word].
 - **Certificate (Eternitas, 11-02):**
-  - Today the canal reserves a passport (status not_born), and Eternitas activates it and issues the certificate + EPT at the end.
-  - For Grant's gate, Eternitas can REQUIRE "Mind activated" + "compute source added" as fields the canal must report before the passport goes active: no report = no certificate. A small change; owner Eternitas.
-  - Known gap: not_born passports are not yet in the CRL/status feed (open Boss item).
+  - Today a passport is born ACTIVE in one step, at the canal's auto-hatch call. The not_born reservation is built but OFF in prod (BIRTH_RESERVE_PLATFORM_IDS unset; 0 passports ever reserved; Eternitas, corrected 11-02).
+  - For Grant's gate, Eternitas can REQUIRE "Mind activated" + "compute source added" as fields the canal must report, so no report = no certificate. Where: at the auto-hatch call, or by turning reservation on for the canal (the plan chooses). A small change; owner Eternitas.
+  - Known gap if reservation is turned on: not_born passports are not yet in the CRL/status feed (open Boss item).
 - **Every path that creates a passport (Eternitas, main 29ae5c4, prod, 30 days):**
   - Exactly ONE function creates a passport row (`services/registration.register_bot`). Its only caller is `hallway.mint_passport`, which has 3 callers:
     1. `POST /bots/auto-hatch` (platform key or a signed-in human);
@@ -84,7 +89,10 @@ Goal: every surface sends the person to the one Windy Accounts app (SSO with Win
   - **For the plan:**
     - the canal maps onto (1);
     - (2) and (3) close, or route through the canal, when the certificate gate lands;
-    - **OPEN: which platforms own the 2 platform keys?** If one is not Windy Accounts' canal, it is a second way in. [Eternitas: name them from its platforms table.]
+    - **The 2 platform keys (Eternitas, matched by request + nginx):**
+      - **Caller 1 = Windy Accounts' account-server** (the canal): 6,203 calls, 6,186 synthetic + 17 real, 10-04 to today. The synthetic sign-up journeys use the same door.
+      - **Caller 2** = 2 calls, both ET26-TEST, both 10-10, none since: a one-off lab test, NOT a live second way in.
+    - **Result: in 30 days EVERY real passport came through Windy Accounts' auto-hatch. One canal, confirmed.**
     - `bots.birth_platform_id` is not filled on auto-hatch today; recording it is part of Eternitas's gate change.
 
 ## C. One runtime for every agent
