@@ -94,7 +94,7 @@ It lands before any wider use of social sign-in.
 
     **Boss's M5 rules (2026-11-02T15:23:02Z, via Mind):**
     1. The clock applies ONLY to trials started after launch. Today's ~59 roster agents and Zero are never put on a clock retroactively, and lab/synthetic owners are excluded.
-    2. ONE heads-up line on day 5 (words: Hub #9, then Boss).
+    2. ONE heads-up line on day 5. Boss's draft words: "Your free trial ends in 2 days. Add your own AI key to keep going." (Hub #9, then Boss's final).
     3. trial_ended at the end, nothing deleted, and adding a key resumes the agent at once.
 
     Mind is the ONE enforcer. Both runtimes only SHOW Mind's plain line from the refusal reason (windyfly: the mind-refusal.v1 reason, as today).
