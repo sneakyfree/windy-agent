@@ -216,7 +216,10 @@ def send_sms(to: str | None = None, body: str = "") -> dict[str, Any]:
             ),
         }
 
-    if not _is_approved(to):
+    from windyfly.agent import owner_confirm
+
+    # The ONE gate decides; texting's first-contact ask never had the lab switch, so it can't turn it off here.
+    if owner_confirm.needs_owner_yes([to], [to] if _is_approved(to) else [], switchable=False):
         token = secrets.token_urlsafe(16)
         _pending[token] = {
             "to": to,

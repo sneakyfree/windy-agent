@@ -171,10 +171,10 @@ PENDING_TTL_S = 30 * 60
 
 
 def send_confirm_enabled() -> bool:
-    # Boss 2026-10-29 (principle #10, the human's control first): nothing reaches a NEW person without the owner's
-    # yes, so this is ON unless the env says exactly "0" (a lab switch). Unset, empty or anything else = on: a missing
-    # or mistyped setting can't quietly reopen unconfirmed sends. Approved recipients still go straight out.
-    return os.environ.get("WINDY_SEND_CONFIRM", "1").strip() != "0"
+    # The ONE owner-confirm gate decides (windyfly.agent.owner_confirm): ON unless WINDY_SEND_CONFIRM is exactly "0".
+    from windyfly.agent import owner_confirm
+
+    return owner_confirm.enabled()
 
 
 # Boss ruling 10-07 (rule 4): ask the owner only for a NEW recipient or a bulk/cc send. One
@@ -299,7 +299,10 @@ def send_email(to: Any, subject: str, body: str, cc: Any = None, bcc: Any = None
             to_l, cc_l, bcc_l = normalize_recipients(to, cc, bcc)
         except ValueError as exc:
             return {"status": "failed", "error": str(exc)}
-        if not (len(to_l) == 1 and not cc_l and not bcc_l and to_l[0].lower() in _known_recipients()):
+        from windyfly.agent import owner_confirm
+
+        # Boss rule 4 (10-07), via the ONE gate: one plain known recipient goes out; a new one, or any cc/bcc, asks.
+        if owner_confirm.needs_owner_yes(to_l, _known_recipients(), bulk=bool(cc_l or bcc_l)):
             return _queue_draft(to, subject, body, cc, bcc)
         result = _send_email_now(to_l, subject, body)
         _note_sent(result, to_l, cc_l, bcc_l)

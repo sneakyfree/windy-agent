@@ -1310,11 +1310,11 @@ class WindyFlyMatrixBot(ChannelAdapter):
             # A held email draft the OWNER's own message just caused: tappable [send, wait] under the
             # question (quick-reply.v1, no authority: a tap is the same word typed).
             if not agent_turn and _mail_tool.send_confirm_enabled():
+                from windyfly.agent import owner_confirm as _oc
                 from windyfly.channels.identity import resolve_band as _rb
-                from windyfly.agent.capabilities.descriptor import Band as _Band
 
                 if ({d["draft_id"] for d in _mail_tool.pending_drafts()} - drafts_before
-                        and _rb("matrix", sender, config=self.config) >= _Band.OWNER):
+                        and _oc.owner_may_approve(_rb("matrix", sender, config=self.config))):
                     import secrets as _secrets
 
                     content["ai.windy.quick_reply"] = {"id": "qr_" + _secrets.token_hex(6),

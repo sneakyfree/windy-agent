@@ -103,9 +103,10 @@ async def handle_incoming(text: str, context: dict | None = None) -> tuple[bool,
 
     # Owner approval of a drafted outbound email (on by default; WINDY_SEND_CONFIRM=0 turns it off). Handled
     # here, in code, so the model can never approve its own send.
+    from windyfly.agent import owner_confirm
     from windyfly.tools import mail as _mail
 
-    if _mail.send_confirm_enabled() and band >= Band.OWNER and _mail.pending_drafts():
+    if _mail.send_confirm_enabled() and owner_confirm.owner_may_approve(band) and _mail.pending_drafts():
         word = text.strip().strip(".!").lower()
         if word == "send":
             who = str(ctx.get("sender_id") or "the owner")
@@ -127,8 +128,8 @@ async def handle_incoming(text: str, context: dict | None = None) -> tuple[bool,
     if rescue_reply is not None:
         return True, rescue_reply
 
-    # BYO texting (dark: WINDY_TEXT_BYO=1): the owner's yes/no to a first text.
-    if band >= Band.OWNER:
+    # BYO texting (dark: WINDY_TEXT_BYO=1): the owner's yes/no to a first text. Only the owner's (the ONE gate's rule).
+    if owner_confirm.owner_may_approve(band):
         from windyfly.tools import sms as _sms
 
         sms_reply = _sms.owner_reply(text)
