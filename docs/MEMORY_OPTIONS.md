@@ -52,11 +52,67 @@ Each option answers the same four questions: **where it lives**, **who holds the
   - a memory-only export with erase marks, for a runtime move (§5 of the convergence plan).
 - Hardening, independent of the options (windyfly PR, Agent): write export archives 0600, and leave `.env` out by default (or say plainly that the archive holds secrets).
 
-## 2. Roster today (Windy Chat)
-[Chat: ...]
+## 2. Roster today (Windy Chat; facts from windy-chat main 7afdd17a + Kit 0, 2026-11-02, counts only)
+**Where the agent's "memory" lives today.** Nowhere of its own (see the convergence plan §2b):
+- the conversation is the Matrix room itself: each turn pulls the last ~12 `m.room.message` events from Synapse and
+  gives the model the last 10 (`runner/matrix-io.js` `_fetchHistory`); nothing is summarised or kept between turns;
+- small per-agent preferences in the agent's own Matrix account data (model choice, peer policy, per-room stop);
+- with #512 (dark): the Mirror's R23 ids (rids, pids, device ids, event ids, times; never words) in the agent's account
+  data `ai.windy.mirror_store`.
+**Who holds the key.** No per-person key. The agent DM is NOT end-to-end encrypted, by design (Grant 2026-07-26,
+CLAUDE.md invariant 6): Windy can read it. Synapse's Postgres is on Kit 0's disk; its backups are age-encrypted with
+the central backup key (identity in the lockbox).
+**Copies.** Synapse's nightly pg_dump to R2 (dailies 35 days, weeklies 90 days); Kit 0 volume copies (7 days);
+predeploy snapshots (14 days). These hold the room messages, and so would hold anything stored in Synapse.
+**How the owner erases today.** Deleting a message = a Matrix redaction (the server keeps the original 3 days today,
+1 hour after MR30 (c)); deleting the Windy account = onboarding's purge (rooms deleted; with #512, each agent's Mirror
+store cleared). Copies in backups age out on the dates above (the privacy text says "within 90 days").
+**Runtime move.** The room is the memory: windyfly reads the same room when it takes the agent's session
+(chat_session), so today's "memory" moves for free; nothing else exists to move.
 
-## 3. Options (Chat drafts; Agent second-reads)
-[Chat: 2-3 options, each: where / key / erase / runtime move / cost / what leaves the machine]
+## 3. Options (Chat drafts; Agent second-reads; each needs a Hub #9 read before any build)
+Common ground for all three: only what the owner says or the agent learns in the owner's OWN 1:1 DM; never Mirror data
+(Mirror person notes stay MR13's own store and rules); never another person's words from a group room; the owner can
+list, delete one, or delete all (`/notes`, `/forget`, as MR25 drafted for the Mirror); each recalled item is quoted to
+the model as data; a turn that recalls nothing behaves as today.
+
+### Option A: notes in the agent's own Matrix account data (server-side, next to the room)
+- **Where:** short notes (each ≤ 280 chars, ≤ 200 notes) in the agent's account data `ai.windy.memory_notes`, the same
+  place and shape MR13 drafted for Mirror notes, minus the Mirror tags.
+- **Key:** none per person, same as the room it came from (invariant 6); backups as today.
+- **Erase:** `/forget` deletes at once from the live store; backups keep it until they age out (dailies 35 d, weeklies
+  90 d), said plainly in the words; the owner purge clears it (the #512 pattern, the agent's own token).
+- **Runtime move:** free: windyfly reads the same account data with the agent's Matrix session.
+- **Cost:** S (roster: write/recall/list/forget + one prompt slot; no new service). Storage: account data, tens of KB.
+- **Leaves the machine:** recalled notes go to Windy Mind with the turn (Windy's compute; Mind keeps no one's words).
+
+### Option B: per-owner encrypted store on Kit 0, erase by destroying the owner's key ("crypto-shredding")
+- **Where:** a roster-owned SQLite (its own volume), every row encrypted with a per-owner data key; the data keys are
+  wrapped by one master key from the lockbox (file-mounted, never in env).
+- **Key:** Windy holds it (the wrapped per-owner key + the master); no human reads rows without the master.
+- **Erase:** `/forget` deletes the row; "forget everything" or the owner purge DELETES the owner's data key, so every
+  copy, backups included, is unreadable the same minute (no 90-day tail). Key rows are excluded from the volume backup
+  (kept only in a small key store with its own short retention) so a backup can never bring a shredded key back.
+- **Runtime move:** an export (decrypt, `ndjson-v1` as windyfly's bring-home reads, plus the erase marks) on the
+  owner's request; windyfly imports it. Not free: one tool on each side.
+- **Cost:** M (key handling, export, a retention rule for the key store; a Hub security read). Storage: tiny.
+- **Leaves the machine:** as A.
+
+### Option C: memory on the owner's own device (like the Mirror), the server keeps none
+- **Where:** in the Windy app on the owner's computer or phone (OS keychain-protected store), reached through a small
+  tool contract (memory-tools.v1: recall / note / forget), the way the Mirror reads work.
+- **Key:** the owner's device.
+- **Erase:** on the device, immediately; the server never held a copy beyond the turn.
+- **Runtime move:** free: both runtimes speak the same tool contract to the same device.
+- **Cost:** L (a contract + device builds on Word and Fly + both runtimes); memory only works while a device is online.
+- **Leaves the machine:** the recalled notes, to Windy Mind, per turn.
+
+### Chat's recommendation (for Boss; Hub reads all three)
+**A now, B if notes ever hold more than short facts.** A matches where the agent's words already live (the same room,
+the same backups, the same erase story), costs S and moves between runtimes for free; its honest limit is the 90-day
+backup tail, which the privacy text already states for messages. B is the answer if notes grow into summaries of
+conversations (then a key-destroying erase is worth M). C is the most private but the least available; it fits a later
+"memory on my devices" choice the owner opts into, not the default.
 
 ## 4. Hub #9 privacy read (one per option)
 [Hub]
