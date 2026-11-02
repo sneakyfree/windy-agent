@@ -14,7 +14,6 @@ from windyfly.agent.loop import UNTRUSTED_SOURCE_TOOLS, _extract_and_store_facts
 from windyfly.memory.database import Database
 from windyfly.memory.write_queue import WriteQueue
 from windyfly.tools.registry import ToolRegistry
-import windyfly.agent.context_header as _ch
 
 from tests.test_agent_loop import _make_config
 
@@ -35,7 +34,6 @@ def _intents(db: Database) -> list[dict]:
 
 
 def _turn(band, llm_answers, tool_registry=None) -> Database:
-    _ch._tracker = None
     db = Database(":memory:")
     wq = WriteQueue()
     wq.start()
@@ -85,7 +83,6 @@ class TestTurns:
     def test_non_owner_cannot_refresh_an_owner_goal(self):
         from windyfly.memory.intents import create_intent
 
-        _ch._tracker = None
         db = Database(":memory:")
         iid = create_intent(db, "buy a boat tomorrow")
         db.execute("UPDATE intents SET decay_score = 0.5, last_touched = datetime('now', '-20 days') "

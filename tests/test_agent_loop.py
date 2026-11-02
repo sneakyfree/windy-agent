@@ -16,7 +16,6 @@ from windyfly.agent.loop import _extract_and_store_facts, agent_respond
 from windyfly.agent.prompt import _extract_keywords, assemble_prompt
 from windyfly.memory.database import Database
 from windyfly.memory.write_queue import WriteQueue
-import windyfly.agent.context_header as _ch
 import windyfly.agent.loop as _loop
 
 
@@ -38,7 +37,6 @@ def _reset_module_state(tmp_path, monkeypatch):
     never see the production pause state."""
     _loop._session_tokens.clear()
     _loop._session_interaction_counts.clear()
-    _ch._tracker = None
     monkeypatch.setenv("WINDY_PAUSE_FLAG", str(tmp_path / ".paused"))
     monkeypatch.setenv("WINDY_YOLO_FLAG", str(tmp_path / ".yolo"))
     monkeypatch.setenv("WINDY_GUEST_FLAG", str(tmp_path / ".guest"))
@@ -358,7 +356,6 @@ class TestAssemblePrompt:
 class TestAgentRespond:
     @patch("windyfly.agent.loop.call_llm")
     def test_returns_response(self, mock_llm):
-        _ch._tracker = None  # Reset context header singleton
         mock_llm.return_value = _LLM_RESPONSE.copy()
 
         config = _make_config()
@@ -376,7 +373,6 @@ class TestAgentRespond:
     @patch("windyfly.agent.loop.is_online", return_value=True)
     @patch("windyfly.agent.loop.call_llm")
     def test_passes_config_to_llm(self, mock_llm, mock_online):
-        _ch._tracker = None
         mock_llm.return_value = {
             "content": "Response",
             "model": "gpt-4o-mini",
@@ -451,7 +447,6 @@ class TestBudgetEnforcement:
     @patch("windyfly.agent.loop.check_budget")
     def test_blocks_when_over_budget(self, mock_budget, mock_llm, mock_online):
         # Reset module-level singletons to avoid test-order pollution
-        _ch._tracker = None
         import windyfly.agent.loop as _loop
         _loop._interaction_count = 0
         _loop._session_tokens_used = 0
@@ -480,7 +475,6 @@ class TestBudgetEnforcement:
     @patch("windyfly.agent.loop.call_llm")
     @patch("windyfly.agent.loop.check_budget")
     def test_warns_when_near_budget(self, mock_budget, mock_llm, mock_online):
-        _ch._tracker = None
         import windyfly.agent.loop as _loop
         _loop._interaction_count = 0
         mock_budget.return_value = {
@@ -520,7 +514,6 @@ class TestBudgetEnforcement:
 
         Warning-tier alerts must be logged for the operator only; the
         messages list passed to call_llm must not contain the alert."""
-        _ch._tracker = None
         import windyfly.agent.loop as _loop
         _loop._interaction_count = 0
         _loop._session_tokens_used = 0
@@ -569,7 +562,6 @@ class TestEmotionalContextIntegration:
     @patch("windyfly.agent.loop.is_online", return_value=True)
     @patch("windyfly.agent.loop.call_llm")
     def test_emotional_context_passed_to_episode(self, mock_llm, mock_online):
-        _ch._tracker = None
         mock_llm.return_value = _LLM_RESPONSE.copy()
 
         config = _make_config()
@@ -597,7 +589,6 @@ class TestEmotionalContextIntegration:
     @patch("windyfly.agent.loop.is_online", return_value=True)
     @patch("windyfly.agent.loop.call_llm")
     def test_neutral_context_for_normal_message(self, mock_llm, mock_online):
-        _ch._tracker = None
         mock_llm.return_value = _LLM_RESPONSE.copy()
 
         config = _make_config()
@@ -625,7 +616,6 @@ class TestIntentDetectionIntegration:
     @patch("windyfly.agent.loop.is_online", return_value=True)
     @patch("windyfly.agent.loop.call_llm")
     def test_intent_saved_from_message(self, mock_llm, mock_online):
-        _ch._tracker = None
         mock_llm.return_value = _LLM_RESPONSE.copy()
 
         config = _make_config()
@@ -652,7 +642,6 @@ class TestIntentDetectionIntegration:
     @patch("windyfly.agent.loop.is_online", return_value=True)
     @patch("windyfly.agent.loop.call_llm")
     def test_no_intent_for_greeting(self, mock_llm, mock_online):
-        _ch._tracker = None
         mock_llm.return_value = _LLM_RESPONSE.copy()
 
         config = _make_config()
@@ -676,7 +665,6 @@ class TestToolExecution:
     @patch("windyfly.agent.loop.is_online", return_value=True)
     @patch("windyfly.agent.loop.call_llm")
     def test_tools_passed_to_llm(self, mock_llm, mock_online):
-        _ch._tracker = None
         mock_llm.return_value = _LLM_RESPONSE.copy()
 
         from windyfly.tools.registry import ToolRegistry
@@ -710,7 +698,6 @@ class TestToolExecution:
     @patch("windyfly.agent.loop.call_llm")
     def test_tool_reloop_executes_tools(self, mock_llm, mock_online):
         """When LLM returns tool_calls, agent executes and calls LLM again."""
-        _ch._tracker = None
         from windyfly.tools.registry import ToolRegistry
         registry = ToolRegistry()
         registry.register(

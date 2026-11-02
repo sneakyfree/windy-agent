@@ -16,7 +16,6 @@ from unittest.mock import patch
 from windyfly.agent.loop import _looks_confabulated, agent_respond
 from windyfly.memory.database import Database
 from windyfly.memory.write_queue import WriteQueue
-import windyfly.agent.context_header as _ch
 
 
 def _make_config() -> dict:
@@ -47,7 +46,6 @@ def _make_config() -> dict:
 
 
 def _setup():
-    _ch._tracker = None
     db = Database(":memory:")
     wq = WriteQueue()
     wq.start()

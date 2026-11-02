@@ -22,7 +22,6 @@ from typing import Any
 # local re-import in ``agent_respond`` — both intentional and safe;
 # ruff's F811 noise is suppressed below.
 from windyfly.agent.capabilities import capability_registry  # noqa: F401
-from windyfly.agent.context_header import maybe_prepend_header
 from windyfly.agent.emotion_detector import detect_emotional_context, get_emotional_trend
 from windyfly.agent.intent_detector import detect_intent
 from windyfly.agent.models import (
@@ -2046,7 +2045,7 @@ def _agent_respond_turn(
     # prompt once per tool call and read 🔴 0% on a 200k window after a
     # single three-tool turn (2026-09-13). _record_session_footprint
     # then keeps the per-session max across turns for the same reason.
-    session_total = _record_session_footprint(
+    _record_session_footprint(
         session_id, peak_input_tokens + output_tokens,
     )
     _mind_fb = result.get("mind_fallback")  # set by the Mind helper path (MD14)
@@ -2059,14 +2058,9 @@ def _agent_respond_turn(
     from windyfly.agent import served_reason as _served_reason
 
     _served_reason.note(session_id, None if _mind_fb else result.get("mind_served"))
-    response_text = maybe_prepend_header(
-        response_text, session_total, max_tokens=_max_ctx,
-        # Engine transparency: what actually served this reply —
-        # mind_model when the Mind broker routed (incl. the 422
-        # model-less retry picking something else), else the direct
-        # provider's model.
-        engine=result.get("mind_model") or result.get("model"),
-    )
+    # Lean Fly (Mobile 11-02 lab): no status header on replies. The chat shows the served model under each reply
+    # (uk.windypro.model), so a "[Windy Fly · time · 97% · model]" line on every message was clutter between the
+    # person and the model (Grant: stay out of the model's way).
     if _mind_fb:
         response_text = _mind_fallback_notice(_mind_fb) + response_text
     elif result.get("mind_busy_local"):

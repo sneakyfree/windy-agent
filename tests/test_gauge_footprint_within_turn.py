@@ -27,7 +27,6 @@ from unittest.mock import patch
 
 import pytest
 
-import windyfly.agent.context_header as _ch
 import windyfly.agent.loop as _loop
 from windyfly.agent.loop import agent_respond
 from windyfly.memory.database import Database
@@ -39,7 +38,6 @@ from windyfly.tools.registry import ToolRegistry
 def _clean_session_state(monkeypatch, tmp_path):
     _loop._session_tokens.clear()
     _loop._session_interaction_counts.clear()
-    _ch._tracker = None
     monkeypatch.setenv("WINDY_PAUSE_FLAG", str(tmp_path / ".paused"))
     monkeypatch.setenv("WINDY_YOLO_FLAG", str(tmp_path / ".yolo"))
     monkeypatch.setenv("WINDY_GUEST_FLAG", str(tmp_path / ".guest"))

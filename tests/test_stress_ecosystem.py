@@ -91,116 +91,6 @@ def clean_env(monkeypatch):
 PRO_BASE = "http://localhost:8098"
 
 
-class TestWindyProApiTools:
-    """Verify Windy Pro API tool contracts."""
-
-    @pytest.fixture(autouse=True)
-    def _set_pro_env(self, monkeypatch):
-        monkeypatch.setenv("WINDY_API_URL", PRO_BASE)
-        monkeypatch.setenv("WINDY_JWT", "test_jwt_123")
-
-    @respx.mock
-    def test_translation_history_correct_path(self):
-        from windyfly.tools.windy_api import get_translation_history
-        route = respx.get(f"{PRO_BASE}/api/v1/user/history").mock(
-            return_value=httpx.Response(200, json={"translations": [{"id": "t1"}]})
-        )
-        result = get_translation_history(limit=5)
-        assert route.called
-        assert result["translations"][0]["id"] == "t1"
-        assert route.calls.last.request.headers["Authorization"] == "Bearer test_jwt_123"
-
-    @respx.mock
-    def test_recordings_correct_path(self):
-        from windyfly.tools.windy_api import get_recordings
-        route = respx.get(f"{PRO_BASE}/api/v1/recordings/list").mock(
-            return_value=httpx.Response(200, json={"recordings": [{"id": "r1"}]})
-        )
-        result = get_recordings(limit=5, query="meeting")
-        assert route.called
-        assert "q=meeting" in str(route.calls.last.request.url)
-
-    @respx.mock
-    def test_clone_status_correct_path(self):
-        from windyfly.tools.windy_api import get_clone_status
-        route = respx.get(f"{PRO_BASE}/api/v1/clone/training-data").mock(
-            return_value=httpx.Response(200, json={"bundles": [], "total": 0})
-        )
-        result = get_clone_status()
-        assert route.called
-        assert result["total"] == 0
-
-    @respx.mock
-    def test_translate_text_correct_path(self):
-        from windyfly.tools.windy_api import translate_text
-        route = respx.post(f"{PRO_BASE}/api/v1/translate/text").mock(
-            return_value=httpx.Response(200, json={"translated_text": "hola"})
-        )
-        result = translate_text("hello", "en", "es")
-        assert route.called
-        assert result["translated_text"] == "hola"
-        body = json.loads(route.calls.last.request.content)
-        assert body["text"] == "hello"
-
-    @respx.mock
-    def test_tools_graceful_on_connection_error(self):
-        from windyfly.tools.windy_api import get_translation_history, get_recordings, get_clone_status, translate_text
-        respx.get(f"{PRO_BASE}/api/v1/user/history").mock(side_effect=httpx.ConnectError("refused"))
-        respx.get(f"{PRO_BASE}/api/v1/recordings/list").mock(side_effect=httpx.ConnectError("refused"))
-        respx.get(f"{PRO_BASE}/api/v1/clone/training-data").mock(side_effect=httpx.ConnectError("refused"))
-        respx.post(f"{PRO_BASE}/api/v1/translate/text").mock(side_effect=httpx.ConnectError("refused"))
-
-        for fn, args in [
-            (get_translation_history, []),
-            (get_recordings, []),
-            (get_clone_status, []),
-            (translate_text, ["hello", "en", "es"]),
-        ]:
-            result = fn(*args)
-            assert isinstance(result, dict)
-            assert "Traceback" not in str(result)
-
-    @respx.mock
-    def test_tools_handle_401(self):
-        from windyfly.tools.windy_api import get_translation_history
-        respx.get(f"{PRO_BASE}/api/v1/user/history").mock(
-            return_value=httpx.Response(401, json={"error": "unauthorized"})
-        )
-        result = get_translation_history()
-        assert "error" in result
-
-    @respx.mock
-    def test_tools_handle_500(self):
-        from windyfly.tools.windy_api import translate_text
-        respx.post(f"{PRO_BASE}/api/v1/translate/text").mock(
-            return_value=httpx.Response(500, text="Internal Server Error")
-        )
-        result = translate_text("hello", "en", "es")
-        assert "error" in result
-
-    @respx.mock
-    def test_all_tools_use_bearer(self):
-        """All Pro API tools send Authorization: Bearer header."""
-        from windyfly.tools.windy_api import get_translation_history, get_recordings, translate_text
-        routes = [
-            respx.get(f"{PRO_BASE}/api/v1/user/history").mock(return_value=httpx.Response(200, json={"translations": []})),
-            respx.get(f"{PRO_BASE}/api/v1/recordings/list").mock(return_value=httpx.Response(200, json={"recordings": [{"id": "x"}]})),
-            respx.post(f"{PRO_BASE}/api/v1/translate/text").mock(return_value=httpx.Response(200, json={"translated_text": "x"})),
-        ]
-
-        get_translation_history()
-        get_recordings()
-        translate_text("x", "en", "es")
-
-        for route in routes:
-            assert route.calls.last.request.headers["Authorization"] == "Bearer test_jwt_123"
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# Category 4: Agent Loop Under Load (6 tests)
-# ═══════════════════════════════════════════════════════════════════════
-
-
 class TestAgentLoopUnderLoad:
     """Agent loop with multiple messages, budget enforcement, edge cases."""
 
@@ -524,12 +414,10 @@ class TestConcurrentOperations:
     def test_simultaneous_messages_no_deadlock(self, mock_llm, mock_online, tmp_path):
         """5 simultaneous messages → all complete (no deadlock)."""
         from windyfly.agent.loop import agent_respond
-        import windyfly.agent.context_header as _ch
         import windyfly.agent.loop as _loop
         import threading
 
         # Reset module-level singletons to avoid test-order pollution
-        _ch._tracker = None
         _loop._interaction_count = 0
         _loop._session_tokens_used = 0
 

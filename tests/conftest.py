@@ -387,33 +387,6 @@ def _default_skip_real_ollama(request):
 
 
 @pytest.fixture(autouse=True)
-def _default_skip_state_emoji_prefix(request):
-    """Default OFF for the gas-tank panel + always-on state emoji
-    prefix (PR #144) so unit tests that check exact LLM-mock output
-    don't have to account for header bytes that were never the
-    behavior they were testing.
-
-    Tests that EXERCISE the prefix behavior (test_context_header.py,
-    test_context_header_per_session.py) opt-in via the
-    ``state_emoji_prefix`` marker.
-    """
-    if "state_emoji_prefix" in request.keywords:
-        yield
-        return
-    # Default: identity-passthrough. The agent loop calls
-    # maybe_prepend_header(text, tokens) and expects a string back —
-    # make it the original text untouched.
-    with patch(
-        "windyfly.agent.context_header.maybe_prepend_header",
-        side_effect=lambda text, tokens, max_tokens=200_000, **kw: text,
-    ), patch(
-        "windyfly.agent.loop.maybe_prepend_header",
-        side_effect=lambda text, tokens, max_tokens=200_000, **kw: text,
-    ):
-        yield
-
-
-@pytest.fixture(autouse=True)
 def _allow_fake_identity_in_tests(monkeypatch):
     """Let the suite reach the local Eternitas mock.
 

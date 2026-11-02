@@ -13,7 +13,6 @@ from windyfly.agent.loop import agent_respond
 from windyfly.memory.database import Database
 from windyfly.memory.write_queue import WriteQueue
 from windyfly.tools.registry import ToolRegistry
-import windyfly.agent.context_header as _ch
 
 from tests.test_agent_loop import _make_config
 
@@ -24,7 +23,6 @@ def _answer(content: str = "ok", tool_calls: list | None = None) -> dict:
 
 
 def test_post_tool_model_call_carries_the_session_id():
-    _ch._tracker = None
     db = Database(":memory:")
     wq = WriteQueue()
     wq.start()

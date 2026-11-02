@@ -705,12 +705,10 @@ async def test_a_second_process_sharing_the_stop_file_still_cancels_its_own_task
 
 def test_a_task_turn_is_offered_only_its_allowlist():
     from tests.test_agent_loop import _LLM_RESPONSE, _make_config as _loop_config, _make_db
-    import windyfly.agent.context_header as _ch
     from windyfly.agent.loop import agent_respond
     from windyfly.tools.bands import task_turn_tools
     from windyfly.tools.registry import ToolRegistry
 
-    _ch._tracker = None
     reg = ToolRegistry()
     for name in ("web_search", "send_email", "message_agent"):
         reg.register(name, name, {"type": "object", "properties": {}}, lambda: "ok")
