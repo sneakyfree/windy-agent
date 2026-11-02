@@ -1,0 +1,1 @@
+- **A repeated call request now says it was a repeat (make_call is still off by default).** When windy-text answers the same call request again instead of dialling (its `Idempotent-Replay: true`), make_call returns `replayed: true`, and its description tells the model that nothing new was dialled. So the agent won't tell its owner about a second call that never happened.
