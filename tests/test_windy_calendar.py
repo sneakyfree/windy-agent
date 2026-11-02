@@ -129,6 +129,7 @@ def test_confirm_required_waits_and_is_not_retried(calls):
     (403, {"ok": False, "error": "denied", "reason": "no_calendar"}, False, "isn't a Windy Calendar"),
     (403, {"ok": False, "error": "denied", "reason": "insufficient_band"}, False, "can't see"),
     (403, {"ok": False, "error": "denied", "reason": "untrusted_write"}, True, "not trusted enough"),
+    (403, {"ok": False, "error": "denied", "reason": "own_agent_only"}, True, "own calendar agent"),
     (400, {"ok": False, "error": "rate_limited", "reason": "own_calendar_daily_cap"}, True, "daily limit"),
     (400, {"ok": False, "error": "invalid_arguments", "reason": "impossible_time"}, True, "doesn't work"),
     (503, {"ok": False, "error": "auth_unavailable"}, False, "couldn't reach"),
@@ -411,10 +412,36 @@ def test_add_event_wire_and_outcome_as_data(add_on):
     assert out == {"ok": True, "outcome": "added", "outside_open_hours": True}
 
 
-@pytest.mark.parametrize("outcome", ["overlaps_booking", "in_the_past", "too_far_ahead", "not_enabled", "in_progress"])
-def test_every_calendar_outcome_reaches_the_model_unchanged(add_on, outcome):
+@pytest.mark.parametrize("outcome", ["overlaps_booking", "in_the_past", "too_far_ahead", "invalid_time",
+                                     "not_enabled", "in_progress", "own_agent_only"])
+def test_only_added_is_ok_every_other_outcome_is_a_refusal_in_fixed_words(add_on, outcome):
+    """Calendar answers 200 for every outcome (windy-calendar #109); "ok" must mean the event IS on the calendar, so
+    the model can never say "added" for in_the_past, an overlap or a switched-off Calendar."""
     _answer(add_on, _resp(200, {"ok": True, "result": {"outcome": outcome}}))
-    assert _cap("windy_calendar.add_event").handler(**EVENT) == {"ok": True, "outcome": outcome}
+    out = _cap("windy_calendar.add_event").handler(**EVENT)
+    assert out == {"ok": False, "outcome": outcome, "say": wcal.ADD_EVENT_SAY[outcome]}
+
+
+def test_an_unknown_outcome_is_a_refusal_too(add_on):
+    _answer(add_on, _resp(200, {"ok": True, "result": {"outcome": "something_new"}}))
+    out = _cap("windy_calendar.add_event").handler(**EVENT)
+    assert out["ok"] is False and out["say"] == "Windy Calendar didn't add it."
+    _answer(add_on, _resp(200, {"ok": True, "result": {}}))
+    assert _cap("windy_calendar.add_event").handler(**EVENT)["ok"] is False
+
+
+def test_a_replay_of_an_added_event_says_it_is_already_there(add_on):
+    appt = {"id": "a1", "kind": "event"}
+    _answer(add_on, _resp(200, {"ok": True, "result": {"outcome": "added", "idempotent_replay": True,
+                                                        "appointment": appt}}))
+    out = _cap("windy_calendar.add_event").handler(**EVENT)
+    assert out["ok"] is True and out["appointment"] == appt and out["idempotent_replay"] is True
+    assert out["say"] == wcal.ADD_EVENT_REPLAY_SAY
+
+
+def test_a_first_add_carries_no_replay_sentence(add_on):
+    _answer(add_on, _resp(200, {"ok": True, "result": {"outcome": "added"}}))
+    assert "say" not in _cap("windy_calendar.add_event").handler(**EVENT)
 
 
 def test_a_refusal_is_the_clients_plain_sentence(add_on):
@@ -427,7 +454,7 @@ def test_the_flag_off_at_call_time_sends_nothing(add_on, monkeypatch):
     c = _cap("windy_calendar.add_event")
     monkeypatch.setenv(wcal.ADD_EVENT_FLAG, "0")
     n = len(add_on)
-    assert c.handler(**EVENT) == {"ok": False, "outcome": "not_enabled"}
+    assert c.handler(**EVENT) == {"ok": False, "outcome": "not_enabled", "say": wcal.ADD_EVENT_SAY["not_enabled"]}
     assert len(add_on) == n
 
 

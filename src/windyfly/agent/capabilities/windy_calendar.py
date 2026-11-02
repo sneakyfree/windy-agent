@@ -41,6 +41,35 @@ def _add_event_key(args: dict[str, Any]) -> str:
     return "ae-" + hashlib.sha256("\x1f".join(parts).encode("utf-8")).hexdigest()[:48]
 
 
+# Calendar answers add_event with HTTP 200 and an outcome (windy-calendar #109); only "added" put an event on the
+# calendar. Every other outcome is a refusal with fixed words, so the model can never report "added" for it.
+ADD_EVENT_SAY: dict[str, str] = {
+    "overlaps_booking": "Someone already booked that time on your booking page, so I didn't add it.",
+    "in_the_past": "That time has already passed, so I didn't add it.",
+    "too_far_ahead": "I can only add events up to two years ahead, so I didn't add it.",
+    "invalid_time": "That isn't a real date or time, so I didn't add it.",
+    "in_progress": "I'm still adding that one. Ask me again in a moment.",
+    "not_enabled": "I can't add events to your calendar yet.",
+    "own_agent_only": "Only your calendar's own agent can add events to it.",
+}
+_ADD_EVENT_OTHER = "Windy Calendar didn't add it."
+ADD_EVENT_REPLAY_SAY = "That event is already on your calendar, so I didn't add it twice."
+
+
+def add_event_answer(out: dict[str, Any], res: dict[str, Any]) -> dict[str, Any]:
+    """ok is True ONLY for outcome "added"; a replay of an added event says so; anything else is a refusal in fixed
+    words. A refusal from the wire layer (no token, unreachable...) comes back as it was."""
+    if not out.get("ok"):
+        return out
+    outcome = str(res.get("outcome") or "")
+    if outcome == "added":
+        answer: dict[str, Any] = {"ok": True, **res}
+        if res.get("idempotent_replay"):
+            answer["say"] = ADD_EVENT_REPLAY_SAY
+        return answer
+    return {"ok": False, "outcome": outcome or "unknown", "say": ADD_EVENT_SAY.get(outcome, _ADD_EVENT_OTHER)}
+
+
 def _add_event_audit_args(args: dict[str, Any]) -> dict[str, Any]:
     """The audit row for add_event: when and how long only. The title, location and note are the owner's own words."""
     return {"starts_at_utc": args.get("starts_at_utc"), "duration_minutes": args.get("duration_minutes")}
@@ -133,14 +162,14 @@ def register_windy_calendar_capabilities(registry: CapabilityRegistry, config: d
 
     def add_event(**kw: Any) -> dict[str, Any]:
         if not add_event_enabled():
-            return {"ok": False, "outcome": "not_enabled"}  # Calendar's own word for a switched-off add_event
+            return {"ok": False, "outcome": "not_enabled", "say": ADD_EVENT_SAY["not_enabled"]}
         args = {k: kw[k] for k in ("title", "starts_at_utc", "duration_minutes", "location", "note") if kw.get(k)}
         args["idempotency_key"] = _add_event_key(args)
         out = wc.invoke("add_event", args, write=True)
         raw = out.get("result")
         res: dict[str, Any] = raw if isinstance(raw, dict) else {}
         logger.info("windy calendar: add_event outcome=%s", res.get("outcome") if out["ok"] else "refused")
-        return {"ok": True, **res} if out["ok"] else out
+        return add_event_answer(out, res)
 
     date = {"type": "string", "pattern": r"^\d{4}-\d{2}-\d{2}$"}
     s = {"type": "string"}

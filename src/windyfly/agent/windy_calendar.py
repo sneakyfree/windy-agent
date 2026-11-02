@@ -53,6 +53,8 @@ def _plain(status: int, body: dict[str, Any], *, write: bool) -> dict[str, Any]:
             say = "My owner has blocked me from their calendar."
         elif reason == "no_calendar":
             say = "There isn't a Windy Calendar set up for my owner yet."
+        elif reason == "own_agent_only":  # windy-calendar #96/#109: only the calendar's own agent may do this
+            say = "Only my owner's own calendar agent can do that."
         elif write:
             say = "I'm not trusted enough yet to change my owner's calendar."
         else:
