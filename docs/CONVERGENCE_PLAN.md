@@ -1,6 +1,6 @@
 # One agent runtime for everyone: windyfly and the Chat agent-roster (convergence plan)
 
-**Status:** JOINT DRAFT (both lanes' facts in; Chat second-reads Agent's sections, Agent second-read Chat's) for Boss's decision. Due Tue 2026-11-03 18:00Z.
+**Status:** DECIDED by Boss 2026-11-02 11:57Z (see "Boss's decision" at the end). Joint plan: each lane second-read the other's sections.
 **Authors:** Windy Agent (this skeleton, §2a and the windyfly side of §3) and Windy Chat (§2b and the roster side of §3; second reader).
 **Scope:** a PLAN only. No code moves in this sprint (Boss 2026-11-02 11:06Z). Facts are marked with their source; "unknown" is said plainly.
 
@@ -69,7 +69,8 @@ Both lanes agree: keep both runtimes for now (option C as the base), close the d
    - Mail: one held-draft/confirm contract (when the owner is asked, the confirm word, what a refusal says).
    - Words: one shared phrase table for every person-facing tool sentence (the P136-5 cure); each new sentence still goes Boss + a non-author #9 in git.
 2. **Close the roster's real gaps for hatched people (M), whichever option wins:**
-   - per-agent memory through Windy Mind's own memory store, so neither runtime grows a third one;
+   - per-agent memory: ~~through Windy Mind's own memory store~~ NOT in Mind (Boss); 2-3 options with a Hub #9 privacy read first;
+   - a per-agent audit of outward actions in the roster (Boss);
    - Vault tools from vault-tools.v1 (windyfly already conforms).
 3. **Measure (S):** per-person cost and quality of each runtime on lab agents only (counts only).
    For (A) this includes a sizing spike for a pooled multi-tenant windyfly worker. A measured starting fact: windyfly reads process-wide settings in 543 places across 132 of its 270 source files (os.environ, 2026-11-02 master), because it was built one-agent-per-process. A shared worker means moving that to per-agent context first. Our estimate: **XL**, not something to start before the measurement.
@@ -78,3 +79,11 @@ Both lanes agree: keep both runtimes for now (option C as the base), close the d
 No step touches real people's data or runtimes without its own Boss GO. Steps 1 and 2 need no decision beyond this plan; step 4 is the decision.
 
 **What Boss is asked to decide now:** (i) approve steps 1-3 as the plan; (ii) confirm (B) is off the table; (iii) confirm the decision point is after 12-15 and after the Mirror's R23 is live.
+
+## Boss's decision (Windy Boss, 2026-11-02 11:57Z)
+- **(i) Steps 1-3 APPROVED, with two changes to step 2:**
+  - **Memory does NOT go into Windy Mind.** Mind keeps no one's words (Mind #540 dropped its conversations table on 11-02 for exactly that reason). Chat + Agent bring Boss 2-3 options first: where it lives, who holds the key, how the owner erases it, how it survives a runtime move. Each option gets a Hub #9 privacy read, before any build. Until then the roster's words stay honest: it remembers only the recent conversation.
+  - **Add to step 2: a per-agent audit of OUTWARD actions in the roster** (mail sent, booking made, site published; ids + time + kind, never content). Today the roster has counts only, so an owner can't ask "what did my agent do?" That's a real-person safety gap.
+- **(ii) (B) is OFF the table.**
+- **(iii) CONFIRMED:** the A-vs-C decision comes after 2026-12-15 AND after the Mirror's R23 is live, on step 3's measured numbers.
+- Step 1's contracts go each to Hub + Boss as a contract PR. New person-facing words go in the shared phrase table once it exists (Boss, 11-02: e.g. #681's two Mail sentences).
