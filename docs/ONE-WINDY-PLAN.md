@@ -210,11 +210,15 @@ What "one agent" must give a person (Grant): the same agent everywhere, Claude-C
 **Proposal (Agent, for the co-authors):**
 1. **A required "Where will your agent live?" step in the birth canal, beside the Mind step:**
    - (a) my computer: install Windy Fly, and the phone pairs to it;
-   - (b) a Windy Cloud VPS: paid [Owner: Cloud: is a VPS plan offered today, its price and size?];
+   - (b) a Windy Cloud VPS: paid. **NOT LIVE today** (Boss 15:10Z, from Cloud's gap file: not deployed; supplier accounts = Grant's money). It needs its own build + Grant's money decision, with a date [Owner: Cloud: size + date; Grant: money];
    - (c) [Boss/Grant decide] a short free trial: hosted, time-limited and capped, on free models only, so a first-timer can try before choosing (a) or (b). Or no trial at all.
 2. **BYOM in the Mind step** (Grant's rule above) moves the real cost, inference, to the person's own AI account.
 3. **Effect on section C:** with agents on the person's machine or VPS, the hosted side no longer needs thousands of agents packed into one process, only the capped trial. That favours ONE lean agent that runs as one process per person: the same code on a laptop, a VPS or the trial host. [Recommendation to be re-checked with this in mind.]
 4. **Eternitas's certificate gate (B) can also require "hosting chosen"** next to "Mind activated" + "compute added".
+5. **Today's roster agents (~59; 17 real hatches in 30 days; Boss 15:10Z):** they keep running until each owner picks a home, with a plain notice. No real person's agent stops without a written plan + Boss's GO. [Agent + Chat: the notice words (Boss + #9), the migration order, the deadline policy.]
+6. **SAFETY NET NOW, independent of the plan (Boss 15:10Z):** a GLOBAL daily cap on real hatches (all accounts together), on top of the per-owner quotas.
+   - Proposal: a dated, env-only setting, e.g. 50 real hatches/day, with an HQ alarm at 80%. Its own GO. It protects Friday's friends wave without blocking it.
+   - [Owner: Hub: does a global cap exist today? If not, where it sits in the canal and its default.]
 
 ## E. Decisions for Boss (then Grant)
 [Filled when A-D are in]
