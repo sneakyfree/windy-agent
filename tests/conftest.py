@@ -448,8 +448,7 @@ def _no_cost_sink_leak():
 @pytest.fixture(autouse=True)
 def _sms_unparked_for_legacy_tests(monkeypatch):
     """SMS/phone are parked in production (WINDY_ENABLE_SMS unset). The older SMS and
-    phone tests exercise the unparked code, so they run with the flag on;
-    tests/test_sms_parked.py removes it to prove the parked default."""
+    phone tests exercise the unparked code, so they run with the flag on."""
     monkeypatch.setenv("WINDY_ENABLE_SMS", "1")
 
 
