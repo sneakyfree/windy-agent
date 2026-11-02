@@ -910,7 +910,7 @@ def request_agent_token(aud: str, *, transport: httpx.BaseTransport | None = Non
 
 def service_dpop(htm: str, url: str, *, cred_path: Path | None = None) -> str:
     """Per-request DPoP proof (fresh iat + unique jti) for calling a Windy service
-    with an ``EPT+agent``: send ``Authorization: DPoP <token>`` plus ``DPoP: <this>``.
+    with an ``EPT+agent``: send ``Authorization: Bearer <token>`` plus ``DPoP: <this>``.
     ``url`` is the absolute URL of THAT request; the proof signs :func:`htu` of it."""
     key, _ = _active_key(cred_path)
     return dpop_proof(key, htm, htu(url))
