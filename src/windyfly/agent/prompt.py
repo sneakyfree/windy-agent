@@ -317,6 +317,19 @@ def assemble_prompt(
         )
     system_parts.append(runtime_guardrail)
 
+    # YOUR WINDY (Grant 2026-11-02, windy-contracts your-windy.v1): the agent's own Windy facts, read live once per
+    # session. DARK: "" unless WINDY_YOUR_WINDY=1. OWNER ONLY: the block holds the owner's plan and quota, and a
+    # suggestion to a stranger ("keep that password in your Vault") would point at the owner's Vault.
+    from windyfly.agent import your_windy
+
+    yw = your_windy.block() if owner_ctx else ""
+    if yw:
+        system_parts.append(yw)
+        # Next to the facts, the bounded suggestion rule (Grant ~19:25Z, Boss 19:31Z). DARK: WINDY_SUGGEST_FEATURES=1.
+        tips = your_windy.suggestion_block(db, session_id, user_message)
+        if tips:
+            system_parts.append(tips)
+
     # WINDY FACTS (Hub, 10-02): a hosted agent told Grant 'Free / Pro $20 / Max $200 /
     # Teams' (Anthropic's plans, recited from model memory). Prices come ONLY from the
     # windy_plans tool (live GET account.windyword.ai/api/v1/plans); without it, none.
