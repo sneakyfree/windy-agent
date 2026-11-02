@@ -425,7 +425,7 @@ def test_only_added_is_ok_every_other_outcome_is_a_refusal_in_fixed_words(add_on
 def test_an_unknown_outcome_is_a_refusal_too(add_on):
     _answer(add_on, _resp(200, {"ok": True, "result": {"outcome": "something_new"}}))
     out = _cap("windy_calendar.add_event").handler(**EVENT)
-    assert out["ok"] is False and out["say"] == "Windy Calendar didn't add it."
+    assert out["ok"] is False and out["say"].startswith("Windy Calendar gave an answer I don't understand")
     _answer(add_on, _resp(200, {"ok": True, "result": {}}))
     assert _cap("windy_calendar.add_event").handler(**EVENT)["ok"] is False
 

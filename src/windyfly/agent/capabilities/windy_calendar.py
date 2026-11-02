@@ -44,15 +44,17 @@ def _add_event_key(args: dict[str, Any]) -> str:
 # Calendar answers add_event with HTTP 200 and an outcome (windy-calendar #109); only "added" put an event on the
 # calendar. Every other outcome is a refusal with fixed words, so the model can never report "added" for it.
 ADD_EVENT_SAY: dict[str, str] = {
-    "overlaps_booking": "Someone already booked that time on your booking page, so I didn't add it.",
+    "overlaps_booking": "That time overlaps something already on your calendar, so I didn't add it.",
     "in_the_past": "That time has already passed, so I didn't add it.",
     "too_far_ahead": "I can only add events up to two years ahead, so I didn't add it.",
     "invalid_time": "That isn't a real date or time, so I didn't add it.",
     "in_progress": "I'm still adding that one. Ask me again in a moment.",
     "not_enabled": "I can't add events to your calendar yet.",
-    "own_agent_only": "Only your calendar's own agent can add events to it.",
+    "own_agent_only": ("Your calendar only lets its own agent add events, and it didn't accept me as that agent, "
+                       "so nothing was added."),
 }
-_ADD_EVENT_OTHER = "Windy Calendar didn't add it."
+_ADD_EVENT_OTHER = ("Windy Calendar gave an answer I don't understand, so I can't tell whether it was added. "
+                    "Please check your calendar.")
 ADD_EVENT_REPLAY_SAY = "That event is already on your calendar, so I didn't add it twice."
 
 
