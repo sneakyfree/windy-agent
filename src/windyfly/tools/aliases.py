@@ -22,19 +22,8 @@ class Alias(NamedTuple):
 
 
 TOOL_ALIASES: dict[str, Alias] = {
-    # Legacy (ToolRegistry) tools.
-    "windycodeweb_start_from_template": Alias("windycodeweb_start", rename={"slug": "template"}),
-    "windycodeweb_create_project": Alias("windycodeweb_start", fixed={"blank": True}),
-    # A builder call that answers 'unavailable' when the builder is not there, else the projects.
-    "windycodeweb_status": Alias("windycodeweb_list_projects"),
-    # The IDE tools each answer 'unavailable' when Windy Code is closed; this lists the projects.
-    "windycode_status": Alias("windycode_list_projects"),
-    # Capabilities.
-    "vision.ocr": Alias("vision.describe", fixed={"read_text": True}),
-    "mcp.list_servers": Alias("mcp.list_tools"),
+    # The lean Windy Fly (2026-11-02) cut Windy Code, vision, MCP, Cloudflare and setup; their aliases went with them.
     "mind.list_models": Alias("mind.status"),
-    "cloudflare.zone_details": Alias("cloudflare.list_zones"),
-    "setup.start": Alias("setup.status"),
 }
 
 

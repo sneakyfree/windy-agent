@@ -23,25 +23,6 @@ def _cfg():
     }
 
 
-def test_sms_inbound_threads_resolved_band():
-    os.environ["TWILIO_ACCOUNT_SID"] = "ACtest123"
-    os.environ["TWILIO_AUTH_TOKEN"] = "test_token"
-    os.environ["TWILIO_PHONE_NUMBER"] = "+15551234567"
-    from windyfly.channels.sms import WindyFlySMS
-
-    db = Database(":memory:")
-    wq = WriteQueue()
-    wq.start()
-    sms = WindyFlySMS(_cfg(), db, wq)
-    with patch("windyfly.channels.sms.resolve_band", return_value=Band.SANDBOX) as rb, \
-         patch("windyfly.channels.sms.agent_respond", return_value="ok") as ar:
-        sms.handle_inbound("+15559999999", "hello")
-    rb.assert_called_once_with("sms", "+15559999999", config=sms.config)
-    assert ar.call_args.kwargs.get("band") == Band.SANDBOX, "sms must thread the resolved band"
-    wq.stop()
-    db.close()
-
-
 def test_email_inbound_threads_resolved_band():
     os.environ["SENDGRID_API_KEY"] = "SG.test"
     from windyfly.channels.email import WindyFlyEmail

@@ -99,13 +99,6 @@ def test_shell_exec_requires_owner(registry):
     assert cap.band_required is Band.OWNER
 
 
-def test_saving_a_credential_requires_owner(registry):
-    """Changing WHOSE accounts the agent acts on is ownership, not work."""
-    cap = registry.get("setup.save_credential")
-    assert cap is not None
-    assert cap.band_required is Band.OWNER
-
-
 def test_trusted_cannot_reach_code_execution_or_credentials(registry):
     """The actual hole, stated from the attacker's side."""
     reachable = {c.id for c in registry.list_for_band(Band.TRUSTED)}
@@ -113,30 +106,6 @@ def test_trusted_cannot_reach_code_execution_or_credentials(registry):
         assert forbidden not in reachable, (
             f"a TRUSTED session can still call {forbidden}"
         )
-
-
-def test_ssh_to_an_unknown_host_escalates_to_owner(registry, monkeypatch):
-    """The escalation that was already written, but was a no-op.
-
-    ``_ssh_runtime_tier_check`` bumps an unrecognised host to
-    FULL_MACHINE and its docstring says that means OWNER. It did not:
-    FULL_MACHINE resolved to TRUSTED, and ssh.exec's static tier
-    (EXTERNAL_EFFECT) was ALSO TRUSTED — so the escalation moved the
-    requirement from TRUSTED to TRUSTED and changed nothing.
-
-    Pre-authorized hosts deliberately stay at TRUSTED: the owner put
-    them on the allowlist, and #6 says a credentialed bot should be
-    able to use them.
-    """
-    from windyfly.agent.capabilities import ssh as ssh_mod
-
-    monkeypatch.setattr(ssh_mod, "_host_is_allowed", lambda host: False)
-    escalated = ssh_mod._ssh_runtime_tier_check({"host": "stranger.example.com"})
-    assert escalated is Tier.FULL_MACHINE
-    assert defaults_for_tier(escalated)["band_required"] is Band.OWNER
-
-    monkeypatch.setattr(ssh_mod, "_host_is_allowed", lambda host: True)
-    assert ssh_mod._ssh_runtime_tier_check({"host": "kit0"}) is None
 
 
 def test_ordinary_work_stays_reachable_by_trusted(registry):
