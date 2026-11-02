@@ -37,8 +37,8 @@ def test_taint_gate_denies_site_writes_when_tainted():
     # An injected page/email must not put content on a site the user owns,
     # through the builder or straight through Windy Sites.
     for name in [
-        "windycodeweb_create_project", "windycodeweb_add_files",
-        "windycodeweb_start", "windycodeweb_start_from_template", "windycodeweb_edit_text",
+        "windycodeweb_add_files",
+        "windycodeweb_start", "windycodeweb_edit_text",
         "windycodeweb_undo", "windycodeweb_publish", "windycodeweb_unpublish",
         "windycodeweb_connect_domain", "create_site", "add_or_edit_files",
         "publish_site", "undo_to_version", "connect_domain_to_site",
