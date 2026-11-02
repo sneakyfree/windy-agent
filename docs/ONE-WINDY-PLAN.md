@@ -62,17 +62,79 @@ Today:
 
 What "one agent" must give a person (Grant): the same agent everywhere, Claude-Code-like, with simple tools and nothing between the person and the model.
 
-### Option 1: windyfly, made multi-tenant and hosted
-[Agent: gains/losses for a hatched person; memory carry-over; move plan; risks; cost per person on Kit 0's capped CPU; size and dates. Starting fact: windyfly reads process-wide settings in 543 places across 132 of its 270 source files (2026-11-02), because it was built one agent per process.]
+### Option 1: windyfly, made multi-tenant and hosted (Windy Agent)
+**What it is:** every hatched agent runs on windyfly, the runtime Zero uses today, hosted on Windy's servers.
 
-### Option 2: a lean Claude-Code-style loop on the shared tool contracts
-[Agent + Chat: the same fields. The loop is model, tools, results, repeat, with the person's memory and the "Your Windy" block. The tools come from the shared contracts both runtimes already conform to (vault-tools.v1, tools-invoke.v1 for calendar, the phrase table).]
+**Measured cost:** windyfly is built one agent per process.
+- One channel process uses about 100-140 MiB RSS. Zero runs two of them (Telegram + Matrix), so about 270 MiB per agent (Windy 0, 2026-11-02 15:1xZ, read-only).
+- The roster serves 57 agents in about 64 MiB total, roughly 1 MiB each (Chat, 2026-11-02).
+- So 57 agents as windyfly processes would need about 15 GB. Kit 0 has 15 GB in total, shared with every service.
+- It only fits after a rebuild into a pooled worker: one process serving many agents.
+
+**The rebuild:** windyfly reads process-wide settings in 543 places across 132 of its 270 source files. Each one becomes per-agent context, along with:
+- per-agent SQLite memory files and a pool for them;
+- per-agent keys (the agent-key file is one per process today);
+- per-agent model routing;
+- per-agent tool registries.
+
+**What a hatched person gains:**
+- durable memory (episodes, facts, journal, goals);
+- the bands / taint / audit safety model;
+- owner-confirm cards;
+- Vault tools;
+- 10 channel adapters.
+
+**What a hatched person loses:** nothing from the roster's tool list, but each tool must be re-checked against windyfly's version.
+
+**Memory carry-over:** the roster keeps none (only the last 10 room messages), so each person starts with an empty memory. This must be said plainly.
+
+**Risks:**
+- the largest refactor in windyfly's history, on the same code Grant's Zero runs (stability first);
+- a pooled Python worker on Kit 0's capped CPU (4 vCPU, shared);
+- heavy machinery: about 579 live codons of behaviour. That runs against Grant's "keep the tools simple, stay out of the model's way".
+
+**Size: XL.** Several weeks of focused work before a lab agent, then a staged move. Dates only after a 3-day spike measures the pooled worker.
+
+### Option 2: a lean Claude-Code-style loop on the shared tool contracts (Windy Agent skeleton; Chat co-authors and measures)
+**What it is:** ONE small agent loop, the same shape as a Claude Code terminal: model, tool calls, results, repeat, until done. Its parts:
+- **Prompt:** the person's soul (sliders; raw by default) + "Your Windy" (D) + the person's memory.
+- **Tools:** thin and defined ONCE in shared contracts. They exist or are drafted for calendar (tools-invoke.v1), Vault (vault-tools.v1) and words (tool-phrases.v1); mail, files (Cloud), search, sites/code and memory each get a contract.
+- **The model does the thinking.** No skill layers, no routers, no persona machinery.
+- **Model choice:** Windy Mind, with the person's own compute (their Anthropic / OpenAI account) or the house models.
+
+**What a hatched person gains:**
+- the experience Grant has in a terminal: multi-step work, real tools, the model's own judgment;
+- the same agent in Windy Chat desktop and mobile and the Fly app;
+- memory across sessions, once the step-2 memory option is decided (the convergence plan, Boss 11-02: not in Mind);
+- files (Cloud) and keys (Vault).
+
+**Where it runs:** hosted and pooled from day one, so the cost per person stays near the roster's [Chat: measured memory per runner, CPU per turn].
+
+**How it is built:**
+- either grown from the roster (Node, already pooled, already hosting 57 agents);
+- or as a new small service.
+
+[Chat: which, and its size.] windyfly's proven pieces move in as contract-driven tools, not as a second runtime: owner-confirm before outward actions, the taint rule, the audit of outward actions (Boss 11-02), Vault, bring-home.
+
+**Hard part:** a per-person workspace for files and running code, the thing that makes a terminal feel powerful. It needs a sandbox (per-agent container or Workers-style isolate) [Chat + Agent: size].
+
+**Size:** L for the loop + contracts + memory; the sandboxed workspace is separate [size].
 
 ### Option 3 (if any)
 [Chat / Agent]
 
-### Recommendation
-[Agent, plainly, after the options are sized]
+### Recommendation (Windy Agent's draft; Chat to counter)
+**Option 2.**
+- It is the only option that fits Grant's direction: one agent, Claude-Code-like, simple tools, the model in charge.
+- It fits Kit 0's budget: the roster already proves about 1 MiB per agent pooled.
+- It avoids an XL rewrite of the code Grant's Zero depends on.
+
+**windyfly's role changes:**
+- its best parts become shared contracts and tools;
+- Zero moves onto the one agent LAST, after it has served lab agents and then real people, with memory carried over (bring-home exists);
+- until then windyfly stays Zero's runtime and the reference for those contracts.
+
+[Final wording after Chat's sizes.]
 
 **Move plan (whichever option):** lab agents first, then real people with Boss's GO, Zero LAST. Stability first: no double replies (one voice, the runtime claim), and no memory lost silently.
 
