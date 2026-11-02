@@ -229,3 +229,97 @@ def test_a_failed_mint_warning_names_the_error_class(monkeypatch, caplog):
         auth, agent = mind_auth.headers("POST", "https://api.windymind.ai/v1/chat", "legacy-ept")
     assert agent is False and auth == {"Authorization": "Bearer legacy-ept"}
     assert "unreachable ConnectError" in caplog.text and "legacy-ept" not in caplog.text
+
+
+# ── no legacy fallback (Mind stops the 365-day EPT 12-03; Boss 11-01: a silent Zero on 12-03 is the worst case) ──
+
+
+def _mind_ok(seen):
+    def fake_post(url, headers, json, timeout):
+        seen.append((url, dict(headers)))
+        return _resp(200, body={
+            "choices": [{"message": {"role": "assistant", "content": "hi"}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+        })
+    return fake_post
+
+
+def test_with_the_long_ept_absent_a_model_call_still_reaches_mind_on_ept_agent(monkeypatch, tmp_path):
+    # Boss's condition: the 365-day EPT is gone from the env, only the passport + agent key remain.
+    monkeypatch.setenv("WINDY_STATE_DIR", str(tmp_path))
+    monkeypatch.delenv("ETERNITAS_PASSPORT_TOKEN", raising=False)
+    monkeypatch.setenv("ETERNITAS_PASSPORT", "ET26-TEST-0001")
+    monkeypatch.setenv(mind_auth.LEGACY_FLAG, "0")
+    monkeypatch.setattr(models, "_provider_cooldowns", {})
+    monkeypatch.setattr(models, "_mind_helper_enabled", lambda: False)
+    seen = []
+    monkeypatch.setattr("httpx.post", _mind_ok(seen))
+    out = models._try_mind_broker([{"role": "user", "content": "x"}], None, None, 100, None)
+    assert out and out["content"] == "hi"
+    assert len(seen) == 1 and seen[0][0].endswith("/v1/chat")
+    assert seen[0][1]["Authorization"] == "Bearer agent-tok-1" and seen[0][1]["DPoP"] == "proof-1"
+
+
+def test_fallback_off_a_failed_mint_never_sends_the_long_token(monkeypatch):
+    from windyfly.agent import service_auth
+    from windyfly.observability import agent_health as ah
+
+    monkeypatch.setenv(mind_auth.LEGACY_FLAG, "0")
+    monkeypatch.setattr(service_auth, "agent_headers",
+                        lambda *a: (_ for _ in ()).throw(service_auth.ServiceAuthError("unreachable", "ConnectError")))
+    ah._reset_for_tests()
+    auth, agent = mind_auth.headers("POST", URL, "legacy-ept")
+    assert auth == {} and agent is False  # no credential at all: Mind answers 401, never the long token
+    assert ah._iv.mind_legacy_auth == 0
+
+
+def test_fallback_off_a_double_refusal_sends_nothing_more(_on, monkeypatch):
+    monkeypatch.setenv(mind_auth.LEGACY_FLAG, "0")
+    sent = []
+    monkeypatch.setattr("httpx.post", lambda url, headers, json, timeout: sent.append(dict(headers))
+                        or _resp(401, "invalid_dpop"))
+    resp = mind_auth.post(URL, "legacy-ept", {}, 30.0)
+    assert resp.status_code == 401 and len(sent) == 2
+    assert all("legacy-ept" not in h.get("Authorization", "") for h in sent)
+
+
+def test_fallback_off_a_refused_read_is_not_retried_with_the_long_token(_on, monkeypatch):
+    monkeypatch.setenv(mind_auth.LEGACY_FLAG, "0")
+    sent = []
+    monkeypatch.setattr("httpx.get", lambda url, headers, timeout: sent.append(dict(headers))
+                        or _resp(401, "expired"))
+    resp = mind_auth.get("https://api.windymind.ai/v1/grants/me", "legacy-ept", 5.0)
+    assert resp.status_code == 401 and len(sent) == 1
+
+
+def test_the_fallback_is_on_by_default_until_it_is_switched_off(monkeypatch):
+    monkeypatch.delenv(mind_auth.LEGACY_FLAG, raising=False)
+    assert mind_auth.legacy_allowed() is True
+    monkeypatch.setenv(mind_auth.LEGACY_FLAG, "0")
+    assert mind_auth.legacy_allowed() is False
+
+
+def test_fallback_off_the_helper_path_is_refused_and_the_long_ept_never_goes_out(monkeypatch, tmp_path):
+    # Hub on #678: WINDY_MIND_HELPER=1 routes through the vendored MindClient, whose bearer is the long EPT.
+    from windyfly.agent import mind_helper
+
+    monkeypatch.setenv("WINDY_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("ETERNITAS_PASSPORT_TOKEN", "LONG-LEGACY-EPT")
+    monkeypatch.setenv("WINDY_MIND_HELPER", "1")
+    monkeypatch.setenv(mind_auth.LEGACY_FLAG, "0")
+    monkeypatch.setattr(models, "_provider_cooldowns", {})
+    helper_calls = []
+    monkeypatch.setattr(mind_helper, "chat", lambda *a, **k: helper_calls.append(a) or None)
+    seen = []
+    monkeypatch.setattr("httpx.post", _mind_ok(seen))
+    out = models._try_mind_broker([{"role": "user", "content": "x"}], None, None, 100, None)
+    assert out and out["content"] == "hi"
+    assert helper_calls == []  # the helper (long-EPT bearer) was never used
+    assert seen and all("LONG-LEGACY-EPT" not in h.get("Authorization", "") for _, h in seen)
+    assert seen[0][1]["Authorization"] == "Bearer agent-tok-1"
+
+
+def test_with_the_fallback_on_the_helper_still_works_as_today(monkeypatch):
+    monkeypatch.setenv("WINDY_MIND_HELPER", "1")
+    monkeypatch.delenv(mind_auth.LEGACY_FLAG, raising=False)
+    assert models._mind_helper_enabled() is True
