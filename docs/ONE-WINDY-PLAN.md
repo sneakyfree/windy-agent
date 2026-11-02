@@ -95,6 +95,38 @@ This is the "profile page(s)" column Boss added to section A. It is its own tabl
 | Windy Cloud, Mail, Vault, Code, Git, Calendar, Search, Text, Call, Talk, Hand, Drops, Connect, Translate | [Owners: every profile/account/settings page with a name, picture or email] | | each lane |
 | Windy Traveler | None: no user store (row above) | none | Windy Traveler |
 
+### A1b. Guard tests: no lane grows its own sign-up, login or profile (Boss 2026-11-02 17:49Z)
+The decided part of this plan is merged on main as docs/ONE-WINDY-DECISIONS.md (#689).
+- Every product lane copies Windy Mind's guard test into its own repo by **Fri 2026-11-06**, adapted to its stack:
+  `api/tests/test_barn.py::test_mind_never_grows_its_own_sign_up_login_or_profile`.
+- **Exception:** windy-pro's account server IS the pathway; its guard pins "one profile route" instead.
+
+| Lane | Guard test (repo path + PR) | Status |
+|---|---|---|
+| Windy Mind | api/tests/test_barn.py::test_mind_never_grows_its_own_sign_up_login_or_profile | the model |
+| Windy Accounts (windy-pro account server) | "one profile route" guard [Owner: Hub] | not yet |
+| Windy Word (web, website, desktop) | | not yet |
+| Windy Fly (windy-agent + windy-fly-site) | | not yet |
+| Windy Fly mobile app | | not yet |
+| Windy Chat | | not yet |
+| Windy Mail | | not yet |
+| Windy Cloud | | not yet |
+| Windy Vault | | not yet |
+| Windy Code | | not yet |
+| Windy Git | | not yet |
+| Windy Calendar | | not yet |
+| Windy Search | | not yet |
+| Windy Text | | not yet |
+| Windy Call | | not yet |
+| Windy Clone | | not yet |
+| Windy Talk | | not yet |
+| Windy Hand | | not yet |
+| Windy Drops | | not yet |
+| Windy Connect | | not yet |
+| Windy Translate | | not yet |
+| Windy Traveler | | not yet |
+| Eternitas | | not yet |
+
 ## A2. One person = one identity (REQUIRED; Boss 2026-11-02 15:05Z, from Vault's point)
 - Every platform keys a person's data by `windy_identity_id`: Vault, Cloud, Mail, Chat, the agent's owner link at Eternitas.
 - So if the same person signs in with Windy, then Google, then Apple or GitHub, and gets TWO identities, they get two Vaults, two mailboxes, two agents.
