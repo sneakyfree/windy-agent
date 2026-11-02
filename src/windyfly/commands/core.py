@@ -2582,7 +2582,9 @@ def _register_budget_through_help():
         # running agent's locks and leave out everything still in the WAL.
         import tempfile
 
-        from windyfly.memory.snapshot import copy_db, private_tar
+        from windyfly.memory.snapshot import copy_db, private_tar, tighten_old_exports
+        for folder in {PROJECT_ROOT, Path.cwd()}:
+            tighten_old_exports(folder)
         db_path = Path((_config or {}).get("memory", {}).get(
             "db_path",
             os.environ.get("WINDYFLY_DB_PATH", "data/windyfly.db"),
