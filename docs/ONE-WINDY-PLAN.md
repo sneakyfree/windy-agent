@@ -205,12 +205,19 @@ What "one agent" must give a person (Grant): the same agent everywhere, Claude-C
 - **The model is the real cost:** every reply goes through Windy Mind. Default = the house's free starter models with a daily limit, paid by Windy, unless the owner connects their own AI account (BYOM).
 - **Own hardware already exists for computers:** Windy Fly runs on a person's own laptop, desktop or server today (`windy go`, `pip install windyfly`); Zero runs that way on Windy 0. One Windy Fly agent uses ~270 MiB (measured).
 - **A phone is a poor always-on host:** iOS suspends background processes, and Android costs battery. The phone is the doorway and the screen; the agent lives on a computer, a VPS, or a hosted trial.
+- **Free storage (Cloud, config.py defaults, approved 2026-09-23):**
+  - per PERSON by plan: free 500 MB, Pro 5 GB, Ultra 25 GB, Max 100 GB;
+  - per AGENT separately: 500 MB under its owner's account (times its Eternitas trust multiplier, capped at 1.0), for the owner's first 3 ACTIVE agents on a free plan (10 on a paid plan); further agents draw on the owner's quota.
+  - So Grant's "500 MB" is both. These are facts for "Your Windy" (D).
 - **Abuse brakes today:** the free-model daily limits (Mind); the roster's per-owner daily quotas (200 model calls, 50 mails); one passport per agent; one canal.
 
 **Proposal (Agent, for the co-authors):**
 1. **A required "Where will your agent live?" step in the birth canal, beside the Mind step:**
    - (a) my computer: install Windy Fly, and the phone pairs to it;
-   - (b) a Windy Cloud VPS: paid. **NOT LIVE today** (Boss 15:10Z, from Cloud's gap file: not deployed; supplier accounts = Grant's money). It needs its own build + Grant's money decision, with a date [Owner: Cloud: size + date; Grant: money];
+   - (b) a Windy Cloud VPS: paid. **NOT LIVE today** (Cloud, WindyCloud main 11-02: no servers route mounted, an unused "VPS server instance" table, /servers/deploy-fly listed as missing; no price, offer, or self-serve).
+     - **Size L** (Cloud): a supplier account [Grant's money], a provisioning API with per-person isolation (never on Kit 0 or Veron), a billing hook, abuse limits + a kill switch, teardown, and its own security read + GO.
+     - ~1-2 weeks after the money decision, then a sandbox before real people.
+     - Cloud's advice: lead with "your own hardware", and show the Cloud plan as "coming" only once it has a date;
    - (c) [Boss/Grant decide] a short free trial: hosted, time-limited and capped, on free models only, so a first-timer can try before choosing (a) or (b). Or no trial at all.
 2. **BYOM in the Mind step** (Grant's rule above) moves the real cost, inference, to the person's own AI account.
 3. **Effect on section C:** with agents on the person's machine or VPS, the hosted side no longer needs thousands of agents packed into one process, only the capped trial. That favours ONE lean agent that runs as one process per person: the same code on a laptop, a VPS or the trial host. [Recommendation to be re-checked with this in mind.]
