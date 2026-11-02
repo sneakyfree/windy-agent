@@ -19,7 +19,7 @@ Goal: every surface sends the person to the one Windy Accounts app (SSO with Win
 | Windy Fly | `windy go` (CLI), windyfly.ai, Fly mobile app | `windy go` opens Windy Accounts' hatch ceremony [Agent: confirm per surface] | [Agent] | [Agent] | Windy Agent / Windy Mobile |
 | Windy Chat | web, desktop window, mobile | [Owner: Chat] | | | Windy Chat |
 | Windy Mail | webmail, app passwords | [Owner: Mail] | | | Windy Mail |
-| Windy Mind | windymind.ai sign-up / console | [Owner: Mind] | | | Windy Mind |
+| Windy Mind | windymind.ai console; ACP CLI; the API | No sign-up form, no login of its own: windymind.ai = "Sign in with Windy" (OIDC+PKCE at account.windyword.ai); the CLI = a device code at account.windyword.ai; the API verifies only Windy Accounts tokens (+ Eternitas passports, + Mind keys made by signed-in people). Full row: Windy Mind lane file one-account-row-2026-11-02.md (on Veron) | YES | none | Windy Mind |
 | Windy Cloud | cloud.windycloud.com/login + /auth/callback (OIDC code+PKCE, client windy-cloud; "Create one" = prompt=create); My Websites /websites/; Domains /domains/; windycloud.com; APIs (core, sites, domains, vps) | No own sign-up form, password field, magic link, CLI login or account-creation API anywhere (5 repos at origin/main). Portals take a token handoff; with no token they point to the dashboard. APIs accept only Windy Accounts JWTs (Eternitas for agents) | YES (portals: PARTLY, no own form) | none required. Optional S: a "Sign in with Windy" button on the 2 portals; fix a stale comment. Later M: strict iss/aud once legacy tokens are gone. Keep Hub's OIDC client windy-cloud registered | Windy Cloud |
 | Windy Vault | | [Owner: Vault] | | | Windy Vault |
 | Windy Code / Sites | | [Owner: Code] | | | Windy Code |
@@ -77,7 +77,21 @@ It lands before any wider use of social sign-in.
 
 - **Windy Mind stop:** built as BC1, `HATCH_REQUIRES_MIND_SETUP = off | capable | all` (`account-server/tests/hatch-mind-setup-gate.test.ts`); `off` = Mind is never asked.
   - Prod's value: [Owner: Word/Hub, read it].
-  - What makes Mind's add-compute step thumb-ready (sign in with Windy / Google / Apple / GitHub; connect Anthropic, OpenAI and others), and its date: [Owner: Mind].
+  - **Mind's add-compute step (Mind, 2026-11-02T15:20Z; full text: Windy Mind lane file one-windy-mind-addcompute-plan-2026-11-02.md, on Veron).** One screen, three choices, in this order:
+    1. "Connect with one tap": OpenRouter OAuth, ON in prod. Anthropic, OpenAI, Google and other models on the person's own account; no key copied.
+    2. "Use Windy's free starter models for now": the ~7-day trial.
+    3. "I already have a key": deep link + paste + a live check. OpenAI and Anthropic offer no third-party sign-in, so they can't be one-tap.
+
+    The Mind stop itself (mind-setup.v1, "Born powered") is BUILT but DARK.
+
+    | # | Gap | Size | Date |
+    |---|---|---|---|
+    | M1 | One "canal" list from Mind for every doorway | S | Wed 11-04 |
+    | M2 | `compute_source` = openrouter / own_key:<provider> / trial (+ trial_ends_at), for the hatch gate AND Eternitas's certificate gate | S | Thu 11-05 |
+    | M3 | A normal-person lab hatch on the phone with Mobile (targets: one-tap <= 60 s, paste <= 3 min, free <= 10 s) | S | Fri 11-06, if Mobile has a build |
+    | M4 | Prod switches, each on its own GO | S | after M3 |
+    | M5 | The trial clock: after ~7 days with no own key or paid plan, Mind refuses with one plain reason (trial_ended); memory untouched; dark until its GO | S-M | Mon 11-09 |
+  - **Boss decided (2026-11-02T15:21:33Z):** the free starter counts as "compute added" ONLY during the ~7-day trial (compute_source "trial" + its end date). At the trial's end the agent PAUSES (its certificate is not revoked) with memory kept, and the person gets one plain line on adding their own AI key.
   - The switch to `all` is its own GO after a lab hatch.
 - **Vault stop (Grant 2026-10-21):** where it sits in the canal and its status: [Owner: Vault / Word].
 - **Certificate (Eternitas, 11-02):**
