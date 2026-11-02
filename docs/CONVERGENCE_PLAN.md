@@ -25,29 +25,33 @@ The choice: **(A)** move hatched people onto windyfly; **(B)** move Zero onto th
 - **Telemetry:** service.boot/health every 5 min (channel, mind_legacy_auth), llm.call per turn; HQ alarms.
 - **Spec:** docs/strand/STRAND_V2.md, 579 live / 91 retired / 14 planned codons, CI-enforced.
 
-### 2b. Chat agent-roster (Windy Chat; facts from Chat 2026-11-02; TO BE COMPLETED BY CHAT)
-- **Runs:** one service on Kit 0 serving every hatched agent (57 now, incl. lab owners' agents; the real-person split comes from Chat's counts-only query).
+### 2b. Chat agent-roster (Windy Chat; facts from windy-chat main 3587cb96 and Kit 0, 2026-11-02, counts only)
+- **Runs:** one service on Kit 0 serving every hatched agent: 57 runners on 2026-11-02. Onboarding's agent table holds 59 non-suspended agents: 20 marked synthetic (lab) and 39 not (these 39 may still include staff and test accounts; there is no finer flag).
 - **Memory:** NO store of its own. Conversation memory = the Matrix room: each turn pulls the last ~12 m.room.message events and gives the model the last 10. Nothing is summarised or kept between turns outside Matrix. Small per-agent preferences live in Matrix account data (model choice, peer policy, per-room stop). Longer-term memory on the Mind path is Mind's store. Reads onboarding.db read-only for agents, settings and team.
-- **Tools:** [Chat: tools.js inventory: calendar_* (7), ...]
-- **Channels:** [Chat: Matrix DM only? others?]
-- **Auth to services:** [Chat: per-agent EPT+agent? a shared service token?]
-- **Hosting/cost/isolation:** [Chat: one process for all agents? per-agent isolation? cost per agent?]
+- **Tools (lib/tools.js; LIVE unless marked):** Windy Calendar 7 (calendar_open_times, calendar_upcoming, calendar_booking_link, calendar_book, calendar_block_time, calendar_cancel, calendar_move; outward ones only on the owner's turn, a cancel parked for the owner's confirm by Calendar); Windy Mail 3 (read_email, send_email and reply_email behind a held draft the owner confirms); Windy Sites builder 7 (list_my_sites, site_details, start_site, change_site_text, undo_site_change, publish_site, unpublish_site); web_search; team 2 (list_my_agents, message_agent; ROSTER_TEAM_TOOLS=1). DARK: cabinet 3 (file_project, log_activity, list_cabinet), phone 2 (phone_contacts_search, phone_sms_compose: the owner's own phone sends), desktop 4 (word_settings_*, word_view_show), typed teamwork (ask_agent), Mirror tools (not built yet). NOT present: Vault, SMS sending from the server, phone calls, files/Cloud, shell or any machine access.
+- **Channels:** Windy Chat (Matrix) only: the owner's DM, group rooms the agent is in, agent pair rooms. The person reaches it from the Windy Chat web app, the Windy Fly app and the desktop's Chat window, with push. No Telegram, SMS, email-in or other adapters.
+- **Auth to services:** per agent: its own Matrix access token (in onboarding's DB) and its own Eternitas passport. To Windy Mind and Windy Calendar: EPT+agent with a DPoP proof on every request (mode B, ROSTER_MIND_MODE_B=all and ROSTER_CALENDAR_MODE_B=all), signed by a platform-custody agent key (Chat holds it, not the owner). To Mail, Search and the Code builder: the legacy 365-day EPT (sunset plan: off by 2026-12-15). Service tokens only for Chat's own internal doors and the account-server's mail-address lookup; never a shared token standing in for an agent.
+- **Hosting/cost/isolation:** ONE Node 20 process (container windy-agent-roster) for all agents, on Kit 0 (4 vCPU, 15 GB, shared with every Kit 0 service). Today: about 64 MiB of its 256 MiB limit and ~1% CPU for 57 runners, so compute per agent is close to zero; the model cost is Windy Mind's, per call. Each agent is an in-process runner with its own /sync loop and state. Isolation is logical, not process-level: owner banding (owner / peer / dropped; the peer gate fails closed), owner-turn-only outward tools, per-owner daily quotas (200 model calls, 50 mails; x2 when verified). One crash restarts every agent together (each resumes from Matrix).
+- **Safety model:** bands as above; outward tools only on the owner's own turn (never after a sibling's or peer's message, which plays the role of windyfly's taint rule); held drafts + an owner confirm word for mail; owner STOP + loop breaker + sibling cap (the 10-17 incident); Matrix stop state survives restarts. Audit: counts-only telemetry (roster.tool_call, roster.exchange); there is no per-agent audit ledger.
 
 ## 3. What a hatched person gets vs loses (each way)
 | Area | Roster today | windyfly today | Who's ahead |
 |---|---|---|---|
 | Long-term memory | last 10 room messages; prefs in account data | durable per-agent memory, search, journal, goals | windyfly |
-| Calendar | 7 tools [Chat] | book/block/create_meeting (+add_event dark) | [compare] |
-| Mail / SMS / calls | [Chat] | mail with owner-confirm, SMS, make_call (dark) | [compare] |
-| Vault | [Chat] | list/request/offer-save (+call_api dark) | [compare] |
-| Channels | [Chat] | 10 channel adapters; Zero uses 2 | windyfly (breadth) |
+| Calendar | 7 tools: open times, upcoming, booking link, book, block, cancel (parked for the owner's confirm), move | book/block/create_meeting (+add_event dark) | roster (breadth); windyfly has create_meeting |
+| Mail / SMS / calls | mail read + send + reply (held draft, owner confirms); SMS only as a draft on the owner's phone (dark); no calls | mail with owner-confirm, SMS, make_call (dark) | windyfly (SMS) |
+| Vault | none | list/request/offer-save (+call_api dark) | windyfly |
+| Channels | Windy Chat only (web, Fly app, desktop window) | 10 channel adapters; Zero uses 2 | windyfly (breadth) |
 | Runs where | Kit 0, shared, always on | the owner's machine (Zero: Windy 0) | roster (no install) |
-| Ops cost per person | [Chat] | one process set per agent | roster (likely) |
-| Safety | [Chat: bands? taint? audit?] | bands, taint, audit, confirm cards | [compare] |
+| Ops cost per person | near zero: one shared process, ~64 MiB for 57 agents | one process set per agent | roster |
+| Sites builder | 7 tools, publish only on the owner's turn | Sites/Code builder | even |
+| Machine access | none (shared server) | shell/fs/ssh/fleet at owner band | windyfly (Zero needs it) |
+| Safety | bands, owner-turn-only outward tools, held drafts, stop + loop breaker, quotas; counts-only telemetry, no audit ledger | bands, taint, audit ledger, confirm cards | windyfly (audit) |
 
 ## 4. Migration steps (per option)
 - **(A) hatched -> windyfly:** run windyfly multi-tenant on Kit 0 (one process per agent or a pooled worker), memory store per agent, and a Matrix identity handover (windyfly already takes the session via chat_session; the roster yields while windyfly holds the runtime claim). [sizes TBD]
-- **(B) Zero -> roster:** port Zero's durable memory and tools into the roster; this loses windyfly's memory model unless the roster gains one. [Chat]
+- **(B) Zero -> roster:** NOT a fit for Zero, from Chat's side. Zero would lose Telegram (the roster is Windy Chat only), its machine tools (shell/fs/ssh/fleet can never run in a shared server) and its durable memory (the roster has none). Making B possible means building in the roster: a per-agent memory store (L), Vault tools (M), and either channel adapters or Grant moving to Windy Chat (product call). Size: XL, and it still drops the machine tools.
+- **(A), Chat's view of the hosting:** 57 windyfly process sets on Kit 0 are not affordable as-is (Kit 0 is 4 vCPU / 15 GB shared by every service, and the roster serves the same 57 in 64 MiB). (A) needs windyfly to run as a pooled multi-tenant worker first, plus the Matrix handover per agent (one voice: the runtime claim) and a per-person memory start (empty, said plainly).
 - **(C) shared contracts only:** keep both, and make every tool and word come from ONE contract (as vault-tools.v1 already does), with conformance tests in both runtimes. Lowest risk, but permanent double work.
 
 ## 5. Risks for real people
@@ -56,8 +60,13 @@ The choice: **(A)** move hatched people onto windyfly; **(B)** move Zero onto th
 - Auth: the legacy EPT sunset (12-03 Mind, 01-15 Eternitas) must not be bundled with a runtime move.
 - Downtime and identity: one Matrix identity, one voice (runtime claim), with no double replies during a handover.
 
-## 6. Recommended order and size (DRAFT; Agent's view, Chat to counter)
+## 6. Recommended order and size (DRAFT; Agent's view, Chat to counter; Chat's counter below the list)
 1. **Now (S):** shared contracts for every overlapping tool (calendar, mail, vault), with conformance tests in both runtimes. That stops P136-5-style drift whichever option wins.
 2. **Measure (S):** per-person cost and quality of each runtime on lab agents (counts only).
 3. **Decide A/B/C** on that data. [size of A/B: Chat + Agent, after §2b]
 No step touches real people's data or runtimes without its own Boss GO.
+
+**Chat's counter (Windy Chat, 2026-11-02):** agree with 1-3, with two changes.
+- In step 1, name the contract work concretely: calendar (Calendar's tools-invoke.v1 already exists: both runtimes run its conformance vectors), mail (one held-draft/confirm contract), and the words (one shared phrase table, the P136-5 cure). Size S each, Chat + Agent.
+- Add step 2b (M): the roster's two real gaps for hatched people, whichever option wins: a per-agent memory (start with Mind's own memory store, so neither runtime grows its own) and Vault tools from vault-tools.v1. These help every person now and shrink (A)'s or (B)'s distance later.
+- From Chat's side (B) is not recommended (see §4). (A) is only realistic after windyfly runs as a pooled multi-tenant worker; size it in step 2 with real numbers.
