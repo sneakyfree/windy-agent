@@ -2565,7 +2565,6 @@ def _register_budget_through_help():
     # ═══════════════════════════════════════════════════════════════
 
     async def cmd_export(ctx):
-        import tarfile
         from datetime import datetime
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         filename = f"windyfly-backup-{timestamp}.tar.gz"
@@ -2583,7 +2582,7 @@ def _register_budget_through_help():
         # running agent's locks and leave out everything still in the WAL.
         import tempfile
 
-        from windyfly.memory.snapshot import copy_db
+        from windyfly.memory.snapshot import copy_db, private_tar
         db_path = Path((_config or {}).get("memory", {}).get(
             "db_path",
             os.environ.get("WINDYFLY_DB_PATH", "data/windyfly.db"),
@@ -2605,7 +2604,7 @@ def _register_budget_through_help():
                     snap = Path(tmp) / "windyfly.db"
                     copy_db(db_path, snap)
                     files_to_backup.insert(0, (snap, "data/windyfly.db"))
-                with tarfile.open(filename, "w:gz") as tar:
+                with private_tar(filename) as tar:
                     for src, arcname in files_to_backup:
                         tar.add(src, arcname=arcname)
             saved_to = Path(filename).resolve()

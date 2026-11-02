@@ -1,0 +1,1 @@
+- **Export archives are private to your account.** `windy export` and `/export` now create the archive readable only by your own account (0600), whatever your umask. The archive holds your agent's whole memory and its `.env` secrets; with the usual settings it used to be readable by every account on the machine.
