@@ -172,6 +172,25 @@ What "one agent" must give a person (Grant): the same agent everywhere, Claude-C
 ### Option 3 (if any)
 [Chat / Agent]
 
+### Sizing the lean Windy Fly (Windy Agent, measured on origin/master 883a316, 2026-11-02)
+**Lean definition:** one program per person = model+tool loop, durable memory, simple shared-contract tools, owner-confirm before outward actions, an audit of outward actions, bring-home, ONE chat channel (Matrix / Windy Chat), Windy Mind as the only model gateway (EPT+agent).
+
+| Bucket | Lines | Share |
+|---|---|---|
+| windyfly today (270 .py files) | 78,090 | 100% |
+| KEEP (40 files: mind auth, durable memory core + action ledger, contract tools, Eternitas keys/EPT, redaction, config, bring_home) | 9,167 | 12% |
+| SIMPLIFY (30 files: loop, prompt, models -> Mind only, Matrix stack, main/cli, write queue, personality -> SOUL.md) | 16,570 | 21% |
+| DROP (189 files: 10 other channels, power/dev-ops tools, self-improvement, extra memory features, commands, skills, soul import, voice, dashboards, bridge, supervisor, cloud backup, legacy auth/trust) | 52,353 | 67% |
+
+- **Process-wide settings in what stays:** 53 reads in KEEP + 95 in SIMPLIFY, against 577 in the whole package. One agent per process makes them fine as they are: no multi-tenant rewrite is needed.
+- **The loop is importable without the channels.** But every turn calls `channels.silence` and `channels.phone_tools`, which move behind a hook.
+
+**Two gaps to build, both safety-relevant:**
+1. **ONE owner-confirm gate.** Today each tool does its own (confirm tokens in sms, domains, sites and builder; `send_confirm_enabled` in mail).
+2. **ONE registry**, so the audit of outward actions covers every tool. Mail and chat go through the older ToolRegistry and are probably NOT in the action ledger (to verify).
+
+**Size: M-L** for a lab agent: about a third of today's code, cut not rewritten, plus the two gaps. Dates after a 3-day spike.
+
 ### Recommendation (Windy Agent's draft; Chat to counter)
 **Option 2.**
 - It is the only option that fits Grant's direction: one agent, Claude-Code-like, simple tools, the model in charge.
@@ -220,7 +239,13 @@ What "one agent" must give a person (Grant): the same agent everywhere, Claude-C
 **Proposal (Agent, for the co-authors):**
 1. **A required "Where will your agent live?" step in the birth canal, beside the Mind step:**
    - (a) my computer: install Windy Fly, and the phone pairs to it;
-   - (b) a Windy Cloud VPS: paid. **NOT LIVE today** (Cloud, WindyCloud main 11-02: no servers route mounted, an unused "VPS server instance" table, /servers/deploy-fly listed as missing; no price, offer, or self-serve).
+   - (b) a Windy Cloud VPS: paid. **Start point (Cloud addendum 11-02):** the old AWS VPS API was deleted (KE6, WindyCloud #155). The planned home is the `windy-cloud-vps` cell (charter: a "managed agent home").
+     - It has plan shapes: Helper Home 2 vCPU / 1 GB / 20 GB, wholesale anchor $5/mo; Plus 2 vCPU / 4 GB / 40 GB, $17/mo.
+     - It has confirm-flow and EI contracts and EPT auth.
+     - It has NO provider (MOCK only), no deployment, and no retail price (Grant's call).
+     - Boss assigned Cloud the build plan + a quoted price, due Tue 11-03 18:00Z.
+
+     **NOT LIVE today** (Cloud, WindyCloud main 11-02: no servers route mounted, an unused "VPS server instance" table, /servers/deploy-fly listed as missing; no price, offer, or self-serve).
      - **Size L** (Cloud): a supplier account [Grant's money], a provisioning API with per-person isolation (never on Kit 0 or Veron), a billing hook, abuse limits + a kill switch, teardown, and its own security read + GO.
      - ~1-2 weeks after the money decision, then a sandbox before real people.
      - Cloud's advice: lead with "your own hardware", and show the Cloud plan as "coming" only once it has a date;
