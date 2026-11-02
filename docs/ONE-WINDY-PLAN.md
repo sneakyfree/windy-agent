@@ -370,6 +370,22 @@ Until then every doorway keeps getting the roster agent, and today's ~59 keep ru
   - one read from Windy Accounts. Today it is three (GET /api/v1/identity/me, /identity/ecosystem-status, /api/v1/entitlements + /limits). **Hub proposes ONE agent-scoped GET returning exactly your-windy.v1's plan + platforms[{id, status, activated}]** (size S; shape + date in Hub's Tue row). It falls back to each platform's own entitlement read;
   - the identity facts (passport number, status, trust tier, owner link) LIVE from Eternitas (GET /bots/{passport}; the same values as the EPT claims passport_number / windy_identity_id / tru). They change, so they are never copied at birth (Eternitas, 11-02).
 - **Quick win (Boss):** start NOW in both runtimes, DARK, behind a flag.
+- **Built in windyfly (Agent, 11-02):**
+  - **The facts block:** #688, DARK (WINDY_YOUR_WINDY=1). Live facts wired today: passport status + trust score, the agent's email, its Chat handle.
+  - **The suggestion rule** next to it (Grant's words to Mobile ~19:25Z, "the agent needs to suggest all that"; Boss's bounds 19:31Z, amending rec #7). DARK (WINDY_SUGGEST_FEATURES=1 as well).
+    - Only Vault (a password, key or login), Cloud (a file to keep; free space only from the facts) and Calendar (booking).
+    - Each at most once per conversation, never after a no, free features only.
+    - "stop suggesting" sticks per owner.
+    - Only features the facts say are usable: never coming soon, never preview.
+  - **OWNER ONLY** (Boss 19:43Z: before ANY flag-on): a stranger's turn gets neither the facts nor the rule.
+  - Ships with #688's next touch, with tests.
+- **DEPENDENCY (Boss 19:43Z): Hub's agent-scoped "my Windy" GET is a PREREQUISITE for the lab proof.**
+  - Why: the rule offers a feature only when the platforms[] facts say it is usable, and those facts come from that GET. Without it the rule renders nothing, even with both flags on.
+  - Order:
+    1. Hub's GET;
+    2. Agent wires it into your_windy (S, the day it lands);
+    3. the lean-Fly lab proof: a password pasted, Vault offered ONCE, "stop suggesting" obeyed;
+    4. only then any flag-on, each on its own GO.
 - **Test:** a "grandma journey" on every release. Hatch fresh and ask "where do I keep my passwords / save my photos / make a website": the agent must name the right platform with true facts, on every model, including a local one.
 
 ## F. Hosting: the person's own hardware (Grant, 2026-11-02 ~15:10Z)
