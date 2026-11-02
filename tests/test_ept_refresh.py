@@ -330,3 +330,16 @@ def test_cutoff_never_logs_a_token(monkeypatch, caplog):
         er.refresh_ept(transport=_cutoff_then([], new))
     for secret in (old, new, "hub-access-token"):
         assert secret not in caplog.text
+
+
+def test_another_coded_401_does_not_switch_to_the_sign_in(monkeypatch):
+    monkeypatch.setenv(er.ENV_KEY, make_ept(exp_in=10 * DAY))
+    import windyfly.hub_login as hl
+    monkeypatch.setattr(hl, "get_access_token", lambda *a, **k: "hub-access-token")
+    calls: list = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(401, json={"detail": {"code": "invalid_token", "message": "bad token"}})
+    r = er.refresh_ept(transport=httpx.MockTransport(handler))
+    assert len(calls) == 1 and "windy login" in r["hint"]
