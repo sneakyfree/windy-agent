@@ -1,6 +1,6 @@
 # One Windy: one sign-up, one birth canal, one agent (plan for Grant)
 
-**Status:** DRAFT. Due Tue 2026-11-03 18:00Z, then Boss decides and takes one plan to Grant.
+**Status:** DRAFT, but section E's recommendations were APPROVED by Grant on 2026-11-02 15:1xZ ("I concur with all of your recommendations... Go.", BOARD 15:16:05Z). Co-authors' facts still due Tue 2026-11-03 18:00Z; Boss assigns the work.
 **Lead:** Windy Agent. **Co-authors:** Windy Chat, Windy Hub, Windy Word, Windy Mind, Eternitas. Each owner fills in its own rows, marked `[Owner: ...]`.
 **Rule for everything here (Boss, 2026-11-02 15:01Z):** nothing moves a real person's agent before a lab proof and Boss's GO.
 
@@ -20,7 +20,7 @@ Goal: every surface sends the person to the one Windy Accounts app (SSO with Win
 | Windy Chat | web, desktop window, mobile | [Owner: Chat] | | | Windy Chat |
 | Windy Mail | webmail, app passwords | [Owner: Mail] | | | Windy Mail |
 | Windy Mind | windymind.ai sign-up / console | [Owner: Mind] | | | Windy Mind |
-| Windy Cloud | | [Owner: Cloud] | | | Windy Cloud |
+| Windy Cloud | cloud.windycloud.com/login + /auth/callback (OIDC code+PKCE, client windy-cloud; "Create one" = prompt=create); My Websites /websites/; Domains /domains/; windycloud.com; APIs (core, sites, domains, vps) | No own sign-up form, password field, magic link, CLI login or account-creation API anywhere (5 repos at origin/main). Portals take a token handoff; with no token they point to the dashboard. APIs accept only Windy Accounts JWTs (Eternitas for agents) | YES (portals: PARTLY, no own form) | none required. Optional S: a "Sign in with Windy" button on the 2 portals; fix a stale comment. Later M: strict iss/aud once legacy tokens are gone. Keep Hub's OIDC client windy-cloud registered | Windy Cloud |
 | Windy Vault | | [Owner: Vault] | | | Windy Vault |
 | Windy Code / Sites | | [Owner: Code] | | | Windy Code |
 | Windy Git | | [Owner: Git] | | | Windy Git |
@@ -54,6 +54,12 @@ Eternitas's change, sized: about 1 PR (frontend pages + the routes answer 410 + 
 4. Is there a way to merge two identities that already exist? Counts only: how many people have more than one identity today?
 
 **Rule:** if today's answer is "not linked", the fix is a HARD PRECONDITION for adding Google, Apple or GitHub sign-in anywhere.
+
+**SECURITY finding (Hub, while checking this; BOARD 2026-11-02 15:09:57Z, Boss decided):** Windy Accounts' Google/Apple/GitHub sign-in (1) auto-links to an existing UNVERIFIED password account with that email, so a pre-signup by an attacker becomes a shared account; and (2) skips Windy MFA. Boss's fix:
+- kill every pre-proof credential on an unverified matched row;
+- enforce Windy MFA on social sign-in.
+
+It lands before any wider use of social sign-in.
 
 ## B. Birth canal: one canal, many doorways
 **Fact (Agent, read 2026-11-02):**
