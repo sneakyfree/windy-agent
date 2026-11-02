@@ -140,3 +140,10 @@ Grant's hands: opening the DigitalOcean and Dynadot accounts. Money and accounts
     - ask the owner before an outward action;
     - not get a double reply from the roster.
   - Lab only: no real person moves and Zero is untouched without Boss's GO. Anything reaching prod goes through the normal reviews and stamps.
+- **Boss's HARD GATE (2026-11-02 22:13Z) for moving ANY real agent onto the lean Fly:**
+  - **Why:** a lab restart re-ran the owner's "send" approval, and the agent mailed twice (in-house only).
+  - **Part 1:** a restart never re-processes a message the agent already handled, and an approval is consumed exactly once. Met in the lab at 22:20Z:
+    - feat/lean-fly e10d373;
+    - Windy Chat's server count showed 1 message, 1 reply, and nothing after a restart inside the old window.
+  - **Part 2:** every outward route takes an idempotency key (Mail #275, Text #125; Calendar dedupes block_time by content), and the agent sends one key per intended action.
+- **"Outcome unknown = never resent" (Boss 22:24Z, Mail #275):** after a server error, a retried send is never sent again; the owner is told to check Sent.
