@@ -2138,7 +2138,8 @@ def cmd_export(_args: argparse.Namespace) -> None:
     # of a live WAL database leaves out everything not yet checkpointed.
     import tempfile
 
-    from windyfly.memory.snapshot import copy_db, private_tar
+    from windyfly.memory.snapshot import copy_db, private_tar, tighten_old_exports
+    tighten_old_exports(PROJECT_ROOT)
     snap_dir = tempfile.TemporaryDirectory(prefix="windyfly-export-")
     db_path = _get_db_path()
     if db_path.exists():
