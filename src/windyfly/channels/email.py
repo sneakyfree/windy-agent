@@ -25,6 +25,42 @@ from windyfly.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
+# Mode B (EPT+agent aud windy-mail + a DPoP proof on EVERY request, reads included), DARK until its own GO.
+# Mail's accept side is windy-mail #249 (WINDYMAIL_EPT_AGENT_ENABLED on Mail's side). The old credential stays
+# the fallback until windy-agent stops the 365-day EPT (2026-12-15).
+ENV_FLAG = "WINDY_MAIL_EPT_AGENT"
+MAIL_AUD = "windy-mail"
+
+
+def mode_b_enabled() -> bool:
+    return os.environ.get(ENV_FLAG, "") == "1"
+
+
+def _agent_headers(method: str, url: str) -> dict[str, str] | None:
+    """EPT+agent + DPoP for this request, or None when the mint failed (the caller uses the old credential)."""
+    from windyfly.agent import service_auth
+
+    try:
+        return service_auth.agent_headers(MAIL_AUD, method, url)
+    except service_auth.ServiceAuthError as exc:
+        logger.warning("Windy Mail: no EPT+agent (%s %s); using the old credential", exc.code, exc.detail)
+        return None
+
+
+def _authed(method: str, url: str, bearer: str, do: Any) -> Any:
+    """``do(headers)`` with EPT+agent + DPoP when the switch is on, else (or when the mint fails) with
+    ``Bearer <bearer>``. None when there is nothing to authenticate with. Mail answers ANY credential it
+    can't verify with 401 from its auth dependency, before the route runs (windy-mail send.get_sender_identity),
+    so nothing was sent or read: one retry with the old credential is safe."""
+    agent = _agent_headers(method, url) if mode_b_enabled() else None
+    if agent is None:
+        return do({"Authorization": f"Bearer {bearer}"}) if bearer else None
+    resp = do(agent)
+    if resp.status_code == 401 and bearer:
+        logger.info("[mail-auth] Mail answered 401 to the EPT+agent; retried with the old credential")
+        resp = do({"Authorization": f"Bearer {bearer}"})
+    return resp
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # Windy Mail adapter — JMAP-backed inboxes via Windy Mail API
@@ -76,7 +112,7 @@ class WindyMailAdapter:
             self.timeout_s = 15.0
         self.last_error: str = ""
 
-        if not self.email or not self.jmap_token:
+        if not self.email or not (self.jmap_token or mode_b_enabled()):
             raise RuntimeError(
                 "WindyMailAdapter requires WINDYMAIL_EMAIL and WINDYMAIL_JMAP_TOKEN in .env"
             )
@@ -94,7 +130,7 @@ class WindyMailAdapter:
         """Send ONE email (one message, everybody on it) via Windy Mail API.
 
         POST /api/v1/send
-        Auth: Authorization: Bearer <jmap_token>
+        Auth: Authorization: Bearer <the agent's EPT> (or, with WINDY_MAIL_EPT_AGENT=1, its EPT+agent + DPoP)
 
         Args:
             to: Recipient email address, or a list of them (one message with all of them).
@@ -131,13 +167,12 @@ class WindyMailAdapter:
             payload["cc"] = list(cc)
         if bcc:
             payload["bcc"] = list(bcc)
+        url = f"{self.api_url}/api/v1/send"
         try:
-            resp = _httpx.post(
-                f"{self.api_url}/api/v1/send",
-                json=payload,
-                headers={"Authorization": f"Bearer {self._send_bearer()}"},
-                timeout=10.0,
-            )
+            resp = _authed("POST", url, self._send_bearer(),
+                           lambda headers: _httpx.post(url, json=payload, headers=headers, timeout=10.0))
+            if resp is None:
+                return {"status": "failed", "error": "I couldn't sign in to Windy Mail, so nothing was sent."}
             if resp.status_code in (200, 201, 202):
                 data = resp.json()
                 logger.info("Windy Mail sent to %d recipient(s) — %s", len(everyone), subject)
@@ -164,13 +199,14 @@ class WindyMailAdapter:
         if unread_only:
             params["unread"] = "true"
 
+        url = f"{self.api_url}/api/v1/inbox"
         try:
-            resp = _httpx.get(
-                f"{self.api_url}/api/v1/inbox",
-                params=params,
-                headers={"Authorization": f"Bearer {self.jmap_token}"},
-                timeout=self.timeout_s,
-            )
+            resp = _authed("GET", url, self.jmap_token,
+                           lambda headers: _httpx.get(url, params=params, headers=headers, timeout=self.timeout_s))
+            if resp is None:
+                self.last_error = "no mail credential"
+                logger.warning("Windy Mail inbox: %s", self.last_error)
+                return []
             if resp.status_code == 200:
                 self.last_error = ""
                 return resp.json().get("messages", [])

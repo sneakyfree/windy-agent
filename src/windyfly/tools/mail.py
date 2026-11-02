@@ -346,11 +346,16 @@ def my_mailbox() -> dict[str, Any]:
         return {"status": "unavailable", "error": "Email is not configured for this agent."}
     import httpx
 
+    from windyfly.channels.email import _authed
+
+    url = f"{str(adapter.api_url).rstrip('/')}/api/v1/mailbox"
     try:
-        resp = httpx.get(f"{str(adapter.api_url).rstrip('/')}/api/v1/mailbox",
-                         headers={"Authorization": f"Bearer {adapter.jmap_token}"}, timeout=10.0)
+        resp = _authed("GET", url, adapter.jmap_token,
+                       lambda headers: httpx.get(url, headers=headers, timeout=10.0))
     except httpx.HTTPError:
         return {"status": "error", "error": "Could not reach Windy Mail."}
+    if resp is None:
+        return {"status": "error", "error": "I couldn't sign in to Windy Mail."}
     try:
         data = resp.json()
     except ValueError:
