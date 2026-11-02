@@ -167,6 +167,16 @@ It lands before any wider use of social sign-in.
 **Identity linking moves to the FRONT of Hub's queue (Boss 2026-11-02 17:39Z)**, ahead of anything that isn't a security fix:
 - **Why:** Windy Mind has no accounts of its own. A "Mind account" IS the Windy identity, and the phone and the desktop already share one store. But Grant's own 3 Windy identities hold 7 / 0 / 1 connected AI providers, so whichever one he signs in with decides what he sees (Mind 17:38Z). The root fix is linking, not a Mind change.
 - **First real case:** Grant's 3 identities. NOTHING is merged until Grant picks the identity to keep, in his own words. Hub sends Boss the 3 as Grant would recognise them (email + created date + which platforms have data, counts only); Boss puts it to him.
+- **GRANT DECIDED (typed in Boss's terminal ~17:57Z; BOARD 17:57:54Z), verbatim:** "I concur with all of your recommendations, go". Hub owns all three:
+  - **A = YES:** fold the windstormlabs.com identity INTO his main gmail identity as a MOVE (agent, mailboxes, products), nothing deleted.
+    - Only through identity linking (this section), never a hand SQL edit: A waits until linking is built.
+    - Daytime, with Boss's GO. BEFORE = counts per product on both identities.
+    - AFTER = all on main; the windstormlabs identity closed with a pointer; Grant's sign-in still works; a REAL authed call as main; his 7 Mind providers on both phone and web.
+  - **B = YES:** retire the 61 "+" test-alias accounts in ONE batch after Eternitas's last-seen count (Tue 11-03 after 12:00Z), with Boss's GO, daytime, BEFORE/AFTER counts.
+    - EXCEPT the 2 mailboxes with logins since 10-31, and anything Eternitas shows active.
+    - Retire = deactivate; agents' passports SUSPENDED, not revoked (undoable within 30 days).
+    - The 30-day delete is its own GO, across every lifecycle target (Mail, Chat, Calendar, Cloud, Eternitas).
+  - **C = KEEP:** clearhomeloans.com stays separate and untouched; Mail fixes its mailbox-resolve error only.
 
 ## B. Birth canal: one canal, many doorways
 **Fact (Agent, read 2026-11-02):**
