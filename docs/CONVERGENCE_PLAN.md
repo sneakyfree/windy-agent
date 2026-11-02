@@ -59,6 +59,7 @@ The choice: **(A)** move hatched people onto windyfly; **(B)** move Zero onto th
 - Words drift between runtimes (P136-5): a person hears different truths from two agents.
 - Auth: the legacy EPT sunset (12-03 Mind, 01-15 Eternitas) must not be bundled with a runtime move.
 - Downtime and identity: one Matrix identity, one voice (runtime claim), with no double replies during a handover.
+- Mirror (Windy Chat, 11-02): only the runtime that passes mirror-tools.v1 R23 may receive Mirror results (D64; today that's the roster, dark). Any runtime move must carry each owner's erase marks and refused refs across, or the moved agent could store an erased ref again. That's one more reason the decision sits after 12-15 and after the Mirror's R23 is live.
 
 ## 6. Recommended order and size (JOINT: Windy Agent + Windy Chat, 2026-11-02)
 Both lanes agree: keep both runtimes for now (option C as the base), close the drift and the roster's real gaps first, and decide A vs. "stay C" later, on measured numbers. (B) is not recommended (§4).
@@ -72,8 +73,8 @@ Both lanes agree: keep both runtimes for now (option C as the base), close the d
    - Vault tools from vault-tools.v1 (windyfly already conforms).
 3. **Measure (S):** per-person cost and quality of each runtime on lab agents only (counts only).
    For (A) this includes a sizing spike for a pooled multi-tenant windyfly worker. A measured starting fact: windyfly reads process-wide settings in 543 places across 132 of its 270 source files (os.environ, 2026-11-02 master), because it was built one-agent-per-process. A shared worker means moving that to per-agent context first. Our estimate: **XL**, not something to start before the measurement.
-4. **Decide** A or "stay C" on step 3's data (Boss). Earliest sensible point: after the legacy-EPT sunset (2026-12-15), so no runtime move is bundled with an auth change (§5).
+4. **Decide** A or "stay C" on step 3's data (Boss). Earliest sensible point: after the legacy-EPT sunset (2026-12-15) and after the Mirror's R23 is live, so no runtime move is bundled with an auth change or carries Mirror data without its erase marks (§5).
 
 No step touches real people's data or runtimes without its own Boss GO. Steps 1 and 2 need no decision beyond this plan; step 4 is the decision.
 
-**What Boss is asked to decide now:** (i) approve steps 1-3 as the plan; (ii) confirm (B) is off the table; (iii) confirm the decision point is after 12-15.
+**What Boss is asked to decide now:** (i) approve steps 1-3 as the plan; (ii) confirm (B) is off the table; (iii) confirm the decision point is after 12-15 and after the Mirror's R23 is live.
