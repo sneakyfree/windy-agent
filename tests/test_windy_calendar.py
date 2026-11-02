@@ -430,13 +430,53 @@ def test_an_unknown_outcome_is_a_refusal_too(add_on):
     assert _cap("windy_calendar.add_event").handler(**EVENT)["ok"] is False
 
 
-def test_a_replay_of_an_added_event_says_it_is_already_there(add_on):
-    appt = {"id": "a1", "kind": "event"}
-    _answer(add_on, _resp(200, {"ok": True, "result": {"outcome": "added", "idempotent_replay": True,
-                                                        "appointment": appt}}))
+APPT = {"id": "a1", "kind": "event", "title": "Dentist", "starts_at_utc": "2026-11-05T15:00:00Z",
+        "ends_at_utc": "2026-11-05T15:45:00Z", "location": "12 Main St"}
+REPLAY = _resp(200, {"ok": True, "result": {"outcome": "added", "idempotent_replay": True, "appointment": APPT}})
+
+
+def test_a_replay_names_the_event_in_the_owners_own_time(add_on):
+    """ONE sentence for both runtimes (Boss 11-02, Chat's roster wording); the zone is Calendar's owner_timezone."""
+    _answer(add_on, REPLAY, _resp(200, {"ok": True, "result": {"owner_timezone": "America/New_York", "slots": []}}))
     out = _cap("windy_calendar.add_event").handler(**EVENT)
-    assert out["ok"] is True and out["appointment"] == appt and out["idempotent_replay"] is True
-    assert out["say"] == wcal.ADD_EVENT_REPLAY_SAY
+    assert out["ok"] is True and out["appointment"] == APPT and out["idempotent_replay"] is True
+    assert out["say"] == "That's already on your calendar: Dentist, Thu, Nov 5, 10:00 AM. I didn't add it a second time."
+    probe = add_on[1][1]["json"]
+    assert probe["name"] == "get_availability" and probe["arguments"]["from"] == probe["arguments"]["to"] == "2026-11-05"
+
+
+@pytest.mark.parametrize("zone_answer", [
+    _resp(200, {"ok": True, "result": {"slots": []}}),                           # no owner_timezone
+    _resp(200, {"ok": True, "result": {"owner_timezone": "Mars/Olympus_Mons"}}),  # not an IANA zone
+    _resp(503, {"ok": False, "error": "auth_unavailable"}),                       # Calendar didn't answer
+])
+def test_a_replay_without_a_readable_zone_uses_the_short_form(add_on, zone_answer):
+    _answer(add_on, REPLAY, zone_answer)
+    out = _cap("windy_calendar.add_event").handler(**EVENT)
+    assert out["ok"] is True and out["say"] == wcal.ADD_EVENT_REPLAY_SHORT
+
+
+@pytest.mark.parametrize("appt", [{"id": "a1"}, {"id": "a1", "starts_at_utc": "2026-11-05T15:00:00Z"},
+                                  {"id": "a1", "title": "Dentist"}])
+def test_a_replay_without_a_title_or_time_asks_nothing_more(add_on, appt):
+    """Never "That's already on your calendar: , Thu ...": no title or no time = the short form, no zone read."""
+    _answer(add_on, _resp(200, {"ok": True, "result": {"outcome": "added", "idempotent_replay": True,
+                                                        "appointment": appt}}),
+            _resp(200, {"ok": True, "result": {"owner_timezone": "America/New_York"}}))
+    out = _cap("windy_calendar.add_event").handler(**EVENT)
+    assert out["say"] == wcal.ADD_EVENT_REPLAY_SHORT and len(add_on) == 1
+
+
+@pytest.mark.parametrize("starts,tz,want", [
+    ("2026-11-05T15:00:00Z", "America/New_York", "Thu, Nov 5, 10:00 AM"),
+    ("2026-11-05T23:30:00Z", "America/Los_Angeles", "Thu, Nov 5, 3:30 PM"),
+    ("2026-11-06T05:00:00Z", "America/New_York", "Fri, Nov 6, 12:00 AM"),
+    ("2026-11-05T06:30:00Z", "Asia/Kolkata", "Thu, Nov 5, 12:00 PM"),
+    ("2026-07-04T16:05:00Z", "America/New_York", "Sat, Jul 4, 12:05 PM"),  # daylight time
+])
+def test_owner_when_matches_the_rosters_en_us_format(monkeypatch, starts, tz, want):
+    monkeypatch.setattr(wc, "invoke", lambda *a, **k: {"ok": True, "result": {"owner_timezone": tz}})
+    assert wcal.owner_when(starts) == want
 
 
 def test_a_first_add_carries_no_replay_sentence(add_on):

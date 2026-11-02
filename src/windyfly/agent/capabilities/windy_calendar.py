@@ -54,7 +54,43 @@ ADD_EVENT_SAY: dict[str, str] = {
 }
 _ADD_EVENT_OTHER = ("Windy Calendar gave an answer I don't understand, so I can't tell whether it was added. "
                     "Please check your calendar.")
-ADD_EVENT_REPLAY_SAY = "That event is already on your calendar, so I didn't add it twice."
+# ONE replay sentence for both runtimes (Boss 2026-11-02 13:42:39Z; Chat's roster wording, windy-chat #516), {when} in
+# the OWNER's timezone from Calendar (get_availability's owner_timezone, as the roster reads it). Only when that zone
+# can't be read does the short form stand in (Boss named it the fallback).
+ADD_EVENT_REPLAY_SAY = "That's already on your calendar: {title}, {when}. I didn't add it a second time."
+ADD_EVENT_REPLAY_SHORT = "That event is already on your calendar, so I didn't add it twice."
+_DAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+
+def owner_when(starts_at_utc: str) -> str | None:
+    """'Thu, Nov 5, 3:00 PM' in the owner's timezone (the roster's en-US format), or None when the zone can't be read.
+    Names come from fixed tables, never the process locale."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    try:
+        start = datetime.fromisoformat(str(starts_at_utc).replace("Z", "+00:00"))
+        day = start.date().isoformat()
+        out = wc.invoke("get_availability", {"from": day, "to": day, "count": 1})
+        res = out.get("result") if out.get("ok") else None
+        tz = res.get("owner_timezone") if isinstance(res, dict) else None
+        if not isinstance(tz, str) or not tz:
+            return None
+        local = start.astimezone(ZoneInfo(tz))
+    except Exception:  # noqa: BLE001  (bad instant, unknown zone, Calendar unreachable: use the short form)
+        return None
+    hour = local.hour % 12 or 12
+    return (f"{_DAYS[local.weekday()]}, {_MONTHS[local.month - 1]} {local.day}, "
+            f"{hour}:{local.minute:02d} {'AM' if local.hour < 12 else 'PM'}")
+
+
+def _replay_say(res: dict[str, Any]) -> str:
+    raw = res.get("appointment")
+    appt: dict[str, Any] = raw if isinstance(raw, dict) else {}
+    title, starts = str(appt.get("title") or ""), str(appt.get("starts_at_utc") or "")
+    when = owner_when(starts) if title and starts else None
+    return ADD_EVENT_REPLAY_SAY.format(title=title, when=when) if when else ADD_EVENT_REPLAY_SHORT
 
 
 def add_event_answer(out: dict[str, Any], res: dict[str, Any]) -> dict[str, Any]:
@@ -66,7 +102,7 @@ def add_event_answer(out: dict[str, Any], res: dict[str, Any]) -> dict[str, Any]
     if outcome == "added":
         answer: dict[str, Any] = {"ok": True, **res}
         if res.get("idempotent_replay"):
-            answer["say"] = ADD_EVENT_REPLAY_SAY
+            answer["say"] = _replay_say(res)
         return answer
     return {"ok": False, "outcome": outcome or "unknown", "say": ADD_EVENT_SAY.get(outcome, _ADD_EVENT_OTHER)}
 
