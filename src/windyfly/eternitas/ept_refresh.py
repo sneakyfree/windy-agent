@@ -247,6 +247,19 @@ def _refresh_by_agent_key(passport: str, url: str, transport) -> httpx.Response 
     return None
 
 
+def _owner_hub_token() -> str | None:
+    try:
+        from windyfly import hub_login
+        return hub_login.get_access_token()
+    except Exception:
+        return None
+
+
+def _is_before_cutoff(resp: httpx.Response) -> bool:
+    from windyfly.eternitas.agent_keys import error_code
+    return error_code(resp)[0] == "ept_before_cutoff"
+
+
 def _refresh(force: bool, transport, now) -> dict[str, Any]:
     token = os.environ.get(ENV_KEY, "").strip()
     due, why = needs_refresh(token, now)
@@ -268,6 +281,7 @@ def _refresh(force: bool, transport, now) -> dict[str, Any]:
     # falls back to (a)/(b) below.
     resp: httpx.Response | None = _refresh_by_agent_key(passport, url, transport)
     path_used = "agent_key" if resp is not None else ""
+    after_cutoff = False
 
     if resp is None:
         t = time.time() if now is None else now
@@ -276,11 +290,7 @@ def _refresh(force: bool, transport, now) -> dict[str, Any]:
         if token and isinstance(exp, (int, float)) and exp > t and claims.get("sub") == passport:
             bearer, path_used = token, "own_ept"
         else:
-            try:
-                from windyfly import hub_login
-                hub = hub_login.get_access_token()
-            except Exception:
-                hub = None
+            hub = _owner_hub_token()
             if hub:
                 bearer, path_used = hub, "owner_hub_login"
         if not bearer:
@@ -293,6 +303,16 @@ def _refresh(force: bool, transport, now) -> dict[str, Any]:
         try:
             with httpx.Client(timeout=_HTTP_TIMEOUT, transport=transport) as client:
                 resp = client.post(url, json={}, headers={"Authorization": f"Bearer {bearer}"})
+                if resp.status_code == 401 and path_used == "own_ept" and _is_before_cutoff(resp):
+                    # Eternitas set an EPT cutoff on this passport (ept-cutoff v1): every EPT issued before it is
+                    # dead, this one included. The owner's own Windy sign-in is the normal way back in.
+                    hub = _owner_hub_token()
+                    logger.warning("EPT refresh for %s: this token is from before the passport's cutoff; %s",
+                                   _passport_prefix(passport),
+                                   "renewing with the owner's Windy sign-in" if hub else "no Windy sign-in here")
+                    if hub:
+                        path_used, after_cutoff = "owner_hub_login", True
+                        resp = client.post(url, json={}, headers={"Authorization": f"Bearer {hub}"})
         except httpx.HTTPError as exc:
             logger.warning("EPT refresh for %s: Eternitas unreachable (%s)",
                            _passport_prefix(passport), type(exc).__name__)
@@ -311,7 +331,9 @@ def _refresh(force: bool, transport, now) -> dict[str, Any]:
             # Eternitas: 403 on the agent's own token = the passport is SUSPENDED or REVOKED. Signing in again cannot fix
             # that, so never suggest it (Hub's pinned line, 10-12).
             return {"status": "failed", "http": 403, "hint": REVOKED_REFRESH_HINT}
-        if resp.status_code == 401 and path_used == "own_ept":
+        if resp.status_code == 401 and (path_used == "own_ept" or after_cutoff):
+            # After a cutoff a CACHED owner sign-in from before it is refused too (Eternitas: the cut also ends the owner's
+            # older tokens; Hub on #691); a fresh `windy login` mints one after it.
             return {"status": "failed", "http": resp.status_code,
                     "hint": "run `windy login`, then `windy ept refresh --force`"}
         return {"status": "failed", "http": resp.status_code}
