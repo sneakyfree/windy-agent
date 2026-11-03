@@ -186,7 +186,10 @@ class WindyMailAdapter:
         # result back and is never sent again. The same key rides the legacy-credential retry inside _authed.
         from windyfly.agent import action_key as _ak
 
-        idem = _ak.headers("mail.send", ",".join(sorted(str(x) for x in everyone)), subject)
+        # The key is the route + the recipients + an ordinal, never the subject (Boss 09:10Z): a retry with a reworded
+        # subject is the SAME send. The ordinal moves on only after a definitive answer (_ak.done below).
+        recips = ",".join(sorted(str(x) for x in everyone))
+        idem = _ak.headers("mail.send", recips)
         try:
             def post() -> Any:
                 return _authed("POST", url, self._send_bearer(),
@@ -197,6 +200,8 @@ class WindyMailAdapter:
             if resp is not None and resp.status_code == 409 and _mail_code(resp) == "idempotency_in_progress":
                 time.sleep(2.0)  # the first try of this same send is still running: ask once more, same key
                 resp = post()
+            if resp is None or _ak.definitive(resp.status_code):
+                _ak.done("mail.send", recips)  # answered for sure (sent, or refused); the next send is a new one
             if resp is None:
                 return {"status": "failed", "error": "I couldn't sign in to Windy Mail, so nothing was sent."}
             if resp.status_code == 409 and _mail_code(resp) in ("idempotency_outcome_unknown", "idempotency_in_progress"):
@@ -214,9 +219,15 @@ class WindyMailAdapter:
             else:
                 logger.warning("Windy Mail send failed: %s %s", resp.status_code, resp.text)
                 return {"status": "failed", "error": _mail_error_sentence(resp)}
-        except Exception as e:
+        except _httpx.ConnectError as e:
+            _ak.done("mail.send", recips)  # never reached Mail: nothing was sent
             logger.error("Windy Mail send error: %s", e)
             return {"status": "failed", "error": str(e)}
+        except Exception as e:
+            # A timeout or a broken connection after the request left: an UNKNOWN outcome (Boss 09:10Z). The key stays
+            # the same for a retry in this turn, so Mail can never send it twice.
+            logger.error("Windy Mail send error (outcome unknown): %s", type(e).__name__)
+            return {"status": "failed", "error": _UNSURE_SENTENCE}
 
     def check_inbox(self, unread_only: bool = True) -> list[dict[str, Any]]:
         """Fetch messages from the Windy Mail inbox.

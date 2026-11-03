@@ -163,6 +163,8 @@ _PLAIN_ERRORS: dict[str, str] = {
 _NO_SIGN_IN = "I couldn't sign in to Windy Text just now, so I didn't send it."
 _STANDING = "My Eternitas standing doesn't allow sending texts right now, so I didn't send it."
 _BRIEFLY_DOWN = "Texting is briefly unavailable on Windy's side, so I didn't send it. Try again shortly."
+# NEW WORDS (Boss 11-03 09:10Z: "I can't be sure it went"); needs a non-author #9 before it ships.
+_TEXT_UNSURE = "Windy Text had trouble, so I can't be sure the text went. Check before sending it again."
 
 
 def refusal_sentence(status: int, code: str | None) -> str:
@@ -479,12 +481,18 @@ def _deliver(base_url: str, ept: str, to: str | None, body: str) -> dict[str, An
             time.sleep(2.0)  # the first try of this same text is still running: ask once more, same key
             resp = post()
     except httpx.ConnectError as exc:
+        _ak.done("sms.send", to or "owner")  # never reached Windy Text: nothing was sent
         return {
             "status": "failed",
             "error": f"Cannot reach windy-text at {base_url}: {exc}",
         }
-    except httpx.HTTPError as exc:
-        return {"status": "failed", "error": f"windy-text transport error: {exc}"}
+    except httpx.HTTPError:
+        # A timeout or a broken connection after the request left: an UNKNOWN outcome (Boss 11-03 09:10Z). The key stays
+        # the same for a retry in this turn, so Windy Text can never send it twice.
+        return {"status": "failed", "error": _TEXT_UNSURE}
+
+    if _ak.definitive(resp.status_code):
+        _ak.done("sms.send", to or "owner")  # answered for sure; the next text to this number is a new one
 
     if resp.status_code in (200, 201):
         try:

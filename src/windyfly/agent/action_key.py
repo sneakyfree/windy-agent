@@ -18,9 +18,9 @@ import hashlib
 import os
 
 _trigger: contextvars.ContextVar[str] = contextvars.ContextVar("windyfly_action_trigger", default="")
-# How many sends to each (route, target) this trigger has made so far (Hub on #693): "text Mom I'm late, and text her
-# the address" is two texts to one number from one message, so they need two keys. A re-run of the same turn makes
-# the same sends in the same order, so it gets the same keys and is deduped.
+# The ordinal of the send to each (route, target) in this trigger (Hub + Boss on #693): "text Mom I'm late, and text her
+# the address" is two texts to one number from one message, so two keys; a retry of ONE send keeps its key. A re-run of
+# the same turn makes the same sends in the same order, so it gets the same keys and is deduped.
 _counts: contextvars.ContextVar[dict[tuple[str, ...], int] | None] = contextvars.ContextVar(
     "windyfly_action_counts", default=None)
 
@@ -50,10 +50,29 @@ def key(route: str, *target: str) -> str:
     if counts is None:
         counts = {}
         _counts.set(counts)
-    n = counts.get(who, 0) + 1
-    counts[who] = n
+    # Boss 11-03 09:10Z: the ordinal moves on ONLY after the last send to this target got a DEFINITIVE answer
+    # (``done``). After an unknown outcome (a timeout, a transport error, a 5xx, a 409), the next send in the turn reuses
+    # the SAME key, so the server answers replay / in progress / unknown and never sends twice.
+    n = counts.get(who, 0)
+    if n <= 0:
+        n = abs(n) + 1
+        counts[who] = n          # open: positive = a send with key n has no definitive answer yet
     parts = (os.environ.get("ETERNITAS_PASSPORT", ""), t, *who, str(n))
     return hashlib.sha256("\x1f".join(parts).encode("utf-8")).hexdigest()
+
+
+def done(route: str, *target: str) -> None:
+    """The last send to (route, target) got a DEFINITIVE answer (sent, or a final refusal): the next one is a new
+    action with the next ordinal. Never call it after an unknown outcome."""
+    counts = _counts.get()
+    who = (route, *(str(x) for x in target))
+    if counts is not None and counts.get(who, 0) > 0:
+        counts[who] = -counts[who]   # closed: negative = answered; the next key() takes the next ordinal
+
+
+def definitive(status: int) -> bool:
+    """A 2xx, or a 4xx that is a final refusal; 409 (in progress / unknown) and 429 are not."""
+    return 200 <= status < 300 or (400 <= status < 500 and status not in (409, 429))
 
 
 def headers(route: str, *target: str) -> dict[str, str]:

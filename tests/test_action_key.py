@@ -24,13 +24,30 @@ def test_no_trigger_means_no_key():
     assert ak.key("mail.send", "a@b.c") == "" and ak.headers("mail.send", "a@b.c") == {}
 
 
-def _turn(event: str, *sends: tuple[str, ...]) -> list[str]:
-    """One turn answering ``event``: the keys of its sends, in order."""
+def _turn(event: str, *sends: tuple[str, ...], answered: bool = True) -> list[str]:
+    """One turn answering ``event``: the keys of its sends, in order (each answered definitively unless told not)."""
     tok = ak.enter(event)
     try:
-        return [ak.key(*s) for s in sends]
+        keys = []
+        for s in sends:
+            keys.append(ak.key(*s))
+            if answered:
+                ak.done(*s)
+        return keys
     finally:
         ak.leave(tok)
+
+
+def test_an_unanswered_send_keeps_its_key_for_the_retry():
+    """Boss 09:10Z: a timeout / 5xx / 409 is an unknown outcome; the retry in the same turn must reuse the key."""
+    a, b = _turn(EVENT, ("sms.send", "+15551234567"), ("sms.send", "+15551234567"), answered=False)
+    assert a == b
+
+
+@pytest.mark.parametrize("status,moves_on", [(200, True), (202, True), (400, True), (403, True), (422, True),
+                                             (409, False), (429, False), (500, False), (503, False)])
+def test_only_a_definitive_answer_moves_the_ordinal(status, moves_on):
+    assert ak.definitive(status) is moves_on
 
 
 def test_a_re_run_of_the_same_turn_gets_the_same_keys():
@@ -102,6 +119,76 @@ def _post_answers(monkeypatch, answers):
 
     monkeypatch.setattr(httpx, "post", post)
     return calls
+
+
+def _in_turn(fn):
+    tok = ak.enter(EVENT)
+    try:
+        return fn()
+    finally:
+        ak.leave(tok)
+
+
+def test_a_mail_timeout_then_a_retry_in_the_same_turn_uses_the_same_key(mail, monkeypatch):
+    calls = []
+
+    def post(url, json=None, headers=None, timeout=None):
+        calls.append(dict(headers or {}))
+        if len(calls) == 1:
+            raise httpx.ReadTimeout("slow", request=httpx.Request("POST", url))
+        return httpx.Response(200, json={"message_id": "m1"}, headers={"Idempotent-Replayed": "true"},
+                              request=httpx.Request("POST", url))
+
+    monkeypatch.setattr(httpx, "post", post)
+
+    def turn():
+        first = mail.send_email("rig@windymail.ai", "Lab", "hello")
+        second = mail.send_email("rig@windymail.ai", "Lab, reworded", "hello again")  # the model retries, reworded
+        return first, second
+
+    first, second = _in_turn(turn)
+    assert "can't be sure it went" in first["error"]  # a timeout is an unknown outcome, never str(e)
+    assert calls[0]["Idempotency-Key"] == calls[1]["Idempotency-Key"]  # subject is not in the key
+    assert second.get("replayed") is True
+
+
+def test_two_answered_mails_to_one_person_get_two_keys(mail, monkeypatch):
+    calls = _post_answers(monkeypatch, [(202, {"message_id": "m1"}, {}), (202, {"message_id": "m2"}, {})])
+    _in_turn(lambda: (mail.send_email("rig@windymail.ai", "One", "a"), mail.send_email("rig@windymail.ai", "Two", "b")))
+    assert calls[0]["Idempotency-Key"] != calls[1]["Idempotency-Key"]
+
+
+def test_a_text_timeout_then_a_retry_in_the_same_turn_uses_the_same_key(monkeypatch):
+    from windyfly.tools import sms
+
+    seen = []
+
+    def post(url, headers=None, json=None, timeout=None):
+        seen.append(dict(headers or {}))
+        if len(seen) == 1:
+            raise httpx.ReadTimeout("slow", request=httpx.Request("POST", url))
+        return httpx.Response(200, json={"sid": "S1"}, request=httpx.Request("POST", url))
+
+    monkeypatch.setattr(sms.httpx, "post", post)
+    first, _ = _in_turn(lambda: (sms._deliver("https://text.test", "ept", "+15551234567", "late"),
+                                 sms._deliver("https://text.test", "ept", "+15551234567", "late!")))
+    assert first["error"] == sms._TEXT_UNSURE
+    assert seen[0]["Idempotency-Key"] == seen[1]["Idempotency-Key"]
+
+
+def test_two_answered_texts_to_one_number_get_two_keys(monkeypatch):
+    from windyfly.tools import sms
+
+    seen = []
+
+    def post(url, headers=None, json=None, timeout=None):
+        seen.append(dict(headers or {}))
+        return httpx.Response(200, json={"sid": "S1"}, request=httpx.Request("POST", url))
+
+    monkeypatch.setattr(sms.httpx, "post", post)
+    _in_turn(lambda: (sms._deliver("https://text.test", "ept", "+15551234567", "I'm late"),
+                      sms._deliver("https://text.test", "ept", "+15551234567", "the address")))
+    assert seen[0]["Idempotency-Key"] != seen[1]["Idempotency-Key"]
 
 
 def test_every_mail_send_carries_its_key_and_a_re_run_carries_the_same(mail, monkeypatch):
