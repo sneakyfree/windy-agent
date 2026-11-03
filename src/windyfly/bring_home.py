@@ -83,11 +83,14 @@ def _seal_path(passport: str) -> Path:
 
 def _atomic_write(path: Path, data: bytes) -> None:
     """0600 temp file in the same directory, fsync, rename."""
-    path.parent.mkdir(parents=True, exist_ok=True)
+    from windyfly.state_files import ensure_private_dir, restrict_to_owner
+
+    ensure_private_dir(path.parent)
     fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
     try:
-        os.fchmod(fd, 0o600)
-        with os.fdopen(fd, "wb") as fh:
+        os.close(fd)
+        restrict_to_owner(Path(tmp))  # before the secrets are in it (os.fchmod does not exist on Windows)
+        with open(tmp, "wb") as fh:
             fh.write(data)
             fh.flush()
             os.fsync(fh.fileno())
