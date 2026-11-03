@@ -225,8 +225,10 @@ def load_credentials(path: Path | None = None) -> dict[str, Any]:
 def save_credentials(data: dict[str, Any], path: Path | None = None) -> None:
     """Atomic 0600 write; the previous file (if any) is kept as a timestamped
     0600 backup next to it. Private keys never leave this directory."""
+    from windyfly.state_files import ensure_private_dir, restrict_to_owner
+
     path = path or credentials_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
+    ensure_private_dir(path.parent)
     if path.exists():
         stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
         backup = path.with_name(f"{path.name}.bak-{stamp}")
@@ -235,15 +237,16 @@ def save_credentials(data: dict[str, Any], path: Path | None = None) -> None:
             backup = path.with_name(f"{path.name}.bak-{stamp}-{n}")
             n += 1
         shutil.copy2(path, backup)
-        os.chmod(backup, 0o600)
+        restrict_to_owner(backup)
     fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
     try:
-        os.fchmod(fd, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        os.close(fd)
+        restrict_to_owner(Path(tmp))  # before a key is in it (os.fchmod does not exist on Windows)
+        with open(tmp, "w", encoding="utf-8") as fh:
             json.dump(data, fh, indent=2)
             fh.write("\n")
         os.replace(tmp, path)
-        os.chmod(path, 0o600)
+        restrict_to_owner(path)
     except Exception:
         try:
             os.unlink(tmp)

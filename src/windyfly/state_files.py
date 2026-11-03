@@ -25,9 +25,65 @@ def state_path(env_var: str, name: str) -> Path:
     return Path(raw) if raw else windy_state_dir() / name
 
 
+def _on_windows() -> bool:
+    return os.name == "nt"
+
+
+def _windows_account() -> str:
+    """DOMAIN\\user for the current Windows account (a bare name is ambiguous on a domain or a renamed machine)."""
+    user = os.environ.get("USERNAME", "").strip()
+    domain = os.environ.get("USERDOMAIN", "").strip()
+    return f"{domain}\\{user}" if user and domain else user
+
+
+def _icacls(path: Path, grant: str) -> bool:
+    import subprocess
+
+    account = _windows_account()
+    if not account:
+        logger.warning("cannot restrict %s to its owner: USERNAME is unset", path)
+        return False
+    try:
+        out = subprocess.run(["icacls", str(path), "/inheritance:r", "/grant:r", f"{account}:{grant}"],
+                             capture_output=True, text=True, timeout=15, check=False)
+    except Exception as exc:  # noqa: BLE001  (never block the write)
+        logger.warning("icacls could not restrict %s (%s)", path, type(exc).__name__)
+        return False
+    if out.returncode != 0:
+        logger.warning("icacls could not restrict %s (exit %d)", path, out.returncode)
+        return False
+    return True
+
+
+def restrict_to_owner(path: Path) -> bool:
+    """Make one file readable and writable by its owner ONLY, on every platform (#687 F, the Windows ACL).
+
+    POSIX: mode 0600. Windows: os.chmod only toggles read-only (NTFS ACLs are the control there), so the inherited
+    ACEs are dropped and exactly the current account (DOMAIN\\user) gets full control. Call it on the temp file
+    BEFORE the rename: a rename keeps the file's ACL, so a credential is never readable by others, even for a moment.
+    Best effort: a failure is logged, never raised (the agent must still be able to save its credentials)."""
+    try:
+        os.chmod(path, 0o600)
+    except OSError as exc:  # pragma: no cover - platform dependent
+        logger.warning("chmod 600 failed on %s (%s)", path, type(exc).__name__)
+    return _icacls(path, "F") if _on_windows() else True
+
+
+_private_dirs: set[str] = set()
+
+
+def ensure_private_dir(path: Path) -> None:
+    """Create ``path`` 0700. On Windows, give it an owner-only, INHERITABLE ACL once per process, so every file
+    created inside inherits it (no icacls per write)."""
+    path.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if _on_windows() and str(path) not in _private_dirs:
+        if _icacls(path, "(OI)(CI)F"):
+            _private_dirs.add(str(path))
+
+
 def write_private(path: Path, data: bytes) -> None:
-    """Write ``data`` to ``path`` atomically, through a temp file created 0600."""
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    """Write ``data`` to ``path`` atomically, through a temp file created 0600 in an owner-only directory."""
+    ensure_private_dir(path.parent)
     tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     try:
         tmp.unlink()                       # a temp file left by a crash may have other modes
