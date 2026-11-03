@@ -536,6 +536,16 @@ Until then every doorway keeps getting the roster agent, and today's ~59 keep ru
 | 7 | Doorway + recovery (= section A's H2/H3) | See H2/H3 and Boss's 08:13Z conditions | M + S | PR Fri 11-06; ships >= 11-10 |
 | 8 | Pairing codes / Mail graceful degrade | Hub's part is only the hatch page + ticket. A hatch already ends "partial" and the page says so (#1649 merged); a failed mail step no longer closes the phone screen (#1645 + Mobile #386). **Hub: pairing is Windy Connect's, on the existing ticket API.** [Boss to confirm the owner: section F's QR plan said "one-time pairing codes in Windy Accounts (Hub)"; Agent's computer side + Mobile's scanner depend on whoever owns it] | - | - |
 
+**Boss ACCEPTED Hub's rows 1-8 and their order (2026-11-03 08:18Z), with three additions:**
+- **Row 1 follow-up:** if Eternitas' cutoff call errors (5xx or timeout, once the route is live), the owner's new tokens STILL issue: the owner is the verified person and is never locked out. The cutoff retries until it lands, and HQ gets hub.ept_cutoff_failed after 3 misses. The PR includes the order test AND a failure test (cutoff 500: tokens issue, a retry is queued, the alarm fires). A 404 before Thu means "not live", never a pass.
+- **Row 3, Grant's fold:** before the move:
+  - a per-product BEFORE count on both identities;
+  - a fresh Kit 0 snapshot;
+  - an R2 copy (encrypted) of the two identities' rows.
+  The move is reversible only from those. Grant gets ONE line before the GO slot and the AFTER counts after it: it's his account, so he hears before it happens, not after.
+- **Rows 2 and 4, HQ events** (hatch.global_cap_*, hub.ept_cutoff_failed, the Mind stop's events): read windy-contracts x-telemetry first and declare them there before any code emits them.
+- Nothing here needs Grant before 11-10 except row 3's heads-up line.
+
 **Hub's order:**
 - tonight: 1 + 2;
 - Wed: 6 contract;
