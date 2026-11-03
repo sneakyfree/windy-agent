@@ -1048,7 +1048,8 @@ class WindyFlyMatrixBot(ChannelAdapter):
         # taken in this room) is never processed again. The 11-02 lab restart re-ran the owner's "send" and mailed twice.
         from windyfly.channels import handled_events as _handled
 
-        if not _handled.claim(room.room_id, str(getattr(event, "event_id", "") or ""), int(event.server_timestamp)):
+        _eid = getattr(event, "event_id", None)
+        if not _handled.claim(room.room_id, _eid if isinstance(_eid, str) else "", int(event.server_timestamp)):
             logger.info("already handled: skipped a replayed message in %s", room.room_id)
             return
 

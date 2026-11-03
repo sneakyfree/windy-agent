@@ -6,6 +6,7 @@ windyfly, #528's budget even reset on any human message, so a "stop" bought six 
 
 from __future__ import annotations
 
+import itertools
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -42,12 +43,16 @@ def _bot():
     return bot
 
 
+_IDS = itertools.count()
+
+
 def _msg(sender, body="hi", content=None, members=3):
     room = MagicMock()
     room.room_id, room.display_name, room.joined_count = ROOM, "Virgin Islands trip", members
     room.user_name.return_value = "someone"
     ev = MagicMock()
-    ev.sender, ev.body, ev.server_timestamp, ev.event_id = sender, body, time.time() * 1000, "$e"
+    ev.sender, ev.body, ev.server_timestamp = sender, body, time.time() * 1000
+    ev.event_id = f"$e{next(_IDS)}"  # every Matrix event has its own id (the at-most-once record keys on it)
     ev.source = {"content": {"msgtype": "m.text", "body": body, **(content or {})}}
     return room, ev
 

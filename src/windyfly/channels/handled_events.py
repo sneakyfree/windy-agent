@@ -59,8 +59,9 @@ def claim(room_id: str, event_id: str, server_ts_ms: int) -> bool:
         rec = rooms.get(room_id)
         if not isinstance(rec, dict):
             rec = {"newest_ts": 0, "ids": []}
-        ids = rec.get("ids") if isinstance(rec.get("ids"), list) else []
-        newest = rec.get("newest_ts") if isinstance(rec.get("newest_ts"), int) else 0
+        raw_ids, raw_newest = rec.get("ids"), rec.get("newest_ts")
+        ids: list[str] = [str(x) for x in raw_ids] if isinstance(raw_ids, list) else []
+        newest: int = raw_newest if isinstance(raw_newest, int) else 0
         if (event_id and event_id in ids) or server_ts_ms < newest:
             return False
         if event_id:
