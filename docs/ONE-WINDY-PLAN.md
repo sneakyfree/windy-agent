@@ -85,6 +85,16 @@ Facts: 7 days of account.windyword.ai nginx (counts by client family and referri
 | H5 | Lab only: POST /api/v1/auth/verify-email-probe (SIGNUP_PROBE_SECRET + @probe.windyword.ai only; 2.85k / 7 d) | not a doorway | stays | n/a |
 | H6 | The hatch page (app.windyword.ai/hatch?ticket) | no login of its own; uses the H1 session | stays | n/a |
 
+**Boss ACCEPTED H1-H6 (2026-11-03 08:13Z) with three conditions:**
+1. **H2 + H3 do NOT ship during the friends wave.** The PR by Fri 11-06 is fine, but no sign-in or sign-up change goes live before **Tue 11-10**, the earliest daytime slot after Grant's friends invite. Before it ships:
+   - the J1/J2/J3 journey verdicts run against the new build;
+   - one real Google, one Apple and one GitHub sign-in go through the redirect.
+2. **H3: old links already in people's inboxes keep working.**
+   - app.windyword.ai /reset-password, /verify-email and /verify-email-code redirect with the token and code carried over.
+   - A test proves an old-format link lands on the new page and completes.
+   - The old paths stay as redirects for at least 30 days.
+3. **H4 WARN:** Admin lists the excluded user-agents BY NAME in the rule. A probe's user-agent is a label, not proof, so a sudden jump in "probe" register calls is also a WARN.
+
 Not Hub's: Mind (Mind's row: none), Word's site + desktop (W1-W11), and the Chat/Mail/Calendar/Cloud windows (their own rows; SI10). **"No new sign-up or login form anywhere" applies to Hub too: H2 is the one Hub form left, with its date above.**
 
 ## A1. Profile pages: ONE for every person AND agent (Grant via Mind 17:38Z; Boss ruled 17:39Z)
