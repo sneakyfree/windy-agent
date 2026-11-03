@@ -353,53 +353,8 @@ def test_heartbeat_lifecycle(good_creds, monkeypatch):
     assert n_calls["release"] == 1
 
 
-def test_heartbeat_exits_on_404(good_creds, monkeypatch):
-    """When heartbeat sees 404 (claim lost), the loop exits cleanly."""
-    monkeypatch.setattr(runtime_claim, "_HEARTBEAT_INTERVAL_S", 0.02)
-
-    n_heartbeats = {"n": 0}
-
-    def handler(req: httpx.Request) -> httpx.Response:
-        path = req.url.path
-        if path.endswith("/claim"):
-            return httpx.Response(200, json={"claimed": True, "ttl_seconds": 90})
-        if path.endswith("/heartbeat"):
-            n_heartbeats["n"] += 1
-            return httpx.Response(
-                404, json={"ok": False, "reason": "claim_expired"}
-            )
-        return httpx.Response(404)
-
-    transport = httpx.MockTransport(handler)
-    real_client = httpx.Client
-
-    def _client_factory(*args, **kwargs):
-        # Always override transport — production code paths pass
-        # transport=None explicitly, which would defeat setdefault.
-        kwargs["transport"] = transport
-        return real_client(*args, **kwargs)
-
-    monkeypatch.setattr(httpx, "Client", _client_factory)
-
-    runtime_claim.acquire_runtime_slot()
-    runtime_claim.start_heartbeat()
-
-    # Wait for the heartbeat thread to terminate after a 404
-    import time as _time
-
-    deadline = _time.monotonic() + 2.0
-    while _time.monotonic() < deadline:
-        if (
-            runtime_claim._state is not None
-            and runtime_claim._state.heartbeat_thread is not None
-            and not runtime_claim._state.heartbeat_thread.is_alive()
-        ):
-            break
-        _time.sleep(0.01)
-
-    assert runtime_claim._state.heartbeat_thread is not None
-    assert not runtime_claim._state.heartbeat_thread.is_alive()
-    assert n_heartbeats["n"] >= 1
+# A heartbeat 404 (the claim lapsed during a sleep) no longer ends the loop: it claims again with the same runtime_id
+# (tests/test_runtime_reclaim.py, Boss + Hub 11-03).
 
 
 class TestEptBearer:

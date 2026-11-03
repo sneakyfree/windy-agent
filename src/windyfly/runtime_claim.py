@@ -27,8 +27,11 @@ Architecture notes
   single-runtime invariant only matters when there's a peer competing
   for the slot; an unreachable Mind shouldn't block a lone agent from
   starting. A subsequent peer running with Mind reachable WILL get the
-  fresh claim and supersede the failing runtime (which will see
-  heartbeat 404s and exit).
+  fresh claim and supersede the failing runtime.
+* After a sleep longer than the TTL the claim has lapsed (heartbeat 404):
+  the runtime claims it again with the same runtime_id. If another copy
+  took it meanwhile, this one acts on nothing and keeps trying; channels
+  ask gate() before acting (Boss + Hub 11-03).
 * Fails CLOSED on a 409 Conflict — that's the one signal Mind sends
   when another runtime genuinely holds the slot. The local process
   logs the conflict + exits cleanly so its parent doesn't keep
@@ -42,6 +45,7 @@ import json
 import logging
 import os
 import threading
+import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -57,6 +61,22 @@ _TTL_SECONDS = 90
 _HEARTBEAT_INTERVAL_S = 30
 _CLAIM_TIMEOUT_S = 5.0
 _RELEASE_TIMEOUT_S = 2.0  # release is best-effort; don't hold shutdown
+_MAX_BACKOFF_S = 300.0    # Mind unreachable: heartbeat retries back off to this (Boss 11-03)
+PAUSE_AFTER_S = 600.0     # Mind unreachable this long after a wake: answer nothing until it is back (Boss 11-03)
+
+
+class Standing(str, enum.Enum):
+    """Where this runtime stands after its claim was granted (the laptop-sleep re-claim, Boss + Hub 11-03).
+
+    A sleep longer than the 90 s TTL lets the claim lapse; another copy of the agent may then claim it.
+      HELD        — this runtime holds the claim (or re-took it)
+      ELSEWHERE   — another runtime holds it: act on nothing, keep trying to re-claim
+      UNREACHABLE — Mind did not give a definite answer: keep trying (with backoff)
+    """
+
+    HELD = "held"
+    ELSEWHERE = "elsewhere"
+    UNREACHABLE = "unreachable"
 
 
 class ClaimOutcome(str, enum.Enum):
@@ -86,6 +106,11 @@ class _ClaimState:
     holder_summary: str = ""  # filled on CONFLICT for the log message
     heartbeat_thread: threading.Thread | None = None
     stop_event: threading.Event | None = None
+    source: str = "cli"
+    granted: bool = False      # the claim was granted once: only then is there anything to re-claim
+    standing: Standing = Standing.HELD
+    pause_clock: float | None = None   # Mind unreachable since this wake re-claim (None = no wake waiting on Mind)
+    retaken_at: float = 0.0            # re-took the claim from another copy at this time (answer only newer messages)
 
 
 # Module-level state. The brain process is one runtime; one claim;
@@ -182,6 +207,16 @@ def _windyfly_version() -> str:
         return "windyfly/unknown"
 
 
+def _claim_payload(passport: str, runtime_id: str, source: str) -> dict[str, str]:
+    return {
+        "passport": passport,
+        "runtime_id": runtime_id,
+        "source": source,
+        "host": _hostname(),
+        "version": _windyfly_version(),
+    }
+
+
 def acquire_runtime_slot(
     *,
     source: str = "cli",
@@ -210,13 +245,7 @@ def acquire_runtime_slot(
     runtime_id = str(uuid.uuid4())
     base = _mind_base_url()
 
-    payload = {
-        "passport": passport,
-        "runtime_id": runtime_id,
-        "source": source,
-        "host": _hostname(),
-        "version": _windyfly_version(),
-    }
+    payload = _claim_payload(passport, runtime_id, source)
 
     try:
         with httpx.Client(
@@ -241,6 +270,8 @@ def acquire_runtime_slot(
             runtime_id=runtime_id,
             jwt=jwt,
             base_url=base,
+            source=source,
+            granted=True,
         )
         _write_claim_record(passport, runtime_id, base)
         logger.info(
@@ -298,6 +329,79 @@ def conflict_holder_summary() -> str:
     return _state.holder_summary
 
 
+_reclaim_lock = threading.Lock()
+
+
+def reclaim(*, wake: bool = False) -> ClaimOutcome:
+    """Claim the slot again, with the SAME runtime_id, after a heartbeat 404 or a wake (Boss + Hub 11-03).
+
+    A sleep longer than the 90 s TTL lets the claim lapse. Mind (11-03): the same id gets "granted" once the slot is
+    empty and "self_refresh" inside the TTL; a NEW id would conflict with its own stale claim. Sets standing():
+    granted = HELD, another runtime holds it (409/202) = ELSEWHERE, anything else = UNREACHABLE. ``wake`` starts the
+    pause clock when Mind does not answer (PAUSE_AFTER_S). SKIPPED when this process never held a claim. Never raises."""
+    st = _state
+    if st is None or not st.granted:
+        return ClaimOutcome.SKIPPED
+    with _reclaim_lock:
+        try:
+            with httpx.Client(
+                base_url=st.base_url,
+                timeout=_CLAIM_TIMEOUT_S,
+                headers={"Authorization": f"Bearer {st.jwt}"},
+            ) as client:
+                resp = mind_auth.client_post(client, "/v1/runtime/claim", st.jwt,
+                                             _claim_payload(st.passport, st.runtime_id, st.source))
+            code = resp.status_code
+        except Exception as e:  # noqa: BLE001 — a re-claim never takes the agent down
+            logger.warning("runtime_claim.reclaim_network_error: %s", type(e).__name__)
+            code = 0
+        before = st.standing
+        if code == 200:
+            if before is Standing.ELSEWHERE:
+                st.retaken_at = time.time()
+            st.standing, st.pause_clock = Standing.HELD, None
+            outcome = ClaimOutcome.GRANTED
+        elif code in (202, 409):
+            st.standing, st.pause_clock = Standing.ELSEWHERE, None
+            outcome = ClaimOutcome.CONFLICT
+        else:
+            st.standing = Standing.UNREACHABLE
+            if wake and st.pause_clock is None:
+                st.pause_clock = time.time()
+            outcome = ClaimOutcome.DEGRADED
+        if st.standing is not before:
+            logger.warning("runtime_claim.reclaim: %s -> %s (HTTP %s)", before.value, st.standing.value, code or "-")
+        return outcome
+
+
+def standing() -> Standing:
+    """HELD when this process never held a claim (nothing to guard), else where the claim stands."""
+    st = _state
+    return st.standing if st is not None and st.granted else Standing.HELD
+
+
+def gate(event_ts: float | None = None) -> str:
+    """What a channel does with an incoming message, by the claim (Boss + Hub 11-03):
+
+      "act"       — answer as usual
+      "elsewhere" — another copy holds the claim: act on nothing (the other copy answers)
+      "paused"    — Mind has not answered for PAUSE_AFTER_S since a wake: hold the message until it does
+      "old"       — the claim was re-taken from another copy after this message arrived: the other copy had it
+
+    ``event_ts`` is the message's server time in seconds."""
+    st = _state
+    if st is None or not st.granted:
+        return "act"
+    if st.standing is Standing.ELSEWHERE:
+        return "elsewhere"
+    if (st.standing is Standing.UNREACHABLE and st.pause_clock is not None
+            and time.time() - st.pause_clock > PAUSE_AFTER_S):
+        return "paused"
+    if event_ts is not None and st.retaken_at and event_ts < st.retaken_at:
+        return "old"
+    return "act"
+
+
 def start_heartbeat() -> None:
     """Spawn the heartbeat daemon thread. Idempotent — second call is a
     no-op. Must be called AFTER `acquire_runtime_slot()` returned
@@ -323,60 +427,56 @@ def start_heartbeat() -> None:
 
 
 def _heartbeat_loop(state: _ClaimState, stop: threading.Event) -> None:
-    """Background loop. Stops on `stop` event OR on a 404 from Mind
-    (claim lost — e.g. TTL expired after a network partition)."""
-    while not stop.wait(_HEARTBEAT_INTERVAL_S):
-        try:
-            with httpx.Client(
-                base_url=state.base_url,
-                timeout=_CLAIM_TIMEOUT_S,
-                headers={"Authorization": f"Bearer {state.jwt}"},
-            ) as client:
-                resp = mind_auth.client_post(
-                    client,
-                    "/v1/runtime/heartbeat",
-                    state.jwt,
-                    {
-                        "passport": state.passport,
-                        "runtime_id": state.runtime_id,
-                    },
-                )
-        except httpx.RequestError as e:
-            logger.warning("runtime_claim.heartbeat_network_error: %s", e)
-            # Network blip — don't exit. Next iteration may succeed.
-            continue
-
-        if resp.status_code == 404:
-            # Claim is gone. Either TTL-expired (we missed too many
-            # heartbeats) or another runtime force-claimed via
-            # admin-release in V2. Either way, this process is no
-            # longer the holder; stop heartbeating + log.
-            logger.warning(
-                "runtime_claim.heartbeat_lost: 404 from Mind — claim is gone, "
-                "this runtime is no longer the holder. Exiting heartbeat loop."
-            )
-            return
-
-        if resp.status_code != 200:
-            logger.warning(
-                "runtime_claim.heartbeat_unexpected: HTTP %d body=%s",
-                resp.status_code,
-                resp.text[:150],
-            )
-            continue
-
-        body = _safe_json(resp)
-        if body.get("yield_requested"):
-            # Spec §"Yield protocol detail": EXPLICIT runtimes (word,
-            # cli) don't yield to warm-pool requesters in V1. The pool
-            # only requests yield when an explicit runtime arrives —
-            # not the other way around. So if a CLI runtime sees
-            # yield_requested=true, something's wrong with the
-            # source-priority logic upstream. Log noisily, don't act.
-            logger.warning(
-                "runtime_claim.yield_requested_unexpected: cli runtime received "
-                "yield_requested=true; ignoring per spec source-priority"
-            )
+    """Background loop. It never exits on an error, only on `stop` (Boss 11-03): a claim that lapsed during a sleep
+    (heartbeat 404) is re-claimed; while another runtime holds it, or Mind does not answer, every tick tries to claim
+    again (Mind grants only once the other claim has expired, so there is no flapping). Mind unreachable backs off up
+    to _MAX_BACKOFF_S."""
+    wait = float(_HEARTBEAT_INTERVAL_S)
+    while not stop.wait(wait):
+        if state.standing is not Standing.HELD:
+            reclaim()
+        else:
+            try:
+                with httpx.Client(
+                    base_url=state.base_url,
+                    timeout=_CLAIM_TIMEOUT_S,
+                    headers={"Authorization": f"Bearer {state.jwt}"},
+                ) as client:
+                    resp = mind_auth.client_post(
+                        client,
+                        "/v1/runtime/heartbeat",
+                        state.jwt,
+                        {
+                            "passport": state.passport,
+                            "runtime_id": state.runtime_id,
+                        },
+                    )
+                code = resp.status_code
+            except httpx.RequestError as e:
+                logger.warning("runtime_claim.heartbeat_network_error: %s", e)
+                code = 0
+            if code == 404:
+                # The claim is gone: TTL-expired (a sleep, a long partition) or force-released. Claim it again.
+                logger.warning("runtime_claim.heartbeat_lost: 404 from Mind — the claim lapsed; claiming it again")
+                reclaim()
+            elif code == 200:
+                body = _safe_json(resp)
+                if body.get("yield_requested"):
+                    # Spec §"Yield protocol detail": EXPLICIT runtimes (word, cli) don't yield to warm-pool
+                    # requesters in V1, so a CLI runtime seeing yield_requested=true means the source-priority
+                    # logic upstream is wrong. Log noisily, don't act.
+                    logger.warning(
+                        "runtime_claim.yield_requested_unexpected: cli runtime received "
+                        "yield_requested=true; ignoring per spec source-priority"
+                    )
+            else:
+                if code:
+                    logger.warning("runtime_claim.heartbeat_unexpected: HTTP %d body=%s", code, resp.text[:150])
+                state.standing = Standing.UNREACHABLE
+        if state.standing is Standing.UNREACHABLE:
+            wait = min(max(wait, float(_HEARTBEAT_INTERVAL_S)) * 2, _MAX_BACKOFF_S)
+        else:
+            wait = float(_HEARTBEAT_INTERVAL_S)
 
 
 def release_slot(*, transport: httpx.BaseTransport | None = None) -> None:
