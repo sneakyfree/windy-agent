@@ -163,8 +163,10 @@ _PLAIN_ERRORS: dict[str, str] = {
 _NO_SIGN_IN = "I couldn't sign in to Windy Text just now, so I didn't send it."
 _STANDING = "My Eternitas standing doesn't allow sending texts right now, so I didn't send it."
 _BRIEFLY_DOWN = "Texting is briefly unavailable on Windy's side, so I didn't send it. Try again shortly."
-# NEW WORDS (Boss 11-03 09:10Z: "I can't be sure it went"); needs a non-author #9 before it ships.
-_TEXT_UNSURE = "Windy Text had trouble, so I can't be sure the text went. Check before sending it again."
+# Boss's FINAL words (11-03 09:15Z; Hub #9 on the facts) for EVERY unknown outcome of a send (a timeout, a broken
+# connection after the request left, a 5xx other than a before-send 503, a 422 key_reused). True as code, not only as an
+# instruction to the model. "I didn't send it" (_BRIEFLY_DOWN) stays only where it is true.
+_TEXT_UNSURE = "Windy Text had trouble, so I can't be sure the text went. If you want me to try again, just ask."
 
 
 def refusal_sentence(status: int, code: str | None) -> str:
@@ -406,12 +408,32 @@ def _send_byo(base_url: str, to: str | None, body: str) -> dict[str, Any]:
     send_headers, code = agent_auth(send_url, "POST")
     if send_headers is None:
         return _no_auth(code)
+    from windyfly.agent import action_key as _ak
+
+    idem = _ak.headers("sms.send", to or "owner")  # ONE key per intended text (Windy Text #125)
+
+    def post() -> httpx.Response:
+        return httpx.post(send_url, json={"body": text} if to is None else {"to": to, "body": text},
+                          headers={**send_headers, "Content-Type": "application/json", **idem}, timeout=_TIMEOUT)
+
     try:
-        resp = httpx.post(send_url,
-                          json={"body": text} if to is None else {"to": to, "body": text},
-                          headers={**send_headers, "Content-Type": "application/json"}, timeout=_TIMEOUT)
-    except httpx.HTTPError as exc:
-        return {"status": "failed", "sent": False, "error": f"Couldn't reach Windy Text: {type(exc).__name__}"}
+        resp = post()
+        if resp.status_code == 409 and idem and _text_code(resp) == "send_in_progress":
+            time.sleep(2.0)  # the first try of this same text is still running: ask once more, same key
+            resp = post()
+    except httpx.ConnectError:
+        _ak.done("sms.send", to or "owner")  # never reached Windy Text: nothing was sent
+        return {"status": "failed", "sent": False, "error": _BRIEFLY_DOWN}
+    except httpx.HTTPError:
+        return {"status": "failed", "sent": None, "error": _TEXT_UNSURE}  # unknown outcome: the key stays
+    _settle(resp, to)
+    said = _unknown_send(resp)
+    if said:
+        return {"status": "failed", "sent": False if said == _BRIEFLY_DOWN else None,
+                "http_status": resp.status_code, "error": said}
+    if _text_code(resp) == "idempotency_key_malformed":
+        return {"status": "failed", "sent": False, "http_status": resp.status_code,
+                "error_code": _text_code(resp), "error": refusal_sentence(resp.status_code, None)}
     if resp.status_code in (200, 201):
         try:
             data = resp.json()
@@ -435,6 +457,37 @@ def _send_byo(base_url: str, to: str | None, body: str) -> dict[str, Any]:
     return {"status": "failed", "sent": False, "http_status": resp.status_code,
             "error_code": raw_code,
             "error": plain or refusal_sentence(resp.status_code, None)}
+
+
+# 503s Windy Text raises BEFORE any send: spend_ledger_unavailable before the key claim and Twilio (Hub 11-03); the
+# credential checks (keys_unavailable, revocation_unavailable) refuse before the send handler runs at all. Only these
+# may say "I didn't send it"; every other 5xx is an unknown outcome.
+_NOT_SENT_503 = frozenset({"spend_ledger_unavailable", "keys_unavailable", "revocation_unavailable"})
+
+
+def _unknown_send(resp: httpx.Response) -> str:
+    """The sentence for a send Windy Text did not clearly answer, or "" when its usual answer path applies (Hub + Boss
+    on #693). _BRIEFLY_DOWN only for 503 spend_ledger_unavailable (certainly not sent). Unknown: a 5xx (except 503 spend_ledger_unavailable, which Text raises before claiming the key and before
+    Twilio: certainly not sent), a 409 (in progress), a 429, or a 422 idempotency_key_reused (a retry of a text whose
+    first try may have gone). For those the key stays, so a retry in this turn can never send twice."""
+    from windyfly.agent import action_key as _ak
+
+    code = _text_code(resp)
+    if resp.status_code == 503 and code in _NOT_SENT_503:
+        return _BRIEFLY_DOWN  # TRUE here: refused before the key was claimed and before Twilio (Boss 09:14Z)
+    if resp.status_code == 429 or _ak.definitive(resp.status_code, code):
+        return ""  # 429: not sent (rate limited): the usual refusal sentence, but the key stays (_settle)
+    return _TEXT_UNSURE
+
+
+def _settle(resp: httpx.Response, to: str | None) -> None:
+    """Move the ordinal on only after a DEFINITIVE answer (Boss 09:10Z); 503 spend_ledger_unavailable counts (nothing
+    was sent or claimed)."""
+    from windyfly.agent import action_key as _ak
+
+    code = _text_code(resp)
+    if _ak.definitive(resp.status_code, code) or (resp.status_code == 503 and code in _NOT_SENT_503):
+        _ak.done("sms.send", to or "owner")
 
 
 def _text_code(resp: httpx.Response) -> str:
@@ -480,19 +533,19 @@ def _deliver(base_url: str, ept: str, to: str | None, body: str) -> dict[str, An
         if resp.status_code == 409 and idem and _text_code(resp) == "send_in_progress":
             time.sleep(2.0)  # the first try of this same text is still running: ask once more, same key
             resp = post()
-    except httpx.ConnectError as exc:
+    except httpx.ConnectError:
         _ak.done("sms.send", to or "owner")  # never reached Windy Text: nothing was sent
-        return {
-            "status": "failed",
-            "error": f"Cannot reach windy-text at {base_url}: {exc}",
-        }
+        return {"status": "failed", "sent": False, "error": _BRIEFLY_DOWN}
     except httpx.HTTPError:
         # A timeout or a broken connection after the request left: an UNKNOWN outcome (Boss 11-03 09:10Z). The key stays
         # the same for a retry in this turn, so Windy Text can never send it twice.
         return {"status": "failed", "error": _TEXT_UNSURE}
 
-    if _ak.definitive(resp.status_code):
-        _ak.done("sms.send", to or "owner")  # answered for sure; the next text to this number is a new one
+    _settle(resp, to)  # the ordinal moves on only after a definitive answer
+    said = _unknown_send(resp)
+    if said:
+        return {"status": "failed", "sent": False if said == _BRIEFLY_DOWN else None,
+                "http_status": resp.status_code, "error": said}
 
     if resp.status_code in (200, 201):
         try:
@@ -529,7 +582,7 @@ def _deliver(base_url: str, ept: str, to: str | None, body: str) -> dict[str, An
             "http_status": resp.status_code,
         }
     raw_code = err.get("error_code") or err.get("error")
-    if _text_code(resp) in ("idempotency_key_reused", "idempotency_key_malformed"):
+    if _text_code(resp) == "idempotency_key_malformed":
         raw_code = _text_code(resp)  # Text #125 sends these as FastAPI's {"detail": code} (Hub on #693)
         # One of ours (two sends sharing a key): one plain sentence, never Windy Text's raw wording (Hub on #693).
         return {"status": "failed", "error": refusal_sentence(resp.status_code, None),

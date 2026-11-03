@@ -50,6 +50,17 @@ def test_only_a_definitive_answer_moves_the_ordinal(status, moves_on):
     assert ak.definitive(status) is moves_on
 
 
+@pytest.mark.parametrize("code,final", [("", False), ("idempotency_in_progress", False), ("send_in_progress", False),
+                                        ("idempotency_outcome_unknown", False), ("carrier_registration_pending", True)])
+def test_a_409_is_unknown_only_for_the_idempotency_codes(code, final):
+    assert ak.definitive(409, code) is final
+
+
+def test_a_reused_key_422_is_not_definitive():
+    """Hub on #693: it only says THIS request sent nothing; the first try with the key may have gone."""
+    assert ak.definitive(422, "idempotency_key_reused") is False and ak.definitive(422, "other") is True
+
+
 def test_a_re_run_of_the_same_turn_gets_the_same_keys():
     first = _turn(EVENT, ("mail.send", "a@b.c", "hi"), ("sms.send", "+15551234567"))
     assert first == _turn(EVENT, ("mail.send", "a@b.c", "hi"), ("sms.send", "+15551234567"))
@@ -136,20 +147,26 @@ def test_a_mail_timeout_then_a_retry_in_the_same_turn_uses_the_same_key(mail, mo
         calls.append(dict(headers or {}))
         if len(calls) == 1:
             raise httpx.ReadTimeout("slow", request=httpx.Request("POST", url))
-        return httpx.Response(200, json={"message_id": "m1"}, headers={"Idempotent-Replayed": "true"},
+        # the REAL server (windy-mail send_idempotency.py): same key + a different body = 422 key_reused
+        return httpx.Response(422, json={"error": "idempotency_key_reused", "message": "raw"},
                               request=httpx.Request("POST", url))
 
     monkeypatch.setattr(httpx, "post", post)
 
     def turn():
-        first = mail.send_email("rig@windymail.ai", "Lab", "hello")
-        second = mail.send_email("rig@windymail.ai", "Lab, reworded", "hello again")  # the model retries, reworded
-        return first, second
+        return [mail.send_email("rig@windymail.ai", s, b)  # the model retries, rewording each time
+                for s, b in (("Lab", "hello"), ("Lab, reworded", "hello again"), ("Lab!", "third"))]
 
-    first, second = _in_turn(turn)
-    assert "can't be sure it went" in first["error"]  # a timeout is an unknown outcome, never str(e)
-    assert calls[0]["Idempotency-Key"] == calls[1]["Idempotency-Key"]  # subject is not in the key
-    assert second.get("replayed") is True
+    outs = _in_turn(turn)
+    assert all("can't be sure it went" in o["error"] for o in outs)  # never str(e), never "refused"
+    assert calls[0]["Idempotency-Key"] == calls[1]["Idempotency-Key"] == calls[2]["Idempotency-Key"]
+
+
+def test_a_mail_5xx_is_unsure_and_keeps_the_key(mail, monkeypatch):
+    calls = _post_answers(monkeypatch, [(500, {"detail": "boom"}, {}), (500, {"detail": "boom"}, {})])
+    outs = _in_turn(lambda: [mail.send_email("rig@windymail.ai", "Lab", "x") for _ in range(2)])
+    assert all("can't be sure it went" in o["error"] for o in outs)
+    assert calls[0]["Idempotency-Key"] == calls[1]["Idempotency-Key"]
 
 
 def test_two_answered_mails_to_one_person_get_two_keys(mail, monkeypatch):
@@ -167,13 +184,36 @@ def test_a_text_timeout_then_a_retry_in_the_same_turn_uses_the_same_key(monkeypa
         seen.append(dict(headers or {}))
         if len(seen) == 1:
             raise httpx.ReadTimeout("slow", request=httpx.Request("POST", url))
-        return httpx.Response(200, json={"sid": "S1"}, request=httpx.Request("POST", url))
+        # the REAL server (windy-text send_idem.py): FastAPI's {"detail": code}, 422 for a reworded retry
+        return httpx.Response(422, json={"detail": "idempotency_key_reused"}, request=httpx.Request("POST", url))
 
     monkeypatch.setattr(sms.httpx, "post", post)
-    first, _ = _in_turn(lambda: (sms._deliver("https://text.test", "ept", "+15551234567", "late"),
-                                 sms._deliver("https://text.test", "ept", "+15551234567", "late!")))
-    assert first["error"] == sms._TEXT_UNSURE
-    assert seen[0]["Idempotency-Key"] == seen[1]["Idempotency-Key"]
+    outs = _in_turn(lambda: [sms._deliver("https://text.test", "ept", "+15551234567", b)
+                             for b in ("late", "late!", "running late")])
+    assert all(o["error"] == sms._TEXT_UNSURE for o in outs)
+    assert not any("didn't send" in o["error"] for o in outs)
+    assert seen[0]["Idempotency-Key"] == seen[1]["Idempotency-Key"] == seen[2]["Idempotency-Key"]
+
+
+@pytest.mark.parametrize("status,body,said,moves_on", [
+    (503, {"detail": "spend_ledger_unavailable"}, "didn't send it", True),   # raised before the claim + Twilio
+    (502, {"detail": "idempotency_replay_unavailable"}, "can't be sure", False),
+    (500, {"detail": "crash"}, "can't be sure", False),
+])
+def test_text_5xx_words_and_ordinal(monkeypatch, status, body, said, moves_on):
+    """Boss 09:14Z: only 503 spend_ledger_unavailable may say "didn't send"; every other 5xx is unsure, key kept."""
+    from windyfly.tools import sms
+
+    seen = []
+
+    def post(url, headers=None, json=None, timeout=None):
+        seen.append(dict(headers or {}))
+        return httpx.Response(status, json=body, request=httpx.Request("POST", url))
+
+    monkeypatch.setattr(sms.httpx, "post", post)
+    outs = _in_turn(lambda: [sms._deliver("https://text.test", "ept", "+15551234567", "x") for _ in range(2)])
+    assert said in outs[0]["error"]
+    assert (seen[0]["Idempotency-Key"] != seen[1]["Idempotency-Key"]) is moves_on
 
 
 def test_two_answered_texts_to_one_number_get_two_keys(monkeypatch):
@@ -203,14 +243,14 @@ def test_every_mail_send_carries_its_key_and_a_re_run_carries_the_same(mail, mon
     assert keys[0] and keys[0] == keys[1]
 
 
-def test_a_reused_key_refusal_is_one_plain_sentence(mail, monkeypatch):
+def test_a_reused_key_mail_answer_is_unsure(mail, monkeypatch):
     _post_answers(monkeypatch, [(422, {"error": "idempotency_key_reused", "message": "raw server words"}, {})])
     tok = ak.enter(EVENT)
     try:
         out = mail.send_email("rig@windymail.ai", "Lab", "hello")
     finally:
         ak.leave(tok)
-    assert out == {"status": "failed", "error": "The mail server refused it."}
+    assert out["status"] == "failed" and "can't be sure it went" in out["error"]  # never "refused" (Boss 09:14Z)
 
 
 def test_without_a_trigger_mail_sends_as_before(mail, monkeypatch):
@@ -292,7 +332,7 @@ def test_without_a_trigger_a_text_has_no_key(monkeypatch):
 
 @pytest.mark.parametrize("body", [{"error": "idempotency_key_reused", "message": "raw server words"},
                                   {"detail": "idempotency_key_reused"}])  # Text #125: FastAPI's {"detail": code}
-def test_a_reused_key_text_refusal_is_one_plain_sentence(monkeypatch, body):
+def test_a_reused_key_text_answer_is_unsure(monkeypatch, body):
     from windyfly.tools import sms
 
     def post(url, headers=None, json=None, timeout=None):
@@ -300,7 +340,7 @@ def test_a_reused_key_text_refusal_is_one_plain_sentence(monkeypatch, body):
 
     monkeypatch.setattr(sms.httpx, "post", post)
     out = sms._deliver("https://text.test", "ept", "+15551234567", "hi")
-    assert out["error"] == sms.refusal_sentence(422, None) and out["error_code"] == "idempotency_key_reused"
+    assert out["error"] == sms._TEXT_UNSURE  # an earlier try with this key may have gone (Boss 09:14Z)
 
 
 @pytest.mark.asyncio

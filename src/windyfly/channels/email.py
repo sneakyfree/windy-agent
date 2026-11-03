@@ -200,15 +200,17 @@ class WindyMailAdapter:
             if resp is not None and resp.status_code == 409 and _mail_code(resp) == "idempotency_in_progress":
                 time.sleep(2.0)  # the first try of this same send is still running: ask once more, same key
                 resp = post()
-            if resp is None or _ak.definitive(resp.status_code):
+            if resp is None or _ak.definitive(resp.status_code, _mail_code(resp)):
                 _ak.done("mail.send", recips)  # answered for sure (sent, or refused); the next send is a new one
             if resp is None:
                 return {"status": "failed", "error": "I couldn't sign in to Windy Mail, so nothing was sent."}
             if resp.status_code == 409 and _mail_code(resp) in ("idempotency_outcome_unknown", "idempotency_in_progress"):
                 # Mail can't tell whether the first try went (Boss 22:24Z: outcome unknown = never resent).
                 return {"status": "failed", "error": _UNSURE_SENTENCE}
-            if resp.status_code == 422 and _mail_code(resp) == "idempotency_key_reused":
-                return {"status": "failed", "error": "The mail server refused it."}  # never Mail's raw wording
+            if (resp.status_code == 422 and _mail_code(resp) == "idempotency_key_reused") or resp.status_code >= 500:
+                # key_reused: a retry of a send whose first try may have gone (Hub on #693); a 5xx can follow a REAL
+                # send (Mail's runbook). Both are unknown outcomes: never "refused", never Mail's own words.
+                return {"status": "failed", "error": _UNSURE_SENTENCE}
             if resp.status_code in (200, 201, 202):
                 data = resp.json()
                 if resp.headers.get("Idempotent-Replayed", "").lower() == "true":

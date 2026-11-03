@@ -179,7 +179,7 @@ class TestErrorPaths:
 
         result = send_sms(to="+15551234567", body="hi")
         assert result["status"] == "failed"
-        assert "Cannot reach" in result["error"]
+        assert "briefly unavailable" in result["error"]  # never reached Windy Text: "didn't send" is TRUE here
 
 
 class TestBootSequenceWiring:

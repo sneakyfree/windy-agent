@@ -70,9 +70,20 @@ def done(route: str, *target: str) -> None:
         counts[who] = -counts[who]   # closed: negative = answered; the next key() takes the next ordinal
 
 
-def definitive(status: int) -> bool:
-    """A 2xx, or a 4xx that is a final refusal; 409 (in progress / unknown) and 429 are not."""
-    return 200 <= status < 300 or (400 <= status < 500 and status not in (409, 429))
+def definitive(status: int, code: str = "") -> bool:
+    """A 2xx, or a 4xx that is a final refusal. NOT definitive: 409 (in progress / unknown), 429, any 5xx, and a 422
+    idempotency_key_reused (Hub on #693): that one says only THIS request sent nothing, while the first try with the key
+    may have gone, so the key must stay for the next retry."""
+    if code == "idempotency_key_reused":
+        return False
+    if status == 409:
+        # Only the idempotency 409s (in progress / outcome unknown), or one with no code, are unknown. A 409 with a
+        # business code (e.g. carrier_registration_pending) is a final refusal: nothing was sent.
+        return bool(code) and code not in UNKNOWN_409_CODES
+    return 200 <= status < 300 or (400 <= status < 500 and status != 429)
+
+
+UNKNOWN_409_CODES = frozenset({"idempotency_in_progress", "idempotency_outcome_unknown", "send_in_progress"})
 
 
 def headers(route: str, *target: str) -> dict[str, str]:
