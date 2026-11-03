@@ -500,3 +500,30 @@ def test_stop_side_release_is_a_noop_without_a_record(good_creds):
     def boom(req):
         raise AssertionError("must not call Mind")
     assert runtime_claim.release_recorded_claim(transport=httpx.MockTransport(boom))
+
+
+def test_the_claim_never_sends_the_machine_name(good_creds, monkeypatch):
+    """Hub + Mind 11-03: host is diagnostic only at Mind (logged on every grant), and a laptop's name is often its
+    owner's ("Grants-MacBook"). The claim sends the same neutral label as bring-home."""
+    import os
+    import socket
+
+    monkeypatch.delenv("WINDY_HOME_LABEL", raising=False)
+    monkeypatch.setattr(socket, "gethostname", lambda: "Grants-MacBook")
+    if hasattr(os, "uname"):
+        real = os.uname()
+        monkeypatch.setattr(os, "uname", lambda: type(real)((real.sysname, "Grants-MacBook", real.release,
+                                                              real.version, real.machine)))
+    captured = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        import json
+
+        captured["body"] = json.loads(req.content.decode())
+        return httpx.Response(200, json={"claimed": True, "ttl_seconds": 90})
+
+    runtime_claim.acquire_runtime_slot(source="cli", transport=httpx.MockTransport(handler))
+    assert captured["body"]["host"] == "Windy Fly home"
+    monkeypatch.setenv("WINDY_HOME_LABEL", "Office desktop")
+    runtime_claim.acquire_runtime_slot(source="cli", transport=httpx.MockTransport(handler))
+    assert captured["body"]["host"] == "Office desktop"

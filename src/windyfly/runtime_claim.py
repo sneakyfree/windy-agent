@@ -160,15 +160,15 @@ def _passport_from_ept(token: str) -> str:
 
 
 def _hostname() -> str:
-    """Free-form host identifier surfaced to UI when claims conflict
-    ("running on macbook-pro-grant.local"). os.uname() works on Unix +
-    macOS; fall back to socket.gethostname() for Windows."""
-    try:
-        return os.uname().nodename
-    except AttributeError:
-        import socket
+    """The ``host`` label sent with the claim: never the machine's name (Hub + Mind 11-03).
 
-        return socket.gethostname()
+    It was os.uname().nodename, which on a person's laptop is often their own name ("Grants-MacBook"). Mind keeps
+    ``host`` only as a diagnostic (the claim keys on runtime_id), logged it on every grant, and showed it only to a
+    competing runtime of the same passport. So it is the same neutral label bring-home sends: "Windy Fly home", or the
+    name the person chose (WINDY_HOME_LABEL)."""
+    from windyfly.bring_home import runtime_label
+
+    return runtime_label()
 
 
 def _windyfly_version() -> str:
