@@ -30,6 +30,7 @@ from typing import Any
 import nio
 
 from windyfly.agent.loop import agent_respond
+from windyfly.channels import sync_position as _position
 from windyfly.channels.base import ChannelAdapter, OutgoingMessage
 from windyfly.channels.matrix_self import set_confirmed
 from windyfly.memory.database import Database
@@ -182,6 +183,33 @@ _SYNC_STALE_S = 600.0
 # An outage older than this is reported as sync_ok=false even though the
 # per-run failure counter resets on every reconnect cycle.
 _SYNC_OUTAGE_S = 120.0
+
+# Laptop-home catch-up bounds (#696; Boss 11-03 11:08Z, Hub #9). After a resume, an owner message older than
+# CATCHUP_MAX_S (by its server timestamp) is NEVER acted on: no tool calls, no sends. One reply per resume covers all of
+# them; it goes after the gap line when both fire.
+CATCHUP_MAX_S = 3600
+_STALE_SAY = ("I was offline and just saw {n} from you, the oldest from {age} ago. I haven't acted on them. "
+              "Tell me what you still want done.")
+_GAP_SAY = ("I was offline for a while and may have missed some of your messages. "
+            "If you asked me something I haven't answered, please send it again.")
+# Boss 11:18Z, FINAL: said for EVERY unrequested file from the owner (awake or after a resume), once per file.
+_FILE_SAY = "I only open a file when I've asked you for one, so I haven't opened the file you sent."
+_WAKE_GAP_S = 120.0  # a sync that succeeds this long after the last one is a WAKE (a suspended laptop, Hub on #696)
+
+
+def _plain_count(n: int) -> str:
+    return "1 message" if n == 1 else f"{n} messages"
+
+
+def _plain_age(seconds: float) -> str:
+    """'61 minutes', '5 hours', '3 days' (Boss: plain words)."""
+    minutes = int(seconds // 60)
+    if minutes < 120:
+        return "1 minute" if minutes == 1 else f"{minutes} minutes"
+    hours = minutes // 60
+    if hours < 48:
+        return f"{hours} hours"
+    return f"{hours // 24} days"
 # Kept replies are retried on a good /sync at most this often, so a reply the
 # homeserver keeps refusing is not re-sent on every sync.
 _PENDING_RETRY_EVERY_S = 30.0
@@ -253,6 +281,14 @@ class WindyFlyMatrixBot(ChannelAdapter):
 
         # Track boot time to ignore old messages
         self._boot_time = time.time()
+        # Resumed from a saved sync position (channels/sync_position.py): the first sync brings only what arrived since
+        # the last position this agent finished. It stays True for the whole process, so the owner's DM also keeps a
+        # reconnect backlog inside this run; handled_events makes sure nothing is answered twice.
+        self._resumed_sync = False
+        self._last_position_save = 0.0
+        self._gap_checked = False
+        # Ages of owner messages too old to act on, seen in the first resumed sync: ONE reply covers them (Boss 11:08Z).
+        self._stale_ages: list[float] = []
         self._report_timers: set[Any] = set()      # report-back deadline and settle timers (cancelled on stop)
 
         # Shutdown flag for graceful termination
@@ -1023,7 +1059,14 @@ class WindyFlyMatrixBot(ChannelAdapter):
         # reconnect backlog (messages minutes old). Rapid double-texting —
         # extremely common for normies — no longer loses the second message.
         event_age = time.time() - (event.server_timestamp / 1000)
-        if event_age > 120:
+        # The laptop-sleep fix (#696): the owner's DM gets everything that arrived while this agent was away, after a
+        # restart from a saved position OR an in-process wake (a suspended laptop). Only the FIRST sync of a start with
+        # no saved position keeps the 120 s window there. Every other room keeps it always: old group chatter is
+        # never answered late.
+        in_dm = bool(self._hatch_dm_room_id) and room.room_id == self._hatch_dm_room_id
+        fresh_first_sync = not self._resumed_sync and self._last_sync_success <= 0
+        catchup_dm = in_dm and not fresh_first_sync
+        if event_age > 120 and not catchup_dm:
             return
 
         # Agent teams: a message from another AGENT that arrived before this process started is never
@@ -1034,6 +1077,21 @@ class WindyFlyMatrixBot(ChannelAdapter):
         if (_silence_boot.enabled() and _silence_boot.sender_is_agent(event.sender)
                 and event.server_timestamp / 1000 < self._boot_time):
             logger.info("silence: dropped a pre-start message from agent %s", event.sender)
+            return
+
+        # AT MOST ONCE, across restarts (Boss 11-02 22:13Z): a message taken before (or older than the newest one
+        # taken in this room) is never processed again. The 11-02 lab restart re-ran the owner's "send" and mailed twice.
+        from windyfly.channels import handled_events as _handled
+
+        _eid = getattr(event, "event_id", None)
+        if not _handled.claim(room.room_id, _eid if isinstance(_eid, str) else "", int(event.server_timestamp)):
+            logger.info("already handled: skipped a replayed message in %s", room.room_id)
+            return
+        if catchup_dm and event_age > CATCHUP_MAX_S:
+            # Too old to act on (Boss 11:08Z): never a turn. Gathered for ONE reply after this sync; the claim above
+            # records each, so none is ever acted on or counted twice.
+            self._stale_ages.append(event_age)
+            logger.info("catch-up: an owner message %.0f min old was not acted on", event_age / 60)
             return
 
         room_id = room.room_id
@@ -1399,12 +1457,13 @@ class WindyFlyMatrixBot(ChannelAdapter):
         from windyfly.soul_import import flow as _flow
 
         key = f"matrix:{room.room_id}"
-        if not _flow.awaiting_file(key):
-            return
         from windyfly.agent.capabilities.descriptor import Band
         from windyfly.channels.identity import resolve_band
 
         if resolve_band("matrix", event.sender, config=self.config) < Band.OWNER:
+            return
+        if not _flow.awaiting_file(key):
+            await self._say_unrequested_file(room, event)
             return
 
         async def say(text: str) -> None:
@@ -1615,6 +1674,61 @@ class WindyFlyMatrixBot(ChannelAdapter):
 
     # ── sync health callbacks (run INSIDE nio's sync_forever loop) ──────
 
+    async def _say_unrequested_file(self, room: nio.MatrixRoom, event: Any) -> None:
+        """The owner sent a file nothing asked for, in the owner's DM: it is not opened (no unrequested file is), and
+        saying nothing was the gap (Boss 11:18Z; Hub #9 on the scope). One plain line, once per file (handled_events). The first sync of a fresh start keeps
+        skipping old files silently, like old messages."""
+        if not self._hatch_dm_room_id or room.room_id != self._hatch_dm_room_id:
+            return  # only the owner's own DM (Hub #9): elsewhere "I've asked YOU" would be untrue
+        age = time.time() - event.server_timestamp / 1000
+        if age > 120 and not self._resumed_sync and self._last_sync_success <= 0:
+            return
+        from windyfly.channels import handled_events as _handled
+
+        eid = getattr(event, "event_id", None)
+        if not _handled.claim(room.room_id, eid if isinstance(eid, str) else "", int(event.server_timestamp)):
+            return
+        await self.client.room_send(room.room_id, "m.room.message",
+                                    {"msgtype": "m.text", "body": _FILE_SAY, "windy_original": True})
+
+    async def _say_catchup_notes(self, response: Any, gap_line: bool = True) -> None:
+        """After a wake's sync was handled (nio runs response callbacks after event callbacks, so the stale count is
+        complete): the gap line if the OWNER'S DM timeline was cut short (limited), then ONE line for the owner
+        messages too old to act on (Boss 11:08Z). Never raises."""
+        dm = self._hatch_dm_room_id
+        try:
+            join = getattr(getattr(response, "rooms", None), "join", None) or {}
+            info = join.get(dm) if dm else None
+            if gap_line and dm and info is not None and getattr(getattr(info, "timeline", None), "limited", False) is True:
+                logger.info("catch-up: the owner's DM timeline was limited after the resume; saying so once")
+                await self.client.room_send(dm, "m.room.message", {"msgtype": "m.text", "body": _GAP_SAY,
+                                                                   "windy_original": True})
+            if dm and self._stale_ages:
+                said = _STALE_SAY.format(n=_plain_count(len(self._stale_ages)), age=_plain_age(max(self._stale_ages)))
+                await self.client.room_send(dm, "m.room.message", {"msgtype": "m.text", "body": said,
+                                                                   "windy_original": True})
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("catch-up: notes not sent (%s)", type(exc).__name__)
+        finally:
+            self._stale_ages = []
+
+    def _resume_saved_position(self) -> None:
+        """Resume where this agent's sync got to before a restart or a sleep (channels/sync_position.py)."""
+        saved = _position.load(self.bot_user_id or "", str(getattr(self.client, "device_id", "") or ""))
+        if saved:
+            self.client.next_batch = saved
+            self._resumed_sync = True
+            logger.info("Matrix sync: resuming from the saved position (messages that arrived meanwhile are answered)")
+
+    def _save_sync_position(self, force: bool = False) -> None:
+        """Keep where this agent's sync got to (channels/sync_position.py). nio runs response callbacks after the
+        event callbacks, so a saved position is always past messages already handled. Throttled; never raises."""
+        token = getattr(self.client, "next_batch", None)
+        if not token or not (force or time.time() - self._last_position_save >= _position.SAVE_EVERY_S):
+            return
+        if _position.save(self.bot_user_id or "", str(getattr(self.client, "device_id", "") or ""), str(token)):
+            self._last_position_save = time.time()
+
     async def _on_sync_response(self, response: Any) -> None:
         """A /sync succeeded: clear the failure run and both backoffs."""
         if self._sync_failures:
@@ -1625,9 +1739,21 @@ class WindyFlyMatrixBot(ChannelAdapter):
         self._sync_failures = 0
         self._sync_failed_since = None
         self._last_sync_error = ""
+        # A WAKE: the first sync after a restart from a saved position, or one that succeeds long after the last
+        # (a suspended laptop carrying on from its in-memory position). Decided BEFORE the success time moves.
+        # The gap is WALL time (time.time()), on purpose: on macOS time.monotonic() stops while the system sleeps, so a
+        # 3-hour lid-close would look like seconds (Boss 11:23Z). A clock that jumped BACKWARDS gives a negative gap:
+        # the time away is unknown, so it counts as a wake (safe: the 1 h cap uses the server's timestamps).
+        prev = self._last_sync_success
+        gap = time.time() - prev
+        wake = (self._resumed_sync and not self._gap_checked) or (prev > 0 and (gap > _WAKE_GAP_S or gap < 0))
+        self._gap_checked = True
         self._last_sync_success = time.time()
         self._connected = True
         self._backoff = _INITIAL_BACKOFF_S
+        if wake or self._stale_ages:
+            await self._say_catchup_notes(response, gap_line=wake)
+        self._save_sync_position()
         # Replies that failed to send go out now that the homeserver answers,
         # not only after a reconnect (strand P2.13.4).
         if self._pending_responses and time.time() - self._last_pending_retry >= _PENDING_RETRY_EVERY_S:
@@ -1790,6 +1916,7 @@ class WindyFlyMatrixBot(ChannelAdapter):
         logger.info("Graceful shutdown: flushing %d pending messages...", len(self._pending_responses))
         await self._flush_pending()
 
+        self._save_sync_position(force=True)  # the next start resumes exactly here
         logger.info("Graceful shutdown: closing connection...")
         try:
             await self.client.close()
@@ -1975,6 +2102,8 @@ class WindyFlyMatrixBot(ChannelAdapter):
         else:
             logger.info("maintenance: runs in the %s process for this agent, not here "
                         "(if that process is not running, no maintenance runs)", maintenance_runner())
+
+        self._resume_saved_position()
 
         # Sync with reconnection retry loop (exponential backoff)
         self._backoff = _INITIAL_BACKOFF_S
