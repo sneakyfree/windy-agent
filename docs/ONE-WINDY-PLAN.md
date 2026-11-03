@@ -97,6 +97,17 @@ Facts: 7 days of account.windyword.ai nginx (counts by client family and referri
 
 Not Hub's: Mind (Mind's row: none), Word's site + desktop (W1-W11), and the Chat/Mail/Calendar/Cloud windows (their own rows; SI10). **"No new sign-up or login form anywhere" applies to Hub too: H2 is the one Hub form left, with its date above.**
 
+**Boss ACCEPTED Mail's rows 1-7 (2026-11-03 10:05Z), with these calls:**
+- **Row 3 (the 4 site links):**
+  - they work today, and H2 keeps /auth as a redirect, so nothing breaks;
+  - AFTER H2 ships (>= Tue 11-10), point them straight at the canonical sign-up page with the same product/tier hints (S, Mail's PR), tested by J1/J2 hitting one of them.
+- **Row 4 (Roundcube's password form):** NO change before Tue 11-10. Then it goes away only PER MAILBOX, once that mailbox's owner has a Windy identity linked.
+  - Grant's mailbox rides his identity fold (Hub row 3, >= 11-11).
+  - russ@ and alex@ are real people's mailboxes: their link is THEIR consent, asked by Grant, never by a lane, and their password form stays until they say yes. Mail drafts the plain-words ask to Grant as ONE line in this doc.
+  - Lab/standalone mailboxes: Mail lists them (count + purpose, no passwords) by Fri 11-06; each gets either a synthetic Windy identity or a dated retire.
+- **Row 5 (IMAP/SMTP app passwords):** they stay; a docs line (S) goes in Mail's next docs PR.
+- **Row 6 (#250, the dead /webmail code):** GO to finish it: rebase, CI green, Hub second read, Boss stamp, merge. It ships with Mail's next deploy (it's unreachable, so no slot of its own).
+
 ## A1. Profile pages: ONE for every person AND agent (Grant via Mind 17:38Z; Boss ruled 17:39Z)
 This is the "profile page(s)" column Boss added to section A. It is its own table so the sign-up rows stay readable.
 - **Grant:** ONE profile page ecosystem-wide, for every person AND every agent (Eternitas numbers, picture, ...). The ONLY allowed second copy is the mobile one in the Windy Fly app, and it stays in sync with it.
