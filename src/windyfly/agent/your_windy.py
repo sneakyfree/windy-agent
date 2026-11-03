@@ -258,8 +258,12 @@ SUGGESTIONS: tuple[tuple[str, str], ...] = (
     ("windy-cloud", "there is a file they want to keep"),
     ("windy-calendar", "they are booking or planning a time"),
 )
-_STOP = re.compile(r"\b(?:stop|quit|no more)\s+suggest(?:ing|ions)?\b|\bdon['’]?t\s+suggest\b", re.IGNORECASE)
-_START = re.compile(r"\b(?:start|resume)\s+suggest(?:ing|ions)?\b|\byou\s+can\s+suggest\b", re.IGNORECASE)
+# The WHOLE message must be the command (Hub on #692): "tell my boss to stop suggesting meetings" is not one.
+_POLITE = r"(?:(?:ok(?:ay)?|please|pls|hey|so)[\s,]+)?"
+_TAIL = r"(?:\s+(?:things|stuff|anything|features|that|those|them|again))?(?:[\s,]+please)?[\s.!]*"
+_STOP = re.compile(_POLITE + r"(?:(?:stop|quit|no\s+more)\s+suggest(?:ing|ions)?|don['’]?t\s+suggest(?:\s+anything)?)" + _TAIL,
+                   re.IGNORECASE)
+_START = re.compile(_POLITE + r"(?:(?:start|resume)\s+suggesting|you\s+can\s+suggest)" + _TAIL, re.IGNORECASE)
 
 
 def suggestions_enabled() -> bool:
@@ -288,9 +292,10 @@ def _owner_switch(db: Any, user_message: str) -> str | None:
     """Stores the owner's "stop suggesting" / "start suggesting" and returns the current setting."""
     from windyfly.memory.soul import get_soul, upsert_soul
 
-    if _STOP.search(user_message or ""):
+    said = (user_message or "").strip()
+    if _STOP.fullmatch(said):
         upsert_soul(db, SUGGESTIONS_KEY, "off", source="owner")
-    elif _START.search(user_message or ""):
+    elif _START.fullmatch(said):
         upsert_soul(db, SUGGESTIONS_KEY, "on", source="owner")
     row = get_soul(db, SUGGESTIONS_KEY)
     return str(row["value"]) if row else None
