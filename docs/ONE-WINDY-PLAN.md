@@ -574,12 +574,16 @@ Built on Connect's existing device-ticket flow (device/init, /pair, Sign in with
   1. the owner approves on the phone;
   2. Connect calls POST /api/v1/agent/:passport/handover, signed (X-Windy-Connect HMAC), with owner_id_token (the phone's fresh Windy sign-in), an Idempotency-Key and a neutral runtime_label;
   3. Hub seals Eternitas' single-use bootstrap token INSIDE the pickup;
-  4. after Chat + Mail ack, Connect does the ONE signed pickup (/credentials, then /memory once), on source=connect rounds;
-  5. Connect relays both to the computer as its poll 200: {credentials: <Hub's body, byte for byte>, memory: <body or null>}, once, then burned;
-  6. the computer registers its OWN key at Eternitas with the sealed bootstrap token.
+  4. after Chat + Mail ack, Connect's Worker does the ONE signed pickup itself (device.ts:155-186; source=connect), and turns the memory into a single-use Connect claim (15 min);
+  5. **the poll 200 to the computer, once (Connect 11-03, from its existing code):** {passport_number, agent_name, bootstrap_token, bootstrap_expires_at, memory: {url: "https://api.windyconnect.com/v1/device/memory?claim=<single-use>"} | null}, bound to device_code + agent_kid. CREATE takes {device_name, client: "windyfly", client_version, agent_kid};
+  6. the computer:
+     - registers its OWN key at Eternitas with the bootstrap token;
+     - gets its EPT by key proof;
+     - mints its Chat session and Mail from the EPT (the paths proven in the 11-02 lean-Fly lab);
+     - claims the memory once.
 
   The owner's token never reaches the computer, and Hub never sees the computer. A pickup credential bound to the computer's key would be a NEW design (M, not before 11-10), so it's not needed.
-- **Agent's part (by Fri 11-13):** a bring-home mode that takes Connect's relayed {credentials, memory}, installs them, and registers the computer's key with the sealed bootstrap token. Today windyfly has no bootstrap-token path; it registers on the owner path.
+- **Agent's part (by Fri 11-13):** make the key, CREATE with agent_kid, show the QR + 8 digits, poll, register the key with the bootstrap token (a new path: today windyfly registers on the owner path), EPT by key proof, claim the memory. Open with Hub (Connect asking): can the handover call carry agent_kid, so the bootstrap token registers only that key?
 
 ## E. Recommendations by the 10 guiding principles (Windy Agent draft, 2026-11-02; co-authors to counter)
 The principles are in kit-army-config doctrine/00-GUIDING-PRINCIPLES.md. When two collide, #10 decides: stability > the human's control of their own agent > simplicity > capability.
