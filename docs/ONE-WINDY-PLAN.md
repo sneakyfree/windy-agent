@@ -555,6 +555,23 @@ Until then every doorway keeps getting the roster agent, and today's ~59 keep ru
 - >= 11-10: 4c, 7 ships, 3 lab;
 - >= 11-11: Grant's fold.
 
+### Windy Connect: pairing codes for a "my computer" home (2026-11-03)
+Built on Connect's existing device-ticket flow (device/init, /pair, Sign in with Windy, poll, owner handover), which already runs for `windy connect`. Routes on api.windyconnect.com; the new ones sit behind the dark flag ENABLE_HOME_PAIRING.
+
+| # | Step | Route |
+|---|---|---|
+| 1 | CREATE (the computer) | POST /v1/home/code {device_name, client: "windyfly", client_version} -> {device_code (secret, stays on the computer), user_code (8 DIGITS: the typed fallback), qr_url (https://windyconnect.com/home?c=<user_code>), expires_in 300, interval 3}. Single use, 5-minute TTL, per-IP and per-code rate limits, no key or password in it |
+| 2 | RESOLVE (the approve page, signed-in owner only) | GET /v1/home/code/{user_code} -> {device_name, client, expires_at}, shown as "Make <device> your agent's home?" |
+| 3 | APPROVE / DENY | the shared web page windyconnect.com/home (the Fly app opens it after scanning; Sign in with Windy via Connect's OIDC client). Yes: the owner picks the agent if they have several; Connect runs the owner handover for that agent and binds the result to this device_code only. No: denied |
+| 4 | POLL (the computer) | POST /v1/home/poll {device_code} -> 428 pending, 200 {handover} ONCE, 403 denied, 410 expired; the ticket is burned after the 200 |
+| 5 | EXPIRE | automatic at 5 minutes, or POST /v1/home/cancel {device_code} |
+
+- **Keys:** the private key is made ON the computer; nothing Connect returns is a key.
+- **Telemetry:** connect.home_code_created / _approved / _denied / _expired, counts only, declared with Admin first.
+- **Size:** M.
+- **Dates:** built + Hub-read by Mon 11-09; live DARK by Tue 11-10 (Boss GO); lab proof with Agent Wed 11-11. That's ahead of Agent's computer side (Fri 11-13).
+- **Poll payload (Agent's answer, 11-03):** Hub's handover **bootstrap_token**, never the owner's own token on the computer: {passport_number, agent_name, bootstrap_token (one-time, scoped to registering THIS computer's key for THIS passport), pickup: {url, a handover-scoped credential}, memory url}. Proposed: CREATE carries the computer's agent_kid so the approval binds to that key. **Open (Hub):** do the pickup and memory routes accept a handover-scoped credential instead of the owner's bearer?
+
 ## E. Recommendations by the 10 guiding principles (Windy Agent draft, 2026-11-02; co-authors to counter)
 The principles are in kit-army-config doctrine/00-GUIDING-PRINCIPLES.md. When two collide, #10 decides: stability > the human's control of their own agent > simplicity > capability.
 
