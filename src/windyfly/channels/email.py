@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 import uuid
 from typing import Any
 
@@ -85,8 +86,21 @@ def _mail_error_sentence(resp: Any) -> str:
                 if isinstance(said, str) and said.strip():
                     return said.strip()[:300]
     if resp.status_code >= 500:
-        return "The mail server had trouble, so I can't be sure it went. Check the Sent folder before sending again."
+        return _UNSURE_SENTENCE
     return "The mail server refused it."
+
+
+_UNSURE_SENTENCE = "The mail server had trouble, so I can't be sure it went. Check the Sent folder before sending again."
+
+
+def _mail_code(resp: Any) -> str:
+    """Mail's machine code for a refusal ({"error": code, "message": ...}, Windy Mail #275), or ""."""
+    try:
+        d = resp.json()
+    except Exception:  # noqa: BLE001
+        return ""
+    code = d.get("error") if isinstance(d, dict) else None
+    return code if isinstance(code, str) else ""
 
 
 class WindyMailAdapter:
@@ -168,13 +182,31 @@ class WindyMailAdapter:
         if bcc:
             payload["bcc"] = list(bcc)
         url = f"{self.api_url}/api/v1/send"
+        # ONE key per intended send (agent.action_key; Windy Mail #275): a repeat of the same send gets the first
+        # result back and is never sent again. The same key rides the legacy-credential retry inside _authed.
+        from windyfly.agent import action_key as _ak
+
+        idem = _ak.headers("mail.send", ",".join(sorted(str(x) for x in everyone)), subject)
         try:
-            resp = _authed("POST", url, self._send_bearer(),
-                           lambda headers: _httpx.post(url, json=payload, headers=headers, timeout=10.0))
+            def post() -> Any:
+                return _authed("POST", url, self._send_bearer(),
+                               lambda headers: _httpx.post(url, json=payload, headers={**headers, **idem},
+                                                           timeout=10.0))
+
+            resp = post()
+            if resp is not None and resp.status_code == 409 and _mail_code(resp) == "idempotency_in_progress":
+                time.sleep(2.0)  # the first try of this same send is still running: ask once more, same key
+                resp = post()
             if resp is None:
                 return {"status": "failed", "error": "I couldn't sign in to Windy Mail, so nothing was sent."}
+            if resp.status_code == 409 and _mail_code(resp) in ("idempotency_outcome_unknown", "idempotency_in_progress"):
+                # Mail can't tell whether the first try went (Boss 22:24Z: outcome unknown = never resent).
+                return {"status": "failed", "error": _UNSURE_SENTENCE}
             if resp.status_code in (200, 201, 202):
                 data = resp.json()
+                if resp.headers.get("Idempotent-Replayed", "").lower() == "true":
+                    logger.info("Windy Mail: this send was already made (idempotent replay); not sent again")
+                    return {"status": "sent", "message_id": data.get("message_id"), "replayed": True}
                 logger.info("Windy Mail sent to %d recipient(s) — %s", len(everyone), subject)
                 return {"status": "sent", "message_id": data.get("message_id")}
             else:

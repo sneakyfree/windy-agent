@@ -971,7 +971,24 @@ class WindyFlyMatrixBot(ChannelAdapter):
         room: nio.MatrixRoom,
         event: nio.RoomMessageText,
     ) -> None:
-        """Handle incoming text messages (unencrypted rooms; see _on_encrypted_event)."""
+        """Handle incoming text messages (unencrypted rooms; see _on_encrypted_event).
+
+        The message is the TRIGGER for every outward send it leads to (agent.action_key): each send carries an
+        idempotency key derived from it, so the same message can never send twice. nio runs every callback in one task,
+        so the trigger is set here and reset on the way out."""
+        from windyfly.agent import action_key as _ak
+
+        tok = _ak.enter(str(getattr(event, "event_id", "") or ""))
+        try:
+            await self._on_message_inner(room, event)
+        finally:
+            _ak.leave(tok)
+
+    async def _on_message_inner(
+        self,
+        room: nio.MatrixRoom,
+        event: nio.RoomMessageText,
+    ) -> None:
         # Ignore our own messages (report-back reads the server time of its own ask here, when it had to wait)
         if event.sender == self.bot_user_id:
             from windyfly.channels import report_back as _rb_own

@@ -435,6 +435,18 @@ def _send_byo(base_url: str, to: str | None, body: str) -> dict[str, Any]:
             "error": plain or refusal_sentence(resp.status_code, None)}
 
 
+def _text_code(resp: httpx.Response) -> str:
+    """Windy Text's machine code for a refusal, or ""."""
+    try:
+        err = resp.json()
+    except ValueError:
+        return ""
+    if not isinstance(err, dict):
+        return ""
+    code = err.get("error_code") or err.get("error") or (err.get("detail") if isinstance(err.get("detail"), str) else "")
+    return code if isinstance(code, str) else ""
+
+
 def _deliver(base_url: str, ept: str, to: str | None, body: str) -> dict[str, Any]:
     text = _with_footer(body)
     if len(text) > _MAX_SMS_CHARS:
@@ -442,17 +454,30 @@ def _deliver(base_url: str, ept: str, to: str | None, body: str) -> dict[str, An
             "status": "failed",
             "error": f"Text too long ({len(text)} characters with the sign-off; the limit is {_MAX_SMS_CHARS}).",
         }
-    try:
-        resp = httpx.post(
+    # ONE key per intended text (agent.action_key; Windy Text #125): a repeat gets the first result back and is never
+    # sent twice. Reused on this function's own retry.
+    from windyfly.agent import action_key as _ak
+
+    idem = _ak.headers("sms.send", to or "owner")
+
+    def post() -> httpx.Response:
+        return httpx.post(
             f"{base_url}/sms/send",
             headers={
                 "Authorization": f"Bearer {ept}",
                 "Content-Type": "application/json",
+                **idem,
             },
             # Never a `from`: Windy Text picks the owner's number (422 if sent).
             json={"body": text} if to is None else {"to": to, "body": text},
             timeout=_TIMEOUT,
         )
+
+    try:
+        resp = post()
+        if resp.status_code == 409 and idem and _text_code(resp) == "send_in_progress":
+            time.sleep(2.0)  # the first try of this same text is still running: ask once more, same key
+            resp = post()
     except httpx.ConnectError as exc:
         return {
             "status": "failed",
@@ -466,6 +491,8 @@ def _deliver(base_url: str, ept: str, to: str | None, body: str) -> dict[str, An
             data = resp.json()
         except ValueError:
             data = {}
+        if resp.headers.get("Idempotent-Replay", "").lower() == "true":
+            logger.info("Windy Text: this text was already sent (idempotent replay); not sent again")
         return {
             "status": "sent",
             "sid": data.get("sid", ""),
