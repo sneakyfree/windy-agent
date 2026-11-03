@@ -31,7 +31,6 @@ import hashlib
 import json
 import logging
 import os
-import socket
 import tempfile
 import time
 from datetime import datetime, timezone
@@ -146,12 +145,20 @@ def upsert_env(values: dict[str, str], path: Path | None = None) -> Path:
     return path
 
 
+HOME_LABEL_ENV = "WINDY_HOME_LABEL"
+DEFAULT_HOME_LABEL = "Windy Fly home"
+
+
 def runtime_label() -> str:
-    try:
-        name = socket.gethostname()
-    except OSError:
-        name = ""
-    return (name or "this machine")[:60]
+    """The label the hub stores for this home (handover ``runtime_label``, cut to 60 there).
+
+    Never the machine's hostname: on a person's laptop it is often their own name ("Grants-MacBook") and on others it
+    names the network (Hub, 11-02). A fixed, neutral label unless the person names the home themselves
+    (``WINDY_HOME_LABEL``); a name with a line break or control character falls back to the fixed one."""
+    name = os.environ.get(HOME_LABEL_ENV, "").strip()
+    if name and name.isprintable():
+        return name[:60]
+    return DEFAULT_HOME_LABEL
 
 
 def idempotency_key(passport: str) -> str:
