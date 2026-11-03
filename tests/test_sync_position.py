@@ -223,40 +223,75 @@ async def test_no_gap_line_without_a_resume_or_a_limited_dm(resumed, limited):
     assert _bodies(bot) == []
 
 
-def _file_event(sent_before_boot: bool):
+def _file_event(age_s: float = 5, event_id: str = "$file", room_id: str = ROOM, sender: str = "@owner:chat.windychat.ai"):
     room = MagicMock()
-    room.room_id = ROOM
+    room.room_id = room_id
     ev = MagicMock()
-    ev.sender = "@owner:chat.windychat.ai"
-    ev.event_id = "$file"
-    ev.server_timestamp = (time.time() - (3600 if sent_before_boot else -5)) * 1000
+    ev.sender, ev.event_id, ev.body, ev.url = sender, event_id, "photo.jpg", "mxc://x/y"
+    ev.server_timestamp = (time.time() - age_s) * 1000
     ev.source = {}
     return room, ev
 
 
+def _owner_band(sender, **_):
+    from windyfly.agent.capabilities.descriptor import Band
+
+    return Band.OWNER if sender == "@owner:chat.windychat.ai" else Band.USER
+
+
+async def _send_file(bot, *ev, awaited=False):
+    with patch("windyfly.soul_import.flow.awaiting_file", return_value=awaited), \
+            patch("windyfly.channels.identity.resolve_band", side_effect=lambda ch, s, **k: _owner_band(s)), \
+            patch("windyfly.soul_import.flow.too_big", return_value="taken by the import"):
+        await bot._on_file(*ev)
+
+
 @pytest.mark.asyncio
-async def test_a_file_sent_while_offline_is_said_once():
+async def test_an_unrequested_owner_file_in_the_dm_gets_one_plain_line():
     from windyfly.channels import matrix_bot as mb
 
-    bot = _resumed_bot()
-    with patch("windyfly.soul_import.flow.awaiting_file", return_value=False):
-        await bot._on_file(*_file_event(sent_before_boot=True))
-    await bot._on_sync_response(_sync_response(limited=False))
-    await bot._on_sync_response(_sync_response(limited=False))
+    bot = _bot()
+    bot._hatch_dm_room_id = ROOM
+    await _send_file(bot, *_file_event())
+    await _send_file(bot, *_file_event())  # the same event again (a replay): nothing
     assert _bodies(bot) == [mb._FILE_SAY]
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("awaited,before_boot", [(True, True), (False, False)])
-async def test_no_file_line_when_a_soul_import_takes_it_or_it_came_while_running(awaited, before_boot):
+async def test_after_a_resume_an_old_unrequested_file_gets_the_line_once():
     from windyfly.channels import matrix_bot as mb
 
     bot = _resumed_bot()
-    with patch("windyfly.soul_import.flow.awaiting_file", return_value=awaited), \
-            patch.object(bot, "_on_file_inner", AsyncMock()):
-        await bot._on_file(*_file_event(sent_before_boot=before_boot))
-    await bot._on_sync_response(_sync_response(limited=False))
-    assert mb._FILE_SAY not in _bodies(bot)
+    await _send_file(bot, *_file_event(age_s=3 * 3600, event_id="$while-asleep"))
+    assert _bodies(bot) == [mb._FILE_SAY]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("room_id,sender", [("!group:chat.windychat.ai", "@owner:chat.windychat.ai"),
+                                            (ROOM, "@stranger:chat.windychat.ai")])
+async def test_a_group_room_or_a_non_owner_file_stays_silent(room_id, sender):
+    bot = _bot()
+    bot._hatch_dm_room_id = ROOM
+    await _send_file(bot, *_file_event(room_id=room_id, sender=sender))
+    assert _bodies(bot) == []
+
+
+@pytest.mark.asyncio
+async def test_a_file_a_soul_import_asked_for_is_taken_as_before_not_the_line():
+    from windyfly.channels import matrix_bot as mb
+
+    bot = _bot()
+    bot._hatch_dm_room_id = ROOM
+    await _send_file(bot, *_file_event(), awaited=True)
+    assert mb._FILE_SAY not in _bodies(bot) and _bodies(bot) == ["taken by the import"]
+
+
+@pytest.mark.asyncio
+async def test_a_fresh_start_skips_an_old_file_silently():
+    bot = _bot()
+    bot._hatch_dm_room_id = ROOM
+    await _send_file(bot, *_file_event(age_s=3 * 3600))
+    assert _bodies(bot) == []
 
 
 @pytest.mark.parametrize("seconds,said", [(61 * 60, "61 minutes"), (60, "1 minute"), (5 * 3600, "5 hours"),
@@ -265,3 +300,58 @@ def test_ages_are_plain_words(seconds, said):
     from windyfly.channels import matrix_bot as mb
 
     assert mb._plain_age(seconds) == said
+
+
+# ── an in-process WAKE: a suspended laptop carries on from its in-memory position (Hub on #696) ─────────────────────
+
+def _woken_bot(asleep_s: float):
+    bot = _bot()
+    bot._hatch_dm_room_id = ROOM
+    bot._last_sync_success = time.time() - asleep_s  # the last good sync was before the lid closed
+    bot._gap_checked = True                          # this process has synced before
+    return bot
+
+
+@pytest.mark.asyncio
+async def test_after_an_in_process_wake_of_30_min_the_dm_message_is_acted_on():
+    with patch("windyfly.channels.matrix_bot.agent_respond", return_value="ok") as respond:
+        bot = _woken_bot(30 * 60)
+        await bot._on_message(*_owner_message(25 * 60, "$while-the-lid-was-closed"))
+        assert respond.call_count == 1  # no longer cut by the 120 s window
+
+
+@pytest.mark.asyncio
+async def test_after_an_in_process_wake_of_2_hours_an_old_message_gets_one_reply():
+    from windyfly.channels import matrix_bot as mb
+
+    with patch("windyfly.channels.matrix_bot.agent_respond", return_value="x") as respond:
+        bot = _woken_bot(2 * 3600)
+        await bot._on_message(*_owner_message(100 * 60, "$old-after-a-wake"))
+        await bot._on_sync_response(_sync_response(limited=False))
+        assert respond.call_count == 0
+        assert _bodies(bot) == [mb._STALE_SAY.format(n="1 message", age="100 minutes")]
+
+
+@pytest.mark.asyncio
+async def test_a_limited_dm_after_an_in_process_wake_gets_the_gap_line():
+    from windyfly.channels import matrix_bot as mb
+
+    bot = _woken_bot(3 * 3600)
+    await bot._on_sync_response(_sync_response(limited=True))
+    assert _bodies(bot) == [mb._GAP_SAY]
+
+
+@pytest.mark.asyncio
+async def test_a_limited_dm_on_a_normal_sync_says_nothing():
+    bot = _woken_bot(20)  # the last sync was 20 s ago: no wake
+    await bot._on_sync_response(_sync_response(limited=True))
+    assert _bodies(bot) == []
+
+
+@pytest.mark.asyncio
+async def test_a_group_room_keeps_the_120_s_window_after_a_wake():
+    with patch("windyfly.channels.matrix_bot.agent_respond", return_value="x") as respond:
+        bot = _woken_bot(3600)
+        bot._hatch_dm_room_id = "!another-room:chat.windychat.ai"
+        await bot._on_message(*_owner_message(10 * 60, "$group-chatter"))
+        assert respond.call_count == 0
