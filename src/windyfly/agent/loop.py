@@ -910,13 +910,22 @@ def _agent_respond_turn(
     if _is_first_contact(db) and not _silence_welcome.is_agent_sender(session_id):
         _mark_welcomed(db)  # latch BEFORE the async episode writes land
         welcome = _format_welcome(config)
-        write_queue.enqueue(Priority.HIGH, save_episode, db, "user",
-                            user_message, session_id=session_id)
-        write_queue.enqueue(Priority.HIGH, save_episode, db, "assistant",
-                            welcome, session_id=session_id)
         log_event(db, write_queue, "first_contact.welcome",
                   {"user_message": user_message[:100]})
-        return welcome
+        # The welcome never SWALLOWS the message (Boss 11-03): the same exchange answers it as a normal turn, which
+        # keeps the person's message and that answer in memory. The latch above keeps this from welcoming twice.
+        try:
+            answer = _agent_respond_turn(config, db, write_queue, user_message, session_id,
+                                         tool_registry=tool_registry, band=band)
+        except Exception as exc:  # noqa: BLE001
+            # The model is down (dead credentials at hatch): the welcome still goes out, needing no model, and the
+            # person's message is kept (Hub on #699).
+            logger.warning("[req:%s] first contact: the answer failed (%s); sending the welcome alone",
+                           request_id_short(), type(exc).__name__)
+            write_queue.enqueue(Priority.HIGH, save_episode, db, "user", user_message, session_id=session_id)
+            write_queue.enqueue(Priority.HIGH, save_episode, db, "assistant", welcome, session_id=session_id)
+            return welcome
+        return f"{welcome}\n\n{answer}" if answer else welcome
 
     # 1. Assemble prompt
     # Pass current session's pct_remaining so the prompt assembler

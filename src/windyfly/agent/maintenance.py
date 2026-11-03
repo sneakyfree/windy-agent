@@ -160,8 +160,9 @@ def default_jobs(config: dict[str, Any]) -> list[MaintenanceJob]:
         from datetime import timedelta
         from windyfly.memory.database import Database
         from windyfly.memory.journal import write_day
-        db_path = (config.get("memory", {}) or {}).get("db_path", "data/windyfly.db")
-        db = Database(db_path)
+        from windyfly.memory.db_location import resolve_db_path
+
+        db = Database(resolve_db_path((config.get("memory", {}) or {}).get("db_path")))
         day = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
         try:
             model_caller = _journal_model_caller(config)

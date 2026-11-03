@@ -135,8 +135,9 @@ def _use_mock() -> bool:
 def _db():
     """Get the agent's shared Database instance (lazy import)."""
     from windyfly.memory.database import Database
-    db_path = os.environ.get("WINDYFLY_DB_PATH", "data/windyfly.db")
-    return Database(db_path)
+    from windyfly.memory.db_location import resolve_db_path
+
+    return Database(resolve_db_path())
 
 
 def _ensure_table(db) -> None:

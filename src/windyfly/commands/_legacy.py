@@ -98,8 +98,10 @@ def _format_uptime(started_iso: str) -> str:
 
 
 def _get_db_path() -> Path:
-    """Return path to the windyfly database."""
-    return PROJECT_ROOT / "data" / "windyfly.db"
+    """Return path to the windyfly database (the one rule: memory/db_location.py)."""
+    from windyfly.memory.db_location import resolve_db_path
+
+    return Path(resolve_db_path())
 
 
 def _open_db():

@@ -429,7 +429,9 @@ def main() -> None:
         logger.warning("provider salvage skipped (%s); retrying at next start", type(exc).__name__)
 
     # Start background decay scheduler (G7)
-    db_path = config.get("memory", {}).get("db_path", "data/windyfly.db")
+    from windyfly.memory.db_location import resolve_db_path
+
+    db_path = resolve_db_path(config.get("memory", {}).get("db_path"))
     _start_decay_scheduler(config, db_path, args.channel)
     from windyfly.memory.split_check import start_split_watch
     start_split_watch(db_path)

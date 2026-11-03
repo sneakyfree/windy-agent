@@ -216,10 +216,9 @@ def _next_state(prev: dict, uploaded: dict, *, suspect: bool) -> dict:
 
 
 def _db_path(config: dict | None) -> Path:
-    db_path = PROJECT_ROOT / "data" / "windyfly.db"
-    if config:
-        db_path = Path(config.get("memory", {}).get("db_path", "data/windyfly.db"))
-    return db_path
+    from windyfly.memory.db_location import resolve_db_path
+
+    return Path(resolve_db_path((config or {}).get("memory", {}).get("db_path")))
 
 
 def episode_count(db_path: Path) -> int | None:

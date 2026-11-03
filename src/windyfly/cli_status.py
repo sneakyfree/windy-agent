@@ -95,7 +95,9 @@ def print_status(config: dict[str, Any] | None = None) -> None:
             config = {}
 
     # Database info
-    db_path = _safe_get(config, "memory", "db_path", default="data/windyfly.db")
+    from windyfly.memory.db_location import resolve_db_path
+
+    db_path = resolve_db_path(_safe_get(config, "memory", "db_path", default=None))
     db = None
     db_size_str = "N/A"
     node_count = 0
