@@ -544,13 +544,13 @@ Until then every doorway keeps getting the roster agent, and today's ~59 keep ru
 | # | Item | Plan | Size | Dates |
 |---|---|---|---|---|
 | 1 | Social sign-in fix #1641 | Deploys tonight 19:00-19:45Z + migrations 048/049 (rebased; combined tree 2633 tests, 0 failed). Follow-up (S): call Eternitas' ept-cutoff for the owner's agents BEFORE issuing new tokens (an order test). Dark until Eternitas' route is live (Thu 16:30Z); a 404 means not live, never a pass | S (follow-up) | deploy Tue 11-03 19:00Z; follow-up PR Fri 11-06 |
-| 2 | Global cap on FREE hosted hatches #1642 | Deploys tonight, OFF. The value 50 is env-only, with its own daytime GO Wed/Thu and a review on 11-30. RETIRES once item 4 + Eternitas' certificate gate are live for all | - | deploy Tue 11-03; value Wed/Thu |
-| 3 | Identity linking (A2) | Contract identity-link.v1: link only with a fresh proof of BOTH sign-ins; a MOVE of agent/mailboxes/products, never a delete; audit; lifecycle fan-out. Then code, then a lab proof on two synthetic identities, then Grant's windstormlabs fold under a daytime GO (BEFORE/AFTER per product; his 7 Mind providers on phone + web) | L | contract Thu 11-05; code PR Tue 11-10; Grant's fold >= Wed 11-11 |
-| 4 | The Mind stop (HATCH_REQUIRES_MIND_SETUP; prod unset = OFF) | Joins Eternitas' certificate gate (mind/compute/home, eternitas #291), no second gate. (a) the read token into the lockbox + env, its own GO; (b) 'capable' for synthetic lab owners + a lab hatch proving stop -> setup -> resume; (c) 'all' with Grant's OK | M | (a) Thu; (b) Fri; (c) >= 11-10 |
+| 2 | Global cap on FREE hosted hatches #1642 | Deploys tonight, OFF. The value 50 is env-only, with its own daytime GO Wed/Thu and a review on 11-30. RETIRES once item 4 + Eternitas' certificate gate are live for all, and when VPS trials go live. HQ's hatch.global_cap_* rows went live 2026-11-03 13:26Z | - | deploy Tue 11-03; value Wed/Thu |
+| 3 | Identity linking (A2) | Contract identity-link.v1: link only with a fresh proof of BOTH sign-ins; a MOVE of agent/mailboxes/products, never a delete; audit; lifecycle fan-out. Then code, then a lab proof on two synthetic identities, then Grant's windstormlabs fold under a daytime GO (BEFORE/AFTER per product; his 7 Mind providers on phone + web). No hand SQL | L | contract Thu 11-05; code PR Tue 11-10; Grant's fold >= Wed 11-11 |
+| 4 | The Mind stop (HATCH_REQUIRES_MIND_SETUP; prod unset = OFF) | Joins Eternitas' certificate gate (mind/compute/home, eternitas #291), no second gate. (a) Mind mints the read token, into the lockbox by stdin, then the account-server env under its own GO; (b) 'capable' for synthetic lab owners + a lab hatch proving stop -> setup -> resume; (c) 'all' with Grant's OK | M | (a) Thu; (b) Fri; (c) >= 11-10 |
 | 5 | **The "my Windy" GET** (your-windy.v1) | GET /api/v1/identity/my-windy: the owner view, or agent-scoped by EPT (its own passport/handle, Cloud allowance via WindyCloud #222, Vault ready, platforms usable / coming soon; never another agent's data). **It unblocks #692's facts + suggestions in prod and the suggestion lab proof** | M | PR Thu 11-05; the lean Fly's lab read Fri 11-06 (Agent) |
-| 6 | Agent retire/restore (AGENTS_CONTRACT section 4) | Contract first: agent.paused/restored to Mail, Chat, Mind, Agent, Mobile; a 30-day restore window, then the delete path; agents/1 only after a lab proof | M | contract Wed 11-04; code Mon 11-09 |
-| 7 | Doorway + recovery (= section A's H2/H3) | See H2/H3 and Boss's 08:13Z conditions | M + S | PR Fri 11-06; ships >= 11-10 |
-| 8 | Pairing codes / Mail graceful degrade | Hub's part is only the hatch page + ticket. A hatch already ends "partial" and the page says so (#1649 merged); a failed mail step no longer closes the phone screen (#1645 + Mobile #386). **Hub: pairing is Windy Connect's, on the existing ticket API.** (Boss accepted row 8 as written, 08:18Z: **pairing codes = Windy Connect**, on the existing ticket API; this supersedes section F's "one-time pairing codes in Windy Accounts (Hub)". Agent's computer side and Mobile's scanner build against Connect's routes) | - | - |
+| 6 | Agent retire/restore (AGENTS_CONTRACT section 4) | Contract first: agent.paused/restored to Mail, Chat, Mind, Agent, Mobile; a 30-day restore window, then the delete path; agents/1 only after a lab proof (retire + restore on a synthetic agent) | M | contract Wed 11-04; code Mon 11-09 |
+| 7 | Doorway + recovery (= section A's H2/H3) | See H2/H3 and Boss's 08:13Z conditions; src=<closed list> attribution only; ships after J1/J2/J3 + one real Google/Apple/GitHub sign-in | M + S | PR Fri 11-06; ships >= 11-10 |
+| 8 | Pairing codes / Mail graceful degrade | **SUPERSEDED by section A's H7 (pairing codes) and H8 (Mail graceful degrade), Hub 2026-11-03 ~14:0xZ; Boss accepted both 14:02Z.** Earlier text: Hub's part is only the hatch page + ticket. A hatch already ends "partial" and the page says so (#1649 merged); a failed mail step no longer closes the phone screen (#1645 + Mobile #386). **Hub: pairing is Windy Connect's, on the existing ticket API.** (Boss accepted row 8 as written, 08:18Z: **pairing codes = Windy Connect**, on the existing ticket API; this supersedes section F's "one-time pairing codes in Windy Accounts (Hub)". Agent's computer side and Mobile's scanner build against Connect's routes) | - | - |
 
 **Boss ACCEPTED Hub's rows 1-8 and their order (2026-11-03 08:18Z), with three additions:**
 - **Row 1 follow-up:** if Eternitas' cutoff call errors (5xx or timeout, once the route is live), the owner's new tokens STILL issue: the owner is the verified person and is never locked out. The cutoff retries until it lands, and HQ gets hub.ept_cutoff_failed after 3 misses. The PR includes the order test AND a failure test (cutoff 500: tokens issue, a retry is queued, the alarm fires). A 404 before Thu means "not live", never a pass.
@@ -562,13 +562,16 @@ Until then every doorway keeps getting the roster agent, and today's ~59 keep ru
 - **Rows 2 and 4, HQ events** (hatch.global_cap_*, hub.ept_cutoff_failed, the Mind stop's events): read windy-contracts x-telemetry first and declare them there before any code emits them.
 - Nothing here needs Grant before 11-10 except row 3's heads-up line.
 
-**Hub's order:**
+**Hub's rule for every row:** nothing reaches a real person without a lab proof + Boss's daytime GO; no sign-in change ships during the friends wave (before Tue 11-10).
+
+**Hub's order (resent 2026-11-03 ~14:0xZ):**
 - tonight: 1 + 2;
 - Wed: 6 contract;
-- Thu: 3 contract, 4a, 5, Eternitas cutoff live;
+- Thu: 3 contract, 4a, 5, the desktop-handover contract, Eternitas' cutoff live;
 - Fri: 1 follow-up, 4b, 7 PR;
-- Mon/Tue: 6 + 3 code;
-- >= 11-10: 4c, 7 ships, 3 lab;
+- Mon: 6 code, the running-nowhere + old-key-revoke PR;
+- Tue: 3 code, the desktop-pickup PR;
+- Wed 11-11: the Mail-degrade PR, labs;
 - >= 11-11: Grant's fold.
 
 ### Windy Connect: pairing codes for a "my computer" home (2026-11-03)
