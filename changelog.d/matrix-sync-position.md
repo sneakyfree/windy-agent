@@ -1,0 +1,1 @@
+- **A sleeping laptop no longer loses your messages.** The agent now keeps its Windy Chat sync position across restarts and sleeps, so when the computer wakes it answers what you wrote meanwhile, once. Before, anything older than two minutes was silently skipped. Every message is also handled at most once across restarts, so waking up never answers or acts on something twice.

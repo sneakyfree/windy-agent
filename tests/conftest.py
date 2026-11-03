@@ -493,3 +493,15 @@ def _no_owner_pause_check(monkeypatch):
     monkeypatch.setattr(models, "check_owner_pause", lambda force=False: models.owner_paused())
     yield
     models.clear_owner_pause()
+
+
+@pytest.fixture(autouse=True)
+def _isolated_matrix_state(tmp_path, monkeypatch):
+    """Each test gets its own at-most-once record and sync position (never ~/.windy's)."""
+    from windyfly.channels import handled_events, sync_position
+
+    monkeypatch.setenv(handled_events.ENV_VAR, str(tmp_path / "handled_events.json"))
+    monkeypatch.setenv(sync_position.ENV_VAR, str(tmp_path / "matrix_sync_position.json"))
+    handled_events.reset_cache()
+    yield
+    handled_events.reset_cache()

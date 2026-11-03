@@ -30,6 +30,7 @@ from typing import Any
 import nio
 
 from windyfly.agent.loop import agent_respond
+from windyfly.channels import sync_position as _position
 from windyfly.channels.base import ChannelAdapter, OutgoingMessage
 from windyfly.channels.matrix_self import set_confirmed
 from windyfly.memory.database import Database
@@ -253,6 +254,10 @@ class WindyFlyMatrixBot(ChannelAdapter):
 
         # Track boot time to ignore old messages
         self._boot_time = time.time()
+        # Resumed from a saved sync position (channels/sync_position.py): the first sync brings only what arrived since
+        # the last position this agent finished, so the 120 s catch-up cutoff does not apply.
+        self._resumed_sync = False
+        self._last_position_save = 0.0
         self._report_timers: set[Any] = set()      # report-back deadline and settle timers (cancelled on stop)
 
         # Shutdown flag for graceful termination
@@ -1023,8 +1028,8 @@ class WindyFlyMatrixBot(ChannelAdapter):
         # reconnect backlog (messages minutes old). Rapid double-texting —
         # extremely common for normies — no longer loses the second message.
         event_age = time.time() - (event.server_timestamp / 1000)
-        if event_age > 120:
-            return
+        if event_age > 120 and not self._resumed_sync:
+            return  # a fresh start (no saved position): an old backlog is not replayed
 
         # Agent teams: a message from another AGENT that arrived before this process started is never
         # replayed (a restart inside the 120 s window re-answered a sibling's backlog and extended a
@@ -1034,6 +1039,14 @@ class WindyFlyMatrixBot(ChannelAdapter):
         if (_silence_boot.enabled() and _silence_boot.sender_is_agent(event.sender)
                 and event.server_timestamp / 1000 < self._boot_time):
             logger.info("silence: dropped a pre-start message from agent %s", event.sender)
+            return
+
+        # AT MOST ONCE, across restarts (Boss 11-02 22:13Z): a message taken before (or older than the newest one
+        # taken in this room) is never processed again. The 11-02 lab restart re-ran the owner's "send" and mailed twice.
+        from windyfly.channels import handled_events as _handled
+
+        if not _handled.claim(room.room_id, str(getattr(event, "event_id", "") or ""), int(event.server_timestamp)):
+            logger.info("already handled: skipped a replayed message in %s", room.room_id)
             return
 
         room_id = room.room_id
@@ -1615,6 +1628,23 @@ class WindyFlyMatrixBot(ChannelAdapter):
 
     # ── sync health callbacks (run INSIDE nio's sync_forever loop) ──────
 
+    def _resume_saved_position(self) -> None:
+        """Resume where this agent's sync got to before a restart or a sleep (channels/sync_position.py)."""
+        saved = _position.load(self.bot_user_id or "", str(getattr(self.client, "device_id", "") or ""))
+        if saved:
+            self.client.next_batch = saved
+            self._resumed_sync = True
+            logger.info("Matrix sync: resuming from the saved position (messages that arrived meanwhile are answered)")
+
+    def _save_sync_position(self, force: bool = False) -> None:
+        """Keep where this agent's sync got to (channels/sync_position.py). nio runs response callbacks after the
+        event callbacks, so a saved position is always past messages already handled. Throttled; never raises."""
+        token = getattr(self.client, "next_batch", None)
+        if not token or not (force or time.time() - self._last_position_save >= _position.SAVE_EVERY_S):
+            return
+        if _position.save(self.bot_user_id or "", str(getattr(self.client, "device_id", "") or ""), str(token)):
+            self._last_position_save = time.time()
+
     async def _on_sync_response(self, response: Any) -> None:
         """A /sync succeeded: clear the failure run and both backoffs."""
         if self._sync_failures:
@@ -1628,6 +1658,7 @@ class WindyFlyMatrixBot(ChannelAdapter):
         self._last_sync_success = time.time()
         self._connected = True
         self._backoff = _INITIAL_BACKOFF_S
+        self._save_sync_position()
         # Replies that failed to send go out now that the homeserver answers,
         # not only after a reconnect (strand P2.13.4).
         if self._pending_responses and time.time() - self._last_pending_retry >= _PENDING_RETRY_EVERY_S:
@@ -1790,6 +1821,7 @@ class WindyFlyMatrixBot(ChannelAdapter):
         logger.info("Graceful shutdown: flushing %d pending messages...", len(self._pending_responses))
         await self._flush_pending()
 
+        self._save_sync_position(force=True)  # the next start resumes exactly here
         logger.info("Graceful shutdown: closing connection...")
         try:
             await self.client.close()
@@ -1975,6 +2007,8 @@ class WindyFlyMatrixBot(ChannelAdapter):
         else:
             logger.info("maintenance: runs in the %s process for this agent, not here "
                         "(if that process is not running, no maintenance runs)", maintenance_runner())
+
+        self._resume_saved_position()
 
         # Sync with reconnection retry loop (exponential backoff)
         self._backoff = _INITIAL_BACKOFF_S
