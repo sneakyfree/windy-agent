@@ -187,7 +187,7 @@ class WindyMailAdapter:
         from windyfly.agent import action_key as _ak
 
         # The key is the route + the recipients + an ordinal, never the subject (Boss 09:10Z): a retry with a reworded
-        # subject is the SAME send. The ordinal moves on only after a definitive answer (_ak.done below).
+        # subject is the SAME send. The ordinal moves on only as action_key.settle allows.
         recips = ",".join(sorted(str(x) for x in everyone))
         idem = _ak.headers("mail.send", recips)
         try:
@@ -200,16 +200,14 @@ class WindyMailAdapter:
             if resp is not None and resp.status_code == 409 and _mail_code(resp) == "idempotency_in_progress":
                 time.sleep(2.0)  # the first try of this same send is still running: ask once more, same key
                 resp = post()
-            if resp is None or _ak.definitive(resp.status_code, _mail_code(resp)):
-                _ak.done("mail.send", recips)  # answered for sure (sent, or refused); the next send is a new one
             if resp is None:
+                # The sign-in failed, so THIS try sent nothing; but if an earlier try is in doubt, so is the mail.
+                if _ak.settle("mail.send", recips, status=None, final=True) == "unsure":
+                    return {"status": "failed", "error": _UNSURE_SENTENCE}
                 return {"status": "failed", "error": "I couldn't sign in to Windy Mail, so nothing was sent."}
-            if resp.status_code == 409 and _mail_code(resp) in ("idempotency_outcome_unknown", "idempotency_in_progress"):
-                # Mail can't tell whether the first try went (Boss 22:24Z: outcome unknown = never resent).
-                return {"status": "failed", "error": _UNSURE_SENTENCE}
-            if (resp.status_code == 422 and _mail_code(resp) == "idempotency_key_reused") or resp.status_code >= 500:
-                # key_reused: a retry of a send whose first try may have gone (Hub on #693); a 5xx can follow a REAL
-                # send (Mail's runbook). Both are unknown outcomes: never "refused", never Mail's own words.
+            # action_key.settle: a 2xx closes the send; an idempotency 409, a 422 key_reused or a 5xx is an unknown
+            # outcome (Boss 22:24Z: never resent), and after one, ANY non-2xx stays unsure (Hub on #693).
+            if _ak.settle("mail.send", recips, status=resp.status_code, code=_mail_code(resp)) == "unsure":
                 return {"status": "failed", "error": _UNSURE_SENTENCE}
             if resp.status_code in (200, 201, 202):
                 data = resp.json()
@@ -222,13 +220,15 @@ class WindyMailAdapter:
                 logger.warning("Windy Mail send failed: %s %s", resp.status_code, resp.text)
                 return {"status": "failed", "error": _mail_error_sentence(resp)}
         except _httpx.ConnectError as e:
-            _ak.done("mail.send", recips)  # never reached Mail: nothing was sent
             logger.error("Windy Mail send error: %s", e)
+            if _ak.settle("mail.send", recips, status=None, final=True) == "unsure":  # an earlier try is in doubt
+                return {"status": "failed", "error": _UNSURE_SENTENCE}
             return {"status": "failed", "error": str(e)}
         except Exception as e:
             # A timeout or a broken connection after the request left: an UNKNOWN outcome (Boss 09:10Z). The key stays
             # the same for a retry in this turn, so Mail can never send it twice.
             logger.error("Windy Mail send error (outcome unknown): %s", type(e).__name__)
+            _ak.settle("mail.send", recips, status=None)
             return {"status": "failed", "error": _UNSURE_SENTENCE}
 
     def check_inbox(self, unread_only: bool = True) -> list[dict[str, Any]]:

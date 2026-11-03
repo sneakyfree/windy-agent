@@ -196,7 +196,7 @@ def test_a_text_timeout_then_a_retry_in_the_same_turn_uses_the_same_key(monkeypa
 
 
 @pytest.mark.parametrize("status,body,said,moves_on", [
-    (503, {"detail": "spend_ledger_unavailable"}, "didn't send it", True),   # raised before the claim + Twilio
+    (503, {"detail": "spend_ledger_unavailable"}, "didn't send it", True),   # before Twilio; stored as the key's outcome
     (502, {"detail": "idempotency_replay_unavailable"}, "can't be sure", False),
     (500, {"detail": "crash"}, "can't be sure", False),
 ])
@@ -354,3 +354,63 @@ async def test_a_file_message_is_a_trigger_too():
     ev.event_id = "$a-file"
     await bot._on_file(MagicMock(), ev)
     assert seen == ["$a-file"] and ak.trigger() == ""
+
+
+
+# ── after an UNKNOWN try, only a 2xx closes the send (Hub on #693) ──────────────────────────────────────────────────
+
+def test_settle_after_an_unknown_try_only_a_2xx_closes_it():
+    def run(*statuses):
+        tok = ak.enter(EVENT)
+        try:
+            keys, verdicts = [], []
+            for st, code, final in statuses:
+                keys.append(ak.key("sms.send", "+1"))
+                verdicts.append(ak.settle("sms.send", "+1", status=st, code=code, final=final))
+            keys.append(ak.key("sms.send", "+1"))
+            return keys, verdicts
+        finally:
+            ak.leave(tok)
+
+    keys, v = run((None, "", None), (503, "keys_unavailable", True))
+    assert v == ["unsure", "unsure"] and len(set(keys)) == 1      # a definitive refusal after a timeout: still unsure
+    keys, v = run((None, "", None), (200, "", None))
+    assert v == ["unsure", "sent"] and keys[0] == keys[1] != keys[2]  # only the 2xx closes it
+    keys, v = run((503, "keys_unavailable", True),)
+    assert v == ["final"] and keys[0] != keys[1]                  # nothing in doubt: final, the next is a new send
+    keys, v = run((429, "", None),)
+    assert v == ["final"] and keys[0] == keys[1]                  # a 429: not sent, but the key stays
+
+
+def test_text_timeout_then_auth_503_then_a_third_try_keep_one_key(monkeypatch):
+    from windyfly.tools import sms
+
+    seen = []
+
+    def post(url, headers=None, json=None, timeout=None):
+        seen.append(dict(headers or {}))
+        if len(seen) == 1:
+            raise httpx.ReadTimeout("slow", request=httpx.Request("POST", url))
+        return httpx.Response(503, json={"detail": "keys_unavailable"}, request=httpx.Request("POST", url))
+
+    monkeypatch.setattr(sms.httpx, "post", post)
+    outs = _in_turn(lambda: [sms._deliver("https://text.test", "ept", "+15551234567", "x") for _ in range(3)])
+    assert all(o["error"] == sms._TEXT_UNSURE for o in outs)
+    assert not any("didn't send" in o["error"] for o in outs)
+    assert seen[0]["Idempotency-Key"] == seen[1]["Idempotency-Key"] == seen[2]["Idempotency-Key"]
+
+
+def test_mail_timeout_then_a_401_then_a_third_try_keep_one_key(mail, monkeypatch):
+    calls = []
+
+    def post(url, json=None, headers=None, timeout=None):
+        calls.append(dict(headers or {}))
+        if len(calls) == 1:
+            raise httpx.ReadTimeout("slow", request=httpx.Request("POST", url))
+        return httpx.Response(401, json={"detail": "bad token"}, request=httpx.Request("POST", url))
+
+    monkeypatch.setattr(httpx, "post", post)
+    outs = _in_turn(lambda: [mail.send_email("rig@windymail.ai", "Lab", "x") for _ in range(3)])
+    assert all("can't be sure it went" in o["error"] for o in outs)
+    keys = {c.get("Idempotency-Key") for c in calls}
+    assert len(keys) == 1 and None not in keys

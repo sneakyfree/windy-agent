@@ -422,12 +422,10 @@ def _send_byo(base_url: str, to: str | None, body: str) -> dict[str, Any]:
             time.sleep(2.0)  # the first try of this same text is still running: ask once more, same key
             resp = post()
     except httpx.ConnectError:
-        _ak.done("sms.send", to or "owner")  # never reached Windy Text: nothing was sent
-        return {"status": "failed", "sent": False, "error": _BRIEFLY_DOWN}
+        return _no_answer(to, connected=False)  # never reached Windy Text
     except httpx.HTTPError:
-        return {"status": "failed", "sent": None, "error": _TEXT_UNSURE}  # unknown outcome: the key stays
-    _settle(resp, to)
-    said = _unknown_send(resp)
+        return _no_answer(to, connected=True)   # a timeout / broken connection after the request left: unknown
+    said = _judge(resp, to)
     if said:
         return {"status": "failed", "sent": False if said == _BRIEFLY_DOWN else None,
                 "http_status": resp.status_code, "error": said}
@@ -459,35 +457,37 @@ def _send_byo(base_url: str, to: str | None, body: str) -> dict[str, Any]:
             "error": plain or refusal_sentence(resp.status_code, None)}
 
 
-# 503s Windy Text raises BEFORE any send: spend_ledger_unavailable before the key claim and Twilio (Hub 11-03); the
-# credential checks (keys_unavailable, revocation_unavailable) refuse before the send handler runs at all. Only these
-# may say "I didn't send it"; every other 5xx is an unknown outcome.
+# 503s that say for sure THIS request sent nothing (Hub 11-03, Text's /send order): the credential checks
+# (keys_unavailable, revocation_unavailable) refuse before the handler runs at all; spend_ledger_unavailable comes AFTER
+# the key claim but before Twilio, and Text stores it as the key's outcome (a same-key retry replays it). Only these may
+# say "I didn't send it", and only when no earlier try of this send had an unknown outcome (action_key.settle).
 _NOT_SENT_503 = frozenset({"spend_ledger_unavailable", "keys_unavailable", "revocation_unavailable"})
 
 
-def _unknown_send(resp: httpx.Response) -> str:
-    """The sentence for a send Windy Text did not clearly answer, or "" when its usual answer path applies (Hub + Boss
-    on #693). _BRIEFLY_DOWN only for 503 spend_ledger_unavailable (certainly not sent). Unknown: a 5xx (except 503 spend_ledger_unavailable, which Text raises before claiming the key and before
-    Twilio: certainly not sent), a 409 (in progress), a 429, or a 422 idempotency_key_reused (a retry of a text whose
-    first try may have gone). For those the key stays, so a retry in this turn can never send twice."""
+def _judge(resp: httpx.Response, to: str | None) -> str:
+    """Settle this try of the send (agent.action_key.settle) and return the sentence it needs, or "" when the usual
+    answer path applies (a 2xx, or a final refusal with its own plain sentence). _TEXT_UNSURE when the text may have
+    gone (a 5xx other than _NOT_SENT_503, an idempotency 409, a 422 key_reused, or ANY non-2xx after an earlier unknown
+    try); _BRIEFLY_DOWN for a _NOT_SENT_503 when nothing earlier is in doubt."""
     from windyfly.agent import action_key as _ak
 
     code = _text_code(resp)
-    if resp.status_code == 503 and code in _NOT_SENT_503:
-        return _BRIEFLY_DOWN  # TRUE here: refused before the key was claimed and before Twilio (Boss 09:14Z)
-    if resp.status_code == 429 or _ak.definitive(resp.status_code, code):
-        return ""  # 429: not sent (rate limited): the usual refusal sentence, but the key stays (_settle)
-    return _TEXT_UNSURE
+    before = resp.status_code == 503 and code in _NOT_SENT_503
+    verdict = _ak.settle("sms.send", to or "owner", status=resp.status_code, code=code, final=True if before else None)
+    if verdict == "unsure":
+        return _TEXT_UNSURE
+    return _BRIEFLY_DOWN if before else ""
 
 
-def _settle(resp: httpx.Response, to: str | None) -> None:
-    """Move the ordinal on only after a DEFINITIVE answer (Boss 09:10Z); 503 spend_ledger_unavailable counts (nothing
-    was sent or claimed)."""
+def _no_answer(to: str | None, connected: bool) -> dict[str, Any]:
+    """A try that got no answer. Never connected: nothing went (unless an earlier try is in doubt). Connected, then
+    lost: the text may have gone."""
     from windyfly.agent import action_key as _ak
 
-    code = _text_code(resp)
-    if _ak.definitive(resp.status_code, code) or (resp.status_code == 503 and code in _NOT_SENT_503):
-        _ak.done("sms.send", to or "owner")
+    verdict = _ak.settle("sms.send", to or "owner", status=None, final=None if connected else True)
+    if verdict == "unsure":
+        return {"status": "failed", "sent": None, "error": _TEXT_UNSURE}
+    return {"status": "failed", "sent": False, "error": _BRIEFLY_DOWN}
 
 
 def _text_code(resp: httpx.Response) -> str:
@@ -534,15 +534,11 @@ def _deliver(base_url: str, ept: str, to: str | None, body: str) -> dict[str, An
             time.sleep(2.0)  # the first try of this same text is still running: ask once more, same key
             resp = post()
     except httpx.ConnectError:
-        _ak.done("sms.send", to or "owner")  # never reached Windy Text: nothing was sent
-        return {"status": "failed", "sent": False, "error": _BRIEFLY_DOWN}
+        return _no_answer(to, connected=False)  # never reached Windy Text
     except httpx.HTTPError:
-        # A timeout or a broken connection after the request left: an UNKNOWN outcome (Boss 11-03 09:10Z). The key stays
-        # the same for a retry in this turn, so Windy Text can never send it twice.
-        return {"status": "failed", "error": _TEXT_UNSURE}
+        return _no_answer(to, connected=True)   # a timeout / broken connection after the request left: unknown
 
-    _settle(resp, to)  # the ordinal moves on only after a definitive answer
-    said = _unknown_send(resp)
+    said = _judge(resp, to)
     if said:
         return {"status": "failed", "sent": False if said == _BRIEFLY_DOWN else None,
                 "http_status": resp.status_code, "error": said}

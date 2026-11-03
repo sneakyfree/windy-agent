@@ -21,6 +21,7 @@ _trigger: contextvars.ContextVar[str] = contextvars.ContextVar("windyfly_action_
 # The ordinal of the send to each (route, target) in this trigger (Hub + Boss on #693): "text Mom I'm late, and text her
 # the address" is two texts to one number from one message, so two keys; a retry of ONE send keeps its key. A re-run of
 # the same turn makes the same sends in the same order, so it gets the same keys and is deduped.
+# Also holds ("?", route, *target) = 1 while an earlier try of the open send had an unknown outcome.
 _counts: contextvars.ContextVar[dict[tuple[str, ...], int] | None] = contextvars.ContextVar(
     "windyfly_action_counts", default=None)
 
@@ -62,12 +63,44 @@ def key(route: str, *target: str) -> str:
 
 
 def done(route: str, *target: str) -> None:
-    """The last send to (route, target) got a DEFINITIVE answer (sent, or a final refusal): the next one is a new
-    action with the next ordinal. Never call it after an unknown outcome."""
+    """Close the open send to (route, target): the next one is a new action with the next ordinal. Callers use
+    ``settle``, which decides when that is safe."""
     counts = _counts.get()
     who = (route, *(str(x) for x in target))
     if counts is not None and counts.get(who, 0) > 0:
         counts[who] = -counts[who]   # closed: negative = answered; the next key() takes the next ordinal
+        counts.pop(("?", *who), None)
+
+
+def settle(route: str, *target: str, status: int | None, code: str = "", final: bool | None = None) -> str:
+    """What one try of the open send to (route, target) means, and whether its key may move on:
+    - "sent": a 2xx (sent, or a replay of the first try). Closes it.
+    - "final": a certain "nothing was sent", for the WHOLE send. Closes it, except a 429 (the key stays).
+    - "unsure": the text/mail may have gone. The key stays for the next retry in this turn.
+    ``status`` None = no answer (a timeout or broken connection after the request left). ``final`` overrides for
+    answers the caller knows were refused before anything went (a connection that never opened, a before-send 503).
+
+    Hub on #693: a refusal that never looks at the key (auth, sign-in, a before-send 503) only says THIS try sent
+    nothing. Once an earlier try of this send had an UNKNOWN outcome, only a 2xx closes it; anything else stays unsure."""
+    if final is None:
+        final = status is not None and definitive(status, code)
+    unknown = not (status is not None and 200 <= status < 300) and not final and status != 429
+    counts = _counts.get()
+    if not _trigger.get() or counts is None:
+        # No chat message behind this send (a scheduled job): no key, so nothing to remember between tries.
+        return "sent" if status is not None and 200 <= status < 300 else ("unsure" if unknown else "final")
+    who = (route, *(str(x) for x in target))
+    if status is not None and 200 <= status < 300:
+        done(route, *target)
+        return "sent"
+    if unknown:
+        counts[("?", *who)] = 1   # this try's outcome is unknown: from now on only a 2xx closes the send
+        return "unsure"
+    if counts.get(("?", *who)):
+        return "unsure"           # refused for sure THIS time, but an earlier try may have gone
+    if final:
+        done(route, *target)
+    return "final"
 
 
 def definitive(status: int, code: str = "") -> bool:
