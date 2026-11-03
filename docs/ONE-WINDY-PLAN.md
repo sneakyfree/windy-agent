@@ -570,7 +570,16 @@ Built on Connect's existing device-ticket flow (device/init, /pair, Sign in with
 - **Telemetry:** connect.home_code_created / _approved / _denied / _expired, counts only, declared with Admin first.
 - **Size:** M.
 - **Dates:** built + Hub-read by Mon 11-09; live DARK by Tue 11-10 (Boss GO); lab proof with Agent Wed 11-11. That's ahead of Agent's computer side (Fri 11-13).
-- **Poll payload (Agent's answer, 11-03):** Hub's handover **bootstrap_token**, never the owner's own token on the computer: {passport_number, agent_name, bootstrap_token (one-time, scoped to registering THIS computer's key for THIS passport), pickup: {url, a handover-scoped credential}, memory url}. Proposed: CREATE carries the computer's agent_kid so the approval binds to that key. **Open (Hub):** do the pickup and memory routes accept a handover-scoped credential instead of the owner's bearer?
+- **How the handover runs (Hub 11-03, ADR-059 section 5c; NO Hub change):**
+  1. the owner approves on the phone;
+  2. Connect calls POST /api/v1/agent/:passport/handover, signed (X-Windy-Connect HMAC), with owner_id_token (the phone's fresh Windy sign-in), an Idempotency-Key and a neutral runtime_label;
+  3. Hub seals Eternitas' single-use bootstrap token INSIDE the pickup;
+  4. after Chat + Mail ack, Connect does the ONE signed pickup (/credentials, then /memory once), on source=connect rounds;
+  5. Connect relays both to the computer as its poll 200: {credentials: <Hub's body, byte for byte>, memory: <body or null>}, once, then burned;
+  6. the computer registers its OWN key at Eternitas with the sealed bootstrap token.
+
+  The owner's token never reaches the computer, and Hub never sees the computer. A pickup credential bound to the computer's key would be a NEW design (M, not before 11-10), so it's not needed.
+- **Agent's part (by Fri 11-13):** a bring-home mode that takes Connect's relayed {credentials, memory}, installs them, and registers the computer's key with the sealed bootstrap token. Today windyfly has no bootstrap-token path; it registers on the owner path.
 
 ## E. Recommendations by the 10 guiding principles (Windy Agent draft, 2026-11-02; co-authors to counter)
 The principles are in kit-army-config doctrine/00-GUIDING-PRINCIPLES.md. When two collide, #10 decides: stability > the human's control of their own agent > simplicity > capability.
