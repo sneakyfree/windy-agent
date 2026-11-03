@@ -1,0 +1,1 @@
+- **The runtime claim no longer sends your computer's name to Windy Mind.** Each start used to send the machine's name as the claim's `host` (often its owner's own name). Mind kept it only as a diagnostic and logged it. It now sends the same neutral label as bring-home: "Windy Fly home", or the name you set with `WINDY_HOME_LABEL`.
