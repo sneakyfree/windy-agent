@@ -355,3 +355,32 @@ async def test_a_group_room_keeps_the_120_s_window_after_a_wake():
         bot._hatch_dm_room_id = "!another-room:chat.windychat.ai"
         await bot._on_message(*_owner_message(10 * 60, "$group-chatter"))
         assert respond.call_count == 0
+
+
+@pytest.mark.asyncio
+async def test_the_wake_gap_is_wall_time_so_a_system_sleep_counts(monkeypatch):
+    """Boss 11:23Z: on macOS time.monotonic() does not advance during system sleep, so the gap must be wall time. A
+    jump of time.time() across a 3-hour sleep arms the catch-up even if a monotonic clock barely moved."""
+    from windyfly.channels import matrix_bot as mb
+
+    bot = _bot()
+    bot._hatch_dm_room_id, bot._gap_checked = ROOM, True
+    real = time.time()
+    bot._last_sync_success = real
+    monkeypatch.setattr(mb.time, "monotonic", lambda: 1.0)        # a sleeping Mac's monotonic clock: unchanged
+    monkeypatch.setattr(mb.time, "time", lambda: real + 3 * 3600)  # the wall clock after a 3-hour sleep
+    await bot._on_sync_response(_sync_response(limited=True))
+    assert _bodies(bot) == [mb._GAP_SAY]
+
+
+@pytest.mark.asyncio
+async def test_a_clock_that_jumped_backwards_counts_as_a_wake(monkeypatch):
+    from windyfly.channels import matrix_bot as mb
+
+    bot = _bot()
+    bot._hatch_dm_room_id, bot._gap_checked = ROOM, True
+    real = time.time()
+    bot._last_sync_success = real
+    monkeypatch.setattr(mb.time, "time", lambda: real - 600)       # NTP stepped the clock back 10 min
+    await bot._on_sync_response(_sync_response(limited=True))
+    assert _bodies(bot) == [mb._GAP_SAY]

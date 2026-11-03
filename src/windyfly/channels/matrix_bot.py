@@ -1741,8 +1741,12 @@ class WindyFlyMatrixBot(ChannelAdapter):
         self._last_sync_error = ""
         # A WAKE: the first sync after a restart from a saved position, or one that succeeds long after the last
         # (a suspended laptop carrying on from its in-memory position). Decided BEFORE the success time moves.
+        # The gap is WALL time (time.time()), on purpose: on macOS time.monotonic() stops while the system sleeps, so a
+        # 3-hour lid-close would look like seconds (Boss 11:23Z). A clock that jumped BACKWARDS gives a negative gap:
+        # the time away is unknown, so it counts as a wake (safe: the 1 h cap uses the server's timestamps).
         prev = self._last_sync_success
-        wake = (self._resumed_sync and not self._gap_checked) or (prev > 0 and time.time() - prev > _WAKE_GAP_S)
+        gap = time.time() - prev
+        wake = (self._resumed_sync and not self._gap_checked) or (prev > 0 and (gap > _WAKE_GAP_S or gap < 0))
         self._gap_checked = True
         self._last_sync_success = time.time()
         self._connected = True
