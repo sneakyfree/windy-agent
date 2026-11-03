@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 import uuid
 from typing import Any
 
@@ -85,8 +86,21 @@ def _mail_error_sentence(resp: Any) -> str:
                 if isinstance(said, str) and said.strip():
                     return said.strip()[:300]
     if resp.status_code >= 500:
-        return "The mail server had trouble, so I can't be sure it went. Check the Sent folder before sending again."
+        return _UNSURE_SENTENCE
     return "The mail server refused it."
+
+
+_UNSURE_SENTENCE = "The mail server had trouble, so I can't be sure it went. Check the Sent folder before sending again."
+
+
+def _mail_code(resp: Any) -> str:
+    """Mail's machine code for a refusal ({"error": code, "message": ...}, Windy Mail #275), or ""."""
+    try:
+        d = resp.json()
+    except Exception:  # noqa: BLE001
+        return ""
+    code = d.get("error") if isinstance(d, dict) else None
+    return code if isinstance(code, str) else ""
 
 
 class WindyMailAdapter:
@@ -168,21 +182,54 @@ class WindyMailAdapter:
         if bcc:
             payload["bcc"] = list(bcc)
         url = f"{self.api_url}/api/v1/send"
+        # ONE key per intended send (agent.action_key; Windy Mail #275): a repeat of the same send gets the first
+        # result back and is never sent again. The same key rides the legacy-credential retry inside _authed.
+        from windyfly.agent import action_key as _ak
+
+        # The key is the route + the recipients + an ordinal, never the subject (Boss 09:10Z): a retry with a reworded
+        # subject is the SAME send. The ordinal moves on only as action_key.settle allows.
+        recips = ",".join(sorted(str(x) for x in everyone))
+        idem = _ak.headers("mail.send", recips)
         try:
-            resp = _authed("POST", url, self._send_bearer(),
-                           lambda headers: _httpx.post(url, json=payload, headers=headers, timeout=10.0))
+            def post() -> Any:
+                return _authed("POST", url, self._send_bearer(),
+                               lambda headers: _httpx.post(url, json=payload, headers={**headers, **idem},
+                                                           timeout=10.0))
+
+            resp = post()
+            if resp is not None and resp.status_code == 409 and _mail_code(resp) == "idempotency_in_progress":
+                time.sleep(2.0)  # the first try of this same send is still running: ask once more, same key
+                resp = post()
             if resp is None:
+                # The sign-in failed, so THIS try sent nothing; but if an earlier try is in doubt, so is the mail.
+                if _ak.settle("mail.send", recips, status=None, final=True) == "unsure":
+                    return {"status": "failed", "error": _UNSURE_SENTENCE}
                 return {"status": "failed", "error": "I couldn't sign in to Windy Mail, so nothing was sent."}
+            # action_key.settle: a 2xx closes the send; an idempotency 409, a 422 key_reused or a 5xx is an unknown
+            # outcome (Boss 22:24Z: never resent), and after one, ANY non-2xx stays unsure (Hub on #693).
+            if _ak.settle("mail.send", recips, status=resp.status_code, code=_mail_code(resp)) == "unsure":
+                return {"status": "failed", "error": _UNSURE_SENTENCE}
             if resp.status_code in (200, 201, 202):
                 data = resp.json()
+                if resp.headers.get("Idempotent-Replayed", "").lower() == "true":
+                    logger.info("Windy Mail: this send was already made (idempotent replay); not sent again")
+                    return {"status": "sent", "message_id": data.get("message_id"), "replayed": True}
                 logger.info("Windy Mail sent to %d recipient(s) — %s", len(everyone), subject)
                 return {"status": "sent", "message_id": data.get("message_id")}
             else:
                 logger.warning("Windy Mail send failed: %s %s", resp.status_code, resp.text)
                 return {"status": "failed", "error": _mail_error_sentence(resp)}
-        except Exception as e:
+        except _httpx.ConnectError as e:
             logger.error("Windy Mail send error: %s", e)
+            if _ak.settle("mail.send", recips, status=None, final=True) == "unsure":  # an earlier try is in doubt
+                return {"status": "failed", "error": _UNSURE_SENTENCE}
             return {"status": "failed", "error": str(e)}
+        except Exception as e:
+            # A timeout or a broken connection after the request left: an UNKNOWN outcome (Boss 09:10Z). The key stays
+            # the same for a retry in this turn, so Mail can never send it twice.
+            logger.error("Windy Mail send error (outcome unknown): %s", type(e).__name__)
+            _ak.settle("mail.send", recips, status=None)
+            return {"status": "failed", "error": _UNSURE_SENTENCE}
 
     def check_inbox(self, unread_only: bool = True) -> list[dict[str, Any]]:
         """Fetch messages from the Windy Mail inbox.
