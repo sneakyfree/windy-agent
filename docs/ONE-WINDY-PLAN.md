@@ -534,7 +534,7 @@ Until then every doorway keeps getting the roster agent, and today's ~59 keep ru
 | 5 | **The "my Windy" GET** (your-windy.v1) | GET /api/v1/identity/my-windy: the owner view, or agent-scoped by EPT (its own passport/handle, Cloud allowance via WindyCloud #222, Vault ready, platforms usable / coming soon; never another agent's data). **It unblocks #692's facts + suggestions in prod and the suggestion lab proof** | M | PR Thu 11-05; the lean Fly's lab read Fri 11-06 (Agent) |
 | 6 | Agent retire/restore (AGENTS_CONTRACT section 4) | Contract first: agent.paused/restored to Mail, Chat, Mind, Agent, Mobile; a 30-day restore window, then the delete path; agents/1 only after a lab proof | M | contract Wed 11-04; code Mon 11-09 |
 | 7 | Doorway + recovery (= section A's H2/H3) | See H2/H3 and Boss's 08:13Z conditions | M + S | PR Fri 11-06; ships >= 11-10 |
-| 8 | Pairing codes / Mail graceful degrade | Hub's part is only the hatch page + ticket. A hatch already ends "partial" and the page says so (#1649 merged); a failed mail step no longer closes the phone screen (#1645 + Mobile #386). **Hub: pairing is Windy Connect's, on the existing ticket API.** [Boss to confirm the owner: section F's QR plan said "one-time pairing codes in Windy Accounts (Hub)"; Agent's computer side + Mobile's scanner depend on whoever owns it] | - | - |
+| 8 | Pairing codes / Mail graceful degrade | Hub's part is only the hatch page + ticket. A hatch already ends "partial" and the page says so (#1649 merged); a failed mail step no longer closes the phone screen (#1645 + Mobile #386). **Hub: pairing is Windy Connect's, on the existing ticket API.** (Boss accepted row 8 as written, 08:18Z: **pairing codes = Windy Connect**, on the existing ticket API; this supersedes section F's "one-time pairing codes in Windy Accounts (Hub)". Agent's computer side and Mobile's scanner build against Connect's routes) | - | - |
 
 **Boss ACCEPTED Hub's rows 1-8 and their order (2026-11-03 08:18Z), with three additions:**
 - **Row 1 follow-up:** if Eternitas' cutoff call errors (5xx or timeout, once the route is live), the owner's new tokens STILL issue: the owner is the verified person and is never locked out. The cutoff retries until it lands, and HQ gets hub.ept_cutoff_failed after 3 misses. The PR includes the order test AND a failure test (cutoff 500: tokens issue, a retry is queued, the alarm fires). A 404 before Thu means "not live", never a pass.
@@ -582,7 +582,7 @@ The principles are in kit-army-config doctrine/00-GUIDING-PRINCIPLES.md. When tw
      - A Windy Cloud VPS needs no QR (Cloud provisions and pairs it for the signed-in person).
      - ONE pairing method for every doorway (#6).
 
-     Builders: Windy Fly shows the code (Agent); the Fly app's scanner + approve screen (Mobile); one-time pairing codes in Windy Accounts (Hub); the desktop installer (Word).
+     Builders: Windy Fly shows the code (Agent); the Fly app's scanner + approve screen (Mobile); one-time pairing codes on the existing ticket API (**Windy Connect**, per Boss 11-03 08:18Z; was Hub); the desktop installer (Word).
    - (b) a Windy Cloud VPS, once built [Grant's money];
    - (c) a short free trial [Grant's money]. Recommended: about 7 days, free models only, under the global cap. At the end the agent PAUSES with its memory kept (#8), never deleted.
    - BYOM in the Mind stop.
