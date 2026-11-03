@@ -2010,30 +2010,40 @@ def _agent_respond_turn(
     #    Only the owner's own words, and only on a turn that read no untrusted
     #    content: anyone else's "my name is X" is not a fact about the owner,
     #    and anyone else's "I need to ..." is not the owner's goal (6.).
+    # Steps 5 and 6 run AFTER the answer is saved (step 3): a failure in either is logged by its type only and the turn
+    # carries on, so the person still gets the answer that is already in memory (Hub, after #699).
     owner_words = band >= Band.OWNER and not turn_tainted
-    _extract_and_store_facts(db, write_queue, user_message, owner=owner_words)
+    try:
+        _extract_and_store_facts(db, write_queue, user_message, owner=owner_words)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[req:%s] fact extraction failed after the answer was saved (%s); carrying on",
+                       request_id_short(), type(exc).__name__)
 
     # 6. Intent detection (MEDIUM priority) — regex fast-path + LLM fallback
-    proactivity = loop_sliders.get("proactivity", 5)
-    intent = (
-        detect_intent(user_message, config=config, proactivity=proactivity)
-        if owner_words else None
-    )
-    if intent and intent.get("has_intent"):
-        # Dedup: don't create if a similar active intent already exists;
-        # mentioning it again keeps it fresh so daily decay never pauses it.
-        from windyfly.memory.intents import find_similar_intent, touch_intent
-        existing = find_similar_intent(db, intent["description"])
-        if existing:
-            write_queue.enqueue(Priority.MEDIUM, touch_intent, db, existing["id"])
-        else:
-            write_queue.enqueue(
-                Priority.MEDIUM,
-                create_intent,
-                db,
-                intent["description"],
-                origin=intent["origin"],
-            )
+    try:
+        proactivity = loop_sliders.get("proactivity", 5)
+        intent = (
+            detect_intent(user_message, config=config, proactivity=proactivity)
+            if owner_words else None
+        )
+        if intent and intent.get("has_intent"):
+            # Dedup: don't create if a similar active intent already exists;
+            # mentioning it again keeps it fresh so daily decay never pauses it.
+            from windyfly.memory.intents import find_similar_intent, touch_intent
+            existing = find_similar_intent(db, intent["description"])
+            if existing:
+                write_queue.enqueue(Priority.MEDIUM, touch_intent, db, existing["id"])
+            else:
+                write_queue.enqueue(
+                    Priority.MEDIUM,
+                    create_intent,
+                    db,
+                    intent["description"],
+                    origin=intent["origin"],
+                )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[req:%s] intent detection failed after the answer was saved (%s); carrying on",
+                       request_id_short(), type(exc).__name__)
 
     # 7. Log event for observability
     log_event(db, write_queue, "agent.respond", {
