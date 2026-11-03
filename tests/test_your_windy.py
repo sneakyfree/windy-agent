@@ -285,9 +285,13 @@ def test_stop_suggesting_sticks_across_conversations(sdb, monkeypatch, stop):
     assert yw.suggestion_block(sdb, "matrix:!room:v9", "ok, you can suggest again") != ""
 
 
-def test_stop_wins_over_start_in_the_same_message(sdb, monkeypatch):
+@pytest.mark.parametrize("mention", ["tell my boss to stop suggesting meetings",
+                                     "why do you keep saying stop suggesting?", "I said don't suggest that to Bob"])
+def test_a_sentence_that_mentions_it_is_not_the_command(sdb, monkeypatch, mention):
+    """Hub on #692: only a message that IS the command flips the owner's switch."""
     _with(monkeypatch, _sdoc(ALL_ON))
-    assert yw.suggestion_block(sdb, SID, "don't start suggesting, just stop suggesting") == ""
+    assert yw.suggestion_block(sdb, SID, mention) != ""
+    assert yw.suggestion_block(sdb, SID, "my password is x") != ""
 
 
 @pytest.mark.parametrize("vault", [
@@ -336,5 +340,19 @@ def test_the_prompt_gives_facts_and_suggestions_to_the_owner_only(sdb, monkeypat
 
     owner = text(Band.OWNER)
     assert "YOUR WINDY (facts" in owner and "-> Windy Vault" in owner
-    stranger = text(Band.USER)
-    assert "YOUR WINDY" not in stranger and "SUGGESTIONS" not in stranger
+    for not_owner in (Band.USER, Band.TRUSTED, Band.SANDBOX, None):  # None: a caller that passes no band fails CLOSED
+        other = text(not_owner)
+        assert "YOUR WINDY" not in other and "SUGGESTIONS" not in other, not_owner
+
+
+def test_only_the_owner_can_flip_the_stop_switch(sdb, monkeypatch):
+    """Hub on #692: a trusted helper saying "stop suggesting" never changes the owner's stored setting."""
+    from windyfly.agent.capabilities import Band
+    from windyfly.agent.prompt import assemble_prompt
+
+    _with(monkeypatch, _sdoc(ALL_ON))
+    cfg = {"agent": {"default_model": "gpt-4o-mini"}, "memory": {"db_path": ":memory:", "max_nodes_per_context": 10},
+           "personality": {"soul_path": "SOUL.md", "autonomy": 5}}
+    assemble_prompt(cfg, sdb, "stop suggesting", SID, band=Band.TRUSTED)
+    owner = "\n\n".join(m["content"] for m in assemble_prompt(cfg, sdb, "hi", SID, band=Band.OWNER))
+    assert "SUGGESTIONS" in owner

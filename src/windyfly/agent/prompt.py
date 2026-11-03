@@ -322,7 +322,11 @@ def assemble_prompt(
     # suggestion to a stranger ("keep that password in your Vault") would point at the owner's Vault.
     from windyfly.agent import your_windy
 
-    yw = your_windy.block() if owner_ctx else ""
+    from windyfly.agent.capabilities import Band as _Band
+
+    # OWNER ONLY (Boss 19:43Z; Hub on #692): the exact OWNER band, never a trusted helper, CLOSED when no band is passed.
+    owner_only = band_value is not None and band_value == int(_Band.OWNER)
+    yw = your_windy.block() if owner_only else ""
     if yw:
         system_parts.append(yw)
         # Next to the facts, the bounded suggestion rule (Grant ~19:25Z, Boss 19:31Z). DARK: WINDY_SUGGEST_FEATURES=1.
