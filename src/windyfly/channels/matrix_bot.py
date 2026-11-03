@@ -195,6 +195,10 @@ _GAP_SAY = ("I was offline for a while and may have missed some of your messages
 # Boss 11:18Z, FINAL: said for EVERY unrequested file from the owner (awake or after a resume), once per file.
 _FILE_SAY = "I only open a file when I've asked you for one, so I haven't opened the file you sent."
 _WAKE_GAP_S = 120.0  # a sync that succeeds this long after the last one is a WAKE (a suspended laptop, Hub on #696)
+# The runtime claim after a sleep (runtime_claim.gate; Boss 11-03 12:12Z FINAL, Hub #9). Each said ONCE per period,
+# in the owner's DM only.
+_ELSEWHERE_SAY = "Another copy of your agent has started answering you, so I've stopped answering from here."
+_PAUSE_SAY = "I can't reach Windy right now, so I'm pausing until I can."
 
 
 def _plain_count(n: int) -> str:
@@ -289,6 +293,11 @@ class WindyFlyMatrixBot(ChannelAdapter):
         self._gap_checked = False
         # Ages of owner messages too old to act on, seen in the first resumed sync: ONE reply covers them (Boss 11:08Z).
         self._stale_ages: list[float] = []
+        # The runtime claim after a wake (runtime_claim.reclaim/gate): the sync success a wake re-claim was done for
+        # (once per wake), the claim line said this period, and messages held while paused (Mind unreachable).
+        self._reclaimed_for = -1.0
+        self._claim_said = ""
+        self._held_events: list[tuple[Any, Any, Any]] = []
         self._report_timers: set[Any] = set()      # report-back deadline and settle timers (cancelled on stop)
 
         # Shutdown flag for graceful termination
@@ -1079,6 +1088,15 @@ class WindyFlyMatrixBot(ChannelAdapter):
             logger.info("silence: dropped a pre-start message from agent %s", event.sender)
             return
 
+        # The runtime claim (Boss + Hub 11-03): after a wake, re-claimed BEFORE anything in this sync is answered.
+        claim = await self._claim_verdict(event)
+        if claim == "paused":
+            self._held_events.append((self._on_message, room, event))
+            return
+        if claim != "act":
+            logger.info("runtime claim (%s): not acting on a message in %s", claim, room.room_id)
+            return
+
         # AT MOST ONCE, across restarts (Boss 11-02 22:13Z): a message taken before (or older than the newest one
         # taken in this room) is never processed again. The 11-02 lab restart re-ran the owner's "send" and mailed twice.
         from windyfly.channels import handled_events as _handled
@@ -1462,6 +1480,12 @@ class WindyFlyMatrixBot(ChannelAdapter):
 
         if resolve_band("matrix", event.sender, config=self.config) < Band.OWNER:
             return
+        claim = await self._claim_verdict(event)
+        if claim == "paused":
+            self._held_events.append((self._on_file, room, event))
+            return
+        if claim != "act":
+            return
         if not _flow.awaiting_file(key):
             await self._say_unrequested_file(room, event)
             return
@@ -1712,6 +1736,53 @@ class WindyFlyMatrixBot(ChannelAdapter):
         finally:
             self._stale_ages = []
 
+    def _wake_now(self) -> bool:
+        """A WAKE: the first sync after a restart from a saved position, or one that succeeds long after the last (a
+        suspended laptop carrying on from its in-memory position). Valid until this sync's success time is recorded.
+        The gap is WALL time (time.time()), on purpose: on macOS time.monotonic() stops while the system sleeps, so a
+        3-hour lid-close would look like seconds (Boss 11:23Z). A clock that jumped BACKWARDS gives a negative gap: the
+        time away is unknown, so it counts as a wake (safe: the 1 h cap uses the server's timestamps)."""
+        prev = self._last_sync_success
+        gap = time.time() - prev
+        return (self._resumed_sync and not self._gap_checked) or (prev > 0 and (gap > _WAKE_GAP_S or gap < 0))
+
+    async def _reclaim_on_wake(self) -> None:
+        """Once per in-process wake: claim the runtime slot again (it lapses after a 90 s sleep) BEFORE anything in this
+        sync is answered, so two copies never both answer the backlog (Boss + Hub 11-03). nio runs the event callbacks
+        before the response callback, so the first message of the sync gets here first. A fresh start just claimed."""
+        prev = self._last_sync_success
+        if prev <= 0 or self._reclaimed_for == prev or not self._wake_now():
+            return
+        self._reclaimed_for = prev
+        from windyfly import runtime_claim as _rc
+
+        await asyncio.to_thread(_rc.reclaim, wake=True)
+
+    async def _claim_verdict(self, event: Any) -> str:
+        """runtime_claim.gate for this message, after the wake re-claim; says the claim line once per period."""
+        from windyfly import runtime_claim as _rc
+
+        await self._reclaim_on_wake()
+        ts = getattr(event, "server_timestamp", None)
+        verdict = _rc.gate(ts / 1000 if isinstance(ts, (int, float)) else None)
+        if verdict in ("elsewhere", "paused"):
+            await self._say_claim_line(verdict)
+        return verdict
+
+    async def _say_claim_line(self, kind: str) -> None:
+        """The held-elsewhere or paused line, ONCE per period, in the owner's DM only. Never raises."""
+        dm = self._hatch_dm_room_id
+        if self._claim_said == kind or not dm:
+            return
+        self._claim_said = kind
+        body = _ELSEWHERE_SAY if kind == "elsewhere" else _PAUSE_SAY
+        logger.info("runtime claim: %s; saying so once", kind)
+        try:
+            await self.client.room_send(dm, "m.room.message", {"msgtype": "m.text", "body": body,
+                                                               "windy_original": True})
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("runtime claim: line not sent (%s)", type(exc).__name__)
+
     def _resume_saved_position(self) -> None:
         """Resume where this agent's sync got to before a restart or a sleep (channels/sync_position.py)."""
         saved = _position.load(self.bot_user_id or "", str(getattr(self.client, "device_id", "") or ""))
@@ -1739,21 +1810,33 @@ class WindyFlyMatrixBot(ChannelAdapter):
         self._sync_failures = 0
         self._sync_failed_since = None
         self._last_sync_error = ""
-        # A WAKE: the first sync after a restart from a saved position, or one that succeeds long after the last
-        # (a suspended laptop carrying on from its in-memory position). Decided BEFORE the success time moves.
-        # The gap is WALL time (time.time()), on purpose: on macOS time.monotonic() stops while the system sleeps, so a
-        # 3-hour lid-close would look like seconds (Boss 11:23Z). A clock that jumped BACKWARDS gives a negative gap:
-        # the time away is unknown, so it counts as a wake (safe: the 1 h cap uses the server's timestamps).
-        prev = self._last_sync_success
-        gap = time.time() - prev
-        wake = (self._resumed_sync and not self._gap_checked) or (prev > 0 and (gap > _WAKE_GAP_S or gap < 0))
+        wake = self._wake_now()  # decided BEFORE the success time moves
+        await self._reclaim_on_wake()  # a wake with no message in it still re-claims at once
         self._gap_checked = True
         self._last_sync_success = time.time()
         self._connected = True
         self._backoff = _INITIAL_BACKOFF_S
+        from windyfly import runtime_claim as _rc
+
+        verdict = _rc.gate()
+        if verdict == "elsewhere" and self._held_events:
+            # Paused, then another copy took the claim: it answers those messages, never this one.
+            logger.info("runtime claim: another copy took over; dropping %d held message(s)", len(self._held_events))
+            self._held_events = []
+        if verdict in ("elsewhere", "paused"):
+            await self._say_claim_line(verdict)
+        else:
+            self._claim_said = ""
+            if self._held_events:
+                # Mind is back: the messages held during the pause are taken now, with the same catch-up rules (1 h cap).
+                held, self._held_events = self._held_events, []
+                logger.info("runtime claim: Mind answers again; taking %d held message(s)", len(held))
+                for handler, room, ev in held:
+                    await handler(room, ev)
         if wake or self._stale_ages:
             await self._say_catchup_notes(response, gap_line=wake)
-        self._save_sync_position()
+        if not self._held_events:  # PAUSED: keep the position, so a restart fetches the held messages again
+            self._save_sync_position()
         # Replies that failed to send go out now that the homeserver answers,
         # not only after a reconnect (strand P2.13.4).
         if self._pending_responses and time.time() - self._last_pending_retry >= _PENDING_RETRY_EVERY_S:
@@ -1916,7 +1999,8 @@ class WindyFlyMatrixBot(ChannelAdapter):
         logger.info("Graceful shutdown: flushing %d pending messages...", len(self._pending_responses))
         await self._flush_pending()
 
-        self._save_sync_position(force=True)  # the next start resumes exactly here
+        if not self._held_events:  # held while paused: the next start fetches them again
+            self._save_sync_position(force=True)  # the next start resumes exactly here
         logger.info("Graceful shutdown: closing connection...")
         try:
             await self.client.close()
