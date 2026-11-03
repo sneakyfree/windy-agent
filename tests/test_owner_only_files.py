@@ -131,3 +131,45 @@ def test_each_credential_file_ends_up_0600(tmp_path, monkeypatch, name):
     for f in (tmp_path / "state").rglob("*"):
         if f.is_file():
             assert stat.S_IMODE(f.stat().st_mode) == 0o600, f.name
+
+
+# ── never rewrite a folder the agent does not own (Hub on #697) ─────────────────────────────────────────────────────
+
+def _targets(calls):
+    return [c[1] for c in calls]
+
+
+def test_an_existing_foreign_folder_is_never_hardened_only_the_file(tmp_path, windows, monkeypatch):
+    monkeypatch.setenv("WINDY_STATE_DIR", str(tmp_path / "state"))
+    documents = tmp_path / "Documents"
+    documents.mkdir()                       # exists already, and is not the agent's
+    target = documents / "creds.json"
+    sf.write_private(target, b"SECRET")
+    assert str(documents) not in _targets(windows)              # Documents' ACL is never touched
+    assert any(t.startswith(str(documents / ".creds.json")) for t in _targets(windows))  # the file itself is
+
+
+def test_the_default_state_root_is_hardened_once(tmp_path, windows, monkeypatch):
+    state = tmp_path / "state"
+    state.mkdir()
+    monkeypatch.setenv("WINDY_STATE_DIR", str(state))
+    sf.write_private(state / "a.json", b"1")
+    sf.write_private(state / "b.json", b"2")
+    assert _targets(windows).count(str(state)) == 1
+    assert not any(".a.json" in t or ".b.json" in t for t in _targets(windows))  # inherited: no per-file icacls
+
+
+def test_a_new_folder_under_the_state_root_is_hardened(tmp_path, windows, monkeypatch):
+    state = tmp_path / "state"
+    state.mkdir()
+    monkeypatch.setenv("WINDY_STATE_DIR", str(state))
+    (state / "sub").mkdir()                 # existing, but under the agent's root
+    sf.write_private(state / "sub" / "x.json", b"1")
+    assert str(state / "sub") in _targets(windows)
+
+
+def test_a_folder_this_call_creates_is_hardened(tmp_path, windows, monkeypatch):
+    monkeypatch.setenv("WINDY_STATE_DIR", str(tmp_path / "state"))
+    fresh = tmp_path / "elsewhere" / "new-folder"   # did not exist: the agent made it
+    sf.write_private(fresh / "x.json", b"1")
+    assert str(fresh) in _targets(windows)

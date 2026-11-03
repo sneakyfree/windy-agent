@@ -70,26 +70,56 @@ def restrict_to_owner(path: Path) -> bool:
 
 
 _private_dirs: set[str] = set()
+_skipped_dirs: set[str] = set()
 
 
-def ensure_private_dir(path: Path) -> None:
-    """Create ``path`` 0700. On Windows, give it an owner-only, INHERITABLE ACL once per process, so every file
-    created inside inherits it (no icacls per write)."""
+def _agent_owns(path: Path) -> bool:
+    """The agent's own state root (WINDY_STATE_DIR or ~/.windy) or a directory under it."""
+    try:
+        root = windy_state_dir().resolve()
+        target = path.resolve()
+    except OSError:
+        return False
+    return target == root or root in target.parents
+
+
+def ensure_private_dir(path: Path) -> bool:
+    """Create ``path`` 0700, and return True when files created inside it are owner-only.
+
+    POSIX: always True (the files are created 0600). Windows: give the directory an owner-only, INHERITABLE ACL once
+    per process, so files inside inherit it (no icacls per write). But ONLY for a directory the agent owns: its state
+    root or a directory under it, or one this call just created (Hub on #697). An EXISTING directory elsewhere (an
+    env var can point a file anywhere, e.g. Documents) is never rewritten: stripping inheritance there would cut SYSTEM,
+    Administrators and backup out of the whole tree. Then the caller restricts the file itself."""
+    existed = path.exists()
     path.mkdir(parents=True, exist_ok=True, mode=0o700)
-    if _on_windows() and str(path) not in _private_dirs:
-        if _icacls(path, "(OI)(CI)F"):
-            _private_dirs.add(str(path))
+    if not _on_windows():
+        return True
+    if str(path) in _private_dirs:
+        return True
+    if existed and not _agent_owns(path):
+        if str(path) not in _skipped_dirs:
+            _skipped_dirs.add(str(path))
+            logger.info("not hardening %s: an existing folder the agent does not own (its files are restricted "
+                        "one by one)", path)
+        return False
+    if _icacls(path, "(OI)(CI)F"):
+        _private_dirs.add(str(path))
+        return True
+    return False
 
 
 def write_private(path: Path, data: bytes) -> None:
     """Write ``data`` to ``path`` atomically, through a temp file created 0600 in an owner-only directory."""
-    ensure_private_dir(path.parent)
+    dir_private = ensure_private_dir(path.parent)
     tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     try:
         tmp.unlink()                       # a temp file left by a crash may have other modes
     except FileNotFoundError:
         pass
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    if not dir_private:
+        restrict_to_owner(tmp)  # a folder the agent may not harden (Windows): restrict the file itself, still empty
     try:
         with os.fdopen(fd, "wb") as fh:
             fh.write(data)
