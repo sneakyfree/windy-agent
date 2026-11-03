@@ -828,6 +828,20 @@ def _cmd_bring_home(args: argparse.Namespace) -> None:
     sys.exit(run(console))
 
 
+def _cmd_home(args: argparse.Namespace) -> None:
+    """windy home pair — bring your agent home to this computer with a code your phone approves (Windy Connect)."""
+    import sys
+
+    if getattr(args, "home_command", None) != "pair":
+        console.print("Usage: windy home pair [--json-status] [--device-name NAME] [--yes]")
+        sys.exit(2)
+    from windyfly.home_pair import pair
+
+    ask = console.input if sys.stdin.isatty() and not args.json_status else None
+    sys.exit(pair(console, json_status=bool(args.json_status), device_name=args.device_name or "",
+                  yes=bool(args.yes), ask=ask))
+
+
 def _cmd_deregister(args: argparse.Namespace) -> None:
     """windy deregister [--passport ET26-…] [--yes] — permanently revoke a passport."""
     import sys
@@ -1173,6 +1187,7 @@ _COMMAND_CATEGORIES = [
         ("ept refresh", "Renew the Eternitas passport token"),
         ("deregister", "Permanently revoke this agent's Eternitas passport"),
         ("bring-home", "Move your cloud agent onto this machine"),
+        ("home pair", "Bring your agent home with a code your phone approves"),
         ("mail", "Show mail status"),
         ("phone", "Show phone status"),
         ("cert", "Show birth certificate"),
@@ -1633,6 +1648,17 @@ def main() -> None:
     # windy bring-home — move a cloud-born agent onto this machine (hub handover)
     sub.add_parser("bring-home", help="Move your cloud agent onto this machine")
 
+    # windy home pair — bring your agent home with a code your phone approves (Windy Connect #105)
+    home_parser = sub.add_parser("home", help="Bring your agent home to this computer")
+    home_sub = home_parser.add_subparsers(dest="home_command")
+    home_pair = home_sub.add_parser("pair", help="Pair this computer with a code your phone approves")
+    home_pair.add_argument("--json-status", action="store_true",
+                           help="One JSON object per line on stdout, for a program driving this")
+    home_pair.add_argument("--yes", action="store_true",
+                           help="Answer yes to replacing this computer's link to an agent in the cloud")
+    home_pair.add_argument("--device-name", default="",
+                           help="The name your phone shows for this computer (default: your home label)")
+
     # windy deregister — the owner permanently revokes the agent's passport
     dereg_parser = sub.add_parser("deregister", help="Permanently revoke this agent's Eternitas passport")
     dereg_parser.add_argument("--passport", help="Passport to revoke (default: this agent's)")
@@ -1866,6 +1892,7 @@ def main() -> None:
         "ept": _cmd_ept,
         "deregister": _cmd_deregister,
         "bring-home": _cmd_bring_home,
+        "home": _cmd_home,
         "keys": _cmd_keys,
         "agent-key": _cmd_agent_key,
         "mail": _cmd_mail,

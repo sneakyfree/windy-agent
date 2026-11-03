@@ -78,7 +78,7 @@ class Fake:
                 "mail": {"address": "pip@windymail.ai", "username": "pip@windymail.ai",
                          "imap": {"host": "mail.windymail.ai", "port": 993, "security": "ssl"},
                          "app_password": MAIL_PASS, "app_password_id": "ap_1"},
-                "memory": {"format": "ndjson-v1", "sha256": "x", "event_count": 3,
+                "memory": {"format": "ndjson-v1", "sha256": hashlib.sha256(NDJSON).hexdigest(), "event_count": 3,
                            "turnover_letter": LETTER,
                            "url": "https://hub.test/api/v1/agent/handover/ho_1/memory",
                            "expires_at": "2099-01-01T00:00:00Z"},

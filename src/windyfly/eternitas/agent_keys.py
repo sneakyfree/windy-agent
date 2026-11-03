@@ -47,7 +47,7 @@ import threading
 import time
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import httpx
 from cryptography.hazmat.primitives import hashes, serialization
@@ -509,6 +509,123 @@ def _bearer(passport: str) -> tuple[str, str]:
     return (own, "own_ept") if own else ("", "")
 
 
+def local_kid(*, path: Path | None = None) -> str:
+    """This computer's active key id, generating (and saving, unregistered) a key if there is none."""
+    return begin_local_key(path=path)[0]
+
+
+def begin_local_key(*, path: Path | None = None) -> tuple[str, Callable[[], None]]:
+    """This computer's active key id for a pairing round, plus an UNDO that removes exactly what this call made.
+
+    Pairing sends the kid BEFORE a passport exists here (Windy Connect binds the code to it). A round that ends
+    without the key registered tells the person "Nothing was changed" (Boss 11-03), so the undo puts the credentials
+    file back as it was: removed if this call created it, else its exact previous bytes, and the backup this call
+    wrote is deleted (it would hold nothing new, but it is still something left behind). A key that existed before,
+    or one that got registered meanwhile, is never touched. The private key never leaves this machine."""
+    path = path or credentials_path()
+    with _LOCK:
+        data = load_credentials(path)
+        entry = active_entry(data)
+        if entry is not None:
+            return str(entry["kid"]), lambda: None
+        dir_existed = path.parent.exists()
+        before = path.read_bytes() if path.exists() else None
+        old_backups = set(path.parent.glob(f"{path.name}.bak-*")) if dir_existed else set()
+        sec = _section(data)
+        entry = _new_entry(generate_private_key())
+        sec["keys"] = [e for e in sec["keys"] if e.get("status") == "retiring"] + [entry]
+        _set_active(sec, entry)
+        save_credentials(data, path)
+        logger.info("agent keys: generated a new signing key %s…", entry["kid"][:8])
+        kid = str(entry["kid"])
+
+    def undo() -> None:
+        with _LOCK:
+            now_entry = active_entry(load_credentials(path))
+            if now_entry is None or now_entry.get("kid") != kid or now_entry.get("registered_at"):
+                return
+            try:
+                if before is None:
+                    path.unlink(missing_ok=True)
+                else:
+                    from windyfly.state_files import restrict_to_owner
+
+                    fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
+                    restrict_to_owner(Path(tmp))  # owner-only before the old contents go in (#697)
+                    with os.fdopen(fd, "wb") as fh:
+                        fh.write(before)
+                    os.replace(tmp, path)
+                for extra in set(path.parent.glob(f"{path.name}.bak-*")) - old_backups:
+                    extra.unlink(missing_ok=True)
+                if not dir_existed:
+                    path.parent.rmdir()  # only when empty; a non-empty folder raises and stays
+            except OSError as exc:
+                logger.warning("agent keys: could not undo the new key (%s)", type(exc).__name__)
+            else:
+                logger.info("agent keys: removed the unregistered key %s… this round made", kid[:8])
+
+    return kid, undo
+
+
+def register_with_bootstrap(passport: str, bootstrap_token: str, *, transport: httpx.BaseTransport | None = None,
+                            path: Path | None = None) -> dict[str, Any]:
+    """Register this computer's active key for ``passport`` with the one-time bootstrap token a home pairing
+    delivered (Windy Connect #105, Hub's desktop door): the owner's token never reaches the computer. The token is
+    only ever sent as the Bearer of this one request, never logged or stored. Never raises.
+
+    A key already registered counts only for the SAME passport (the entry records it; an older entry falls back to
+    this agent's passport): a key that belongs to another agent is never handed to a new one (Hub on #700). A 409
+    key_exists (Eternitas kept an earlier registration whose answer was lost) is settled by reading the passport's
+    keys: our kid active there = registered.
+
+    ``status``: registered | already_registered | failed (with http/code)."""
+    path = path or credentials_path()
+    try:
+        with _LOCK:
+            data = load_credentials(path)
+            entry = active_entry(data)
+            if entry is None:
+                return {"status": "failed", "code": "no_local_key"}
+            if entry.get("registered_at"):
+                if (entry.get("passport") or current_passport()) == passport:
+                    return {"status": "already_registered", "kid": entry["kid"]}
+                return {"status": "failed", "code": "key_belongs_to_other_agent"}
+            with httpx.Client(timeout=_HTTP_TIMEOUT, transport=transport) as client:
+                resp = _register(client, passport, load_private_key(entry["private_key"]), bootstrap_token)
+                if resp.status_code == 409 and error_code(resp)[0] == "key_exists" and \
+                        _kid_active_for(client, passport, str(entry["kid"])):
+                    resp = httpx.Response(201, json={"kid": entry["kid"]})
+                    logger.info("agent keys: %s… was already registered for %s (the earlier answer was lost)",
+                                entry["kid"][:8], passport[:9])
+            if resp.status_code not in (200, 201):
+                return _http_fail("key registration (bootstrap)", resp)
+            entry["registered_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            entry["passport"] = passport
+            save_credentials(data, path)
+            logger.info("agent keys: registered %s… for %s (via bootstrap)", entry["kid"][:8], passport[:9])
+            return {"status": "registered", "kid": entry["kid"]}
+    except (httpx.ConnectError, httpx.ConnectTimeout) as exc:  # never reached Eternitas: nothing was registered
+        logger.warning("agent keys: bootstrap registration could not connect (%s)", type(exc).__name__)
+        return {"status": "failed", "code": type(exc).__name__}
+    except httpx.TransportError as exc:
+        # The request may have arrived and the answer got lost: Eternitas may hold this key now. "unknown" keeps the
+        # key, so the next round's 409 key_exists settles it (Hub on #700).
+        logger.warning("agent keys: bootstrap registration outcome unknown (%s)", type(exc).__name__)
+        return {"status": "unknown", "code": type(exc).__name__}
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("agent keys: bootstrap registration hit %s", type(exc).__name__)
+        return {"status": "failed", "code": type(exc).__name__}
+
+
+def _kid_active_for(client: httpx.Client, passport: str, kid: str) -> bool:
+    try:
+        listed = client.get(f"{_base_url()}/api/v1/bots/{passport}/keys")
+        return listed.status_code == 200 and any(
+            k.get("kid") == kid and k.get("status") in ("active", None) for k in listed.json().get("keys", []))
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def _ensure(transport, path: Path) -> dict[str, Any]:
     passport = current_passport()
     if not passport:
@@ -541,6 +658,7 @@ def _ensure(transport, path: Path) -> dict[str, Any]:
                 return _http_fail("key registration", resp)
             registered_via = resp.json().get("registered_via")
             entry["registered_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            entry["passport"] = passport  # whose key this is (Hub on #700)
             save_credentials(data, path)
             logger.info("agent keys: registered %s… for %s (via %s)", entry["kid"][:8], passport[:9], via)
         _retire_pending(client, passport, bearer, data, path)

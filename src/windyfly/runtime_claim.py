@@ -118,6 +118,13 @@ class _ClaimState:
 _state: _ClaimState | None = None
 
 
+def _bearer(token: str) -> dict[str, str]:
+    """The client-level Authorization header, or none at all for a key-only agent (no long-lived token): an empty
+    "Bearer " is an illegal header value, so the request died in h11 and the claim ran DEGRADED (Hub on #700). Each
+    call's own EPT+agent header comes from mind_auth."""
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
+
 def _mind_base_url() -> str:
     """Resolve the Mind base URL through the shared resolver.
 
@@ -157,9 +164,24 @@ def _read_creds() -> tuple[str, str] | None:
     # the token when the env var is absent.
     if not passport and bearer:
         passport = _passport_from_ept(bearer)
+    if passport and not bearer and _key_only():
+        # A computer paired by Windy Connect or Windy Word holds only its own registered key: every claim call goes
+        # out with an EPT+agent minted by that key (mind_auth), so there is no long-lived token to fall back on.
+        # Skipping the claim here would let a second copy answer too.
+        return passport, ""
     if not passport or not bearer:
         return None
     return passport, bearer
+
+
+def _key_only() -> bool:
+    try:
+        from windyfly.agent import mind_auth
+        from windyfly.eternitas import agent_keys
+
+        return mind_auth.enabled() and agent_keys.has_registered_key()
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def _passport_from_ept(token: str) -> str:
@@ -252,7 +274,7 @@ def acquire_runtime_slot(
             base_url=base,
             timeout=_CLAIM_TIMEOUT_S,
             transport=transport,
-            headers={"Authorization": f"Bearer {jwt}"},
+            headers=_bearer(jwt),
         ) as client:
             resp = mind_auth.client_post(client, "/v1/runtime/claim", jwt, payload)
     except httpx.RequestError as e:
@@ -347,7 +369,7 @@ def reclaim(*, wake: bool = False) -> ClaimOutcome:
             with httpx.Client(
                 base_url=st.base_url,
                 timeout=_CLAIM_TIMEOUT_S,
-                headers={"Authorization": f"Bearer {st.jwt}"},
+                headers=_bearer(st.jwt),
             ) as client:
                 resp = mind_auth.client_post(client, "/v1/runtime/claim", st.jwt,
                                              _claim_payload(st.passport, st.runtime_id, st.source))
@@ -440,7 +462,7 @@ def _heartbeat_loop(state: _ClaimState, stop: threading.Event) -> None:
                 with httpx.Client(
                     base_url=state.base_url,
                     timeout=_CLAIM_TIMEOUT_S,
-                    headers={"Authorization": f"Bearer {state.jwt}"},
+                    headers=_bearer(state.jwt),
                 ) as client:
                     resp = mind_auth.client_post(
                         client,
@@ -496,7 +518,7 @@ def release_slot(*, transport: httpx.BaseTransport | None = None) -> None:
             base_url=_state.base_url,
             timeout=_RELEASE_TIMEOUT_S,
             transport=transport,
-            headers={"Authorization": f"Bearer {_state.jwt}"},
+            headers=_bearer(_state.jwt),
         ) as client:
             mind_auth.client_post(
                 client,
@@ -576,7 +598,7 @@ def release_recorded_claim(*, transport: httpx.BaseTransport | None = None) -> b
             base_url=base,
             timeout=_RELEASE_TIMEOUT_S,
             transport=transport,
-            headers={"Authorization": f"Bearer {bearer}"},
+            headers=_bearer(bearer),
         ) as client:
             resp = mind_auth.client_post(
                 client,

@@ -26,13 +26,13 @@ Nothing here prints a token.
 from __future__ import annotations
 
 import base64
-import gzip
 import hashlib
 import json
 import logging
 import os
 import tempfile
 import time
+import zlib
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -235,10 +235,24 @@ def wait_for_pickup(url: str, token: str, *, expires_at: Any = None,
 
 def fetch_memory(url: str, token: str, *,
                  transport: httpx.BaseTransport | None = None) -> tuple[int, dict[str, Any]]:
+    """GET the memory once. ``token`` "" = a capability URL (Windy Connect's pairing: the URL itself is the secret,
+    never logged), so no Authorization header at all."""
+    headers = {"Accept": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
     with httpx.Client(timeout=120.0, transport=transport) as client:
-        resp = client.get(url, headers={"Authorization": f"Bearer {token}",
-                                        "Accept": "application/json"})
-    return resp.status_code, _json(resp)
+        with client.stream("GET", url, headers=headers) as resp:
+            body = bytearray()
+            for chunk in resp.iter_bytes():
+                body += chunk
+                if len(body) > MAX_MEMORY_BYTES:
+                    return 413, {}  # refused past the cap (Hub on #700)
+            status = resp.status_code
+    try:
+        doc = json.loads(bytes(body)) if body else {}
+    except ValueError:
+        return status, {}
+    return status, doc if isinstance(doc, dict) else {}
 
 
 # ── installing the pickup ────────────────────────────────────────────
@@ -297,10 +311,34 @@ def install_credentials(body: dict[str, Any], rec: dict[str, Any]) -> dict[str, 
             "mail": bool(mail)}
 
 
+MAX_MEMORY_BYTES = 256 * 1024 * 1024  # a download, and its unzipped NDJSON, are refused past this (Hub on #700)
+
+
+class MemoryTooLarge(ValueError):
+    pass
+
+
 def decode_memory(doc: dict[str, Any]) -> bytes:
-    """``ndjson-v1``: base64 of gzip of the NDJSON (plain base64 tolerated)."""
+    """``ndjson-v1``: base64 of gzip of the NDJSON (plain base64 tolerated). Unzipped with a cap, so a hostile or
+    broken download can't fill the disk or memory; a truncated gzip raises ValueError."""
     raw = base64.b64decode(str(doc.get("inline") or ""))
-    return gzip.decompress(raw) if raw[:2] == b"\x1f\x8b" else raw
+    if raw[:2] != b"\x1f\x8b":
+        if len(raw) > MAX_MEMORY_BYTES:
+            raise MemoryTooLarge("memory too large")
+        return raw
+    out = bytearray()
+    while raw:
+        d = zlib.decompressobj(16 + zlib.MAX_WBITS)
+        try:
+            out += d.decompress(raw, MAX_MEMORY_BYTES + 1 - len(out))
+        except zlib.error as exc:
+            raise ValueError("bad gzip") from exc
+        if len(out) > MAX_MEMORY_BYTES or d.unconsumed_tail:
+            raise MemoryTooLarge("memory too large")
+        if not d.eof:
+            raise ValueError("truncated gzip")
+        raw = d.unused_data  # a second gzip member, as gzip.decompress allows
+    return bytes(out)
 
 
 def _line_role(ev: dict[str, Any]) -> str:
@@ -419,20 +457,32 @@ def install_memory(meta: dict[str, Any], passport: str, handover_id: str, token:
             out = {"status": "unknown_format", "format": doc.get("format"),
                    "keys": sorted(doc)}
         else:
-            ndjson = decode_memory(doc)
-            want_sha = str(doc.get("sha256") or meta.get("sha256") or "")
-            got_sha = hashlib.sha256(ndjson).hexdigest()
-            _header, lines = split_memory(ndjson)
-            want_n = doc.get("event_count", meta.get("event_count"))
-            _atomic_write(_state_dir() / f"memory-{handover_id}.ndjson", ndjson)
-            if want_sha and got_sha != want_sha:
-                out = {"status": "sha_mismatch"}
-            elif isinstance(want_n, int) and want_n != len(lines):
-                out = {"status": "count_mismatch", "expected": want_n, "got": len(lines)}
-            else:
+            decoded = True
+            try:
+                ndjson = decode_memory(doc)
+            except ValueError as exc:  # bad base64, truncated gzip, past the cap
+                ndjson, decoded = b"", False
+                out = {"status": "too_large" if isinstance(exc, MemoryTooLarge) else "decode_failed"}
+            if decoded:  # an EMPTY body is checked like any other: empty + a declared hash/count = rejected (Hub)
+                # Checked against EVERY declared value: the pickup's (it came apart from the body) and the body's own,
+                # hashes compared lowercase (Hub on #700). None declared = imported, but reported unverified.
+                want_shas = {str(v).strip().lower() for v in (meta.get("sha256"), doc.get("sha256")) if v}
+                got_sha = hashlib.sha256(ndjson).hexdigest()
+                _header, lines = split_memory(ndjson)
+                want_ns = [n for n in (meta.get("event_count"), doc.get("event_count")) if isinstance(n, int)]
+                want_sha = bool(want_shas)
+                if any(w != got_sha for w in want_shas):
+                    out = {"status": "sha_mismatch"}
+                elif any(n != len(lines) for n in want_ns):
+                    out = {"status": "count_mismatch", "expected": want_ns[0], "got": len(lines)}
+                # Kept for the owner either way; a download that failed its check is never filed as accepted.
+                kept = "ndjson" if not out.get("status", "").endswith("_mismatch") else "rejected.ndjson"
+                _atomic_write(_state_dir() / f"memory-{handover_id}.{kept}", ndjson)
+            if decoded and not out.get("status", "").endswith("_mismatch"):
                 db = db_factory()
                 try:
-                    out = {"status": "imported", **import_memory(ndjson, handover_id=handover_id, db=db)}
+                    out = {"status": "imported", "verified": want_sha,
+                           **import_memory(ndjson, handover_id=handover_id, db=db)}
                     if letter:
                         write_turnover(letter, passport, db)
                     out["db_path"] = _abs_db_path(db)
