@@ -203,17 +203,17 @@ def test_without_a_trigger_a_text_has_no_key(monkeypatch):
     assert time  # (imported for the sleep patches above)
 
 
-def test_a_reused_key_text_refusal_is_one_plain_sentence(monkeypatch):
+@pytest.mark.parametrize("body", [{"error": "idempotency_key_reused", "message": "raw server words"},
+                                  {"detail": "idempotency_key_reused"}])  # Text #125: FastAPI's {"detail": code}
+def test_a_reused_key_text_refusal_is_one_plain_sentence(monkeypatch, body):
     from windyfly.tools import sms
 
     def post(url, headers=None, json=None, timeout=None):
-        return httpx.Response(422, json={"error": "idempotency_key_reused", "detail": "raw server words"},
-                              request=httpx.Request("POST", url))
+        return httpx.Response(422, json=body, request=httpx.Request("POST", url))
 
     monkeypatch.setattr(sms.httpx, "post", post)
     out = sms._deliver("https://text.test", "ept", "+15551234567", "hi")
-    assert out["status"] == "failed" and "raw server words" not in out["error"]
-    assert out["error"] == sms.refusal_sentence(422, None)
+    assert out["error"] == sms.refusal_sentence(422, None) and out["error_code"] == "idempotency_key_reused"
 
 
 @pytest.mark.asyncio
