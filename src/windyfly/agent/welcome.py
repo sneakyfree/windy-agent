@@ -85,6 +85,18 @@ def _already_welcomed(db: "Database") -> bool:
         return False
 
 
+def _brought_home() -> bool:
+    """An agent brought home (a handover) already met its owner: its hatch greeting and turnover letter came before.
+    Read from bring-home's own record, not the memory database, so a database in another folder can't make it a
+    stranger again (Boss 11-03, the #696 lab C)."""
+    try:
+        from windyfly.hub_hatch import cloud_agent
+
+        return cloud_agent().get("where") == "home"
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def is_first_contact(db: "Database") -> bool:
     """True iff the bot has zero prior memory of any kind.
 
@@ -97,7 +109,7 @@ def is_first_contact(db: "Database") -> bool:
     welcome-loop forever — better to fall through to the LLM and
     surface the real problem.
     """
-    if _already_welcomed(db):
+    if _already_welcomed(db) or _brought_home():
         return False
     try:
         ep_row = db.fetchone("SELECT COUNT(*) AS c FROM episodes")

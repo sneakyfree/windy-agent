@@ -40,8 +40,9 @@ def run_cli(config: dict[str, Any]) -> None:
     Args:
         config: Loaded config dict.
     """
-    db_path = config.get("memory", {}).get("db_path", "data/windyfly.db")
-    db = Database(db_path)
+    from windyfly.memory.db_location import resolve_db_path
+
+    db = Database(resolve_db_path(config.get("memory", {}).get("db_path")))
     write_queue = WriteQueue()
     write_queue.start()
 

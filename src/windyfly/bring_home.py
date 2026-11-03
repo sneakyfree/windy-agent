@@ -390,7 +390,16 @@ def write_turnover(letter: str, passport: str, db: Any) -> None:
 def _open_db() -> Any:
     from windyfly.memory.database import Database
 
-    return Database(os.environ.get("WINDYFLY_DB_PATH", "data/windyfly.db"))
+    from windyfly.memory.db_location import resolve_db_path
+
+    return Database(resolve_db_path())
+
+
+def _abs_db_path(db: Any) -> str:
+    """Where the memory went, absolute (a path, never contents): the agent reads the same file from any folder
+    (memory/db_location.py), and a lab line can prove both sides agree (Hub 11-03)."""
+    raw = str(getattr(db, "db_path", "") or "")
+    return str(Path(raw).resolve()) if raw and raw != ":memory:" else raw
 
 
 def install_memory(meta: dict[str, Any], passport: str, handover_id: str, token: str, *,
@@ -426,6 +435,7 @@ def install_memory(meta: dict[str, Any], passport: str, handover_id: str, token:
                     out = {"status": "imported", **import_memory(ndjson, handover_id=handover_id, db=db)}
                     if letter:
                         write_turnover(letter, passport, db)
+                    out["db_path"] = _abs_db_path(db)
                 finally:
                     close = getattr(db, "close", None)
                     if callable(close):
@@ -434,6 +444,7 @@ def install_memory(meta: dict[str, Any], passport: str, handover_id: str, token:
         db = db_factory()
         try:
             write_turnover(letter, passport, db)
+            out["db_path"] = _abs_db_path(db)
         finally:
             close = getattr(db, "close", None)
             if callable(close):
@@ -608,6 +619,8 @@ def run(
     elif mem.get("status") not in ("skipped", "none"):
         console.print(f"  [yellow]Memory wasn't imported ({mem.get('status')}); the raw download "
                       "is kept beside your Windy sign-in.[/yellow]")
+    if mem.get("db_path"):
+        console.print(f"  Memory file: {mem['db_path']}")
     if not ept:
         console.print("  [yellow]No passport token yet — run [bold]windy ept refresh[/bold].[/yellow]")
     if not installed.get("matrix"):

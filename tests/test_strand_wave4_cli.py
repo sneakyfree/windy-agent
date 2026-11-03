@@ -93,8 +93,8 @@ def test_C0_8_cli_plain_message_reaches_model_and_reply_is_printed(tmp_path):
 
 @pytest.mark.virgin_db_welcome
 def test_C0_8_cli_first_message_gets_welcome_then_chat_turn_reaches_model(tmp_path):
-    """Real first contact on an empty DB: the one-time tour answers the
-    first message WITHOUT a model call; the next message is a normal turn."""
+    """Real first contact on an empty DB: the one-time tour comes first and the same reply answers the first
+    message (Boss 11-03: the welcome never swallows it); the next message is a normal turn."""
     from windyfly.agent.welcome import format_welcome
 
     model_calls: list[str] = []
@@ -109,9 +109,9 @@ def test_C0_8_cli_first_message_gets_welcome_then_chat_turn_reaches_model(tmp_pa
 
     fly_lines = [p for p in printed if p.startswith("[fly]Fly:[/fly]")]
     assert len(fly_lines) == 2
-    assert fly_lines[0] == f"[fly]Fly:[/fly] {format_welcome(config)}"
+    assert fly_lines[0] == f"[fly]Fly:[/fly] {format_welcome(config)}\n\nSure: two plus two is four."
     assert fly_lines[1] == "[fly]Fly:[/fly] Sure: two plus two is four."
-    assert model_calls == ["what is two plus two?"]
+    assert model_calls == ["hello", "what is two plus two?"]
 
 
 def test_C0_8_cli_quit_word_ends_session_without_model_call(tmp_path):

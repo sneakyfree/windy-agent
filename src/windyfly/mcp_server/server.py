@@ -66,8 +66,9 @@ def build_registry() -> "CapabilityRegistry":
         from windyfly.tools.registry import ToolRegistry
 
         config = load_config()
-        db_path = config.get("memory", {}).get("db_path", "data/windyfly.db")
-        db = Database(db_path)
+        from windyfly.memory.db_location import resolve_db_path
+
+        db = Database(resolve_db_path(config.get("memory", {}).get("db_path")))
         write_queue = WriteQueue()
         write_queue.start()
         BootSequence(default_capability_registration_sequence()).run(

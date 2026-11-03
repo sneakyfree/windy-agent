@@ -10,6 +10,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 
 from windyfly.commands.registry import Command, registry
+from windyfly.memory.db_location import resolve_db_path
 from windyfly.platform import get_data_dir, get_pid_path, get_project_root
 
 logger = logging.getLogger(__name__)
@@ -234,7 +235,7 @@ def _register_all():
         api_key = bool(os.environ.get("OPENAI_API_KEY") or os.environ.get("ANTHROPIC_API_KEY"))
         lines.append(f"  {'✓' if api_key else '✗'} LLM API key ({'set' if api_key else 'MISSING — agent cannot respond'})")
         lines.append(f"  ✓ DEFAULT_MODEL = {os.environ.get('DEFAULT_MODEL', 'not set')}")
-        db_path = os.environ.get("WINDYFLY_DB_PATH", "data/windyfly.db")
+        db_path = resolve_db_path()
         lines.append("\nDatabase:")
         if os.path.exists(db_path):
             size_mb = os.path.getsize(db_path) / 1024 / 1024
@@ -585,7 +586,7 @@ def _register_all():
             pass
 
         # ── Persistence / identity ────────────────────────────────
-        db_path = os.environ.get("WINDYFLY_DB_PATH", "data/windyfly.db")
+        db_path = resolve_db_path()
         size = (
             f"{os.path.getsize(db_path)/1024/1024:.1f}MB"
             if os.path.exists(db_path) else "no db"
@@ -633,10 +634,7 @@ def _register_all():
 
         # DB writability — actually try a write so we catch lock /
         # WAL / disk-full issues that env-var checks miss.
-        db_path = (_config or {}).get("memory", {}).get(
-            "db_path",
-            os.environ.get("WINDYFLY_DB_PATH", "data/windyfly.db"),
-        )
+        db_path = resolve_db_path((_config or {}).get("memory", {}).get("db_path"))
         if os.path.exists(db_path):
             size_mb = os.path.getsize(db_path) / 1024 / 1024
             db_line = f"DB: {db_path} ({size_mb:.2f}MB)"
@@ -1769,7 +1767,7 @@ def _register_all():
                 from windyfly.memory.episodes import count_episodes
                 node_count = count_nodes(_db)
                 episode_count = count_episodes(_db)
-                db_path = os.environ.get("WINDYFLY_DB_PATH", "data/windyfly.db")
+                db_path = resolve_db_path()
                 size = os.path.getsize(db_path) / 1024 / 1024 if os.path.exists(db_path) else 0
                 return f"Memory: {node_count} nodes, {episode_count} episodes | DB: {size:.1f} MB"
             except Exception as e:
@@ -2179,7 +2177,7 @@ def _register_budget_through_help():
         # Parse: first arg is time-like, rest is message
         from windyfly.tools.reminders import set_reminder
         from windyfly.memory.database import Database
-        _db = Database(os.environ.get("WINDYFLY_DB_PATH", "data/windyfly.db"))
+        _db = Database(resolve_db_path())
         # Find the time boundary — look for common time starters
         text = " ".join(args)
         for sep in ["to ", "that "]:
@@ -2202,7 +2200,7 @@ def _register_budget_through_help():
     async def cmd_reminders(ctx):
         from windyfly.tools.reminders import list_reminders
         from windyfly.memory.database import Database
-        _db = Database(os.environ.get("WINDYFLY_DB_PATH", "data/windyfly.db"))
+        _db = Database(resolve_db_path())
         result = list_reminders(_db)
         _db.close()
         return result.get("message", "No reminders.")
@@ -2212,7 +2210,7 @@ def _register_budget_through_help():
         args = ctx.get("_args", [])
         from windyfly.tools.todos import add_todo, list_todos, complete_todo, delete_todo
         from windyfly.memory.database import Database
-        _db = Database(os.environ.get("WINDYFLY_DB_PATH", "data/windyfly.db"))
+        _db = Database(resolve_db_path())
         action = args[0] if args else "list"
         rest = " ".join(args[1:])
         if action == "add" and rest:
@@ -2502,13 +2500,11 @@ def _register_budget_through_help():
             # answer "where does my stuff live?", and a relative answer
             # that also ✗'d every line because of the cwd was the exact
             # opposite of an answer.
-            db_override = os.environ.get("WINDYFLY_DB_PATH")
             paths = [
                 ("Config", PROJECT_ROOT / "windyfly.toml"),
                 ("Environment", PROJECT_ROOT / ".env"),
                 ("Personality", PROJECT_ROOT / "SOUL.md"),
-                ("Database", Path(db_override) if db_override
-                 else PROJECT_ROOT / "data" / "windyfly.db"),
+                ("Database", Path(resolve_db_path((_config or {}).get("memory", {}).get("db_path")))),
                 ("Audio", PROJECT_ROOT / "data" / "sounds" / "its-alive.wav"),
                 ("Logs", PROJECT_ROOT / "data" / "windyfly.log"),
             ]
@@ -2585,12 +2581,7 @@ def _register_budget_through_help():
         from windyfly.memory.snapshot import copy_db, private_tar, tighten_old_exports
         for folder in {PROJECT_ROOT, Path.cwd()}:
             tighten_old_exports(folder)
-        db_path = Path((_config or {}).get("memory", {}).get(
-            "db_path",
-            os.environ.get("WINDYFLY_DB_PATH", "data/windyfly.db"),
-        ))
-        if not db_path.is_absolute():
-            db_path = PROJECT_ROOT / db_path
+        db_path = Path(resolve_db_path((_config or {}).get("memory", {}).get("db_path")))
         files_to_backup: list[tuple[Path, str]] = []
         for rel in [".env", "windyfly.toml", "SOUL.md"]:
             src = PROJECT_ROOT / rel

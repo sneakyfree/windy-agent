@@ -805,7 +805,9 @@ async def _serve_forever() -> None:
         runtime_claim.start_heartbeat()
         runtime_claim.register_atexit_release()
 
-    db_path = config.get("memory", {}).get("db_path", "data/windyfly.db")
+    from windyfly.memory.db_location import resolve_db_path
+
+    db_path = resolve_db_path(config.get("memory", {}).get("db_path"))
     db = Database(db_path)
     write_queue = WriteQueue()
     write_queue.start()

@@ -244,7 +244,9 @@ def run_self_test(*, exit_on_failure: bool = True) -> bool:
             sys.exit(1)
         return False
 
-    db_path = config.get("memory", {}).get("db_path", "data/windyfly.db")
+    from windyfly.memory.db_location import resolve_db_path
+
+    db_path = resolve_db_path(config.get("memory", {}).get("db_path"))
 
     try:
         from windyfly.memory.database import Database

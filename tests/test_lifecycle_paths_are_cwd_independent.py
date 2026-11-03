@@ -141,6 +141,7 @@ async def test_export_from_another_directory_is_not_empty(tmp_path, monkeypatch)
     (install / "data" / "sounds" / "its-alive.wav").write_text("wav", encoding="utf-8")
 
     monkeypatch.setattr(core_mod, "PROJECT_ROOT", install)
+    monkeypatch.setenv("WINDYFLY_HOME", str(install))  # the memory file's old place is the install folder too
     registry._commands.clear()
     registry._aliases.clear()
     core_mod._register_all()

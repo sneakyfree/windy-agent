@@ -148,19 +148,19 @@ def test_welcome_text_is_stable():
 
 @patch("windyfly.agent.loop.is_online", return_value=True)
 @patch("windyfly.agent.loop.call_llm")
-def test_agent_respond_returns_welcome_on_virgin_db(mock_llm, _online, stack):
-    """The big one: a fresh-hatched bot's first message gets the
-    deterministic welcome WITHOUT burning an LLM call. This is
-    cost savings AND survives dead-creds at hatch time."""
+def test_agent_respond_returns_welcome_and_an_answer_on_virgin_db(mock_llm, _online, stack):
+    """A fresh-hatched bot's first message gets the deterministic welcome FIRST, and the same reply answers the
+    message as a normal turn: the welcome never swallows a real first question (Boss 11-03, the #696 lab C)."""
     config, db, wq = stack
+    mock_llm.return_value = {
+        "content": "Real reply", "model": "claude-haiku-4-5-20251001",
+        "input_tokens": 100, "output_tokens": 20, "tool_calls": None,
+    }
 
     response = agent_respond(config, db, wq, "Hello?", "fresh-session")
 
-    assert response == WELCOME_TEXT
-    assert mock_llm.call_count == 0, (
-        "first contact must NOT call the LLM — welcome is "
-        "deterministic and free"
-    )
+    assert response == WELCOME_TEXT + "\n\nReal reply"
+    assert mock_llm.call_count == 1
 
 
 @patch("windyfly.agent.loop.is_online", return_value=True)
@@ -172,35 +172,33 @@ def test_welcome_persists_episodes_so_next_message_uses_llm(
     The user's NEXT message goes through the normal LLM path."""
     config, db, wq = stack
 
-    # First message → welcome, no LLM
+    # First message → welcome + its answer (one LLM call)
+    mock_llm.return_value = {
+        "content": "Real reply", "model": "claude-haiku-4-5-20251001",
+        "input_tokens": 100, "output_tokens": 20, "tool_calls": None,
+    }
     agent_respond(config, db, wq, "Hi!", "fresh-session")
-    assert mock_llm.call_count == 0
+    assert mock_llm.call_count == 1
 
     # Drain the write queue so the saved episodes are visible
     import time
     time.sleep(0.5)
     rows = db.fetchall("SELECT role, content FROM episodes")
     contents = [r["content"] for r in rows]
-    # Both the user's first message AND the welcome should be saved
+    # The user's first message and its answer are saved by the normal turn
     assert any("Hi!" in c for c in contents), (
         "user's first message must be saved as episode"
     )
-    assert any("Windy Fly" in c and "just hatched" in c for c in contents), (
-        "welcome reply must be saved as episode so prompt-assembly "
-        "doesn't see it as missing context"
-    )
+    assert any("Real reply" in c for c in contents)
 
     # Now is_first_contact should return False
     assert is_first_contact(db) is False
 
     # Second message — episodes is no longer empty, so the LLM
     # actually fires.
-    mock_llm.return_value = {
-        "content": "Real reply", "model": "claude-haiku-4-5-20251001",
-        "input_tokens": 100, "output_tokens": 20, "tool_calls": None,
-    }
-    agent_respond(config, db, wq, "What's the weather?", "fresh-session")
-    assert mock_llm.call_count == 1, (
+    response = agent_respond(config, db, wq, "What's the weather?", "fresh-session")
+    assert WELCOME_TEXT not in response
+    assert mock_llm.call_count == 2, (
         "second message should hit the LLM normally; "
         "welcome must be a one-time deterministic shortcut"
     )
@@ -249,11 +247,10 @@ def test_welcome_wins_over_resurrection_on_virgin_db(mock_llm, _online, stack, m
 
     response = agent_respond(config, db, wq, "Hi!", "fresh-session")
 
-    assert response == WELCOME_TEXT, (
-        "on virgin DB, welcome wins over resurrection — first "
+    assert response.startswith(WELCOME_TEXT), (
+        "on virgin DB, welcome comes first even over resurrection — first "
         "impression must be deterministic"
     )
-    assert mock_llm.call_count == 0
 
 
 # ── Naming Ceremony: welcome honors the given name ────────────────
@@ -419,8 +416,12 @@ def test_a_person_on_a_virgin_db_still_gets_the_tour(stack):
 
     config, db, wq = stack
     with patch("windyfly.agent.loop.call_llm") as llm:
+        llm.return_value = {
+        "content": "Real reply", "model": "claude-haiku-4-5-20251001",
+        "input_tokens": 100, "output_tokens": 20, "tool_calls": None,
+    }
         out = agent_respond(config, db, wq, "hi", "sess-person", ToolRegistry())
-    assert not llm.called and "I just hatched" in out
+    assert "I just hatched" in out and llm.called  # the tour, then an answer to "hi" (Boss 11-03)
 
 
 @pytest.mark.asyncio
@@ -457,3 +458,19 @@ async def test_matrix_marks_an_agent_sender_for_the_turn_with_the_teams_flag_off
         await bot._on_message(room, ev)
     assert seen == [marked]
     assert not silence.is_agent_sender(next(iter(bot._room_sessions.values())))  # cleared after the turn
+
+
+@patch("windyfly.agent.loop.is_online", return_value=True)
+@patch("windyfly.agent.loop.call_llm", side_effect=RuntimeError("model down"))
+def test_a_failed_answer_still_sends_the_welcome_and_keeps_the_message(mock_llm, _online, stack):
+    """The welcome needs no model: dead credentials at hatch still get it, and the person's message is kept
+    (Hub on #699, after Boss 11-03 made the welcome answer too)."""
+    import time
+
+    config, db, wq = stack
+    response = agent_respond(config, db, wq, "Hello, are you there?", "fresh-session")
+    assert response == WELCOME_TEXT
+    time.sleep(0.5)
+    contents = [r["content"] for r in db.fetchall("SELECT content FROM episodes")]
+    assert any("Hello, are you there?" in c for c in contents)
+    assert any("just hatched" in c for c in contents)

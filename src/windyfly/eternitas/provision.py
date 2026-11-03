@@ -108,8 +108,9 @@ def get_eternitas_client(db=None, config: dict | None = None):
     # Mock mode — need a database
     if db is None:
         from windyfly.memory.database import Database
-        db_path = os.environ.get("WINDYFLY_DB_PATH", "data/windyfly.db")
-        db = Database(db_path)
+        from windyfly.memory.db_location import resolve_db_path
+
+        db = Database(resolve_db_path())
 
     from windyfly.eternitas.mock import MockEternitasClient
     return MockEternitasClient(db)

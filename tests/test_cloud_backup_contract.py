@@ -29,6 +29,7 @@ def _env(monkeypatch, tmp_path):
     monkeypatch.setenv("WINDYFLY_AGENT_NAME", "Testy")
     monkeypatch.delenv("WINDY_BACKUP_KEY", raising=False)
     monkeypatch.setattr(cb, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setenv("WINDYFLY_HOME", str(tmp_path))  # the memory file's old place (memory/db_location.py)
 
 
 
