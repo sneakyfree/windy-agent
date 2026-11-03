@@ -85,7 +85,7 @@ This is the "profile page(s)" column Boss added to section A. It is its own tabl
 | Platform | Profile / account pages it shows today (URL + what it edits) | Change (trim to a link to the one page) | Owner |
 |---|---|---|---|
 | THE one page | Word's existing profile page (Profile & billing; the W6 row above) [Owner: Hub + Word: the URL and every field it edits] | Becomes THE page for people and agents: Hub takes over the code and data; agents' Eternitas numbers come from Eternitas (the only certifier) | Windy Hub (from Word) |
-| Windy Fly mobile app | [Owner: Mobile] | The ONE allowed copy: the same API as the one page, no second store, plus a sync test | Windy Mobile |
+| Windy Fly mobile app | More > Profile: a native copy on Hub's API (the one allowed copy). The agent profile opens account.windyword.ai/p/<passport> (Mobile 11-03) | The ONE allowed copy: the same API as the one page, no second store, plus a sync test. It follows Hub's one profile as fields move (S per Hub change) | Windy Mobile |
 | Windy Word (web, website, desktop) | [Owner: Word: every page besides the one being handed over] | | Windy Word |
 | Windy Chat | the "Profile" link Grant named [Owner: Chat: URL + what it edits, web/desktop/mobile] | A link to the one page | Windy Chat |
 | Windy Mind | **None.** windymind.ai has NO profile or account page and shows no name, picture or email. Its pages are Mind settings only (/menu/, /menu/compute/, /menu/tokens/) + /docs/. Sign-in/out = account.windyword.ai (Mind 17:40Z) | One "Your profile" link to the one page once it exists; nothing to trim | Windy Mind |
@@ -185,7 +185,7 @@ It lands before any wider use of social sign-in.
 
 | Doorway | Goes through hatch tickets? (yes/no + evidence) | Owner |
 |---|---|---|
-| Windy Fly mobile app | [Owner: Mobile] | Windy Mobile |
+| Windy Fly mobile app | **YES**: Hub's hatch ticket (POST /api/v1/agent/hatch/tickets, source mobile) and the SAME hatch page in an in-app WebView; no runtime of its own. Proven on the lab iPhone 11-02 21:23Z. See "Windy Mobile's rows" below | Windy Mobile |
 | Desktop (Windy Word app) | [Owner: Word] | Windy Word |
 | windyfly.ai | [Agent: check the site's CTA path] | Windy Agent |
 | `windy go` (CLI) | [Agent] | Windy Agent |
@@ -239,6 +239,26 @@ It lands before any wider use of social sign-in.
       - **Caller 2** = 2 calls, both ET26-TEST, both 10-10, none since: a one-off lab test, NOT a live second way in.
     - **Result: in 30 days EVERY real passport came through Windy Accounts' auto-hatch. One canal, confirmed.**
     - `bots.birth_platform_id` is not filled on auto-hatch today; recording it is part of Eternitas's gate change.
+
+### Windy Mobile's rows (the Windy Fly phone app, iOS + Android; Mobile 2026-11-03 00:52Z)
+Source: a code read of windy-pro-mobile main db8950b+, not a device run unless marked.
+
+**A. Sign-up / login**
+| Surface | Today's behaviour | Redirects to Windy Accounts? | Change needed | Size |
+|---|---|---|---|---|
+| Sign in / "Create an account" (src/app/auth/login.tsx) | NO form of its own and no password field. With `signInSheet: true` (on), both buttons open the account.windyword.ai doorway in the system sheet: ASWebAuthenticationSession / Custom Tabs, auth code + PKCE S256, https callback /app/callback, never a custom scheme. Sign-up and consent happen on the doorway | **YES** | none. Google / Apple / GitHub are the doorway's own buttons; the phone adds none | 0 |
+| Fallback sign-in (src/app/auth/device-code.tsx) | for iOS < 17.4: the RFC 8628 device code, approved at account.windyword.ai/device. Also the lab rigs' path | **YES** | none | 0 |
+| verify-email / consent screens (src/app/auth/) | show the account server's state; no own store | YES (Hub's routes) | none | 0 |
+| Profile | see A1 | n/a | see A1 | S per Hub change |
+
+**B. Birth canal (the phone doorway)**
+| Step | Today on the phone | Change for one canal | Size / date |
+|---|---|---|---|
+| Hatch | NO runtime of its own. Hub's ticket + the SAME hatch page in a WebView; the ticket poll is the truth. Proven 11-02 21:23Z | none: the canal changes once, on Hub's page. Tonight's phone fix #386 (a failed step no longer closes the screen early), with Hub's page fix windy-pro #1645/#1649 | done (138) |
+| Mind step | the phone's native Mind setup screen when the ticket says mind_setup_required (hatch/index.tsx:106) | switch to Mind's ONE list (M1): one-tap OpenRouter / Windy's free AI for now (the trial) / "I already have a key", the same words as every doorway | S; after Mind's M1 PR (Wed 11-04); lab hatch with Mind Fri 11-06 |
+| "Where will your agent live?" | not on the phone yet | the shared web page (Hub/Agent), shown in the same WebView | 0 for the phone |
+| QR pairing ("This computer") | none | the ONE native piece: a QR scanner (expo-camera's CameraView; no new native module) that hands the code to the web approve page, with an 8-digit typed fallback on that page. The iOS camera purpose string gains "scan a code to link your computer" (words via Hub #9; needs a new build, not OTA) | S-M (2-3 days incl. tests + a device proof); after Hub's pairing routes + Agent's computer side (Fri 11-13); rides 139 |
+| Agent chat | the Fly app's chat IS the agent's Windy Chat room (Matrix); no second store | none. Tonight's lossy-network fixes: #387 (one Matrix txnId per message, ending the duplicate sends) and #388 (a queued message older than 20 h, or from another device, shows "May not have sent. Tap to send again.") | done (138) |
 
 ## C. One runtime for every agent
 **This replaces the convergence plan's "decide after 12-15" (Boss, 2026-11-02 15:01Z).**
