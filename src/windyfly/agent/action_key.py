@@ -18,15 +18,21 @@ import hashlib
 import os
 
 _trigger: contextvars.ContextVar[str] = contextvars.ContextVar("windyfly_action_trigger", default="")
+# How many sends to each (route, target) this trigger has made so far (Hub on #693): "text Mom I'm late, and text her
+# the address" is two texts to one number from one message, so they need two keys. A re-run of the same turn makes
+# the same sends in the same order, so it gets the same keys and is deduped.
+_counts: contextvars.ContextVar[dict[tuple[str, ...], int] | None] = contextvars.ContextVar(
+    "windyfly_action_counts", default=None)
 
 
-def enter(event_id: str) -> contextvars.Token[str]:
-    """Mark ``event_id`` as the message this turn answers; pair with ``leave``."""
-    return _trigger.set(str(event_id or ""))
+def enter(event_id: str) -> tuple[contextvars.Token[str], contextvars.Token[dict[tuple[str, ...], int] | None]]:
+    """Mark ``event_id`` as the message this turn answers (with a fresh send count); pair with ``leave``."""
+    return _trigger.set(str(event_id or "")), _counts.set({})
 
 
-def leave(token: contextvars.Token[str]) -> None:
-    _trigger.reset(token)
+def leave(tokens: tuple[contextvars.Token[str], contextvars.Token[dict[tuple[str, ...], int] | None]]) -> None:
+    _trigger.reset(tokens[0])
+    _counts.reset(tokens[1])
 
 
 def trigger() -> str:
@@ -34,11 +40,19 @@ def trigger() -> str:
 
 
 def key(route: str, *target: str) -> str:
-    """The key for one intended action, or "" when no chat message triggered this turn."""
+    """The key for the NEXT intended action on (route, target) in this turn, or "" when no chat message triggered
+    it. Call it ONCE per intended send and reuse the result on that send's own retries."""
     t = _trigger.get()
     if not t:
         return ""
-    parts = (os.environ.get("ETERNITAS_PASSPORT", ""), t, route, *(str(x) for x in target))
+    who = (route, *(str(x) for x in target))
+    counts = _counts.get()
+    if counts is None:
+        counts = {}
+        _counts.set(counts)
+    n = counts.get(who, 0) + 1
+    counts[who] = n
+    parts = (os.environ.get("ETERNITAS_PASSPORT", ""), t, *who, str(n))
     return hashlib.sha256("\x1f".join(parts).encode("utf-8")).hexdigest()
 
 

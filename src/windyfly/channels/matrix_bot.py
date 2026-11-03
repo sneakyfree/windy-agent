@@ -1380,6 +1380,16 @@ class WindyFlyMatrixBot(ChannelAdapter):
         )
 
     async def _on_file(self, room: nio.MatrixRoom, event: nio.RoomMessageFile) -> None:
+        """A file can start a turn too: it is the trigger for any send that turn makes (agent.action_key)."""
+        from windyfly.agent import action_key as _ak
+
+        tok = _ak.enter(str(getattr(event, "event_id", "") or ""))
+        try:
+            await self._on_file_inner(room, event)
+        finally:
+            _ak.leave(tok)
+
+    async def _on_file_inner(self, room: nio.MatrixRoom, event: nio.RoomMessageFile) -> None:
         """A file in a room: only the owner's awaited soul-import export is taken (strand P2.21.13).
 
         Anything else is ignored, exactly as before. The size the event declares is checked before

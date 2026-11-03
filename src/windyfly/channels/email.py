@@ -202,6 +202,8 @@ class WindyMailAdapter:
             if resp.status_code == 409 and _mail_code(resp) in ("idempotency_outcome_unknown", "idempotency_in_progress"):
                 # Mail can't tell whether the first try went (Boss 22:24Z: outcome unknown = never resent).
                 return {"status": "failed", "error": _UNSURE_SENTENCE}
+            if resp.status_code == 422 and _mail_code(resp) == "idempotency_key_reused":
+                return {"status": "failed", "error": "The mail server refused it."}  # never Mail's raw wording
             if resp.status_code in (200, 201, 202):
                 data = resp.json()
                 if resp.headers.get("Idempotent-Replayed", "").lower() == "true":

@@ -521,6 +521,10 @@ def _deliver(base_url: str, ept: str, to: str | None, body: str) -> dict[str, An
             "http_status": resp.status_code,
         }
     raw_code = err.get("error_code") or err.get("error")
+    if raw_code in ("idempotency_key_reused", "idempotency_key_malformed"):
+        # One of ours (two sends sharing a key): one plain sentence, never Windy Text's raw wording (Hub on #693).
+        return {"status": "failed", "error": refusal_sentence(resp.status_code, None),
+                "http_status": resp.status_code, "error_code": raw_code, "sent": False}
     plain = plain_error(raw_code if isinstance(raw_code, str) else None)
     return {
         "status": "failed",
