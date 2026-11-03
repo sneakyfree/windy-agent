@@ -64,8 +64,20 @@ async def test_a_message_from_while_the_laptop_slept_is_answered_after_a_resume(
     with patch("windyfly.channels.matrix_bot.agent_respond", return_value="here!") as respond:
         bot = _bot()
         bot._resumed_sync = True  # start() found a saved position
+        bot._hatch_dm_room_id = ROOM
         await bot._on_message(*_owner_message(3 * 3600, "$while-asleep"))
         assert respond.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_after_a_resume_other_rooms_keep_the_120_s_window():
+    """Only the owner's DM is caught up; old messages in any other room are never answered late."""
+    with patch("windyfly.channels.matrix_bot.agent_respond", return_value="x") as respond:
+        bot = _bot()
+        bot._resumed_sync = True
+        bot._hatch_dm_room_id = "!another-room:chat.windychat.ai"
+        await bot._on_message(*_owner_message(3 * 3600, "$group-chatter"))
+        assert respond.call_count == 0
 
 
 @pytest.mark.asyncio
@@ -85,6 +97,7 @@ async def test_a_resume_never_answers_a_message_twice():
         handled_events.reset_cache()  # a new process
         bot = _bot()
         bot._resumed_sync = True
+        bot._hatch_dm_room_id = ROOM
         await bot._on_message(*msg)
         assert respond.call_count == 1
 

@@ -1028,8 +1028,11 @@ class WindyFlyMatrixBot(ChannelAdapter):
         # reconnect backlog (messages minutes old). Rapid double-texting —
         # extremely common for normies — no longer loses the second message.
         event_age = time.time() - (event.server_timestamp / 1000)
-        if event_age > 120 and not self._resumed_sync:
-            return  # a fresh start (no saved position): an old backlog is not replayed
+        # After a resume (a saved sync position), the owner's DM gets everything that arrived meanwhile: that is the
+        # laptop-sleep fix. Every other room keeps the 120 s window, so old group chatter is never answered late.
+        resumed_dm = self._resumed_sync and bool(self._hatch_dm_room_id) and room.room_id == self._hatch_dm_room_id
+        if event_age > 120 and not resumed_dm:
+            return
 
         # Agent teams: a message from another AGENT that arrived before this process started is never
         # replayed (a restart inside the 120 s window re-answered a sibling's backlog and extended a
