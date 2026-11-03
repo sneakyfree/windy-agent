@@ -307,7 +307,8 @@ def test_cutoff_tries_the_sign_in_once_only(monkeypatch):
     calls: list = []
     r = er.refresh_ept(transport=_cutoff_then(calls, "", second_status=401))
     assert len(calls) == 2
-    assert r == {"status": "failed", "http": 401}
+    # A cached owner sign-in from before the cutoff is refused too (Hub on #691): say to sign in fresh.
+    assert r["status"] == "failed" and r["http"] == 401 and "windy login" in r["hint"]
 
 
 def test_a_plain_401_does_not_switch_to_the_sign_in(monkeypatch):
@@ -343,3 +344,20 @@ def test_another_coded_401_does_not_switch_to_the_sign_in(monkeypatch):
         return httpx.Response(401, json={"detail": {"code": "invalid_token", "message": "bad token"}})
     r = er.refresh_ept(transport=httpx.MockTransport(handler))
     assert len(calls) == 1 and "windy login" in r["hint"]
+
+
+def test_a_pre_cutoff_owner_sign_in_ends_in_sign_in_again_never_a_loop(monkeypatch):
+    """Eternitas #295: the cutoff also refuses the owner's Windy tokens from before it (401 windy_token_before_cutoff).
+    Final for that sign-in: one retry only, then the existing "windy login" hint."""
+    monkeypatch.setenv(er.ENV_KEY, make_ept(exp_in=10 * DAY))
+    import windyfly.hub_login as hl
+    monkeypatch.setattr(hl, "get_access_token", lambda *a, **k: "cached-hub-token")
+    calls: list = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        code = "ept_before_cutoff" if len(calls) == 1 else "windy_token_before_cutoff"
+        return httpx.Response(401, json={"detail": {"code": code, "message": "before the cutoff"}})
+    r = er.refresh_ept(transport=httpx.MockTransport(handler))
+    assert len(calls) == 2
+    assert r["status"] == "failed" and "windy login" in r["hint"]
