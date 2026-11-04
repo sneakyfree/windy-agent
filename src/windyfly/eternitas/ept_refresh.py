@@ -129,7 +129,9 @@ def _persist(path: Path, token: str) -> bool:
         stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
         backup = path.with_name(f"{path.name}.bak-ept-{stamp}")
         shutil.copy2(path, backup)
-        os.chmod(backup, mode)
+        from windyfly.state_files import restrict_to_owner
+
+        restrict_to_owner(backup)  # 0600 whatever the env file's mode: it holds the env file's secrets (Hub)
         fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
