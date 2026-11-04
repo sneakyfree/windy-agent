@@ -862,3 +862,57 @@ def test_f6_json_status_carries_the_memory_path(tmp_path):
     assert rc == 0
     memory = next(json.loads(line) for line in out.splitlines() if json.loads(line)["event"] == "memory")
     assert memory["db_path"] == str(tmp_path / "windyfly.db")
+
+
+@pytest.mark.parametrize("exp", [float("nan"), float("inf"), float("-inf")])
+def test_a_non_finite_expires_in_is_not_said_never_a_crash(exp):
+    """Hub on #703: int(exp - ...) raised on NaN/Infinity from a broken 428 body."""
+    out = io.StringIO()
+    report = home_pair.Report(Console(file=io.StringIO()), True, out)
+    wait = {"body": {"stage": "waiting_for_approval", "expires_in": exp}, "body_t": 0.0, "stage": None, "since": 0.0}
+    home_pair._show_wait(report, wait, 5.0)       # must not raise
+
+
+# ── Hub on #720: Connect's numbers are bounded; an unreadable bring-home state fails closed ─────────────────────────
+
+class _OddCode(Fake):
+    def __init__(self, expires_in, interval, **kw):
+        super().__init__(**kw)
+        self.odd = {"expires_in": expires_in, "interval": interval}
+
+    def handle(self, req):
+        if req.url.path == "/v1/home/code":
+            self.calls.append((req.url.path, req.method, {}, dict(req.headers)))
+            body = {"device_code": DEVICE, "user_code": "1234-5678", **self.odd}
+            return httpx.Response(200, content=json.dumps(body).encode(),     # json.dumps writes NaN / Infinity
+                                  headers={"Content-Type": "application/json"})
+        return super().handle(req)
+
+
+@pytest.mark.parametrize("expires_in,interval", [
+    (float("nan"), 5), (float("inf"), 5), (300, float("inf")), (300, float("nan")), (-5, 0), ("x", None), (True, 5),
+])
+def test_odd_numbers_from_connect_never_crash_or_hang(tmp_path, expires_in, interval):
+    fake = _OddCode(expires_in, interval)
+    rc, said, _ = _pair(fake, yes=True)
+    assert rc == 0 and "Traceback" not in said             # the round still completes, with the defaults
+
+
+@pytest.mark.parametrize("value,default,want", [
+    (float("nan"), 300.0, 300.0), (float("inf"), 300.0, 300.0), (-1, 5.0, 5.0), (0, 5.0, 5.0), ("7", 5.0, 5.0),
+    (False, 5.0, 5.0), (0.2, 5.0, 1.0), (10 ** 9, 300.0, 3600.0), (120, 300.0, 120.0),
+])
+def test_bounded(value, default, want):
+    assert home_pair._bounded(value, default, 1.0, 3600.0) == want
+
+
+def test_an_unreadable_bring_home_state_fails_closed(tmp_path, monkeypatch):
+    from windyfly import bring_home
+
+    _cloud_record()
+    monkeypatch.setattr(bring_home, "_seal_path", lambda p: (_ for _ in ()).throw(PermissionError("denied")))
+    fake = Fake()
+    rc, said, _ = _pair(fake, yes=True)
+    assert rc == 1 and fake.calls == [] and not ak.load_credentials()        # no code, no key: never a second move
+    assert ("I couldn't check whether a move with windy bring-home is partway done on this computer, so I stopped "
+            "here. Nothing was changed.") in " ".join(said.split())

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import sys
 import time
@@ -45,6 +46,8 @@ _ANOTHER_SAY = ("  An agent is already set up on this computer, so another one c
 _CANCEL_SAY = "  Cancelled. If you already approved on your phone, run this again to finish."
 _OLD_DOOR_SAY = ("  A move of this agent with windy bring-home is partway done on this computer. To finish it, run: "
                  "[bold]windy bring-home[/bold]")
+_OLD_DOOR_UNKNOWN_SAY = ("  I couldn't check whether a move with windy bring-home is partway done on this computer, so I "
+                         "stopped here. Nothing was changed.")
 APPROVED_TTL_S = 900  # Connect keeps an APPROVED code alive this long (home.ts); it answers 428 until then
 # Grant 11-03 (via Boss): every wait longer than a few seconds shows a number that moves. A wait shows one at least
 # every TICK_S, however long Connect's poll interval or Retry-After is; a long stage past SLOW_S also says so.
@@ -149,7 +152,11 @@ def pair(console: Any, *, json_status: bool = False, device_name: str = "", yes:
         report("error", code="already_home", passport=rec.get("passport_number"),
                say=f"  {escape(str(rec.get('agent_name') or 'Your agent'))} already lives on this computer.")
         return 1
-    if rec.get("passport_number") and _old_door_partway(str(rec["passport_number"])):
+    partway = _old_door_partway(str(rec["passport_number"])) if rec.get("passport_number") else False
+    if partway is None:
+        report("error", code="bring_home_unknown", say=_OLD_DOOR_UNKNOWN_SAY)
+        return 1
+    if partway:
         # `windy bring-home` picked this agent up and stopped before it finished: only that door can finish it (its
         # sealed pickup), and a new code would start a second move of the same agent (Hub on #700).
         report("error", code="bring_home_unfinished", say=_OLD_DOOR_SAY)
@@ -238,14 +245,23 @@ def _key_passport() -> str:
     return str(entry.get("passport") or agent_keys.current_passport()) if entry.get("registered_at") else ""
 
 
-def _old_door_partway(passport: str) -> bool:
-    """`windy bring-home` sealed a pickup for this agent and hasn't installed it yet (its resume file)."""
+def _bounded(value: Any, default: float, low: float, high: float) -> float:
+    """A number from Connect's answer, kept to [low, high]; missing, non-numeric, NaN or Infinity = ``default``
+    (Hub on #720: a NaN expires_in crashed int(), an Infinity interval slept for ever)."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
+        return default
+    return min(max(float(value), low), high)
+
+
+def _old_door_partway(passport: str) -> bool | None:
+    """`windy bring-home` sealed a pickup for this agent and hasn't installed it yet (its resume file). None = this
+    couldn't be checked: the caller fails CLOSED (never a possible second move: Hub on #720)."""
     try:
         from windyfly import bring_home
 
         return bring_home._seal_path(passport).exists()
     except Exception:  # noqa: BLE001
-        return False
+        return None
 
 
 def _pending_path() -> Any:
@@ -304,8 +320,8 @@ def _round(console: Any, report: Report, kid: str, *, json_status: bool, device_
             return 1
         device_code = str(data.get("device_code") or "")
         user_code = str(data.get("user_code") or "")
-        expires_in = int(data.get("expires_in") or 300)
-        interval = max(1.0, float(data.get("interval") or 5))
+        expires_in = int(_bounded(data.get("expires_in"), 300.0, 1.0, 3600.0))
+        interval = _bounded(data.get("interval"), 5.0, 1.0, 60.0)
         report("code", user_code=user_code, qr_url=data.get("qr_url"), expires_in=expires_in,
                say=f"  On your phone, open Windy and approve this computer. If it asks for a code, type "
                    f"[bold]{escape(user_code)}[/bold].")
@@ -344,7 +360,8 @@ def _show_wait(report: Report, wait: dict[str, Any], t: float) -> None:
         wait["stage"], wait["since"] = stage, t
     exp = body.get("expires_in")
     left = (max(0, int(exp - (t - wait["body_t"])))
-            if isinstance(exp, (int, float)) and not isinstance(exp, bool) else None)
+            if isinstance(exp, (int, float)) and not isinstance(exp, bool) and math.isfinite(exp) else None)
+    # (a NaN or Infinity expires_in from a broken answer is "not said", never a crash: Hub on #703)
     in_stage = int(t - wait["since"])
     raw_for = body.get("waiting_for")
     waiting_for = [w for w in raw_for if w in ("chat", "mail")] if isinstance(raw_for, list) else []
@@ -493,33 +510,6 @@ def settle_home(pickup: dict[str, Any], *, report: Report, door: str,
     marker["memory"] = {k: mem[k] for k in ("status", "imported", "verified", "db_path") if k in mem}
     write_private(_pending_path(), json.dumps(marker).encode())
     return _finish(marker, report=report, now=now, mem=mem)
-
-
-def _mb(n: int) -> str:
-    return f"{n / 1_000_000:.1f} MB"
-
-
-def _memory_progress(report: Report, who: str, now: Callable[[], float]) -> Callable[[str, int, int | None], None]:
-    """The memory's download (bytes; the total when Connect sends Content-Length) and its import (events), at most one
-    line a second plus the last one."""
-    last: dict[str, float] = {}
-
-    def show(stage: str, done: int, total: int | None) -> None:
-        t = now()
-        finished = total is not None and done >= total
-        if not finished and t - last.get(stage, float("-inf")) < _SHOW_EVERY_S:
-            return
-        last[stage] = t
-        pct = min(100, done * 100 // total) if total else None
-        if stage == "download":
-            so_far = f"{_mb(done)} of {_mb(total)} ({pct}%)" if total else f"{_mb(done)} so far"
-            report.progress("download", f"  Bringing over {who}'s memory: {so_far}.", bytes=done, total=total,
-                            percent=pct)
-        else:
-            report.progress("import", f"  Saving {who}'s memory on this computer: {pct if pct is not None else 100}%"
-                                      " done.", done=done, total=total, percent=pct)
-
-    return show
 
 
 def _mb(n: int) -> str:
