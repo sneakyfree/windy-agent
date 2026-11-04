@@ -109,6 +109,12 @@ Not Hub's: Mind (Mind's row: none), Word's site + desktop (W1-W11), and the Chat
   - Grant's mailbox rides his identity fold (Hub row 3, >= 11-11).
   - russ@ and alex@ are real people's mailboxes: their link is THEIR consent, asked by Grant, never by a lane, and their password form stays until they say yes. Mail drafts the plain-words ask to Grant as ONE line in this doc.
   - Lab/standalone mailboxes: Mail lists them (count + purpose, no passwords) by Fri 11-06; each gets either a synthetic Windy identity or a dated retire.
+  - **Mail's draft line for Grant to ask Russ and Alex** (Mail 2026-11-04; the final words are Boss's call, and Grant asks them himself): "Russ and Alex: your Windy Mail inboxes still use their own password. May we link each one to your own Windy account, so one sign-in opens everything? Your mail stays exactly as it is, and you can say no."
+  - **Mail's standalone mailbox count** (Mail 2026-11-04, also sent to Boss): 478 standalone Stalwart mailboxes.
+    - About 9 are real people: consent-linked, at Grant's ask.
+    - About 14 are company, role or service mailboxes: keep.
+    - About 30 are probes and fixed test inboxes: keep, each with a named owner.
+    - About 433 are QA, lab or journey test mailboxes: retire on a date. Deleting them is Grant's call.
 - **Row 5 (IMAP/SMTP app passwords):** they stay; a docs line (S) goes in Mail's next docs PR.
 - **Row 6 (#250, the dead /webmail code):** GO to finish it: rebase, CI green, Hub second read, Boss stamp, merge. It ships with Mail's next deploy (it's unreachable, so no slot of its own).
 
