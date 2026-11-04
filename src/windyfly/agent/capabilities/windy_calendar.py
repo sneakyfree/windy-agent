@@ -14,7 +14,6 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
-import uuid
 from typing import Any
 
 from windyfly.agent import windy_calendar as wc
@@ -39,6 +38,15 @@ def _add_event_key(args: dict[str, Any]) -> str:
     parts = (os.environ.get("ETERNITAS_PASSPORT", ""), str(args.get("title", "")), str(args.get("starts_at_utc", "")),
              str(args.get("duration_minutes", "")))
     return "ae-" + hashlib.sha256("\x1f".join(parts).encode("utf-8")).hexdigest()[:48]
+
+
+def _book_key(args: dict[str, Any]) -> str:
+    """The SAME booking gets the SAME key (Calendar 11-04): a retried book_appointment returns the first booking instead
+    of "just taken". The key is this agent's passport + the start + the booker's email (lowercased), and NOTHING else
+    (Calendar: don't widen it). A same-key retry whose other details changed is Calendar's 422, not a second booking."""
+    parts = (os.environ.get("ETERNITAS_PASSPORT", ""), str(args.get("starts_at_utc", "")),
+             str(args.get("booker_email", "")).strip().lower())
+    return "bk-" + hashlib.sha256("\x1f".join(parts).encode("utf-8")).hexdigest()[:48]
 
 
 # Calendar answers add_event with HTTP 200 and an outcome (windy-calendar #109); only "added" put an event on the
@@ -175,7 +183,7 @@ def register_windy_calendar_capabilities(registry: CapabilityRegistry, config: d
     def book(**kw: Any) -> dict[str, Any]:
         args = {k: kw[k] for k in ("starts_at_utc", "booker_name", "booker_email", "booker_phone",
                                    "booker_note", "booker_tz") if kw.get(k)}
-        args["idempotency_key"] = str(kw.get("idempotency_key") or uuid.uuid4())
+        args["idempotency_key"] = str(kw.get("idempotency_key") or _book_key(args))
         out = wc.invoke("book_appointment", args, write=True)
         return {"ok": True, **(out["result"] if isinstance(out.get("result"), dict) else {})} if out["ok"] else out
 
