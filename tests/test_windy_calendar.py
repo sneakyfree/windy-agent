@@ -117,6 +117,23 @@ def test_book_sends_idempotency_key_and_reports_slot_taken(calls):
     assert out["outcome"] == "slot_taken" and out["next_slots"] == ["x"]
 
 
+def test_book_in_progress_is_still_working_never_booked(calls):
+    # windy-calendar #127: while the first call with this key runs, Calendar answers ok:true + outcome in_progress
+    # whatever the arguments. Never "booked", never "made with different details".
+    _answer(calls, _resp(200, {"ok": True, "result": {"outcome": "in_progress", "retry_after_seconds": 5}}))
+    out = _cap("windy_calendar.book").handler(starts_at_utc="2026-10-12T15:00:00Z", booker_name="A",
+                                              booker_email="a@b.c", idempotency_key="k1")
+    assert out["ok"] is False and out["outcome"] == "in_progress" and out["retry_after_seconds"] == 5
+    assert out["say"] == "I'm still making that booking. Ask me again in a moment."
+    assert "different details" not in out["say"] and len(calls) == 1  # one call: no retry loop of its own
+
+
+def test_add_event_in_progress_is_still_working(add_on, calls):
+    _answer(calls, _resp(200, {"ok": True, "result": {"outcome": "in_progress", "retry_after_seconds": 5}}))
+    out = _cap("windy_calendar.add_event").handler(title="t", starts_at_utc="2026-10-12T15:00:00Z")
+    assert out["ok"] is False and out["say"] == "I'm still adding that one. Ask me again in a moment."
+
+
 def test_confirm_required_waits_and_is_not_retried(calls):
     _answer(calls, _resp(200, {"ok": False, "error": "confirm_required", "confirmation": {"id": "c1", "waiting_in": "inbox"}}))
     out = wc.invoke("cancel_appointment", {"appointment_id": "1"}, write=True)

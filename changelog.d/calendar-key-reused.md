@@ -1,1 +1,4 @@
 - **Windy Calendar's "key reused with different details" answer gets a true sentence.** When a retried booking or event comes back with other details, Calendar answers 422 `idempotency_key_reused` and makes nothing (windy-contracts #275, live with Calendar's deploy). The agent now says "This booking was already made with different details; ask me to change that booking instead of booking again." (for an event: "That event is already on the calendar with different details; ask me to change it instead.") instead of a generic failure, and never retries.
+- **A booking Calendar is still making is said as still in progress, never as booked.** While the first call with a
+  booking's key is still running, Windy Calendar answers `in_progress` (windy-calendar #127). The agent now says
+  "I'm still making that booking. Ask me again in a moment." instead of reporting it booked.
