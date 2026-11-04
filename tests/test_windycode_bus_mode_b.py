@@ -48,9 +48,13 @@ class FakeBus:
                     continue
                 self.auths.append(json.loads(line))
                 ans = self.answers.pop(0) if self.answers else {"id": "auth", "status": "ok"}
+                if ans.get("_close"):
+                    f.close()
+                    continue  # closes with no answer at all
                 f.write((json.dumps(ans) + "\n").encode())
                 f.flush()
                 if ans.get("status") != "ok":
+                    f.close()
                     continue  # closes: a second auth on this socket is never read
                 for cmd in f:
                     req = json.loads(cmd)
@@ -161,11 +165,32 @@ def test_a_retry_answered_wrong_token_type_then_falls_back_once(bus):
 
 
 @pytest.mark.parametrize("code", ["passport_revoked", "passport_suspended", "ept_cutoff", "standing_unavailable",
-                                  "too_many_connections", "identity_locked", "something_new", ""])
+                                  "too_many_connections", "identity_locked", "something_new"])
 def test_every_other_code_stops_with_no_fallback(bus, code):
     bus.answers = [_err(code)]
     out = _status()
     assert out["status"] == "unavailable" and bus.kinds() == ["mode-b"]
+
+
+OLD_IDE_ERROR = {"status": "error", "error": 'Authentication failed: Eternitas token typ "EPT+agent" is not accepted '
+                                           'here (expected "EPT")'}   # every IDE before Code's 11-09 build: NO code
+
+
+def test_an_ide_from_before_mode_b_falls_back_on_a_new_connection(bus):
+    bus.answers = [dict(OLD_IDE_ERROR, id="auth")]
+    assert _status()["status"] == "connected" and bus.kinds() == ["mode-b", "stored"] and bus.state["mints"] == 1
+
+
+@pytest.mark.parametrize("ans", [{"id": "auth", "status": "error", "error": "x", "code": ""},
+                                 {"id": "auth", "status": "error", "error": "x", "code": None}])
+def test_an_empty_code_is_no_code(bus, ans):
+    bus.answers = [ans]
+    assert _status()["status"] == "connected" and bus.kinds() == ["mode-b", "stored"]
+
+
+def test_a_connection_closed_with_no_answer_falls_back(bus):
+    bus.answers = [{"_close": True}]
+    assert _status()["status"] == "connected" and bus.kinds() == ["mode-b", "stored"]
 
 
 def test_the_stop_words_name_the_reason_not_the_free_text(bus):

@@ -234,9 +234,12 @@ class _BusConnection:
                 code = str(resp.get("code") or "").strip().lower() if resp.get("status") != "ok" else ""
         if resp.get("status") == "ok":
             return
-        if code == _BUS_FALLBACK and _auth_credentials()[1]:
-            logger.info("[code-bus-auth] wrong_token_type: the IDE's mode B is off; a new connection with the "
-                        "stored EPT")
+        # No "code" at all = an IDE from before mode B (every desktop until it updates past Code's 11-09 build; a
+        # desktop release needs Grant's typed "release", and people update late): today's path, so fall back like
+        # wrong_token_type. A closed connection with no answer is the same. A code we don't know still STOPS.
+        if (code == _BUS_FALLBACK or not code) and _auth_credentials()[1]:
+            logger.info("[code-bus-auth] %s: the IDE's mode B is off; a new connection with the stored EPT",
+                        code or "no code (an IDE from before mode B)")
             self._connect()
             self._authenticate_stored()
             return
@@ -248,7 +251,7 @@ class _BusConnection:
         self._send(msg)
         try:
             return self._recv()
-        except WindyCodeUnavailable:
+        except (WindyCodeUnavailable, OSError):  # closed or no answer: no "code", like an IDE from before mode B
             return {"status": "error", "error": "closed"}
 
     def _authenticate_stored(self) -> None:
