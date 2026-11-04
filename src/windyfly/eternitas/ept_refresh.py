@@ -319,8 +319,9 @@ def _refresh(force: bool, transport, now) -> dict[str, Any]:
             return {"status": "failed", "error": "unreachable"}
 
     if resp.status_code != 200:
-        from windyfly.eternitas.agent_keys import error_code, is_not_born, retry_after_s
+        from windyfly.eternitas.agent_keys import _standing_from_refusal, error_code, is_not_born, retry_after_s
         code, detail = error_code(resp)
+        _standing_from_refusal(resp, code)
         if is_not_born(code):
             # Mid-canal (birth reservation v1): nothing to renew yet. Wait quietly; never the revoked hint.
             logger.info("EPT refresh for %s: passport still being born; retry later", _passport_prefix(passport))
@@ -330,14 +331,16 @@ def _refresh(force: bool, transport, now) -> dict[str, Any]:
         if resp.status_code == 403 and path_used == "own_ept":
             # Eternitas: 403 on the agent's own token = the passport is SUSPENDED or REVOKED. Signing in again cannot fix
             # that, so never suggest it (Hub's pinned line, 10-12).
-            return {"status": "failed", "http": 403, "hint": REVOKED_REFRESH_HINT}
+            return {"status": "failed", "http": 403, "hint": REVOKED_REFRESH_HINT, "code": code}
         if resp.status_code == 401 and (path_used == "own_ept" or after_cutoff):
             # After a cutoff a CACHED owner sign-in from before it is refused too (Eternitas: the cut also ends the owner's
             # older tokens; Hub on #691); a fresh `windy login` mints one after it.
-            return {"status": "failed", "http": resp.status_code,
+            return {"status": "failed", "http": resp.status_code, "code": code,
                     "hint": "run `windy login`, then `windy ept refresh --force`"}
-        return {"status": "failed", "http": resp.status_code}
+        return {"status": "failed", "http": resp.status_code, "code": code}
 
+    from windyfly.eternitas.agent_keys import _standing_good_mint
+    _standing_good_mint()  # Eternitas minted for this passport: a standing stop (if any) is lifted
     try:
         data = resp.json()
         new_token = str(data.get("ept_token") or "")

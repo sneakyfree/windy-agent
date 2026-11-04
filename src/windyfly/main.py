@@ -483,6 +483,10 @@ def main() -> None:
     elif _claim_outcome == runtime_claim.ClaimOutcome.GRANTED:
         runtime_claim.start_heartbeat()
         runtime_claim.register_atexit_release()
+        # Eternitas standing: one mint a minute while running, so a retire (or a restore) takes effect within
+        # standing.QUIET_WITHIN_S even when nobody writes (Boss 11-04; Hub's #265 'quiet within N s').
+        from windyfly.agent import standing as _standing
+        _standing.start_probe()
 
     # Launch channel
     if args.channel == "cli":

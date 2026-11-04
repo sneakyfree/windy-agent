@@ -1004,6 +1004,7 @@ def request_agent_token(aud: str, *, transport: httpx.BaseTransport | None = Non
             resp = _mint(url, aud, key, transport)
         if resp.status_code != 200:
             code, msg = error_code(resp)
+            _standing_from_refusal(resp, code)
             raise AgentTokenError(code or f"http_{resp.status_code}", msg, resp.status_code, retry_after_s(resp))
     except AgentTokenError as err:
         if usable is not None and _transient(err):
@@ -1026,7 +1027,42 @@ def request_agent_token(aud: str, *, transport: httpx.BaseTransport | None = Non
     out["expires_at"] = now + min(int(body.get("expires_in") or 300), 300)
     with _TOKEN_LOCK:
         _TOKEN_CACHE[(kid, aud)] = out
+    _standing_good_mint()
     return dict(out)
+
+
+def _refusal_fields(resp: httpx.Response) -> dict[str, Any]:
+    """The extra fields of an Eternitas refusal (retired_until, reason), from ``detail`` or the top level."""
+    try:
+        body = resp.json()
+    except Exception:  # noqa: BLE001
+        return {}
+    if not isinstance(body, dict):
+        return {}
+    detail: dict[str, Any] = body["detail"] if isinstance(body.get("detail"), dict) else {}
+    return {k: detail.get(k, body.get(k)) for k in ("retired_until", "reason")}
+
+
+def _standing_from_refusal(resp: httpx.Response, code: str) -> None:
+    """A refusal that means the agent may not run (retired, suspended, revoked, this key revoked) latches the stop
+    (windyfly.agent.standing). Any other refusal changes nothing."""
+    try:
+        from windyfly.agent import standing
+
+        if standing.kind_of(code):
+            standing.latch(code, **_refusal_fields(resp))
+    except Exception as exc:  # noqa: BLE001 — the refusal itself is still raised
+        logger.warning("standing: could not record the stop (%s)", type(exc).__name__)
+
+
+def _standing_good_mint() -> None:
+    try:
+        from windyfly.agent import standing
+
+        if standing.stopped():
+            standing.clear()
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("standing: %s", type(exc).__name__)
 
 
 def service_dpop(htm: str, url: str, *, cred_path: Path | None = None) -> str:

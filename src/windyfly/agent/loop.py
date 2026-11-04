@@ -31,6 +31,7 @@ from windyfly.agent.models import (
 )
 from windyfly.agent.offline import get_offline_response, is_online
 from windyfly.agent.prompt import assemble_prompt
+from windyfly.agent.standing import AgentStopped as _AgentStopped
 from windyfly.agent.tracing import set_request_id, request_id_short
 from windyfly.config import default_model as _default_model
 from windyfly.control_panel import get_sliders
@@ -576,6 +577,17 @@ def _pause_unreadable_answer(session_id: str) -> str:
     return PAUSE_UNREADABLE_REPLY
 
 
+def _standing_answer(session_id: str, stop: dict[str, Any] | None) -> str:
+    """While Eternitas has this agent stopped: the standing line for a person, NOTHING for another agent or a phone
+    result turn (the same rules as the owner's pause)."""
+    from windyfly.agent import standing as _standing
+    from windyfly.channels import silence as _silence
+
+    if _silence.is_agent_sender(session_id) or _phone_result_turn(session_id):
+        return ""
+    return _standing.answer(stop)
+
+
 def _paused_answer(session_id: str) -> str:
     """While the owner has this agent stopped: the plain line for a person, NOTHING for
     another agent. Two stopped agents of one owner in a room would otherwise answer each
@@ -886,6 +898,14 @@ def _agent_respond_turn(
     # Hub + Mind, 10-02). Checked every turn (≤ once per 30 s, no model call) so it
     # also stops an agent that is on the local lifeboat or on Max OAuth. STOP means
     # stop: no model, no other provider, no local backup brain.
+    # 0.55. Stopped by ETERNITAS: a refused mint (retired, suspended, revoked, or this computer's key revoked) latched
+    # a stop that survives a restart; only a good mint lifts it (Boss 11-04). No model, no tool, no lifeboat.
+    from windyfly.agent import standing as _standing
+    _stop = _standing.stopped()
+    if _stop:
+        logger.info("[req:%s] stopped by Eternitas (%s) — not answering", request_id_short(), _stop.get("code"))
+        return _standing_answer(session_id, _stop)
+
     from windyfly.agent import models as _models
     if _models.check_owner_pause():
         logger.info("[req:%s] stopped by owner in Windy Mind — not answering", request_id_short())
@@ -1426,6 +1446,9 @@ def _agent_respond_turn(
         # never the lifeboat below.
         logger.info("[req:%s] stopped by owner in Windy Mind mid-turn", request_id_short())
         return _paused_answer(session_id)
+    except _AgentStopped as e:
+        logger.info("[req:%s] stopped by Eternitas mid-turn (%s)", request_id_short(), e.stop.get("code"))
+        return _standing_answer(session_id, e.stop)
     except RuntimeError as e:
         msg = str(e)
         if "providers in chain" in msg or "providers" in msg.lower():
