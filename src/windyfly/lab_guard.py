@@ -42,6 +42,26 @@ def _real_state() -> Path:
     return Path(os.environ.get("WINDY_LAB_GUARD_REAL_STATE") or Path.home() / ".windy").expanduser()
 
 
+def _real_claude() -> Path:
+    """The real person's Claude login: beside the real agent's state folder (~/.claude next to ~/.windy)."""
+    return Path(os.environ.get("WINDY_LAB_GUARD_REAL_CLAUDE") or _real_state().parent / ".claude" / ".credentials.json")
+
+
+def _readable(path: Path) -> bool:
+    try:
+        with path.expanduser().open("rb"):
+            return True
+    except OSError:
+        return False
+
+
+def _same(a: Path, b: Path) -> bool:
+    try:
+        return a.expanduser().resolve() == b.expanduser().resolve()
+    except OSError:
+        return False
+
+
 def _sub(token: str) -> str:
     if token.count(".") != 2:
         return ""
@@ -80,17 +100,22 @@ def problems() -> list[str]:
     if entry.get("registered_at") and str(entry.get("passport") or passport) != passport:
         out.append("the registered agent key belongs to another passport")
     env_file = resolve_env_file()
-    if env_file is not None and env_file.resolve() == _real_env().resolve():
+    if env_file is not None and _same(env_file, _real_env()):
         out.append("the env file windyfly would write is the real agent's")
-    if os.environ.get("WINDY_ENV_FILE") and Path(os.environ["WINDY_ENV_FILE"]).expanduser().resolve() == \
-            _real_env().resolve():
+    if os.environ.get("WINDY_ENV_FILE") and _same(Path(os.environ["WINDY_ENV_FILE"]), _real_env()):
         out.append("WINDY_ENV_FILE is the real agent's")
     for name in PROVIDER_KEYS:
         if os.environ.get(name, "").strip():
             out.append(f"{name} is set (a person's own provider key)")
     claude = Path(os.environ.get("WINDY_CLAUDE_CREDENTIALS_PATH") or Path.home() / ".claude" / ".credentials.json")
-    if claude.expanduser().exists():
+    if _readable(claude):
         out.append("a Claude login file is readable")
+    # The lab runs as the same OS user: a person's real login stays readable unless the unit hides it
+    # (systemd InaccessiblePaths=). Hub on #711.
+    if _readable(_real_claude()):
+        out.append("the real person's Claude login is readable by this process")
+    if _readable(_real_env()):
+        out.append("the real agent's env file is readable by this process")
     return out
 
 

@@ -24,8 +24,8 @@ def _token(sub: str) -> str:
 def lab(tmp_path, monkeypatch):
     """A correctly isolated lab: its own home, state folder, env file and key; the real agent's files elsewhere."""
     real_home = tmp_path / "grant"
-    (real_home / ".windy").mkdir(parents=True)
-    (real_home / ".windy" / "windy-0.env").write_text(f"ETERNITAS_PASSPORT={REAL}\n", encoding="utf-8")
+    (real_home / ".windy").mkdir(parents=True)          # the real files are HIDDEN from the lab (InaccessiblePaths):
+    #                                                     here they are simply absent (chmod can't hide from root)
     lab_home = tmp_path / "zero-lab"
     (lab_home / ".windy").mkdir(parents=True)
     (lab_home / ".windy" / "agent.env").write_text(f"ETERNITAS_PASSPORT={LAB}\n", encoding="utf-8")
@@ -83,8 +83,29 @@ def test_a_key_registered_for_another_passport_is_refused(lab):
     assert lab_guard.problems() == ["the registered agent key belongs to another passport"]
 
 
+def _real_env(lab):
+    path = lab["real_home"] / ".windy" / "windy-0.env"
+    path.write_text(f"ETERNITAS_PASSPORT={REAL}\n", encoding="utf-8")
+    return path
+
+
+def test_the_real_files_must_be_hidden_from_the_lab(lab):
+    """Hub on #711: the lab runs as the same OS user, so the real login and env must be HIDDEN from it (the unit's
+    InaccessiblePaths); still readable = refused."""
+    real_env = _real_env(lab)
+    login = lab["real_home"] / ".claude" / ".credentials.json"
+    login.parent.mkdir(parents=True)
+    login.write_text("{}", encoding="utf-8")
+    found = lab_guard.problems()
+    assert "the real agent's env file is readable by this process" in found
+    assert "the real person's Claude login is readable by this process" in found
+    real_env.unlink()
+    login.unlink()
+    assert lab_guard.problems() == []
+
+
 def test_the_real_agents_env_file_is_refused(lab, monkeypatch):
-    monkeypatch.setenv("WINDY_ENV_FILE", str(lab["real_home"] / ".windy" / "windy-0.env"))
+    monkeypatch.setenv("WINDY_ENV_FILE", str(_real_env(lab)))
     found = lab_guard.problems()
     assert "WINDY_ENV_FILE is the real agent's" in found
     assert "the env file windyfly would write is the real agent's" in found
