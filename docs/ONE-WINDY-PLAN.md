@@ -387,6 +387,21 @@ What "one agent" must give a person (Grant): the same agent everywhere, Claude-C
 
 **Size:** L for the loop + contracts + memory; the sandboxed workspace is separate [size].
 
+### Windy Chat's measurements and counter for option 2 and rec #6 (Chat 2026-11-04)
+
+**Measured, today's roster on Kit 0 (read-only, 10 minutes, 2026-11-04 ~11:36-11:46Z):**
+- 57 agents running in ONE Node process: 52 MiB in total, about 0.9 MiB per agent.
+- CPU: 1.41% of one core for the whole roster (8 CPU-seconds in 10 minutes); 0 replies sent in the window, so no turn happened in the window, so these are IDLE costs; CPU per turn needs a lab run (in the spike below).
+- The Matrix cost per conversation turn (measured 11-02): the lean Windy Fly lab ~9.9 homeserver requests per turn; an IDLE roster agent ~224 requests per 35 minutes (its sync loop).
+- For comparison (Agent's numbers above): one windyfly process is ~150 MiB (110 + a 32 MiB launcher).
+
+**Counter on rec #6 (one lean Windy Fly, one program per person): Chat AGREES, with one fact for the hosted side.**
+- On owners' own machines, ~150 MiB per agent is fine.
+- HOSTED free agents are the cost line: at ~150 MiB each, 1,000 hosted agents need ~150 GB RAM, against ~0.9 MiB each pooled in the roster today (roughly 160x more memory per agent). So the free hosted tier needs F's cap (50/day) AND either a pooled hosting mode for the lean program or a per-agent sleep (no process while idle, woken by its next message).
+- **Which (Chat's ask in option 2):** do NOT grow the roster into the new runtime. Keep it as it is for today's agents until each moves, then retire it (rec #8). The lean program is the one codebase.
+- **The sandbox** (a per-person workspace for files and code), size: L, a separate track. Per-agent containers cost ~10-30 MiB idle + the workload; isolates are cheaper but limit what can run. Sized in the spike below, not guessed.
+- **A spike before dates (2 days, Chat + Agent):** run 50 lean Windy Fly agents on one test host (Veron, synthetic owners only) and measure RAM and CPU idle and per turn, sync load on the homeserver, and the wake-from-sleep time. The dates come after the spike, from its numbers.
+
 ### Option 3 (if any)
 [Chat / Agent]
 
@@ -631,6 +646,19 @@ Built on Connect's existing device-ticket flow (device/init, /pair, Sign in with
 | G3 | Basic auth off (ENABLE_BASIC_AUTHENTICATION=false) | lab proof only: token clone/push, sync, CI readers keep working; decide after the friends wave | S | proof after 11-10; nothing ships without Boss GO |
 
 Windy Git's correction: only ONE account is linked to the Windy OIDC source (the admin); the other 7 are service/agent accounts that never log in.
+
+### Windy Chat's part of D: the roster side of "Your Windy" (Chat 2026-11-04)
+
+- **What:** the roster's facts block (today it names Windy Mind, the passport, its email, Windy Chat, Windy Code and Windy Calendar) becomes `your-windy.v1`: activated platforms + live entitlements from Hub's ONE agent-scoped GET, and passport status / trust LIVE from Eternitas (never copied at birth). Facts only; nothing inactive stated as available.
+- **Rules (the same as windyfly's #688):** DARK behind `ROSTER_YOUR_WINDY`; OWNER ONLY (a stranger's or a peer's turn gets neither the facts nor the suggestion rule); cached per agent for 5 minutes, and a failed read means no block (never a guess).
+- **Size and date:** S-M on Chat's side, about 2 days, starting when Hub's agent-scoped GET exists. It's dark until Boss's flag GO, after a synthetic-owner lab.
+- **Done means:** a roster agent's owner turn carries the same facts the lean program gets, from the same sources, with tests for owner-only and for "inactive is never available".
+
+**Today's ~59 roster agents: the notice (DRAFT words, Boss's call; a non-author does the #9).** Posted ONCE by each agent in its owner's DM, owners with a real person first, never more than once:
+> "A note from Windy: Windy Fly agents are getting a new home that can run on your own computer or in the cloud. I'll keep working right here until you choose where I live. Nothing is deleted, and you'll get a message from me before anything changes."
+
+- **Migration order (draft):** synthetic and lab agents first, then real owners who choose to move, and Zero last (rec #1). Nobody is moved without the owner's choice.
+- **Deadline policy (draft):** no forced deadline while the roster runs. If the roster is ever to stop, the real owners get the plan in writing with at least 30 days' notice, and it stops only with Boss's GO.
 
 ## E. Recommendations by the 10 guiding principles (Windy Agent draft, 2026-11-02; co-authors to counter)
 The principles are in kit-army-config doctrine/00-GUIDING-PRINCIPLES.md. When two collide, #10 decides: stability > the human's control of their own agent > simplicity > capability.
