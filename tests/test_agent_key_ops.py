@@ -180,3 +180,70 @@ def test_off_the_token_path_is_unchanged(env):  # noqa: F811
     assert r["status"] == "rotated" and r["via"] == "own_ept" and fake.ops == []
     assert fake.keys[old]["status"] == "retired"
     assert any(bearer == EPT for _, p, bearer in fake.calls if p.endswith("/retire"))
+
+
+# ── lost answers (Hub on #714) ───────────────────────────────────────
+
+def _lose_answer_once(fake: FakeKeyOps, match) -> httpx.MockTransport:
+    """Eternitas COMMITS the request, then the answer is lost (ReadTimeout), once."""
+    state = {"done": False}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        resp = fake.handle(req)
+        if not state["done"] and match(req):
+            state["done"] = True
+            raise httpx.ReadTimeout("answer lost", request=req)
+        return resp
+    return httpx.MockTransport(handler)
+
+
+def _is_register(req: httpx.Request) -> bool:
+    return req.method == "POST" and req.url.path.endswith("/keys") and "eternitas-agent-proof" in req.headers
+
+
+def test_a_lost_register_answer_keeps_the_key_and_the_next_rotate_settles_it(key_only, env,  # noqa: F811
+                                                                             monkeypatch):
+    fake, old = key_only
+    monkeypatch.setenv("WINDY_AGENT_KEY_OPS", "1")
+    r1 = ak.rotate(transport=_lose_answer_once(fake, _is_register))
+    assert r1["status"] == "unknown"
+    pending = r1["kid"]
+    assert fake.keys[pending]["status"] == "active"  # Eternitas holds it...
+    assert (pending, "pending") in _local(env)        # ...and so do we: never an orphan nobody holds
+    registers = sum(1 for o in fake.ops if o["verb"] == "register")
+    r2 = ak.rotate(transport=fake.transport())
+    assert r2["status"] == "rotated" and r2["kid"] == pending
+    assert sum(1 for o in fake.ops if o["verb"] == "register") == registers  # settled by reading, not re-sent
+    assert _local(env) == [(pending, "active")] and fake.keys[old]["status"] == "retired"
+
+
+def test_a_lost_retire_answer_is_still_rotated_and_the_daily_job_settles_it(key_only, env,  # noqa: F811
+                                                                            monkeypatch):
+    fake, old = key_only
+    monkeypatch.setenv("WINDY_AGENT_KEY_OPS", "1")
+    r = ak.rotate(transport=_lose_answer_once(fake, lambda q: q.url.path.endswith("/retire")))
+    assert r["status"] == "rotated"
+    assert fake.keys[old]["status"] == "retired" and (old, "retiring") in _local(env)
+    # The old key can no longer sign (401 invalid_agent_proof): the public list says it is retired -> done.
+    assert ak.ensure_registered(transport=fake.transport())["status"] == "registered"
+    assert _local(env) == [(r["kid"], "active")]
+
+
+@pytest.mark.parametrize("listed,kept", [("retired", False), ("active", True), ("unreadable", True)])
+def test_a_self_retire_answered_401_reads_the_public_list(key_only, env, monkeypatch, listed, kept):  # noqa: F811
+    fake, old = key_only
+    monkeypatch.setenv("WINDY_AGENT_KEY_OPS", "1")
+    fake.retire_answer = (401, "invalid_agent_proof")
+    new = ak.rotate(transport=fake.transport())["kid"]
+    assert (old, "retiring") in _local(env)
+    if listed == "retired":
+        fake.keys[old]["status"] = "retired"
+    base = fake.handle
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if listed == "unreadable" and req.method == "GET":
+            return httpx.Response(503, json={"detail": "down"})
+        return base(req)
+    ak.ensure_registered(transport=httpx.MockTransport(handler))
+    assert ((old, "retiring") in _local(env)) is kept
+    assert (new, "active") in _local(env)
