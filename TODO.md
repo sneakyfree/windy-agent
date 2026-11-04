@@ -15,12 +15,17 @@ Last full rewrite: 2026-11-04 18:35Z (before Grant's restart of every Veron Clau
 
 **Open PRs (#712 merged master in at bfc0a4ac), waiting on CI (busy Veron runners) and the stamps. Merge each ONLY on the gate above.**
 - #717 TODO.md (this file): the 11-04 evening moves. TODO-only: a lane reader (Windy Calendar) + Boss's stamp.
-- #703 pairing progress gate (pre-flag; must merge before Connect's flag 11-10). Hub #9 done; head 539698d5.
-- #705 Vault: release only revocable leases.
-- #706 /model never confirms a switch Mind refuses (Hub #9 done; Mind's label vendored + pinned).
-- #707 web_search on a key-only paired computer says plainly it isn't available yet (Boss + Hub #9 OK).
-- #708 the test suite never writes into the checkout (a guard names any test that still does).
-- #709 retire latch + 60 s probe (N = 75 s; all lines settled by Boss + Hub; H13a move line only on move_aborted).
+- #709 retire latch + 60 s probe (N = 75 s; lines settled by Boss + Hub). Hub NOT OK on ee093be3 (by message, before 22:20Z): fixed at
+  b130f948 (11-04 22:20Z): probe on every claim outcome but CONFLICT; passport from the token's sub; refused forced refresh
+  + key_revoked mint back off 60 s -> 1 h (new kid at once; retired/suspended keep 60 s); ept_refresh lifts the stop only on
+  a usable token; home pair sets a key Eternitas lists revoked aside (renamed, never deleted). ONE new line for Hub #9:
+  "This computer's old key was turned off, so it was set aside. Starting a new pairing." Hub re-read asked.
+- #720 home pair: Hub's #700 follow-ups 0-6 + bring-home already_external lines (1.1 H7) + Hub's #703 NaN nit. Opened
+  11-04 22:24Z at ac5cb466 (stacked on #703, merged; master merged in). 6 new lines for Hub #9 (verbatim in the PR body).
+  Due Fri 11-06.
+- Hub's nits carried from his 11-04 stamps (follow-up PRs, not blocking): #706 when the current model is ALSO unavailable,
+  say "Windy Mind will pick one for me" instead of "I'm still answering with X"; #715 gate the event with the same once-key
+  as the log line; #719 confirm rev.7 promises ONE text block (ask Hand/contracts #278).
 - #711 QA battery isolation + windyfly.lab_guard: CI failed 2 tests on d51ab719; fixed at 8ee4d8f9 (11-04 21:28Z: lab_guard
   prints -> sys.std*.write; harness logs out of a shared /tmp file into $STRESS_HOME), then be891a7e (Hub MEDIUM:
   mkdir the stress home 700 + empty guard). Hub re-read asked; Boss re-arm asked.
@@ -28,14 +33,10 @@ Last full rewrite: 2026-11-04 18:35Z (before Grant's restart of every Veron Clau
   words by message ~21:30Z). Head bfc0a4ac (master merged in: conflict with #704). Hub re-stamp asked. Must merge before Calendar deploys
   windy-calendar #118 (Calendar lists "#712 merged" as its precondition).
 
-**Built locally, stacked on #703: open after #703 merges (rebase each onto master, run the touched tests, push).**
-- #700 follow-ups 0-6 (branch fix/home-pair-followups, fea048c, worktree wt-followups): partway bring-home line;
-  Ctrl-C at y/N = cancelled 130; Ctrl-C while registering keeps the key; ConnectError = the running-nowhere line;
-  the marker carries the memory outcome; the memory line names the DB path; env-file passport test; bring-home
-  already_external state lines (home 1.1 H7). New person lines need Hub #9. Due Fri 11-06.
-- Desktop-door installer `windy home install --ticket - [--json-status]` (branch feat/home-install-desktop, 8830c79,
-  worktree wt-install, 17 tests; stacked on the follow-ups). DARK. PR by Fri 11-06; end-to-end lab Wed 11-11
-  (constraint: Hub's desktop-door PR, DARK Fri 11-06).
+**Built, stacked on #720: open after #720 merges (merge master in, run the touched tests, push).**
+- Desktop-door installer `windy home install --ticket - [--json-status]` (branch feat/home-install-desktop, eae3daf
+  after master merged in 11-04 22:23Z, conflicts kept the branch's extra_headers; worktree wt-install, 17 tests). DARK.
+  PR by Fri 11-06; end-to-end lab Wed 11-11 (constraint: Hub's desktop-door PR, DARK Fri 11-06).
 
 **Thursday 11-05**
 - Connect pairing lab #1, 13:00-14:00Z (Connect leads; headless browser plays the phone). Prep done:
@@ -45,10 +46,13 @@ Last full rewrite: 2026-11-04 18:35Z (before Grant's restart of every Veron Clau
 - CL5a Zero owner-call flip, 17:20-17:45Z. Hub OK (3 conditions in GO-DRAFTS/CL5a-zero-owner-call.md). Boss GO
   requested on the BOARD 15:59:36Z, not yet given. About 17:15Z: tell Windy Call "about to flip"; flip only on its GO.
 
-**Sat 11-07: lab agent for Windy Mail's API deploy AFTER (mine; Mail asked 11-03 ~21:30Z, confirmed 11-04 19:5xZ)**
+**Sat 11-07: lab agent for Windy Mail's API deploy AFTER (mine; Mail asked 11-03 ~21:30Z, confirmed 11-04 ~19:50Z, exact time not logged)**
 - Hatch about 11:10Z (Mobile's plan 19:53Z: WDA + owner sign-in 11:00Z; Boss option (b), BOARD 2026-11-04T19:52:46Z; GO 19:49:59Z item 7, correction 19:51:25Z):
   the MAC MINI Windy Mobile makes the synthetic probe.windyword.ai owner Fri (lab.register_kept, windy-pro-mobile
   #393; dated name + lockbox key NAME to me by Fri 18:00Z; fallback = Hub via verify-email-probe) and its PHONE
+  [OWNER MADE EARLY, Mobile 11-04 22:12:21Z: mobile-lab-mail-after-owner-202611042211@probe.windyword.ai, lockbox
+  NAME LAB_MAIL_AFTER_OWNER_PW_20261104 (not mine to read: the phone hatches), windy_identity_id
+  f502136a-aec0-4d1d-b85d-8920495a0505; login 200. The Fri 18:00Z wake now only needs a glance.]
   hatches after its 1-6 AM ET window, writing the fresh owner token file (path + second named). I NEVER sign in or
   type as the owner (Boss: no exception, the hatch is a consent surface, contracts #278). FRESH lab agent on OC5,
   windyfly master (has #693), WINDY_MAIL_EPT_AGENT unset, lab guard (#711), house lanes only (Boss 17:01Z).
@@ -62,12 +66,12 @@ Last full rewrite: 2026-11-04 18:35Z (before Grant's restart of every Veron Clau
   one mode-B read + one send, both succeed with NO legacy retry (log shows it). Then BOARD AFTER.
 
 - Thu 11-05 15:00-15:30Z: Code mode-B LAB for #713 (Boss GO 2026-11-04T20:54:50Z, moved by Boss 20:56:49Z after my
-  20:55Z slip, BOARD 20:56:14Z). Hub OK by message on labs/code-modeb/code-modeb-lab.py at sha256 3372a2a8...4a58 (11-04 ~21:0xZ); at 14:50Z re-hash both copies + send the sha to Code (Code starts its builder only on it). Run on Windy 0
+  20:55Z slip, BOARD 20:56:14Z). Hub OK by message on labs/code-modeb/code-modeb-lab.py at sha256 3372a2a8...4a58 (11-04 ~21:00Z, exact time not logged); at 14:50Z re-hash both copies + send the sha to Code (Code starts its builder only on it). Run on Windy 0
   from ~/.local/share/zero-lab (agent-713 = archive of 72c464ba), `check` first, BOARD BEFORE, steps 1-3 (on), step 4
   (off) on Code's word, BOARD AFTER, then remove agent-713 + the script. Zero untouched; no model calls.
 
 **Due later this week**
-- Key rotation by the agent itself: PR #714 OPEN 11-04 21:11Z (head f433b493 after Hub's 2 rounds: pending key saved before register, lost answers settled from the public list; WINDY_AGENT_KEY_OPS=1; Hub re-read asked 21:23Z; was due Tue 11-10; follow-up PR: prune .bak copies holding retired keys; rule proposed to Hub 11-04 22:00Z: >30 days AND every kid in the current file or not active on the live public list; unreadable list = keep; newest always kept; build after #714 merges) (Boss YES, BOARD 2026-11-04T19:49:59Z item 8; eternitas #302
+- Key rotation by the agent itself: PR #714 OPEN 11-04 21:11Z (head f433b493 after Hub's 2 rounds: pending key saved before register, lost answers settled from the public list; WINDY_AGENT_KEY_OPS=1; Hub re-read asked 21:23Z; was due Tue 11-10; follow-up PR: prune .bak copies holding retired keys; rule OK'd by Hub 11-04 (plus .bak-ept-/.bak-deregister- at 0600, >30 d pruned, newest per kind kept; zeros+fsync before unlink; counts-only logs). BUILT on branch feat/credentials-bak-prune, head 18e01191 (stacked on #714), Hub read asked 22:07Z; open the PR after #714 merges; needs Boss's OWN stamp (it deletes secrets)) (Boss YES, BOARD 2026-11-04T19:49:59Z item 8; eternitas #302
   agent-key-ops.v1, Eternitas deploys Mon 11-09): a key-only Fly registers its new key with an Eternitas-Agent-Proof
   from the old one (two challenges), then the old key retires ITSELF; handles 401 invalid_agent_proof, 409
   last_active_key / too_many_active_keys, 403 not_this_key.
@@ -75,17 +79,17 @@ Last full rewrite: 2026-11-04 18:35Z (before Grant's restart of every Veron Clau
   with InaccessiblePaths; dry run SKIP_HARNESS=1 pasting "lab guard: ok" + one deliberate REFUSED; re-enable the
   timer; BOARD BEFORE/AFTER). The timer on Windy 0 is DISABLED since 11-04 16:55Z.
 - Consent surface: an MCP tool answering `windy_consent_surface` is final (no retry; the person must act). PR #719
-  OPEN 11-04 21:54Z (head d8407389; new words for Boss + Hub #9); merges after windy-contracts #278 (rev.7 MUST).
+  OPEN 11-04 21:54Z (head d8407389; Hub stamped + #9 11-04 night; Boss stamp on green asked); merges after windy-contracts #278 (rev.7 MUST).
 - /model: read `outside_ai_label` live from catalog/me once Mind's pin is live (Sun 11-08 17:00Z); vendored = fallback.
 - Fly mode-B for Search (EPT+agent aud windy-search + DPoP on POST /v1/search, /web/fetch), DARK, flag
-  WINDY_SEARCH_EPT_AGENT: Search answered all 6 (11-04 ~21:2xZ; windy-search #129 @ f78b05c; notes
+  WINDY_SEARCH_EPT_AGENT: Search answered all 6 (11-04 evening, exact time not logged; windy-search #129 @ f78b05c; notes
   GO-DRAFTS/SEARCH-modeB-answers-20261104.md; wrong_token_type = fall back at once; 502 render failed = stored EPT).
   PR #716 OPEN 11-04 21:35Z (head 1de25f67; Hub OK + Search 2nd read ~21:46Z; Boss stamp asked).
   FLIP LIST (Search's nits via Hub): (1) drop the 502 render-failed stored-EPT send the hour Hand's acting-passport
   path is live (else a real render failure doubles); (2) before the flip, one INFO line at startup naming the Search
   base used (htu follows WINDY_SEARCH_BASE_URL; a non-default base = every proof counted bad). Search mode-B live Wed 11-11 13:00Z; flip = own GO + lab.
-- agent.db_path_ambiguous ON: PR #715 OPEN 11-04 21:2xZ (head ab30825c; Admin declared live 21:16Z, HQ 7d9138e1).
-- windycode_web mode B (aud windy-code + DPoP), DARK: PR #713 OPEN 11-04 20:45Z (head 72c464ba since ~20:5xZ, test-only move; Hub re-read asked; Fly flag
+- agent.db_path_ambiguous ON: PR #715 OPEN 11-04 21:21Z (head ab30825c; Admin declared live 21:16Z, HQ 7d9138e1; Hub stamped 11-04 night; Boss stamp on green).
+- windycode_web mode B (aud windy-code + DPoP), DARK: PR #713 OPEN 11-04 20:45Z (head 72c464ba since 20:51Z, test-only move; Hub re-read asked; Fly flag
   WINDY_CODE_EPT_AGENT=1), built to Code's 5 answers (windy-code-web #96 @ 8740b593; notes in
   GO-DRAFTS/CODE-modeB-answers-20261104.md). Hub read asked 20:46Z; watcher armed. If #96's review changes an
   answer, #713 changes the same hour. Hub re-stamp at 72c464ba (20:51:58Z, read back). Code lab needs Code e6cf623 (passes no_forwardable_credential) live too. Switch-on = Code's lab with this build + Boss GO + Kit 0 slot + KE5
@@ -94,12 +98,12 @@ Last full rewrite: 2026-11-04 18:35Z (before Grant's restart of every Veron Clau
 
 ## Waiting on
 
-- **Code:** IDE agent-bus mode-B shape is FINAL (11-04 ~21:5xZ, Eternitas ruled; GO-DRAFTS/CODE-modeB-answers-20261104.md):
+- **Code:** IDE agent-bus mode-B shape is FINAL (11-04 evening, exact time not logged, Eternitas ruled; GO-DRAFTS/CODE-modeB-answers-20261104.md):
   htu "urn:windycode:agent-bus" on every OS, htm AUTH, EPT+agent aud windy-code, proof in auth field "dpop". Fly's
   windycode.py bus client: DARK PR #718 OPEN 11-04 (head 347e5e12 after Code's 2nd read: no code = an old IDE = fall back;
-  key on "code", new connection per retry; Hub read asked; was due Fri 11-06); Code's IDE dark build Mon 11-09; lab after
+  key on "code", new connection per retry; Hub stamped 11-04 night; Boss stamp on green; was due Fri 11-06); Code's IDE dark build Mon 11-09; lab after
   both. Hard constraint = legacy EPT cutoff 2027-01-04.
-- **Code:** the 5 mode-B answers ARRIVED early (11-04 ~20:0xZ) -> #713; none changed in #96 review; no_forwardable_credential shape answered. Prod URL confirmed = Fly default. LAB builder URL known (http://100.110.135.105:18930, in labs/code-modeb/code-modeb-lab.py; Tailscale only).
+- **Code:** the 5 mode-B answers ARRIVED early (11-04 ~20:00Z, exact time not logged) -> #713; none changed in #96 review; no_forwardable_credential shape answered. Prod URL confirmed = Fly default. LAB builder URL known (http://100.110.135.105:18930, in labs/code-modeb/code-modeb-lab.py; Tailscale only).
 - **Grant:** his own typed OK in the Windy Agent terminal before the line "Read TODO.md first; add every promise to
   it the same turn." goes into CLAUDE.md in windy-agent, windy-fly-site and windy-0-soul. Asked 11-04 11:45Z.
 - **Boss:** GO for CL5a (Thu 17:20Z) and for the Connect lab's prod flag window (Thu 13:00Z). Nudge Thu 11:00Z.
@@ -144,6 +148,15 @@ Local-only branches (not pushed): fix/home-pair-followups, feat/home-install-des
 
 ## Done
 
+- 2026-11-04: MERGED on Hub + Boss stamps: #703 23af853c (pairing progress gate), #705 ae09254a (Vault revocable leases),
+  #706 66ee6ad6 (/model refused switch), #707 20a60ac2 (web_search key-only line), #708 777de1be (no checkout leaks).
+  #706-#708 first hit GitHub's "base branch was modified" race, re-queued one after another on the same heads.
+- 2026-11-04 night second reads: WindyCloud #237, windy-translate #47, windy-mind #570, Windy-Clone #138, windytalk #147
+  (2 switch-on MEDIUMs carried to Talk by Hub); windy-contracts #284 LN1 OK from the Fly side at 2b64206f (contact texts
+  = no turn until Hub rules); windy-code-web #98 TODO-only, windy-agent/approved posted at 67aa0fbe.
+- 2026-11-04: Hub #9 OK on windy-fly-site #22 (68d3cf66, deletions) and #21 (2112d8e6, dark until 'all' flip + F6 +
+  Grant); both still need Boss's GO for their own daytime slots. Boss's Traveler correction (BOARD 22:20:06Z) relayed;
+  Traveler's #14 already points at app.windyword.ai/translate?door=windy_traveler.
 - 2026-11-04: #702 TODO.md rewrite MERGED 63ca046b. #710 a real passport is never marked synthetic MERGED 442b4450.
 - 2026-11-04: #687 Traveler links: Boss (A) KEEP app.windyword.ai/translate (BOARD 21:13:51Z); relayed to Traveler.
 - 2026-11-04: #704 Calendar book_appointment deterministic key MERGED 68d7d859 (Hub OK + Boss stamp + green).
