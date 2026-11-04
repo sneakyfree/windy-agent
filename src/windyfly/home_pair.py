@@ -43,6 +43,8 @@ _NOWHERE_502_SAY = ("  Windy couldn't finish the move, so your agent isn't runni
 _ANOTHER_SAY = ("  An agent is already set up on this computer, so another one can't be moved here. To bring a "
                 "different agent home, use another computer.")
 _CANCEL_SAY = "  Cancelled. If you already approved on your phone, run this again to finish."
+_OLD_DOOR_SAY = ("  A move of this agent with windy bring-home is partway done on this computer. To finish it, run: "
+                 "[bold]windy bring-home[/bold]")
 APPROVED_TTL_S = 900  # Connect keeps an APPROVED code alive this long (home.ts); it answers 428 until then
 # Grant 11-03 (via Boss): every wait longer than a few seconds shows a number that moves. A wait shows one at least
 # every TICK_S, however long Connect's poll interval or Retry-After is; a long stage past SLOW_S also says so.
@@ -147,11 +149,16 @@ def pair(console: Any, *, json_status: bool = False, device_name: str = "", yes:
         report("error", code="already_home", passport=rec.get("passport_number"),
                say=f"  {escape(str(rec.get('agent_name') or 'Your agent'))} already lives on this computer.")
         return 1
+    if rec.get("passport_number") and _old_door_partway(str(rec["passport_number"])):
+        # `windy bring-home` picked this agent up and stopped before it finished: only that door can finish it (its
+        # sealed pickup), and a new code would start a second move of the same agent (Hub on #700).
+        report("error", code="bring_home_unfinished", say=_OLD_DOOR_SAY)
+        return 1
     _load_agent_env()
     pending = _pending()
     if pending and agent_keys.has_registered_key() and _key_passport() == pending.get("passport_number"):
         # A round that registered this computer's key and then stopped (a crash, Ctrl-C): finish it (Hub on #700).
-        return _finish(pending, report=report, now=now, mem={"status": "lost"})
+        return _finish(pending, report=report, now=now, mem=pending.get("memory") or {"status": "lost"})
     _clear_pending()  # a marker without its registered key: that round never got that far
     if agent_keys.has_registered_key() or (agent_keys.current_passport() and
                                            agent_keys.current_passport() != rec.get("passport_number")):
@@ -159,8 +166,12 @@ def pair(console: Any, *, json_status: bool = False, device_name: str = "", yes:
         # agent) or another agent's passport: refused BEFORE a code, so no cloud agent stands down for it.
         report("error", code="another_agent_here", say=_ANOTHER_SAY)
         return 1
-    if rec and not _confirm_cloud_link(rec, report, json_status=json_status, yes=yes, ask=ask):
-        return 1
+    try:
+        if rec and not _confirm_cloud_link(rec, report, json_status=json_status, yes=yes, ask=ask):
+            return 1
+    except (KeyboardInterrupt, EOFError):
+        report("error", code="cancelled", say="  Cancelled. Nothing was changed.")  # no key, no code yet (Hub on #700)
+        return 130
     state: dict[str, Any] = {"keep_key": False, "cloud_record": rec}
     kid, undo = agent_keys.begin_local_key()
     rc: int | None = None
@@ -225,6 +236,16 @@ def _key_passport() -> str:
 
     entry = agent_keys.active_entry(agent_keys.load_credentials()) or {}
     return str(entry.get("passport") or agent_keys.current_passport()) if entry.get("registered_at") else ""
+
+
+def _old_door_partway(passport: str) -> bool:
+    """`windy bring-home` sealed a pickup for this agent and hasn't installed it yet (its resume file)."""
+    try:
+        from windyfly import bring_home
+
+        return bring_home._seal_path(passport).exists()
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def _pending_path() -> Any:
@@ -428,8 +449,12 @@ def settle_home(pickup: dict[str, Any], *, report: Report, door: str,
         return 1
     from windyfly.state_files import write_private
 
-    write_private(_pending_path(), json.dumps({"passport_number": passport, "agent_name": name, "door": door,
-                                               "cloud_record": state.get("cloud_record") or {}}).encode())
+    marker: dict[str, Any] = {"passport_number": passport, "agent_name": name, "door": door,
+                              "cloud_record": state.get("cloud_record") or {}}
+    write_private(_pending_path(), json.dumps(marker).encode())
+    # From here a Ctrl-C (or a crash) may land after Eternitas took the key: the key stays, and the marker lets the
+    # next run finish the move with it. Only a registration that surely failed gives the key back (Hub on #700).
+    state["keep_key"] = True
     reg = agent_keys.register_with_bootstrap(passport, bootstrap, transport=transport)
     if reg.get("status") == "unknown":
         # Eternitas may hold the key already: keep it, so the next round's 409 key_exists settles it (Hub on #700).
@@ -438,6 +463,11 @@ def settle_home(pickup: dict[str, Any], *, report: Report, door: str,
         return 1
     if reg.get("status") not in ("registered", "already_registered"):
         _clear_pending()
+        state["keep_key"] = False
+        if reg.get("code") in ("ConnectError", "ConnectTimeout"):
+            # Eternitas was never reached: not a refusal of the key, so the plain running-nowhere line (Hub on #700).
+            report("error", code="key_registration_unreachable", detail=reg.get("code"), say=nowhere)
+            return 1
         report("error", code="key_registration_failed", http=reg.get("http"), detail=reg.get("code"),
                say=f"  [red]Eternitas didn't accept this computer's key[/red], so {who} couldn't move here, and it "
                    "isn't running anywhere right now. Run this again for a new code to finish the move.")
@@ -456,7 +486,11 @@ def settle_home(pickup: dict[str, Any], *, report: Report, door: str,
         except Exception as exc:  # noqa: BLE001 — a broken import never strands the agent half-moved (Hub on #700)
             logger.warning("home pair: the memory import failed (%s)", type(exc).__name__)
             mem = {"status": "import_failed", "detail": type(exc).__name__}
-    return _finish(_pending(), report=report, now=now, mem=mem)
+    # The memory's outcome goes into the marker, so a stop between here and the end is resumed with the truth (not
+    # "lost"); and _finish gets the marker from memory, never a re-read that could come back empty (Hub on #700).
+    marker["memory"] = {k: mem[k] for k in ("status", "imported", "verified", "db_path") if k in mem}
+    write_private(_pending_path(), json.dumps(marker).encode())
+    return _finish(marker, report=report, now=now, mem=mem)
 
 
 def _mb(n: int) -> str:
@@ -499,7 +533,10 @@ def _finish(pending: dict[str, Any], *, report: Report, now: Callable[[], float]
     bring_home.ensure_brain(name)  # before the settings below: writing the brain config rewrites the env file
     bring_home.upsert_env({"ETERNITAS_PASSPORT": passport, "WINDY_CHAT_EPT_AGENT": "1", "WINDY_MAIL_EPT_AGENT": "1"})
     report("memory", status=mem.get("status"), imported=mem.get("imported", 0), verified=bool(mem.get("verified")),
-           say=(f"  Memory: {mem.get('imported', 0)} messages carried over." if mem.get("status") == "imported"
+           db_path=mem.get("db_path"),
+           say=(f"  Memory: {mem.get('imported', 0)} messages carried over"
+                + (f", saved in {escape(str(mem['db_path']))}." if mem.get("db_path") else ".")
+                if mem.get("status") == "imported"
                 else f"  [yellow]{who}'s memory couldn't be brought over[/yellow], so it starts here without it."
                 if mem.get("status") not in ("none",) else ""))
     path = hub_hatch.cloud_agent_path()

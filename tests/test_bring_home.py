@@ -250,7 +250,11 @@ def test_reauth_required_signs_in_once_more():
 
 
 @pytest.mark.parametrize("status, extra, words", [
-    (409, {"error": "already_external"}, "already lives outside the cloud"),
+    (409, {"error": "already_external"}, "may be running on another computer"),            # no state = unknown
+    (409, {"error": "already_external", "state": "unknown"}, "may be running on another computer"),
+    (409, {"error": "already_external", "state": "running_elsewhere"}, "already runs on another computer"),
+    (409, {"error": "already_external", "state": "move_unfinished"}, "isn't running anywhere right now"),
+    (409, {"error": "already_external", "state": "a_new_state"}, "may be running on another computer"),
     (503, {"error": "handover_unavailable"}, "can't hand agents over right now"),
     (500, {"error": "boom"}, "refused the handover"),
 ])

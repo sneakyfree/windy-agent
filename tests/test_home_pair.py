@@ -646,7 +646,9 @@ def test_n4_a_round_that_stopped_after_registering_is_finished_by_the_next_run(t
     fake = Fake()
     rc, said, _ = _pair(fake)
     assert rc == 0 and fake.calls == []                               # finished from the marker, no new round
-    assert "Pip's memory couldn't be brought over" in said and "Pip now lives on this computer" in said
+    # the memory WAS imported before the stop: the marker carries that, so the resume says it (Hub on #700)
+    assert "messages carried over" in said and "couldn't be brought over" not in said
+    assert "Pip now lives on this computer" in said
     assert hub_hatch.cloud_agent()["where"] == "home" and not (tmp_path / "state" / "home-pair-pending.json").exists()
 
 
@@ -756,3 +758,107 @@ def test_a_key_only_claim_carries_the_key_s_ept_agent_and_dpop(monkeypatch, tmp_
         server.server_close()
     claim = seen["/v1/runtime/claim"]
     assert claim.get("Authorization") == f"Bearer {token}" and claim.get("DPoP")
+
+
+
+# ── Hub's non-blocking #700 follow-ups ───────────────────────────────────────────────────────────────────────────────
+
+def test_f1_a_bring_home_partway_done_says_finish_it_with_bring_home(tmp_path):
+    from windyfly import bring_home
+
+    _cloud_record()
+    bring_home._atomic_write(bring_home._seal_path(PASSPORT), b'{"sealed": true}')
+    fake = Fake()
+    rc, said, _ = _pair(fake, yes=True)
+    assert rc == 1 and fake.calls == [] and not ak.load_credentials()
+    assert ("A move of this agent with windy bring-home is partway done on this computer. To finish it, run: windy "
+            "bring-home") in " ".join(said.split())
+
+
+def test_f2_the_marker_carries_the_memory_outcome(tmp_path, monkeypatch):
+    seen: list[dict] = []
+    real = home_pair._finish
+
+    def spy(pending, **kw):
+        seen.append(json.loads((tmp_path / "state" / "home-pair-pending.json").read_text()))
+        return real(pending, **kw)
+
+    monkeypatch.setattr(home_pair, "_finish", spy)
+    assert _pair(Fake())[0] == 0
+    assert seen[0]["memory"]["status"] == "imported" and seen[0]["memory"]["imported"] > 0
+    assert not (tmp_path / "state" / "home-pair-pending.json").exists()   # cleared at the end, as before
+
+
+class _Unreachable(Fake):
+    def handle(self, req):
+        if req.url.path == f"/api/v1/bots/{PASSPORT}/keys" and req.method == "POST":
+            raise httpx.ConnectError("no route", request=req)
+        return super().handle(req)
+
+
+def test_f3_eternitas_never_reached_is_the_running_nowhere_line_not_a_refused_key(tmp_path):
+    rc, said, _ = _pair(_Unreachable())
+    flat = " ".join(said.split())
+    assert rc == 1 and "Eternitas didn't accept" not in flat
+    assert ("Windy couldn't finish the move, so Pip isn't running anywhere right now. Run this again for a new code "
+            "to finish it.") in flat
+    assert not ak.has_registered_key() and not (tmp_path / "state" / "home-pair-pending.json").exists()
+
+
+@pytest.mark.parametrize("stop", [KeyboardInterrupt, EOFError])
+def test_f4a_ctrl_c_at_the_question_cancels_with_nothing_changed(tmp_path, stop):
+    _cloud_record()
+    fake = Fake()
+    buf, out = io.StringIO(), io.StringIO()
+
+    def ask(q):
+        raise stop
+
+    rc = home_pair.pair(Console(file=buf, width=300, color_system=None), transport=fake.transport(),
+                        sleep=lambda s: None, now=lambda: 1000.0, out=out, ask=ask)
+    assert rc == 130 and fake.calls == [] and "Cancelled. Nothing was changed." in buf.getvalue()
+    assert not ak.load_credentials()
+
+
+class _CtrlCWhileRegistering(Fake):
+    def handle(self, req):
+        if req.url.path == f"/api/v1/bots/{PASSPORT}/keys" and req.method == "POST":
+            raise KeyboardInterrupt
+        return super().handle(req)
+
+
+def test_f4b_ctrl_c_while_registering_keeps_the_key_for_the_next_run(tmp_path):
+    first = _CtrlCWhileRegistering()
+    rc, _, _ = _pair(first)
+    assert rc == 130
+    sent = next(c for c in first.calls if c[0] == "/v1/home/code")[2]["agent_kid"]
+    assert ak.active_entry(ak.load_credentials())["kid"] == sent        # kept: Eternitas may already hold it
+    second = _KeyExists(listed=True)
+    assert _pair(second)[0] == 0 and ak.has_registered_key()
+    assert next(c for c in second.calls if c[0] == "/v1/home/code")[2]["agent_kid"] == sent
+
+
+def test_f5_a_passport_in_the_agent_env_file_refuses_another_agent(tmp_path, monkeypatch):
+    """The env-file branch: the passport comes from the agent's env file, not the process environment."""
+    import dotenv
+    from dotenv.main import load_dotenv as real_load_dotenv
+
+    monkeypatch.setattr(dotenv, "load_dotenv", real_load_dotenv)       # the suite turns it off; this test needs it
+    (tmp_path / "agent.env").write_text("KEEP_ME=1\nETERNITAS_PASSPORT=ET26-OTHER-0001\n", encoding="utf-8")
+    assert "ETERNITAS_PASSPORT" not in os.environ
+    fake = Fake()
+    rc, _, out = _pair(fake, json_status=True)
+    assert rc == 1 and json.loads(out)["code"] == "another_agent_here" and fake.calls == []
+
+
+def test_f6_the_memory_line_shows_where_the_memory_was_saved(tmp_path):
+    rc, said, _ = _pair(Fake())
+    flat = " ".join(said.split())
+    assert rc == 0 and f"messages carried over, saved in {tmp_path / 'windyfly.db'}." in flat
+
+
+def test_f6_json_status_carries_the_memory_path(tmp_path):
+    rc, _, out = _pair(Fake(), json_status=True)
+    assert rc == 0
+    memory = next(json.loads(line) for line in out.splitlines() if json.loads(line)["event"] == "memory")
+    assert memory["db_path"] == str(tmp_path / "windyfly.db")

@@ -616,8 +616,17 @@ def run(
             token = str(get_token() or "")
             resp = start_handover(passport, token, key=key, transport=transport) if token else resp
         if resp.status_code == 409 and _code(resp) == "already_external":
-            console.print(f"  {name} already lives outside the cloud (brought home elsewhere). "
-                          "Nothing was changed here.")
+            # Home handover 1.1 H6/H7: the Hub says where the agent is. No state = unknown. This door never moves an
+            # agent between computers; `windy home pair` does, and asks first unless the last move never finished.
+            state = str(_json(resp).get("state") or "unknown")
+            console.print({
+                "running_elsewhere": f"  {name} already runs on another computer. Nothing was changed here. To move "
+                                     "it to this computer, run [bold]windy home pair[/bold].",
+                "move_unfinished": f"  {name}'s last move to a computer didn't finish, so it isn't running anywhere "
+                                   "right now. Nothing was changed here. To bring it to this computer, run "
+                                   "[bold]windy home pair[/bold].",
+            }.get(state, f"  {name} may be running on another computer. Nothing was changed here. To move it to this "
+                         "computer, run [bold]windy home pair[/bold]; it asks before stopping it there."))
             return rollback("already_external")
         if resp.status_code == 503:
             console.print("  The hub can't hand agents over right now (handover_unavailable). "
