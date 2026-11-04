@@ -93,6 +93,50 @@ def _auth_credentials() -> tuple[str, str]:
     return passport, token
 
 
+# ── Mode B on the IDE agent bus (DARK behind WINDY_CODE_BUS_EPT_AGENT; Windy Code's IDE side is due Mon 11-09) ──
+#
+# Code's contract (11-04, Eternitas ruled): the auth message carries the agent's EPT+agent (aud windy-code) as
+# windy_jwt plus a proof in "dpop" (htm AUTH, htu "urn:windycode:agent-bus" byte for byte, fresh per connection). A
+# refusal is {"status":"error","error":<text>,"code":<reason>}: key on "code" only. One auth per connection: the bus
+# closes after any auth error, so every retry is a NEW connection. Only wrong_token_type (the IDE's mode B is off)
+# falls back to the stored EPT; proof codes get one new proof, token codes one new mint, and every other code STOPS.
+BUS_FLAG = "WINDY_CODE_BUS_EPT_AGENT"
+BUS_AUD = "windy-code"
+BUS_HTM = "AUTH"
+BUS_HTU = "urn:windycode:agent-bus"
+_BUS_FALLBACK = "wrong_token_type"
+_BUS_FRESH_PROOF = frozenset({"dpop_required", "invalid_dpop", "dpop_replay"})
+_BUS_REMINT = frozenset({"wrong_audience", "expired", "invalid_token"})
+_BUS_STOP_SAY = {
+    "passport_revoked": "Windy Code refused this agent: its Eternitas passport is revoked.",
+    "passport_suspended": "Windy Code refused this agent: its Eternitas passport is suspended.",
+    "ept_cutoff": "Windy Code refused this agent's old passport token, and it has no newer one.",
+    "standing_unavailable": "Windy Code couldn't check this agent's standing just now. Try again in a few minutes.",
+    "too_many_connections": "Windy Code has too many agent connections open. Try again when one finishes.",
+}
+
+
+def bus_mode_b_enabled() -> bool:
+    return os.environ.get(BUS_FLAG, "").strip() == "1"
+
+
+def _bus_agent_auth() -> dict[str, str] | None:
+    """The mode-B auth message (EPT+agent + a FRESH proof), or None when none can be made (then the stored EPT)."""
+    try:
+        from windyfly.eternitas import agent_keys as ak
+
+        token = ak.request_agent_token(BUS_AUD)["token"]
+        passport = os.environ.get("ETERNITAS_PASSPORT", "").strip() or str(ak.current_passport() or "")
+        if not passport:
+            return None
+        return {"type": "auth", "eternitas_passport": passport, "windy_jwt": token,
+                "dpop": ak.bus_dpop(BUS_HTM, BUS_HTU)}
+    except Exception as exc:  # noqa: BLE001  (AgentTokenError, no key, network)
+        logger.info("[code-bus-auth] no EPT+agent for windy-code (%s); stored EPT",
+                    getattr(exc, "code", type(exc).__name__))
+        return None
+
+
 class _BusConnection:
     """One authenticated request/response round-trip over the Agent Bus.
 
@@ -106,6 +150,13 @@ class _BusConnection:
         self._buf = b""
 
     def __enter__(self) -> "_BusConnection":
+        self._connect()
+        self._authenticate()
+        return self
+
+    def _connect(self) -> None:
+        self._close()
+        self._buf = b""
         path = _socket_path()
         if sys.platform != "win32":
             import stat as _stat
@@ -134,10 +185,11 @@ class _BusConnection:
                 "Ask the user to open Windy Code."
             ) from e
         self._sock = s
-        self._authenticate()
-        return self
 
     def __exit__(self, *exc: Any) -> None:
+        self._close()
+
+    def _close(self) -> None:
         if self._sock is not None:
             try:
                 self._sock.close()
@@ -161,6 +213,45 @@ class _BusConnection:
         return json.loads(line.decode("utf-8"))
 
     def _authenticate(self) -> None:
+        if not bus_mode_b_enabled():
+            self._authenticate_stored()
+            return
+        msg = _bus_agent_auth()
+        if msg is None:
+            self._authenticate_stored()
+            return
+        resp = self._auth_once(msg)
+        code = str(resp.get("code") or "").strip().lower() if resp.get("status") != "ok" else ""
+        if code in _BUS_FRESH_PROOF or code in _BUS_REMINT:
+            if code in _BUS_REMINT:
+                from windyfly.agent import service_auth
+
+                service_auth.forget_token()
+            again = _bus_agent_auth()  # always a new proof (one auth per connection, a jti is single-use)
+            if again is not None:
+                self._connect()
+                resp = self._auth_once(again)
+                code = str(resp.get("code") or "").strip().lower() if resp.get("status") != "ok" else ""
+        if resp.get("status") == "ok":
+            return
+        if code == _BUS_FALLBACK and _auth_credentials()[1]:
+            logger.info("[code-bus-auth] wrong_token_type: the IDE's mode B is off; a new connection with the "
+                        "stored EPT")
+            self._connect()
+            self._authenticate_stored()
+            return
+        logger.info("[code-bus-auth] refused (%s); not falling back", code or "no code")
+        raise WindyCodeUnavailable(_BUS_STOP_SAY.get(code) or
+                                   f"Windy Code rejected the agent's credentials: {resp.get('error', 'unknown error')}")
+
+    def _auth_once(self, msg: dict[str, str]) -> dict[str, Any]:
+        self._send(msg)
+        try:
+            return self._recv()
+        except WindyCodeUnavailable:
+            return {"status": "error", "error": "closed"}
+
+    def _authenticate_stored(self) -> None:
         passport, token = _auth_credentials()
         if not passport or not token:
             raise WindyCodeUnavailable(
