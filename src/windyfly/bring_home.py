@@ -619,14 +619,18 @@ def run(
             # Home handover 1.1 H6/H7: the Hub says where the agent is. No state = unknown. This door never moves an
             # agent between computers; `windy home pair` does, and asks first unless the last move never finished.
             state = str(_json(resp).get("state") or "unknown")
+            from rich.markup import escape as _esc
+
+            safe = _esc(str(name))  # the agent's name is the owner's text: never rich markup (Hub on #720)
             console.print({
-                "running_elsewhere": f"  {name} already runs on another computer. Nothing was changed here. To move "
+                "running_elsewhere": f"  {safe} already runs on another computer. Nothing was changed here. To move "
                                      "it to this computer, run [bold]windy home pair[/bold].",
-                "move_unfinished": f"  {name}'s last move to a computer didn't finish, so it isn't running anywhere "
+                "move_unfinished": f"  {safe}'s last move to a computer didn't finish, so it isn't running anywhere "
                                    "right now. Nothing was changed here. To bring it to this computer, run "
                                    "[bold]windy home pair[/bold].",
-            }.get(state, f"  {name} may be running on another computer. Nothing was changed here. To move it to this "
-                         "computer, run [bold]windy home pair[/bold]; it asks before stopping it there."))
+            }.get(state, f"  {safe} may be running on another computer. Nothing was changed here. To move it to this "
+                         "computer, run [bold]windy home pair[/bold]: you approve the move on your phone, then it "
+                         "stops on the other computer and starts here."))
             return rollback("already_external")
         if resp.status_code == 503:
             console.print("  The hub can't hand agents over right now (handover_unavailable). "
