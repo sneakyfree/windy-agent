@@ -142,12 +142,13 @@ def test_a_refused_register_keeps_the_old_key_and_adds_nothing(key_only, env, mo
     assert _local(env) == [(old, "active")]
 
 
-def test_too_many_active_keys_keeps_the_reset_hint(key_only, monkeypatch):
+def test_too_many_active_keys_keeps_the_reset_hint(key_only, env, monkeypatch):  # noqa: F811
     fake, _ = key_only
     monkeypatch.setenv("WINDY_AGENT_KEY_OPS", "1")
     fake.keys["someone-elses"] = {"jwk": {}, "status": "active"}
     r = ak.rotate(transport=fake.transport())
     assert r["status"] == "failed" and r["code"] == "too_many_active_keys" and "reset" in r["hint"]
+    assert (r["kid"], "pending") in _local(env)  # a 409 is never taken as "Eternitas does not hold it"
 
 
 @pytest.mark.parametrize("answer", [(409, "last_active_key"), (503, "redis_unavailable"), (403, "not_this_key")])
@@ -247,3 +248,49 @@ def test_a_self_retire_answered_401_reads_the_public_list(key_only, env, monkeyp
     ak.ensure_registered(transport=httpx.MockTransport(handler))
     assert ((old, "retiring") in _local(env)) is kept
     assert (new, "active") in _local(env)
+
+
+def _committed_then(fake: FakeKeyOps, register_status: int, register_code: str, list_down: bool):
+    """Eternitas COMMITS the register, then answers register_status; the public list may be down."""
+    def handler(req: httpx.Request) -> httpx.Response:
+        if list_down and req.method == "GET" and req.url.path.endswith("/keys"):
+            return httpx.Response(503, json={"detail": "down"})
+        resp = fake.handle(req)
+        if _is_register(req):
+            return _err(register_status, register_code, "lost")
+        return resp
+    return httpx.MockTransport(handler)
+
+
+def test_key_exists_with_the_list_unreadable_is_unknown_and_keeps_the_key(key_only, env, monkeypatch):  # noqa: F811
+    fake, old = key_only
+    monkeypatch.setenv("WINDY_AGENT_KEY_OPS", "1")
+    r = ak.rotate(transport=_committed_then(fake, 409, "key_exists", list_down=True))
+    assert r["status"] == "unknown"
+    assert fake.keys[r["kid"]]["status"] == "active" and (r["kid"], "pending") in _local(env)
+
+
+@pytest.mark.parametrize("status", [502, 504, 429, 408])
+def test_a_5xx_or_429_after_commit_keeps_the_key_and_the_next_run_settles_it(key_only, env, monkeypatch,  # noqa: F811
+                                                                              status):
+    fake, old = key_only
+    monkeypatch.setenv("WINDY_AGENT_KEY_OPS", "1")
+    r1 = ak.rotate(transport=_committed_then(fake, status, "upstream", list_down=False))
+    assert r1["status"] == "unknown" and (r1["kid"], "pending") in _local(env)
+    registers = sum(1 for o in fake.ops if o["verb"] == "register")
+    r2 = ak.rotate(transport=fake.transport())
+    assert r2["status"] == "rotated" and r2["kid"] == r1["kid"]
+    assert sum(1 for o in fake.ops if o["verb"] == "register") == registers  # no second register
+    assert _local(env) == [(r1["kid"], "active")]
+
+
+def test_a_definite_4xx_refusal_drops_the_pending_key(key_only, env, monkeypatch):  # noqa: F811
+    fake, old = key_only
+    monkeypatch.setenv("WINDY_AGENT_KEY_OPS", "1")
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if _is_register(req):
+            return _err(400, "invalid_agent_proof", "refused")  # NOT committed
+        return fake.handle(req)
+    r = ak.rotate(transport=httpx.MockTransport(handler))
+    assert r["status"] == "failed" and _local(env) == [(old, "active")]

@@ -796,14 +796,26 @@ def _rotate_by_key(transport: httpx.BaseTransport | None, path: Path, passport: 
     key = load_private_key(new["private_key"])
     with httpx.Client(timeout=_HTTP_TIMEOUT, transport=transport) as client:
         try:
-            landed = _kid_active_for(client, passport, str(new["kid"]))
+            landed: bool | None = _kid_active_for(client, passport, str(new["kid"]))
             if not landed:
                 resp = _register(client, passport, key, "", signer=old)
-                landed = resp.status_code in (200, 201) or (
-                    resp.status_code == 409 and error_code(resp)[0] == "key_exists"
-                    and _kid_active_for(client, passport, str(new["kid"])))
+                code = resp.status_code
+                if code in (200, 201):
+                    landed = True
+                elif code == 409 and error_code(resp)[0] == "key_exists":
+                    # Eternitas has this kid: settle from the public list. Unreadable = unknown, never a refusal.
+                    landed = _kid_still_active(client, passport, str(new["kid"]))
+                elif code >= 500 or code in (408, 409, 429):
+                    landed = None  # a proxy 502/504 can come after Eternitas committed (Hub on #714)
+                else:
+                    landed = False
+                if landed is None:
+                    if code == 409 and error_code(resp)[0] != "key_exists":  # e.g. too_many_active_keys: refused now, but an earlier lost try may be one of
+                        return {**_http_fail("new key registration", resp), "kid": new["kid"]}  # them: keep it
+                    logger.warning("agent keys: new key registration outcome unknown (HTTP %s); kept as pending", code)
+                    return {"status": "unknown", "http": code, "code": error_code(resp)[0], "kid": new["kid"]}
                 if not landed:
-                    # A definite refusal: Eternitas did not take this key. Drop it so nothing piles up.
+                    # A definite 4xx refusal: Eternitas did not take this key. Drop it so nothing piles up.
                     sec["keys"] = [e for e in sec["keys"] if e.get("kid") != new["kid"]]
                     save_credentials(data, path)
                     return _http_fail("new key registration", resp)
