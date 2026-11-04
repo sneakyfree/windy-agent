@@ -71,13 +71,14 @@ def active() -> bool:
 
 
 def install() -> bool:
-    """Wrap httpx send when synthetic mode is on. Idempotent; returns
-    whether the wrapper is (now) installed."""
+    """Wrap httpx send. Idempotent; returns True once the wrapper is on. It is put on for EVERY process: it adds the
+    header for a synthetic one, and for a real passport it also STRIPS a header some code set by hand (Hub on #710:
+    a real agent's request to a Windy host never carries it)."""
     global _installed
     if _installed:
         return True
-    if not active():
-        return False
+    if not active() and not _passport():
+        return False      # no passport and no probe switch: nothing to add and nothing to strip
     import httpx
 
     orig_sync = httpx.Client.send
@@ -85,8 +86,13 @@ def install() -> bool:
 
     def _mark(request: httpx.Request) -> None:
         # active() again per request: a passport loaded after the wrapper went on (the .env, a pairing) is honoured
-        if HEADER not in request.headers and is_windy_host(request.url.host) and active():
-            request.headers[HEADER] = "1"
+        if not is_windy_host(request.url.host):
+            return
+        if active():
+            if HEADER not in request.headers:
+                request.headers[HEADER] = "1"
+        elif _passport():
+            request.headers.pop(HEADER, None)    # a real passport: never marked, not even by hand
 
     def send(self: httpx.Client, request: httpx.Request, *a: Any, **kw: Any) -> httpx.Response:
         _mark(request)
