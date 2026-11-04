@@ -200,3 +200,43 @@ def test_anything_else_is_passed_through_as_before(monkeypatch, content):
     _, _, call = mc._make_handlers(mc._parse_allowlist(CONFIG))
     out = _run(call(server="windy-word", tool="click_element", arguments={}))
     assert "final" not in out and out["result"] == content
+
+
+class _BlocksConnector(_StubConnector):
+    """The real connector's shape: joined text + each block + structuredContent (Hub on #719: rev.7 does not say ONE
+    text block, so a refusal in any single block, or in structuredContent, still counts)."""
+
+    def __init__(self, blocks, structured=None):
+        super().__init__()
+        self.blocks, self.structured = blocks, structured
+
+    async def call(self, spec, tool, arguments):
+        self.calls.append((spec.name, tool, arguments))
+        out = {"isError": True, "content": "\n".join(self.blocks), "blocks": list(self.blocks)}
+        if self.structured is not None:
+            out["structured"] = self.structured
+        return out
+
+
+REFUSAL = '{"ok": false, "error": "windy_consent_surface"}'
+
+
+@pytest.mark.parametrize("blocks,structured", [
+    ([REFUSAL, "That window is a Windy sign-in page."], None),     # a human note in a second block
+    (["Refused.", '{\n  "ok": false,\n  "error": "windy_consent_surface"\n}'], None),  # pretty JSON, second block
+    (["Refused (see structured content)."], {"ok": False, "error": "windy_consent_surface"}),
+])
+def test_the_refusal_counts_in_any_one_block_or_structured_content(monkeypatch, blocks, structured):
+    s = _BlocksConnector(blocks, structured)
+    monkeypatch.setattr(mc, "_CONNECTOR", s)
+    _, _, call = mc._make_handlers(mc._parse_allowlist(CONFIG))
+    out = _run(call(server="windy-word", tool="type_text", arguments={"text": "x"}))
+    assert out["final"] is True and out["error"] == "windy_consent_surface" and len(s.calls) == 1
+
+
+def test_a_block_that_only_mentions_the_code_is_not_a_refusal(monkeypatch):
+    s = _BlocksConnector(["The error windy_consent_surface means a Windy screen.", '{"ok": true}'])
+    monkeypatch.setattr(mc, "_CONNECTOR", s)
+    _, _, call = mc._make_handlers(mc._parse_allowlist(CONFIG))
+    out = _run(call(server="windy-word", tool="read_screen", arguments={}))
+    assert "final" not in out
