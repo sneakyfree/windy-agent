@@ -141,7 +141,9 @@ def answer(stop: dict[str, Any] | None = None, name: str | None = None) -> str:
             return (f"{who} is retired, so it isn't answering. You can restore it until "
                     f"{until.strftime('%B')} {until.day}, {until.year}. After that it stays closed, and its history "
                     "is kept.")
-        return f"{who} is retired, so it isn't answering. You can restore it, and its history is kept."
+        # never an open-ended "you can restore it": only inside the undo window (Hub #9 on #709; #265 1.1: 30 days)
+        return (f"{who} is retired, so it isn't answering. You can restore it for 30 days after it was retired, and "
+                "its history is kept.")
     if kind == "suspended":
         return f"{who} is suspended, so it isn't answering right now."
     if kind == "revoked":

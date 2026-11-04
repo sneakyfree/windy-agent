@@ -233,7 +233,8 @@ def test_a_bare_key_revoke_gets_the_neutral_line_never_the_move_line(monkeypatch
 
 
 @pytest.mark.parametrize("code,line", [
-    ("agent_retired", "Pip is retired, so it isn't answering. You can restore it, and its history is kept."),
+    ("agent_retired", "Pip is retired, so it isn't answering. You can restore it for 30 days after it was retired, "
+                      "and its history is kept."),
     ("passport_suspended", "Pip is suspended, so it isn't answering right now."),
     ("passport_revoked", "Pip was closed, so it isn't answering."),
 ])
