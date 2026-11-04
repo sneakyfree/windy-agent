@@ -236,3 +236,19 @@ def test_the_outside_ai_setting_is_named_exactly_as_mind_labels_it():
     vendored = json.loads((Path(__file__).parent / "contracts" / "mind" / "training_toggle.json").read_text())
     assert mind_catalog.OUTSIDE_AI_LABEL == vendored["label"]
     assert f"'{vendored['label']}'" in mind_catalog.unavailable_words("outside_ai_switch_off")
+
+
+@pytest.mark.asyncio
+async def test_when_the_current_model_is_down_too_mind_picks_never_still_answering_with_it(monkeypatch):
+    """Hub on #706: "I'm still answering with X" is untrue when X is unavailable too."""
+    from windyfly.agent.session_reset import get_model
+    rows = [dict(m) for m in CATALOG]
+    _with(monkeypatch, rows)
+    await _model("opus")
+    rows[0].update(available_now=False, unavailable_reason="breaker_open")   # the current pick goes down
+    rows[3]["unavailable_reason"] = "quota_exhausted"
+    _with(monkeypatch, rows)
+    reply = await _model("claude-sonnet-5-5")
+    assert reply == ("I can't switch to Claude Sonnet 5.5: it has reached its usage limit for now. "
+                     "Windy Mind will pick one for me.")
+    assert "still answering" not in reply and get_model("telegram", "1") == "claude-opus-5-5"
