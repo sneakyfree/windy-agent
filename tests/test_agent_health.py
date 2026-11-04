@@ -502,10 +502,24 @@ def test_synthetic_header_only_goes_to_windy_hosts(monkeypatch):
         synthetic._installed = False
 
 
-def test_real_traffic_is_never_marked(posted):
+def test_real_traffic_is_never_marked(posted, monkeypatch):
+    import httpx
+
     ah.emit_run_failed("auth", write_queue=FakeQueue())
     assert "synthetic" not in _rows(posted)[0]["metadata"]
-    assert synthetic.install() is False
+    assert synthetic.active() is False
+    assert synthetic.install() is False                                  # no passport, no switch: nothing to do
+    monkeypatch.setenv("ETERNITAS_PASSPORT", "ET26-T11V-NPD1")          # a real agent
+    # the wrapper goes on for a real agent (it strips a hand-set header, Hub on #710); a real request carries none
+    monkeypatch.setattr(synthetic, "_installed", False)
+    monkeypatch.setattr(httpx.Client, "send", httpx.Client.send)
+    monkeypatch.setattr(httpx.AsyncClient, "send", httpx.AsyncClient.send)
+    assert synthetic.install() is True
+    seen = []
+    with httpx.Client(transport=httpx.MockTransport(lambda r: seen.append(r.headers.get(synthetic.HEADER))
+                                                    or httpx.Response(200))) as c:
+        c.get("https://api.windymind.ai/v1/chat")
+    assert seen == [None]
 
 
 # ── disclosure ────────────────────────────────────────────────────
