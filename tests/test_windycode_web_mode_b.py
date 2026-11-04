@@ -177,15 +177,20 @@ def test_no_mint_means_the_old_bearer(builder: None, monkeypatch: pytest.MonkeyP
     assert _auths(post) == [OLD]
 
 
-def test_no_forwardable_credential_reads_as_unavailable(builder: None, mint: Mint) -> None:
+@pytest.mark.parametrize("is_error", [False, True])
+def test_no_forwardable_credential_reads_as_unavailable(builder: None, mint: Mint, is_error: bool) -> None:
+    # The builder's real shape (Code, 11-04, its #96 follow-up e6cf623): HTTP 200, isError FALSE,
+    # structuredContent {code, speak, failed: true, remediation_tool}. Keyed on failed/code, never isError alone.
     resp = _ok()
     resp.json.return_value = {"jsonrpc": "2.0", "id": 1, "result": {
-        "content": [], "isError": True,
-        "structuredContent": {"code": "no_forwardable_credential", "speak": "builder words"}}}
+        "content": [], "isError": is_error,
+        "structuredContent": {"code": "no_forwardable_credential", "speak": "builder words", "failed": True,
+                              "remediation_tool": "get_capabilities"}}}
     with patch(POST) as post:
         post.return_value = resp
-        out = wcw.windycodeweb_project_status("p1")
+        out = wcw.windycodeweb_create_project("Garden Club")
     assert out["status"] == "unavailable" and out["speak"] == "builder words"
+    assert out["remediation_tool"] == "get_capabilities" and "failed" not in out
 
 
 def _claims(jws: str, part: int) -> dict:
