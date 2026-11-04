@@ -151,3 +151,88 @@ def test_a_turn_records_the_model_that_served_it_for_the_prompt(monkeypatch):
         db.close()
     assert loop.served_model_for_prompt("telegram:7:v0") == "claude-haiku-5-5"
     assert loop.served_model_for_prompt("telegram:8:v0") is None
+
+
+# ── never confirm a switch Mind will refuse (Boss 11-03, Mind 15:26Z) ────────────────────────────────────────────────
+
+def _with(monkeypatch, rows):
+    calls = _mind_answers(monkeypatch, body={"data": rows})
+    return calls
+
+
+@pytest.mark.asyncio
+async def test_a_model_mind_can_not_serve_now_is_refused_with_its_reason_and_nothing_changes(monkeypatch):
+    from windyfly.agent.session_reset import get_model
+    rows = [dict(m) for m in CATALOG]
+    rows[3]["unavailable_reason"] = "quota_exhausted"           # claude-sonnet-5-5, down
+    _with(monkeypatch, rows)
+    await _model("opus")
+    assert get_model("telegram", "1") == "claude-opus-5-5"
+    reply = await _model("claude-sonnet-5-5")
+    assert reply == ("I can't switch to Claude Sonnet 5.5: it has reached its usage limit for now. "
+                     "I'm still answering with claude-opus-5-5.")
+    assert get_model("telegram", "1") == "claude-opus-5-5"     # the pick is untouched
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reason,words", [
+    ("outside_ai_switch_off", "your 'Use outside AI companies for more free capacity' setting is off"),
+    ("breaker_open", "it's having trouble right now, so it's paused for a few minutes"),
+    ("not_installed", "it isn't set up yet"),
+    ("provider_unconfigured", "it isn't set up yet"),
+    ("needs_connection", "you haven't connected its provider in Windy Mind yet"),
+    ("unknown", "it isn't available right now"),
+    ("a_code_from_a_newer_mind", "it isn't available right now"),
+    (None, "it isn't available right now"),
+])
+async def test_each_reason_is_said_in_plain_words(monkeypatch, reason, words):
+    rows = [dict(m) for m in CATALOG]
+    if reason is not None:
+        rows[3]["unavailable_reason"] = reason
+    _with(monkeypatch, rows)
+    assert f"I can't switch to Claude Sonnet 5.5: {words}. I'm still answering with " in await _model("claude-sonnet-5-5")
+
+
+@pytest.mark.asyncio
+async def test_a_family_with_nothing_available_is_refused_not_switched_from_the_hand_list(monkeypatch):
+    from windyfly.agent.session_reset import get_model
+    rows = [dict(m, available_now=False, unavailable_reason="breaker_open") if "sonnet" in m["id"] else dict(m)
+            for m in CATALOG]
+    _with(monkeypatch, rows)
+    reply = await _model("sonnet")
+    assert reply.startswith("I can't switch to Claude Sonnet 5.5: it's having trouble right now, so it's paused for a "
+                            "few minutes.")
+    assert get_model("telegram", "1") is None
+
+
+@pytest.mark.asyncio
+async def test_a_hand_list_name_switches_only_to_a_model_mind_offers(monkeypatch):
+    from windyfly.agent.models_catalog import resolve as hand
+    from windyfly.agent.session_reset import get_model
+    alias = hand("smartest")
+    assert alias is not None
+    _with(monkeypatch, [dict(m) for m in CATALOG if m["id"] != alias.id])
+    reply = await _model("smartest")
+    assert "doesn't offer me 'smartest'" in reply and get_model("telegram", "1") is None
+    mind_catalog._reset_for_tests()
+    _with(monkeypatch, [*CATALOG, {"id": alias.id, "display_name": "Top", "available_now": True}]
+          if alias.id not in {m["id"] for m in CATALOG} else CATALOG)
+    assert "Switched to" in await _model("smartest") and get_model("telegram", "1") == alias.id
+
+
+@pytest.mark.asyncio
+async def test_an_available_model_still_gets_the_usual_confirmation(monkeypatch):
+    _with(monkeypatch, CATALOG)
+    reply = await _model("claude-haiku-4-5")
+    assert reply.startswith("🤖 Switched to Claude Haiku 4.5 (claude-haiku-4-5).") and "isn't available" not in reply
+
+
+def test_the_outside_ai_setting_is_named_exactly_as_mind_labels_it():
+    """Hub #9 on #706: a rename at Mind must never leave /model naming a setting that doesn't exist. The vendored
+    label is Mind's TOGGLE["label"]; re-vendor it when Mind renames the switch, and this test makes Fly's words follow."""
+    import json
+    from pathlib import Path
+
+    vendored = json.loads((Path(__file__).parent / "contracts" / "mind" / "training_toggle.json").read_text())
+    assert mind_catalog.OUTSIDE_AI_LABEL == vendored["label"]
+    assert f"'{vendored['label']}'" in mind_catalog.unavailable_words("outside_ai_switch_off")
