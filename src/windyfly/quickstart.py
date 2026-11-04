@@ -59,6 +59,14 @@ PROVIDER_MENU = [
 ]
 
 
+
+def _toml_str(value: str) -> str:
+    """A TOML basic string: a name with a quote or a backslash can't break the config (Hub on #700). JSON's escapes
+    are valid TOML escapes."""
+    import json
+
+    return json.dumps(value, ensure_ascii=False)
+
 def detect_provider(key: str) -> dict[str, str] | None:
     """Identify the provider from an API key's prefix.
 
@@ -170,7 +178,7 @@ def write_quick_config(
     # Build windyfly.toml
     agent_name = os.environ.get("WINDYFLY_AGENT_NAME", "Windy Fly")
     toml_content = f"""[agent]
-name = "{agent_name}"
+name = {_toml_str(agent_name)}
 default_model = "{model}"
 
 [memory]
@@ -260,7 +268,7 @@ def write_keyless_config(preset: str = "buddy") -> None:
 
     agent_name = os.environ.get("WINDYFLY_AGENT_NAME", "Windy Fly")
     toml_content = f"""[agent]
-name = "{agent_name}"
+name = {_toml_str(agent_name)}
 default_model = "{KEYLESS_MODEL}"
 
 [memory]
