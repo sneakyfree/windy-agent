@@ -30,6 +30,11 @@ Environment:
                                publish needs the owner's own "yes, publish").
                                "0" opts out.
     ETERNITAS_PASSPORT_TOKEN / WINDY_JWT — the EPT presented as the bearer
+    WINDY_CODE_EPT_AGENT     — "1" = mode B (DARK, off by default): the agent's own
+                               EPT+agent for aud ``windy-code`` + a fresh DPoP proof on
+                               every request. The builder has its own switch
+                               (ETERNITAS_MODE_B); while that is off it answers a bare
+                               401 and the old bearer is sent once more, as today.
     WINDY_CODE_CABINET       — "1" adds the filing-cabinet tools (file_project,
                                log_activity, list_cabinet; contract v1.2). Off by
                                default; the builder also hides them until its
@@ -149,12 +154,66 @@ def _unavailable() -> dict[str, Any]:
     }
 
 
+# Mode B for the builder (windy-code-web #96, Code's answers 2026-11-04): the agent's own EPT+agent for aud
+# windy-code + a DPoP proof (htm POST, htu = the full URL, new jti EVERY request). DARK: Fly sends it only with
+# WINDY_CODE_EPT_AGENT=1; the builder accepts it only with its own ETERNITAS_MODE_B on.
+CODE_AUD = "windy-code"
+CODE_FLAG = "WINDY_CODE_EPT_AGENT"
+_CODE_ERROR_HEADER = "x-windy-code-auth-error"
+_FRESH_PROOF_CODES = frozenset({"dpop_required", "invalid_dpop", "dpop_replay"})  # same token, a new proof
+_REMINT_CODES = frozenset({"wrong_audience", "expired", "invalid_token"})  # a new token (and proof)
+
+
+def code_mode_b_enabled() -> bool:
+    return os.environ.get(CODE_FLAG, "").strip() == "1"
+
+
+def _code_agent_headers(url: str) -> dict[str, str] | None:
+    """EPT+agent (aud windy-code) + a fresh proof for ONE request, or None (then the old bearer)."""
+    from windyfly.agent import service_auth
+
+    try:
+        return service_auth.agent_headers(CODE_AUD, "POST", url)
+    except service_auth.ServiceAuthError as exc:
+        logger.info("[code-auth] no EPT+agent for windy-code (%s); old credential", exc.code)
+        return None
+
+
+def _rpc_mode_b(url: str, body: dict[str, Any], old: dict[str, str]) -> httpx.Response:
+    """Send with mode B. A 401 the builder names gets ONE retry (a new proof, or a new token); a 401 it still
+    refuses, or a bare 401 (the builder's switch is off), goes out ONCE more with the old bearer. Any other
+    answer stands as it is: 403 identity_locked and 503 revocation_status_unavailable never fall back."""
+    from windyfly.agent import service_auth
+
+    agent = _code_agent_headers(url)
+    if agent is None:
+        return httpx.post(url, json=body, headers=old, timeout=_TIMEOUT)
+    resp = httpx.post(url, json=body, headers=agent, timeout=_TIMEOUT)
+    if resp.status_code != 401:
+        return resp
+    code = str(resp.headers.get(_CODE_ERROR_HEADER) or "").strip().lower()
+    if code in _FRESH_PROOF_CODES or code in _REMINT_CODES:
+        if code in _REMINT_CODES:
+            service_auth.forget_token()
+        again = _code_agent_headers(url)
+        if again is not None:
+            resp = httpx.post(url, json=body, headers=again, timeout=_TIMEOUT)
+            if resp.status_code != 401:
+                return resp
+            code = str(resp.headers.get(_CODE_ERROR_HEADER) or "").strip().lower()
+    logger.info("[code-auth] sites builder: 401 (%s) to the EPT+agent; retried with the old one",
+                code or "no code")
+    return httpx.post(url, json=body, headers=old, timeout=_TIMEOUT)
+
+
 def _rpc(base: str, token: str, method: str, params: dict[str, Any]) -> httpx.Response:
     from windyfly.agent import cloud_auth
 
     url = f"{base}{_MCP_PATH}"
     body = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
     old = {"Authorization": f"Bearer {token}"}
+    if code_mode_b_enabled():
+        return _rpc_mode_b(url, body, old)
     agent = cloud_auth.agent_headers("POST", url)
     resp = httpx.post(url, json=body, headers=agent or old, timeout=_TIMEOUT)
     if agent and cloud_auth.refused(resp.status_code):
@@ -190,7 +249,9 @@ def _call(fly_tool: str, args: dict[str, Any]) -> dict[str, Any]:
     body = result.get("structuredContent") or {}
     if result.get("isError") or body.get("failed"):
         out: dict[str, Any] = {"status": "failed", **{k: v for k, v in body.items() if k != "failed"}}
-        if body.get("code") == "auth_required":
+        if body.get("code") in ("auth_required", "no_forwardable_credential"):
+            # no_forwardable_credential: under mode B the builder can't reach Windy Sites for this agent yet
+            # (its KE5 path). The builder's own words pass through; nothing here is new person-facing text.
             out["status"] = "unavailable"
         elif body.get("code") == "agent_daily_limit":
             # The builder's own plain words; this agent's budget is spent for today.
