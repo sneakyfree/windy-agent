@@ -315,3 +315,44 @@ def test_a_cancel_mid_wait_stops_the_live_line(slow_import):
     kinds = [e[0] for e in con.log]
     assert "update" in kinds and kinds[-1] == "print" and "stop" in kinds
     assert kinds.index("stop") < len(kinds) - 1
+
+
+
+_PENDING_ROUND = ([_waiting("approved_finishing", 880, ["chat", "mail"])] * 2
+                  + [_waiting("approved_finishing", 850, ["mail"])] * 2
+                  + [_waiting("approved_finishing", 820)] * 2 + [(200, None)])
+
+
+def test_a_finishing_line_names_only_the_services_pending_at_that_moment(slow_import):
+    """Hub #9 on #703: "Waiting for ..." names ONLY what Connect says is pending right then, never a fixed list. The
+    round waits for Chat + Mail, then Mail only, then nothing."""
+    clock = Clock()
+    slow_import["clock"] = clock
+    rc, out, _ = _run(SlowFake(clock, polls=list(_PENDING_ROUND), interval=5), clock, json_status=True)
+    assert rc == 0
+    seen = [e.get("waiting_for") for _, e in out.lines if e["event"] == "progress" and e["stage"] == "approved_finishing"]
+    assert ["chat", "mail"] in seen and ["mail"] in seen and None in seen
+    assert seen.index(["mail"]) > seen.index(["chat", "mail"]) and seen.index(None) > seen.index(["mail"])
+
+
+def test_the_live_line_drops_a_service_the_moment_it_is_done(slow_import):
+    clock = Clock()
+    slow_import["clock"] = clock
+    con = TerminalConsole()
+    rc, _, _ = _run(SlowFake(clock, polls=list(_PENDING_ROUND), interval=5), clock, json_status=False, console=con)
+    assert rc == 0
+    lines = [e[1] for e in con.log if e[0] in ("status", "update") and "Finishing the move" in e[1]]
+    both = [i for i, t in enumerate(lines) if "Waiting for Windy Chat and Windy Mail." in t]
+    mail = [i for i, t in enumerate(lines) if "Waiting for Windy Mail." in t]
+    none = [i for i, t in enumerate(lines) if "Waiting for" not in t]
+    assert both and mail and none and max(both) < min(mail) and max(mail) < min(none)
+    assert not any("Windy Chat" in t for t in lines[min(mail):])           # Chat done: never named again
+
+
+def test_a_log_gets_a_new_line_when_the_pending_services_change(slow_import):
+    clock = Clock()
+    slow_import["clock"] = clock
+    rc, _, said = _run(SlowFake(clock, polls=list(_PENDING_ROUND), interval=5), clock, json_status=False)
+    assert rc == 0, said
+    log = [line for line in said.splitlines() if "Finishing the move" in line]
+    assert [("Chat" in t, "Mail" in t) for t in log] == [(True, True), (False, True), (False, False)]

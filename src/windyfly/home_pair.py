@@ -93,7 +93,8 @@ class Report:
     def progress(self, stage: str, say: str, *, slow: bool = False, **fields: Any) -> None:
         """A long wait's moving number. --json-status: one "progress" line each call (Windy Word draws the bar).
         A person at a terminal: one line rewritten in place. Output that isn't a terminal (a log): a line only when the
-        stage changes or turns slow, so a log never fills with counters."""
+        stage changes, turns slow, or waits for a different set of services (Hub #9: a line names only what is pending
+        then), so a log never fills with counters."""
         if self.json_status:
             self("progress", stage=stage, slow=slow, **fields)
             return
@@ -103,9 +104,9 @@ class Report:
                 self._status.start()
             else:
                 self._status.update(say)
-        elif (stage, slow) != self._shown:
+        elif (stage, slow, tuple(fields.get("waiting_for") or ())) != self._shown:
             self.console.print(say)
-        self._shown = (stage, slow)
+        self._shown = (stage, slow, tuple(fields.get("waiting_for") or ()))
 
     def end_progress(self) -> None:
         if self._status is not None:
