@@ -13,15 +13,14 @@ Last full rewrite: 2026-11-04 18:35Z (before Grant's restart of every Veron Clau
 
 ## Now
 
-**Open PRs (#710 MERGED 11-04; #712 merged master in at bfc0a4ac), waiting on CI (busy Veron runners) and the stamps. Merge each ONLY on the gate above.**
-- #702 TODO.md (this file). This 18:35Z rewrite moved its head (Hub's OK was on 447b5aed): needs Hub's re-read.
+**Open PRs (#712 merged master in at bfc0a4ac), waiting on CI (busy Veron runners) and the stamps. Merge each ONLY on the gate above.**
+- #717 TODO.md (this file): the 11-04 evening moves. TODO-only: a lane reader (Windy Calendar) + Boss's stamp.
 - #703 pairing progress gate (pre-flag; must merge before Connect's flag 11-10). Hub #9 done; head 539698d5.
 - #705 Vault: release only revocable leases.
 - #706 /model never confirms a switch Mind refuses (Hub #9 done; Mind's label vendored + pinned).
 - #707 web_search on a key-only paired computer says plainly it isn't available yet (Boss + Hub #9 OK).
 - #708 the test suite never writes into the checkout (a guard names any test that still does).
 - #709 retire latch + 60 s probe (N = 75 s; all lines settled by Boss + Hub; H13a move line only on move_aborted).
-- #710 a real passport is never marked synthetic, even a hand-set header (Hub OK at bb4f55c6).
 - #711 QA battery isolation + windyfly.lab_guard: CI failed 2 tests on d51ab719; fixed at 8ee4d8f9 (11-04 21:28Z: lab_guard
   prints -> sys.std*.write; harness logs out of a shared /tmp file into $STRESS_HOME), then be891a7e (Hub MEDIUM:
   mkdir the stress home 700 + empty guard). Hub re-read asked; Boss re-arm asked.
@@ -68,15 +67,15 @@ Last full rewrite: 2026-11-04 18:35Z (before Grant's restart of every Veron Clau
   (off) on Code's word, BOARD AFTER, then remove agent-713 + the script. Zero untouched; no model calls.
 
 **Due later this week**
-- Key rotation by the agent itself: PR #714 OPEN 11-04 21:11Z (head f433b493 after Hub's 2 rounds: pending key saved before register, lost answers settled from the public list; WINDY_AGENT_KEY_OPS=1; Hub re-read asked 21:23Z; was due Tue 11-10; follow-up PR: prune .bak copies holding retired keys) (Boss YES, BOARD 2026-11-04T19:49:59Z item 8; eternitas #302
+- Key rotation by the agent itself: PR #714 OPEN 11-04 21:11Z (head f433b493 after Hub's 2 rounds: pending key saved before register, lost answers settled from the public list; WINDY_AGENT_KEY_OPS=1; Hub re-read asked 21:23Z; was due Tue 11-10; follow-up PR: prune .bak copies holding retired keys; rule proposed to Hub 11-04 22:00Z: >30 days AND every kid in the current file or not active on the live public list; unreadable list = keep; newest always kept; build after #714 merges) (Boss YES, BOARD 2026-11-04T19:49:59Z item 8; eternitas #302
   agent-key-ops.v1, Eternitas deploys Mon 11-09): a key-only Fly registers its new key with an Eternitas-Agent-Proof
   from the old one (two challenges), then the old key retires ITSELF; handles 401 invalid_agent_proof, 409
   last_active_key / too_many_active_keys, 403 not_this_key.
 - QA battery deploy after #711 merges: ONE Boss GO (update ~/.local/share/zero-lab/agent + venv; install script + unit
   with InaccessiblePaths; dry run SKIP_HARNESS=1 pasting "lab guard: ok" + one deliberate REFUSED; re-enable the
   timer; BOARD BEFORE/AFTER). The timer on Windy 0 is DISABLED since 11-04 16:55Z.
-- Consent surface: an MCP tool answering `windy_consent_surface` is final (no retry; the person must act). PR Fri
-  11-06, once Hub's hands.mcp.v1 carries the MUST.
+- Consent surface: an MCP tool answering `windy_consent_surface` is final (no retry; the person must act). PR #719
+  OPEN 11-04 21:54Z (head d8407389; new words for Boss + Hub #9); merges after windy-contracts #278 (rev.7 MUST).
 - /model: read `outside_ai_label` live from catalog/me once Mind's pin is live (Sun 11-08 17:00Z); vendored = fallback.
 - Fly mode-B for Search (EPT+agent aud windy-search + DPoP on POST /v1/search, /web/fetch), DARK, flag
   WINDY_SEARCH_EPT_AGENT: Search answered all 6 (11-04 ~21:2xZ; windy-search #129 @ f78b05c; notes
@@ -97,7 +96,8 @@ Last full rewrite: 2026-11-04 18:35Z (before Grant's restart of every Veron Clau
 
 - **Code:** IDE agent-bus mode-B shape is FINAL (11-04 ~21:5xZ, Eternitas ruled; GO-DRAFTS/CODE-modeB-answers-20261104.md):
   htu "urn:windycode:agent-bus" on every OS, htm AUTH, EPT+agent aud windy-code, proof in auth field "dpop". Fly's
-  windycode.py bus client: DARK PR by Fri 11-06 (2 days from the shape); Code's IDE dark build Mon 11-09; lab after
+  windycode.py bus client: DARK PR #718 OPEN 11-04 (head 347e5e12 after Code's 2nd read: no code = an old IDE = fall back;
+  key on "code", new connection per retry; Hub read asked; was due Fri 11-06); Code's IDE dark build Mon 11-09; lab after
   both. Hard constraint = legacy EPT cutoff 2027-01-04.
 - **Code:** the 5 mode-B answers ARRIVED early (11-04 ~20:0xZ) -> #713; none changed in #96 review; no_forwardable_credential shape answered. Prod URL confirmed = Fly default. LAB builder URL known (http://100.110.135.105:18930, in labs/code-modeb/code-modeb-lab.py; Tailscale only).
 - **Grant:** his own typed OK in the Windy Agent terminal before the line "Read TODO.md first; add every promise to
@@ -144,6 +144,7 @@ Local-only branches (not pushed): fix/home-pair-followups, feat/home-install-des
 
 ## Done
 
+- 2026-11-04: #702 TODO.md rewrite MERGED 63ca046b. #710 a real passport is never marked synthetic MERGED 442b4450.
 - 2026-11-04: #687 Traveler links: Boss (A) KEEP app.windyword.ai/translate (BOARD 21:13:51Z); relayed to Traveler.
 - 2026-11-04: #704 Calendar book_appointment deterministic key MERGED 68d7d859 (Hub OK + Boss stamp + green).
 - 2026-11-04: Windy Code's prod builder #92 AFTER proof: one zero-lab get_capabilities call, 18:02:07Z, final 200 with
