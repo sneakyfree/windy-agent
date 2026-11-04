@@ -165,3 +165,38 @@ def test_disabled_by_env(monkeypatch):
     reg = CapabilityRegistry()
     mc.register_mcp_client_capabilities(reg, CONFIG)
     assert reg.get("mcp.list_tools") is None
+
+
+# ── hands.mcp.v1 rev.7 consent_surface_rule (windy-contracts #278): the refusal is FINAL ──────────────────
+
+class _RefusingConnector(_StubConnector):
+    def __init__(self, content, is_error=False):
+        super().__init__()
+        self.content, self.is_error = content, is_error
+
+    async def call(self, spec, tool, arguments):
+        self.calls.append((spec.name, tool, arguments))
+        return {"isError": self.is_error, "content": self.content}
+
+
+@pytest.mark.parametrize("content,is_error", [
+    ('{"ok": false, "error": "windy_consent_surface"}', False),
+    ('{"ok": false, "error": "windy_consent_surface", "detail": "Windy Accounts sign-in"}', True),
+])
+def test_a_consent_surface_refusal_is_final_with_fixed_words(monkeypatch, content, is_error):
+    s = _RefusingConnector(content, is_error)
+    monkeypatch.setattr(mc, "_CONNECTOR", s)
+    _, _, call = mc._make_handlers(mc._parse_allowlist(CONFIG))
+    out = _run(call(server="windy-word", tool="type_text", arguments={"text": "x"}))
+    assert out["ok"] is False and out["final"] is True and out["do_not_retry"] is True
+    assert out["error"] == "windy_consent_surface" and out["say"] == mc.CONSENT_SURFACE_SAY
+    assert "result" not in out and len(s.calls) == 1  # one call, no retry, the tool's own text not relayed
+
+
+@pytest.mark.parametrize("content", ['{"ok": false, "error": "not_found"}', '{"ok": true}', "plain text",
+                                     '["windy_consent_surface"]', '{"ok": 0, "error": "windy_consent_surface"}'])
+def test_anything_else_is_passed_through_as_before(monkeypatch, content):
+    monkeypatch.setattr(mc, "_CONNECTOR", _RefusingConnector(content))
+    _, _, call = mc._make_handlers(mc._parse_allowlist(CONFIG))
+    out = _run(call(server="windy-word", tool="click_element", arguments={}))
+    assert "final" not in out and out["result"] == content
