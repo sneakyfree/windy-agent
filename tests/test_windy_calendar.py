@@ -565,3 +565,22 @@ def test_book_passes_outside_open_hours_through(calls):
     _answer(calls, _resp(200, {"ok": True, "result": {"outcome": "booked", "outside_open_hours": True}}))
     out = _cap("windy_calendar.book").handler(starts_at_utc="2026-10-23T01:00:00Z", booker_name="A", booker_email="a@b.c")
     assert out["ok"] is True and out["outside_open_hours"] is True
+
+
+
+# ── windy-contracts #275: a reused key with different details (422 idempotency_key_reused) ───────────────────────────
+
+@pytest.mark.parametrize("tool,cap,args,words", [
+    ("book_appointment", "windy_calendar.book",
+     {"starts_at_utc": "2026-10-12T15:00:00Z", "booker_name": "A", "booker_email": "a@b.c"},
+     "This booking was already made with different details; ask me to change that booking instead of booking again."),
+    ("add_event", "windy_calendar.add_event",
+     {"title": "Dentist", "starts_at_utc": "2026-10-12T15:00:00Z", "duration_minutes": 30},
+     "That event is already on the calendar with different details; ask me to change it instead."),
+])
+def test_a_reused_key_with_other_details_is_a_true_sentence_never_slot_taken(calls, monkeypatch, tool, cap, args, words):
+    monkeypatch.setenv("WINDY_CALENDAR_ADD_EVENT", "1")
+    _answer(calls, _resp(422, {"ok": False, "error": "idempotency_key_reused"}))
+    out = wc.invoke(tool, dict(args, idempotency_key="k-12345678"), write=True)
+    assert out == {"ok": False, "code": "idempotency_key_reused", "say": words}
+    assert len(calls) == 1                                                  # never retried: nothing was made
