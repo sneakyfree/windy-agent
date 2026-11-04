@@ -78,6 +78,22 @@ def test_the_run_lives_in_the_lab_home_with_no_persons_keys(box):
     assert (box["real"] / ".windy-stress" / "qa-v13.log").exists()     # its log is in the run's own home, not /tmp
 
 
+def test_a_fresh_lab_without_a_stress_home_still_runs_the_harness(box):
+    (box["real"] / ".windy-stress").rmdir()                              # the fixture pre-creates it; a fresh lab doesn't
+    out = _run(box, 0)
+    assert out.returncode == 0, out.stderr
+    assert "stress_v13_qa_battery.py" in (box["tmp"] / "calls").read_text()
+    home = box["real"] / ".windy-stress"
+    assert (home / "qa-v13.log").exists() and (home.stat().st_mode & 0o777) == 0o700
+
+
+def test_an_env_file_that_empties_the_stress_home_stops_the_run(box):
+    env_file = box["lab"] / ".windy" / "agent.env"
+    env_file.write_text(env_file.read_text(encoding="utf-8") + "STRESS_HOME=\n", encoding="utf-8")
+    out = _run(box, 0)
+    assert out.returncode != 0 and not (box["tmp"] / "calls").exists()
+
+
 def test_the_harness_logs_never_go_to_a_shared_tmp_file():
     body = SCRIPT.read_text(encoding="utf-8")
     assert "/tmp/windy-qa-v1" not in body

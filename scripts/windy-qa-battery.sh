@@ -39,6 +39,7 @@ set -a
 # shellcheck disable=SC1090
 source "$ENV_FILE"
 set +a
+: "${STRESS_HOME:?STRESS_HOME is empty}"  # the env file could have set it empty
 
 # The run lives in the LAB agent's home: windyfly reads its key, state and env from here, never from ~/.windy.
 export HOME="$LAB_HOME"
@@ -92,7 +93,10 @@ export DEFAULT_MODEL="$MODEL"
 V13_EXIT=0
 V14_EXIT=0
 
-umask 077  # the harness logs below are owner-only
+# umask 077 holds for the REST of the script (the harness logs, the brief, anything the harness writes): owner-only.
+umask 077
+# A fresh lab has no stress home yet: without it the log redirects below fail and bash skips the harness silently.
+mkdir -p -m 700 "$STRESS_HOME" || exit 1
 if [[ "${SKIP_HARNESS:-0}" == "1" ]]; then
     logger -t windy-qa-battery "SKIP_HARNESS=1 — using existing summaries"
 else
