@@ -14,7 +14,7 @@ Last full rewrite: 2026-11-04 18:35Z (before Grant's restart of every Veron Clau
 ## Now
 
 **Open PRs (#712 may need a rebase now that #704 merged: both append to tests/test_windy_calendar.py), waiting on CI (busy Veron runners) and the stamps. Merge each ONLY on the gate above.**
-- #702 TODO.md (this file). Hub OK on 447b5aed. When it merges, this rewrite goes in a follow-up PR.
+- #702 TODO.md (this file). This 18:35Z rewrite moved its head (Hub's OK was on 447b5aed): needs Hub's re-read.
 - #703 pairing progress gate (pre-flag; must merge before Connect's flag 11-10). Hub #9 done; head 539698d5.
 - #705 Vault: release only revocable leases.
 - #706 /model never confirms a switch Mind refuses (Hub #9 done; Mind's label vendored + pinned).
