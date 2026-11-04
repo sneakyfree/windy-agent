@@ -164,10 +164,12 @@ def test_the_memory_link_is_fetched_once_with_no_credential(tmp_path):
 def test_json_status_is_one_object_per_line_and_never_a_secret(tmp_path):
     rc, said, out = _pair(Fake(), json_status=True)
     assert rc == 0 and said == ""
-    events = [json.loads(line) for line in out.splitlines()]
+    every = [json.loads(line) for line in out.splitlines()]
+    events = [e for e in every if e["event"] != "progress"]
     assert [e["event"] for e in events] == ["code", "approved", "registered", "memory", "done"]
     assert events[0]["user_code"] == "1234-5678" and events[0]["qr_url"].startswith("https://connect.test/home")
     assert events[3]["status"] == "imported" and events[4]["passport"] == PASSPORT
+    assert {e["stage"] for e in every if e["event"] == "progress"} >= {"waiting", "download", "import"}
     _no_secret_anywhere(tmp_path, out)
 
 

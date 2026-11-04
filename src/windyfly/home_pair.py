@@ -44,6 +44,12 @@ _ANOTHER_SAY = ("  An agent is already set up on this computer, so another one c
                 "different agent home, use another computer.")
 _CANCEL_SAY = "  Cancelled. If you already approved on your phone, run this again to finish."
 APPROVED_TTL_S = 900  # Connect keeps an APPROVED code alive this long (home.ts); it answers 428 until then
+# Grant 11-03 (via Boss): every wait longer than a few seconds shows a number that moves. A wait shows one at least
+# every TICK_S, however long Connect's poll interval or Retry-After is; a long stage past SLOW_S also says so.
+TICK_S = 5.0
+SLOW_S = 60
+_SHOW_EVERY_S = 1.0  # the download and the import: at most one progress line a second
+_STAGES = ("waiting_for_approval", "approved_finishing")
 
 
 class _QueryValuesHidden(logging.Filter):
@@ -73,13 +79,40 @@ class Report:
 
     def __init__(self, console: Any, json_status: bool, out: Any = None) -> None:
         self.console, self.json_status, self.out = console, json_status, out or sys.stdout
+        self._status: Any = None
+        self._shown: Any = None
 
     def __call__(self, event: str, say: str = "", **fields: Any) -> None:
         if self.json_status:
             self.out.write(json.dumps({"event": event, **fields}) + "\n")
             self.out.flush()
         elif say:
+            self.end_progress()
             self.console.print(say)
+
+    def progress(self, stage: str, say: str, *, slow: bool = False, **fields: Any) -> None:
+        """A long wait's moving number. --json-status: one "progress" line each call (Windy Word draws the bar).
+        A person at a terminal: one line rewritten in place. Output that isn't a terminal (a log): a line only when the
+        stage changes, turns slow, or waits for a different set of services (Hub #9: a line names only what is pending
+        then), so a log never fills with counters."""
+        if self.json_status:
+            self("progress", stage=stage, slow=slow, **fields)
+            return
+        if getattr(self.console, "is_terminal", False):
+            if self._status is None:
+                self._status = self.console.status(say)
+                self._status.start()
+            else:
+                self._status.update(say)
+        elif (stage, slow, tuple(fields.get("waiting_for") or ())) != self._shown:
+            self.console.print(say)
+        self._shown = (stage, slow, tuple(fields.get("waiting_for") or ()))
+
+    def end_progress(self) -> None:
+        if self._status is not None:
+            self._status.stop()
+            self._status = None
+        self._shown = None
 
 
 def _version() -> str:
@@ -147,6 +180,7 @@ def pair(console: Any, *, json_status: bool = False, device_name: str = "", yes:
         rc = 1
         return rc
     finally:
+        report.end_progress()
         if rc != 0 and not state["keep_key"] and not agent_keys.has_registered_key():
             undo()  # "Nothing was changed" stays true: the key this round made goes again (Boss 11-03)
 
@@ -257,8 +291,11 @@ def _round(console: Any, report: Report, kid: str, *, json_status: bool, device_
         # Connect decides when the code is over (its 410). Ours is only a safety cap: an APPROVED code lives
         # APPROVED_TTL_S more while the birth and the Chat + Mail acks finish, and still answers 428 (Hub on #700).
         deadline = now() + expires_in + APPROVED_TTL_S + 60
+        # Until Connect's first answer, the code just issued is waiting for the phone, with expires_in to go.
+        wait: dict[str, Any] = {"body": {"stage": "waiting_for_approval", "expires_in": expires_in},
+                                "body_t": now(), "stage": None, "since": now()}
         try:
-            pickup = _poll(client, base, device_code, kid, report, sleep, now, deadline, interval)
+            pickup = _poll(client, base, device_code, kid, report, sleep, now, deadline, interval, wait)
         except KeyboardInterrupt:
             try:
                 client.post(f"{base}/v1/home/cancel", json={"device_code": device_code, "agent_kid": kid})
@@ -272,23 +309,79 @@ def _round(console: Any, report: Report, kid: str, *, json_status: bool, device_
                        state=state)
 
 
+def _mmss(seconds: int) -> str:
+    return f"{seconds // 60}:{seconds % 60:02d}"
+
+
+def _show_wait(report: Report, wait: dict[str, Any], t: float) -> None:
+    """Connect's 428 says where the round is (Connect #106): stage waiting_for_approval | approved_finishing, the
+    seconds left (expires_in) and, while finishing, which services it waits for. An older Connect says none of it:
+    then "waiting" with the seconds so far. Counted down (or up) locally between answers."""
+    body = wait["body"]
+    stage = body.get("stage") if body.get("stage") in _STAGES else "waiting"
+    if stage != wait["stage"]:
+        wait["stage"], wait["since"] = stage, t
+    exp = body.get("expires_in")
+    left = (max(0, int(exp - (t - wait["body_t"])))
+            if isinstance(exp, (int, float)) and not isinstance(exp, bool) else None)
+    in_stage = int(t - wait["since"])
+    raw_for = body.get("waiting_for")
+    waiting_for = [w for w in raw_for if w in ("chat", "mail")] if isinstance(raw_for, list) else []
+    slow = stage != "waiting_for_approval" and in_stage >= SLOW_S
+    fields: dict[str, Any] = {"seconds_left": left, "seconds_in_stage": in_stage}
+    if waiting_for:
+        fields["waiting_for"] = waiting_for
+    time_left = f" ({_mmss(left)} left)" if left is not None else ""
+    if stage == "waiting_for_approval":
+        say = f"  Waiting for you to approve on your phone{time_left}."
+    elif stage == "approved_finishing":
+        names = " and ".join({"chat": "Windy Chat", "mail": "Windy Mail"}[w] for w in waiting_for)
+        say = (f"  Approved. Finishing the move{time_left}." + (f" Waiting for {names}." if names else "")
+               + (" Still finishing, this can take a few minutes." if slow else ""))
+    else:
+        say = (f"  Waiting for Windy ({_mmss(in_stage)})."
+               + (" Still waiting, this can take a few minutes." if slow else ""))
+    report.progress(stage, say, slow=slow, **fields)
+
+
+def _nap(seconds: float, sleep: Callable[[float], None], tick: Callable[[], None]) -> None:
+    """Sleep in steps of at most TICK_S, showing the wait between steps: a long interval never freezes the number."""
+    left = seconds
+    while left > 0:
+        step = min(TICK_S, left)
+        sleep(step)
+        left -= step
+        if left > 0:
+            tick()
+
+
 def _poll(client: httpx.Client, base: str, device_code: str, kid: str, report: Report,
           sleep: Callable[[float], None], now: Callable[[], float], deadline: float,
-          interval: float) -> dict[str, Any] | None:
+          interval: float, wait: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    if wait is None:
+        wait = {"body": {}, "body_t": now(), "stage": None, "since": now()}
+
+    def tick() -> None:
+        _show_wait(report, wait, now())
+
     while True:
-        sleep(interval)
+        _nap(interval, sleep, tick)
         if now() > deadline:
             report("error", code="expired", say=_EXPIRED_SAY)
             return None
         try:
             resp = client.post(f"{base}/v1/home/poll", json={"device_code": device_code, "agent_kid": kid})
         except httpx.HTTPError:
+            tick()
             continue  # a blip: the code is still good until the deadline
         if resp.status_code == 428:
+            wait["body"], wait["body_t"] = _json(resp) or {}, now()
+            tick()
             continue
         if resp.status_code == 429:
+            tick()
             try:
-                sleep(max(0.0, min(float(resp.headers.get("Retry-After") or interval), 60.0)))
+                _nap(max(0.0, min(float(resp.headers.get("Retry-After") or interval), 60.0)), sleep, tick)
             except ValueError:
                 pass
             continue
@@ -353,7 +446,7 @@ def settle_home(pickup: dict[str, Any], *, report: Report, door: str,
     mem: dict[str, Any] = {"status": "none"}
     memory = pickup.get("memory")
     if isinstance(memory, dict) and memory.get("url"):
-        kw: dict[str, Any] = {"transport": transport}
+        kw: dict[str, Any] = {"transport": transport, "progress": _memory_progress(report, who, now)}
         if db_factory is not None:
             kw["db_factory"] = db_factory
         try:
@@ -364,6 +457,33 @@ def settle_home(pickup: dict[str, Any], *, report: Report, door: str,
             logger.warning("home pair: the memory import failed (%s)", type(exc).__name__)
             mem = {"status": "import_failed", "detail": type(exc).__name__}
     return _finish(_pending(), report=report, now=now, mem=mem)
+
+
+def _mb(n: int) -> str:
+    return f"{n / 1_000_000:.1f} MB"
+
+
+def _memory_progress(report: Report, who: str, now: Callable[[], float]) -> Callable[[str, int, int | None], None]:
+    """The memory's download (bytes; the total when Connect sends Content-Length) and its import (events), at most one
+    line a second plus the last one."""
+    last: dict[str, float] = {}
+
+    def show(stage: str, done: int, total: int | None) -> None:
+        t = now()
+        finished = total is not None and done >= total
+        if not finished and t - last.get(stage, float("-inf")) < _SHOW_EVERY_S:
+            return
+        last[stage] = t
+        pct = min(100, done * 100 // total) if total else None
+        if stage == "download":
+            so_far = f"{_mb(done)} of {_mb(total)} ({pct}%)" if total else f"{_mb(done)} so far"
+            report.progress("download", f"  Bringing over {who}'s memory: {so_far}.", bytes=done, total=total,
+                            percent=pct)
+        else:
+            report.progress("import", f"  Saving {who}'s memory on this computer: {pct if pct is not None else 100}%"
+                                      " done.", done=done, total=total, percent=pct)
+
+    return show
 
 
 def _finish(pending: dict[str, Any], *, report: Report, now: Callable[[], float], mem: dict[str, Any]) -> int:
