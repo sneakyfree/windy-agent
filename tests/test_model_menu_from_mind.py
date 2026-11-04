@@ -176,11 +176,11 @@ async def test_a_model_mind_can_not_serve_now_is_refused_with_its_reason_and_not
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("reason,words", [
-    ("outside_ai_switch_off", "your 'Use outside AI companies' setting is off"),
-    ("breaker_open", "it's resting for a moment after errors"),
+    ("outside_ai_switch_off", "your 'Use outside AI companies for more free capacity' setting is off"),
+    ("breaker_open", "it's having trouble right now, so it's paused for a few minutes"),
     ("not_installed", "it isn't set up yet"),
     ("provider_unconfigured", "it isn't set up yet"),
-    ("needs_connection", "its company isn't connected to your Windy Mind yet"),
+    ("needs_connection", "you haven't connected its provider in Windy Mind yet"),
     ("unknown", "it isn't available right now"),
     ("a_code_from_a_newer_mind", "it isn't available right now"),
     (None, "it isn't available right now"),
@@ -200,7 +200,8 @@ async def test_a_family_with_nothing_available_is_refused_not_switched_from_the_
             for m in CATALOG]
     _with(monkeypatch, rows)
     reply = await _model("sonnet")
-    assert reply.startswith("I can't switch to Claude Sonnet 5.5: it's resting for a moment after errors.")
+    assert reply.startswith("I can't switch to Claude Sonnet 5.5: it's having trouble right now, so it's paused for a "
+                            "few minutes.")
     assert get_model("telegram", "1") is None
 
 
@@ -224,3 +225,14 @@ async def test_an_available_model_still_gets_the_usual_confirmation(monkeypatch)
     _with(monkeypatch, CATALOG)
     reply = await _model("claude-haiku-4-5")
     assert reply.startswith("🤖 Switched to Claude Haiku 4.5 (claude-haiku-4-5).") and "isn't available" not in reply
+
+
+def test_the_outside_ai_setting_is_named_exactly_as_mind_labels_it():
+    """Hub #9 on #706: a rename at Mind must never leave /model naming a setting that doesn't exist. The vendored
+    label is Mind's TOGGLE["label"]; re-vendor it when Mind renames the switch, and this test makes Fly's words follow."""
+    import json
+    from pathlib import Path
+
+    vendored = json.loads((Path(__file__).parent / "contracts" / "mind" / "training_toggle.json").read_text())
+    assert mind_catalog.OUTSIDE_AI_LABEL == vendored["label"]
+    assert f"'{vendored['label']}'" in mind_catalog.unavailable_words("outside_ai_switch_off")
