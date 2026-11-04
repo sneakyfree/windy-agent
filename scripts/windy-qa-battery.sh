@@ -92,15 +92,17 @@ export DEFAULT_MODEL="$MODEL"
 V13_EXIT=0
 V14_EXIT=0
 
+umask 077  # the harness logs below are owner-only
 if [[ "${SKIP_HARNESS:-0}" == "1" ]]; then
     logger -t windy-qa-battery "SKIP_HARNESS=1 — using existing summaries"
 else
-    V13_LOG="/tmp/windy-qa-v13.log"
+    V13_LOG="$STRESS_HOME/qa-v13.log"  # the run's own home: a shared /tmp file owned by someone else
+    # (an earlier run, another user) made the redirect fail, and bash then skips the harness without a word
     run_synthetic "$AGENT_DIR/stress/stress_v13_qa_battery.py" > "$V13_LOG" 2>&1
     V13_EXIT=$?
     logger -t windy-qa-battery "v13 finished exit=$V13_EXIT"
 
-    V14_LOG="/tmp/windy-qa-v14.log"
+    V14_LOG="$STRESS_HOME/qa-v14.log"
     if [[ "${SKIP_V14:-0}" != "1" ]]; then
         run_synthetic "$AGENT_DIR/stress/stress_v14_extended.py" > "$V14_LOG" 2>&1
         V14_EXIT=$?

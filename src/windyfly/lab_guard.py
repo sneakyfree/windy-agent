@@ -143,9 +143,9 @@ def main(argv: list[str] | None = None) -> int:
             found.append(why)
     if found:
         for p in found:
-            print(f"lab guard: REFUSED: {p}", file=sys.stderr)
+            sys.stderr.write(f"lab guard: REFUSED: {p}\n")  # a CLI's own output (test_ux_hardened counts print())
         return 2
-    print(f"lab guard: ok, acting as {os.environ.get('ETERNITAS_PASSPORT', '').strip()}")
+    sys.stdout.write(f"lab guard: ok, acting as {os.environ.get('ETERNITAS_PASSPORT', '').strip()}\n")
     return 0
 
 

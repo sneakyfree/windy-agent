@@ -75,6 +75,12 @@ def test_the_run_lives_in_the_lab_home_with_no_persons_keys(box):
         assert f"{key}=<unset>\n" in calls and "sk-grant-own" not in calls
     assert "WINDY_SYNTHETIC=1\n" in calls
     assert "stress_v13_qa_battery.py" in calls                          # the harness ran only after the guard
+    assert (box["real"] / ".windy-stress" / "qa-v13.log").exists()     # its log is in the run's own home, not /tmp
+
+
+def test_the_harness_logs_never_go_to_a_shared_tmp_file():
+    body = SCRIPT.read_text(encoding="utf-8")
+    assert "/tmp/windy-qa-v1" not in body
 
 
 def test_no_lab_env_file_refuses(box):
