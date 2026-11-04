@@ -361,3 +361,23 @@ def test_a_pre_cutoff_owner_sign_in_ends_in_sign_in_again_never_a_loop(monkeypat
     r = er.refresh_ept(transport=httpx.MockTransport(handler))
     assert len(calls) == 2
     assert r["status"] == "failed" and "windy login" in r["hint"]
+
+
+# ── a standing stop is lifted only by a usable token (Hub on #709) ──────────────────────────────
+
+@pytest.mark.parametrize("new_token,reissued,lifted", [
+    ("", True, False),        # an empty 200: nothing minted
+    ("not-a-jwt", True, False),
+    ("", False, True),        # Eternitas' explicit "kept": a good answer
+    (None, True, True),       # a usable new token
+])
+def test_only_a_usable_200_lifts_a_standing_stop(monkeypatch, tmp_path, new_token, reissued, lifted):
+    from windyfly.agent import standing
+
+    monkeypatch.setenv("WINDY_STATE_DIR", str(tmp_path / "state"))
+    standing._cache.update(mtime=None, value=None)
+    standing.latch("passport_suspended")
+    monkeypatch.setenv(er.ENV_KEY, make_ept(exp_in=200 * DAY))
+    token = make_ept(exp_in=365 * DAY) if new_token is None else new_token
+    er.refresh_ept(force=True, transport=transport([], new_token=token, reissued=reissued))
+    assert (standing.stopped() is None) is lifted

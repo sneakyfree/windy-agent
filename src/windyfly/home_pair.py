@@ -120,6 +120,9 @@ def pair(console: Any, *, json_status: bool = False, device_name: str = "", yes:
         # A round that registered this computer's key and then stopped (a crash, Ctrl-C): finish it (Hub on #700).
         return _finish(pending, report=report, now=now, mem={"status": "lost"})
     _clear_pending()  # a marker without its registered key: that round never got that far
+    if agent_keys.has_registered_key() and _set_aside_revoked_key(transport):
+        report("progress", code="revoked_key_set_aside",
+               say="  This computer's old key was turned off, so it was set aside. Starting a new pairing.")
     if agent_keys.has_registered_key() or (agent_keys.current_passport() and
                                            agent_keys.current_passport() != rec.get("passport_number")):
         # This computer already holds an agent's key (the code binds to that key, so it can never carry another
@@ -183,6 +186,46 @@ def _load_agent_env() -> None:
             load_dotenv(env_file, override=False)
     except Exception:  # noqa: BLE001
         pass
+
+
+def _set_aside_revoked_key(transport: httpx.BaseTransport | None = None) -> bool:
+    """A move that didn't finish leaves this computer holding a key Eternitas REVOKED (the key_revoked stop, H13a); its
+    line tells the person to run `windy home pair` again, which would otherwise refuse with another_agent_here (Hub on
+    #709). Only when the stop in force is key_revoked AND Eternitas' public key list positively shows this key as not
+    active, the credentials file is moved aside (renamed, never deleted: it keeps its 0600) so a new key can pair. An
+    unreadable list, or a key still listed active, changes nothing."""
+    from windyfly.agent import standing
+    from windyfly.eternitas import agent_keys
+
+    stop = standing.stopped() or {}
+    if stop.get("kind") != "key_revoked":
+        return False
+    path = agent_keys.credentials_path()
+    entry = agent_keys.active_entry(agent_keys.load_credentials(path)) or {}
+    kid, passport = str(entry.get("kid") or ""), _key_passport()
+    if not kid or not passport:
+        return False
+    try:
+        with httpx.Client(timeout=15.0, transport=transport) as client:
+            listed = client.get(f"{agent_keys._base_url()}/api/v1/bots/{passport}/keys")
+        if listed.status_code != 200:
+            return False
+        keys = listed.json().get("keys")
+        if not isinstance(keys, list):
+            return False
+        mine = [k for k in keys if isinstance(k, dict) and k.get("kid") == kid]
+        if any(k.get("status") in ("active", None) for k in mine):
+            return False
+    except Exception:  # noqa: BLE001 — not sure = keep refusing
+        return False
+    aside = path.with_name(f"{path.name}.revoked-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}")
+    try:
+        os.replace(path, aside)
+    except OSError as exc:
+        logger.warning("home pair: could not set the revoked key aside (%s)", type(exc).__name__)
+        return False
+    logger.warning("home pair: this computer's revoked key was set aside; pairing a new one")
+    return True
 
 
 def _key_passport() -> str:

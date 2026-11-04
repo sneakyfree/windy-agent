@@ -340,13 +340,17 @@ def _refresh(force: bool, transport, now) -> dict[str, Any]:
         return {"status": "failed", "http": resp.status_code, "code": code}
 
     from windyfly.eternitas.agent_keys import _standing_good_mint
-    _standing_good_mint()  # Eternitas minted for this passport: a standing stop (if any) is lifted
     try:
         data = resp.json()
         new_token = str(data.get("ept_token") or "")
     except Exception:
         data, new_token = {}, ""
+    if not isinstance(data, dict):
+        data = {}
+    # Only a 200 that really carries a token (or Eternitas' explicit "kept") is a good mint that lifts a standing stop;
+    # an empty or broken 200 changes nothing (Hub on #709).
     if not new_token and data.get("reissued") is False:
+        _standing_good_mint()
         # Eternitas kept the current EPT and said why (reissue_reason); it
         # need not echo the token back. That's success, not a failure.
         logger.info("EPT refresh for %s: kept (%s)", _passport_prefix(passport),
@@ -357,6 +361,7 @@ def _refresh(force: bool, transport, now) -> dict[str, Any]:
         logger.warning("EPT refresh for %s: response carried no usable token",
                        _passport_prefix(passport))
         return {"status": "failed", "error": "no_token"}
+    _standing_good_mint()  # Eternitas minted a usable token for this passport: a standing stop (if any) is lifted
 
     reissued = bool(data.get("reissued"))
     reason = data.get("reissue_reason")

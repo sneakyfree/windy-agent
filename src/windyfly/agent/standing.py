@@ -11,6 +11,13 @@ The stop is written to a file in the state folder, so a restart doesn't undo it.
 
 Quiet within N seconds of the refusal: N = PROBE_S + one mint round trip (at most MINT_TIMEOUT_S) = 75 s worst case,
 when the agent is idle; a turn that mints in between stops it at once.
+
+What the probe never does is hammer Eternitas with a mint it knows will fail (Hub on #709). Two cases back off, doubling
+from PROBE_S up to BACKOFF_MAX_S, and start again from PROBE_S the moment something changes:
+- a key_revoked stop: a revoked key stays revoked, so its mint is retried ever more rarely; a NEW local key (after
+  `windy home pair`) is tried at once;
+- a passport-token agent that the public read calls active again but whose forced refresh is still refused.
+A retired or suspended stop keeps the plain 60 s check, so a restore still takes effect within a minute.
 """
 
 from __future__ import annotations
@@ -166,6 +173,37 @@ class AgentStopped(RuntimeError):
 
 _probe: dict[str, Any] = {"thread": None, "stop": None}
 
+BACKOFF_MAX_S = 3600.0
+
+
+class _Backoff:
+    """The next time a known-failing attempt may run again: PROBE_S, then doubling up to BACKOFF_MAX_S. ``tag`` names
+    what failed (a kid); a different tag starts afresh."""
+
+    def __init__(self) -> None:
+        self.n = 0
+        self.next_at = 0.0
+        self.tag: str | None = None
+
+    def ready(self, tag: str | None = None, now: float | None = None) -> bool:
+        if tag != self.tag:
+            self.reset()
+        return (time.time() if now is None else now) >= self.next_at
+
+    def failed(self, tag: str | None = None, now: float | None = None) -> None:
+        if tag != self.tag:
+            self.reset()
+        self.tag = tag
+        self.n += 1
+        self.next_at = (time.time() if now is None else now) + min(PROBE_S * 2 ** (self.n - 1), BACKOFF_MAX_S)
+
+    def reset(self) -> None:
+        self.n, self.next_at, self.tag = 0, 0.0, None
+
+
+_key_backoff = _Backoff()
+_refresh_backoff = _Backoff()
+
 
 def probe_once(mint: Callable[[], Any] | None = None) -> str:
     """Try one mint now. "ok" (a stop, if any, is lifted), "stopped" (a refusal latched a stop), or "skipped" (no way
@@ -187,10 +225,20 @@ def _mint() -> Any:
     from windyfly.eternitas import agent_keys
 
     if agent_keys.has_registered_key():
-        return agent_keys.request_agent_token(PROBE_AUD, min_ttl=10 ** 9)   # never the cached token
-    import os
+        stop = stopped()
+        kid = _own_kid()
+        if stop and stop.get("kind") == "key_revoked" and not _key_backoff.ready(kid):
+            raise _Refused("key_revoked_backoff")                # this key was refused; try it again later
+        try:
+            out = agent_keys.request_agent_token(PROBE_AUD, min_ttl=10 ** 9)   # never the cached token
+        except Exception as exc:
+            if kind_of(getattr(exc, "code", "")) == "key_revoked":
+                _key_backoff.failed(kid)
+            raise
+        _key_backoff.reset()
+        return out
 
-    passport = os.environ.get("ETERNITAS_PASSPORT", "").strip()
+    passport = agent_keys.current_passport()   # ETERNITAS_PASSPORT, else the stored token's sub (as runtime_claim)
     if not passport:
         raise _Refused("no_passport")                    # a standalone install: nothing to check
     status = _verify_status(passport)
@@ -200,15 +248,30 @@ def _mint() -> Any:
             latch(code)
         raise _Refused(code)
     if stopped() and status == "active":
-        # Eternitas says active again (a restore): ONE forced refresh, the good mint that lifts the stop. Never a
-        # refresh a minute while it stays retired (a retire can last weeks).
+        # Eternitas says active again (a restore): a forced refresh, the good mint that lifts the stop. Never a
+        # refresh while it stays retired (a retire can last weeks), and a refused one backs off (Hub on #709).
+        if not _refresh_backoff.ready():
+            raise _Refused("refresh_backoff")
         from windyfly.eternitas import ept_refresh
 
-        res = ept_refresh.refresh_ept(force=True)        # a 200 lifts the stop (ept_refresh), a refusal keeps it
-        if res.get("status") == "failed":
+        res = ept_refresh.refresh_ept(force=True)        # a usable token lifts the stop (ept_refresh), a refusal keeps it
+        if res.get("status") == "failed" or stopped():
+            _refresh_backoff.failed()
             raise _Refused(str(res.get("code") or "refused"))
+        _refresh_backoff.reset()
         return res
+    _refresh_backoff.reset()
     return status
+
+
+def _own_kid() -> str | None:
+    try:
+        from windyfly.eternitas import agent_keys
+
+        entry = agent_keys.active_entry(agent_keys.load_credentials())
+        return str(entry.get("kid")) if entry else None
+    except Exception:  # noqa: BLE001
+        return None
 
 
 # The public registry read's statuses that mean STOP, as the mint refusal codes they stand for.
