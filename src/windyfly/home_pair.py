@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import sys
 import time
@@ -344,7 +345,8 @@ def _show_wait(report: Report, wait: dict[str, Any], t: float) -> None:
         wait["stage"], wait["since"] = stage, t
     exp = body.get("expires_in")
     left = (max(0, int(exp - (t - wait["body_t"])))
-            if isinstance(exp, (int, float)) and not isinstance(exp, bool) else None)
+            if isinstance(exp, (int, float)) and not isinstance(exp, bool) and math.isfinite(exp) else None)
+    # (a NaN or Infinity expires_in from a broken answer is "not said", never a crash: Hub on #703)
     in_stage = int(t - wait["since"])
     raw_for = body.get("waiting_for")
     waiting_for = [w for w in raw_for if w in ("chat", "mail")] if isinstance(raw_for, list) else []

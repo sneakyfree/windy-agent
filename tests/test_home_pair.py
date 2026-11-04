@@ -862,3 +862,12 @@ def test_f6_json_status_carries_the_memory_path(tmp_path):
     assert rc == 0
     memory = next(json.loads(line) for line in out.splitlines() if json.loads(line)["event"] == "memory")
     assert memory["db_path"] == str(tmp_path / "windyfly.db")
+
+
+@pytest.mark.parametrize("exp", [float("nan"), float("inf"), float("-inf")])
+def test_a_non_finite_expires_in_is_not_said_never_a_crash(exp):
+    """Hub on #703: int(exp - ...) raised on NaN/Infinity from a broken 428 body."""
+    out = io.StringIO()
+    report = home_pair.Report(Console(file=io.StringIO()), True, out)
+    wait = {"body": {"stage": "waiting_for_approval", "expires_in": exp}, "body_t": 0.0, "stage": None, "since": 0.0}
+    home_pair._show_wait(report, wait, 5.0)       # must not raise
