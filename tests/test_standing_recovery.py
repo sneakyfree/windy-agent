@@ -70,10 +70,20 @@ def test_main_starts_the_probe_outside_the_granted_branch():
     tree = ast.parse(src)
     calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call) and getattr(n.func, "attr", "") == "start_probe"]
     assert len(calls) == 1
+    # the call is a statement in the SAME block as the claim's if/elif chain, AFTER it (not inside any branch)
     for node in ast.walk(tree):
-        if isinstance(node, ast.If) and "GRANTED" in ast.unparse(node.test):
-            inside = {id(n) for stmt in node.body for n in ast.walk(stmt)}
-            assert id(calls[0]) not in inside, "the probe must not depend on a GRANTED claim"
+        for field in ("body", "orelse"):
+            block = getattr(node, field, None)
+            if not isinstance(block, list):
+                continue
+            chain = [i for i, st in enumerate(block) if isinstance(st, ast.If) and "CONFLICT" in ast.unparse(st.test)]
+            if not chain:
+                continue
+            here = [i for i, st in enumerate(block)
+                    if isinstance(st, ast.Expr) and any(n is calls[0] for n in ast.walk(st))]
+            assert here and here[0] > chain[0], "start_probe must run after the claim branches, at their level"
+            return
+    raise AssertionError("claim if/elif chain not found in main.py")
 
 
 # ── the passport from the token's sub ───────────────────────────────────────────────────────────
@@ -176,7 +186,7 @@ def _keys_list(kid: str, status: str | None, *, http: int = 200):
     return httpx.MockTransport(handle)
 
 
-@pytest.mark.parametrize("stop,status,http,aside", [
+@pytest.mark.parametrize("stop,status,http,revoked", [
     ("agent_key_revoked", "revoked", 200, True),
     ("agent_key_revoked", None, 200, True),          # not listed at all: not active
     ("agent_key_revoked", "active", 200, False),     # Eternitas still lists it active: keep refusing
@@ -184,32 +194,68 @@ def _keys_list(kid: str, status: str | None, *, http: int = 200):
     ("agent_retired", "revoked", 200, False),        # not a key stop
     (None, "revoked", 200, False),
 ])
-def test_pair_sets_aside_only_a_key_eternitas_shows_revoked(stop, status, http, aside):
+def test_pair_recognises_only_a_key_eternitas_shows_revoked(stop, status, http, revoked):
     from windyfly import home_pair
 
     kid = _registered_key()
     if stop:
         standing.latch(stop, reason="move_aborted")
-    path = ak.credentials_path()
-    assert home_pair._set_aside_revoked_key(_keys_list(kid, status, http=http)) is aside
-    assert path.exists() is not aside
-    kept = list(path.parent.glob(f"{path.name}.revoked-*"))
-    assert len(kept) == (1 if aside else 0)
-    if aside:
-        assert json.loads(kept[0].read_text())["eternitas"]["keys"][0]["kid"] == kid   # renamed, never deleted
-        assert not ak.has_registered_key()
+    assert home_pair._revoked_key_here(_keys_list(kid, status, http=http)) is revoked
+    assert ak.credentials_path().exists()                     # the check itself never renames anything
 
 
-def test_pair_says_the_key_was_set_aside_and_goes_on(monkeypatch):
-    from windyfly import home_pair, hub_hatch
+def test_set_aside_renames_never_overwrites():
+    from windyfly import home_pair
 
     kid = _registered_key()
-    standing.latch("agent_key_revoked", reason="move_aborted")
-    monkeypatch.setattr(hub_hatch, "cloud_agent", lambda: {"passport_number": PASSPORT, "where": "cloud"})
+    path = ak.credentials_path()
+    stamp = home_pair.time.strftime('%Y%m%dT%H%M%SZ', home_pair.time.gmtime())
+    clash = path.with_name(f"{path.name}.revoked-{stamp}")
+    clash.write_text("an earlier set-aside")
+    assert home_pair._set_aside_key() is True
+    assert not path.exists() and clash.read_text() == "an earlier set-aside"     # never replaced
+    kept = [p for p in path.parent.glob(f"{path.name}.revoked-*") if p != clash]
+    assert len(kept) == 1 and json.loads(kept[0].read_text())["eternitas"]["keys"][0]["kid"] == kid
+
+
+def _pair(monkeypatch, kid, *, confirm=True, cloud_passport=PASSPORT):
+    from windyfly import home_pair, hub_hatch
+
+    monkeypatch.setattr(hub_hatch, "cloud_agent", lambda: {"passport_number": cloud_passport, "where": "cloud"})
     monkeypatch.setattr(home_pair, "_load_agent_env", lambda: None)
-    monkeypatch.setattr(home_pair, "_confirm_cloud_link", lambda *a, **k: False)   # stop right after the check
+
+    def confirm_fn(rec, report, **k):
+        if not confirm:
+            report("error", code="cancelled", say="  Cancelled. Nothing was changed.")
+        return confirm
+    monkeypatch.setattr(home_pair, "_confirm_cloud_link", confirm_fn)
+    monkeypatch.setattr(ak, "begin_local_key", lambda **k: (_ for _ in ()).throw(KeyboardInterrupt()))  # stop after
     out = io.StringIO()
-    rc = home_pair.pair(None, json_status=True, transport=_keys_list(kid, "revoked"), out=out)
-    events = [json.loads(line) for line in out.getvalue().splitlines()]
-    assert rc == 1 and [e["event"] for e in events] == ["progress"]
-    assert events[0]["code"] == "revoked_key_set_aside"
+    try:
+        rc = home_pair.pair(None, json_status=True, transport=_keys_list(kid, "revoked"), out=out)
+    except KeyboardInterrupt:
+        rc = "new-key"                                        # begin_local_key reached: the new pairing started
+    return rc, [(e["event"], e.get("code")) for e in map(json.loads, out.getvalue().splitlines())]
+
+
+def test_a_no_at_the_cloud_question_renames_nothing(monkeypatch):
+    kid = _registered_key()
+    standing.latch("agent_key_revoked", reason="move_aborted")
+    rc, events = _pair(monkeypatch, kid, confirm=False)
+    assert rc == 1 and events == [("error", "cancelled")]
+    assert ak.has_registered_key()                            # "Nothing was changed." stays true
+
+
+def test_another_agents_passport_is_refused_before_any_set_aside(monkeypatch):
+    kid = _registered_key()
+    standing.latch("agent_key_revoked", reason="move_aborted")
+    rc, events = _pair(monkeypatch, kid, cloud_passport="ET26-OTHR-0001")
+    assert rc == 1 and events == [("error", "another_agent_here")] and ak.has_registered_key()
+
+
+def test_after_the_yes_the_key_is_set_aside_and_pairing_goes_on(monkeypatch):
+    kid = _registered_key()
+    standing.latch("agent_key_revoked", reason="move_aborted")
+    rc, events = _pair(monkeypatch, kid)
+    assert rc == "new-key" and events == [("progress", "revoked_key_set_aside")]
+    assert not ak.has_registered_key()
