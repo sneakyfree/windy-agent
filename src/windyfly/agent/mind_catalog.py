@@ -73,3 +73,34 @@ def resolve(word: str, catalog: list[dict[str, Any]]) -> dict[str, Any] | None:
         if fam:
             return max(fam, key=lambda m: m.get("power_rating") or 0)
     return None
+
+
+def resolve_any(word: str, catalog: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """A family word when NONE of that family is available now: its strongest model, so ``/model`` can say why
+    it can't switch instead of falling back to a list Mind doesn't serve."""
+    w = (word or "").strip().lower()
+    fam = [m for m in catalog if w in _FAMILIES and w in m["id"].lower()]
+    return max(fam, key=lambda m: m.get("power_rating") or 0) if fam else None
+
+
+# The exact label of Mind's outside-AI switch (windy-mind training_policy.TOGGLE["label"]), so /model names a setting
+# the owner can find. Pinned by tests/contracts/mind/training_toggle.json (Hub #9 on #706).
+OUTSIDE_AI_LABEL = "Use outside AI companies for more free capacity"
+
+# Plain words for catalog/me's unavailable_reason (menu.v1 1.10.0 / 1.12.0), said to the owner who typed /model
+# (Hub #9 on #706). A code this list doesn't know, unknown, or none: the neutral words (menu.v1: "not available
+# right now").
+_UNAVAILABLE_WORDS = {
+    "outside_ai_switch_off": f"your '{OUTSIDE_AI_LABEL}' setting is off",
+    "breaker_open": "it's having trouble right now, so it's paused for a few minutes",
+    "not_installed": "it isn't set up yet",
+    "provider_unconfigured": "it isn't set up yet",
+    "quota_exhausted": "it has reached its usage limit for now",
+    # catalog/me names the provider only by id (connect_provider), never a display name: "its provider".
+    "needs_connection": "you haven't connected its provider in Windy Mind yet",
+}
+
+
+def unavailable_words(reason: Any) -> str:
+    return _UNAVAILABLE_WORDS.get(reason, "it isn't available right now") if isinstance(reason, str) else \
+        "it isn't available right now"
