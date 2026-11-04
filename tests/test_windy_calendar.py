@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from unittest.mock import MagicMock
 
 import pytest
@@ -115,6 +116,28 @@ def test_book_sends_idempotency_key_and_reports_slot_taken(calls):
     args = calls[0][1]["json"]["arguments"]
     assert args["idempotency_key"] and calls[0][1]["json"]["name"] == "book_appointment"
     assert out["outcome"] == "slot_taken" and out["next_slots"] == ["x"]
+
+
+def test_the_same_booking_always_sends_the_same_key(calls, monkeypatch):
+    """A retry (the model asks twice, a timeout) returns the FIRST booking, never "just taken" (Calendar 11-04)."""
+    monkeypatch.setenv("ETERNITAS_PASSPORT", "ET26-BOOK-0001")
+    book = _cap("windy_calendar.book").handler
+    base = {"starts_at_utc": "2026-10-12T15:00:00Z", "booker_name": "A", "booker_email": "Ann@Example.com"}
+
+    def key(**kw):
+        _answer(calls, _resp(200, {"ok": True, "result": {"outcome": "booked"}}))
+        book(**{**base, **kw})
+        return calls[-1][1]["json"]["arguments"]["idempotency_key"]
+
+    first = key()
+    assert re.fullmatch(r"[A-Za-z0-9._:-]{8,128}", first)                 # Calendar's idempotency_key pattern
+    assert key() == first                                                   # a retry: the same key
+    assert key(booker_email=" ann@example.COM ") == first                   # the email, lowercased
+    assert key(booker_name="Ann B", booker_phone="+15550100", booker_note="x", booker_tz="America/Denver") == first
+    assert key(starts_at_utc="2026-10-12T16:00:00Z") != first               # another time: another booking
+    assert key(booker_email="bob@example.com") != first                     # another booker: another booking
+    monkeypatch.setenv("ETERNITAS_PASSPORT", "ET26-BOOK-0002")
+    assert key() != first                                                   # another agent: another key
 
 
 def test_confirm_required_waits_and_is_not_retried(calls):

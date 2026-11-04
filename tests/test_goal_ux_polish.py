@@ -25,7 +25,10 @@ def test_web_search_unavailable_returns_grandma_friendly():
     grandma-readable and tell the model what to do."""
     import os
     from unittest.mock import patch
-    with patch.dict(os.environ, {}, clear=True):
+    # no passport token AND no registered key: the setup error (a key-only paired computer gets its own line); the
+    # key check is pinned, so the developer's own credentials file can't change this test
+    with patch.dict(os.environ, {}, clear=True), \
+            patch("windyfly.eternitas.agent_keys.has_registered_key", lambda: False):
         from windyfly.tools import web_search as ws
         with pytest.raises(RuntimeError) as exc_info:
             ws.web_search("anything")

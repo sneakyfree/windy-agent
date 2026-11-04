@@ -27,6 +27,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -343,7 +344,37 @@ def _isolate_project_root(request, monkeypatch, tmp_path):
         ):
             if hasattr(mod, attr):
                 monkeypatch.setattr(mod, attr, root / rel)
+    # Two more import-time paths under the real project root that the suite wrote into the checkout (Hub on #700,
+    # 11-03): cloud_backup's backup state and the bot-key audit log.
+    for mod_name, attr, rel in (("windyfly.cloud_backup", "_BACKUP_STATE_FILE", "data/backup_state.json"),
+                                ("windyfly.auth.audit", "AUDIT_LOG_PATH", "data/audit/bot_key_usage.jsonl")):
+        try:
+            mod = importlib.import_module(mod_name)
+        except Exception:
+            continue
+        if hasattr(mod, attr):
+            monkeypatch.setattr(mod, attr, root / rel)
     yield
+
+
+# Files a test must never leave in the checkout (each one was found there after a suite run, 11-03). A leftover
+# data/windyfly.db is worse than clutter: since #699 a database at its old place is USED, so one test's leak became
+# the next run's memory.
+_REPO = Path(__file__).resolve().parent.parent
+_NEVER_IN_CHECKOUT = ("data/windyfly.db", "data/windyfly.db-wal", "data/windyfly.db-shm", "data/backup_state.json",
+                      "data/audit", "data/runtime_claim.json", ".env.ept-lock")
+
+
+@pytest.fixture(autouse=True)
+def _no_files_left_in_the_checkout(request):
+    """Fails the test that CREATES one of those files in the checkout, naming it (a file that was already there
+    before the test is left alone: a developer's own checkout may hold one)."""
+    before = {rel for rel in _NEVER_IN_CHECKOUT if (_REPO / rel).exists()}
+    yield
+    made = [rel for rel in _NEVER_IN_CHECKOUT if rel not in before and (_REPO / rel).exists()]
+    if made:
+        pytest.fail(f"{request.node.nodeid} left {made} in the checkout ({_REPO}); write under tmp_path instead",
+                    pytrace=False)
 
 
 @pytest.fixture(autouse=True)

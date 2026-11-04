@@ -522,6 +522,33 @@ def _memory_progress(report: Report, who: str, now: Callable[[], float]) -> Call
     return show
 
 
+def _mb(n: int) -> str:
+    return f"{n / 1_000_000:.1f} MB"
+
+
+def _memory_progress(report: Report, who: str, now: Callable[[], float]) -> Callable[[str, int, int | None], None]:
+    """The memory's download (bytes; the total when Connect sends Content-Length) and its import (events), at most one
+    line a second plus the last one."""
+    last: dict[str, float] = {}
+
+    def show(stage: str, done: int, total: int | None) -> None:
+        t = now()
+        finished = total is not None and done >= total
+        if not finished and t - last.get(stage, float("-inf")) < _SHOW_EVERY_S:
+            return
+        last[stage] = t
+        pct = min(100, done * 100 // total) if total else None
+        if stage == "download":
+            so_far = f"{_mb(done)} of {_mb(total)} ({pct}%)" if total else f"{_mb(done)} so far"
+            report.progress("download", f"  Bringing over {who}'s memory: {so_far}.", bytes=done, total=total,
+                            percent=pct)
+        else:
+            report.progress("import", f"  Saving {who}'s memory on this computer: {pct if pct is not None else 100}%"
+                                      " done.", done=done, total=total, percent=pct)
+
+    return show
+
+
 def _finish(pending: dict[str, Any], *, report: Report, now: Callable[[], float], mem: dict[str, Any]) -> int:
     """The steps after the key is registered: the brain + settings, the record, the last words. Also the resume of a
     round that stopped after its registration (its memory link was spent then: line 8)."""
