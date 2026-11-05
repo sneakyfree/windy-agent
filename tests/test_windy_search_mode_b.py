@@ -164,3 +164,33 @@ def test_logs_carry_codes_never_tokens(box, caplog):
     text = caplog.text
     assert "[search-auth]" in text and "wrong_token_type" in text
     assert STORED not in text and "agent-token" not in text and "proof-" not in text
+
+
+# ── Search's flip list (11-04): one INFO line at startup naming the base the proofs are made for ──────────────
+
+@pytest.mark.parametrize("base, words", [(None, "(the default)"), ("https://search.example/", "NOT the default")])
+def test_startup_names_the_search_base_once_with_mode_b_on(box, monkeypatch, caplog, base, words):
+    if base:
+        monkeypatch.setenv("WINDY_SEARCH_BASE_URL", base)
+    with caplog.at_level(logging.INFO, logger=client.__name__):
+        client.log_mode_b_base()
+    lines = [r.getMessage() for r in caplog.records if "Windy Search base" in r.getMessage()]
+    assert len(lines) == 1 and words in lines[0] and (base or client.DEFAULT_BASE_URL).rstrip("/") in lines[0]
+
+
+def test_startup_says_nothing_with_mode_b_off(box, monkeypatch, caplog):
+    monkeypatch.delenv(client.SEARCH_FLAG)
+    with caplog.at_level(logging.DEBUG, logger=client.__name__):
+        client.log_mode_b_base()
+    assert caplog.text == ""
+
+
+def test_main_logs_the_search_base_at_startup():
+    import ast
+    import inspect
+
+    from windyfly import main
+
+    calls = [n for n in ast.walk(ast.parse(inspect.getsource(main.main)))
+             if isinstance(n, ast.Call) and getattr(n.func, "id", "") == "log_mode_b_base"]
+    assert len(calls) == 1

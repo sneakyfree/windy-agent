@@ -168,6 +168,21 @@ def search_mode_b_enabled() -> bool:
     return os.environ.get(SEARCH_FLAG, "").strip() == "1"
 
 
+def log_mode_b_base() -> None:
+    """At startup, with mode B on: ONE INFO line naming the Search base (Windy Search's flip list, 11-04).
+
+    Every proof's htu is built from this base, and Search counts a proof for any other host as bad, so a wrong
+    WINDY_SEARCH_BASE_URL shows up here before it shows up as a run of 401s. Silent while the flag is off."""
+    if not search_mode_b_enabled():
+        return
+    base = _base_url()
+    if base == DEFAULT_BASE_URL:
+        logger.info("[search-auth] mode B on; Windy Search base %s (the default)", base)
+    else:
+        logger.info("[search-auth] mode B on; Windy Search base %s, NOT the default %s: Search counts a proof made "
+                    "for another host as bad", base, DEFAULT_BASE_URL)
+
+
 def _detail(resp: httpx.Response) -> str:
     """The refusal code from a 401 body (lowercased); "" when there is none."""
     try:
