@@ -168,6 +168,11 @@ class MatrixSyncDead(RuntimeError):
 _INITIAL_BACKOFF_S = 1
 _MAX_BACKOFF_S = 60
 _HEARTBEAT_INTERVAL_S = 300  # 5 minutes
+# Matrix's typing notice lapses after the timeout we send (15 s). A turn can run far longer (Zero, 11-05: 85 s),
+# so the sign is re-sent every _TYPING_REFRESH_S until the turn ends: the person always sees the agent is working
+# (Grant's honest-progress rule). Same pattern as telegram_bot._keep_typing.
+_TYPING_TIMEOUT_MS = 15000
+_TYPING_REFRESH_S = 10.0
 # nio's sync_forever retries a failed /sync with NO sleep. Measured on
 # Windy 0 2026-09-03 → 09-05: one failed sync every ~135 ms (811k log
 # lines in a day) against a homeserver returning 502, while the heartbeat
@@ -857,9 +862,10 @@ class WindyFlyMatrixBot(ChannelAdapter):
         status = "done"
         started_ms = int(time.time() * 1000)
         try:
-            await self.client.room_typing(room_id, True, timeout=15000)
+            await self.client.room_typing(room_id, True, timeout=_TYPING_TIMEOUT_MS)
         except Exception as e:
             logger.debug("Failed to set typing indicator: %s", e)
+        typing_task = asyncio.create_task(self._keep_typing(room_id))
         try:
             text = await run_turn(_task_tools_turn(agent_respond), self.config, self.db, self.write_queue,
                                   turn_body, _room_session(self, room_id), self.tool_registry, band=band)
@@ -872,6 +878,7 @@ class WindyFlyMatrixBot(ChannelAdapter):
             text = "I could not finish this." if kind == "request" else _tw.timeout_line(task, me, names, timed_out=False)
             status = "blocked"
         finally:
+            await self._stop_typing(typing_task)
             try:
                 await self.client.room_typing(room_id, False)
             except Exception as e:
@@ -1010,6 +1017,25 @@ class WindyFlyMatrixBot(ChannelAdapter):
         me = self.bot_user_id or ""
         await self._send_owner_result(root.room, root, _tw.timeout_line(root, me, names),
                                       *_tw.report_status(root, me))
+
+    async def _keep_typing(self, room_id: str) -> None:
+        """Re-send the typing sign every _TYPING_REFRESH_S while a turn runs; cancelled by the caller in a finally.
+        The first sign is sent by the caller before the turn starts, so this loop sleeps first. Cosmetic: a failed
+        send is logged at debug and the loop keeps going."""
+        while True:
+            await asyncio.sleep(_TYPING_REFRESH_S)
+            try:
+                await self.client.room_typing(room_id, True, timeout=_TYPING_TIMEOUT_MS)
+            except Exception as e:  # noqa: BLE001
+                logger.debug("Failed to refresh typing indicator: %s", e)
+
+    @staticmethod
+    async def _stop_typing(task: "asyncio.Task[None]") -> None:
+        task.cancel()
+        try:
+            await task
+        except (asyncio.CancelledError, Exception):  # noqa: BLE001
+            pass
 
     async def _on_message(
         self,
@@ -1303,9 +1329,9 @@ class WindyFlyMatrixBot(ChannelAdapter):
             except Exception as e:
                 logger.debug("Failed to send read receipt: %s", e)
 
-        # Show typing indicator
+        # Show typing indicator (kept alive by _keep_typing for the whole turn, below)
         try:
-            await self.client.room_typing(room_id, True, timeout=15000)
+            await self.client.room_typing(room_id, True, timeout=_TYPING_TIMEOUT_MS)
         except Exception as e:
             logger.debug("Failed to set typing indicator: %s", e)
 
@@ -1343,6 +1369,7 @@ class WindyFlyMatrixBot(ChannelAdapter):
         from windyfly.channels import phone_tools as _phone
 
         team_room: Any = None
+        typing_task = asyncio.create_task(self._keep_typing(room_id))
         try:
             from windyfly.agent.executor import run_turn
             from windyfly.channels.identity import resolve_band
@@ -1369,6 +1396,7 @@ class WindyFlyMatrixBot(ChannelAdapter):
             logger.error("Agent respond failed: %s", classified.log_message)
             response_text = classified.user_message
         finally:
+            await self._stop_typing(typing_task)
             _phone.clear_turn(session_id)
             if agent_turn:
                 _silence.clear_agent_turn(session_id)
