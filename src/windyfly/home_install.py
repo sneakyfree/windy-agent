@@ -92,6 +92,13 @@ def install(console: Any, *, ticket: str, json_status: bool = True, lines: Any =
                                            agent_keys.current_passport() != rec.get("passport_number")):
         report("error", code="another_agent_here", say=home_pair._ANOTHER_SAY)
         return 1
+    from windyfly.hub_login import HubUrlRefused, hub_url
+
+    try:
+        hub_url()  # before a key is made: a refused hub address changes nothing (#727)
+    except HubUrlRefused as exc:
+        report("error", code="hub_url_refused", say=f"  {exc} Nothing on this computer was changed.")
+        return 1
     kid, undo = agent_keys.begin_local_key()
     report("kid", kid=kid)
     state: dict[str, Any] = {"keep_key": False, "cloud_record": rec}

@@ -269,3 +269,16 @@ def test_the_already_home_line_escapes_the_name(tmp_path, monkeypatch):
     monkeypatch.setattr(hub_hatch, "cloud_agent", lambda: {"where": "home", "agent_name": "[bold]Pip[/bold]"})
     rc, _, text = _install(Hub(), [], json_status=False)
     assert rc == 1 and "[bold]Pip[/bold] already lives on this computer." in text
+
+
+@pytest.mark.parametrize("url", ["http://hub.example.com", "ftp://hub.example.com"])
+def test_a_refused_hub_address_stops_before_a_key_is_made(monkeypatch, url):
+    """#727: WINDY_HUB_URL must be https (http only for localhost). The desktop door checks it FIRST: no key, no kid
+    line, no request."""
+    monkeypatch.setenv("WINDY_HUB_URL", url)
+    hub = Hub()
+    rc, events, text = _install(hub, [f"{HID}.{CODE}\n"], json_status=False)
+    assert rc == 1 and hub.calls == [] and not ak.load_credentials()
+    assert "https://" in text and "Nothing on this computer was changed." in text
+    rc, events, _ = _install(Hub(), [f"{HID}.{CODE}\n"])
+    assert events[-1]["code"] == "hub_url_refused" and not any(e.get("kid") for e in events)
