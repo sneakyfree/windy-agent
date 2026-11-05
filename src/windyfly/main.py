@@ -427,6 +427,12 @@ def main() -> None:
         salvage_provider_keys()
     except Exception as exc:  # noqa: BLE001 - startup must not die on cleanup
         logger.warning("provider salvage skipped (%s); retrying at next start", type(exc).__name__)
+    try:  # Search mode B (dark): say once which Search base its proofs are made for (Search's flip list)
+        from windyfly.tools.windy_search_client import log_mode_b_base
+
+        log_mode_b_base()
+    except Exception:  # noqa: BLE001  (a log line never blocks a boot)
+        pass
 
     # Start background decay scheduler (G7)
     from windyfly.memory.db_location import resolve_db_path
