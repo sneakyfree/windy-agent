@@ -38,7 +38,9 @@ windy-fly-site #22 16:00Z GO stands.
   ASKED BOSS 13:15Z (fleet-say): is GLM intended? Clearing/setting the grant = Boss word or Grant's phone. Journey stays
   RED on purpose until then; parser fix for the new bracket header comes with whatever Boss decides. Tell Cloud.
 - #731 OPENED 13:14Z (Hub's (b): wipe the plaintext memory copy after a VERIFIED import; keep 0600 + reason line when not
-  proven, incl. unverified per Hub). Head 3b93a59d; Hub read asked; then Boss.
+  proven, incl. unverified per Hub). Head 3b93a59d; Hub STAMPED 13:16Z; Boss asked 13:17Z.
+- Journey: if Boss's GLM decision runs past Fri 11-06 18:00Z, open a windy-uptime PR adding hold_until + hold_reason for
+  windy-agent-journey in checks.json naming that wait (Boss's line allows it; Cloud reads).
 - MORNING SUMMARY SENT 10:11Z (fleet-say). #726 MERGED 52a9fdd9, #727 MERGED 1b2ba9cb (~10:12Z).
 - #725 MERGED 92b840eb (10:14Z), #717 MERGED 246b6929 (10:15Z). #709 stamped + green + CLEAN, its watcher polling (ends ~10:24Z).
 - Opened #728 (#726 follow-ups: finish a stopped round, Windy Word way back, the cancel line, https-only hub check),
