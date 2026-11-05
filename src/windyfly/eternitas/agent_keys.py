@@ -1295,6 +1295,13 @@ def service_dpop(htm: str, url: str, *, cred_path: Path | None = None) -> str:
     return dpop_proof(key, htm, htu(url))
 
 
+def bus_dpop(htm: str, htu_raw: str, *, cred_path: Path | None = None) -> str:
+    """A DPoP proof whose htu is signed VERBATIM (no URL normalising), for a non-HTTP target such as Windy Code's
+    IDE agent bus ("urn:windycode:agent-bus", compared byte for byte; Eternitas ruled 11-04). Fresh iat + jti."""
+    key, _ = _active_key(cred_path)
+    return dpop_proof(key, htm, htu_raw)
+
+
 def htu(url: str) -> str:
     """The DPoP ``htu`` for ``url``: exactly what httpx will send. Scheme and host (default port dropped), then
     the percent-encoded path with dot segments removed, with no query or fragment (RFC 9449). Signing the raw

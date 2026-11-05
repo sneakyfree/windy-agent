@@ -60,6 +60,8 @@ ADD_EVENT_SAY: dict[str, str] = {
     "not_enabled": "I can't add events to your calendar yet.",
     "own_agent_only": "Windy Calendar only lets its owner's own agent add events, so I didn't add it.",
 }
+# Calendar's in_progress for a booking (windy-calendar #127), the same shape as add_event's in_progress line above.
+BOOK_IN_PROGRESS_SAY = "I'm still making that booking. Ask me again in a moment."
 _ADD_EVENT_OTHER = ("Windy Calendar gave an answer I don't understand, so I can't tell whether it was added. "
                     "Please check your calendar.")
 # ONE replay sentence for both runtimes (Boss 2026-11-02 13:42:39Z; Chat's roster wording, windy-chat #516), {when} in
@@ -185,7 +187,15 @@ def register_windy_calendar_capabilities(registry: CapabilityRegistry, config: d
                                    "booker_note", "booker_tz") if kw.get(k)}
         args["idempotency_key"] = str(kw.get("idempotency_key") or _book_key(args))
         out = wc.invoke("book_appointment", args, write=True)
-        return {"ok": True, **(out["result"] if isinstance(out.get("result"), dict) else {})} if out["ok"] else out
+        if not out["ok"]:
+            return out
+        res = out["result"] if isinstance(out.get("result"), dict) else {}
+        if res.get("outcome") == "in_progress":
+            # windy-calendar #127 / windy-contracts #280: the first call with this key is still running, whatever the
+            # arguments. Still working: never "booked", never "made with different details".
+            return {"ok": False, "outcome": "in_progress", "retry_after_seconds": res.get("retry_after_seconds"),
+                    "say": BOOK_IN_PROGRESS_SAY}
+        return {"ok": True, **res}
 
     def block(**kw: Any) -> dict[str, Any]:
         args = {k: kw[k] for k in ("starts_at_utc", "ends_at_utc", "reason") if kw.get(k)}

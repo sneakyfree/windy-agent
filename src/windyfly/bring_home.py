@@ -233,20 +233,27 @@ def wait_for_pickup(url: str, token: str, *, expires_at: Any = None,
             sleep(POLL_S)
 
 
-def fetch_memory(url: str, token: str, *,
-                 transport: httpx.BaseTransport | None = None) -> tuple[int, dict[str, Any]]:
+def fetch_memory(url: str, token: str, *, transport: httpx.BaseTransport | None = None,
+                 progress: Callable[[int, int | None], None] | None = None) -> tuple[int, dict[str, Any]]:
     """GET the memory once. ``token`` "" = a capability URL (Windy Connect's pairing: the URL itself is the secret,
-    never logged), so no Authorization header at all."""
+    never logged), so no Authorization header at all. ``progress(bytes so far, Content-Length or None)`` after each
+    chunk: bytes as sent on the wire, so they compare with Content-Length even when the body is compressed."""
     headers = {"Accept": "application/json"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
     with httpx.Client(timeout=120.0, transport=transport) as client:
         with client.stream("GET", url, headers=headers) as resp:
+            try:
+                total: int | None = int(resp.headers.get("content-length") or "") or None
+            except ValueError:
+                total = None
             body = bytearray()
             for chunk in resp.iter_bytes():
                 body += chunk
                 if len(body) > MAX_MEMORY_BYTES:
                     return 413, {}  # refused past the cap (Hub on #700)
+                if progress is not None:
+                    progress(resp.num_bytes_downloaded, total)
             status = resp.status_code
     try:
         doc = json.loads(bytes(body)) if body else {}
@@ -380,7 +387,8 @@ def split_memory(ndjson: bytes) -> tuple[dict[str, Any], list[str]]:
     return {}, lines
 
 
-def import_memory(ndjson: bytes, *, handover_id: str, db: Any) -> dict[str, int]:
+def import_memory(ndjson: bytes, *, handover_id: str, db: Any,
+                  progress: Callable[[int, int], None] | None = None) -> dict[str, int]:
     """One episode per message event. The role comes from the event's own
     ``role`` or, for a Matrix event, from its sender (the agent's own id →
     assistant, anyone else → user). Anything else is counted, not guessed;
@@ -390,7 +398,9 @@ def import_memory(ndjson: bytes, *, handover_id: str, db: Any) -> dict[str, int]
     header, lines = split_memory(ndjson)
     agent_id = str(header.get("matrix_user_id") or "")
     imported = skipped = 0
-    for line in lines:
+    for n, line in enumerate(lines, 1):
+        if progress is not None:
+            progress(n, len(lines))
         try:
             ev = json.loads(line)
         except ValueError:
@@ -442,12 +452,15 @@ def _abs_db_path(db: Any) -> str:
 
 def install_memory(meta: dict[str, Any], passport: str, handover_id: str, token: str, *,
                    transport: httpx.BaseTransport | None = None,
-                   db_factory: Callable[[], Any] = _open_db) -> dict[str, Any]:
+                   db_factory: Callable[[], Any] = _open_db,
+                   progress: Callable[[str, int, int | None], None] | None = None) -> dict[str, Any]:
+    """``progress(stage, done, total)``: stage "download" (bytes) then "import" (events)."""
     out: dict[str, Any] = {"status": "none"}
     letter = str(meta.get("turnover_letter") or "")
     url = str(meta.get("url") or "")
     if url:
-        code, doc = fetch_memory(url, token, transport=transport)
+        code, doc = fetch_memory(url, token, transport=transport,
+                                 progress=(lambda n, total: progress("download", n, total)) if progress else None)
         if code != 200:
             out = {"status": "download_failed", "http": code}
         elif str(doc.get("format") or meta.get("format")) != MEMORY_FORMAT:
@@ -482,7 +495,9 @@ def install_memory(meta: dict[str, Any], passport: str, handover_id: str, token:
                 db = db_factory()
                 try:
                     out = {"status": "imported", "verified": want_sha,
-                           **import_memory(ndjson, handover_id=handover_id, db=db)}
+                           **import_memory(ndjson, handover_id=handover_id, db=db,
+                                           progress=(lambda n, total: progress("import", n, total))
+                                           if progress else None)}
                     if letter:
                         write_turnover(letter, passport, db)
                     out["db_path"] = _abs_db_path(db)

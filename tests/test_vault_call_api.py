@@ -84,7 +84,7 @@ def lab(monkeypatch, tmp_path):
     monkeypatch.setenv(vt.CALL_API_FLAG, "1")
     monkeypatch.setattr("windyfly.platform.windy_state_dir", lambda: tmp_path)
     state = {"value": KEY, "targets": (API,), "leased": [], "released": [], "lease_error": None,
-             "shared": [ITEM]}
+             "shared": [ITEM], "revocable": True}
 
     def shared():
         return {"items": [{"grant_id": "grt_x", "item_id": i, "label": "k", "expires_at": None}
@@ -95,7 +95,8 @@ def lab(monkeypatch, tmp_path):
             raise state["lease_error"]
         lid = f"lse_{len(state['leased']) + 1}"
         state["leased"].append(lid)
-        return vc.Lease(lease_id=lid, item_id=item_id, value=state["value"], expires_at=1, targets=state["targets"])
+        return vc.Lease(lease_id=lid, item_id=item_id, value=state["value"], expires_at=1, targets=state["targets"],
+                        revocable=state["revocable"])
 
     def release(lease_id):
         state["released"].append(lease_id)
@@ -462,3 +463,11 @@ def test_the_registration_matches_the_contract(lab):
     assert ca.FORBIDDEN_HEADERS == set(CONTRACT["x-limits"]["forbidden_header_names"])
     assert ca.BUDGET_PER_HOUR == CONTRACT["x-limits"]["calls_per_item_per_hour"]
     assert ca.TO_MODEL_MAX == CONTRACT["x-limits"]["response_to_model_max_bytes"]
+
+
+def test_a_lease_vault_cannot_take_back_is_never_released(lab):
+    """An item lease (static_key) is revocable:false at Vault: a release is a 404 by design (Vault 11-03). call_api
+    still makes its call, and gives nothing back: the lease just expires."""
+    lab["revocable"] = False
+    out = _call(lab)
+    assert out["ok"] is True and lab["leased"] and lab["released"] == []

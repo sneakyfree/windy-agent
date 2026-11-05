@@ -13,7 +13,9 @@ Cost: defaults to Haiku 4.5; estimated ~$0.014/run. Override with
 ``DEFAULT_MODEL`` env var.
 
 Run:
-    set -a && source ~/.windy/windy-0.env && set +a
+    # as the LAB agent (never Zero): its env, state folder and key
+    export WINDY_ENV_FILE=~/.local/share/zero-lab/.windy/agent.env WINDY_STATE_DIR=~/.local/share/zero-lab/.windy
+    set -a && source "$WINDY_ENV_FILE" && set +a
     export WINDYFLY_CONFIG=~/.windy-stress/config.toml
     DEFAULT_MODEL=claude-haiku-4-5-20251001 \\
       .venv/bin/python ~/.windy-stress/stress_v13_qa_battery.py
@@ -43,11 +45,16 @@ os.environ.setdefault(
 )
 
 from dotenv import load_dotenv  # type: ignore[import-not-found]
-_BOT_ENV = os.environ.get("WINDY_ENV_FILE", str(Path.home() / ".windy" / "windy-0.env"))
-if Path(_BOT_ENV).exists():
-    load_dotenv(_BOT_ENV, override=False)
-else:
-    load_dotenv(override=False)
+# A LAB agent's env only, named explicitly: never a default to Zero's ~/.windy/windy-0.env, never a .env found by
+# walking up from the working folder (11-04: the battery ran AS Zero). The lab guard refuses anything else.
+_BOT_ENV = os.environ.get("WINDY_ENV_FILE", "").strip()
+if not _BOT_ENV or not Path(_BOT_ENV).is_file():
+    sys.exit("set WINDY_ENV_FILE to a LAB agent's env file (ET26-TEST-*); this harness never runs as a real agent")
+load_dotenv(_BOT_ENV, override=False)
+from windyfly import lab_guard  # noqa: E402
+
+if lab_guard.main([]) != 0:
+    sys.exit(2)
 
 # Force Haiku unless caller overrode — we don't want a forgotten
 # Sonnet default to torch the daily budget on a 69-prompt run.
