@@ -138,7 +138,8 @@ def pair(console: Any, *, json_status: bool = False, device_name: str = "", yes:
             return 1
         report("progress", code="revoked_key_set_aside",
                say="  This computer's old key was turned off, so it was set aside. Starting a new pairing.")
-    state: dict[str, Any] = {"keep_key": False, "cloud_record": rec}
+    # After a set-aside the old key HAS moved, so a later "Nothing was changed." would be false (Hub on #709).
+    state: dict[str, Any] = {"keep_key": False, "cloud_record": rec, "set_aside": revoked_here}
     kid, undo = agent_keys.begin_local_key()
     rc: int | None = None
     try:
@@ -240,7 +241,15 @@ def _set_aside_key() -> bool:
             os.rename(path, aside)   # Windows: rename refuses an existing target
         else:
             os.link(path, aside)     # POSIX: link refuses an existing target (rename would replace it)
-            path.unlink()
+            try:
+                path.unlink()
+            except OSError as exc:
+                # The copy is made but the key is still in place: take the copy back so the computer is as it was,
+                # and say which step failed (Hub on #709).
+                logger.warning("home pair: the revoked key was copied aside but could not be removed (%s); "
+                               "the copy is taken back", type(exc).__name__)
+                aside.unlink(missing_ok=True)
+                return False
     except OSError as exc:
         logger.warning("home pair: could not set the revoked key aside (%s)", type(exc).__name__)
         return False
@@ -321,7 +330,8 @@ def _round(console: Any, report: Report, kid: str, *, json_status: bool, device_
         # APPROVED_TTL_S more while the birth and the Chat + Mail acks finish, and still answers 428 (Hub on #700).
         deadline = now() + expires_in + APPROVED_TTL_S + 60
         try:
-            pickup = _poll(client, base, device_code, kid, report, sleep, now, deadline, interval)
+            pickup = _poll(client, base, device_code, kid, report, sleep, now, deadline, interval,
+                           nothing=_nothing_changed(state))
         except KeyboardInterrupt:
             try:
                 client.post(f"{base}/v1/home/cancel", json={"device_code": device_code, "agent_kid": kid})
@@ -335,9 +345,14 @@ def _round(console: Any, report: Report, kid: str, *, json_status: bool, device_
                        state=state)
 
 
+def _nothing_changed(state: dict[str, Any] | None) -> str:
+    """The end of a "stopped" line: after the old key was set aside, only "nothing ELSE" is still true."""
+    return "Nothing else was changed." if (state or {}).get("set_aside") else "Nothing was changed."
+
+
 def _poll(client: httpx.Client, base: str, device_code: str, kid: str, report: Report,
           sleep: Callable[[float], None], now: Callable[[], float], deadline: float,
-          interval: float) -> dict[str, Any] | None:
+          interval: float, *, nothing: str = "Nothing was changed.") -> dict[str, Any] | None:
     while True:
         sleep(interval)
         if now() > deadline:
@@ -365,7 +380,7 @@ def _poll(client: httpx.Client, base: str, device_code: str, kid: str, report: R
                                            f"for a new code. (Reason: {code})")
             return None
         code = _POLL_ERRORS.get(resp.status_code) or _error_code(resp) or f"http_{resp.status_code}"
-        say = {"denied": "  The pairing was declined on your phone. Nothing was changed.",
+        say = {"denied": f"  The pairing was declined on your phone. {nothing}",
                "expired": _EXPIRED_SAY,
                "bootstrap_unavailable": _NOWHERE_502_SAY}
         report("error", code=code, say=say.get(code, f"  [red]Windy Connect didn't accept this pairing.[/red] Run "
