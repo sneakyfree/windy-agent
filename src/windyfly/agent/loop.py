@@ -577,15 +577,18 @@ def _pause_unreadable_answer(session_id: str) -> str:
     return PAUSE_UNREADABLE_REPLY
 
 
-def _standing_answer(session_id: str, stop: dict[str, Any] | None) -> str:
+def _standing_answer(session_id: str, stop: dict[str, Any] | None, band: Any = None) -> str:
     """While Eternitas has this agent stopped: the standing line for a person, NOTHING for another agent or a phone
-    result turn (the same rules as the owner's pause)."""
+    result turn (the same rules as the owner's pause). Only an OWNER-band turn hears the reason and the restore date;
+    any other person gets the neutral line (Hub on #294)."""
     from windyfly.agent import standing as _standing
+    from windyfly.agent.capabilities import Band
     from windyfly.channels import silence as _silence
 
     if _silence.is_agent_sender(session_id) or _phone_result_turn(session_id):
         return ""
-    return _standing.answer(stop)
+    owner = band is not None and int(band) == int(Band.OWNER)
+    return _standing.answer(stop, owner=owner)
 
 
 def _paused_answer(session_id: str) -> str:
@@ -904,7 +907,7 @@ def _agent_respond_turn(
     _stop = _standing.stopped()
     if _stop:
         logger.info("[req:%s] stopped by Eternitas (%s) — not answering", request_id_short(), _stop.get("code"))
-        return _standing_answer(session_id, _stop)
+        return _standing_answer(session_id, _stop, band)
 
     from windyfly.agent import models as _models
     if _models.check_owner_pause():
@@ -1448,7 +1451,7 @@ def _agent_respond_turn(
         return _paused_answer(session_id)
     except _AgentStopped as e:
         logger.info("[req:%s] stopped by Eternitas mid-turn (%s)", request_id_short(), e.stop.get("code"))
-        return _standing_answer(session_id, e.stop)
+        return _standing_answer(session_id, e.stop, band)
     except RuntimeError as e:
         msg = str(e)
         if "providers in chain" in msg or "providers" in msg.lower():

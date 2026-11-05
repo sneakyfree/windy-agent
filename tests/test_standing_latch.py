@@ -34,6 +34,7 @@ def _home(tmp_path, monkeypatch):
     for k in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GROK_API_KEY", "MIND_API_URL"):
         monkeypatch.delenv(k, raising=False)
     standing._cache.update(mtime=None, value=None)
+    standing._revoked["next_at"] = 0.0
     ak._TOKEN_CACHE.clear()
     yield
     standing.stop_probe()
@@ -126,7 +127,7 @@ def test_a_legacy_refresh_refusal_latches_and_its_200_lifts(monkeypatch, tmp_pat
 
 # ── no model, no lifeboat, no tool; one line for a person, nothing for an agent ─────────────────────────────────────
 
-def _respond(monkeypatch, *, agent_sender: bool = False, session: str = "sess-standing"):
+def _respond(monkeypatch, *, agent_sender: bool = False, session: str = "sess-standing", band=None):
     from windyfly.agent.loop import agent_respond
     from windyfly.channels import silence
     from windyfly.memory.database import Database
@@ -143,7 +144,7 @@ def _respond(monkeypatch, *, agent_sender: bool = False, session: str = "sess-st
                 silence.mark_agent_sender(session)
             with patch("windyfly.agent.loop.call_llm", side_effect=AssertionError("no model call")), \
                     patch("windyfly.agent.loop.get_offline_response", side_effect=AssertionError("no lifeboat")):
-                return agent_respond(cfg, db, wq, "are you there?", session, ToolRegistry())
+                return agent_respond(cfg, db, wq, "are you there?", session, ToolRegistry(), band=band)
         finally:
             silence.clear_agent_sender(session)
             wq.stop()
@@ -318,3 +319,47 @@ def test_a_passport_token_agent_sees_a_retire_on_the_public_read_and_a_restore_l
 def test_unreachable_eternitas_is_no_news_never_a_stop(monkeypatch):
     monkeypatch.setattr(standing, "_verify_status", lambda p: None)
     assert standing.probe_once() == "ok" and standing.stopped() is None
+
+
+# ── Hub's rulings on agents-retire 1.1 (#294, 11-05) ─────────────────────────────────────────────────────────────────
+
+@pytest.mark.parametrize("code, extra", [("agent_retired", {"retired_until": "2026-12-04T00:00:00Z"}),
+                                         ("passport_revoked", {}), ("passport_suspended", {}),
+                                         ("agent_key_revoked", {"reason": "move_aborted"})])
+def test_only_the_owner_hears_why_anyone_else_gets_the_neutral_line(monkeypatch, code, extra):
+    from windyfly.agent.capabilities import Band
+
+    standing.latch(code, **extra)
+    monkeypatch.setattr(standing, "_agent_name", lambda: "Pip")
+    owner = _respond(monkeypatch, band=Band.OWNER)
+    assert owner == standing.answer(name="Pip") and owner != "Pip isn't answering right now."
+    for band in (Band.SANDBOX, Band.USER, Band.TRUSTED):
+        said = _respond(monkeypatch, band=band)
+        assert said == "Pip isn't answering right now."
+        assert "restore" not in said and "2026" not in said and "windy home pair" not in said
+
+
+def test_a_revoked_stop_is_checked_once_an_hour_never_every_minute(monkeypatch):
+    from windyfly.eternitas import ept_refresh
+
+    calls = []
+    monkeypatch.setattr(standing, "_verify_status", lambda p: calls.append(p) or "revoked")
+    monkeypatch.setattr(ept_refresh, "refresh_ept", lambda **kw: pytest.fail("no refresh while revoked"))
+    t = {"now": 1_000_000.0}
+    monkeypatch.setattr(standing.time, "time", lambda: t["now"])
+    assert standing.probe_once() == "stopped" and standing.stopped()["kind"] == "revoked"
+    assert standing.probe_once() == "stopped" and len(calls) == 2      # the first check after the latch
+    for _ in range(59):                                                  # an hour of 60 s probes: no request
+        t["now"] += 60
+        assert standing.probe_once() == "skipped"
+    assert len(calls) == 2
+    t["now"] += 61
+    assert standing.probe_once() == "stopped" and len(calls) == 3      # once the hour is up
+
+
+def test_a_retired_stop_keeps_the_60_s_check(monkeypatch):
+    calls = []
+    monkeypatch.setattr(standing, "_verify_status", lambda p: calls.append(p) or "retired")
+    for _ in range(3):
+        standing.probe_once()
+    assert len(calls) == 3

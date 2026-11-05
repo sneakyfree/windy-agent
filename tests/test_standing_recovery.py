@@ -14,6 +14,7 @@ import ast
 import base64
 import io
 import json
+import sys
 from pathlib import Path
 
 import httpx
@@ -259,3 +260,33 @@ def test_after_the_yes_the_key_is_set_aside_and_pairing_goes_on(monkeypatch):
     rc, events = _pair(monkeypatch, kid)
     assert rc == "new-key" and events == [("progress", "revoked_key_set_aside")]
     assert not ak.has_registered_key()
+
+
+@pytest.mark.parametrize("set_aside, end", [(False, "Nothing was changed."), (True, "Nothing else was changed.")])
+def test_a_decline_after_a_set_aside_says_nothing_else(set_aside, end):
+    from windyfly import home_pair
+
+    said = []
+    client = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(403, json={"error": "denied"})))
+    assert home_pair._poll(client, "https://connect.test", "dc", "kid", lambda e, say="", **f: said.append(say),
+                           lambda s: None, lambda: 0.0, 100.0, 1.0,
+                           nothing=home_pair._nothing_changed({"set_aside": set_aside})) is None
+    assert said == [f"  The pairing was declined on your phone. {end}"]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="the POSIX link + unlink path")
+def test_a_failed_remove_after_the_copy_takes_the_copy_back(monkeypatch, caplog):
+    from windyfly import home_pair
+
+    _registered_key()
+    path = ak.credentials_path()
+    real_unlink = Path.unlink
+
+    def unlink(self, *a, **k):
+        if self == path:
+            raise PermissionError("busy")
+        return real_unlink(self, *a, **k)
+    monkeypatch.setattr(Path, "unlink", unlink)
+    assert home_pair._set_aside_key() is False
+    assert path.exists() and not list(path.parent.glob(f"{path.name}.revoked-*"))
+    assert "copied aside but could not be removed (PermissionError)" in caplog.text
