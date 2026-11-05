@@ -15,6 +15,7 @@ import stat
 import uuid
 
 import httpx
+from unittest.mock import patch
 import pytest
 from rich.console import Console
 
@@ -223,7 +224,7 @@ def test_happy_path_brings_the_agent_home(tmp_path, caplog):
     assert all(r["session_id"] == "handover:ho_1" for r in rows)
     assert LETTER in letters[0]["metadata"]
     assert "1 kept only in the raw archive" in out
-    assert (tmp_path / "state" / "memory-ho_1.ndjson").read_bytes() == NDJSON
+    assert not list((tmp_path / "state").glob("memory-*"))   # imported: the plaintext copy is wiped (Hub 11-05)
 
     assert hub_hatch.cloud_agent()["where"] == "home"
     assert not (tmp_path / "state" / f"handover-{PASSPORT}.json").exists()  # sealed copy shredded
@@ -401,3 +402,51 @@ def test_the_agent_name_is_never_rich_markup(tmp_path, state):
     hub_hatch._write_private_json(hub_hatch.cloud_agent_path(), rec)
     rc, out = _run(Fake(start=(409, {"error": "already_external", "state": state})))
     assert "[bold red]Pip[/bold red]" in out
+
+
+# ── the memory copy (Hub on Connect lab #1, 11-05): wiped after an import, kept only when nothing was imported ──
+
+_MEM_META = {"url": "https://connect.test/v1/memory/cap", "format": "ndjson-v1"}
+
+
+def _memory_transport() -> httpx.MockTransport:
+    return httpx.MockTransport(lambda req: httpx.Response(200, json=_memory_doc()))
+
+
+def test_an_imported_memory_leaves_no_plaintext_copy(tmp_path):
+    wiped = {}
+    real = bring_home._wipe_copy
+
+    def spy(path):
+        wiped["bytes"] = path.read_bytes()
+        real(path)
+    with patch.object(bring_home, "_wipe_copy", spy):
+        out = bring_home.install_memory(_MEM_META, PASSPORT, "ho_w", "", transport=_memory_transport())
+    assert out["status"] == "imported" and out["verified"] is True
+    assert wiped["bytes"] == NDJSON and not list((tmp_path / "state").glob("memory-*"))
+
+
+def test_a_failed_import_keeps_its_copy_0600_with_a_reason_line(tmp_path, caplog):
+    def boom(*a, **k):
+        raise RuntimeError("db is locked")
+    with patch.object(bring_home, "import_memory", boom), caplog.at_level(logging.WARNING, logger=bring_home.__name__), \
+            pytest.raises(RuntimeError):
+        bring_home.install_memory(_MEM_META, PASSPORT, "ho_f", "", transport=_memory_transport())
+    kept = tmp_path / "state" / "memory-ho_f.ndjson"
+    assert kept.read_bytes() == NDJSON and stat.S_IMODE(kept.stat().st_mode) == 0o600
+    assert "reason=import_failed" in caplog.text and str(kept) in caplog.text
+    assert "hi pip" not in caplog.text            # never the content
+
+
+def test_an_unverified_import_keeps_its_copy_0600_with_the_reason_unverified(tmp_path, caplog):
+    """Hub: no declared hash or count = verified false = can't prove the db holds everything: never wipe it."""
+    doc = _memory_doc()
+    doc.pop("sha256")
+    doc.pop("event_count")
+    with caplog.at_level(logging.WARNING, logger=bring_home.__name__):
+        out = bring_home.install_memory(_MEM_META, PASSPORT, "ho_u", "",
+                                        transport=httpx.MockTransport(lambda req: httpx.Response(200, json=doc)))
+    kept = tmp_path / "state" / "memory-ho_u.ndjson"
+    assert out["status"] == "imported" and out["verified"] is False
+    assert kept.read_bytes() == NDJSON and stat.S_IMODE(kept.stat().st_mode) == 0o600
+    assert "reason=unverified" in caplog.text and "hi pip" not in caplog.text

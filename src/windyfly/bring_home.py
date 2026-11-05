@@ -453,6 +453,26 @@ def _abs_db_path(db: Any) -> str:
     return str(Path(raw).resolve()) if raw and raw != ":memory:" else raw
 
 
+def _kept_copy(path: Path, reason: str) -> None:
+    """One line when a memory copy stays on disk: where and why, never its content."""
+    logger.warning("memory copy kept: %s reason=%s", path, reason)
+
+
+def _wipe_copy(path: Path) -> None:
+    """Zeros + fsync, then unlink (as the key-backup prune does). Best effort: never fails the import."""
+    try:
+        size = path.stat().st_size
+        with open(path, "r+b") as fh:
+            fh.write(b"\0" * size)
+            fh.flush()
+            os.fsync(fh.fileno())
+        path.unlink()
+    except FileNotFoundError:
+        pass
+    except OSError as exc:
+        logger.warning("memory copy not removed after import: %s (%s)", path, type(exc).__name__)
+
+
 def install_memory(meta: dict[str, Any], passport: str, handover_id: str, token: str, *,
                    transport: httpx.BaseTransport | None = None,
                    db_factory: Callable[[], Any] = _open_db,
@@ -468,9 +488,11 @@ def install_memory(meta: dict[str, Any], passport: str, handover_id: str, token:
         if code != 200:
             out = {"status": "download_failed", "http": code}
         elif str(doc.get("format") or meta.get("format")) != MEMORY_FORMAT:
-            # Unknown shape: keep it untouched and say so; never guess.
-            _atomic_write(_state_dir() / f"memory-{handover_id}.raw.json",
-                          json.dumps(doc).encode("utf-8"))
+            # Unknown shape: keep it untouched and say so; never guess. Nothing was imported, so this copy is the only
+            # one (kept 0600; logged by path + reason word, never content).
+            raw = _state_dir() / f"memory-{handover_id}.raw.json"
+            _atomic_write(raw, json.dumps(doc).encode("utf-8"))
+            _kept_copy(raw, "unknown_format")
             out = {"status": "unknown_format", "format": doc.get("format"),
                    "keys": sorted(doc)}
         else:
@@ -492,9 +514,15 @@ def install_memory(meta: dict[str, Any], passport: str, handover_id: str, token:
                     out = {"status": "sha_mismatch"}
                 elif any(n != len(lines) for n in want_ns):
                     out = {"status": "count_mismatch", "expected": want_ns[0], "got": len(lines)}
-                # Kept for the owner either way; a download that failed its check is never filed as accepted.
+                # Written BEFORE the import as its safety copy; a download that failed its check is never filed as
+                # accepted. After a successful import the copy is wiped (below): a plaintext second copy next to the db
+                # would outlive the owner's deletes and the purge (Hub on lab #1, 11-05). It stays only when the import
+                # isn't PROVEN: nothing imported, or imported without a declared hash/count (verified false).
                 kept = "ndjson" if not out.get("status", "").endswith("_mismatch") else "rejected.ndjson"
-                _atomic_write(_state_dir() / f"memory-{handover_id}.{kept}", ndjson)
+                copy = _state_dir() / f"memory-{handover_id}.{kept}"
+                _atomic_write(copy, ndjson)
+                if kept != "ndjson":
+                    _kept_copy(copy, str(out.get("status")))
             if decoded and not out.get("status", "").endswith("_mismatch"):
                 db = db_factory()
                 try:
@@ -505,10 +533,17 @@ def install_memory(meta: dict[str, Any], passport: str, handover_id: str, token:
                     if letter:
                         write_turnover(letter, passport, db)
                     out["db_path"] = _abs_db_path(db)
+                except Exception:
+                    _kept_copy(copy, "import_failed")
+                    raise
                 finally:
                     close = getattr(db, "close", None)
                     if callable(close):
                         close()
+                if want_sha:
+                    _wipe_copy(copy)               # verified: the db provably holds what the archive held
+                else:
+                    _kept_copy(copy, "unverified")  # no hash/count declared: can't prove it, so never wipe the copy
     if letter and out.get("status") != "imported":
         db = db_factory()
         try:
