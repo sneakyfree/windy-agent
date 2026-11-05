@@ -50,6 +50,11 @@ windy-fly-site #22 16:00Z GO stands.
   and send Mind the real reply header (model name only). Open question to Mind: Zero's Fly sends claude-opus-5-5 BY
   NAME (config + env opus, /self null today), so the GLM is likely applied inside Mind (grant default over a named
   model); if so, that's its own item for Boss.
+  13:5xZ: Mind says it does NOT swap (asked = GLM named by the caller; /self effective null in every version; 304s
+  correct). Fly side read: running env DEFAULT_MODEL=opus, no channel override, no GLM in code, retries drop the model.
+  Only runtime source left = mind_self.picked_model()'s cached /self body. Mind's write bumps config_version: if the
+  AFTER header says Sonnet, it was the cached body; if still GLM, look for a SECOND caller holding NPD1's token, and
+  report to Boss BEFORE CL5a (Boss 13:43Z).
 - Journey: if Boss's GLM decision runs past Fri 11-06 18:00Z, open a windy-uptime PR adding hold_until + hold_reason for
   windy-agent-journey in checks.json naming that wait (Boss's line allows it; Cloud reads).
 - MORNING SUMMARY SENT 10:11Z (fleet-say). #726 MERGED 52a9fdd9, #727 MERGED 1b2ba9cb (~10:12Z).
