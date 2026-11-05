@@ -24,7 +24,7 @@ Schema (other top-level keys in the file are preserved)::
     {"eternitas": {
         "private_key": "<PEM of the ACTIVE key>",   # the Drops SDK reads this
         "kid": "<RFC 7638 thumbprint of the active key>",
-        "keys": [{"kid", "private_key", "status": "active|retiring",
+        "keys": [{"kid", "private_key", "status": "active|retiring|pending",
                   "created_at", "registered_at"}]}}
 
 At most two keys live in the file: the active one and, during a rotation, the
@@ -373,8 +373,10 @@ def _is_route_missing(resp: httpx.Response) -> bool:
 
 
 def _post(client: httpx.Client, path: str, bearer: str | None,
-          body: dict[str, Any] | None = None) -> httpx.Response:
+          body: dict[str, Any] | None = None, *, proof: str | None = None) -> httpx.Response:
     headers = {"Authorization": f"Bearer {bearer}"} if bearer else {}
+    if proof:
+        headers["Eternitas-Agent-Proof"] = proof
     resp = client.post(f"{_base_url()}{path}", json=body or {}, headers=headers)
     if _is_route_missing(resp):
         raise _Unsupported(path)
@@ -411,7 +413,10 @@ def challenge(client: httpx.Client, passport: str) -> str:
 
 
 def _register(client: httpx.Client, passport: str, key: ec.EllipticCurvePrivateKey, bearer: str,
-              *, reason: str | None = None) -> httpx.Response:
+              *, reason: str | None = None, signer: dict[str, Any] | None = None) -> httpx.Response:
+    """Register ``key``. With ``signer`` (key-ops v1, eternitas #302) the OLD active key authorises it with an
+    ``Eternitas-Agent-Proof`` header and no bearer is sent; the body proof is the NEW key's own, over a SECOND
+    challenge (each nonce is single use)."""
     try:
         nonce = challenge(client, passport)
     except _ChallengeFailed as exc:
@@ -423,7 +428,15 @@ def _register(client: httpx.Client, passport: str, key: ec.EllipticCurvePrivateK
     }
     if reason:
         body["reason"] = reason  # owner path only: "recovery" | "handover"
-    resp = _post(client, f"/api/v1/bots/{passport}/keys", bearer, body)
+    path = f"/api/v1/bots/{passport}/keys"
+    if signer is not None:
+        try:
+            header_proof = _proof_by(client, passport, signer, "POST", path)
+        except _ChallengeFailed as exc:
+            return exc.resp
+        resp = _post(client, path, None, body, proof=header_proof)
+    else:
+        resp = _post(client, path, bearer, body)
     if resp.status_code in (200, 201):
         got = str(resp.json().get("kid") or "")
         if got != thumbprint(public_jwk(key)):
@@ -442,12 +455,24 @@ def agent_proof(client: httpx.Client, passport: str, htm: str, path: str,
     entry = active_entry(load_credentials(cred_path or credentials_path()))
     if entry is None or not entry.get("registered_at"):
         return None
+    return _proof_by(client, passport, entry, htm, path)
+
+
+def _proof_by(client: httpx.Client, passport: str, entry: dict[str, Any], htm: str, path: str) -> str:
+    """An ``Eternitas-Agent-Proof`` signed by THIS key entry (header kid = its kid), over a fresh nonce. ``htu`` is
+    the route PATH (Eternitas compares the path only, key-ops v1)."""
     key = load_private_key(entry["private_key"])
     nonce = challenge(client, passport)
     header = {"alg": ALG, "typ": "JWT", "kid": entry["kid"]}
     claims = {"passport": passport, "nonce": nonce, "iat": int(time.time()),
               "htm": htm.upper(), "htu": path}
     return _compact(key, header, json.dumps(claims, separators=(",", ":")).encode("utf-8"))
+
+
+def key_ops_enabled() -> bool:
+    """Key-ops v1 (eternitas #302, live Mon 11-09): the agent rotates with its OWN active key, no passport token.
+    DARK until its own GO: ``WINDY_AGENT_KEY_OPS=1``."""
+    return os.environ.get("WINDY_AGENT_KEY_OPS", "").strip() == "1"
 
 
 def has_registered_key(path: Path | None = None) -> bool:
@@ -626,6 +651,17 @@ def _kid_active_for(client: httpx.Client, passport: str, kid: str) -> bool:
         return False
 
 
+def _kid_still_active(client: httpx.Client, passport: str, kid: str) -> bool | None:
+    """True/False from the passport's public key list; None when the list can't be read (then nothing is decided)."""
+    try:
+        listed = client.get(f"{_base_url()}/api/v1/bots/{passport}/keys")
+        if listed.status_code != 200:
+            return None
+        return any(k.get("kid") == kid and k.get("status") in ("active", None) for k in listed.json().get("keys", []))
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _ensure(transport, path: Path) -> dict[str, Any]:
     passport = current_passport()
     if not passport:
@@ -645,6 +681,11 @@ def _ensure(transport, path: Path) -> dict[str, Any]:
         return {"status": "already_registered", "kid": entry["kid"]}
 
     bearer, via = _bearer(passport)
+    if key_ops_enabled() and entry.get("registered_at"):
+        # Only a pending retire is left: each retiring key retires ITSELF with its own proof (no token needed).
+        with httpx.Client(timeout=_HTTP_TIMEOUT, transport=transport) as client:
+            _retire_pending(client, passport, "", data, path, self_proof=True)
+        return {"status": "registered", "kid": entry["kid"], "via": "agent_key", "registered_via": None}
     if not bearer:
         logger.warning("agent keys: can't register (the passport token is missing or expired); "
                        "run `windy login` then `windy ept refresh`, or `windy agent-key reset`")
@@ -666,11 +707,28 @@ def _ensure(transport, path: Path) -> dict[str, Any]:
 
 
 def _retire_pending(client: httpx.Client, passport: str, bearer: str,
-                    data: dict[str, Any], path: Path) -> None:
+                    data: dict[str, Any], path: Path, *, self_proof: bool = False) -> None:
+    """Retire every ``retiring`` key. ``self_proof`` (key-ops v1): the key signs its OWN retire (a key may only
+    remove itself on the agent-key path; 403 not_this_key otherwise), so no bearer is sent."""
     sec = _section(data)
     for e in [e for e in sec["keys"] if e.get("status") == "retiring"]:
-        resp = _post(client, f"/api/v1/bots/{passport}/keys/{e['kid']}/retire", bearer)
-        if resp.status_code in (200, 204, 404, 409):  # 404/409: already gone/retired
+        route = f"/api/v1/bots/{passport}/keys/{e['kid']}/retire"
+        if self_proof:
+            try:
+                resp = _post(client, route, None, proof=_proof_by(client, passport, e, "POST", route))
+            except _ChallengeFailed as exc:
+                resp = exc.resp
+        else:
+            resp = _post(client, route, bearer)
+        done = resp.status_code in (200, 204, 404, 409)  # 404/409: already gone/retired
+        if self_proof and resp.status_code == 409 and error_code(resp)[0] not in ("key_not_active", "already_revoked"):
+            done = False  # e.g. 409 last_active_key: Eternitas REFUSED, the key is still active there
+        if self_proof and resp.status_code in (400, 401):
+            # A key that is no longer active fails the proof check FIRST (401 invalid_agent_proof, or the
+            # challenge), so "already retired" never comes back as 409 here (Hub on #714). Read the public list:
+            # not active there = done (the retire landed and its answer was lost); still active = keep it.
+            done = _kid_still_active(client, passport, str(e["kid"])) is False
+        if done:
             sec["keys"] = [k for k in sec["keys"] if k.get("kid") != e["kid"]]
             save_credentials(data, path)
             logger.info("agent keys: retired %s…", e["kid"][:8])
@@ -695,6 +753,8 @@ def rotate(*, transport: httpx.BaseTransport | None = None, path: Path | None = 
             old = active_entry(data)
             if old is None or not old.get("registered_at"):
                 return {"status": "failed", "error": "no_registered_key"}
+            if key_ops_enabled():  # key-ops v1: the old key authorises, no passport token at all
+                return _rotate_by_key(transport, path, passport, data, old)
             bearer, via = _bearer(passport)
             if not bearer:
                 return {"status": "needs_login"}
@@ -705,6 +765,7 @@ def rotate(*, transport: httpx.BaseTransport | None = None, path: Path | None = 
                 if resp.status_code not in (200, 201):
                     return _http_fail("new key registration", resp)
                 new["registered_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                new["passport"] = passport
                 old["status"] = "retiring"
                 sec["keys"] = [old, new]
                 _set_active(sec, new)
@@ -716,6 +777,64 @@ def rotate(*, transport: httpx.BaseTransport | None = None, path: Path | None = 
     except Exception as exc:
         logger.warning("agent keys: rotate failed (%s)", type(exc).__name__)
         return {"status": "failed", "error": type(exc).__name__}
+
+
+def _rotate_by_key(transport: httpx.BaseTransport | None, path: Path, passport: str,
+                   data: dict[str, Any], old: dict[str, Any]) -> dict[str, Any]:
+    """Key-ops v1 rotation (caller holds _LOCK). The NEW key is saved as ``pending`` BEFORE it is sent, so a lost
+    answer never loses a key Eternitas may now hold (Hub on #714: an orphan active key nobody holds could not be
+    retired on this path, since a key only retires itself). A later rotate reuses that pending key and settles it by
+    reading the passport's public key list (our kid active there = registered), as register_with_bootstrap does.
+
+    ``status``: rotated | unknown (the answer was lost; the pending key stays for the next try) | failed."""
+    sec = _section(data)
+    new = next((e for e in sec["keys"] if e.get("status") == "pending"), None)
+    if new is None:
+        new = {**_new_entry(generate_private_key()), "status": "pending"}
+        sec["keys"].append(new)
+        save_credentials(data, path)
+    key = load_private_key(new["private_key"])
+    with httpx.Client(timeout=_HTTP_TIMEOUT, transport=transport) as client:
+        try:
+            landed: bool | None = _kid_active_for(client, passport, str(new["kid"]))
+            if not landed:
+                resp = _register(client, passport, key, "", signer=old)
+                code = resp.status_code
+                if code in (200, 201):
+                    landed = True
+                elif code == 409 and error_code(resp)[0] == "key_exists":
+                    # Eternitas has this kid: settle from the public list. Unreadable = unknown, never a refusal.
+                    landed = _kid_still_active(client, passport, str(new["kid"]))
+                elif code >= 500 or code in (408, 409, 429):
+                    landed = None  # a proxy 502/504 can come after Eternitas committed (Hub on #714)
+                else:
+                    landed = False
+                if landed is None:
+                    if code == 409 and error_code(resp)[0] != "key_exists":  # e.g. too_many_active_keys: refused now, but an earlier lost try may be one of
+                        return {**_http_fail("new key registration", resp), "kid": new["kid"]}  # them: keep it
+                    logger.warning("agent keys: new key registration outcome unknown (HTTP %s); kept as pending", code)
+                    return {"status": "unknown", "http": code, "code": error_code(resp)[0], "kid": new["kid"]}
+                if not landed:
+                    # A definite 4xx refusal: Eternitas did not take this key. Drop it so nothing piles up.
+                    sec["keys"] = [e for e in sec["keys"] if e.get("kid") != new["kid"]]
+                    save_credentials(data, path)
+                    return _http_fail("new key registration", resp)
+        except httpx.TransportError as exc:
+            logger.warning("agent keys: new key registration outcome unknown (%s); kept as pending",
+                           type(exc).__name__)
+            return {"status": "unknown", "code": type(exc).__name__, "kid": new["kid"]}
+        new["status"] = "active"
+        new["registered_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        new["passport"] = passport
+        old["status"] = "retiring"
+        sec["keys"] = [e for e in sec["keys"] if e.get("kid") not in (old["kid"], new["kid"])] + [old, new]
+        _set_active(sec, new)
+        save_credentials(data, path)
+        try:
+            _retire_pending(client, passport, "", data, path, self_proof=True)
+        except httpx.TransportError as exc:  # the new key is active: rotated; the daily job finishes the retire
+            logger.warning("agent keys: retire of the old key deferred (%s)", type(exc).__name__)
+    return {"status": "rotated", "kid": new["kid"], "old_kid": old["kid"], "via": "agent_key"}
 
 
 def reset(*, transport: httpx.BaseTransport | None = None, path: Path | None = None,
