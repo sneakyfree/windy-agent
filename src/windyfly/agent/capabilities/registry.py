@@ -250,6 +250,11 @@ class CapabilityRegistry:
         cap = self._capabilities.get(capability_id)
         if cap is None:
             raise KeyError(f"unknown capability: {capability_id}")
+        from windyfly.agent import standing as _standing
+
+        if _standing.stopped():
+            # Eternitas refused this agent's token: no tool runs and nothing goes out (Boss 11-04).
+            raise CapabilityDenied(f"capability {capability_id!r}: this agent is stopped by Eternitas")
 
         # Invariant: register() calls cap.resolved() which fills None
         # fields from tier defaults, so by the time a cap reaches this

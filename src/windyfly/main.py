@@ -489,6 +489,13 @@ def main() -> None:
     elif _claim_outcome == runtime_claim.ClaimOutcome.GRANTED:
         runtime_claim.start_heartbeat()
         runtime_claim.register_atexit_release()
+    # Eternitas standing: one check a minute WHENEVER the agent runs (every outcome but CONFLICT, which exited above),
+    # so a retire (or a restore) takes effect within standing.QUIET_WITHIN_S even when nobody writes (Boss 11-04; Hub's
+    # #265 'quiet within N s'). Not only on GRANTED: while stopped the probe is the only thing that lifts the stop, and
+    # a DEGRADED claim (Mind down at boot, a retired agent's 401/403, a refused key-only mint) or a SKIPPED one must
+    # still recover (Hub on #709).
+    from windyfly.agent import standing as _standing
+    _standing.start_probe()
 
     # Launch channel
     if args.channel == "cli":

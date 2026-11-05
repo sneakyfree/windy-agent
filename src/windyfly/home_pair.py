@@ -167,8 +167,12 @@ def pair(console: Any, *, json_status: bool = False, device_name: str = "", yes:
         # A round that registered this computer's key and then stopped (a crash, Ctrl-C): finish it (Hub on #700).
         return _finish(pending, report=report, now=now, mem=pending.get("memory") or {"status": "lost"})
     _clear_pending()  # a marker without its registered key: that round never got that far
-    if agent_keys.has_registered_key() or (agent_keys.current_passport() and
-                                           agent_keys.current_passport() != rec.get("passport_number")):
+    # A key Eternitas revoked after a move that didn't finish (H13a) is no longer "an agent here": it may be set aside
+    # so a new key can pair, but only AFTER every refusal and the person's yes, so each line said stays true (Hub on
+    # #709): nothing is renamed before "Cancelled. Nothing was changed." or another_agent_here.
+    revoked_here = agent_keys.has_registered_key() and _revoked_key_here(transport)
+    if (agent_keys.has_registered_key() and not revoked_here) or (
+            agent_keys.current_passport() and agent_keys.current_passport() != rec.get("passport_number")):
         # This computer already holds an agent's key (the code binds to that key, so it can never carry another
         # agent) or another agent's passport: refused BEFORE a code, so no cloud agent stands down for it.
         report("error", code="another_agent_here", say=_ANOTHER_SAY)
@@ -179,6 +183,12 @@ def pair(console: Any, *, json_status: bool = False, device_name: str = "", yes:
     except (KeyboardInterrupt, EOFError):
         report("error", code="cancelled", say="  Cancelled. Nothing was changed.")  # no key, no code yet (Hub on #700)
         return 130
+    if revoked_here:
+        if not _set_aside_key():
+            report("error", code="another_agent_here", say=_ANOTHER_SAY)
+            return 1
+        report("progress", code="revoked_key_set_aside",
+               say="  This computer's old key was turned off, so it was set aside. Starting a new pairing.")
     state: dict[str, Any] = {"keep_key": False, "cloud_record": rec}
     kid, undo = agent_keys.begin_local_key()
     rc: int | None = None
@@ -235,6 +245,59 @@ def _load_agent_env() -> None:
             load_dotenv(env_file, override=False)
     except Exception:  # noqa: BLE001
         pass
+
+
+def _revoked_key_here(transport: httpx.BaseTransport | None = None) -> bool:
+    """A move that didn't finish leaves this computer holding a key Eternitas REVOKED (the key_revoked stop, H13a); its
+    line tells the person to run `windy home pair` again, which would otherwise refuse with another_agent_here (Hub on
+    #709). True only when the stop in force is key_revoked AND Eternitas' public key list positively shows this key as
+    not active (absent from the list counts: the key is only ever renamed, never deleted). An unreadable list, or a key
+    still listed active, is False."""
+    from windyfly.agent import standing
+    from windyfly.eternitas import agent_keys
+
+    stop = standing.stopped() or {}
+    if stop.get("kind") != "key_revoked":
+        return False
+    entry = agent_keys.active_entry(agent_keys.load_credentials(agent_keys.credentials_path())) or {}
+    kid, passport = str(entry.get("kid") or ""), _key_passport()
+    if not kid or not passport:
+        return False
+    try:
+        with httpx.Client(timeout=15.0, transport=transport) as client:
+            listed = client.get(f"{agent_keys._base_url()}/api/v1/bots/{passport}/keys")
+        if listed.status_code != 200:
+            return False
+        keys = listed.json().get("keys")
+        if not isinstance(keys, list):
+            return False
+        mine = [k for k in keys if isinstance(k, dict) and k.get("kid") == kid]
+        return not any(k.get("status") in ("active", None) for k in mine)
+    except Exception:  # noqa: BLE001 — not sure = keep refusing
+        return False
+
+
+def _set_aside_key() -> bool:
+    """Rename credentials.json to credentials.json.revoked-<utc>[-n] (never over an existing file; it keeps its 0600)."""
+    from windyfly.eternitas import agent_keys
+
+    path = agent_keys.credentials_path()
+    base = path.with_name(f"{path.name}.revoked-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}")
+    aside, n = base, 1
+    while aside.exists():
+        aside = base.with_name(f"{base.name}-{n}")
+        n += 1
+    try:
+        if os.name == "nt":
+            os.rename(path, aside)   # Windows: rename refuses an existing target
+        else:
+            os.link(path, aside)     # POSIX: link refuses an existing target (rename would replace it)
+            path.unlink()
+    except OSError as exc:
+        logger.warning("home pair: could not set the revoked key aside (%s)", type(exc).__name__)
+        return False
+    logger.warning("home pair: this computer's revoked key was set aside; pairing a new one")
+    return True
 
 
 def _key_passport() -> str:

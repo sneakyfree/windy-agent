@@ -321,8 +321,9 @@ def _refresh(force: bool, transport, now) -> dict[str, Any]:
             return {"status": "failed", "error": "unreachable"}
 
     if resp.status_code != 200:
-        from windyfly.eternitas.agent_keys import error_code, is_not_born, retry_after_s
+        from windyfly.eternitas.agent_keys import _standing_from_refusal, error_code, is_not_born, retry_after_s
         code, detail = error_code(resp)
+        _standing_from_refusal(resp, code)
         if is_not_born(code):
             # Mid-canal (birth reservation v1): nothing to renew yet. Wait quietly; never the revoked hint.
             logger.info("EPT refresh for %s: passport still being born; retry later", _passport_prefix(passport))
@@ -332,20 +333,26 @@ def _refresh(force: bool, transport, now) -> dict[str, Any]:
         if resp.status_code == 403 and path_used == "own_ept":
             # Eternitas: 403 on the agent's own token = the passport is SUSPENDED or REVOKED. Signing in again cannot fix
             # that, so never suggest it (Hub's pinned line, 10-12).
-            return {"status": "failed", "http": 403, "hint": REVOKED_REFRESH_HINT}
+            return {"status": "failed", "http": 403, "hint": REVOKED_REFRESH_HINT, "code": code}
         if resp.status_code == 401 and (path_used == "own_ept" or after_cutoff):
             # After a cutoff a CACHED owner sign-in from before it is refused too (Eternitas: the cut also ends the owner's
             # older tokens; Hub on #691); a fresh `windy login` mints one after it.
-            return {"status": "failed", "http": resp.status_code,
+            return {"status": "failed", "http": resp.status_code, "code": code,
                     "hint": "run `windy login`, then `windy ept refresh --force`"}
-        return {"status": "failed", "http": resp.status_code}
+        return {"status": "failed", "http": resp.status_code, "code": code}
 
+    from windyfly.eternitas.agent_keys import _standing_good_mint
     try:
         data = resp.json()
         new_token = str(data.get("ept_token") or "")
     except Exception:
         data, new_token = {}, ""
+    if not isinstance(data, dict):
+        data = {}
+    # Only a 200 that really carries a token (or Eternitas' explicit "kept") is a good mint that lifts a standing stop;
+    # an empty or broken 200 changes nothing (Hub on #709).
     if not new_token and data.get("reissued") is False:
+        _standing_good_mint()
         # Eternitas kept the current EPT and said why (reissue_reason); it
         # need not echo the token back. That's success, not a failure.
         logger.info("EPT refresh for %s: kept (%s)", _passport_prefix(passport),
@@ -356,6 +363,7 @@ def _refresh(force: bool, transport, now) -> dict[str, Any]:
         logger.warning("EPT refresh for %s: response carried no usable token",
                        _passport_prefix(passport))
         return {"status": "failed", "error": "no_token"}
+    _standing_good_mint()  # Eternitas minted a usable token for this passport: a standing stop (if any) is lifted
 
     reissued = bool(data.get("reissued"))
     reason = data.get("reissue_reason")
