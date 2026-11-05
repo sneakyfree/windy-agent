@@ -55,6 +55,10 @@ windy-fly-site #22 16:00Z GO stands.
   Only runtime source left = mind_self.picked_model()'s cached /self body. Mind's write bumps config_version: if the
   AFTER header says Sonnet, it was the cached body; if still GLM, look for a SECOND caller holding NPD1's token, and
   report to Boss BEFORE CL5a (Boss 13:43Z).
+  13:5xZ census: only windy-0@telegram + @matrix hold NPD1's EPT (run from Grant's Desktop checkout 633cfc8, clean,
+  DEFAULT_MODEL opus); zero-lab = other EPT; openclaw = none. No 'zai-org' string anywhere. Asked Mind for UA/IP/jti
+  on a GLM row vs a Claude row to tell a second caller apart. NOTE for CL5a: the restart runs Desktop/Grant's
+  Folder/windy-agent (cwd), not ~/.local/share/windyfly/agent; both at 633cfc8.
 - Journey: if Boss's GLM decision runs past Fri 11-06 18:00Z, open a windy-uptime PR adding hold_until + hold_reason for
   windy-agent-journey in checks.json naming that wait (Boss's line allows it; Cloud reads).
 - MORNING SUMMARY SENT 10:11Z (fleet-say). #726 MERGED 52a9fdd9, #727 MERGED 1b2ba9cb (~10:12Z).
