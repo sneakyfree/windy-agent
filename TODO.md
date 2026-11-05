@@ -16,6 +16,9 @@ Last full rewrite: 2026-11-04 18:35Z (before Grant's restart of every Veron Clau
 **Boss 11-05 ~10:12Z (relayed; stamps visible on GitHub):** #719 = KEEP. Connect lab 13:00Z GO stands (BOARD 11-04 20:26Z,
 lab owner only, flag deleted 14:00Z). Code mode-B lab 15:00-15:30Z GO stands: CONFIRM Hub read the fixed lab script first.
 CL5a 17:20Z: send Boss its BEFORE (pin, what changes, Hub's OK line, rollback) BY 15:00Z, then he posts the GO.
+  PLAN: ~14:20Z (after the Connect lab's 14:00Z flag delete) read Zero READ-ONLY: both services active, the sha (draft
+  pin 633cfc85 or later, must contain dd38ea0), WINDY_OWNER_CALL unset, 0 ERROR today; then fill GO-DRAFTS/CL5a from
+  that and send the BEFORE to Boss by fleet-say by 14:45Z. The 11:00Z nudge is moot (Boss answered at ~10:12Z).
 windy-fly-site #22 16:00Z GO stands.
 - MORNING SUMMARY SENT 10:11Z (fleet-say). #726 MERGED 52a9fdd9, #727 MERGED 1b2ba9cb (~10:12Z).
 - #725 MERGED 92b840eb (10:14Z), #717 MERGED 246b6929 (10:15Z). #709 stamped + green + CLEAN, its watcher polling (ends ~10:24Z).
