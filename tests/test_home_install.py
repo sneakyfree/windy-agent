@@ -167,6 +167,27 @@ def test_a_final_refusal_changes_nothing(tmp_path, status, body, code):
     assert not ak.load_credentials() and hub_hatch.cloud_agent().get("where") != "home"
 
 
+def test_the_owners_cancel_in_word_is_final_with_its_own_line(tmp_path):
+    """Hub #1761 (P7): a cancelled round's pickup answers 410 handover_failed {code: cancelled}."""
+    hub = Hub(pickups=[(410, {"error": "handover_failed", "code": "cancelled"})])
+    rc, events, text = _install(hub, [f"{HID}.{CODE}\n"])
+    assert rc == 1 and events[-1]["code"] == "cancelled" and len(hub.calls) == 1
+    assert "cancelled in Windy Word" not in text           # --json: the event only, no sentence
+    rc, events, text = _install(Hub(pickups=[(410, {"error": "handover_failed", "code": "cancelled"})]),
+                                [f"{HID}.{CODE}\n"], json_status=False)
+    assert rc == 1 and "The move was cancelled in Windy Word. Nothing on this computer was changed." in text
+    assert not ak.load_credentials() and hub_hatch.cloud_agent().get("where") != "home"
+
+
+def test_another_failed_round_keeps_the_general_line(tmp_path):
+    hub = Hub(pickups=[(410, {"error": "handover_failed", "code": "chat_failed"})])
+    rc, events, _ = _install(hub, [f"{HID}.{CODE}\n"])
+    assert rc == 1 and events[-1]["code"] == "handover_failed"
+    rc, _, text = _install(Hub(pickups=[(410, {"error": "handover_failed", "code": "chat_failed"})]),
+                           [f"{HID}.{CODE}\n"], json_status=False)
+    assert "couldn't bring your agent" in text and "cancelled" not in text
+
+
 def test_a_busy_hub_is_retried_not_final(tmp_path):
     hub = Hub(pickups=[(503, {}), (502, {}), (200, None)])
     rc, events, _ = _install(hub, [f"{HID}.{CODE}\n"])
@@ -193,3 +214,71 @@ def test_no_memory_in_the_pickup_means_no_memory_call(tmp_path):
     hub = NoMemory(pickups=[(200, None)])
     rc, _, _ = _install(hub, [f"{HID}.{CODE}\n"])
     assert rc == 0 and not any(c[0].endswith("/memory") for c in hub.calls)
+
+
+# ── Hub 11-05: the desktop door's way back, and finishing a round that stopped after its registration ──────────────
+
+def test_a_refused_key_tells_a_person_to_start_again_in_windy_word(tmp_path):
+    hub = Hub(keys_status=401)
+    rc, events, text = _install(hub, [f"{HID}.{CODE}\n"], json_status=False)
+    flat = " ".join(text.split())
+    assert rc == 1 and "Start the move again in Windy Word." in flat and "Run this again" not in flat
+
+
+def _stop_after_registration(monkeypatch):
+    from windyfly import bring_home
+
+    real = bring_home.ensure_brain
+    monkeypatch.setattr(bring_home, "ensure_brain", lambda name: (_ for _ in ()).throw(OSError("disk full")))
+    return lambda: monkeypatch.setattr(bring_home, "ensure_brain", real)
+
+
+def test_a_round_that_stopped_after_registration_is_finished_with_no_new_key(tmp_path, monkeypatch):
+    restore = _stop_after_registration(monkeypatch)
+    rc, events, _ = _install(Hub(), [f"{HID}.{CODE}\n"])
+    assert rc == 1 and events[-1]["code"] == "internal" and ak.has_registered_key()
+    kid = ak.local_kid()
+    restore()
+    hub = Hub()
+    rc, events, text = _install(hub, [f"{HID}.{CODE}\n"])                  # Word sends a ticket anyway: never used
+    assert rc == 0, events
+    names = [e["event"] for e in events if e["event"] != "progress"]
+    assert names == ["resumed", "memory", "done"]                          # no kid line, no new pickup
+    assert events[0] == {"event": "resumed", "passport": PASSPORT}
+    assert ak.local_kid() == kid and hub.calls == []                       # same key; no call that needs the code
+    assert events[1]["status"] == "lost"                                   # the spent memory link: reported, not fetched
+    assert hub_hatch.cloud_agent()["where"] == "home"
+    assert CODE not in text
+
+
+def test_another_passports_marker_is_never_finished(tmp_path, monkeypatch):
+    from windyfly import home_pair
+
+    restore = _stop_after_registration(monkeypatch)
+    _install(Hub(), [f"{HID}.{CODE}\n"])
+    restore()
+    marker = json.loads(home_pair._pending_path().read_text())
+    marker["passport_number"] = "ET26-OTHR-0001"
+    home_pair._pending_path().write_text(json.dumps(marker))
+    hub = Hub()
+    rc, events, _ = _install(hub, [f"{HID}.{CODE}\n"])
+    assert rc == 1 and events == [{"event": "error", "code": "another_agent_here"}] and hub.calls == []
+
+
+def test_the_already_home_line_escapes_the_name(tmp_path, monkeypatch):
+    monkeypatch.setattr(hub_hatch, "cloud_agent", lambda: {"where": "home", "agent_name": "[bold]Pip[/bold]"})
+    rc, _, text = _install(Hub(), [], json_status=False)
+    assert rc == 1 and "[bold]Pip[/bold] already lives on this computer." in text
+
+
+@pytest.mark.parametrize("url", ["http://hub.example.com", "ftp://hub.example.com"])
+def test_a_refused_hub_address_stops_before_a_key_is_made(monkeypatch, url):
+    """#727: WINDY_HUB_URL must be https (http only for localhost). The desktop door checks it FIRST: no key, no kid
+    line, no request."""
+    monkeypatch.setenv("WINDY_HUB_URL", url)
+    hub = Hub()
+    rc, events, text = _install(hub, [f"{HID}.{CODE}\n"], json_status=False)
+    assert rc == 1 and hub.calls == [] and not ak.load_credentials()
+    assert "https://" in text and "Nothing on this computer was changed." in text
+    rc, events, _ = _install(Hub(), [f"{HID}.{CODE}\n"])
+    assert events[-1]["code"] == "hub_url_refused" and not any(e.get("kid") for e in events)

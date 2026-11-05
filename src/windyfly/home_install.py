@@ -23,6 +23,7 @@ import time
 from typing import Any, Callable
 
 import httpx
+from rich.markup import escape
 
 from windyfly.home_pair import Report
 
@@ -31,6 +32,7 @@ HARD_CAP_S = 45 * 60 + 60       # the Hub ends a stuck round 45 min after its st
 _ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 _CODE_RE = re.compile(r"^[A-Za-z0-9_-]{16,256}$")
 _FINAL = {401: "pickup_code_invalid", 403: "refused", 404: "handover_not_found", 410: "gone"}
+_CANCELLED_SAY = "  The move was cancelled in Windy Word. Nothing on this computer was changed."
 _NOT_HERE_SAY = "  Windy couldn't bring your agent to this computer ({code}). Nothing on this computer was changed."
 EOF_LINE = object()
 
@@ -75,12 +77,27 @@ def install(console: Any, *, ticket: str, json_status: bool = True, lines: Any =
     rec = hub_hatch.cloud_agent()
     if rec.get("where") == "home":
         report("error", code="already_home", passport=rec.get("passport_number"),
-               say=f"  {rec.get('agent_name') or 'Your agent'} already lives on this computer.")
+               say=f"  {escape(str(rec.get('agent_name') or 'Your agent'))} already lives on this computer.")
         return 1
     home_pair._load_agent_env()
+    pending = home_pair._pending()
+    if pending and agent_keys.has_registered_key() and home_pair._key_passport() == pending.get("passport_number"):
+        # A round that registered this computer's key and then stopped: FINISH it, as home pair does (Hub 11-05). No
+        # new key, no kid line, no ticket read (one Word sends anyway is never used), and only the steps after the
+        # registration: the pickup code is spent, so the memory is reported lost, never fetched with a guess.
+        report("resumed", passport=pending.get("passport_number"))
+        return home_pair._finish(pending, report=report, now=now, mem={"status": "lost"})
+    home_pair._clear_pending()  # a marker without its registered key: that round never got that far
     if agent_keys.has_registered_key() or (agent_keys.current_passport() and
                                            agent_keys.current_passport() != rec.get("passport_number")):
         report("error", code="another_agent_here", say=home_pair._ANOTHER_SAY)
+        return 1
+    from windyfly.hub_login import HubUrlRefused, hub_url
+
+    try:
+        hub_url()  # before a key is made: a refused hub address changes nothing (#727)
+    except HubUrlRefused as exc:
+        report("error", code="hub_url_refused", say=f"  {exc} Nothing on this computer was changed.")
         return 1
     kid, undo = agent_keys.begin_local_key()
     report("kid", kid=kid)
@@ -207,5 +224,9 @@ def _redeem(report: Report, url: str, headers: Callable[[str], dict[str, str]], 
                 tick()
                 continue
             code = home_pair._error_code(resp) or _FINAL.get(resp.status_code) or f"http_{resp.status_code}"
+            got = home_pair._json(resp) or {}
+            if code == "handover_failed" and got.get("code") == "cancelled":   # the owner's cancel (Hub #1761, P7)
+                report("error", code="cancelled", http=resp.status_code, say=_CANCELLED_SAY)
+                return None
             report("error", code=code, http=resp.status_code, say=_NOT_HERE_SAY.format(code=code))
             return None
