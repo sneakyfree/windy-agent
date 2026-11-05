@@ -20,6 +20,18 @@ CL5a 17:20Z: send Boss its BEFORE (pin, what changes, Hub's OK line, rollback) B
   pin 633cfc85 or later, must contain dd38ea0), WINDY_OWNER_CALL unset, 0 ERROR today; then fill GO-DRAFTS/CL5a from
   that and send the BEFORE to Boss by fleet-say by 14:45Z. The 11:00Z nudge is moot (Boss answered at ~10:12Z).
 windy-fly-site #22 16:00Z GO stands.
+- CONNECT LAB #1 DONE 13:00-13:07Z (closed early by Connect): legs 1, 2, 5 PASS; leg 3 = a real gap (Hub ticket 201,
+  so a SECOND agent hatched, not a move); leg 4 not run (its own rotate lab later, Connect calls). AFTER BOARD 13:09:49Z,
+  all 3 homes shredded; Hub purges ET26-TEST-TETP + ET26-TEST-P0UG. Build was master b0c98dd0 (Connect OK).
+- ASKED Hub 13:10Z (privacy): the plaintext memory copy memory-<id>.ndjson left in the state dir after a VERIFIED import
+  (bring_home.install_memory). Options (a) keep, (b) delete after a verified import (my pick), (c) TTL. Build what Hub
+  picks; cc Windy Connect on the answer (its CLI _save_memory does the same, and it will match).
+- ALERT GAP (Boss BOARD 13:06:36Z, Cloud 13:09:08Z): windy-agent-journey (Veron user timer, every 2 h) has FAILED every
+  run in the journal (since 11-03): Zero's reply header is now "[🪰 Windy Fly · <date> · 🟢 98% · cloudflare/@cf/zai-org/
+  glm-4.7-flash]", which the parser doesn't read; and the brain is NOT Claude. Keeps windy-uptime heartbeats-veron red.
+  DUE Fri 11-06 18:00Z: fix the parser for the new header, AND find out from Mind whether a NON-owner probe DM to Zero
+  is meant to get the Cloudflare GLM lane (then the journey expects it) or Claude (then it's a real demotion: tell Boss).
+  Else retire the expectation by a windy-uptime PR (Cloud reads).
 - MORNING SUMMARY SENT 10:11Z (fleet-say). #726 MERGED 52a9fdd9, #727 MERGED 1b2ba9cb (~10:12Z).
 - #725 MERGED 92b840eb (10:14Z), #717 MERGED 246b6929 (10:15Z). #709 stamped + green + CLEAN, its watcher polling (ends ~10:24Z).
 - Opened #728 (#726 follow-ups: finish a stopped round, Windy Word way back, the cancel line, https-only hub check),
