@@ -38,10 +38,13 @@ EMIT_AMBIGUOUS_EVENT = True
 _said: set[str] = set()
 
 
-def _once(key: str, level: int, msg: str, *args: object) -> None:
-    if key not in _said:
-        _said.add(key)
-        logger.log(level, msg, *args)
+def _once(key: str, level: int, msg: str, *args: object) -> bool:
+    """Log ``msg`` the first time ``key`` is seen in this process. True when it was logged now."""
+    if key in _said:
+        return False
+    _said.add(key)
+    logger.log(level, msg, *args)
+    return True
 
 
 def has_handover_record(path: Path) -> bool:
@@ -75,10 +78,12 @@ def resolve_db_path(configured: str | None = None) -> str:
     old_h, new_h = has_handover_record(old), has_handover_record(new)
     pick = new if new_h and not old_h else old
     if old_h == new_h:
-        _once(f"both:{old}:{new}", logging.WARNING,
-              "memory: a database exists at its old place (%s) AND in the state folder (%s); using %s. Neither was "
-              "changed.", old, new, pick)
-        _ambiguous_event("state_folder" if pick == new else label)
+        if _once(f"both:{old}:{new}", logging.WARNING,
+                 "memory: a database exists at its old place (%s) AND in the state folder (%s); using %s. Neither "
+                 "was changed.", old, new, pick):
+            # the event rides the SAME once-key as the warning: one event per process per pair, never one per
+            # resolve (Hub on #715)
+            _ambiguous_event("state_folder" if pick == new else label)
     return str(pick)
 
 
