@@ -32,6 +32,7 @@ HARD_CAP_S = 45 * 60 + 60       # the Hub ends a stuck round 45 min after its st
 _ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 _CODE_RE = re.compile(r"^[A-Za-z0-9_-]{16,256}$")
 _FINAL = {401: "pickup_code_invalid", 403: "refused", 404: "handover_not_found", 410: "gone"}
+_CANCELLED_SAY = "  The move was cancelled in Windy Word. Nothing on this computer was changed."
 _NOT_HERE_SAY = "  Windy couldn't bring your agent to this computer ({code}). Nothing on this computer was changed."
 EOF_LINE = object()
 
@@ -216,5 +217,9 @@ def _redeem(report: Report, url: str, headers: Callable[[str], dict[str, str]], 
                 tick()
                 continue
             code = home_pair._error_code(resp) or _FINAL.get(resp.status_code) or f"http_{resp.status_code}"
+            got = home_pair._json(resp) or {}
+            if code == "handover_failed" and got.get("code") == "cancelled":   # the owner's cancel (Hub #1761, P7)
+                report("error", code="cancelled", http=resp.status_code, say=_CANCELLED_SAY)
+                return None
             report("error", code=code, http=resp.status_code, say=_NOT_HERE_SAY.format(code=code))
             return None
