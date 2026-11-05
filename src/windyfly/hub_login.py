@@ -57,10 +57,40 @@ class LoginError(RuntimeError):
     """The sign-in did not complete. The message is safe to show a person."""
 
 
+class HubUrlRefused(LoginError, httpx.HTTPError):
+    """WINDY_HUB_URL is not https (localhost excepted): nothing is sent to it (Hub on #724, Boss 11-05: a stored EPT
+    or an owner token must never go to a non-https host). It is ALSO an httpx.HTTPError, so every caller that already
+    handles "the hub can't be reached" stops the same way, before any request leaves this computer."""
+
+    def __init__(self) -> None:
+        httpx.HTTPError.__init__(self, _REFUSED_SAY)
+
+
+_REFUSED_SAY = ("WINDY_HUB_URL isn't an https:// address, so Windy won't send a sign-in or a token to it. "
+                "Use https:// (http:// is allowed only for localhost).")
+_LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+_refused_logged = False
+
+
 # ── config ────────────────────────────────────────────────────────────
 
 def hub_url() -> str:
-    return os.environ.get("WINDY_HUB_URL", DEFAULT_HUB_URL).rstrip("/")
+    """The Windy Accounts base every hub call uses. https only; plain http only to this computer (localhost,
+    127.0.0.1, ::1). Anything else raises HubUrlRefused BEFORE a request is built. The URL is never logged (it
+    could carry a user:password)."""
+    global _refused_logged
+    url = (os.environ.get("WINDY_HUB_URL") or DEFAULT_HUB_URL).rstrip("/")
+    try:
+        parts = urllib.parse.urlsplit(url)
+        host = (parts.hostname or "").lower()
+    except ValueError:
+        parts, host = None, ""
+    if parts is not None and host and (parts.scheme == "https" or (parts.scheme == "http" and host in _LOCAL_HOSTS)):
+        return url
+    if not _refused_logged:
+        _refused_logged = True
+        logger.warning("hub: WINDY_HUB_URL is not https (or http to localhost); no hub request is sent")
+    raise HubUrlRefused()
 
 
 def client_id() -> str:

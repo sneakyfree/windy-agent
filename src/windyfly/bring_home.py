@@ -584,6 +584,13 @@ def run(
             console.print("  Resuming the handover that was already picked up…")
 
     if not body:
+        from windyfly import hub_login
+
+        try:
+            hub_login.hub_url()  # before the sign-in and the key reset: a refused hub address changes nothing
+        except hub_login.HubUrlRefused as exc:
+            console.print(f"  [red]{exc}[/red] Nothing was changed.")
+            return 1
         console.print(f"  Bringing [bold]{name}[/bold] ({passport}) home. "
                       "Sign in once more to confirm it's you…")
         try:
