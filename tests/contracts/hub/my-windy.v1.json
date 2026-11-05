@@ -1,0 +1,133 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://windyword.ai/contracts/my-windy.v1.json",
+  "title": "My Windy: the ONE Windy Accounts read of a person's plan and platforms (the Hub half of your-windy.v1)",
+  "owner": "windy-hub",
+  "x-version": "1.0.0",
+  "x-status": "DRAFT 2026-11-04 (Hub). Fills the blank that schema/agent/your-windy.v1.json x-sources leaves for the Hub: \"plan, platforms[].activated, platforms[].status: Windy Accounts: ONE 'my Windy' read [Hub: endpoint + shape]\". Built DARK in account-server behind MY_WINDY_ENABLED (unset = 404). Windy Agent (your-windy.v1's owner) agrees before 1.0.0 is final.",
+  "description": "GET /api/v1/identity/my-windy on Windy Accounts (account-server). ONE shape for both callers, so an agent and its owner's app read the same facts. It carries ONLY the owner's plan name and, per platform, the product's status and whether the owner has activated it. It never carries the owner's email, name, identity id, phone, address or any content (your-windy.v1 rule Y5). The agent's own facts (name, passport, email, chat handle) come from their own sources in your-windy.v1, never from this read.",
+  "x-auth": {
+    "owner": "A Windy Accounts PERSON access token (the normal sign-in). Reads the signed-in person's own Windy. A token for a bot identity = 400 not_a_person. A deactivated account = 403 account_deactivated (as every authenticated route).",
+    "agent": "An agent token from Eternitas, in EITHER form: (1) a legacy EPT as a bearer; (2) mode B, the paired-computer form: a typ 'EPT+agent' token minted at Eternitas POST /api/v1/tokens/agent with aud 'windy-hub' (registered since eternitas #189; the ONLY aud name for Windy Accounts), sent with a per-request DPoP proof. A #700-paired computer holds ONLY mode B, so mode B is REQUIRED before 1.0.0 is final (account-server src/services/ept-verify.ts:14 does not accept it yet; the Hub's Fri 11-06 code adds it). The verifier, in order (eternitas docs/spec/agent-keys.v1.md 'Mode B contract'): ES256 against /.well-known/eternitas-keys with typ 'EPT+agent'; iss 'eternitas.ai', exp, aud contains 'windy-hub'; the DPoP proof (htm GET, htu = the client signs this route's full URL without query or fragment, RFC 9449 section 4.2, and the verifier compares its PATH only, never the host; iat within 300 s; jti unique in a replay store) whose jwk RFC 7638 thumbprint equals cnf.jkt; the cutoff (iat >= the passport's ept_valid_after, else 401 ept_before_cutoff); the signed CRL + status feed. The token must carry windy_identity_id (the agent's linked owner): none = 403 agent_unlinked (an unlinked agent has no Windy to show). Reads ONLY that identity's Windy. Test passports (tst) read only test identities. A retired agent (agents-retire 1.1, once live) = 401 agent_retired."
+  },
+  "x-errors": {
+    "401": "missing/invalid token or DPoP proof (unauthorized), ept_before_cutoff, or agent_retired (agents-retire 1.1)",
+    "400": "a person token for a bot identity (code: not_a_person)",
+    "403": "the account is deactivated (account_deactivated), or an agent token with no linked owner (agent_unlinked)",
+    "404": "the read is not switched on (MY_WINDY_ENABLED unset), or the agent's owner is unknown (code: not_found)"
+  },
+  "x-rules": [
+    "M1 FACTS ONLY, LIVE: computed per request from Windy Accounts' own tables. No cache across requests beyond 60 s.",
+    "M2 UNKNOWN IS OMITTED (your-windy.v1 Y3): a platform whose status Windy Accounts doesn't hold is left out, never guessed; a missing plan is omitted.",
+    "M3 ONE SHAPE FOR BOTH CALLERS: the response never says who asked; an agent sees exactly what its owner's app sees.",
+    "M4 PRIVACY: no field here may carry a person's identifier or contact detail. Adding one is a MAJOR version (v2) with Grant's OK.",
+    "M5 platforms[].id and status use your-windy.v1's closed enums byte for byte; a new platform is added there first.",
+    "M6 Each platforms[].id appears at most once; a read with a duplicate id is invalid (Windy Agent 11-04)."
+  ],
+  "x-examples": [
+    {
+      "v": 1,
+      "read_at_utc": "2026-11-06T14:00:00Z",
+      "plan": "free",
+      "platforms": [
+        {
+          "id": "windy-word",
+          "status": "active",
+          "activated": true
+        },
+        {
+          "id": "windy-chat",
+          "status": "active",
+          "activated": true
+        },
+        {
+          "id": "windy-mail",
+          "status": "active",
+          "activated": false
+        },
+        {
+          "id": "windy-fly",
+          "status": "preview",
+          "activated": false
+        }
+      ]
+    }
+  ],
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "v",
+    "read_at_utc",
+    "platforms"
+  ],
+  "properties": {
+    "v": {
+      "const": 1
+    },
+    "read_at_utc": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+    },
+    "plan": {
+      "type": "string",
+      "pattern": "^[^\\x00-\\x1f\\x7f\\u2028\\u2029]{1,40}$"
+    },
+    "platforms": {
+      "type": "array",
+      "maxItems": 40,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "status",
+          "activated"
+        ],
+        "properties": {
+          "id": {
+            "enum": [
+              "windy-word",
+              "windy-chat",
+              "windy-mail",
+              "windy-cloud",
+              "windy-fly",
+              "windy-word-mobile",
+              "windy-clone",
+              "windy-traveler",
+              "windy-code",
+              "eternitas",
+              "windy-text",
+              "windy-call",
+              "windy-mobile",
+              "windy-talk",
+              "windy-mind",
+              "windy-search",
+              "windy-hand",
+              "windy-vault",
+              "windy-connect",
+              "windy-drops",
+              "windy-calendar",
+              "windy-git",
+              "windy-translate"
+            ]
+          },
+          "status": {
+            "enum": [
+              "active",
+              "available",
+              "preview",
+              "developer_api",
+              "coming_soon"
+            ]
+          },
+          "activated": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  },
+  "x-questions": [
+    "Q1 ANSWERED 11-04 (Eternitas): aud 'windy-hub', live since #189; no second name."
+  ]
+}

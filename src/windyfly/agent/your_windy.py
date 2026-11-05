@@ -4,8 +4,9 @@ schema/agent/your-windy.v1.json (Grant 2026-11-02: never born clueless; facts on
 DARK: nothing is read or added to the prompt unless WINDY_YOUR_WINDY=1. Facts are read LIVE (never copied at birth)
 and kept for the session (SESSION_TTL_S); a source that doesn't answer is simply left out (the contract's Y3: unknown is
 omitted, never guessed). Sources wired today: Eternitas's public registry (status, trust score), Windy Mail's mailbox
-(own address), the confirmed Matrix id (own chat handle). Vault readiness, activated platforms,
-plan, Cloud quota and Search allowance wait for their owners' reads (ONE-WINDY plan section D). Never raises.
+(own address), the confirmed Matrix id (own chat handle), and (DARK behind WINDY_MY_WINDY=1 as well) the owner's plan
+and platforms from Windy Accounts' ONE "my Windy" read (windy-contracts schema/hub/my-windy.v1.json). Vault readiness,
+Cloud quota and Search allowance wait for their owners' reads (ONE-WINDY plan section D). Never raises.
 """
 
 from __future__ import annotations
@@ -180,6 +181,108 @@ def _chat_handle() -> str:
         return ""
 
 
+# ── my-windy.v1: the owner's plan + platforms from Windy Accounts (Hub; DARK) ─────────────────────────────────────────
+#
+# GET {WINDY_HUB_URL}/api/v1/identity/my-windy. The agent sends mode B when it can mint (EPT+agent, aud windy-hub, a
+# fresh DPoP proof: the ONLY form a #700-paired computer holds), else its stored EPT as a bearer; the contract takes
+# either. Its own 2 s timeout and the session's READ_BUDGET_S apply. Every non-200 (401 unauthorized /
+# ept_before_cutoff / agent_retired, 403 agent_unlinked / account_deactivated, 404 = the read switched off) means the
+# plan and platforms are OMITTED (Y3), never guessed. The answer is checked WHOLE against my-windy.v1: one field or
+# value outside it (an extra field could carry a person's detail, M4; a duplicate id, M6) and the whole read is
+# omitted. The account server's own switch is MY_WINDY_ENABLED (unset = 404).
+MY_WINDY_FLAG = "WINDY_MY_WINDY"
+MY_WINDY_AUD = "windy-hub"
+MY_WINDY_PATH = "/api/v1/identity/my-windy"
+PLATFORM_STATUSES = ("active", "available", "preview", "developer_api", "coming_soon")
+_MY_WINDY_KEYS = frozenset({"v", "read_at_utc", "plan", "platforms"})
+_PLATFORM_KEYS = frozenset({"id", "status", "activated"})
+_READ_AT = r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z"
+_CODE = re.compile(r"[a-z][a-z0-9_]{0,40}")
+
+
+def my_windy_enabled() -> bool:
+    return enabled() and os.environ.get(MY_WINDY_FLAG, "") == "1"
+
+
+def my_windy_facts(body: Any) -> dict[str, Any] | None:
+    """The plan + platforms of a my-windy.v1 answer, or None when ANY part of it is outside the contract."""
+    if not isinstance(body, dict) or set(body) - _MY_WINDY_KEYS or body.get("v") != 1 or isinstance(body.get("v"), bool):
+        return None
+    if not (isinstance(body.get("read_at_utc"), str) and re.fullmatch(_READ_AT, body["read_at_utc"])):
+        return None
+    platforms = body.get("platforms")
+    if not isinstance(platforms, list) or len(platforms) > 40:
+        return None
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for p in platforms:
+        if not isinstance(p, dict) or set(p) != _PLATFORM_KEYS or not isinstance(p["id"], str):
+            return None
+        if p["id"] not in PLATFORM_NAMES or p["id"] in seen:
+            return None
+        if p["status"] not in PLATFORM_STATUSES or not isinstance(p["activated"], bool):
+            return None
+        seen.add(p["id"])
+        out.append({"id": p["id"], "status": p["status"], "activated": p["activated"]})
+    facts: dict[str, Any] = {"platforms": out}
+    if "plan" in body:
+        if not _valid("plan", body["plan"]):
+            return None
+        facts["plan"] = body["plan"]
+    return facts
+
+
+def _refusal_code(resp: Any) -> str:
+    """A short refusal code from the body for the log (code / error / detail), or "": never other body text."""
+    try:
+        body = resp.json()
+    except Exception:  # noqa: BLE001
+        return ""
+    for key in ("code", "error", "detail"):
+        v = body.get(key) if isinstance(body, dict) else None
+        if isinstance(v, str) and _CODE.fullmatch(v):
+            return v
+    return ""
+
+
+def _my_windy() -> dict[str, Any]:
+    import httpx
+
+    from windyfly.agent import service_auth
+    from windyfly.hub_login import hub_url
+
+    url = hub_url() + MY_WINDY_PATH
+    form = "mode B"
+    try:
+        headers = service_auth.agent_headers(MY_WINDY_AUD, "GET", url)
+    except service_auth.ServiceAuthError:
+        ept = (os.environ.get("ETERNITAS_PASSPORT_TOKEN", "").strip()
+               or os.environ.get("WINDY_PASSPORT_EPT", "").strip())
+        if not ept:
+            return {}
+        headers, form = {"Authorization": f"Bearer {ept}"}, "stored EPT"
+    try:
+        resp = httpx.get(url, headers=headers, timeout=_TIMEOUT_S)
+    except Exception as exc:  # noqa: BLE001
+        logger.info("your-windy: my-windy not read (%s); plan + platforms omitted", type(exc).__name__)
+        return {}
+    if resp.status_code != 200:
+        if resp.status_code == 401 and form == "mode B":
+            service_auth.forget_token()  # the next session mints afresh
+        logger.info("your-windy: my-windy answered %s %s (%s); plan + platforms omitted", resp.status_code,
+                    _refusal_code(resp) or "no code", form)
+        return {}
+    try:
+        body = resp.json()
+    except ValueError:
+        body = None
+    facts = my_windy_facts(body)
+    if facts is None:
+        logger.warning("your-windy: my-windy answer is outside my-windy.v1; plan + platforms omitted")
+        return {}
+    return facts
+
+
 def build_document(agent_name: str = "") -> dict[str, Any]:
     passport = os.environ.get("ETERNITAS_PASSPORT", "").strip()
     if not agent_name:
@@ -194,10 +297,12 @@ def build_document(agent_name: str = "") -> dict[str, Any]:
         agent["passport"] = passport
     # The live reads run in parallel under ONE deadline (READ_BUDGET_S). A read still running at the deadline is
     # abandoned (its thread finishes in the background and is ignored) and its fact is omitted.
-    pool = concurrent.futures.ThreadPoolExecutor(max_workers=3, thread_name_prefix="your-windy")
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="your-windy")
     jobs: dict[str, concurrent.futures.Future[Any]] = {"mail": pool.submit(_mail_address), "chat": pool.submit(_chat_handle)}
     if passport:
         jobs["eternitas"] = pool.submit(_eternitas, passport)
+    if my_windy_enabled():
+        jobs["my_windy"] = pool.submit(_my_windy)
     done, _ = concurrent.futures.wait(list(jobs.values()), timeout=READ_BUDGET_S)
     pool.shutdown(wait=False, cancel_futures=True)
 
@@ -219,6 +324,11 @@ def build_document(agent_name: str = "") -> dict[str, Any]:
         agent["chat_handle"] = handle
     doc: dict[str, Any] = {"v": 1, "read_at_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                            "agent": agent, "platforms": []}
+    mine = got("my_windy") or {}
+    if mine.get("platforms"):
+        doc["platforms"] = mine["platforms"]
+    if mine.get("plan"):
+        doc["plan"] = mine["plan"]
     # Vault: not read here. Only the owner's Vault tools may import the Vault client (strand N8), and Vault's
     # capabilities "none" can mean no Vault OR saving switched off, so there is no clear fact yet; the Vault line
     # waits for a clear Vault field through an allowed path (unknown = omitted, the contract's Y3).

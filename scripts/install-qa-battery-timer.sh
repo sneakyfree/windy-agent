@@ -36,11 +36,16 @@ mkdir -p ~/.config/systemd/user
 
 cat > ~/.config/systemd/user/windy-qa-battery.service <<EOF
 [Unit]
-Description=Windy Fly weekly Q&A stress battery + Telegram delivery
+Description=Windy Fly weekly Q&A stress battery (as the LAB agent; synthetic; brief to a local file)
 After=network-online.target
 
 [Service]
 Type=oneshot
+# Synthetic, and never as a real agent: the script runs in the lab agent's home and its lab guard refuses otherwise.
+Environment=WINDY_SYNTHETIC=1
+# The real agent's files and the person's Claude login are HIDDEN from the battery (Hub on #711): same OS user, so
+# only the unit can make them unreadable. The lab guard refuses to start if they are still readable.
+InaccessiblePaths=-%h/.windy -%h/.claude
 ExecStart=${INSTALLED_PATH}
 StandardOutput=journal
 StandardError=journal

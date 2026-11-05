@@ -1150,8 +1150,13 @@ def _register_all():
             picked = fam or next((m for m in catalog if alias is not None and m["id"] == alias.id), None)
         if picked is not None and not picked.get("available_now", True):
             name = picked.get("display_name") or picked["id"]
-            return (f"I can't switch to {name}: {mind_catalog.unavailable_words(picked.get('unavailable_reason'))}. "
-                    f"I'm still answering with {_resolve_active_model(platform, channel_id)}.")
+            refused = f"I can't switch to {name}: {mind_catalog.unavailable_words(picked.get('unavailable_reason'))}."
+            current = _resolve_active_model(platform, channel_id)
+            cur_row = next((m for m in catalog if m.get("id") == current), None) if catalog else None
+            if cur_row is not None and not cur_row.get("available_now", True):
+                # the current model is down too: "still answering with X" would be untrue (Hub on #706)
+                return f"{refused} Windy Mind will pick one for me."
+            return f"{refused} I'm still answering with {current}."
         if picked is not None:
             if not platform or not channel_id:
                 return (
