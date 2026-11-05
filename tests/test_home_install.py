@@ -167,6 +167,27 @@ def test_a_final_refusal_changes_nothing(tmp_path, status, body, code):
     assert not ak.load_credentials() and hub_hatch.cloud_agent().get("where") != "home"
 
 
+def test_the_owners_cancel_in_word_is_final_with_its_own_line(tmp_path):
+    """Hub #1761 (P7): a cancelled round's pickup answers 410 handover_failed {code: cancelled}."""
+    hub = Hub(pickups=[(410, {"error": "handover_failed", "code": "cancelled"})])
+    rc, events, text = _install(hub, [f"{HID}.{CODE}\n"])
+    assert rc == 1 and events[-1]["code"] == "cancelled" and len(hub.calls) == 1
+    assert "cancelled in Windy Word" not in text           # --json: the event only, no sentence
+    rc, events, text = _install(Hub(pickups=[(410, {"error": "handover_failed", "code": "cancelled"})]),
+                                [f"{HID}.{CODE}\n"], json_status=False)
+    assert rc == 1 and "The move was cancelled in Windy Word. Nothing on this computer was changed." in text
+    assert not ak.load_credentials() and hub_hatch.cloud_agent().get("where") != "home"
+
+
+def test_another_failed_round_keeps_the_general_line(tmp_path):
+    hub = Hub(pickups=[(410, {"error": "handover_failed", "code": "chat_failed"})])
+    rc, events, _ = _install(hub, [f"{HID}.{CODE}\n"])
+    assert rc == 1 and events[-1]["code"] == "handover_failed"
+    rc, _, text = _install(Hub(pickups=[(410, {"error": "handover_failed", "code": "chat_failed"})]),
+                           [f"{HID}.{CODE}\n"], json_status=False)
+    assert "couldn't bring your agent" in text and "cancelled" not in text
+
+
 def test_a_busy_hub_is_retried_not_final(tmp_path):
     hub = Hub(pickups=[(503, {}), (502, {}), (200, None)])
     rc, events, _ = _install(hub, [f"{HID}.{CODE}\n"])
