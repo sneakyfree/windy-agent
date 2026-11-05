@@ -138,9 +138,13 @@ def _agent_name() -> str:
 # The person's line for each kind. Retired = Boss's line (11-04, Hub #9 with #265 1.1); the date is Eternitas' own
 # retired_until, never a guess: absent = the line without it. key_revoked + reason move_aborted = home 1.1 H13a's line
 # (Boss + Hub #9, 11-04). Any other key_revoked stays neutral until Eternitas names the reason (Hub 11-04).
-def answer(stop: dict[str, Any] | None = None, name: str | None = None) -> str:
+def answer(stop: dict[str, Any] | None = None, name: str | None = None, *, owner: bool = True) -> str:
+    """The one plain line. Only the OWNER hears why and what they can do (a restore date, a command): anyone else
+    who writes gets the same neutral line whatever the stop is (Hub's ruling on agents-retire 1.1, #294)."""
     stop = stop or stopped() or {}
     who = name or _agent_name()
+    if not owner:
+        return f"{who} isn't answering right now."
     kind = stop.get("kind")
     if kind == "retired":
         until = _iso_date(str(stop.get("retired_until") or ""))
@@ -174,6 +178,10 @@ class AgentStopped(RuntimeError):
 _probe: dict[str, Any] = {"thread": None, "stop": None}
 
 BACKOFF_MAX_S = 3600.0
+# A REVOKED passport is final (agents-retire 1.1: the CRL keeps it), so a stop of that kind is checked once an hour,
+# never every minute for ever (Hub on #294; his never-hammer rule on #709).
+REVOKED_RECHECK_S = 3600.0
+_revoked = {"next_at": 0.0}
 
 
 class _Backoff:
@@ -223,6 +231,15 @@ def _mint() -> Any:
     A passport-token agent: the public verify read every time (no mint needed to SEE a retire), and a forced refresh
     only while stopped, because only a good mint lifts the stop."""
     from windyfly.eternitas import agent_keys
+
+    held = stopped()
+    if held and held.get("kind") == "revoked":
+        t = time.time()
+        if t < _revoked["next_at"]:
+            raise _Refused("revoked_backoff")
+        _revoked["next_at"] = t + REVOKED_RECHECK_S   # whatever this check answers, the next one waits an hour
+    else:
+        _revoked["next_at"] = 0.0
 
     if agent_keys.has_registered_key():
         stop = stopped()
