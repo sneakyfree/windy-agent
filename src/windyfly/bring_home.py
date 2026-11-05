@@ -455,7 +455,7 @@ def _abs_db_path(db: Any) -> str:
 
 def _kept_copy(path: Path, reason: str) -> None:
     """One line when a memory copy stays on disk: where and why, never its content."""
-    logger.warning("memory copy kept (nothing imported from it): %s reason=%s", path, reason)
+    logger.warning("memory copy kept: %s reason=%s", path, reason)
 
 
 def _wipe_copy(path: Path) -> None:
@@ -516,8 +516,8 @@ def install_memory(meta: dict[str, Any], passport: str, handover_id: str, token:
                     out = {"status": "count_mismatch", "expected": want_ns[0], "got": len(lines)}
                 # Written BEFORE the import as its safety copy; a download that failed its check is never filed as
                 # accepted. After a successful import the copy is wiped (below): a plaintext second copy next to the db
-                # would outlive the owner's deletes and the purge (Hub on lab #1, 11-05). It stays only when nothing
-                # was imported.
+                # would outlive the owner's deletes and the purge (Hub on lab #1, 11-05). It stays only when the import
+                # isn't PROVEN: nothing imported, or imported without a declared hash/count (verified false).
                 kept = "ndjson" if not out.get("status", "").endswith("_mismatch") else "rejected.ndjson"
                 copy = _state_dir() / f"memory-{handover_id}.{kept}"
                 _atomic_write(copy, ndjson)
@@ -540,7 +540,10 @@ def install_memory(meta: dict[str, Any], passport: str, handover_id: str, token:
                     close = getattr(db, "close", None)
                     if callable(close):
                         close()
-                _wipe_copy(copy)
+                if want_sha:
+                    _wipe_copy(copy)               # verified: the db provably holds what the archive held
+                else:
+                    _kept_copy(copy, "unverified")  # no hash/count declared: can't prove it, so never wipe the copy
     if letter and out.get("status") != "imported":
         db = db_factory()
         try:

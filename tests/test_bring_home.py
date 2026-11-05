@@ -436,3 +436,16 @@ def test_a_failed_import_keeps_its_copy_0600_with_a_reason_line(tmp_path, caplog
     assert kept.read_bytes() == NDJSON and stat.S_IMODE(kept.stat().st_mode) == 0o600
     assert "reason=import_failed" in caplog.text and str(kept) in caplog.text
     assert "hi pip" not in caplog.text            # never the content
+
+
+def test_an_unverified_import_keeps_its_copy_0600_with_the_reason_unverified(tmp_path, caplog):
+    """Hub: no declared hash or count = verified false = can't prove the db holds everything: never wipe it."""
+    doc = _memory_doc()
+    doc.pop("sha256"); doc.pop("event_count")
+    with caplog.at_level(logging.WARNING, logger=bring_home.__name__):
+        out = bring_home.install_memory(_MEM_META, PASSPORT, "ho_u", "",
+                                        transport=httpx.MockTransport(lambda req: httpx.Response(200, json=doc)))
+    kept = tmp_path / "state" / "memory-ho_u.ndjson"
+    assert out["status"] == "imported" and out["verified"] is False
+    assert kept.read_bytes() == NDJSON and stat.S_IMODE(kept.stat().st_mode) == 0o600
+    assert "reason=unverified" in caplog.text and "hi pip" not in caplog.text
