@@ -2,9 +2,21 @@
 
 from __future__ import annotations
 
+import asyncio
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
+
+
+async def stop_side_task(task: "asyncio.Task[Any]") -> None:
+    """Cancel a helper task (a typing sign) and wait for it to end, without hiding a cancel of the CALLER.
+
+    `await task` inside `except CancelledError: pass` swallows the caller's own cancel when it lands during that
+    wait (Hub's LOW on #732): a shutdown would then carry on as if nothing happened. gather() reports the helper's
+    own end (cancelled or failed) as a result, and still raises if the caller is cancelled.
+    """
+    task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
 
 
 @dataclass
