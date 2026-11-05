@@ -1156,6 +1156,25 @@ def service_dpop(htm: str, url: str, *, cred_path: Path | None = None) -> str:
     return dpop_proof(key, htm, htu(url))
 
 
+PICKUP_PROOF_TYP = "windy-pickup-proof+jwt"
+
+
+def pickup_proof(handover_id: str, htm: str, url: str, *, path: Path | None = None) -> str:
+    """The desktop door's proof that THIS computer holds the round's key (home handover desktop pickup code, P5):
+    a compact ES256 JWS, header {alg, typ windy-pickup-proof+jwt, kid, jwk}, payload {handover_id, htm, htu, iat,
+    jti}. ``htu`` is the full URL without query (the Hub compares the path; one signer for this and DPoP). The jwk
+    rides every proof (the Hub needs it on the first; on later ones it is checked against the kept key). The key
+    may still be UNREGISTERED: it is the one whose kid started the round."""
+    entry = active_entry(load_credentials(path or credentials_path()))
+    if entry is None:
+        raise AgentTokenError("no_key", "no local agent key for this round")
+    key = load_private_key(entry["private_key"])
+    header = {"alg": ALG, "typ": PICKUP_PROOF_TYP, "kid": str(entry["kid"]), "jwk": public_jwk(key)}
+    claims = {"handover_id": handover_id, "htm": htm.upper(), "htu": htu(url), "iat": int(time.time()),
+              "jti": _b64u(os.urandom(16))}
+    return _compact(key, header, json.dumps(claims, separators=(",", ":")).encode("utf-8"))
+
+
 def bus_dpop(htm: str, htu_raw: str, *, cred_path: Path | None = None) -> str:
     """A DPoP proof whose htu is signed VERBATIM (no URL normalising), for a non-HTTP target such as Windy Code's
     IDE agent bus ("urn:windycode:agent-bus", compared byte for byte; Eternitas ruled 11-04). Fresh iat + jti."""

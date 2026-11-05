@@ -832,8 +832,14 @@ def _cmd_home(args: argparse.Namespace) -> None:
     """windy home pair — bring your agent home to this computer with a code your phone approves (Windy Connect)."""
     import sys
 
+    if getattr(args, "home_command", None) == "install":
+        # Windy Word's desktop door: the ticket comes on stdin only (home handover desktop pickup code, #273).
+        from windyfly.home_install import install
+
+        sys.exit(install(console, ticket=args.ticket, json_status=bool(args.json_status)))
     if getattr(args, "home_command", None) != "pair":
-        console.print("Usage: windy home pair [--json-status] [--device-name NAME] [--yes]")
+        console.print("Usage: windy home pair [--json-status] [--device-name NAME] [--yes]\n"
+                      "       windy home install --ticket - [--json-status]")
         sys.exit(2)
     from windyfly.home_pair import pair
 
@@ -1658,6 +1664,11 @@ def main() -> None:
                            help="Answer yes to replacing this computer's link to an agent in the cloud")
     home_pair.add_argument("--device-name", default="",
                            help="The name your phone shows for this computer (default: your home label)")
+    home_install = home_sub.add_parser("install", help="Windy Word's desktop install: the ticket comes on stdin")
+    home_install.add_argument("--ticket", required=True,
+                              help="Only '-': the ticket is read from stdin, never from the command line")
+    home_install.add_argument("--json-status", action="store_true",
+                              help="One JSON object per line on stdout, for Windy Word")
 
     # windy deregister — the owner permanently revokes the agent's passport
     dereg_parser = sub.add_parser("deregister", help="Permanently revoke this agent's Eternitas passport")

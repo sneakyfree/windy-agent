@@ -234,13 +234,16 @@ def wait_for_pickup(url: str, token: str, *, expires_at: Any = None,
 
 
 def fetch_memory(url: str, token: str, *, transport: httpx.BaseTransport | None = None,
-                 progress: Callable[[int, int | None], None] | None = None) -> tuple[int, dict[str, Any]]:
+                 progress: Callable[[int, int | None], None] | None = None,
+                 extra_headers: Callable[[str], dict[str, str]] | None = None) -> tuple[int, dict[str, Any]]:
     """GET the memory once. ``token`` "" = a capability URL (Windy Connect's pairing: the URL itself is the secret,
     never logged), so no Authorization header at all. ``progress(bytes so far, Content-Length or None)`` after each
     chunk: bytes as sent on the wire, so they compare with Content-Length even when the body is compressed."""
     headers = {"Accept": "application/json"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
+    if extra_headers is not None:
+        headers.update(extra_headers(url))   # the desktop door: its pickup code + a fresh proof (never logged)
     with httpx.Client(timeout=120.0, transport=transport) as client:
         with client.stream("GET", url, headers=headers) as resp:
             try:
@@ -453,13 +456,14 @@ def _abs_db_path(db: Any) -> str:
 def install_memory(meta: dict[str, Any], passport: str, handover_id: str, token: str, *,
                    transport: httpx.BaseTransport | None = None,
                    db_factory: Callable[[], Any] = _open_db,
-                   progress: Callable[[str, int, int | None], None] | None = None) -> dict[str, Any]:
+                   progress: Callable[[str, int, int | None], None] | None = None,
+                   extra_headers: Callable[[str], dict[str, str]] | None = None) -> dict[str, Any]:
     """``progress(stage, done, total)``: stage "download" (bytes) then "import" (events)."""
     out: dict[str, Any] = {"status": "none"}
     letter = str(meta.get("turnover_letter") or "")
     url = str(meta.get("url") or "")
     if url:
-        code, doc = fetch_memory(url, token, transport=transport,
+        code, doc = fetch_memory(url, token, transport=transport, extra_headers=extra_headers,
                                  progress=(lambda n, total: progress("download", n, total)) if progress else None)
         if code != 200:
             out = {"status": "download_failed", "http": code}

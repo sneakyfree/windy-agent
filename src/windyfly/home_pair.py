@@ -443,7 +443,8 @@ def _poll(client: httpx.Client, base: str, device_code: str, kid: str, report: R
 
 def settle_home(pickup: dict[str, Any], *, report: Report, door: str,
                 transport: httpx.BaseTransport | None = None, db_factory: Callable[[], Any] | None = None,
-                now: Callable[[], float] = time.time, state: dict[str, Any] | None = None) -> int:
+                now: Callable[[], float] = time.time, state: dict[str, Any] | None = None,
+                memory_headers: Callable[[str], dict[str, str]] | None = None) -> int:
     """After a pickup that carries a bootstrap token (any door): register this computer's key FIRST (the step that
     can end the round), then the brain + settings, then the memory once, then the "it lives here" record.
 
@@ -493,7 +494,8 @@ def settle_home(pickup: dict[str, Any], *, report: Report, door: str,
     mem: dict[str, Any] = {"status": "none"}
     memory = pickup.get("memory")
     if isinstance(memory, dict) and memory.get("url"):
-        kw: dict[str, Any] = {"transport": transport, "progress": _memory_progress(report, who, now)}
+        kw: dict[str, Any] = {"transport": transport, "progress": _memory_progress(report, who, now),
+                              "extra_headers": memory_headers}
         if db_factory is not None:
             kw["db_factory"] = db_factory
         try:
