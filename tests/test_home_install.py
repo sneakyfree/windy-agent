@@ -193,3 +193,58 @@ def test_no_memory_in_the_pickup_means_no_memory_call(tmp_path):
     hub = NoMemory(pickups=[(200, None)])
     rc, _, _ = _install(hub, [f"{HID}.{CODE}\n"])
     assert rc == 0 and not any(c[0].endswith("/memory") for c in hub.calls)
+
+
+# ── Hub 11-05: the desktop door's way back, and finishing a round that stopped after its registration ──────────────
+
+def test_a_refused_key_tells_a_person_to_start_again_in_windy_word(tmp_path):
+    hub = Hub(keys_status=401)
+    rc, events, text = _install(hub, [f"{HID}.{CODE}\n"], json_status=False)
+    flat = " ".join(text.split())
+    assert rc == 1 and "Start the move again in Windy Word." in flat and "Run this again" not in flat
+
+
+def _stop_after_registration(monkeypatch):
+    from windyfly import bring_home
+
+    real = bring_home.ensure_brain
+    monkeypatch.setattr(bring_home, "ensure_brain", lambda name: (_ for _ in ()).throw(OSError("disk full")))
+    return lambda: monkeypatch.setattr(bring_home, "ensure_brain", real)
+
+
+def test_a_round_that_stopped_after_registration_is_finished_with_no_new_key(tmp_path, monkeypatch):
+    restore = _stop_after_registration(monkeypatch)
+    rc, events, _ = _install(Hub(), [f"{HID}.{CODE}\n"])
+    assert rc == 1 and events[-1]["code"] == "internal" and ak.has_registered_key()
+    kid = ak.local_kid()
+    restore()
+    hub = Hub()
+    rc, events, text = _install(hub, [f"{HID}.{CODE}\n"])                  # Word sends a ticket anyway: never used
+    assert rc == 0, events
+    names = [e["event"] for e in events if e["event"] != "progress"]
+    assert names == ["resumed", "memory", "done"]                          # no kid line, no new pickup
+    assert events[0] == {"event": "resumed", "passport": PASSPORT}
+    assert ak.local_kid() == kid and hub.calls == []                       # same key; no call that needs the code
+    assert events[1]["status"] == "lost"                                   # the spent memory link: reported, not fetched
+    assert hub_hatch.cloud_agent()["where"] == "home"
+    assert CODE not in text
+
+
+def test_another_passports_marker_is_never_finished(tmp_path, monkeypatch):
+    from windyfly import home_pair
+
+    restore = _stop_after_registration(monkeypatch)
+    _install(Hub(), [f"{HID}.{CODE}\n"])
+    restore()
+    marker = json.loads(home_pair._pending_path().read_text())
+    marker["passport_number"] = "ET26-OTHR-0001"
+    home_pair._pending_path().write_text(json.dumps(marker))
+    hub = Hub()
+    rc, events, _ = _install(hub, [f"{HID}.{CODE}\n"])
+    assert rc == 1 and events == [{"event": "error", "code": "another_agent_here"}] and hub.calls == []
+
+
+def test_the_already_home_line_escapes_the_name(tmp_path, monkeypatch):
+    monkeypatch.setattr(hub_hatch, "cloud_agent", lambda: {"where": "home", "agent_name": "[bold]Pip[/bold]"})
+    rc, _, text = _install(Hub(), [], json_status=False)
+    assert rc == 1 and "[bold]Pip[/bold] already lives on this computer." in text

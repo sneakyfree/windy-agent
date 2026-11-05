@@ -459,8 +459,11 @@ def settle_home(pickup: dict[str, Any], *, report: Report, door: str,
     bootstrap = str(pickup.get("bootstrap_token") or "")
     name = str(pickup.get("agent_name") or "")
     who = escape(name or "Your agent")  # the agent's name only: never a passport or a machine name (Boss 11-03)
+    # The way back differs by door (Hub #9, 11-05): Windy Word's desktop door starts a new round in Word, never a CLI.
+    again = ("Start the move again in Windy Word." if door == "desktop"
+             else "Run this again for a new code to finish it.")
     nowhere = (f"  Windy couldn't finish the move, so {who if name else 'your agent'} isn't running anywhere right "
-               "now. Run this again for a new code to finish it.")
+               f"now. {again}")
     if not passport or not bootstrap:
         # The owner approved and the cloud agent stood down: line 4, never "nothing was changed" (Hub on #700).
         report("error", code="bad_pickup", say=nowhere)
@@ -488,7 +491,9 @@ def settle_home(pickup: dict[str, Any], *, report: Report, door: str,
             return 1
         report("error", code="key_registration_failed", http=reg.get("http"), detail=reg.get("code"),
                say=f"  [red]Eternitas didn't accept this computer's key[/red], so {who} couldn't move here, and it "
-                   "isn't running anywhere right now. Run this again for a new code to finish the move.")
+                   "isn't running anywhere right now. "
+                   + ("Start the move again in Windy Word." if door == "desktop"
+                      else "Run this again for a new code to finish the move."))
         return 1
     report("registered", passport=passport)
     mem: dict[str, Any] = {"status": "none"}
