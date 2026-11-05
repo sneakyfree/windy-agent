@@ -32,6 +32,13 @@ windy-fly-site #22 16:00Z GO stands.
   DUE Fri 11-06 18:00Z: fix the parser for the new header, AND find out from Mind whether a NON-owner probe DM to Zero
   is meant to get the Cloudflare GLM lane (then the journey expects it) or Claude (then it's a real demotion: tell Boss).
   Else retire the expectation by a windy-uptime PR (Cloud reads).
+  FOUND 13:15Z (Mind's Kit 0 read + my Windy 0 read): NOT a parser-only issue. Mind's /self for NPD1 = picked_by owner,
+  model GLM, from the AGENT-scope grant default set 10-24 01:13:09Z during Mobile's device tests (caller unrecorded);
+  0 agent switches; live since ~10-29 (Mind #530). Zero's config = claude-opus-5-5. So Grant's own DMs likely get GLM.
+  ASKED BOSS 13:15Z (fleet-say): is GLM intended? Clearing/setting the grant = Boss word or Grant's phone. Journey stays
+  RED on purpose until then; parser fix for the new bracket header comes with whatever Boss decides. Tell Cloud.
+- #731 OPENED 13:14Z (Hub's (b): wipe the plaintext memory copy after a VERIFIED import; keep 0600 + reason line when not
+  proven, incl. unverified per Hub). Head 3b93a59d; Hub read asked; then Boss.
 - MORNING SUMMARY SENT 10:11Z (fleet-say). #726 MERGED 52a9fdd9, #727 MERGED 1b2ba9cb (~10:12Z).
 - #725 MERGED 92b840eb (10:14Z), #717 MERGED 246b6929 (10:15Z). #709 stamped + green + CLEAN, its watcher polling (ends ~10:24Z).
 - Opened #728 (#726 follow-ups: finish a stopped round, Windy Word way back, the cancel line, https-only hub check),
