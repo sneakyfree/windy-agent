@@ -1,6 +1,6 @@
 # Windy Fly Gateway — White-Glove Smoke Report
 
-**Target:** `https://fly.windyword.ai` (EC2 `i-09ed54184d0f536ab`, EIP `174.129.41.59`, t3.small)
+**Target:** `https://fly.windyword.ai` (EC2 `i-09ed54184d0f536ab`, an Elastic IP, t3.small)
 **Date:** 2026-04-19 (tests executed 2026-04-20 00:30–00:45 UTC)
 **Scope:** Wave 13 Phase 5 production deploy — discovery only, no fixes applied.
 **Brief:** `docs/WHITE_GLOVE_SMOKE_PROMPT.md`
@@ -352,7 +352,7 @@ Fix: add a one-line structured log (`[broker-verify] ok=true identity=wi_... lat
 
 - EC2: `i-09ed54184d0f536ab`, **t3.small**, running since 2026-04-19T18:42:07 UTC. Tags: `Environment=production, Project=Windy, Product=windyfly, Purpose=hatch-gateway, Name=windyfly-gateway`.
 - EBS root: `vol-0868022668d89d0a5`, 20 GB, in-use. 2.8 GB / 19 GB used (filesystem level).
-- EIP `174.129.41.59` (`eipalloc-06cd09015ac29948f`) associated with the instance — no unassociated EIP burn.
+- The Elastic IP (`eipalloc-06cd09015ac29948f`) associated with the instance — no unassociated EIP burn.
 - Unattached EBS volumes in region: **0** (verified via `aws ec2 describe-volumes --filters Name=status,Values=available`).
 
 ### P3 — EBS volume `vol-0868022668d89d0a5` has no Project/Product tags — observed: `DescribeVolumes` shows tag values None/None for the fly-gateway volume — expected: Project=Windy, Product=windyfly inherited from instance
