@@ -31,7 +31,7 @@ import nio
 
 from windyfly.agent.loop import agent_respond
 from windyfly.channels import sync_position as _position
-from windyfly.channels.base import ChannelAdapter, OutgoingMessage
+from windyfly.channels.base import ChannelAdapter, OutgoingMessage, stop_side_task
 from windyfly.channels.matrix_self import set_confirmed
 from windyfly.memory.database import Database
 from windyfly.memory.write_queue import WriteQueue
@@ -878,7 +878,7 @@ class WindyFlyMatrixBot(ChannelAdapter):
             text = "I could not finish this." if kind == "request" else _tw.timeout_line(task, me, names, timed_out=False)
             status = "blocked"
         finally:
-            await self._stop_typing(typing_task)
+            await stop_side_task(typing_task)
             try:
                 await self.client.room_typing(room_id, False)
             except Exception as e:
@@ -1028,14 +1028,6 @@ class WindyFlyMatrixBot(ChannelAdapter):
                 await self.client.room_typing(room_id, True, timeout=_TYPING_TIMEOUT_MS)
             except Exception as e:  # noqa: BLE001
                 logger.debug("Failed to refresh typing indicator: %s", e)
-
-    @staticmethod
-    async def _stop_typing(task: "asyncio.Task[None]") -> None:
-        task.cancel()
-        try:
-            await task
-        except (asyncio.CancelledError, Exception):  # noqa: BLE001
-            pass
 
     async def _on_message(
         self,
@@ -1396,7 +1388,7 @@ class WindyFlyMatrixBot(ChannelAdapter):
             logger.error("Agent respond failed: %s", classified.log_message)
             response_text = classified.user_message
         finally:
-            await self._stop_typing(typing_task)
+            await stop_side_task(typing_task)
             _phone.clear_turn(session_id)
             if agent_turn:
                 _silence.clear_agent_turn(session_id)

@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from windyfly.channels import matrix_bot as mb
+from windyfly.channels.base import stop_side_task
 from windyfly.channels.matrix_bot import WindyFlyMatrixBot
 from windyfly.memory.database import Database
 from windyfly.memory.write_queue import WriteQueue
@@ -92,7 +93,7 @@ async def test_a_failed_typing_send_does_not_kill_the_refresher():
     bot.client.room_typing = AsyncMock(side_effect=[RuntimeError("network"), None, None, None, None, None, None])
     task = asyncio.create_task(bot._keep_typing("!r:x"))
     await asyncio.sleep(0.06)
-    await WindyFlyMatrixBot._stop_typing(task)
+    await stop_side_task(task)
     assert task.done()
     assert bot.client.room_typing.await_count >= 2   # it kept going after the first failure
     db.close()
@@ -104,6 +105,6 @@ async def test_the_refresher_sleeps_first_so_a_fast_turn_sends_one_sign():
     bot = _bot(db)
     task = asyncio.create_task(bot._keep_typing("!r:x"))
     await asyncio.sleep(0)
-    await WindyFlyMatrixBot._stop_typing(task)
+    await stop_side_task(task)
     assert bot.client.room_typing.await_count == 0
     db.close()

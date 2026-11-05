@@ -28,7 +28,7 @@ import os
 import time
 from typing import Any
 
-from windyfly.channels.base import ChannelAdapter, IncomingMessage, OutgoingMessage
+from windyfly.channels.base import ChannelAdapter, IncomingMessage, OutgoingMessage, stop_side_task
 # Slash-command parsers extracted to a channel-agnostic module
 # (PR #130) so future Matrix / iMessage / WhatsApp adapters can
 # reuse them without copy-paste. Telegram-specific reply text +
@@ -909,11 +909,7 @@ class TelegramChannel(ChannelAdapter):
         try:
             outgoing = await self.on_message(msg)
         finally:
-            typing_task.cancel()
-            try:
-                await typing_task
-            except (asyncio.CancelledError, Exception):
-                pass
+            await stop_side_task(typing_task)
 
         # on_message returns a str (per ChannelAdapter protocol), not
         # an OutgoingMessage — same pattern the text-path _handle uses.
@@ -1841,11 +1837,7 @@ class TelegramChannel(ChannelAdapter):
         try:
             response = await self.on_message(msg)
         finally:
-            typing_task.cancel()
-            try:
-                await typing_task
-            except (asyncio.CancelledError, Exception):
-                pass
+            await stop_side_task(typing_task)
         await self._send_long_reply(update.message, response)
         self._last_message_at = time.time()
 
