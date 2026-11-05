@@ -64,6 +64,10 @@ windy-fly-site #22 16:00Z GO stands.
   RENDERS a GLM pick despite null fields; Mind to render it through the real handler. Told Boss. Probe PONG took 83s.
   Boss 14:0xZ: with the first green Sonnet journey, post its timing (turn_timing total + llm). If a reply to a person
   still takes >30s, open an item: the slow step + whether the person sees a thinking sign meanwhile (honest-progress).
+  14:1xZ: Mind's real-route render of /agents/me = picked_by null, effective null (NOT GLM); grants/me carries
+  default_model GLM raw, but the Fly reads only state/state_reason from it. No 403/422 retry warnings. Zero's checkout
+  moved 10-22, then 10-29 20:44Z (after the first GLM call at 11:44Z), so I asked Mind to check its own asked-capture
+  / any 10-27..10-29 change. Hunt paused; the AFTER decides.
 - Journey: if Boss's GLM decision runs past Fri 11-06 18:00Z, open a windy-uptime PR adding hold_until + hold_reason for
   windy-agent-journey in checks.json naming that wait (Boss's line allows it; Cloud reads).
 - MORNING SUMMARY SENT 10:11Z (fleet-say). #726 MERGED 52a9fdd9, #727 MERGED 1b2ba9cb (~10:12Z).
