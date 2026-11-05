@@ -26,7 +26,7 @@ CL5a 17:20Z: send Boss its BEFORE (pin, what changes, Hub's OK line, rollback) B
 windy-fly-site #22 16:00Z GO stands.
 - CONNECT LAB #1 DONE 13:00-13:07Z (closed early by Connect): legs 1, 2, 5 PASS; leg 3 = a real gap (Hub ticket 201,
   so a SECOND agent hatched, not a move); leg 4 not run (its own rotate lab later, Connect calls). AFTER BOARD 13:09:49Z,
-  all 3 homes shredded; Hub purges ET26-TEST-TETP + ET26-TEST-P0UG. Build was master b0c98dd0 (Connect OK).
+  all 3 homes shredded; Hub PURGED ET26-TEST-TETP + ET26-TEST-P0UG (Boss 13:42Z, done clean). Build was master b0c98dd0.
 - ASKED Hub 13:10Z (privacy): the plaintext memory copy memory-<id>.ndjson left in the state dir after a VERIFIED import
   (bring_home.install_memory). Options (a) keep, (b) delete after a verified import (my pick), (c) TTL. Build what Hub
   picks; cc Windy Connect on the answer (its CLI _save_memory does the same, and it will match).
