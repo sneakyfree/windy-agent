@@ -17,7 +17,9 @@ Last full rewrite: 2026-11-04 18:35Z (before Grant's restart of every Veron Clau
 lab owner only, flag deleted 14:00Z). Code mode-B lab 15:00-15:30Z GO stands: CONFIRM Hub read the fixed lab script first.
 CL5a 17:20Z: send Boss its BEFORE (pin, what changes, Hub's OK line, rollback) BY 15:00Z, then he posts the GO.
   SENT to Boss 13:2xZ (fleet-say ts-macmini): pin 633cfc85 (dd38ea0 in), both services active since 11-02, 0 ERROR today,
-  WINDY_OWNER_CALL unset. Waiting for Boss's GO line on the BOARD (own line, not a relay).
+  WINDY_OWNER_CALL unset. Boss GO ON THE BOARD 13:24:15Z (17:20-17:45Z, as written + Hub's 3 conditions). EXTRA
+  CONDITION: the journey must be GREEN on claude-sonnet-5-5 (after Mind's 15:00-15:15Z write) BEFORE 17:20Z; if not, tell
+  Boss and do NOT flip (never two changes on Zero at once). ~17:10Z: tell Windy Call "about to flip"; flip on Call's GO.
   (old plan) ~14:20Z read Zero READ-ONLY: both services active, the sha (draft
   pin 633cfc85 or later, must contain dd38ea0), WINDY_OWNER_CALL unset, 0 ERROR today; then fill GO-DRAFTS/CL5a from
   that and send the BEFORE to Boss by fleet-say by 14:45Z. The 11:00Z nudge is moot (Boss answered at ~10:12Z).
