@@ -39,6 +39,9 @@ windy-fly-site #22 16:00Z GO stands.
   RED on purpose until then; parser fix for the new bracket header comes with whatever Boss decides. Tell Cloud.
 - #731 OPENED 13:14Z (Hub's (b): wipe the plaintext memory copy after a VERIFIED import; keep 0600 + reason line when not
   proven, incl. unverified per Hub). Head 3b93a59d; Hub STAMPED 13:16Z; Boss asked 13:17Z.
+- GRANT DECIDED (Boss BOARD 13:17:41Z): Zero = claude-sonnet-5-5; Mind writes it today. Journey stays RED until Mind's
+  AFTER. Then: mv jobs/windy-agent-journey.sh.new over the .sh (staged 13:2xZ: bracket header, model last; expects
+  claude-sonnet-5-5), run the service once by hand, and post the first green run on the BOARD. Tell Cloud.
 - Journey: if Boss's GLM decision runs past Fri 11-06 18:00Z, open a windy-uptime PR adding hold_until + hold_reason for
   windy-agent-journey in checks.json naming that wait (Boss's line allows it; Cloud reads).
 - MORNING SUMMARY SENT 10:11Z (fleet-say). #726 MERGED 52a9fdd9, #727 MERGED 1b2ba9cb (~10:12Z).
