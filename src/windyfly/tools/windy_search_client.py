@@ -8,6 +8,8 @@ service. Configuration:
                               presence is what turns web access on
     WINDY_PASSPORT_EPT        legacy alias for the EPT, still honoured
     WINDY_SEARCH_BASE_URL     optional; defaults to https://api.windysearch.com
+    WINDY_SEARCH_EPT_AGENT    "1" = mode B: the agent's own EPT+agent + a DPoP proof per request (off by default;
+                              see "Mode B" below)
 
 Until 2026-09-23 this client required WINDY_PASSPORT_EPT + an explicit
 base URL, while hatch/refresh write the EPT to ETERNITAS_PASSPORT_TOKEN —
@@ -144,6 +146,83 @@ def _auth_header() -> dict[str, str]:
     return {"Authorization": f"Bearer {_ept()}"}
 
 
+# ── Mode B: the agent's own EPT+agent (aud windy-search) + a DPoP proof per request (windy-search #129, DARK) ──
+#
+# Built to Windy Search's answers (11-04): refusals are 401 {"detail": "<code>"}. ONLY "Search's mode B is off" (the
+# two _FALLBACK_DETAILS) sends once more with the stored EPT. A new token fixes _REMINT_DETAILS; a fresh proof fixes
+# _FRESH_PROOF_DETAILS (one retry each). Everything else stands as answered and NEVER falls back: 401 EPT revoked /
+# EPT suspended / ept_before_cutoff / agent_paused (the pause is per passport: the stored EPT gets it too), every 503
+# (revocation / suspension / pause state unavailable: retry later, same credential), 409 (BYO provider blocked), 429.
+# A fallback answered 401 mode_b_required (after the legacy EPT retires) is final for that request.
+# One capability gap (Search 11-04, #129 @ acd60a1e): a mode-B token is never forwarded to Windy Hand, so a mode-B
+# /web/fetch that RENDERS gets 502 "render failed: ..." (refunded). That one is not a refusal: one send with the
+# stored EPT is fine. Plain fetches and /v1/search are unaffected.
+SEARCH_AUD = "windy-search"
+SEARCH_FLAG = "WINDY_SEARCH_EPT_AGENT"
+_FALLBACK_DETAILS = frozenset({"wrong_token_type", "bearer ept required in authorization header"})
+_REMINT_DETAILS = frozenset({"wrong_audience", "invalid_token", "expired", "mode_b_required"})
+_FRESH_PROOF_DETAILS = frozenset({"dpop_required", "invalid_dpop", "dpop_replay"})
+
+
+def search_mode_b_enabled() -> bool:
+    return os.environ.get(SEARCH_FLAG, "").strip() == "1"
+
+
+def _detail(resp: httpx.Response) -> str:
+    """The refusal code from a 401 body (lowercased); "" when there is none."""
+    try:
+        body = resp.json()
+    except ValueError:
+        return ""
+    detail = body.get("detail") if isinstance(body, dict) else None
+    return detail.strip().lower() if isinstance(detail, str) else ""
+
+
+def _agent_headers(url: str) -> dict[str, str] | None:
+    """EPT+agent (aud windy-search) + a FRESH proof (new jti) for ONE send, or None (then the stored EPT)."""
+    from windyfly.agent import service_auth
+
+    try:
+        return service_auth.agent_headers(SEARCH_AUD, "POST", url)
+    except service_auth.ServiceAuthError as exc:
+        logger.info("[search-auth] no EPT+agent for windy-search (%s); stored EPT", exc.code)
+        return None
+
+
+def _post(url: str, payload: dict[str, Any], timeout: float, *, renders: bool = False) -> httpx.Response:
+    """POST one Search request: the stored EPT (flag off), or mode B with Search's retry table (flag on)."""
+    json_type = {"Content-Type": "application/json"}
+
+    def send(auth: dict[str, str]) -> httpx.Response:
+        return httpx.post(url, headers={**auth, **json_type}, json=payload, timeout=timeout)
+
+    if not search_mode_b_enabled():
+        return send(_auth_header())
+    agent = _agent_headers(url)
+    if agent is None:
+        return send(_auth_header()) if _ept() else send({})
+    resp = send(agent)
+    detail = _detail(resp) if resp.status_code == 401 else ""
+    if detail in _REMINT_DETAILS or detail in _FRESH_PROOF_DETAILS:
+        if detail in _REMINT_DETAILS:
+            from windyfly.agent import service_auth
+
+            service_auth.forget_token()
+        again = _agent_headers(url)  # always a new proof: a reused jti counts as a replay
+        if again is not None:
+            resp = send(again)
+            detail = _detail(resp) if resp.status_code == 401 else ""
+    if renders and resp.status_code == 502 and _detail(resp).startswith("render failed") and _ept():
+        logger.info("[search-auth] mode-B render not available yet (502 render failed); sent with the stored EPT")
+        return send(_auth_header())
+    if detail in _FALLBACK_DETAILS and _ept():
+        logger.info("[search-auth] 401 (%s) to the EPT+agent: Search's mode B is off; sent with the stored EPT", detail)
+        return send(_auth_header())  # its answer is final, mode_b_required included: no loop back to mode B
+    if resp.status_code == 401:
+        logger.info("[search-auth] 401 (%s) to the EPT+agent; not falling back", detail or "no code")
+    return resp
+
+
 # ── Budget exhausted: stop calling until it resets ───────────────────
 #
 # Windy Search returns 429 for BOTH limits; headers tell them apart:
@@ -225,12 +304,8 @@ def search_via_windy_search(query: str, limit: int = 5) -> dict[str, Any]:
         return {"query": query, "results": [], "provider": "windy-search-error",
                 **_blocked_fields()}
     try:
-        resp = httpx.post(
-            f"{_base_url()}/v1/search",
-            headers={**_auth_header(), "Content-Type": "application/json"},
-            json={"query": query, "max_results": max(1, min(int(limit), 50))},
-            timeout=_TIMEOUT,
-        )
+        resp = _post(f"{_base_url()}/v1/search",
+                     {"query": query, "max_results": max(1, min(int(limit), 50))}, _TIMEOUT)
         resp.raise_for_status()
         payload = resp.json()
     except httpx.HTTPStatusError as e:
@@ -289,12 +364,9 @@ def fetch_via_windy_search(
     if _budget_blocked():
         return {"url": url, "content": "", **_blocked_fields()}
     try:
-        resp = httpx.post(
-            f"{_base_url()}/web/fetch",
-            headers={**_auth_header(), "Content-Type": "application/json"},
-            json={"url": url, "max_chars": max_chars, "offset": offset, "render": render},
-            timeout=_RENDER_TIMEOUT if render != "off" else _TIMEOUT,
-        )
+        resp = _post(f"{_base_url()}/web/fetch",
+                     {"url": url, "max_chars": max_chars, "offset": offset, "render": render},
+                     _RENDER_TIMEOUT if render != "off" else _TIMEOUT, renders=render != "off")
         resp.raise_for_status()
         payload = resp.json()
     except httpx.HTTPStatusError as e:

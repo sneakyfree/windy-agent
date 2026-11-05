@@ -1141,6 +1141,22 @@ def _register_all():
 
         # ── With arg: resolve + persist ──────────────────────────
         picked = mind_catalog.resolve(arg, catalog) if catalog else None
+        if catalog and picked is None:
+            # A family word whose every model is down, or a hand-list alias (smartest, balanced, ...): the catalog row
+            # it names, so Mind's availability decides, never the hand list (Boss 11-03: never confirm a switch Mind
+            # will refuse).
+            fam = mind_catalog.resolve_any(arg, catalog)
+            alias = resolve(arg)
+            picked = fam or next((m for m in catalog if alias is not None and m["id"] == alias.id), None)
+        if picked is not None and not picked.get("available_now", True):
+            name = picked.get("display_name") or picked["id"]
+            refused = f"I can't switch to {name}: {mind_catalog.unavailable_words(picked.get('unavailable_reason'))}."
+            current = _resolve_active_model(platform, channel_id)
+            cur_row = next((m for m in catalog if m.get("id") == current), None) if catalog else None
+            if cur_row is not None and not cur_row.get("available_now", True):
+                # the current model is down too: "still answering with X" would be untrue (Hub on #706)
+                return f"{refused} Windy Mind will pick one for me."
+            return f"{refused} I'm still answering with {current}."
         if picked is not None:
             if not platform or not channel_id:
                 return (
@@ -1150,16 +1166,15 @@ def _register_all():
                 )
             from windyfly.agent.session_reset import set_model as _set_model
             _set_model(platform, channel_id, picked["id"])
-            down = "" if picked.get("available_now", True) else " It isn't available right now, so Windy Mind may answer on another model until it is."
             return (
                 f"🤖 Switched to {picked.get('display_name') or picked['id']} ({picked['id']}). "
-                f"Effective on your next message; current conversation carries over. Use /new for a clean break.{down}"
+                f"Effective on your next message; current conversation carries over. Use /new for a clean break."
             )
+        if catalog:
+            return (f"🤔 Windy Mind doesn't offer me '{arg}'. Try one of: "
+                    + ", ".join(m["id"] for m in catalog[:8]) + ".")
         target = resolve(arg)
         if target is None:
-            if catalog:
-                return (f"🤔 Windy Mind doesn't offer me '{arg}'. Try one of: "
-                        + ", ".join(m["id"] for m in catalog[:8]) + ".")
             return (
                 f"🤔 I don't know the model '{arg}'. Try one of: "
                 "opus, sonnet, haiku (or smartest, balanced, fastest)."

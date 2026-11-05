@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from unittest.mock import MagicMock
 
 import pytest
@@ -115,6 +116,45 @@ def test_book_sends_idempotency_key_and_reports_slot_taken(calls):
     args = calls[0][1]["json"]["arguments"]
     assert args["idempotency_key"] and calls[0][1]["json"]["name"] == "book_appointment"
     assert out["outcome"] == "slot_taken" and out["next_slots"] == ["x"]
+
+
+def test_book_in_progress_is_still_working_never_booked(calls):
+    # windy-calendar #127: while the first call with this key runs, Calendar answers ok:true + outcome in_progress
+    # whatever the arguments. Never "booked", never "made with different details".
+    _answer(calls, _resp(200, {"ok": True, "result": {"outcome": "in_progress", "retry_after_seconds": 5}}))
+    out = _cap("windy_calendar.book").handler(starts_at_utc="2026-10-12T15:00:00Z", booker_name="A",
+                                              booker_email="a@b.c", idempotency_key="k1")
+    assert out["ok"] is False and out["outcome"] == "in_progress" and out["retry_after_seconds"] == 5
+    assert out["say"] == "I'm still making that booking. Ask me again in a moment."
+    assert "different details" not in out["say"] and len(calls) == 1  # one call: no retry loop of its own
+
+
+def test_add_event_in_progress_is_still_working(add_on, calls):
+    _answer(calls, _resp(200, {"ok": True, "result": {"outcome": "in_progress", "retry_after_seconds": 5}}))
+    out = _cap("windy_calendar.add_event").handler(title="t", starts_at_utc="2026-10-12T15:00:00Z")
+    assert out["ok"] is False and out["say"] == "I'm still adding that one. Ask me again in a moment."
+
+
+def test_the_same_booking_always_sends_the_same_key(calls, monkeypatch):
+    """A retry (the model asks twice, a timeout) returns the FIRST booking, never "just taken" (Calendar 11-04)."""
+    monkeypatch.setenv("ETERNITAS_PASSPORT", "ET26-BOOK-0001")
+    book = _cap("windy_calendar.book").handler
+    base = {"starts_at_utc": "2026-10-12T15:00:00Z", "booker_name": "A", "booker_email": "Ann@Example.com"}
+
+    def key(**kw):
+        _answer(calls, _resp(200, {"ok": True, "result": {"outcome": "booked"}}))
+        book(**{**base, **kw})
+        return calls[-1][1]["json"]["arguments"]["idempotency_key"]
+
+    first = key()
+    assert re.fullmatch(r"[A-Za-z0-9._:-]{8,128}", first)                 # Calendar's idempotency_key pattern
+    assert key() == first                                                   # a retry: the same key
+    assert key(booker_email=" ann@example.COM ") == first                   # the email, lowercased
+    assert key(booker_name="Ann B", booker_phone="+15550100", booker_note="x", booker_tz="America/Denver") == first
+    assert key(starts_at_utc="2026-10-12T16:00:00Z") != first               # another time: another booking
+    assert key(booker_email="bob@example.com") != first                     # another booker: another booking
+    monkeypatch.setenv("ETERNITAS_PASSPORT", "ET26-BOOK-0002")
+    assert key() != first                                                   # another agent: another key
 
 
 def test_confirm_required_waits_and_is_not_retried(calls):
@@ -565,3 +605,22 @@ def test_book_passes_outside_open_hours_through(calls):
     _answer(calls, _resp(200, {"ok": True, "result": {"outcome": "booked", "outside_open_hours": True}}))
     out = _cap("windy_calendar.book").handler(starts_at_utc="2026-10-23T01:00:00Z", booker_name="A", booker_email="a@b.c")
     assert out["ok"] is True and out["outside_open_hours"] is True
+
+
+
+# ── windy-contracts #275: a reused key with different details (422 idempotency_key_reused) ───────────────────────────
+
+@pytest.mark.parametrize("tool,cap,args,words", [
+    ("book_appointment", "windy_calendar.book",
+     {"starts_at_utc": "2026-10-12T15:00:00Z", "booker_name": "A", "booker_email": "a@b.c"},
+     "This booking was already made with different details; ask me to change that booking instead of booking again."),
+    ("add_event", "windy_calendar.add_event",
+     {"title": "Dentist", "starts_at_utc": "2026-10-12T15:00:00Z", "duration_minutes": 30},
+     "That event is already on the calendar with different details; ask me to change it instead."),
+])
+def test_a_reused_key_with_other_details_is_a_true_sentence_never_slot_taken(calls, monkeypatch, tool, cap, args, words):
+    monkeypatch.setenv("WINDY_CALENDAR_ADD_EVENT", "1")
+    _answer(calls, _resp(422, {"ok": False, "error": "idempotency_key_reused"}))
+    out = wc.invoke(tool, dict(args, idempotency_key="k-12345678"), write=True)
+    assert out == {"ok": False, "code": "idempotency_key_reused", "say": words}
+    assert len(calls) == 1                                                  # never retried: nothing was made

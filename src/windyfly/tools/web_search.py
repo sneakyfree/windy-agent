@@ -67,9 +67,34 @@ _HARD_GATE_ERROR = (
 )
 
 
+# A computer paired with `windy home pair` (#700) holds only its own registered key: no stored passport token. Windy
+# Search takes that key form (its mode B) only from ~11-11. Until Fly speaks it, that computer says so plainly: it's
+# not a setup error, and "run windy ept refresh" would send the person after a fix that doesn't exist (Boss 11-04).
+_NOT_ON_THIS_COMPUTER_YET = (
+    "I can't search the web from this computer yet. I can answer from what I already know."
+)
+
+
+def _key_only_here() -> bool:
+    try:
+        from windyfly.eternitas import agent_keys
+
+        return agent_keys.has_registered_key()
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _not_here_yet() -> dict[str, Any]:
+    return {"ok": False, "code": "web_search_not_on_this_computer_yet", "say": _NOT_ON_THIS_COMPUTER_YET,
+            "for_you": "Tell the person the 'say' sentence plainly. Do NOT retry, and don't suggest commands or "
+                       "setup steps: there is nothing for them to fix."}
+
+
 def web_search(query: str, limit: int = 5) -> dict[str, Any]:
     """Search the web through windy-search (hard-gated)."""
     if not is_routed_through_search():
+        if _key_only_here():
+            return _not_here_yet()
         raise RuntimeError(_HARD_GATE_ERROR)
     return search_via_windy_search(query, limit)
 
@@ -238,6 +263,8 @@ def fetch_url(
     again with offset=next_offset to read past the slice cap.
     """
     if not is_routed_through_search():
+        if _key_only_here():
+            return _not_here_yet()
         raise RuntimeError(_HARD_GATE_ERROR)
     result = fetch_via_windy_search(url, max_chars=max_chars, offset=offset, render=render)
     if _is_windy_search_failure(result.get("error")):

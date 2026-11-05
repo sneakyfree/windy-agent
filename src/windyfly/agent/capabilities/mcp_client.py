@@ -28,6 +28,7 @@ no SDK and no live servers.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from dataclasses import dataclass
@@ -150,11 +151,50 @@ class _SDKConnector(_Connector):
         async with await self._session(spec) as s:
             resp = await s.call_tool(tool, arguments or {})
             texts = [c.text for c in resp.content if getattr(c, "type", None) == "text"]
-            return {"isError": bool(getattr(resp, "isError", False)),
-                    "content": "\n".join(texts)}
+            out: dict[str, Any] = {"isError": bool(getattr(resp, "isError", False)),
+                                   "content": "\n".join(texts), "blocks": texts}
+            structured = getattr(resp, "structuredContent", None)
+            if isinstance(structured, dict):
+                out["structured"] = structured
+            return out
 
 
 _CONNECTOR: _Connector = _SDKConnector()
+
+# hands.mcp.v1 rev.7 consent_surface_rule (windy-contracts #278; Boss 11-04 16:27Z: consent is always a human act).
+# An input tool aimed at a Windy sign-in / approval / consent / password surface (or an unidentifiable target) answers
+# ok:false error "windy_consent_surface" and sends nothing. For Fly that answer is FINAL: no retry, no other input
+# tool to get round it; the person does that step themselves.
+CONSENT_SURFACE_ERROR = "windy_consent_surface"
+CONSENT_SURFACE_SAY = ("That's a Windy sign-in, approval or consent screen, so I didn't type or click there. "
+                       "Only you can do that step.")
+
+
+def _is_refusal_body(body: Any) -> bool:
+    return isinstance(body, dict) and body.get("ok") is False and body.get("error") == CONSENT_SURFACE_ERROR
+
+
+def _consent_surface_refusal(content: Any, result: Any = None) -> bool:
+    """True when a tool's answer is the consent-surface refusal (JSON {"ok": false, "error": "windy_consent_surface"}).
+
+    rev.7 names the body but not how many content blocks carry it, so it counts in ANY of: the whole text, any ONE text
+    block (an engine may add a human note in a second block: Hub on #719), or the MCP structuredContent."""
+    candidates: list[Any] = [content]
+    if isinstance(result, dict):
+        candidates += list(result.get("blocks") or []) + [result.get("structured")]
+    for c in candidates:
+        if isinstance(c, dict):
+            if _is_refusal_body(c):
+                return True
+            continue
+        if not isinstance(c, str) or CONSENT_SURFACE_ERROR not in c:
+            continue
+        try:
+            if _is_refusal_body(json.loads(c)):
+                return True
+        except (TypeError, ValueError):
+            continue
+    return False
 
 
 # ── handlers ───────────────────────────────────────────────────────────
@@ -203,8 +243,15 @@ def _make_handlers(allowlist: dict[str, ServerSpec]):
             result = await _CONNECTOR.call(_resolve(server, allowlist), tool, arguments or {})
         except Exception as e:
             return {"ok": False, "error": f"mcp.call to '{server}/{tool}' failed: {e}"}
+        content = result.get("content", result)
+        if _consent_surface_refusal(content, result):
+            logger.info("mcp: %s/%s refused a Windy consent surface; final, not retried", server, tool)
+            return {"ok": False, "final": True, "do_not_retry": True, "error": CONSENT_SURFACE_ERROR,
+                    "server": server, "tool": tool, "say": CONSENT_SURFACE_SAY,
+                    "note": ("Final: do not retry this, and do not use any other input tool on that screen. "
+                             "Tell the person what 'say' says.")}
         return {"ok": not result.get("isError", False), "server": server, "tool": tool,
-                "result": result.get("content", result)}
+                "result": content}
 
     return list_servers, list_tools, call
 

@@ -233,20 +233,27 @@ def wait_for_pickup(url: str, token: str, *, expires_at: Any = None,
             sleep(POLL_S)
 
 
-def fetch_memory(url: str, token: str, *,
-                 transport: httpx.BaseTransport | None = None) -> tuple[int, dict[str, Any]]:
+def fetch_memory(url: str, token: str, *, transport: httpx.BaseTransport | None = None,
+                 progress: Callable[[int, int | None], None] | None = None) -> tuple[int, dict[str, Any]]:
     """GET the memory once. ``token`` "" = a capability URL (Windy Connect's pairing: the URL itself is the secret,
-    never logged), so no Authorization header at all."""
+    never logged), so no Authorization header at all. ``progress(bytes so far, Content-Length or None)`` after each
+    chunk: bytes as sent on the wire, so they compare with Content-Length even when the body is compressed."""
     headers = {"Accept": "application/json"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
     with httpx.Client(timeout=120.0, transport=transport) as client:
         with client.stream("GET", url, headers=headers) as resp:
+            try:
+                total: int | None = int(resp.headers.get("content-length") or "") or None
+            except ValueError:
+                total = None
             body = bytearray()
             for chunk in resp.iter_bytes():
                 body += chunk
                 if len(body) > MAX_MEMORY_BYTES:
                     return 413, {}  # refused past the cap (Hub on #700)
+                if progress is not None:
+                    progress(resp.num_bytes_downloaded, total)
             status = resp.status_code
     try:
         doc = json.loads(bytes(body)) if body else {}
@@ -380,7 +387,8 @@ def split_memory(ndjson: bytes) -> tuple[dict[str, Any], list[str]]:
     return {}, lines
 
 
-def import_memory(ndjson: bytes, *, handover_id: str, db: Any) -> dict[str, int]:
+def import_memory(ndjson: bytes, *, handover_id: str, db: Any,
+                  progress: Callable[[int, int], None] | None = None) -> dict[str, int]:
     """One episode per message event. The role comes from the event's own
     ``role`` or, for a Matrix event, from its sender (the agent's own id →
     assistant, anyone else → user). Anything else is counted, not guessed;
@@ -390,7 +398,9 @@ def import_memory(ndjson: bytes, *, handover_id: str, db: Any) -> dict[str, int]
     header, lines = split_memory(ndjson)
     agent_id = str(header.get("matrix_user_id") or "")
     imported = skipped = 0
-    for line in lines:
+    for n, line in enumerate(lines, 1):
+        if progress is not None:
+            progress(n, len(lines))
         try:
             ev = json.loads(line)
         except ValueError:
@@ -442,12 +452,15 @@ def _abs_db_path(db: Any) -> str:
 
 def install_memory(meta: dict[str, Any], passport: str, handover_id: str, token: str, *,
                    transport: httpx.BaseTransport | None = None,
-                   db_factory: Callable[[], Any] = _open_db) -> dict[str, Any]:
+                   db_factory: Callable[[], Any] = _open_db,
+                   progress: Callable[[str, int, int | None], None] | None = None) -> dict[str, Any]:
+    """``progress(stage, done, total)``: stage "download" (bytes) then "import" (events)."""
     out: dict[str, Any] = {"status": "none"}
     letter = str(meta.get("turnover_letter") or "")
     url = str(meta.get("url") or "")
     if url:
-        code, doc = fetch_memory(url, token, transport=transport)
+        code, doc = fetch_memory(url, token, transport=transport,
+                                 progress=(lambda n, total: progress("download", n, total)) if progress else None)
         if code != 200:
             out = {"status": "download_failed", "http": code}
         elif str(doc.get("format") or meta.get("format")) != MEMORY_FORMAT:
@@ -482,7 +495,9 @@ def install_memory(meta: dict[str, Any], passport: str, handover_id: str, token:
                 db = db_factory()
                 try:
                     out = {"status": "imported", "verified": want_sha,
-                           **import_memory(ndjson, handover_id=handover_id, db=db)}
+                           **import_memory(ndjson, handover_id=handover_id, db=db,
+                                           progress=(lambda n, total: progress("import", n, total))
+                                           if progress else None)}
                     if letter:
                         write_turnover(letter, passport, db)
                     out["db_path"] = _abs_db_path(db)
@@ -601,8 +616,21 @@ def run(
             token = str(get_token() or "")
             resp = start_handover(passport, token, key=key, transport=transport) if token else resp
         if resp.status_code == 409 and _code(resp) == "already_external":
-            console.print(f"  {name} already lives outside the cloud (brought home elsewhere). "
-                          "Nothing was changed here.")
+            # Home handover 1.1 H6/H7: the Hub says where the agent is. No state = unknown. This door never moves an
+            # agent between computers; `windy home pair` does, and asks first unless the last move never finished.
+            state = str(_json(resp).get("state") or "unknown")
+            from rich.markup import escape as _esc
+
+            safe = _esc(str(name))  # the agent's name is the owner's text: never rich markup (Hub on #720)
+            console.print({
+                "running_elsewhere": f"  {safe} already runs on another computer. Nothing was changed here. To move "
+                                     "it to this computer, run [bold]windy home pair[/bold].",
+                "move_unfinished": f"  {safe}'s last move to a computer didn't finish, so it isn't running anywhere "
+                                   "right now. Nothing was changed here. To bring it to this computer, run "
+                                   "[bold]windy home pair[/bold].",
+            }.get(state, f"  {safe} may be running on another computer. Nothing was changed here. To move it to this "
+                         "computer, run [bold]windy home pair[/bold]: you approve the move on your phone, then it "
+                         "stops on the other computer and starts here."))
             return rollback("already_external")
         if resp.status_code == 503:
             console.print("  The hub can't hand agents over right now (handover_unavailable). "

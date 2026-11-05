@@ -1,0 +1,1 @@
+- **A Vault key is given back only when Vault can take it back.** `vault.call_api` released every lease when it finished. But an item lease is `revocable: false` at Vault: it is never stored there and just expires, so each release was a refused call (404). Fly now reads `revocable` from the lease and releases only when it is true.

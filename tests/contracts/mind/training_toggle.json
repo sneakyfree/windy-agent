@@ -1,0 +1,5 @@
+{
+  "source": "sneakyfree/windy-mind api/app/services/training_policy.py TOGGLE['label'] at main a250328a99d9 (read 2026-11-04)",
+  "why": "Windy Fly's /model refusal names this setting word for word (Hub #9 on windy-agent #706). When Mind renames it (privacy v25), update this file and the test fails until Fly's words follow.",
+  "label": "Use outside AI companies for more free capacity"
+}

@@ -65,6 +65,9 @@ class Lease:
     expires_at: int
     # agent-routes 1.5.0 (V7.6 c2e): the item's OWNER-set https origins, normalized; empty = call_api refuses it.
     targets: tuple[str, ...] = ()
+    # Only a lease Vault marks revocable can be given back. An item lease (static_key) is revocable:false and never
+    # stored at Vault, so its release is a 404 by design (Vault 11-03): it just expires. Absent = false.
+    revocable: bool = False
 
     def __repr__(self) -> str:  # never print the value
         return f"Lease(lease_id={self.lease_id!r}, item_id={self.item_id!r}, expires_at={self.expires_at})"
@@ -225,12 +228,14 @@ def lease(item_id: str) -> Lease:
         if not isinstance(data, dict) or data.get("mode") != "static_key" or not isinstance(data.get("value_jwe"), str):
             raise VaultError("bad_response")
         lid, kid, exp = data.get("lease_id"), data.get("kid"), data.get("expires_at")
+        revocable = data.get("revocable") is True
         if not (isinstance(lid, str) and _LEASE_ID_RE.fullmatch(lid) and isinstance(kid, str) and isinstance(exp, int)):
             raise VaultError("bad_response")
         try:
             value = lease_jwe.decrypt_lease(data["value_jwe"], lambda k: lease_key.private_for(k), lease_kid=kid)
         except lease_jwe.UnknownLeaseKey:
-            _release_quietly(lid)  # that lease is OPEN at Vault: give it back before asking again
+            if revocable:
+                _release_quietly(lid)  # that lease is OPEN at Vault: give it back before asking again
             if attempt == 2:
                 raise VaultError("unknown_lease_key") from None
             logger.info("Vault lease to a key this agent no longer holds; re-registering the lease key")
@@ -239,7 +244,7 @@ def lease(item_id: str) -> Lease:
         except lease_jwe.LeaseDecryptError:
             raise VaultError("bad_lease") from None
         return Lease(lease_id=lid, item_id=str(data.get("item_id") or item_id), value=value, expires_at=exp,
-                     targets=_targets(data.get("targets")))
+                     targets=_targets(data.get("targets")), revocable=revocable)
     raise VaultError("unknown_lease_key")
 
 

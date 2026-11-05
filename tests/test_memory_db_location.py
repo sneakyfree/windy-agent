@@ -141,10 +141,17 @@ def test_the_ambiguity_event_names_which_place_won_never_a_path(monkeypatch):
                                                                      "state_folder")]   # closed keys: picked only
 
 
-def test_the_ambiguity_event_stays_off_until_admin_says_live(monkeypatch):
+def test_the_ambiguity_event_is_on_since_admin_said_live(monkeypatch):
+    # Admin "declared and live" 2026-11-04 21:16Z. Still inert without the ingest (admin_telemetry.enabled()).
     sent = _capture_events(monkeypatch)
+    assert dl.EMIT_AMBIGUOUS_EVENT is True
     dl._ambiguous_event("working_folder")
-    assert sent == [] and dl.EMIT_AMBIGUOUS_EVENT is False
+    assert [e["metadata"] for e in sent] == [{"picked": "working_folder"}]
+    from windyfly.observability import admin_telemetry as at
+
+    monkeypatch.setattr(at, "enabled", lambda: False)
+    dl._ambiguous_event("state_folder")
+    assert len(sent) == 1  # no ingest configured = nothing sent
 
 
 def test_status_from_another_folder_creates_no_database(tmp_path, monkeypatch):

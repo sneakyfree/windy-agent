@@ -32,9 +32,9 @@ from windyfly.platform import windy_state_dir
 logger = logging.getLogger(__name__)
 
 DEFAULT_DB_PATH = "data/windyfly.db"
-# agent.db_path_ambiguous is declared at Windy Admin but not live until its next HQ deploy (Admin 11-03 12:34Z: "don't
-# emit until I send 'declared and live'"). Turned on by its own one-line PR then; until then the warning log stands.
-EMIT_AMBIGUOUS_EVENT = False
+# agent.db_path_ambiguous: Windy Admin said "declared and live" 2026-11-04 21:16Z (HQ deploy 7d9138e1, BOARD
+# 21:16:56Z; a path-valued key is refused there). On since then; the warning log stays too.
+EMIT_AMBIGUOUS_EVENT = True
 _said: set[str] = set()
 
 
