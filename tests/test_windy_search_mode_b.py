@@ -176,6 +176,8 @@ def test_startup_names_the_search_base_once_with_mode_b_on(box, monkeypatch, cap
         client.log_mode_b_base()
     lines = [r.getMessage() for r in caplog.records if "Windy Search base" in r.getMessage()]
     assert len(lines) == 1 and words in lines[0] and (base or client.DEFAULT_BASE_URL).rstrip("/") in lines[0]
+    if base:
+        assert "SEARCH_PUBLIC_BASE_URL=https://search.example," in lines[0] and "401 invalid_dpop" in lines[0]
 
 
 def test_startup_says_nothing_with_mode_b_off(box, monkeypatch, caplog):

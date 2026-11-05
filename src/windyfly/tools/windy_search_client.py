@@ -171,16 +171,19 @@ def search_mode_b_enabled() -> bool:
 def log_mode_b_base() -> None:
     """At startup, with mode B on: ONE INFO line naming the Search base (Windy Search's flip list, 11-04).
 
-    Every proof's htu is built from this base, and Search counts a proof for any other host as bad, so a wrong
-    WINDY_SEARCH_BASE_URL shows up here before it shows up as a run of 401s. Silent while the flag is off."""
+    Every proof's htu is built from this base, and Search checks it against ITS OWN SEARCH_PUBLIC_BASE_URL + path
+    (Windy Search on #723): a non-default base is fine when that Search's public base equals it (a lab). On a
+    mismatch Search counts each proof as bad (log mode) or refuses it, 401 invalid_dpop (enforce). Saying the base
+    here makes a wrong WINDY_SEARCH_BASE_URL visible before the refusals. Silent while the flag is off."""
     if not search_mode_b_enabled():
         return
     base = _base_url()
     if base == DEFAULT_BASE_URL:
         logger.info("[search-auth] mode B on; Windy Search base %s (the default)", base)
     else:
-        logger.info("[search-auth] mode B on; Windy Search base %s, NOT the default %s: Search counts a proof made "
-                    "for another host as bad", base, DEFAULT_BASE_URL)
+        logger.info("[search-auth] mode B on; Windy Search base %s, NOT the default %s: that Search must have "
+                    "SEARCH_PUBLIC_BASE_URL=%s, or it counts each proof as bad (log mode) or refuses it, "
+                    "401 invalid_dpop (enforce)", base, DEFAULT_BASE_URL, base)
 
 
 def _detail(resp: httpx.Response) -> str:
