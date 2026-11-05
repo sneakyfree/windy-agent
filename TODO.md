@@ -59,6 +59,9 @@ windy-fly-site #22 16:00Z GO stands.
   DEFAULT_MODEL opus); zero-lab = other EPT; openclaw = none. No 'zai-org' string anywhere. Asked Mind for UA/IP/jti
   on a GLM row vs a Claude row to tell a second caller apart. NOTE for CL5a: the restart runs Desktop/Grant's
   Folder/windy-agent (cwd), not ~/.local/share/windyfly/agent; both at 633cfc8.
+  13:57Z FOUND: the GLM caller is Zero's own windy-0@matrix answering the journey probe (band 0); ::38 = Windy 0's DHCPv6
+  lease. No second caller. Only code path = picked_model() over the cached /v1/agents/me body, so Mind's endpoint likely
+  RENDERS a GLM pick despite null fields; Mind to render it through the real handler. Told Boss. Probe PONG took 83s.
 - Journey: if Boss's GLM decision runs past Fri 11-06 18:00Z, open a windy-uptime PR adding hold_until + hold_reason for
   windy-agent-journey in checks.json naming that wait (Boss's line allows it; Cloud reads).
 - MORNING SUMMARY SENT 10:11Z (fleet-say). #726 MERGED 52a9fdd9, #727 MERGED 1b2ba9cb (~10:12Z).
