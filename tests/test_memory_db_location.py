@@ -244,3 +244,18 @@ def test_a_deleted_working_folder_never_crashes_the_lookup(tmp_path, monkeypatch
     monkeypatch.chdir(gone)
     gone.rmdir()
     assert dl.resolve_db_path() == str(_state_db(tmp_path))
+
+
+def test_the_event_rides_the_same_once_key_as_the_warning(tmp_path, monkeypatch, caplog):
+    """Hub on #715: resolving the same ambiguous pair again (every open of the DB) sends no second event."""
+    import logging
+
+    home = _folder(tmp_path, "zero")
+    _make_db(home / "data" / "windyfly.db", episodes=19)
+    _make_db(_state_db(tmp_path))
+    monkeypatch.chdir(home)
+    with patch.object(dl, "_ambiguous_event") as event, caplog.at_level(logging.WARNING, logger=dl.__name__):
+        for _ in range(5):
+            dl.resolve_db_path()
+    event.assert_called_once_with("working_folder")
+    assert sum("AND in the state folder" in r.getMessage() for r in caplog.records) == 1
