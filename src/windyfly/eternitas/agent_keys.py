@@ -37,6 +37,7 @@ result dict with a ``status``.
 from __future__ import annotations
 
 import base64
+import calendar
 import hashlib
 import json
 import logging
@@ -518,12 +519,152 @@ def ensure_registered(*, transport: httpx.BaseTransport | None = None,
     """
     try:
         with _LOCK:
-            return _ensure(transport, path or credentials_path())
+            out = _ensure(transport, path or credentials_path())
+            prune_key_backups(transport=transport, path=path or credentials_path())
+            prune_env_backups()
+            return out
     except _Unsupported:
         return _note_unsupported()
     except Exception as exc:
         logger.warning("agent keys: unexpected %s", type(exc).__name__)
         return {"status": "failed", "error": type(exc).__name__}
+
+
+# ── old credentials backups (Hub on #714; rule OK'd by Hub 11-04 ~22:0xZ) ──────────────────────────────────
+#
+# save_credentials keeps a 0600 credentials.json.bak-<utc> on every save, so a retired private key lives on in old
+# backups for ever. Delete one ONLY when it is older than _BAK_KEEP_DAYS (by the stamp in its name) AND every kid in it
+# is in the current file or listed as RETIRED or REVOKED on the passport's live public key list. Any other status
+# (active, a status Eternitas may add later such as pending) or a kid the list doesn't show keeps the backup: it fails
+# safe (Hub on #725). An unreadable list deletes nothing that needs it; the newest backup is always kept; an
+# unparseable one is kept and counted. Deleting = overwrite with zeros + fsync, then unlink: best effort on
+# copy-on-write filesystems and SSDs, defence in depth, NOT a secure erase. Logs carry counts only, never a kid. (The env-file copies .bak-ept-/.bak-deregister-
+# have their own names and are not touched here.)
+_BAK_KEEP_DAYS = 30
+_GONE_STATUSES = ("retired", "revoked")
+
+
+def _bak_stamp(p: Path, base: str, kind: str = "") -> float | None:
+    rest = p.name[len(f"{base}.bak-{kind}"):]
+    try:
+        return calendar.timegm(time.strptime(rest[:16], "%Y%m%dT%H%M%SZ"))
+    except ValueError:
+        return None
+
+
+def _kids_in(data: dict[str, Any]) -> set[str] | None:
+    sec = data.get("eternitas")
+    if not isinstance(sec, dict):
+        return None
+    kids = {str(e.get("kid")) for e in sec.get("keys") or [] if isinstance(e, dict) and e.get("kid")}
+    if sec.get("kid"):
+        kids.add(str(sec["kid"]))
+    return kids
+
+
+def _wipe(p: Path) -> None:
+    size = p.stat().st_size
+    with open(p, "r+b") as fh:
+        fh.write(b"\0" * size)
+        fh.flush()
+        os.fsync(fh.fileno())
+    p.unlink()
+
+
+def prune_key_backups(*, transport: httpx.BaseTransport | None = None, path: Path | None = None,
+                      now: float | None = None) -> dict[str, int]:
+    """Delete old credentials backups whose keys are all current or retired/revoked (rule above). Never raises."""
+    counts = {"deleted": 0, "kept_recent": 0, "kept_active_key": 0, "kept_unreadable": 0, "kept_list_unknown": 0}
+    try:
+        path = path or credentials_path()
+        now = time.time() if now is None else now
+        dated = [(st, b) for b in path.parent.glob(f"{path.name}.bak-*")
+                 if (st := _bak_stamp(b, path.name)) is not None]
+        dated.sort()
+        if dated:
+            dated.pop()  # the newest is always kept
+            counts["kept_recent"] += 1
+        current = _kids_in(load_credentials(path)) or set()
+        old: list[tuple[Path, set[str]]] = []
+        for stamp, b in dated:
+            if now - stamp < _BAK_KEEP_DAYS * 86400:
+                counts["kept_recent"] += 1
+                continue
+            try:
+                kids = _kids_in(json.loads(b.read_text(encoding="utf-8")))
+            except (OSError, ValueError):
+                kids = None
+            if kids is None:
+                counts["kept_unreadable"] += 1
+                continue
+            old.append((b, kids - current))
+        gone: set[str] | None = set()  # kids the live list shows retired or revoked; only these may be wiped
+        if any(rest for _, rest in old):
+            gone = None
+            passport = current_passport()
+            if passport:
+                try:
+                    with httpx.Client(timeout=_HTTP_TIMEOUT, transport=transport) as client:
+                        listed = client.get(f"{_base_url()}/api/v1/bots/{passport}/keys")
+                    if listed.status_code == 200:
+                        gone = {str(k.get("kid")) for k in listed.json().get("keys", [])
+                                if k.get("status") in _GONE_STATUSES}
+                except Exception:  # noqa: BLE001
+                    gone = None
+        for b, rest in old:
+            if rest and gone is None:
+                counts["kept_list_unknown"] += 1
+            elif rest - (gone or set()):
+                counts["kept_active_key"] += 1
+            else:
+                _wipe(b)
+                counts["deleted"] += 1
+        if counts["deleted"] or counts["kept_unreadable"] or counts["kept_list_unknown"]:
+            logger.info("agent keys: old credentials backups: deleted %d, kept %d recent, %d with a key not "
+                        "retired/revoked, %d unreadable, %d (key list unreadable)", counts["deleted"], counts["kept_recent"],
+                        counts["kept_active_key"], counts["kept_unreadable"], counts["kept_list_unknown"])
+    except Exception as exc:  # noqa: BLE001  (never break ensure_registered)
+        logger.warning("agent keys: backup prune skipped (%s)", type(exc).__name__)
+    return counts
+
+
+def prune_env_backups(env_path: Path | None = None, *, now: float | None = None) -> dict[str, int]:
+    """The env-file copies ept_refresh (.bak-ept-) and deregister (.bak-deregister-) make hold that file's secrets
+    (an old EPT, API keys). Each is made owner-only (0600); per kind the newest is always kept, and one older than
+    _BAK_KEEP_DAYS is wiped (zeros + fsync) and removed (Hub 11-04). Counts only in logs. Never raises."""
+    counts = {"deleted": 0, "kept": 0}
+    try:
+        from windyfly.eternitas.ept_refresh import resolve_env_file
+        from windyfly.state_files import restrict_to_owner
+
+        env_path = env_path or resolve_env_file()
+        if env_path is None:
+            return counts
+        now = time.time() if now is None else now
+        for kind in ("ept-", "deregister-"):
+            dated = []
+            for b in env_path.parent.glob(f"{env_path.name}.bak-{kind}*"):
+                restrict_to_owner(b)
+                st = _bak_stamp(b, env_path.name, kind)
+                if st is None:
+                    counts["kept"] += 1
+                else:
+                    dated.append((st, b))
+            dated.sort()
+            if dated:
+                dated.pop()  # the newest of each kind is always kept
+                counts["kept"] += 1
+            for st, b in dated:
+                if now - st < _BAK_KEEP_DAYS * 86400:
+                    counts["kept"] += 1
+                else:
+                    _wipe(b)
+                    counts["deleted"] += 1
+        if counts["deleted"]:
+            logger.info("agent keys: old env-file backups: deleted %d, kept %d", counts["deleted"], counts["kept"])
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("agent keys: env-file backup prune skipped (%s)", type(exc).__name__)
+    return counts
 
 
 def _bearer(passport: str) -> tuple[str, str]:
