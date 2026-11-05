@@ -250,7 +250,11 @@ def test_reauth_required_signs_in_once_more():
 
 
 @pytest.mark.parametrize("status, extra, words", [
-    (409, {"error": "already_external"}, "already lives outside the cloud"),
+    (409, {"error": "already_external"}, "may be running on another computer"),            # no state = unknown
+    (409, {"error": "already_external", "state": "unknown"}, "may be running on another computer"),
+    (409, {"error": "already_external", "state": "running_elsewhere"}, "already runs on another computer"),
+    (409, {"error": "already_external", "state": "move_unfinished"}, "isn't running anywhere right now"),
+    (409, {"error": "already_external", "state": "a_new_state"}, "may be running on another computer"),
     (503, {"error": "handover_unavailable"}, "can't hand agents over right now"),
     (500, {"error": "boom"}, "refused the handover"),
 ])
@@ -378,3 +382,22 @@ def test_the_person_can_name_the_home(monkeypatch, given, expected):
 
     monkeypatch.setenv(bh.HOME_LABEL_ENV, given)
     assert bh.runtime_label() == expected
+
+
+def test_already_external_unknown_says_what_really_happens(tmp_path):
+    """Hub on #720: nothing asks before stopping the agent elsewhere; the phone approval does the asking."""
+    fake = Fake(start=(409, {"error": "already_external"}))
+    rc, out = _run(fake)
+    flat = " ".join(out.split())
+    assert rc == 1 and "it asks before stopping it there" not in flat
+    assert ("To move it to this computer, run windy home pair: you approve the move on your phone, then it stops on "
+            "the other computer and starts here.") in flat
+
+
+@pytest.mark.parametrize("state", ["running_elsewhere", "move_unfinished", "unknown"])
+def test_the_agent_name_is_never_rich_markup(tmp_path, state):
+    rec = hub_hatch.cloud_agent()
+    rec["agent_name"] = "[bold red]Pip[/bold red]"
+    hub_hatch._write_private_json(hub_hatch.cloud_agent_path(), rec)
+    rc, out = _run(Fake(start=(409, {"error": "already_external", "state": state})))
+    assert "[bold red]Pip[/bold red]" in out
