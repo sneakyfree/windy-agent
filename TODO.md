@@ -55,12 +55,11 @@ windy-fly-site #22 16:00Z GO stands.
   Only runtime source left = mind_self.picked_model()'s cached /self body. Mind's write bumps config_version: if the
   AFTER header says Sonnet, it was the cached body; if still GLM, look for a SECOND caller holding NPD1's token, and
   report to Boss BEFORE CL5a (Boss 13:43Z).
-  13:5xZ census: only windy-0@telegram + @matrix hold NPD1's EPT (run from Grant's Desktop checkout 633cfc8, clean,
-  DEFAULT_MODEL opus); zero-lab = other EPT; openclaw = none. No 'zai-org' string anywhere. Asked Mind for UA/IP/jti
-  on a GLM row vs a Claude row to tell a second caller apart. NOTE for CL5a: the restart runs Desktop/Grant's
-  Folder/windy-agent (cwd), not ~/.local/share/windyfly/agent; both at 633cfc8.
-  13:57Z FOUND: the GLM caller is Zero's own windy-0@matrix answering the journey probe (band 0); ::38 = Windy 0's DHCPv6
-  lease. No second caller. Only code path = picked_model() over the cached /v1/agents/me body, so Mind's endpoint likely
+  13:5xZ census: only Zero's own two services hold its token; no other holder found. Zero's code is 633cfc8, clean,
+  DEFAULT_MODEL opus. No 'zai-org' string anywhere. Asked Mind for request metadata on a GLM row vs a Claude row to
+  tell a second caller apart. NOTE for CL5a: the restart runs the live checkout (at 633cfc8; detail in GO-DRAFTS).
+  13:57Z FOUND: the GLM caller is Zero's own windy-0@matrix answering the journey probe (band 0); the caller
+  was Windy 0 itself (no second caller). Only code path = picked_model() over the cached /v1/agents/me body, so Mind's endpoint likely
   RENDERS a GLM pick despite null fields; Mind to render it through the real handler. Told Boss. Probe PONG took 83s.
   Boss 14:0xZ: with the first green Sonnet journey, post its timing (turn_timing total + llm). If a reply to a person
   still takes >30s, open an item: the slow step + whether the person sees a thinking sign meanwhile (honest-progress).
