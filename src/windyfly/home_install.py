@@ -23,6 +23,7 @@ import time
 from typing import Any, Callable
 
 import httpx
+from rich.markup import escape
 
 from windyfly.home_pair import Report
 
@@ -75,9 +76,17 @@ def install(console: Any, *, ticket: str, json_status: bool = True, lines: Any =
     rec = hub_hatch.cloud_agent()
     if rec.get("where") == "home":
         report("error", code="already_home", passport=rec.get("passport_number"),
-               say=f"  {rec.get('agent_name') or 'Your agent'} already lives on this computer.")
+               say=f"  {escape(str(rec.get('agent_name') or 'Your agent'))} already lives on this computer.")
         return 1
     home_pair._load_agent_env()
+    pending = home_pair._pending()
+    if pending and agent_keys.has_registered_key() and home_pair._key_passport() == pending.get("passport_number"):
+        # A round that registered this computer's key and then stopped: FINISH it, as home pair does (Hub 11-05). No
+        # new key, no kid line, no ticket read (one Word sends anyway is never used), and only the steps after the
+        # registration: the pickup code is spent, so the memory is reported lost, never fetched with a guess.
+        report("resumed", passport=pending.get("passport_number"))
+        return home_pair._finish(pending, report=report, now=now, mem={"status": "lost"})
+    home_pair._clear_pending()  # a marker without its registered key: that round never got that far
     if agent_keys.has_registered_key() or (agent_keys.current_passport() and
                                            agent_keys.current_passport() != rec.get("passport_number")):
         report("error", code="another_agent_here", say=home_pair._ANOTHER_SAY)
