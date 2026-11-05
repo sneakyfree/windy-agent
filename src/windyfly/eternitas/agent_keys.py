@@ -36,9 +36,8 @@ result dict with a ``status``.
 
 from __future__ import annotations
 
-import calendar
-
 import base64
+import calendar
 import hashlib
 import json
 import logging
@@ -535,11 +534,14 @@ def ensure_registered(*, transport: httpx.BaseTransport | None = None,
 #
 # save_credentials keeps a 0600 credentials.json.bak-<utc> on every save, so a retired private key lives on in old
 # backups for ever. Delete one ONLY when it is older than _BAK_KEEP_DAYS (by the stamp in its name) AND every kid in it
-# is in the current file or NOT active on the passport's live public key list. An unreadable list deletes nothing
-# that needs it; the newest backup is always kept; an unparseable one is kept and counted. Deleting = overwrite with
-# zeros + fsync, then unlink. Logs carry counts only, never a kid. (The env-file copies .bak-ept-/.bak-deregister-
+# is in the current file or listed as RETIRED or REVOKED on the passport's live public key list. Any other status
+# (active, a status Eternitas may add later such as pending) or a kid the list doesn't show keeps the backup: it fails
+# safe (Hub on #725). An unreadable list deletes nothing that needs it; the newest backup is always kept; an
+# unparseable one is kept and counted. Deleting = overwrite with zeros + fsync, then unlink: best effort on
+# copy-on-write filesystems and SSDs, defence in depth, NOT a secure erase. Logs carry counts only, never a kid. (The env-file copies .bak-ept-/.bak-deregister-
 # have their own names and are not touched here.)
 _BAK_KEEP_DAYS = 30
+_GONE_STATUSES = ("retired", "revoked")
 
 
 def _bak_stamp(p: Path, base: str, kind: str = "") -> float | None:
@@ -571,7 +573,7 @@ def _wipe(p: Path) -> None:
 
 def prune_key_backups(*, transport: httpx.BaseTransport | None = None, path: Path | None = None,
                       now: float | None = None) -> dict[str, int]:
-    """Delete old credentials backups whose keys are all current or no longer active (rule above). Never raises."""
+    """Delete old credentials backups whose keys are all current or retired/revoked (rule above). Never raises."""
     counts = {"deleted": 0, "kept_recent": 0, "kept_active_key": 0, "kept_unreadable": 0, "kept_list_unknown": 0}
     try:
         path = path or credentials_path()
@@ -596,30 +598,30 @@ def prune_key_backups(*, transport: httpx.BaseTransport | None = None, path: Pat
                 counts["kept_unreadable"] += 1
                 continue
             old.append((b, kids - current))
-        active: set[str] | None = set()
+        gone: set[str] | None = set()  # kids the live list shows retired or revoked; only these may be wiped
         if any(rest for _, rest in old):
-            active = None
+            gone = None
             passport = current_passport()
             if passport:
                 try:
                     with httpx.Client(timeout=_HTTP_TIMEOUT, transport=transport) as client:
                         listed = client.get(f"{_base_url()}/api/v1/bots/{passport}/keys")
                     if listed.status_code == 200:
-                        active = {str(k.get("kid")) for k in listed.json().get("keys", [])
-                                  if k.get("status") in ("active", None)}
+                        gone = {str(k.get("kid")) for k in listed.json().get("keys", [])
+                                if k.get("status") in _GONE_STATUSES}
                 except Exception:  # noqa: BLE001
-                    active = None
+                    gone = None
         for b, rest in old:
-            if rest and active is None:
+            if rest and gone is None:
                 counts["kept_list_unknown"] += 1
-            elif rest & (active or set()):
+            elif rest - (gone or set()):
                 counts["kept_active_key"] += 1
             else:
                 _wipe(b)
                 counts["deleted"] += 1
         if counts["deleted"] or counts["kept_unreadable"] or counts["kept_list_unknown"]:
-            logger.info("agent keys: old credentials backups: deleted %d, kept %d recent, %d with an active key, "
-                        "%d unreadable, %d (key list unreadable)", counts["deleted"], counts["kept_recent"],
+            logger.info("agent keys: old credentials backups: deleted %d, kept %d recent, %d with a key not "
+                        "retired/revoked, %d unreadable, %d (key list unreadable)", counts["deleted"], counts["kept_recent"],
                         counts["kept_active_key"], counts["kept_unreadable"], counts["kept_list_unknown"])
     except Exception as exc:  # noqa: BLE001  (never break ensure_registered)
         logger.warning("agent keys: backup prune skipped (%s)", type(exc).__name__)

@@ -1,8 +1,8 @@
 """Old credentials / env-file backups are pruned (Hub on #714; rule OK'd by Hub 11-04).
 
-credentials.json.bak-*: deleted only when older than 30 days AND every kid in it is in the current file or NOT
-active on the live public key list; unreadable list = nothing that needs it is deleted; the newest is always kept;
-an unparseable one is kept. Deleting = zeros + fsync, then unlink. Env-file copies (.bak-ept-, .bak-deregister-):
+credentials.json.bak-*: deleted only when older than 30 days AND every kid in it is in the current file or listed
+RETIRED/REVOKED on the live public key list (any other status, or not listed = kept: fails safe, Hub on #725);
+unreadable list = nothing that needs it is deleted; the newest is always kept; an unparseable one is kept. Deleting = zeros + fsync, then unlink. Env-file copies (.bak-ept-, .bak-deregister-):
 0600, newest of each kind kept, older than 30 days deleted. Logs carry counts, never a kid.
 """
 from __future__ import annotations
@@ -42,6 +42,7 @@ def box(tmp_path, monkeypatch):
         if state["list_status"] != 200:
             return httpx.Response(state["list_status"], json={"detail": "down"})
         keys = [{"kid": k, "status": "active"} for k in state["active"]] + [{"kid": "kid-gone", "status": "retired"}]
+        keys += state.get("extra", [])
         return httpx.Response(200, json={"keys": keys})
 
     state["transport"] = httpx.MockTransport(handler)
@@ -75,6 +76,22 @@ def test_an_old_backup_holding_a_key_still_active_is_kept(box):
     _bak(path, RECENT, ["kid-now"])
     out = _prune(path, state)
     assert keep.exists() and out["kept_active_key"] == 1
+
+
+@pytest.mark.parametrize("listed", ["pending", "grace", None, "absent"])
+def test_only_retired_or_revoked_lets_a_backup_go_anything_else_keeps_it(box, listed):
+    """Fail safe (Hub on #725): a status Eternitas may add later, a missing status, or a kid the list doesn't show
+    keeps the backup holding that private key."""
+    path, state = box
+    if listed != "absent":
+        state["extra"] = [{"kid": "kid-new-status", "status": listed}]
+    keep = _bak(path, OLD, ["kid-new-status"])
+    revoked = _bak(path, "20261002T000000Z", ["kid-revoked"])
+    state["extra"] = state.get("extra", []) + [{"kid": "kid-revoked", "status": "revoked"}]
+    _bak(path, RECENT, ["kid-now"])
+    out = _prune(path, state)
+    assert keep.exists() and out["kept_active_key"] == 1
+    assert not revoked.exists() and out["deleted"] == 1
 
 
 @pytest.mark.parametrize("status", [500, 503, 404])
