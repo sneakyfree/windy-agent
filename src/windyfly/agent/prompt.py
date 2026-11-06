@@ -132,6 +132,24 @@ def _is_first_contact(db: Database) -> bool:
 _URL_IN_MESSAGE = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
 
 
+# The product name was [agent] name's default before agents were "Windy Fly agents" (Grant 11-06): an agent whose
+# config still says it has no name of its own, so the IDENTITY line names no instance.
+_PRODUCT_NAMES = frozenset({"windy fly"})
+
+
+def agent_own_name(config: dict[str, Any] | None) -> str | None:
+    """The agent's own name from config ([agent] name), or None when it has none of its own.
+
+    A missing/blank name, or the old product-name default "Windy Fly", is no name. One line, at most 64 characters:
+    it goes into the system prompt."""
+    agent = (config or {}).get("agent") or {}
+    raw = agent.get("name") if isinstance(agent, dict) else None
+    name = " ".join(str(raw or "").split())[:64].strip()
+    if not name or name.casefold() in _PRODUCT_NAMES:
+        return None
+    return name
+
+
 def assemble_prompt(
     config: dict[str, Any],
     db: Database,
@@ -263,7 +281,7 @@ def assemble_prompt(
     #      reply. If a tool isn't in the list, say "I don't have a
     #      [tool] capability" — NOT "I'm sandboxed" or "my network
     #      is locked down" (those are confabulations).
-    #   3. Identity: you are a Windy Fly agent with your own name (this instance is Windy 0).
+    #   3. Identity: you are a Windy Fly agent with your own name ([agent] name in config, if it has one).
     #      Don't impersonate Kit 0 (the VPS coordinator) or OC1-7
     #      (OpenClaw GPU agents). When ecosystem agents are asked
     #      about, route via the user or via the appropriate tool.
@@ -293,10 +311,12 @@ def assemble_prompt(
         "capabilities you were not given for this reply."
     )
     if owner_ctx:
+        own_name = agent_own_name(config)
         runtime_guardrail += (
             "\n3. IDENTITY: You are a Windy Fly agent, and your own name is the "
             "one your soul gives you: use it when you introduce yourself. "
-            "This instance is Windy 0. You are NOT Kit 0 (VPS coordinator), Kit "
+            + (f"This instance is {own_name}. " if own_name else "")
+            + "You are NOT Kit 0 (VPS coordinator), Kit "
             "0C2-0C5, or OpenClaw OC1-OC7. Do not impersonate those "
             "agents or claim to dispatch them directly — refer the user "
             "to the right agent if a task needs one.\n"
