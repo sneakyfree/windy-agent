@@ -23,7 +23,8 @@ def load_soul(path: str = "SOUL.md") -> str:
         return soul_path.read_text(encoding="utf-8")
 
     return (
-        "You are Windy Fly, a personal AI companion. "
+        "You are a Windy Fly agent, a personal AI companion. "
+        "When you introduce yourself, use your own name if you have one. "
         "Be warm, helpful, and honest. Remember what the user tells you."
     )
 
