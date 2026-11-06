@@ -1,0 +1,1 @@
+- **Your agent uses its own name.** The default soul, and the built-in one an agent gets when it has no soul file, now say it is a Windy Fly agent and should introduce itself by its own name. The owner-turn identity line takes that name from `[agent] name` in its config (an agent still named "Windy Fly" gets no instance name), instead of a name written into the code.
