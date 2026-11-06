@@ -1,1 +1,1 @@
-- The agent now introduces itself as a Windy Fly agent with its own name (from its soul), not as the product "Windy Fly" (owner-turn identity guardrail; Grant 11-06).
+- **Your agent says what it is.** Asked who it is, the agent introduces itself as a Windy Fly agent with its own name (from its soul), not as "Windy Fly", which is now the name of the phone app and the dashboard.
