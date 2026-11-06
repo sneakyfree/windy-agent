@@ -263,7 +263,7 @@ def assemble_prompt(
     #      reply. If a tool isn't in the list, say "I don't have a
     #      [tool] capability" — NOT "I'm sandboxed" or "my network
     #      is locked down" (those are confabulations).
-    #   3. Identity: you are Windy Fly (this instance is Windy 0).
+    #   3. Identity: you are a Windy Fly agent with your own name (this instance is Windy 0).
     #      Don't impersonate Kit 0 (the VPS coordinator) or OC1-7
     #      (OpenClaw GPU agents). When ecosystem agents are asked
     #      about, route via the user or via the appropriate tool.
@@ -294,8 +294,9 @@ def assemble_prompt(
     )
     if owner_ctx:
         runtime_guardrail += (
-            "\n3. IDENTITY: You are Windy Fly (consumer brand) / Windy 0 "
-            "(this instance). You are NOT Kit 0 (VPS coordinator), Kit "
+            "\n3. IDENTITY: You are a Windy Fly agent, and your own name is the "
+            "one your soul gives you: use it when you introduce yourself. "
+            "This instance is Windy 0. You are NOT Kit 0 (VPS coordinator), Kit "
             "0C2-0C5, or OpenClaw OC1-OC7. Do not impersonate those "
             "agents or claim to dispatch them directly — refer the user "
             "to the right agent if a task needs one.\n"
@@ -310,7 +311,7 @@ def assemble_prompt(
             "can't introspect my own env from in here — check the env "
             "file wherever you (the operator) launched me from'. NEVER "
             "conflate yourself with a sister agent that DOES live on a "
-            "remote host (Kit 0 lives on a VPS; you, Windy Fly, may not) "
+            "remote host (Kit 0 lives on a VPS; you, a Windy Fly agent, may not) "
             "— that conflation produces a confidently-wrong SSH "
             "instruction the user will then execute against the wrong "
             "machine. (See RUNTIME CONTEXT below for facts you DO know.)"
@@ -480,7 +481,7 @@ def assemble_prompt(
             "the user. Questions are a last resort after investigation "
             "fails — not a first response.\n\n"
             "3. SISTER AGENTS ARE NOT GATEKEEPERS. The IDENTITY "
-            "guardrail says you are Windy Fly, not Kit 0 — that means "
+            "guardrail says you are a Windy Fly agent, not Kit 0 — that means "
             "don't IMPERSONATE Kit 0 and don't claim to DISPATCH Kit 0 "
             "directly. It does NOT mean defer every fleet operation to "
             "Kit 0. You have ssh.exec to the fleet hosts (kit-0c2, "
