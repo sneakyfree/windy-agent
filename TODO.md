@@ -13,6 +13,31 @@ Last full rewrite: 2026-11-04 18:35Z (before Grant's restart of every Veron Clau
 
 ## Now
 
+**Fri 11-06 (new; added the same turn as each promise)**
+- TILE Windy Agent (Boss BOARD 11-06 18:53:11Z: "Windy Fly" now names the phone app + dashboard; the agent tile becomes
+  "Windy Agent"): my BOARD line POSTED 18:57:06Z (due Mon 11-09 18:00Z). Label must change; link /app/fly true, but the panel
+  it opens still says Windy Fly (its tab + header must change in Word's same PR); badge true; no note; gap: no agent row in
+  the status feed, so an outage never shows "Having problems".
+- NAMING inventory sent to Boss (counts only): 105 user-facing "Windy Fly" strings in src (4 in the agent's own system
+  prompt), 162 in docs, 98 in tests. RENAME NOTHING before Boss's Fri 11-13 ruling. Repo description: proposed text sent;
+  change it only on Boss's own BOARD line naming it.
+- WINDY MEMORY (Boss kickoff BOARD 11-06 17:39:06Z; road FINAL 18:26:07Z): my codons go to Windy Word by WED 11-11 18:00Z
+  (draft sent 11-06). Tools windy_memory.list_recordings / read_transcript / search, owner-only, dark, on Chat's DM tool
+  road (4th sibling of phone-tools). Each result is signed by the owner's computer, then sealed to the agent's memory key
+  (JWE ECDH-ES+A256KW / X25519 / A256GCM, the Vault-lease profile); request_id once, 5 min; named test
+  test_recorded_words_never_act. Add the build lines here the day Word's section merges. DON'T BUILD YET.
+  Tue 11-10: run the contract draft's test vectors (Mobile drafts, Word makes the vectors) against my decrypter; report.
+- FRI PR: sandbox hardening (Boss's list, 11-05; details stay off this public file until the fix merges).
+- Sat 11-07 Mail AFTER lab: owner confirmed live 11-06 18:03Z (Hub + Mobile). GATE: no lab step naming that owner until
+  a same-hour BOARD line (LIVE + test-tagged + durable) from Hub or Mobile, ~10:45Z.
+- Search #124 (EPT+agent refused on the bearer path) moved to Sat 11-07 09:00-09:45Z: no change needed (we send the typ
+  EPT); one journey after Search says it's live.
+- Calendar tools-invoke 1.7.0 (contracts #299) adds starts_in_minutes + join_url. Live Calendar still sends 1.6.0; we don't
+  validate the schema. After Calendar's CK6.6 AFTER line (not before): optional PR to use them (fall back to starts_at_utc).
+- DONE 11-05: CL5a PASS (owner-call flag stays on); #713 mode-B re-lab PASS; #732, #733, #734 merged; Zero's slow replies
+  fixed (IPv4 preference + restart); sandbox drop-ins installed on the agent service and the lab (the lab no longer reads
+  the agent's .env; one key name, the lab's own value won, rotation: none).
+
 **Boss 11-05 ~10:12Z (relayed; stamps visible on GitHub):** #719 = KEEP. Connect lab 13:00Z GO stands (BOARD 11-04 20:26Z,
 lab owner only, flag deleted 14:00Z). Code mode-B lab 15:00-15:30Z GO stands: CONFIRM Hub read the fixed lab script first.
 CL5a 17:20Z: send Boss its BEFORE (pin, what changes, Hub's OK line, rollback) BY 15:00Z, then he posts the GO.
