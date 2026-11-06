@@ -27,9 +27,7 @@ Last full rewrite: 2026-11-04 18:35Z (before Grant's restart of every Veron Clau
   (JWE ECDH-ES+A256KW / X25519 / A256GCM, the Vault-lease profile); request_id once, 5 min; named test
   test_recorded_words_never_act. Add the build lines here the day Word's section merges. DON'T BUILD YET.
   Tue 11-10: run the contract draft's test vectors (Mobile drafts, Word makes the vectors) against my decrypter; report.
-- FRI PR (sandbox follow-ups, Boss): main() loads ONLY the explicit env file (no <git root>/.env, no bare load_dotenv());
-  /stop and /kill by exact PID with a clear message; shell.exec roots never the home; then a read-only home after
-  tracing the agent's writes; plan the agent's own OS user (needs Grant).
+- FRI PR: sandbox hardening (Boss's list, 11-05; details stay off this public file until the fix merges).
 - Sat 11-07 Mail AFTER lab: owner confirmed live 11-06 18:03Z (Hub + Mobile). GATE: no lab step naming that owner until
   a same-hour BOARD line (LIVE + test-tagged + durable) from Hub or Mobile, ~10:45Z.
 - Search #124 (EPT+agent refused on the bearer path) moved to Sat 11-07 09:00-09:45Z: no change needed (we send the typ
