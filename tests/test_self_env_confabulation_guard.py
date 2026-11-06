@@ -441,3 +441,27 @@ class TestTripwireRetryFlow:
         # Truth fallback present
         assert "misleading reason" in reply.lower() \
             or "don't currently have a tool" in reply.lower()
+
+
+class TestIdentityIsAWindyFlyAgent:
+    """Grant 11-06 ("they're windy fly agents"; Boss BOARD 2026-11-06T19:22:16Z): the agent says it is
+    a Windy Fly agent with its OWN name (from its soul), never the bare product name "Windy Fly"."""
+
+    def test_identity_line_says_a_windy_fly_agent_with_its_own_name(self, db):
+        from windyfly.agent.prompt import assemble_prompt
+        sys_text = assemble_prompt(_make_config(), db, "who are you?", "session-id-1")[0]["content"]
+        assert "IDENTITY: You are a Windy Fly agent, and your own name is the one your soul gives you" in sys_text
+        assert "use it when you introduce yourself" in sys_text
+
+    def test_old_bare_product_identity_is_gone(self, db):
+        from windyfly.agent.prompt import assemble_prompt
+        sys_text = assemble_prompt(_make_config(), db, "who are you?", "session-id-2")[0]["content"]
+        assert "You are Windy Fly (consumer brand)" not in sys_text
+        assert "you, Windy Fly, may not" not in sys_text
+        assert "says you are Windy Fly," not in sys_text
+
+    def test_follow_on_lines_use_the_same_words(self, db):
+        from windyfly.agent.prompt import assemble_prompt
+        sys_text = assemble_prompt(_make_config(), db, "who are you?", "session-id-3")[0]["content"]
+        assert "you, a Windy Fly agent, may not" in sys_text
+        assert "says you are a Windy Fly agent, not Kit 0" in sys_text

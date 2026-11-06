@@ -1,0 +1,1 @@
+- The agent now introduces itself as a Windy Fly agent with its own name (from its soul), not as the product "Windy Fly" (owner-turn identity guardrail; Grant 11-06).
