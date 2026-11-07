@@ -947,13 +947,18 @@ def _register_all():
             wq.start()
             try:
                 from windyfly.agent.capabilities import Band
+                from windyfly.tools.bands import command_sender_band, docker_only
 
-                response = agent_respond(
-                    cfg, _db, wq,
-                    "What is 2+2? Reply with just the number.",
-                    "benchmark-session",
-                    band=Band.OWNER,          # /benchmark is an owner command
-                )
+                # OWNER only when the owner's own command started this run in this process (the in-process gate
+                # set it); anything else runs at USER. Either way the shell is Docker only (Boss 2026-11-07T19:26:03Z).
+                run_band = Band.OWNER if command_sender_band() == Band.OWNER else Band.USER
+                with docker_only():
+                    response = agent_respond(
+                        cfg, _db, wq,
+                        "What is 2+2? Reply with just the number.",
+                        "benchmark-session",
+                        band=run_band,
+                    )
             finally:
                 try:
                     wq.stop()

@@ -117,17 +117,18 @@ async def _fire_progress_check(
         "sentences). The user did NOT just send this; you woke up "
         "on schedule. No greetings, no recap of the goal text."
     )
+    from windyfly.agent.goal_autorun import run_goal_turn  # one goal-turn rule for autorun and pacing
+
     loop = asyncio.get_running_loop()
     try:
-        reply: str = await loop.run_in_executor(
+        reply, wanted = await loop.run_in_executor(
             None,
-            lambda: agent_respond(
+            lambda: run_goal_turn(
+                agent_respond,
                 config=config, db=db, write_queue=write_queue,
                 user_message=synthetic_prompt,
                 session_id=goal["session_id"],
                 tool_registry=tool_registry,
-                # The owner's own goal: owner band, explicitly (windyfly.tools.bands).
-                band=_owner_band(),
             ),
         )
     except Exception as e:
@@ -138,6 +139,15 @@ async def _fire_progress_check(
     # Prefix the proactive ping so the user knows this wasn't a
     # reply to something they just sent — grandma sees "🎯 Hey,
     # quick goal update:" and understands the bot woke itself up.
+    if wanted is not None:
+        # An owner-only step: pause (pacing skips a paused goal), and tell the owner ONCE, instead of the update.
+        goals_mod.mark_paced(db, goal["id"], fired=True)
+        if goals_mod.pause_goal(db, goal["id"], tool_name=wanted):
+            try:
+                await deliver(goal["chat_id"], goals_mod.pause_message(goal["text"], wanted))
+            except Exception as e:
+                logger.warning("paced pause message failed for goal %s: %s", goal["id"], e)
+        return
     text = f"🎯 *Quick goal update:*\n\n{reply}"
     try:
         await deliver(goal["chat_id"], text)
@@ -245,10 +255,3 @@ async def scheduler_loop(
         except asyncio.TimeoutError:
             continue
     logger.info("goal-pacing scheduler stopped")
-
-
-def _owner_band():
-    from windyfly.agent.capabilities import Band
-
-    return Band.OWNER
-

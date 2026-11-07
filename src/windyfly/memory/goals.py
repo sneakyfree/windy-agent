@@ -37,6 +37,8 @@ STATUS_ACTIVE = "active"
 STATUS_COMPLETED = "completed"
 STATUS_ABANDONED = "abandoned"
 STATUS_EXPIRED = "expired"
+# A background goal turn tried an owner-only step: the goal waits for the owner (Boss 2026-11-07T19:26:03Z).
+STATUS_PAUSED = "paused"
 
 # Verdict shapes the evaluator returns. Kept in this module rather
 # than goal_evaluator.py so storage and judgment share a single
@@ -82,7 +84,7 @@ def create_goal(
     if len(text) > 800:
         text = text[:797].rstrip() + "..."
 
-    existing = get_active_goal(db, session_id, user_id=user_id)
+    existing = get_active_goal(db, session_id, user_id=user_id) or get_paused_goal(db, session_id, user_id=user_id)
     if existing:
         db.execute(
             "UPDATE goals SET status = ?, completed_at = CURRENT_TIMESTAMP, "
@@ -112,6 +114,56 @@ def get_active_goal(
         "SELECT * FROM goals WHERE session_id = ? AND user_id = ? "
         "AND status = ? ORDER BY created_at DESC LIMIT 1",
         (session_id, user_id, STATUS_ACTIVE),
+    )
+
+
+def get_paused_goal(
+    db: Database,
+    session_id: str,
+    user_id: str = "default",
+) -> dict[str, Any] | None:
+    """The goal in this session waiting for its owner (paused by an owner-only step), or None."""
+    return db.fetchone(
+        "SELECT * FROM goals WHERE session_id = ? AND user_id = ? "
+        "AND status = ? ORDER BY created_at DESC LIMIT 1",
+        (session_id, user_id, STATUS_PAUSED),
+    )
+
+
+def pause_goal(db: Database, goal_id: str, *, tool_name: str) -> bool:
+    """Pause an ACTIVE goal because its turn tried ``tool_name`` (owner-only). True only when it was active, so the
+    owner is told once per pause, never again on each tick."""
+    before = db.fetchone("SELECT status FROM goals WHERE id = ?", (goal_id,))
+    if not before or before.get("status") != STATUS_ACTIVE:
+        return False
+    db.execute(
+        "UPDATE goals SET status = ?, closing_note = ? WHERE id = ? AND status = ?",
+        (STATUS_PAUSED, f"paused: needs the owner for {str(tool_name)[:80]}", goal_id, STATUS_ACTIVE),
+    )
+    db.commit()
+    return True
+
+
+def resume_goal(db: Database, goal_id: str) -> bool:
+    """The owner's own /goal resume: a paused goal is active again. Only that: it gets NO owner grant and keeps
+    running at TRUSTED (Hub's condition b). True when it was paused."""
+    before = db.fetchone("SELECT status FROM goals WHERE id = ?", (goal_id,))
+    if not before or before.get("status") != STATUS_PAUSED:
+        return False
+    db.execute(
+        "UPDATE goals SET status = ?, closing_note = NULL WHERE id = ? AND status = ?",
+        (STATUS_ACTIVE, goal_id, STATUS_PAUSED),
+    )
+    db.commit()
+    return True
+
+
+def pause_message(goal_text: str, tool_name: str) -> str:
+    """The ONE chat message a pause sends the owner: the goal's text and the tool's NAME, never its arguments."""
+    return (
+        f"⏸ *Goal paused: it needs you*\n\n> {goal_text[:200]}\n\n"
+        f"It tried to use *{str(tool_name)[:80]}*, which only you can do. Do that step yourself if you want it, "
+        "then send /goal resume to carry on (or /goal clear to drop it)."
     )
 
 

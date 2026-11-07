@@ -676,10 +676,27 @@ def _dispatch_tool_call_inner(
     encoded if non-string so the LLM can parse it. A retired tool name (tool trim phase 1) runs as
     the tool that does its job now (windyfly.tools.aliases); aliases are never offered to the model.
     """
+    from windyfly.tools import bands as _bands
     from windyfly.tools.aliases import resolve as _resolve_alias
 
     fn_name, fn_args = _resolve_alias(fn_name, fn_args)
     cap = capability_registry.get(fn_name)
+    paused = json.dumps({"error": _bands.PAUSED_TEXT})
+    if _bands.in_goal_turn():
+        # A background goal's turn (TRUSTED, Boss 2026-11-07T19:26:03Z): once it has tried an owner-only step, nothing
+        # else runs this turn; an owner-only or outward tool is refused here and pauses the goal.
+        if _bands.needs_owner() is not None:
+            return paused
+        from windyfly.agent.capabilities import Band as _Band, Tier as _Tier
+
+        if cap is not None:
+            if (band is None or int(band) < int(cap.band_required or _Band.OWNER)
+                    or int(cap.tier) >= int(_Tier.EXTERNAL_EFFECT)):
+                _bands.note_needs_owner(fn_name)
+                return paused
+        elif tool_registry is not None and not _bands.allowed(fn_name, band):
+            _bands.note_needs_owner(fn_name)
+            return paused
     if cap is not None:
         if isinstance(fn_args, str):
             try:
@@ -692,9 +709,14 @@ def _dispatch_tool_call_inner(
             result = capability_registry.invoke_sync(fn_name, fn_args, band)
         except capability_denied_exc as e:
             logger.info("Capability denied: %s", e)
+            if _bands.in_goal_turn():
+                _bands.note_needs_owner(fn_name)
+                return paused
             return json.dumps({"error": f"capability_denied: {e}"})
         except Exception as e:
             logger.warning("Capability %s failed: %s", fn_name, e)
+            if _bands.needs_owner() is not None:      # refused inside the tool (shell host_rw) in a goal turn
+                return paused
             return json.dumps({"error": f"{type(e).__name__}: {e}"})
         return result if isinstance(result, str) else json.dumps(result, default=str)
 
@@ -1304,10 +1326,14 @@ def _agent_respond_turn(
     # Legacy ToolRegistry tools are offered by band (windyfly.tools.bands): USER sees only public
     # reads, the owner's data and every outward tool are the owner's (Hub ruling 10-17). The same
     # table gates them again at execution. Capability tools below are band-filtered by their registry.
-    legacy_tools = tool_registry.get_schemas(band) if tool_registry else []
+    # A background goal's turn LISTS the owner's tools too, so trying one pauses the goal and asks the owner; the gate
+    # in _dispatch_tool_call_inner still refuses every one of them (windyfly.tools.bands.goal_turn).
+    from windyfly.tools.bands import listing_band as _listing_band
+
+    legacy_tools = tool_registry.get_schemas(_listing_band(band)) if tool_registry else []
     if band <= Band.SANDBOX:
         legacy_tools = []
-    capability_tools = capability_registry.tool_schemas_for_band(band)
+    capability_tools = capability_registry.tool_schemas_for_band(_listing_band(band))
     # Phone tools exist only on a turn whose owner's phone is online (phone-tools.v1).
     from windyfly.channels import phone_tools as _phone_tools
 

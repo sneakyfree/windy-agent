@@ -2124,7 +2124,9 @@ class WindyFlyMatrixBot(ChannelAdapter):
 
     async def _run_result_turn(self, room_id: str, stub: str, data: str | None) -> None:
         """One phone result turn (phone-tools 1.1.0): no tools, the data quoted for this one model call,
-        only the stub stored; an empty answer (stopped, or Mind's switch unreadable) posts NOTHING."""
+        only the stub stored; an empty answer (stopped, or Mind's switch unreadable) posts NOTHING.
+
+        It runs at USER: no human is in this turn, only data back from the phone (Boss BOARD 2026-11-07T19:26:03Z)."""
         from windyfly.agent.capabilities import Band
         from windyfly.agent.executor import run_turn
         from windyfly.channels import phone_tools as _phone
@@ -2133,7 +2135,7 @@ class WindyFlyMatrixBot(ChannelAdapter):
         try:
             _phone.mark_data_turn(session_id, data or "")
             reply = await run_turn(agent_respond, self.config, self.db, self.write_queue,
-                                   stub, session_id, self.tool_registry, band=Band.OWNER)
+                                   stub, session_id, self.tool_registry, band=Band.USER)
             if reply:
                 await self.client.room_send(room_id, "m.room.message", {
                     "msgtype": "m.text", "body": str(reply), "windy_original": True})

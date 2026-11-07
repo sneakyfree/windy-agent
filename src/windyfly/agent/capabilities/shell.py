@@ -71,7 +71,14 @@ def _shell_exec_handler(
     # *Tier*, which bumps the band requirement; here we want to
     # constrain a *kwarg*).
     if sandbox == SandboxTier.HOST_RW:
+        from windyfly.tools.bands import docker_only_active
+
+        if docker_only_active():
+            raise PermissionError("sandbox=host_rw is off for this run: Docker only (/benchmark)")
         if _band is None or _band < Band.OWNER:
+            from windyfly.tools.bands import note_needs_owner
+
+            note_needs_owner("shell.exec (host_rw)")      # a background goal's turn pauses and asks the owner
             raise PermissionError(
                 "sandbox=host_rw requires OWNER band — current session "
                 f"is {_band.name if _band else 'unknown'}"

@@ -26,6 +26,8 @@ What's intentionally NOT here:
 
 from __future__ import annotations
 
+from typing import Any
+
 
 # ── Nuclear reset — exact + phrase match ──────────────────────────
 
@@ -222,6 +224,7 @@ GOAL_PREFIXES = ("/goal", "/objective", "/mission")
 _GOAL_STATUS_WORDS = frozenset({"status", "show", "?"})
 _GOAL_CLEAR_WORDS = frozenset({"clear", "cancel", "abandon", "stop", "reset"})
 _GOAL_DONE_WORDS = frozenset({"done", "complete", "finished", "finish"})
+_GOAL_RESUME_WORDS = frozenset({"resume", "continue", "unpause"})
 
 
 def parse_goal_command(
@@ -231,7 +234,7 @@ def parse_goal_command(
 
     Returns ``(is_cmd, subcommand, text_arg)`` where:
       - ``is_cmd`` — True iff message starts with /goal (or alias)
-      - ``subcommand`` — one of "set", "status", "clear", "done", "invalid"
+      - ``subcommand`` — one of "set", "status", "clear", "done", "resume", "invalid"
       - ``text_arg`` — the new goal text when subcommand == "set"
     """
     if not text:
@@ -264,6 +267,8 @@ def parse_goal_command(
         return True, "clear", None
     if arg_lower in _GOAL_DONE_WORDS:
         return True, "done", None
+    if arg_lower in _GOAL_RESUME_WORDS:
+        return True, "resume", None
 
     # /goal autorun [N|stop] — Phase 3 bounded autonomous loop.
     # Returns subcommand ∈ {autorun_start, autorun_stop, autorun_invalid}.
@@ -370,3 +375,20 @@ def parse_forget_command(text: str | None) -> tuple[bool, str | None]:
                 return True, None
             return True, arg
     return False, None
+
+
+def goal_resume_reply(db: Any, session_id: str, user_id: str, sender_band: Any) -> str:
+    """/goal resume: only a turn whose sender band is OWNER unpauses a goal, and resuming only unpauses (the goal
+    keeps running at TRUSTED with no owner grant; Hub's conditions a + b on Boss's 2026-11-07T19:26:03Z ruling)."""
+    from windyfly.agent.capabilities.descriptor import Band
+    from windyfly.memory.goals import get_paused_goal, resume_goal
+
+    if sender_band is None or int(sender_band) < int(Band.OWNER):
+        return "Only my owner can resume a paused goal."
+    paused = get_paused_goal(db, session_id, user_id=user_id)
+    if not paused or not resume_goal(db, paused["id"]):
+        return "No paused goal to resume."
+    return (
+        f"🎯 *Goal resumed.*\n\n> {paused['text'][:200]}\n\n"
+        "_It still can't do owner-only steps by itself: it will pause and ask again._"
+    )
