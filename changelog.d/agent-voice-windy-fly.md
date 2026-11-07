@@ -1,0 +1,1 @@
+- The agent introduces itself as "your Windy Fly agent" (the unnamed welcome, the Matrix greeting, the command list header, the hatch panel title); "Windy Fly" stays for the app and the software. docs/brand/windy-fly-strings.md lists every "Windy Fly" string by meaning.
