@@ -109,7 +109,9 @@ def _resolve_and_check(
 
     # A soul file can hold owner-only sections (personality.engine.soul_for_turn), so only the OWNER's own turn may
     # open one through these tools; an unknown band counts as not the owner (Hub + Boss on #744, 2026-11-07).
-    if resolved.name.lower() == "soul.md":
+    from windyfly.personality.engine import is_loaded_soul
+
+    if resolved.name.lower() == "soul.md" or is_loaded_soul(resolved):
         from windyfly.tools.bands import current_band
 
         band = current_band()
