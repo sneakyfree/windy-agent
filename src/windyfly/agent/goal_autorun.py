@@ -123,6 +123,7 @@ async def run_autorun(
         return {"status": "no_chat_id"}
 
     turns_run = 0
+    paused_for: str | None = None
     last_reply = ""
     abort_reason: str | None = None
     try:
@@ -154,17 +155,15 @@ async def run_autorun(
 
             loop = asyncio.get_running_loop()
             try:
-                reply: str = await asyncio.wait_for(
+                reply, wanted = await asyncio.wait_for(
                     loop.run_in_executor(
                         None,
-                        lambda: agent_respond(
+                        lambda: run_goal_turn(
+                            agent_respond,
                             config=config, db=db, write_queue=write_queue,
                             user_message=_AUTORUN_PROMPT,
                             session_id=current["session_id"],
                             tool_registry=tool_registry,
-                            # The owner's own goal, run on the owner's behalf: owner band, explicitly,
-                            # so its outward tools pass the legacy-tool gate (windyfly.tools.bands).
-                            band=_owner_band(),
                         ),
                     ),
                     timeout=PER_TURN_TIMEOUT_S,
@@ -178,6 +177,12 @@ async def run_autorun(
 
             last_reply = reply
             turns_run += 1
+            if wanted is not None:
+                # An owner-only step: pause, and the ONE message to the owner replaces the run summary.
+                if goals_mod.pause_goal(db, goal_id, tool_name=wanted):
+                    paused_for = wanted
+                abort_reason = "paused: needs the owner"
+                break
             # Crude token estimate: 4 chars/token. The real loop
             # records exact tokens to cost_ledger, but for the
             # in-row tally we just want a bounded approximation.
@@ -211,6 +216,8 @@ async def run_autorun(
         abort_reason=abort_reason or "ok",
         final_status=str(final_goal.get("status") or "active"),
     )
+    if paused_for is not None:
+        summary = goals_mod.pause_message(goal["text"], paused_for)
     try:
         await deliver(goal["chat_id"], summary)
     except Exception as e:
@@ -253,8 +260,19 @@ def _format_summary(
     )
 
 
-def _owner_band():
+def goal_band():
+    """A background goal's own turn has no human in it: TRUSTED, never OWNER (Boss BOARD 2026-11-07T19:26:03Z)."""
     from windyfly.agent.capabilities import Band
 
-    return Band.OWNER
+    return Band.TRUSTED
+
+
+def run_goal_turn(agent_respond: Any, **kwargs: Any) -> tuple[str, str | None]:
+    """Run ONE goal turn at TRUSTED inside its own goal_turn() record; return (reply, the owner-only tool it tried or
+    None). Runs in the executor thread, so the record is made and read in that same thread, per turn."""
+    from windyfly.tools.bands import goal_turn, needs_owner
+
+    with goal_turn():
+        reply = agent_respond(band=goal_band(), **kwargs)
+        return reply, needs_owner()
 

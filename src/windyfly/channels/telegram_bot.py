@@ -1435,10 +1435,22 @@ class TelegramChannel(ChannelAdapter):
                             "`/goal plan my Yellowstone trip` — and I'll "
                             "orient every reply around making progress."
                         )
+            elif goal_sub == "resume":
+                # Only the OWNER's own turn resumes a goal, never a text match from any sender (Hub's condition a),
+                # and resuming only unpauses: the goal keeps running at TRUSTED with no owner grant (condition b).
+                from windyfly.channels.identity import resolve_band as _goal_band_of
+                from windyfly.channels.slash_commands import goal_resume_reply
+
+                ack = goal_resume_reply(self._db, session_id, str(sender_id),
+                                        _goal_band_of("telegram", str(sender_id)))
             elif goal_sub == "clear":
                 active = _get_active_goal(
                     self._db, session_id, user_id=str(sender_id),
                 )
+                if not active:
+                    from windyfly.memory.goals import get_paused_goal as _get_paused_goal
+
+                    active = _get_paused_goal(self._db, session_id, user_id=str(sender_id))
                 if active:
                     _abandon_goal(
                         self._db, active["id"],

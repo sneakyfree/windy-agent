@@ -170,3 +170,91 @@ def task_turn_tools(allowed: frozenset[str] = TASK_TURN_TOOLS) -> Iterator[None]
 def task_turn_allowlist() -> frozenset[str] | None:
     """The tools a task turn may use, or None on any other turn."""
     return _task_turn.get()
+
+
+# ── Goal turns: a background goal runs at TRUSTED, and an owner-only step pauses it (Boss BOARD 2026-11-07T19:26:03Z) ──
+#
+# A goal's own turns (goal_autorun, goal_pacing) have no human in them, so they run at TRUSTED: host_rw, the soul's
+# owner-only parts, the owner's memory and mail, model switching and anything that acts outward are refused. In a goal
+# turn the owner-only tools stay LISTED, so the model can try one, but the gate refuses every such call: the refusal
+# records the tool's NAME here, every later call in that turn is refused too, and the goal code pauses the goal and
+# asks the owner in chat. Resuming only unpauses: the goal never gets an owner grant (Hub's conditions on design A).
+#
+# The record is a mutable holder made fresh by goal_turn() at the start of each goal turn: a capability that runs in
+# its own asyncio task works on a COPY of the context, so a ContextVar.set() there would be lost, but the holder is
+# the same object in every copy. Turns never share one.
+
+PAUSED_TEXT = "paused, needs the owner"
+
+_goal_holder: contextvars.ContextVar[dict[str, str] | None] = contextvars.ContextVar("windy_goal_turn", default=None)
+
+
+@contextmanager
+def goal_turn() -> Iterator[None]:
+    """Mark the running turn as a background goal's own turn, with a fresh (empty) needs-owner record."""
+    token = _goal_holder.set({})
+    try:
+        yield
+    finally:
+        _goal_holder.reset(token)
+
+
+def in_goal_turn() -> bool:
+    return _goal_holder.get() is not None
+
+
+def note_needs_owner(tool_name: str) -> None:
+    """In a goal turn, record the FIRST owner-only tool it tried (the name only, never its arguments)."""
+    holder = _goal_holder.get()
+    if holder is not None and "tool" not in holder:
+        holder["tool"] = str(tool_name)[:80]
+
+
+def needs_owner() -> str | None:
+    """The owner-only tool this goal turn tried, or None (always None outside a goal turn)."""
+    holder = _goal_holder.get()
+    return None if holder is None else holder.get("tool")
+
+
+def listing_band(band: Any) -> Any:
+    """The band tools are LISTED at: OWNER in a goal turn (so a refusal can happen and pause it), else ``band``."""
+    if band is not None and in_goal_turn():
+        return Band.OWNER
+    return band
+
+
+# ── Commands: the band of the sender whose own command is running, set ONLY by the in-process gate ──
+# channels/base.py resolves the sender's band and runs the command inside command_sender(band). A command that runs an
+# agent turn (/benchmark) uses OWNER only when this says the owner's own command started it in this process; a band in
+# the context dict is never trusted for that (Boss BOARD 2026-11-07T19:26:03Z).
+
+_command_band: contextvars.ContextVar[Band | None] = contextvars.ContextVar("windy_command_band", default=None)
+_docker_only: contextvars.ContextVar[bool] = contextvars.ContextVar("windy_docker_only", default=False)
+
+
+@contextmanager
+def command_sender(band: Any) -> Iterator[None]:
+    token = _command_band.set(None if band is None else Band(int(band)))
+    try:
+        yield
+    finally:
+        _command_band.reset(token)
+
+
+def command_sender_band() -> Band | None:
+    """The band of the sender whose own command is running in this process, or None (not inside a command)."""
+    return _command_band.get()
+
+
+@contextmanager
+def docker_only() -> Iterator[None]:
+    """The shell may use only its Docker sandbox in this block: host_rw is refused even at OWNER (/benchmark)."""
+    token = _docker_only.set(True)
+    try:
+        yield
+    finally:
+        _docker_only.reset(token)
+
+
+def docker_only_active() -> bool:
+    return _docker_only.get()

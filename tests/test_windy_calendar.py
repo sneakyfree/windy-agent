@@ -271,17 +271,59 @@ def test_only_a_listed_same_owner_sibling_resolves_to_trusted(monkeypatch, tmp_p
 
 
 def test_no_other_module_issues_the_trusted_band():
-    """Hub: if anything else could return TRUSTED, calendar book/block would open to it. Today the only
-    place that ASSIGNS the band is channels/identity.py (the sibling branch)."""
+    """Hub: if anything else could return TRUSTED, calendar book/block would open to it. The places that ASSIGN
+    the band: channels/identity.py (the sibling branch), and agent/goal_autorun.py's goal_band() ONLY (a background
+    goal runs at TRUSTED, never OWNER: Boss BOARD 2026-11-07T19:26:03Z), where book/block pause the goal instead
+    (test_a_goal_turn_never_books_or_blocks below)."""
     import re
     from pathlib import Path
 
     src = Path(__file__).resolve().parent.parent / "src" / "windyfly"
     # a band VALUE being produced for a sender: `band = Band.TRUSTED` or `return Band.TRUSTED`
     pat = re.compile(r"\bband\s*=\s*Band\.TRUSTED\b|\breturn\s+Band\.TRUSTED\b")
-    offenders = sorted(str(p.relative_to(src)) for p in src.rglob("*.py")
-                       if pat.search(p.read_text("utf-8")) and p.name != "identity.py")
+    allowed = {"channels/identity.py": None, "agent/goal_autorun.py": "goal_band"}
+    offenders = []
+    for p in sorted(src.rglob("*.py")):
+        rel, text = str(p.relative_to(src)), p.read_text("utf-8")
+        hits = list(pat.finditer(text))
+        if not hits or (rel in allowed and allowed[rel] is None):
+            continue
+        if rel in allowed:      # only inside the one named function, and only once
+            fn = re.findall(r"^def (\w+)", text[:hits[0].start()], re.M)
+            if len(hits) == 1 and fn and fn[-1] == allowed[rel]:
+                continue
+        offenders.append(rel)
     assert offenders == [], offenders
+
+
+@pytest.mark.parametrize("cid", ["book", "block"])
+def test_a_goal_turn_never_books_or_blocks(calls, cid):
+    """A background goal at TRUSTED (goal_band) reaches book/block's band, but they are EXTERNAL_EFFECT: the goal
+    pauses for the owner and Calendar is never called. A person's TRUSTED turn is unchanged."""
+    import json
+
+    from windyfly.agent.capabilities import CapabilityDenied
+    from windyfly.agent.goal_autorun import goal_band
+    from windyfly.agent.loop import _dispatch_tool_call_inner
+    from windyfly.tools import bands
+
+    cap = _cap(f"windy_calendar.{cid}")
+    ran: list[str] = []
+
+    class _One:
+        def get(self, name):
+            return cap if name == cap.id else None
+
+        def invoke_sync(self, name, args, band):
+            ran.append(name)
+            return "ran"
+
+    with bands.goal_turn():
+        out = _dispatch_tool_call_inner(cap.id, "{}", None, _One(), goal_band(), CapabilityDenied)
+        assert out == json.dumps({"error": bands.PAUSED_TEXT})
+        assert bands.needs_owner() == cap.id
+    assert ran == []
+    assert _dispatch_tool_call_inner(cap.id, "{}", None, _One(), Band.TRUSTED, CapabilityDenied) == "ran"
 
 
 # ── Calendar's contract: mode B applies to GET /tools too (a DPoP proof on every request) ─────────

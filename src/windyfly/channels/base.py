@@ -166,6 +166,9 @@ async def handle_incoming(text: str, context: dict | None = None) -> tuple[bool,
             return True, drop_reply
 
     if is_command(text):
-        response = await registry.execute(parse_command(text), context)
+        from windyfly.tools.bands import command_sender
+
+        with command_sender(band):       # the sender's band, as resolved HERE (never taken from the context dict)
+            response = await registry.execute(parse_command(text), context)
         return True, response
     return False, ""

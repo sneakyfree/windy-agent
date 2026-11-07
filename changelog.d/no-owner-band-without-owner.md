@@ -1,0 +1,1 @@
+- Bands: no OWNER band with no owner in the turn. Background goals run at TRUSTED and pause to ask the owner when they try an owner-only or outward step (/goal resume, owner only, unpauses); the phone-result turn runs at USER; /benchmark is OWNER only from the owner's own command, with the shell on Docker only.
