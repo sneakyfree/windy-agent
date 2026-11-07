@@ -1,0 +1,1 @@
+- DNA_STRAND_MASTER_PLAN.md v0.1 at the repo root: what the agent is for (Grant's own words), what it is not, who it serves, true/false success criteria, principles and five questions for Grant. Docs only.
