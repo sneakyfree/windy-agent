@@ -282,32 +282,31 @@ def systemctl_stop(info: SystemdUnitInfo, timeout: int = 30) -> tuple[bool, str]
         return False, str(e)
 
 
-def kill_by_name(patterns: list[str]) -> None:
-    """Kill processes matching any of the given command-line patterns.
+def find_by_name(patterns: list[str]) -> list[tuple[int, str]]:
+    """This user's processes whose command line contains any of ``patterns``: ``[(pid, command), ...]``.
 
-    Uses ``pkill -f`` on POSIX, ``taskkill /IM`` on Windows.
-    This is the fallback when PID files are missing.
+    It NEVER kills. Stopping by name is gone (exact-PID rule): a name pattern also matches other agents and tools on
+    the same machine (a lab agent run from the same folder, an editor, a test run), and on 2026-07-04 a by-name
+    fallback stopped a production agent. Callers stop only PIDs they recorded (the PID file, the systemd unit) and
+    show this list so a person can stop the one they mean, by its PID. This process and its parent are left out.
+    Windows: an empty list (tasklist gives no command lines).
     """
     if IS_WINDOWS:
-        for pattern in patterns:
-            # On Windows we try to match the process name
-            # (less precise than pkill -f, but best available)
-            try:
-                subprocess.run(
-                    ["taskkill", "/F", "/FI", f"IMAGENAME eq {pattern}*"],
-                    capture_output=True,
-                )
-            except FileNotFoundError:
-                pass
-    else:
-        for pattern in patterns:
-            try:
-                subprocess.run(
-                    ["pkill", "-f", pattern],
-                    capture_output=True,
-                )
-            except FileNotFoundError:
-                pass
+        return []
+    try:
+        out = subprocess.run(["ps", "-U", str(os.getuid()), "-o", "pid=,args="],
+                             capture_output=True, text=True, timeout=10).stdout
+    except (FileNotFoundError, subprocess.SubprocessError, OSError):
+        return []
+    skip = {os.getpid(), os.getppid()}
+    found: list[tuple[int, str]] = []
+    for line in out.splitlines():
+        pid_s, _, args = line.strip().partition(" ")
+        if not pid_s.isdigit() or int(pid_s) in skip:
+            continue
+        if any(pat in args for pat in patterns):
+            found.append((int(pid_s), args.strip()))
+    return found
 
 
 # ── Path helpers ──────────────────────────────────────────────────────

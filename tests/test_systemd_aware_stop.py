@@ -148,8 +148,8 @@ async def test_cmd_kill_uses_systemctl_when_systemd_managed(fresh_commands):
 
 @pytest.mark.asyncio
 async def test_cmd_stop_falls_back_when_systemctl_fails(fresh_commands, tmp_path, monkeypatch):
-    """If systemctl fails, fall back to PID-file / pkill so a broken
-    systemctl doesn't leave the user with no way to stop."""
+    """If systemctl fails, fall back to the PID file; with no PID file, stop NOTHING by name (exact-PID rule) and
+    say so plainly."""
     monkeypatch.chdir(tmp_path)
     info = SystemdUnitInfo(unit="windy-0.service", scope="user", pid=1234)
     with patch(
@@ -162,9 +162,9 @@ async def test_cmd_stop_falls_back_when_systemctl_fails(fresh_commands, tmp_path
         cmd = fresh_commands.get("stop")
         result = await cmd.handler({})
 
-    # No PID file in tmp_path, so the os.system fallback fires.
-    assert os_system.called
-    assert "fallback" in result.lower() or "stopped" in result.lower()
+    # No PID file in tmp_path: nothing is killed by name, and the reply says why.
+    os_system.assert_not_called()
+    assert "nothing to stop" in result.lower() or "didn't stop anything" in result.lower()
 
 
 @pytest.mark.asyncio

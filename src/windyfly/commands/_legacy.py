@@ -842,7 +842,7 @@ def cmd_version(_args: argparse.Namespace) -> None:
 
 def cmd_kill(_args: argparse.Namespace) -> None:
     """Force-kill all Windy Fly processes."""
-    from windyfly.platform import kill_by_name
+    from windyfly.platform import find_by_name
 
     project_root = PROJECT_ROOT
     info = read_pid_file(project_root)
@@ -855,8 +855,8 @@ def cmd_kill(_args: argparse.Namespace) -> None:
                 force_kill(pid)
                 killed += 1
 
-    # Fallback: kill by name pattern
-    kill_by_name(["windyfly", "windy.fly", "windyfly.bridge", "windyfly.main"])
+    # No killing by name (exact-PID rule): name what else looks like ours instead.
+    others = find_by_name(["windyfly.main", "windyfly.bridge"])
 
     # Clean up files
     remove_pid_file(project_root)
@@ -866,7 +866,11 @@ def cmd_kill(_args: argparse.Namespace) -> None:
     if ipc.mode == "uds" and os.path.exists(ipc.socket_path):
         os.unlink(ipc.socket_path)
 
-    console.print("[bold green]All Windy Fly processes force-killed.[/bold green]")
+    console.print(f"[bold green]Force-killed {killed} process(es) from the PID file.[/bold green]")
+    if others:
+        console.print("[yellow]Not killed (no PID file entry; stop the one you mean by its PID):[/yellow]")
+        for pid, args in others[:10]:
+            console.print(f"  {pid}  {args[:100]}")
 
 
 # ═══════════════════════════════════════════════════════════════════════

@@ -42,8 +42,9 @@ def test_kill_by_name_is_neutered_by_default():
     import windyfly.cli as cli
     from unittest.mock import MagicMock
 
-    assert isinstance(cli.kill_by_name, MagicMock), (
-        "cli.kill_by_name is the real function during a test — the "
+    assert not hasattr(cli, "kill_by_name"), "stopping by name is gone (exact-PID rule)"
+    assert isinstance(cli.find_by_name, MagicMock), (
+        "cli.find_by_name is the real function during a test — the "
         "autouse _no_real_process_kills fixture is broken"
     )
     # And the full cmd_stop path must be safe to invoke.

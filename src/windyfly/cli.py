@@ -63,7 +63,7 @@ from windyfly.platform import (
     get_data_dir,
     get_log_path,
     get_project_root,
-    kill_by_name,
+    find_by_name,
     process_alive,
     process_terminate,
     read_pid_file,
@@ -572,14 +572,18 @@ def cmd_setup(_args: argparse.Namespace) -> None:
         console.print("\n  [dim]Gateway stopped. Run `windy start` to launch the full stack.[/dim]")
 
 
+_AGENT_PATTERNS = ["windyfly.bridge.uds_server", "windyfly.main", "bun run src/server.ts"]
+
+
 def _do_kill_by_name() -> None:
-    """Fallback: try to kill processes by name."""
-    kill_by_name([
-        "windyfly.bridge.uds_server",
-        "windyfly.main",
-        "bun run src/server.ts",
-    ])
-    console.print("  [dim]Sent terminate signal to any matching processes[/dim]")
+    """No PID of ours to stop: name the matching processes instead of killing by name (exact-PID rule)."""
+    found = find_by_name(_AGENT_PATTERNS)
+    if not found:
+        return
+    console.print("  [yellow]Not stopping anything by name. These look like Windy Fly processes of yours; "
+                  "stop the one you mean by its PID (kill PID):[/yellow]")
+    for pid, args in found[:10]:
+        console.print(f"    {pid}  {args[:100]}")
 
 
 # ═══════════════════════════════════════════════════════════════════════

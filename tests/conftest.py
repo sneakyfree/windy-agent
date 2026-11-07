@@ -242,7 +242,7 @@ def _no_real_process_kills(request):
     # so patching the platform attribute intercepts the production call
     # while tests that import it at module scope (e.g.
     # tests/test_systemd_aware_stop.py) still exercise the real code.
-    with patch("windyfly.cli.kill_by_name", return_value=None), \
+    with patch("windyfly.cli.find_by_name", return_value=[]), \
          patch("windyfly.channels.rescue.schedule_restart"), \
          patch(
              "windyfly.platform.systemctl_stop",

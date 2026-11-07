@@ -1,0 +1,1 @@
+- /stop and /kill (chat and CLI) never stop processes by name anymore: only the systemd unit or the PIDs in the PID file. With neither, they name the candidate processes and stop nothing, since a name also matches other agents on the same machine.
