@@ -1,0 +1,1 @@
+- docs/design/whatsapp-gateway.md: the WhatsApp gateway's design (one public gateway relayed through Windy Chat, shared number + pairing), kept from the archived prototype repo with no account identifiers. Docs only; nothing is live.
