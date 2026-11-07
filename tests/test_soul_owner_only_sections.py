@@ -75,7 +75,8 @@ class TestSoulForTurn:
 
     def test_a_marker_inside_a_code_fence_is_not_a_heading(self) -> None:
         soul = "## A\n```\n## Fenced <!-- owner-only -->\nFENCED\n```\n## B\nb\n"
-        assert soul_for_turn(soul, owner=False) == soul
+        # Not a heading, so nothing after it is hidden; but the marker line itself fails closed for a non-owner.
+        assert soul_for_turn(soul, owner=False) == soul.replace("## Fenced <!-- owner-only -->\n", "")
 
 
 class TestPromptUsesTheGate:
@@ -105,11 +106,12 @@ class TestPromptUsesTheGate:
     def _system_text(msgs: list[dict]) -> str:
         return "\n".join(str(m.get("content", "")) for m in msgs if m.get("role") == "system")
 
-    def test_stranger_turn_never_sees_the_marked_section(self, db, tmp_path: Path) -> None:
+    @pytest.mark.parametrize("band", [0, 1, 2, None])   # sandbox, user, a TRUSTED helper, and no band at all
+    def test_only_the_exact_owner_band_sees_the_marked_section(self, db, tmp_path: Path, band) -> None:
         from windyfly.agent.prompt import assemble_prompt
         soul = tmp_path / "SOUL.md"
         soul.write_text(SOUL, encoding="utf-8")
-        text = self._system_text(assemble_prompt(self._config(str(soul)), db, "hi", "s-stranger", band=1))
+        text = self._system_text(assemble_prompt(self._config(str(soul)), db, "hi", f"s-band-{band}", band=band))
         assert "PRIVATE-LINE" not in text and "owner-only" not in text
         assert "A helpful agent." in text and "Be honest." in text
 
@@ -117,6 +119,76 @@ class TestPromptUsesTheGate:
         from windyfly.agent.prompt import assemble_prompt
         soul = tmp_path / "SOUL.md"
         soul.write_text(SOUL, encoding="utf-8")
-        text = self._system_text(assemble_prompt(self._config(str(soul)), db, "hi", "s-owner", band=None))
+        text = self._system_text(assemble_prompt(self._config(str(soul)), db, "hi", "s-owner", band=3))
         assert "PRIVATE-LINE-1" in text and "PRIVATE-LINE-2" in text
         assert "owner-only" not in text
+
+
+class TestFailClosed:
+    def test_a_marker_on_an_unrecognised_heading_drops_that_line_for_a_non_owner(self, caplog) -> None:
+        soul = "## Keep\nkeep\n  ## Indented <!-- owner-only -->\nbody\nplain <!-- owner-only --> line\n"
+        with caplog.at_level("WARNING"):
+            out = soul_for_turn(soul, owner=False)
+        assert "owner-only" not in out and "Indented" not in out and "plain" not in out
+        assert "keep" in out
+        assert any("owner-only marker" in r.getMessage() for r in caplog.records)
+        owner_out = soul_for_turn(soul, owner=True)
+        assert "owner-only" not in owner_out and "Indented" in owner_out and "plain" in owner_out
+
+    def test_a_backtick_fence_is_not_closed_by_tildes(self) -> None:
+        soul = "## A\n```\n~~~\n## Fenced <!-- owner-only -->\nFENCED\n```\n## B\nb\n"
+        out = soul_for_turn(soul, owner=False)
+        assert "## B\nb" in out and "## A" in out
+        assert "owner-only" not in out          # the fenced marker line fails closed, never reaches a model
+
+
+class TestToolsCannotOpenTheSoulBelowOwner:
+    """The prompt gate is not enough on its own: the file tools must not hand the raw soul to a non-owner."""
+
+    @staticmethod
+    def _soul_dir(tmp_path: Path) -> Path:
+        d = tmp_path / "agent"
+        d.mkdir()
+        (d / "SOUL.md").write_text(SOUL, encoding="utf-8")
+        (d / "notes.txt").write_text("PRIVATE-LINE-1 is not in here\n", encoding="utf-8")
+        return d
+
+    @pytest.mark.parametrize("band", [0, 1, 2, None])
+    def test_fs_read_refuses_the_soul_below_owner(self, tmp_path: Path, band) -> None:
+        from contextlib import nullcontext
+
+        from windyfly.agent.capabilities.filesystem import _read_file_handler
+        from windyfly.tools.bands import turn_band
+        d = self._soul_dir(tmp_path)
+        with (turn_band(band) if band is not None else nullcontext()):
+            with pytest.raises(PermissionError, match="soul file"):
+                _read_file_handler(path=str(d / "SOUL.md"), _allowed_roots=[str(tmp_path)])
+            with pytest.raises(PermissionError, match="soul file"):
+                _read_file_handler(path=str(d / "soul.MD"), _allowed_roots=[str(tmp_path)])
+
+    def test_fs_read_opens_the_soul_for_the_owner(self, tmp_path: Path) -> None:
+        from windyfly.agent.capabilities.filesystem import _read_file_handler
+        from windyfly.tools.bands import turn_band
+        d = self._soul_dir(tmp_path)
+        with turn_band(3):
+            out = _read_file_handler(path=str(d / "SOUL.md"), _allowed_roots=[str(tmp_path)])
+        assert "PRIVATE-LINE-1" in str(out)
+
+    def test_fs_grep_skips_the_soul_below_owner(self, tmp_path: Path) -> None:
+        from windyfly.agent.capabilities.filesystem import _grep_files_handler
+        from windyfly.tools.bands import turn_band
+        d = self._soul_dir(tmp_path)
+        with turn_band(1):
+            out = _grep_files_handler(pattern="PRIVATE-LINE", root=str(d), _allowed_roots=[str(tmp_path)])
+        assert "SOUL.md" not in str(out) and "PRIVATE-LINE-2" not in str(out)
+
+    @pytest.mark.parametrize("band", [1, 2, None])
+    def test_github_fetch_refuses_a_soul_below_owner(self, band) -> None:
+        from contextlib import nullcontext
+
+        from windyfly.agent.capabilities.github import _fetch_file_handler
+        from windyfly.tools.bands import turn_band
+        with (turn_band(band) if band is not None else nullcontext()):
+            out = _fetch_file_handler(owner="o", repo="r", path="some/dir/SOUL.md", base_url="http://127.0.0.1:9",
+                                      token=None, allowed_owners=None)
+        assert "soul file" in out.get("error", "")

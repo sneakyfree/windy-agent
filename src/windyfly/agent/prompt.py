@@ -207,8 +207,14 @@ def assemble_prompt(
     # 1. System message: personality
     personality_config = config.get("personality", {})
     soul_path = personality_config.get("soul_path", "SOUL.md")
-    # Sections marked <!-- owner-only --> reach the owner's turns only (Boss BOARD 2026-11-07T14:31:58Z (1)).
-    soul_text = soul_for_turn(load_soul(soul_path), owner=owner_ctx)
+    # Sections marked <!-- owner-only --> reach the OWNER's own turns only: the exact OWNER band, never a trusted
+    # helper, and closed when no band is passed (Boss BOARD 2026-11-07T14:31:58Z (1) + 14:37:53Z; Hub on #744).
+    # Real turns lose nothing: agent_respond maps a missing band to OWNER before it calls this.
+    from windyfly.agent.capabilities import Band as _SoulBand
+
+    soul_text = soul_for_turn(
+        load_soul(soul_path), owner=band_value is not None and band_value == int(_SoulBand.OWNER),
+    )
 
     # Pull sliders once up-front so prompt structure can be gated on
     # them (e.g., BIAS TO ACTION only fires when autonomy ≥ 4 so a

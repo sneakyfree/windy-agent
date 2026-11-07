@@ -6,8 +6,11 @@ the system prompt personality block.
 
 from __future__ import annotations
 
+import logging
 import re
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 def load_soul(path: str = "SOUL.md") -> str:
@@ -48,12 +51,16 @@ def soul_for_turn(soul_text: str, *, owner: bool) -> str:
     if "owner-only" not in soul_text.lower():
         return soul_text
     out: list[str] = []
-    in_fence = False
+    fence = ""              # the open fence's marker (``` or ~~~); only the SAME kind closes it
     skip_level = 0          # > 0 while inside an owner-only section of that heading level
     for line in soul_text.splitlines(keepends=True):
-        if _FENCE.match(line):
-            in_fence = not in_fence
-        heading = None if in_fence else _HEADING.match(line)
+        f = _FENCE.match(line)
+        if f:
+            if not fence:
+                fence = f.group(1)
+            elif f.group(1) == fence:
+                fence = ""
+        heading = None if fence or f else _HEADING.match(line)
         if heading:
             level = len(heading.group(1))
             if skip_level and level <= skip_level:
@@ -62,12 +69,25 @@ def soul_for_turn(soul_text: str, *, owner: bool) -> str:
                 if not owner:
                     skip_level = level
                     continue
-                ending = "\n" if line.endswith("\n") else ""
-                line = _OWNER_ONLY_MARK.sub(" ", line.rstrip("\n")).rstrip() + ending
         if skip_level:
             continue
         out.append(line)
-    return "".join(out)
+    # Fail closed: a marker this parser did not take as a heading (an indented or setext heading, a marker on a body
+    # line, one inside a fence) never reaches a model. A non-owner turn loses that whole LINE (and we say so once in
+    # the log, so the soul can be fixed); the owner's turn keeps the line without the marker.
+    kept: list[str] = []
+    stray = 0
+    for line in out:
+        if _OWNER_ONLY_MARK.search(line):
+            if not owner:
+                stray += 1
+                continue
+            ending = "\n" if line.endswith("\n") else ""
+            line = _OWNER_ONLY_MARK.sub(" ", line.rstrip("\n")).rstrip() + ending
+        kept.append(line)
+    if stray:
+        logger.warning("soul: %d owner-only marker line(s) not on a recognised heading; dropped for a non-owner", stray)
+    return "".join(kept)
 
 
 # The sliders raw mode (the default) leaves out: only the tone of the personality block. Every other slider in a
