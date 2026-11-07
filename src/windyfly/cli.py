@@ -1350,6 +1350,11 @@ def _install_launchd(uv_path: str, brain_log: str) -> None:
     plist_dir.mkdir(parents=True, exist_ok=True)
     plist_path = plist_dir / "com.windyfly.agent.plist"
 
+    env_file = PROJECT_ROOT / ".env"
+    from xml.sax.saxutils import escape as _xml
+
+    env_entry = (f"\n        <key>WINDY_ENV_FILE</key>\n        <string>{_xml(str(env_file))}</string>"
+                 if env_file.exists() else "")
     plist_content = f"""\
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
@@ -1386,7 +1391,7 @@ def _install_launchd(uv_path: str, brain_log: str) -> None:
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>/usr/local/bin:/usr/bin:/bin:{Path.home()}/.local/bin:{Path.home()}/.bun/bin</string>
+        <string>/usr/local/bin:/usr/bin:/bin:{Path.home()}/.local/bin:{Path.home()}/.bun/bin</string>{env_entry}
     </dict>
 </dict>
 </plist>
@@ -1412,7 +1417,10 @@ def _install_systemd(uv_path: str, brain_log: str) -> None:
 
     # Build EnvironmentFile line if .env exists
     env_file = PROJECT_ROOT / ".env"
-    env_line = f"EnvironmentFile={env_file}" if env_file.exists() else ""
+    from windyfly.env_file import systemd_quote
+
+    env_line = (f'EnvironmentFile={env_file}\nEnvironment="WINDY_ENV_FILE={systemd_quote(str(env_file))}"'
+                if env_file.exists() else "")
 
     unit_content = f"""\
 [Unit]
@@ -1493,6 +1501,10 @@ def main() -> None:
     from windyfly.observability import synthetic
 
     synthetic.install()  # X-Windy-Synthetic on every request, probes only
+    # The CLI is the owner's own tool in their own project: name the project .env explicitly, so everything it starts
+    # (the agent, the bridge) reads that file by name (Boss 2026-11-07T16:13:24Z, option B).
+    if not os.environ.get("WINDY_ENV_FILE", "").strip() and (PROJECT_ROOT / ".env").is_file():
+        os.environ["WINDY_ENV_FILE"] = str(PROJECT_ROOT / ".env")
     parser = argparse.ArgumentParser(
         prog="windy",
         description="Windy Fly — Your AI. Your Rules. Your Ecosystem.",

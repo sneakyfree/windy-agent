@@ -758,12 +758,11 @@ async def _serve_forever() -> None:
     import signal
     import sys
 
-    from dotenv import load_dotenv
-
     from windyfly import runtime_claim
     from windyfly.config import load_config
+    from windyfly.env_file import load_agent_env
 
-    load_dotenv()
+    load_agent_env("windyfly.toml")   # option B (env_file.py): never a bare dotenv search
 
     # Config is required — without windyfly.toml we don't know the DB
     # path, the channel config, etc. Fail loud if the caller forgot

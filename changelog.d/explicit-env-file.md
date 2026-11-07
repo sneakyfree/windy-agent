@@ -1,0 +1,1 @@
+- An agent reads WINDY_ENV_FILE when set, else its project .env only when its own config lives in that project (logged once); never a bare load_dotenv(). The CLI and new service files name the env file; `windy update` adds it to an existing macOS plist or systemd unit.

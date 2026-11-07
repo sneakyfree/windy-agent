@@ -14,16 +14,23 @@ def test_dotenv_source_is_neutralized():
     assert dotenv.load_dotenv() is False
 
 
-def test_config_alias_neutralized():
+def test_config_holds_no_dotenv_alias():
+    # config.py no longer calls dotenv itself: it goes through env_file.load_agent_env (Boss 2026-11-07T16:13:24Z).
     import windyfly.config as cfg
-    assert cfg.load_dotenv() is False
+    assert not hasattr(cfg, "load_dotenv")
 
 
-def test_main_module_alias_neutralized():
-    # main.py captured a MODULE-LEVEL alias at import time — the exact
-    # call site the first fix missed.
+def test_env_file_alias_neutralized():
+    # The ONE module that calls dotenv for the agent runtime; its alias is neutralized like any other.
+    import windyfly.env_file as ef
+    assert ef.load_dotenv() is False
+
+
+def test_main_module_holds_no_dotenv_alias():
+    # main.py once captured a MODULE-LEVEL alias at import time (the call site the first fix missed); it now loads its
+    # env file through env_file.load_agent_env, so no alias is left to neutralize.
     import windyfly.main as m
-    assert m.load_dotenv() is False
+    assert not hasattr(m, "load_dotenv")
 
 
 def test_lazy_import_call_site_gets_noop():
@@ -38,7 +45,8 @@ def test_resident_env_file_not_read(tmp_path, monkeypatch):
     env = tmp_path / ".env"
     env.write_text("LEAKED_SENTINEL_KEY=sk-should-never-load\n")
     monkeypatch.chdir(tmp_path)
-    import windyfly.config as cfg
-    cfg.load_dotenv()  # neutralized
+    import windyfly.env_file as ef
+    ef.load_dotenv()  # neutralized
+    ef.load_agent_env("windyfly.toml")  # the agent's loader: its dotenv call is neutralized too
     import os
     assert os.environ.get("LEAKED_SENTINEL_KEY") is None
