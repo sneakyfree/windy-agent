@@ -78,27 +78,62 @@ def test_an_existing_mac_install_still_starts_with_its_keys(project, monkeypatch
     assert os.environ[KEY] == "from-project-env"
 
 
-def test_update_names_the_env_file_in_an_old_plist_once(project, tmp_path, monkeypatch):
-    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+def _old_plist(tmp_path: Path, workdir: Path) -> Path:
+    import plistlib
     plist = tmp_path / "Library" / "LaunchAgents" / "com.windyfly.agent.plist"
     plist.parent.mkdir(parents=True)
-    plist.write_text("<plist>\n    <key>EnvironmentVariables</key>\n    <dict>\n        <key>PATH</key>\n"
-                     "        <string>/usr/bin</string>\n    </dict>\n</plist>\n", encoding="utf-8")
-    assert env_file.name_env_file_in_services() == [plist]
-    text = plist.read_text(encoding="utf-8")
-    assert "<key>WINDY_ENV_FILE</key>" in text and f"<string>{project / '.env'}</string>" in text
-    assert env_file.name_env_file_in_services() == []                      # idempotent
-    assert text.count("<key>WINDY_ENV_FILE</key>") == 1
+    plist.write_bytes(plistlib.dumps({"Label": "com.windyfly.agent", "WorkingDirectory": str(workdir),
+                                      "EnvironmentVariables": {"PATH": "/usr/bin"}}))
+    plist.chmod(0o644)
+    return plist
 
 
-def test_update_names_the_env_file_in_an_old_systemd_unit(project, tmp_path, monkeypatch):
+def test_update_names_the_services_own_env_file_in_an_old_plist_once(project, tmp_path, monkeypatch):
+    import plistlib
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    plist = _old_plist(tmp_path, project)
+    assert env_file.name_env_file_in_services() == [plist]
+    data = plistlib.loads(plist.read_bytes())
+    assert data["EnvironmentVariables"] == {"PATH": "/usr/bin", "WINDY_ENV_FILE": str(project / ".env")}
+    assert plist.stat().st_mode & 0o777 == 0o644                             # mode kept by the atomic write
+    assert env_file.name_env_file_in_services() == []                       # idempotent
+
+
+def test_an_update_run_from_a_lab_checkout_never_points_the_service_at_the_lab(project, tmp_path, monkeypatch):
+    """Hub on #754: the path comes from the service file itself, never from the checkout running the update."""
+    import plistlib
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    plist = _old_plist(tmp_path, project)                                   # the REAL agent's service
+    lab = tmp_path / "lab-checkout"
+    lab.mkdir()
+    (lab / ".env").write_text("X=lab\n", encoding="utf-8")
+    monkeypatch.setattr(env_file, "_project_root", lambda: lab)             # `windy update` run from the lab
+    env_file.name_env_file_in_services()
+    env = plistlib.loads(plist.read_bytes())["EnvironmentVariables"]
+    assert env["WINDY_ENV_FILE"] == str(project / ".env") != str(lab / ".env")
+
+
+def test_update_names_the_units_own_env_file_quoted(project, tmp_path, monkeypatch):
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    odd = tmp_path / "my agent 100%"
+    odd.mkdir()
+    (odd / ".env").write_text("X=1\n", encoding="utf-8")
     unit = tmp_path / ".config" / "systemd" / "user" / "windyfly.service"
     unit.parent.mkdir(parents=True)
-    unit.write_text(f"[Unit]\nDescription=x\n\n[Service]\nType=simple\nEnvironmentFile={project / '.env'}\n",
+    unit.write_text(f"[Unit]\nDescription=x\n\n[Service]\nType=simple\nEnvironmentFile={odd / '.env'}\n",
                     encoding="utf-8")
     assert env_file.name_env_file_in_services() == [unit]
-    assert f"Environment=WINDY_ENV_FILE={project / '.env'}" in unit.read_text(encoding="utf-8")
+    line = [ln for ln in unit.read_text(encoding="utf-8").splitlines() if ln.startswith("Environment=")][0]
+    assert line == f'Environment="WINDY_ENV_FILE={tmp_path}/my agent 100%%/.env"'
+
+
+def test_a_config_in_a_subfolder_of_the_project_does_not_read_it(project):
+    import os
+    sub = project / "lab"
+    sub.mkdir()
+    (sub / "lab.toml").write_text("", encoding="utf-8")
+    assert env_file.load_agent_env(sub / "lab.toml") is None
+    assert KEY not in os.environ
 
 
 def test_no_bare_load_dotenv_anywhere():

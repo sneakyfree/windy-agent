@@ -1346,7 +1346,10 @@ def _install_launchd(uv_path: str, brain_log: str) -> None:
     plist_path = plist_dir / "com.windyfly.agent.plist"
 
     env_file = PROJECT_ROOT / ".env"
-    env_entry = (f"\n        <key>WINDY_ENV_FILE</key>\n        <string>{env_file}</string>" if env_file.exists() else "")
+    from xml.sax.saxutils import escape as _xml
+
+    env_entry = (f"\n        <key>WINDY_ENV_FILE</key>\n        <string>{_xml(str(env_file))}</string>"
+                 if env_file.exists() else "")
     plist_content = f"""\
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
@@ -1409,7 +1412,10 @@ def _install_systemd(uv_path: str, brain_log: str) -> None:
 
     # Build EnvironmentFile line if .env exists
     env_file = PROJECT_ROOT / ".env"
-    env_line = f"EnvironmentFile={env_file}\nEnvironment=WINDY_ENV_FILE={env_file}" if env_file.exists() else ""
+    from windyfly.env_file import systemd_quote
+
+    env_line = (f'EnvironmentFile={env_file}\nEnvironment="WINDY_ENV_FILE={systemd_quote(str(env_file))}"'
+                if env_file.exists() else "")
 
     unit_content = f"""\
 [Unit]
