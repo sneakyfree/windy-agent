@@ -35,7 +35,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from windyfly.agent.capabilities.descriptor import Capability, Tier
+from windyfly.agent.capabilities.descriptor import Band, Capability, Tier
 from windyfly.agent.capabilities.registry import CapabilityRegistry
 
 logger = logging.getLogger(__name__)
@@ -106,6 +106,15 @@ def _resolve_and_check(
                 f"path {raw_path!r} resolves to {resolved} which lives "
                 f"under the always-deny list ({needle!r})"
             )
+
+    # A soul file can hold owner-only sections (personality.engine.soul_for_turn), so only the OWNER's own turn may
+    # open one through these tools; an unknown band counts as not the owner (Hub + Boss on #744, 2026-11-07).
+    if resolved.name.lower() == "soul.md":
+        from windyfly.tools.bands import current_band
+
+        band = current_band()
+        if band is None or int(band) < int(Band.OWNER):
+            raise PermissionError(f"path {raw_path!r} is the agent's soul file, which only its owner may open")
 
     if not allowed_roots:
         raise PermissionError(

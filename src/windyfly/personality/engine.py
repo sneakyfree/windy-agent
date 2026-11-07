@@ -6,7 +6,11 @@ the system prompt personality block.
 
 from __future__ import annotations
 
+import logging
+import re
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 def load_soul(path: str = "SOUL.md") -> str:
@@ -27,6 +31,63 @@ def load_soul(path: str = "SOUL.md") -> str:
         "When you introduce yourself, use your own name if you have one. "
         "Be warm, helpful, and honest. Remember what the user tells you."
     )
+
+
+# A soul section whose heading carries this marker is for the OWNER's turns only: a stranger's turn never gets it.
+# Example heading:  "## Operator notes <!-- owner-only -->". The marker itself never reaches any model.
+_OWNER_ONLY_MARK = re.compile(r"\s*<!--\s*owner-only\s*-->\s*", re.IGNORECASE)
+_HEADING = re.compile(r"^(#{1,6})\s")
+_FENCE = re.compile(r"^\s*(```|~~~)")
+
+
+def soul_for_turn(soul_text: str, *, owner: bool) -> str:
+    """The soul as this turn may see it.
+
+    An owner's turn gets every section. Any other turn (a stranger, a paired non-owner) gets the soul WITHOUT the
+    sections marked ``<!-- owner-only -->``: the marked heading and everything under it, up to the next heading of the
+    same or a higher level (deeper sub-headings go with it). Lines inside code fences are never headings. The marker is
+    removed in both cases. A soul without markers comes back unchanged, byte for byte.
+    """
+    if "owner-only" not in soul_text.lower():
+        return soul_text
+    out: list[str] = []
+    fence = ""              # the open fence's marker (``` or ~~~); only the SAME kind closes it
+    skip_level = 0          # > 0 while inside an owner-only section of that heading level
+    for line in soul_text.splitlines(keepends=True):
+        f = _FENCE.match(line)
+        if f:
+            if not fence:
+                fence = f.group(1)
+            elif f.group(1) == fence:
+                fence = ""
+        heading = None if fence or f else _HEADING.match(line)
+        if heading:
+            level = len(heading.group(1))
+            if skip_level and level <= skip_level:
+                skip_level = 0          # a sibling or higher heading ends the owner-only section
+            if not skip_level and _OWNER_ONLY_MARK.search(line):
+                if not owner:
+                    skip_level = level
+                    continue
+        if skip_level:
+            continue
+        out.append(line)
+    # Fail closed: a marker this parser did not take as a heading (an indented or setext heading, a marker on a body
+    # line, one inside a fence) never reaches a model. A non-owner turn loses that whole LINE (and we say so once in
+    # the log, so the soul can be fixed); the owner's turn keeps the line without the marker.
+    kept: list[str] = []
+    stray = 0
+    for line in out:
+        if _OWNER_ONLY_MARK.search(line):
+            if not owner:
+                stray += 1
+                continue
+            ending = "\n" if line.endswith("\n") else ""
+            line = _OWNER_ONLY_MARK.sub(" ", line.rstrip("\n")).rstrip() + ending
+        kept.append(line)
+    if stray:
+        logger.warning("soul: %d owner-only marker line(s) not on a recognised heading; dropped for a non-owner", stray)
+    return "".join(kept)
 
 
 # The sliders raw mode (the default) leaves out: only the tone of the personality block. Every other slider in a
