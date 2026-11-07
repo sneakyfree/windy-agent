@@ -1,0 +1,1 @@
+- CI: a new soul-identity-lint job fails a PR that ADDS a real agent's soul file, a real passport id or agent Matrix id, an instance [agent] name in a .toml, or a denylisted name where identity text ships. Added files and lines only.
