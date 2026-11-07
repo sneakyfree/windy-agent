@@ -20,6 +20,11 @@ token on every platform is rolled (Vault leads); (5) then the marketing money.
 Last full rewrite: 2026-11-07 00:01Z (catch-up, Boss BOARD 2026-11-06T23:57:40Z); updated 2026-11-07 01:53Z (line standard, Boss 2026-11-07T00:02:22Z).
 
 ## Now
+- [ ] Zero re-pin to master (67 commits ahead of its pin): BOOKED SUN 11-08 15:30-16:00Z on Windy 0, GO by sha at the BEFORE; #746-#755 merge first; BEFORE with Hub's OK by 14:00Z incl. Eternitas standing and each unit's env-file lines; rollback = the previous pin in under 2 min · OWNER Windy Agent · ADDED 2026-11-04 · DUE 2026-11-08 16:00Z · STATUS waiting on the merges · SOURCE Boss BOARD 2026-11-07T16:26:51Z; 19:26:03Z (the env-file check)
+- [ ] #757: no OWNER band with no owner in the turn (background goals run lower and pause to ask the owner; the phone-result turn; /benchmark) · OWNER Windy Agent · ADDED 2026-11-07 · DUE 2026-11-10 18:00Z · STATUS waiting on CI (Hub + Boss stamped 682da682) · SOURCE Boss BOARD 2026-11-07T19:26:03Z
+- [ ] Follow-up to #757 (Boss's second ruling on background goals; details in its PR) with a test and a mutant, Hub read, Boss stamp · OWNER Windy Agent · ADDED 2026-11-07 · DUE 2026-11-09 18:00Z · STATUS blocked by #757's merge · SOURCE Boss BOARD 2026-11-07T19:39:14Z
+- [ ] Follow-up to #755 (Hub's read note; details stay off this public file until it merges) · OWNER Windy Agent · ADDED 2026-11-07 · DUE 2026-11-13 · STATUS blocked by #755's merge · SOURCE Hub's #755 stamp note 2026-11-07
+- [ ] Calendar's lab Tue 11-10 13:05Z: the Chat roster agent runs from master; my pre-lab line names its exact sha · OWNER Windy Agent · ADDED 2026-11-07 · DUE 2026-11-10 13:05Z · STATUS later · SOURCE Windy Calendar 2026-11-07
 
 Line standard (Boss BOARD 2026-11-07T00:02:22Z): - [ ] what · OWNER · ADDED · DUE · STATUS · SOURCE; Done = - [x] · DONE · PROOF.
 
@@ -28,22 +33,18 @@ Line standard (Boss BOARD 2026-11-07T00:02:22Z): - [ ] what · OWNER · ADDED ·
 - [ ] Mind: lab (synthetic) tool turns fail on the 2nd /v1/chat (the synthetic chain: nemotron retired, @cf llama skips big prompts, gpt-oss:20b answers with its reasoning unsplit, so 503). Real callers and Zero unaffected. Hold lab tool turns; re-run the one lab search turn when Mind's fix (windy-mind #594, dark; I read it: the tail model must take an ~11k-token turn) is live · OWNER Mind (fix), Windy Agent (re-run) · ADDED 2026-11-07 · DUE none · STATUS blocked by windy-mind #594's switch-on GO (Mind) · SOURCE BOARD 2026-11-07 ~09:1xZ (Agent); Mind's answer ~09:1xZ
 - [ ] Zero's owner-path identity check: Grant asks Zero "who are you?" himself (an owner turn can't be scripted; a non-owner probe never hears the instance name, by design) · OWNER Grant · ADDED 2026-11-07 · DUE none · STATUS waiting on Grant · SOURCE Boss BOARD 2026-11-07T13:09:43Z (b)
 
-- [ ] #748 (Hub's #744 condition): the file tools refuse ANY soul file the agent has loaded, resolved, below the owner, whatever its name · OWNER Windy Agent · ADDED 2026-11-07 · DUE 2026-11-07 · STATUS waiting on CI (Hub + Boss stamped c13e3347) · SOURCE Hub's #744 stamp note; Boss BOARD 2026-11-07T15:55:25Z
-- [ ] Grant's order: TODO up to date by 16:05Z; knock out items 16:05-17:15Z; a gap analysis page per repo I own (windy-agent, windy-fly-site, windy-0-soul) by 17:50Z, one BOARD line when up · OWNER Windy Agent · ADDED 2026-11-07 · DUE 2026-11-07 17:50Z · STATUS now (TODO PRs merged: #745, site #28, soul #5; knock-outs #746-#750, site #29, soul #6 in review; gap pages v1 up, refresh + BOARD line by 17:50Z) · SOURCE Boss BOARD 2026-11-07T15:37:16Z (Grant ~15:36Z)
 
 - [ ] #750: the agent's own labels say "Windy Fly Agent" (reply signature header, Matrix presence, the hatch passport description); after #749 merges, merge master in (no force-push) and move the strings doc's group 2 to changed · OWNER Windy Agent · ADDED 2026-11-07 · DUE 2026-11-07 · STATUS waiting on #749's merge · SOURCE Boss BOARD 2026-11-07T15:55:25Z
-- [ ] After #748: the soul rule follows the file itself (device + inode), so a hard link to the soul is closed too · OWNER Windy Agent · ADDED 2026-11-07 · DUE 2026-11-10 · STATUS blocked by #748's merge · SOURCE Hub's #748 stamp note 2026-11-07; Boss BOARD 2026-11-07T15:55:25Z
-- [ ] DNA_STRAND_MASTER_PLAN.md for windy-agent: v0.1 (sections 0-4 + 8, Grant's own words) then v1.0 with genes + codons, the Windy Log codons AG-1..AG-8 as their own gene; TODO lines carry the AG ids the day each starts · OWNER Windy Agent · ADDED 2026-11-07 · DUE 2026-11-08 18:00Z (v0.1), 2026-11-13 18:00Z (v1.0) · STATUS now (v0.1 drafting) · SOURCE Windy Log 2026-11-07 (codons recorded FINAL, VISION section 8 net 4); ADDENDUM-5 (the strand shape)
+- [ ] After #748: the soul rule follows the file itself (device + inode), so a hard link to the soul is closed too · OWNER Windy Agent · ADDED 2026-11-07 · DUE 2026-11-10 · STATUS waiting on CI (#756, Hub + Boss stamped 4b75a34b) · SOURCE Hub's #748 stamp note 2026-11-07; Boss BOARD 2026-11-07T15:55:25Z
+- [ ] DNA_STRAND_MASTER_PLAN.md for windy-agent v1.0: genes + codons, the Windy Log codons AG-1..AG-8 as their own gene; TODO lines carry the AG ids the day each starts · OWNER Windy Agent · ADDED 2026-11-07 · DUE 2026-11-13 18:00Z · STATUS later (v0.1 merged #752) · SOURCE Windy Log 2026-11-07 (codons recorded FINAL, VISION section 8 net 4); ADDENDUM-5 (the strand shape)
 
 **Sun 2026-11-08**
 - [ ] Tell Windy Mind the passport id (id only) of ANY lab agent of mine still running after 2026-11-09 11:00Z whose passport is not ET26-TEST-; silence = nothing to add · OWNER Windy Agent · ADDED 2026-11-04 · DUE 2026-11-08 18:00Z · STATUS later · SOURCE Mind #567
 - [ ] /model reads outside_ai_label live from catalog/me once Mind's pin is live (vendored = fallback) · OWNER Windy Agent · ADDED 2026-11-04 · DUE 2026-11-08 17:00Z (Mind's pin) · STATUS waiting on Mind · SOURCE Mind pin plan 11-04
 
 **Mon 2026-11-09**
-- [ ] windy-fly-site #22 deploy (deletes the untrue Cost Control claims), 14:00-14:20Z, both domains, BOARD BEFORE/AFTER with check-claims on each · OWNER Windy Agent · ADDED 2026-11-04 · DUE 2026-11-09 14:20Z · STATUS later · SOURCE Boss BOARD 2026-11-05T17:50:11Z
+- [ ] windy-fly-site #22 deploy (deletes the untrue Cost Control claims) with #29 riding along (IndexNow key + the More from Windy links), 14:00-14:20Z, both domains, GO by sha at the BEFORE, BOARD BEFORE/AFTER with check-claims on each · OWNER Windy Agent · ADDED 2026-11-04 · DUE 2026-11-09 14:20Z · STATUS later (#29 Hub + Boss stamped f26b5d87; merging it deploys it, so it merges in the slot) · SOURCE Boss BOARD 2026-11-05T17:50:11Z; 2026-11-07T15:55:25Z
 - [ ] Lab #714's key rotation (WINDY_AGENT_KEY_OPS=1) on a lab agent after Eternitas deploys agent-key-ops.v1, own GO · OWNER Windy Agent · ADDED 2026-11-04 · DUE 2026-11-09 · STATUS waiting on Eternitas · SOURCE BOARD 2026-11-04T19:49:59Z item 8
-- [ ] Read Boss's capture crew plan for an Agent part · OWNER Windy Agent · ADDED 2026-11-04 · DUE 2026-11-09 · STATUS later · SOURCE Boss 11-04
-- [ ] Windy Talk: if Talk hasn't claimed Talk + talk-site, write their TODO.md (check the BOARD first) · OWNER Windy Agent · ADDED 2026-11-04 · DUE 2026-11-09 12:00Z · STATUS later · SOURCE Boss 11-04
 
 **Tue 2026-11-10**
 - [ ] When I build the Windy Log decrypter: the exact header allowlist in front of the decrypt (the vectors prove it: without it zip/apu come out decrypt_failed, not bad_header), and test_recorded_words_never_act on positive 4 · OWNER Windy Agent · ADDED 2026-11-07 · DUE none · STATUS blocked by Word's section merging · SOURCE windy-contracts #304 at 8d331073
@@ -59,13 +60,12 @@ Line standard (Boss BOARD 2026-11-07T00:02:22Z): - [ ] what · OWNER · ADDED ·
 - [ ] The agent-auth view of the same list: build the Fly side DARK (agent/teams.py reads it behind a flag; Chat's my-agents until then, then pairing-only) · OWNER Windy Agent · ADDED 2026-11-07 · DUE none · STATUS blocked by Word's 2026-11-11 plan naming the shape · SOURCE Hub BOARD 2026-11-07T00:22:10Z (4)
 - [ ] windyfly.ai copy PR (after #22): "Windy Fly" = the app (Mobile + Desktop), the agent = "your Windy Fly agent"; own Pages GO · OWNER Windy Agent · ADDED 2026-11-06 · DUE 2026-11-13 · STATUS waiting on #22 · SOURCE Boss BOARD 2026-11-06T19:40:46Z
 - [ ] hifly.ai moves to its OWN Pages project (frozen at #22's merge) before the copy deploys, own GO · OWNER Windy Agent · ADDED 2026-11-06 · DUE 2026-11-13 (plan) · STATUS waiting on #22 · SOURCE Boss BOARD 2026-11-06T19:40:46Z
-- [ ] Sandbox hardening PR (Boss's list; details stay off this public file until the fix merges) · OWNER Windy Agent · ADDED 2026-11-05 · DUE 2026-11-13 · STATUS later · SOURCE Boss 11-05
-- [ ] REPO REVIEW (a): docs/design/whatsapp-gateway.md from the archived private gateway repo's README, reworded, no account identifiers · OWNER Windy Agent · ADDED 2026-11-06 · DUE 2026-11-13 18:00Z · STATUS waiting on CI (#746, Hub + Boss stamped) · SOURCE Boss BOARD 2026-11-06T22:10:16Z; my 22:11:33Z
-- [ ] REPO REVIEW (b): a CI check failing a PR that adds a soul file other than the default SOUL.md, or a real agent's identity text (added lines only) · OWNER Windy Agent · ADDED 2026-11-06 · DUE 2026-11-13 18:00Z · STATUS waiting on CI (#747, Hub + Boss stamped) · SOURCE Boss BOARD 2026-11-06T22:10:16Z; my 22:11:33Z
+- [ ] Hardening (Boss's list), three PRs: #753 (stop by exact PID only), #754 (each agent reads only its own env file), #755 (the shell sandbox; details stay off this public file until it merges) · OWNER Windy Agent · ADDED 2026-11-05 · DUE 2026-11-13 · STATUS waiting on CI (all three Hub + Boss stamped after Hub's review changes) · SOURCE Boss 11-05; option B for #754 Boss BOARD 2026-11-07T16:13:24Z
+- [ ] REPO REVIEW (b): a CI check failing a PR that adds a soul file other than the default SOUL.md, or a real agent's identity text (added lines only) · OWNER Windy Agent · ADDED 2026-11-06 · DUE 2026-11-13 18:00Z · STATUS waiting on CI (#747, Hub + Boss stamped 1384e706 after Hub's review changes) · SOURCE Boss BOARD 2026-11-06T22:10:16Z; my 22:11:33Z
 - [ ] Branch verdicts from the other owners (table below) · OWNER Grant / Kit OC1 (via Boss) · ADDED 2026-11-04 · DUE 2026-11-13 · STATUS waiting on the owners · SOURCE TODO #702
 
 **Staged, each step on its own GO**
-- [ ] Zero's own soul, each step on its own GO: (1) #744 MERGED a2f60cbc; (2) #748 in CI; (3) windy-0-soul #6, a DRAFT marking its two host/operator sections owner-only = the exact words for Grant, Hub + Boss read it first (Boss's word changes of 2026-11-07T16:02:04Z go in first); (4) the soul_path fix (resolve against the config file's folder), which switches Zero's own soul ON, only on Grant's OK, booked slot, way back in under 2 min · OWNER Windy Agent · ADDED 2026-11-06 · DUE none (Grant's OK) · STATUS now (Boss's word changes into the draft), then waiting on Grant · SOURCE GRANT DECIDED item 11, BOARD 2026-11-06T23:15:11Z; Boss 2026-11-07T14:31:58Z (1), 16:02:04Z (1)
+- [ ] Zero's own soul, each step on its own GO: (1) #744 MERGED a2f60cbc; (2) #748 MERGED 0ba67532; (3) windy-0-soul #6, a DRAFT marking its two host/operator sections owner-only = the exact words for Grant, Hub + Boss read it first (Boss's word changes of 2026-11-07T16:02:04Z go in first); (4) the soul_path fix (resolve against the config file's folder), which switches Zero's own soul ON, only on Grant's OK, booked slot, way back in under 2 min · OWNER Windy Agent · ADDED 2026-11-06 · DUE none (Grant's OK) · STATUS waiting on Hub's read of #6 (Boss's word changes are in), then Grant · SOURCE GRANT DECIDED item 11, BOARD 2026-11-06T23:15:11Z; Boss 2026-11-07T14:31:58Z (1), 16:02:04Z (1)
 
 ## Waiting on
 
@@ -80,7 +80,6 @@ Line standard (Boss BOARD 2026-11-07T00:02:22Z): - [ ] what · OWNER · ADDED ·
 
 ## Later
 
-- [ ] Zero re-pin to master (~60 commits ahead of Zero's pin): its own GO + Hub OK, one daytime slot, BOARD BEFORE/AFTER with the exact sha and what changes; rollback = the previous pin · OWNER Windy Agent · ADDED 2026-11-04 · DUE none · STATUS later · SOURCE TODO 11-04
 - [ ] QA battery deploy (after #711): ONE Boss GO (lab agent update + install script + unit with InaccessiblePaths; dry run with "lab guard: ok" + one deliberate REFUSED; re-enable the timer, disabled since 2026-11-04 16:55Z) · OWNER Windy Agent · ADDED 2026-11-04 · DUE none · STATUS later · SOURCE BOARD 2026-11-04T16:55:12Z
 - [ ] telemetry-canary is a Windy Agent emitter (Admin adds it to #895); nothing to do until Admin asks · OWNER Windy Agent · ADDED 2026-11-06 · DUE none · STATUS waiting on Admin · SOURCE Boss BOARD 2026-11-06T14:55:18Z
 
@@ -113,6 +112,12 @@ Local-only branches: none left open (fix/home-pair-followups = #720, feat/home-i
 
 ## Done
 
+- [x] #748: the file tools refuse ANY soul file the agent has loaded, below the owner, whatever its name · OWNER Windy Agent · ADDED 2026-11-07 · DONE 2026-11-07 · PROOF 0ba67532 (Hub + Boss stamps at c13e3347, CI green)
+- [x] Grant's order: TODO up to date by 16:05Z (#745), knock-outs 16:05-17:15Z, a gap analysis page per repo I own (windy-agent, windy-fly-site, windy-0-soul), one BOARD line · OWNER Windy Agent · ADDED 2026-11-07 · DONE 2026-11-07 · PROOF #745 merged 0a800d25; pages published 16:25Z (marked draft 16:29Z per Boss 16:27:28Z); BOARD 2026-11-07T16:27:45Z
+- [x] Read Boss's capture crew plan for an Agent part · OWNER Windy Agent · ADDED 2026-11-04 · DONE 2026-11-07 · PROOF read 2026-11-07: no Agent part; one line about starting training flagged to Windy Clone, which is fixing it in its own PR
+- [x] Windy Talk's TODO files: Talk owns them · OWNER Windy Agent · ADDED 2026-11-04 · DONE 2026-11-07 · PROOF windytalk and windytalk-site each carry Talk's own TODO.md (checked 2026-11-07)
+- [x] REPO REVIEW (a): docs/design/whatsapp-gateway.md from the archived gateway README, reworded, no account identifiers · OWNER Windy Agent · ADDED 2026-11-06 · DONE 2026-11-07 · PROOF #746 merged 03d56601 (Hub + Boss stamps, CI green)
+- [x] DNA_STRAND_MASTER_PLAN.md v0.1 (sections 0-4 + 8, 14 of Grant's quotes checked word for word) · OWNER Windy Agent · ADDED 2026-11-07 · DONE 2026-11-07 · PROOF #752 merged 28990b86
 - [x] #744 soul owner-only sections: the exact OWNER band only; the file tools and github.fetch_file refuse a SOUL.md below the owner; fails closed · OWNER Windy Agent · ADDED 2026-11-07 · DONE 2026-11-07 · PROOF a2f60cbc (Hub + Boss stamps at 13dd9efb, CI green)
 - [x] My Windy Log codons (AG-1..AG-8) delivered to the Windy Log lane, which recorded them FINAL · OWNER Windy Agent · ADDED 2026-11-06 · DONE 2026-11-07 · PROOF frozen record sha256/16 dc4fbcdedbf414a2; Windy Log's reply 2026-11-07 ~15:55Z
 - [x] #745 (TODO, Sat afternoon) merged · OWNER Windy Agent · ADDED 2026-11-07 · DONE 2026-11-07 · PROOF 0a800d25
