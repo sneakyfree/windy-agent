@@ -146,7 +146,7 @@ _WELCOME_BODY = (
 
 # Legacy constant — the unnamed/brand-name rendering. Kept because
 # callers and tests reference it as the canonical shape.
-WELCOME_TEXT = f"🪰 *Hi! I'm Windy Fly — your personal AI companion.*\n\n{_WELCOME_BODY}"
+WELCOME_TEXT = f"🪰 *Hi! I'm your Windy Fly agent, a personal AI companion.*\n\n{_WELCOME_BODY}"
 
 
 def format_welcome(config: dict | None = None) -> str:
