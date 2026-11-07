@@ -1,6 +1,6 @@
 """No OWNER band with no owner in the turn (Boss BOARD 2026-11-07T19:26:03Z; Hub's conditions on design A).
 
-- Background goals (goal_autorun, goal_pacing) run at TRUSTED. An owner-only or outward tool is refused at the
+- Background goals (goal_autorun, goal_pacing) run at TRUSTED. An owner-only, destructive or outward tool is refused at the
   unchanged gate; the refusal records the tool's NAME, every later call that turn is refused too, the goal pauses, and
   the owner gets ONE chat message (goal text + tool name, never the arguments). Only the owner's own /goal resume
   unpauses, and that grants nothing.
@@ -301,3 +301,78 @@ def test_docker_only_refuses_host_rw_even_at_owner() -> None:
 
     with bands.docker_only(), pytest.raises(PermissionError, match="Docker only"):
         _shell_exec_handler(command="ls", sandbox="host_rw", _dispatcher=MagicMock(), _band=Band.OWNER)
+
+
+# ── Destructive steps pause a goal too (Boss BOARD 2026-11-07T19:39:14Z) ─────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("tier,pauses", [
+    (Tier.PURE_COMPUTE, False), (Tier.READ_EXTERNAL, False), (Tier.WRITE_LOCAL_SAFE, False),
+    (Tier.WRITE_DESTRUCTIVE, True), (Tier.EXTERNAL_EFFECT, True),
+])
+def test_a_goal_pauses_from_write_destructive_up(tier, pauses) -> None:
+    """Delete, move, git commit: an undo log is not the owner's say, and no human is in a goal's turn."""
+    caps = _Caps(step=_cap(Band.TRUSTED, tier))
+    with bands.goal_turn():
+        assert (_dispatch("step", caps) == PAUSED) is pauses
+        assert (bands.needs_owner() == "step") is pauses
+    assert caps.invoked == ([] if pauses else ["step"])
+    assert _dispatch("step", caps) == "ran"                          # a person's TRUSTED turn is unchanged
+
+
+def _real_fs(tmp_path):
+    from windyfly.agent.capabilities.filesystem import register_filesystem_capabilities
+    from windyfly.agent.capabilities.registry import CapabilityRegistry
+
+    root = tmp_path / "files"
+    root.mkdir()
+    r = CapabilityRegistry()
+    register_filesystem_capabilities(r, config={"capabilities": {"filesystem": {
+        "allowed_roots": [str(root)], "undo_journal_path": str(tmp_path / "undo.jsonl")}}})
+    return r, root
+
+
+def _dispatch_real(name: str, args: dict, registry, band: Band = Band.TRUSTED) -> str:
+    from windyfly.agent.capabilities import CapabilityDenied
+    from windyfly.agent.loop import _dispatch_tool_call_inner
+
+    return _dispatch_tool_call_inner(name, json.dumps(args), None, registry, band, CapabilityDenied)
+
+
+@pytest.mark.parametrize("name,args", [
+    ("fs.delete_file", {"path": "{f}"}),
+    ("fs.move_file", {"source": "{f}", "destination": "{root}/moved.txt"}),
+    ("fs.write_file", {"path": "{f}", "content": "new", "overwrite": True}),    # WRITE_DESTRUCTIVE per call
+])
+def test_a_goal_never_deletes_moves_or_overwrites_a_real_file(tmp_path, name, args) -> None:
+    registry, root = _real_fs(tmp_path)
+    f = root / "keep.txt"
+    f.write_text("mine")
+    call = {k: (v.format(f=f, root=root) if isinstance(v, str) else v) for k, v in args.items()}
+    with bands.goal_turn():
+        assert _dispatch_real(name, call, registry) == PAUSED
+        assert bands.needs_owner() == name
+    assert f.read_text() == "mine" and not (root / "moved.txt").exists()
+
+
+def test_a_goal_still_writes_a_new_file(tmp_path) -> None:
+    """fs.write_file without overwrite stays WRITE_LOCAL_SAFE: a goal may still make a new file."""
+    registry, root = _real_fs(tmp_path)
+    with bands.goal_turn():
+        out = _dispatch_real("fs.write_file", {"path": str(root / "new.txt"), "content": "hi"}, registry)
+        assert out != PAUSED and bands.needs_owner() is None
+    assert (root / "new.txt").read_text() == "hi"
+
+
+@pytest.mark.parametrize("raw", ["{not json", "[1, 2]"])
+def test_args_that_do_not_parse_pause_a_tool_with_a_per_call_check(raw) -> None:
+    def check(args):
+        return Tier.WRITE_DESTRUCTIVE if args.get("overwrite") is True else None
+
+    caps = _Caps(write=SimpleNamespace(band_required=Band.USER, tier=Tier.WRITE_LOCAL_SAFE, runtime_tier_check=check))
+    from windyfly.agent.capabilities import CapabilityDenied
+    from windyfly.agent.loop import _dispatch_tool_call_inner
+
+    with bands.goal_turn():
+        assert _dispatch_tool_call_inner("write", raw, None, caps, Band.TRUSTED, CapabilityDenied) == PAUSED
+    assert caps.invoked == []

@@ -275,6 +275,7 @@ def test_no_other_module_issues_the_trusted_band():
     the band: channels/identity.py (the sibling branch), and agent/goal_autorun.py's goal_band() ONLY (a background
     goal runs at TRUSTED, never OWNER: Boss BOARD 2026-11-07T19:26:03Z), where book/block pause the goal instead
     (test_a_goal_turn_never_books_or_blocks below)."""
+    import ast
     import re
     from pathlib import Path
 
@@ -288,9 +289,11 @@ def test_no_other_module_issues_the_trusted_band():
         hits = list(pat.finditer(text))
         if not hits or (rel in allowed and allowed[rel] is None):
             continue
-        if rel in allowed:      # only inside the one named function, and only once
-            fn = re.findall(r"^def (\w+)", text[:hits[0].start()], re.M)
-            if len(hits) == 1 and fn and fn[-1] == allowed[rel]:
+        if rel in allowed and len(hits) == 1:      # only once, and INSIDE the one named function (Hub: by ast,
+            line = text.count("\n", 0, hits[0].start()) + 1   # so module code after that function does not pass)
+            inside = [n.name for n in ast.walk(ast.parse(text)) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+                      and n.lineno <= line <= (n.end_lineno or n.lineno)]
+            if inside == [allowed[rel]]:
                 continue
         offenders.append(rel)
     assert offenders == [], offenders

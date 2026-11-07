@@ -659,6 +659,22 @@ def _dispatch_tool_call(*args: Any, **kwargs: Any) -> str:
     return result
 
 
+def _goal_call_tier(cap: Any, fn_args: Any) -> Any:
+    """The tier of THIS call: the capability's, raised by its per-call check (fs.write_file with overwrite=true is
+    WRITE_DESTRUCTIVE). Args that do not parse, or a check that fails, count as the highest tier (the goal pauses)."""
+    from windyfly.agent.capabilities import Tier as _Tier
+
+    check = getattr(cap, "runtime_tier_check", None)
+    if check is None:
+        return cap.tier
+    try:
+        args = json.loads(fn_args) if isinstance(fn_args, str) and fn_args else (fn_args or {})
+        raised = check(args) if isinstance(args, dict) else max(_Tier)
+    except Exception:  # noqa: BLE001 - fail closed: the goal pauses for the owner
+        raised = max(_Tier)
+    return max(cap.tier, raised) if raised is not None else cap.tier
+
+
 def _dispatch_tool_call_inner(
     fn_name: str,
     fn_args: Any,
@@ -684,14 +700,15 @@ def _dispatch_tool_call_inner(
     paused = json.dumps({"error": _bands.PAUSED_TEXT})
     if _bands.in_goal_turn():
         # A background goal's turn (TRUSTED, Boss 2026-11-07T19:26:03Z): once it has tried an owner-only step, nothing
-        # else runs this turn; an owner-only or outward tool is refused here and pauses the goal.
+        # else runs this turn; an owner-only, destructive (delete, move, git commit: an undo log is not the owner's
+        # say, Boss 19:39:14Z) or outward tool is refused here and pauses the goal.
         if _bands.needs_owner() is not None:
             return paused
         from windyfly.agent.capabilities import Band as _Band, Tier as _Tier
 
         if cap is not None:
             if (band is None or int(band) < int(cap.band_required or _Band.OWNER)
-                    or int(cap.tier) >= int(_Tier.EXTERNAL_EFFECT)):
+                    or int(_goal_call_tier(cap, fn_args)) >= int(_Tier.WRITE_DESTRUCTIVE)):
                 _bands.note_needs_owner(fn_name)
                 return paused
         elif tool_registry is not None and not _bands.allowed(fn_name, band):
