@@ -24,11 +24,13 @@ Last full rewrite: 2026-11-07 00:01Z (catch-up, Boss BOARD 2026-11-06T23:57:40Z)
 Line standard (Boss BOARD 2026-11-07T00:02:22Z): - [ ] what · OWNER · ADDED · DUE · STATUS · SOURCE; Done = - [x] · DONE · PROOF.
 
 **Sat 2026-11-07**
-- [ ] Mail mode-B step on the lab agent labmail9bffe9 (ET26-TEST-R5FY): WINDY_MAIL_EPT_AGENT=1 in that one process; one mode-B read + one send; PASS = EPT+agent + DPoP on each call, 1 HTTP call each, no legacy retry; BOARD AFTER · OWNER Windy Agent · ADDED 2026-11-04 · DUE 2026-11-07 15:35Z · STATUS waiting on Mail's cue (~15:18Z, after its flag-on) · SOURCE Mail 11-04; Boss GO BY NAME to Mail BOARD 2026-11-07T13:58:57Z (4)
-- [ ] SOUL REPORT for Boss, counts only: (1) how many RUNNING agents (Zero, the lab, every hatched or roster agent, any host) load the repo default soul or the built-in fallback instead of their own (a relative soul_path resolves against the working folder); (2) one plain paragraph for Grant on what Zero's own soul adds (headings + counts, no private text). No change to any soul or path without Grant's yes · OWNER Windy Agent · ADDED 2026-11-06 · DUE 2026-11-07 18:00Z · STATUS now · SOURCE BOARD 2026-11-06T20:51:13Z (part 3 B); GRANT DECIDED item 11, 23:15:11Z
 
 - [ ] Mind: lab (synthetic) tool turns fail on the 2nd /v1/chat (the synthetic chain: nemotron retired, @cf llama skips big prompts, gpt-oss:20b answers with its reasoning unsplit, so 503). Real callers and Zero unaffected. Hold lab tool turns; re-run the one lab search turn when Mind's fix is live · OWNER Mind (fix), Windy Agent (re-run) · ADDED 2026-11-07 · DUE after Mind's dark PR + its GO · STATUS waiting on Mind · SOURCE BOARD 2026-11-07 ~09:1xZ (Agent); Mind's answer ~09:1xZ
 - [ ] Zero's owner-path identity check: Grant asks Zero "who are you?" himself (an owner turn can't be scripted; a non-owner probe never hears the instance name, by design) · OWNER Grant · ADDED 2026-11-07 · DUE none · STATUS waiting on Grant · SOURCE Boss BOARD 2026-11-07T13:09:43Z (b)
+
+- [ ] #744 soul owner-only sections: Hub stamped 13dd9efb; waiting on Boss's stamp + CI (watcher armed) · OWNER Windy Agent · ADDED 2026-11-07 · DUE 2026-11-07 · STATUS waiting on Boss · SOURCE Boss BOARD 2026-11-07T14:31:58Z (1), 14:37:53Z
+- [ ] Follow-up to #744: the file tools and github.fetch_file also refuse the RESOLVED configured soul_path below the owner (not only a file named SOUL.md), with a test · OWNER Windy Agent · ADDED 2026-11-07 · DUE before any soul gets a marker · STATUS now · SOURCE Hub's #744 stamp note 2026-11-07
+- [ ] Grant's order: TODO up to date by 16:05Z; knock out items 16:05-17:15Z; a gap analysis page per repo I own (windy-agent, windy-fly-site, windy-0-soul) by 17:50Z, one BOARD line when up · OWNER Windy Agent · ADDED 2026-11-07 · DUE 2026-11-07 17:50Z · STATUS now · SOURCE Boss BOARD 2026-11-07T15:37:16Z (Grant ~15:36Z)
 
 **Sun 2026-11-08**
 - [ ] Tell Windy Mind the passport id (id only) of ANY lab agent of mine still running after 2026-11-09 11:00Z whose passport is not ET26-TEST-; silence = nothing to add · OWNER Windy Agent · ADDED 2026-11-04 · DUE 2026-11-08 18:00Z · STATUS later · SOURCE Mind #567
@@ -61,7 +63,7 @@ Line standard (Boss BOARD 2026-11-07T00:02:22Z): - [ ] what · OWNER · ADDED ·
 - [ ] Branch verdicts from the other owners (table below) · OWNER Grant / Kit OC1 (via Boss) · ADDED 2026-11-04 · DUE 2026-11-13 · STATUS waiting on the owners · SOURCE TODO #702
 
 **Staged, each step on its own GO**
-- [ ] Zero's own soul: (1) a PR so a relative soul_path resolves against the config file's folder first (opt-in by a config key if other agents would change); (2) Grant OKs the exact soul words (private repo); (3) the lab first, with its own small test soul; (4) Zero on Grant's OK, booked slot, way back in under 2 min · OWNER Windy Agent · ADDED 2026-11-06 · DUE none (after the soul report) · STATUS waiting on Grant · SOURCE GRANT DECIDED item 11, BOARD 2026-11-06T23:15:11Z; plan 23:17:44Z
+- [ ] Zero's own soul, each step on its own GO: (1) #744 merged (owner-only soul sections; the file tools refuse a SOUL.md below the owner); (2) the follow-up below (refuse the resolved configured soul_path too); (3) a windy-0-soul PR marking its two host/operator sections owner-only = the exact words for Grant; Hub + Boss read it first; (4) the soul_path fix (resolve against the config file's folder), which switches Zero's own soul ON, only on Grant's OK, booked slot, way back in under 2 min · OWNER Windy Agent · ADDED 2026-11-06 · DUE none (Grant's OK) · STATUS now (step 1 in review) · SOURCE GRANT DECIDED item 11, BOARD 2026-11-06T23:15:11Z; Boss 2026-11-07T14:31:58Z (1)
 
 ## Waiting on
 
@@ -78,7 +80,6 @@ Line standard (Boss BOARD 2026-11-07T00:02:22Z): - [ ] what · OWNER · ADDED ·
 
 - [ ] Zero re-pin to master (~60 commits ahead of Zero's pin): its own GO + Hub OK, one daytime slot, BOARD BEFORE/AFTER with the exact sha and what changes; rollback = the previous pin · OWNER Windy Agent · ADDED 2026-11-04 · DUE none · STATUS later · SOURCE TODO 11-04
 - [ ] QA battery deploy (after #711): ONE Boss GO (lab agent update + install script + unit with InaccessiblePaths; dry run with "lab guard: ok" + one deliberate REFUSED; re-enable the timer, disabled since 2026-11-04 16:55Z) · OWNER Windy Agent · ADDED 2026-11-04 · DUE none · STATUS later · SOURCE BOARD 2026-11-04T16:55:12Z
-- [ ] Purge the TRGE lab agent on the Mac lab machine (its Friday purge didn't happen): ask Hub for the next synthetic purge · OWNER Windy Agent · ADDED 2026-11-04 · DUE none · STATUS later · SOURCE TODO 11-04
 - [ ] telemetry-canary is a Windy Agent emitter (Admin adds it to #895); nothing to do until Admin asks · OWNER Windy Agent · ADDED 2026-11-06 · DUE none · STATUS waiting on Admin · SOURCE Boss BOARD 2026-11-06T14:55:18Z
 
 ## Branches
@@ -110,6 +111,10 @@ Local-only branches: none left open (fix/home-pair-followups = #720, feat/home-i
 
 ## Done
 
+- [x] Mail mode-B step: one process with WINDY_MAIL_EPT_AGENT=1 on the lab agent; mailbox read 200 + one send 200, each with the EPT+agent + a DPoP proof header, 1 HTTP call each, 0 legacy retries · OWNER Windy Agent · ADDED 2026-11-04 · DONE 2026-11-07 · PROOF BOARD AFTER 2026-11-07 ~15:16Z; Mail's flag on 15:15:09Z
+- [x] SOUL REPORT to Boss: 61 of 61 running agents run a generic default or the built-in fallback (Zero: the default via a relative soul_path; two lab agents: the fallback; 58 Chat roster agents: one generic prompt); only Zero has its own soul, and it is off; plain paragraph for Grant + a caution on two sections · OWNER Windy Agent · ADDED 2026-11-06 · DONE 2026-11-07 · PROOF BOARD 2026-11-07T14:31:04Z + correction ~14:32Z; Boss accepted 14:31:58Z
+- [x] TRGE lab agent (11-03 wake lab, later on a lab Mac): it WAS still running on the fallback soul; stopped (exact PID), passport revoked by Eternitas, state kept · OWNER Windy Agent · ADDED 2026-11-04 · DONE 2026-11-07 · PROOF Boss GO 2026-11-07T14:34:22Z; Eternitas AFTER 14:39:14Z
+- [x] #743 (Sat results) merged · OWNER Windy Agent · ADDED 2026-11-07 · DONE 2026-11-07 · PROOF b0d580a8
 - [x] Search #124 AFTER (Agent side): live 09:01:18Z; journeys OK; a lab owner-path search = /v1/search 200 twice; 0 wrong_token_type / 401 · OWNER Windy Agent · ADDED 2026-11-06 · DONE 2026-11-07 · PROOF BOARD 2026-11-07 ~09:1xZ (Agent), Search's AFTER 09:02:13Z
 - [x] Zero identity part 2 deployed (d043705, 13:00-13:09Z): health OK, 0 ERROR, journey OK. The non-owner probe can't hear the instance name (by design; the GO's expectation was wrong, Boss 13:09:43Z). No rollback (the old pin had the hard-coded name) · OWNER Windy Agent · ADDED 2026-11-06 · DONE 2026-11-07 · PROOF BOARD AFTER 2026-11-07 ~13:09Z; Boss 13:09:43Z
 - [x] zero-lab identity: its old DM session repeated its own 11-06 answer (from #736's hard-coded name); one journal entry marked superseded (not deleted); in a FRESH lab room it answers "I am a Windy Fly agent", no instance name, as d043705 intends · OWNER Windy Agent · ADDED 2026-11-07 · DONE 2026-11-07 · PROOF Boss GO 13:09:43Z (a) + 14:22:49Z; BOARD AFTERs ~14:20Z + ~14:24Z
