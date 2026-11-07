@@ -17,7 +17,7 @@ stay in the lockbox, and Boss's GO by sha for production. Grant's gates before t
 Legal e-sign/archive/recall, Support email, smooth sign-up); (3) an attorney reviews the legal documents; (4) every
 token on every platform is rolled (Vault leads); (5) then the marketing money.
 
-Last full rewrite: 2026-11-07 00:1xZ (catch-up, Boss BOARD 2026-11-06T23:57:40Z).
+Last full rewrite: 2026-11-07 00:01Z (catch-up, Boss BOARD 2026-11-06T23:57:40Z); updated 2026-11-07 00:19Z.
 
 ## Now
 
@@ -40,7 +40,8 @@ Last full rewrite: 2026-11-07 00:1xZ (catch-up, Boss BOARD 2026-11-06T23:57:40Z)
   built-in fallback instead of their own (a relative soul_path resolves against the working folder); (2) one plain
   paragraph for Grant: what Zero's own soul adds (headings + counts, no private text). No change to any soul or path
   without Grant's yes.
-- BY 18:00Z: catch-up TODO PRs in windy-agent (this), windy-fly-site and windy-0-soul (Boss 23:57:40Z).
+- BY 18:00Z: catch-up TODO PRs (Boss 23:57:40Z): windy-agent #738 MERGED 66a6d4d0 and windy-fly-site #25 MERGED a5717c21
+  (00:18Z); windy-0-soul #3 re-read after merging main (it conflicted with #2).
 
 **Sun 11-08**
 - By 18:00Z: tell Windy Mind the passport id (id only) of ANY lab agent of mine still running after Mon 11-09 11:00Z
@@ -89,7 +90,6 @@ Last full rewrite: 2026-11-07 00:1xZ (catch-up, Boss BOARD 2026-11-06T23:57:40Z)
 - **Grant:** his own typed OK in this terminal before the line "Read TODO.md first; add every promise to it the same
   turn." goes into CLAUDE.md in windy-agent, windy-fly-site and windy-0-soul. Asked 11-04 11:45Z.
 - **Grant:** the staged OK for Zero's own soul (above).
-- **Boss:** windy-0-soul #2 (RECOVERY.md) stamp at 2f2fb35b (Hub STAMPED 11-04); docs only.
 - **Boss:** decision on #687 (ONE-WINDY-PLAN).
 - **Hub:** revoke reason `move_aborted` for H13a (asked Eternitas too); says when a lab instance takes my-windy mode B
   (then lab #724 there only; WINDY_MY_WINDY stays OFF everywhere until then).
@@ -140,6 +140,8 @@ Local-only branches: none left open (fix/home-pair-followups = #720, feat/home-i
 
 ## Done
 
+- 2026-11-07: windy-0-soul #2 RECOVERY.md MERGED 23714607 00:06Z (both stamps were on 2f2fb35b since 11-04; this file's
+  'waiting on Boss' line was stale, Hub caught it).
 - 2026-11-06: #737 MERGED 6260343c (default + fallback soul say "a Windy Fly agent"; the instance name comes from
   [agent] name in config, none = no instance sentence). #736 MERGED 63d349da (the IDENTITY line: a Windy Fly agent with
   its own name). #735 77b76a62 + #729 8335ce1f (TODO). Repo description set (Boss 18:57:55Z).
