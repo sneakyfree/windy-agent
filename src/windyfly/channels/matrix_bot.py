@@ -2012,7 +2012,7 @@ class WindyFlyMatrixBot(ChannelAdapter):
             logger.debug("shutdown turnover skipped: %s", e)
         logger.info("Graceful shutdown: setting presence to offline...")
         try:
-            await self.client.set_presence("offline", status_msg="Windy Fly shutting down")
+            await self.client.set_presence("offline", status_msg="Windy Fly Agent shutting down")
         except Exception as e:
             logger.debug("Could not set offline presence: %s", e)
 
@@ -2166,7 +2166,7 @@ class WindyFlyMatrixBot(ChannelAdapter):
         for attempt in range(3):
             try:
                 await self.client.set_presence(
-                    "online", status_msg="Windy Fly is ready 🪰"
+                    "online", status_msg="Windy Fly Agent is ready 🪰"
                 )
                 logger.info("Presence set to online")
                 break

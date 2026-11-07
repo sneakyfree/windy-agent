@@ -102,7 +102,7 @@ class TestMaybePrependHeader:
         import windyfly.agent.context_header as ch
         ch._tracker = None
         result = maybe_prepend_header("Hello!", 0)
-        assert result.startswith("[🪰 Windy Fly")
+        assert result.startswith("[🪰 Windy Fly Agent · ")
         assert "Hello!" in result
 
     def test_header_contains_response(self) -> None:
@@ -186,7 +186,7 @@ class TestSingleEmojiPrefix:
         # Big delta from initial 100% → triggers full panel
         result = maybe_prepend_header("Hi!", 50_000)  # 25% used = 75% rem
         # Full panel format
-        assert result.startswith("[🪰 Windy Fly")
+        assert result.startswith("[🪰 Windy Fly Agent · ")
         # NOT double-prefixed (i.e., no bare emoji + bracketed panel)
         assert not result.startswith("🟢 [")
         assert not result.startswith("🟡 [")
@@ -274,7 +274,7 @@ class TestEngineInHeader:
         import windyfly.agent.context_header as ch
         ch._tracker = None
         out = ch.maybe_prepend_header("hi", 0)
-        assert out.startswith("[🪰 Windy Fly · ")
+        assert out.startswith("[🪰 Windy Fly Agent · ")
         assert out.count("·") == 2  # ts + state only, no engine segment
 
     def test_engine_sticky_across_calls(self):

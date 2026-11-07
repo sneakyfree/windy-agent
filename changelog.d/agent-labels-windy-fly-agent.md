@@ -1,0 +1,1 @@
+- The agent's own labels say "Windy Fly Agent": the reply signature header, the Matrix presence lines, and the passport description sent at hatch (Boss 2026-11-07T15:55:25Z).

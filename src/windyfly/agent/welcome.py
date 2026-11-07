@@ -154,8 +154,8 @@ def format_welcome(config: dict | None = None) -> str:
 
     The name comes from config ``[agent] name`` — set at the Naming
     Ceremony (quickstart Stage 2 / the web hatch). Falls back to the
-    brand name for unnamed/legacy configs, which renders the exact
-    historical WELCOME_TEXT. Function form (not constant) so future
+    brand name for unnamed/legacy configs, which renders WELCOME_TEXT
+    ("your Windy Fly agent" since #749). Function form (not constant) so future
     per-language / per-band variants can be added without breaking
     callers."""
     name = ""

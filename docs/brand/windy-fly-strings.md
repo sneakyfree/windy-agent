@@ -5,19 +5,19 @@ Boss TILE RULINGS (BOARD 2026-11-06T19:19:22Z): "Windy Fly" = the app (Windy Fly
 in a Python string literal under src/ (docstrings and comments left out), not followed by Mobile / Desktop / agent: **97**
 (the TODO line said 102 on 11-06; a few have changed since).
 
-## 1. The AGENT speaking as itself: CHANGED in this PR to "your Windy Fly agent" (4)
+## 1. The AGENT speaking as itself: CHANGED to "your Windy Fly agent" by #749 (4)
 
 `agent/welcome.py:149`, `channels/matrix_bot.py:1581`, `commands/registry.py:319`, `hatching.py:198`
 
-## 2. The agent's own short label or record: NOT changed yet, a wording call for Boss (5)
+## 2. The agent's own short label or record: CHANGED to "Windy Fly Agent" by #750 (Boss BOARD 2026-11-07T15:55:25Z) (5)
 
-Context-header signature on replies (`[🪰 Windy Fly · time · …]`, 2), the Matrix presence lines "Windy Fly is ready" / "shutting down" (2), and the passport description sent at hatch (1).
+Context-header signature on replies (`[🪰 Windy Fly Agent · time · …]`, 2), the Matrix presence lines "Windy Fly Agent is ready" / "Windy Fly Agent shutting down" (2), and the passport description sent at hatch ("Windy Fly Agent, a personal AI assistant", 1).
 
 `agent/context_header.py:140`, `agent/context_header.py:143`, `channels/matrix_bot.py:2015`, `channels/matrix_bot.py:2169`, `eternitas/models.py:15`
 
-## 3. The DEFAULT AGENT NAME (used until the owner names the agent): NOT changed, an identity decision (13)
+## 3. The DEFAULT AGENT NAME (used until the owner names the agent): stays "Windy Fly", Grant's call (Boss BOARD 2026-11-07T15:55:25Z) (13)
 
-Changing these renames every unnamed agent. If Boss wants it, it is one constant (branding / config default) plus the env defaults, in its own PR. (`cloud_backup.py:328` is only the name LABEL in a backup's metadata, not the key.)
+Changing these would rename every unnamed agent. If Grant ever wants it, it is one constant (branding / config default) plus the env defaults, in its own PR. (`cloud_backup.py:328` is only the name LABEL in a backup's metadata, not the key.)
 
 `cloud_backup.py:328`, `agent/first_interaction.py:42`, `agent/welcome.py:164`, `cli.py:363`, `cli_status.py:164`, `config.py:38`, `observability/version_info.py:218`, `quickstart.py:179`, `quickstart.py:269`, `setup_wizard.py:496`, `tools/outbound_identity.py:24`, `vps_deploy.py:127`, `vps_deploy.py:129`
 
