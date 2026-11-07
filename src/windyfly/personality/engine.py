@@ -16,11 +16,25 @@ logger = logging.getLogger(__name__)
 # Every soul file this process has loaded, resolved. The file tools refuse these below the OWNER band whatever the
 # file is called, so a soul_path pointing at a file with another name is as closed as SOUL.md (Hub's #744 note).
 _LOADED_SOUL_PATHS: set[Path] = set()
+# (st_dev, st_ino) of every loaded soul: a HARD link to it under another name resolves to a different path but is the
+# same file, so the path set alone missed it (follow-up to #748).
+_LOADED_SOUL_IDS: set[tuple[int, int]] = set()
+
+
+def _file_id(path: Path) -> tuple[int, int] | None:
+    try:
+        st = path.stat()
+    except OSError:
+        return None
+    return (st.st_dev, st.st_ino)
 
 
 def is_loaded_soul(path: Path) -> bool:
-    """True when ``path`` (already resolved) is a soul file this process has loaded."""
-    return path in _LOADED_SOUL_PATHS
+    """True when ``path`` (already resolved) is a soul file this process has loaded, by path or as the same file."""
+    if path in _LOADED_SOUL_PATHS:
+        return True
+    fid = _file_id(path) if _LOADED_SOUL_IDS else None
+    return fid is not None and fid in _LOADED_SOUL_IDS
 
 
 def load_soul(path: str = "SOUL.md") -> str:
@@ -35,6 +49,9 @@ def load_soul(path: str = "SOUL.md") -> str:
     soul_path = Path(path)
     if soul_path.exists():
         _LOADED_SOUL_PATHS.add(soul_path.resolve())
+        fid = _file_id(soul_path)
+        if fid is not None:
+            _LOADED_SOUL_IDS.add(fid)
         return soul_path.read_text(encoding="utf-8")
 
     return (
