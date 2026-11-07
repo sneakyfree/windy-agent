@@ -15,17 +15,17 @@ Context-header signature on replies (`[🪰 Windy Fly · time · …]`, 2), the 
 
 `agent/context_header.py:140`, `agent/context_header.py:143`, `channels/matrix_bot.py:2015`, `channels/matrix_bot.py:2169`, `eternitas/models.py:15`
 
-## 3. The DEFAULT AGENT NAME (used until the owner names the agent): NOT changed, an identity decision (12)
+## 3. The DEFAULT AGENT NAME (used until the owner names the agent): NOT changed, an identity decision (13)
 
-Changing these renames every unnamed agent. If Boss wants it, it is one constant (branding / config default) plus the env defaults, in its own PR.
+Changing these renames every unnamed agent. If Boss wants it, it is one constant (branding / config default) plus the env defaults, in its own PR. (`cloud_backup.py:328` is only the name LABEL in a backup's metadata, not the key.)
 
-`agent/first_interaction.py:42`, `agent/welcome.py:164`, `cli.py:363`, `cli_status.py:164`, `config.py:38`, `observability/version_info.py:218`, `quickstart.py:179`, `quickstart.py:269`, `setup_wizard.py:496`, `tools/outbound_identity.py:24`, `vps_deploy.py:127`, `vps_deploy.py:129`
+`cloud_backup.py:328`, `agent/first_interaction.py:42`, `agent/welcome.py:164`, `cli.py:363`, `cli_status.py:164`, `config.py:38`, `observability/version_info.py:218`, `quickstart.py:179`, `quickstart.py:269`, `setup_wizard.py:496`, `tools/outbound_identity.py:24`, `vps_deploy.py:127`, `vps_deploy.py:129`
 
-## 4. The default name inside the cloud-backup KEY DERIVATION: NEVER change (old backups would not decrypt) (2)
+## 4. The default name inside the cloud-backup KEY DERIVATION: NEVER change (old backups would not decrypt) (1)
 
-The default name is mixed into the backup key. A new default here would make every existing unnamed agent's backup unreadable.
+The default name is mixed into the passport-derived backup key ("<passport>:<name>"); it is FROZEN, and a known-answer test (tests/test_backup_kdf_frozen.py) guards it. A new default here would make old backups made with the default name unreadable.
 
-`cloud_backup.py:101`, `cloud_backup.py:328`
+`cloud_backup.py:101`
 
 ## 5. The PRODUCT / brand (the app, the product list, the tagline, the HiFly-exclusive marks): stays "Windy Fly" (8)
 
