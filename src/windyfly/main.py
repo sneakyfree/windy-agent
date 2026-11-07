@@ -12,7 +12,6 @@ import sys
 import threading
 import time
 
-from dotenv import load_dotenv
 
 from windyfly.config import load_config
 
@@ -299,21 +298,6 @@ def _configure_logging(channel: str, log_level: str) -> None:
 
 def main() -> None:
     """Main entry point for Windy Fly."""
-    # The agent's own .env lives in its project folder (where `windy go` /
-    # `windy bring-home` wrote it). A bare load_dotenv() searches upward
-    # from THIS module's directory, which on a pip install is
-    # site-packages, so the project file must be named explicitly. Neither
-    # call overrides variables already set (systemd EnvironmentFile wins).
-    from windyfly.platform import get_project_root
-
-    load_dotenv(get_project_root() / ".env")
-    load_dotenv()
-    # Synthetic marking again, now that the .env is in: a test-born agent's passport may live only there (windy
-    # bring-home writes it), so the CLI's earlier install() could not see it yet (Hub on #647). Idempotent.
-    from windyfly.observability import synthetic
-
-    synthetic.install()
-
     parser = argparse.ArgumentParser(description="Windy Fly — AI agent brain")
     sub = parser.add_subparsers(dest="subcommand")
 
@@ -341,6 +325,17 @@ def main() -> None:
     sub.add_parser("test", help="Run self-test")
 
     args = parser.parse_args()
+
+    # This agent's env file (Boss 2026-11-07T16:13:24Z, option B): WINDY_ENV_FILE, else the project .env only when
+    # THIS agent's config lives in that project; never a bare load_dotenv() (env_file.py). Nothing set is overridden.
+    from windyfly.env_file import load_agent_env
+
+    load_agent_env(args.config)
+    # Synthetic marking again, now that the env file is in: a test-born agent's passport may live only there (windy
+    # bring-home writes it), so the CLI's earlier install() could not see it yet (Hub on #647). Idempotent.
+    from windyfly.observability import synthetic
+
+    synthetic.install()
 
     # Handle subcommands first
     if args.subcommand == "status":

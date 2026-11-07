@@ -114,12 +114,16 @@ def test_a_passport_only_in_the_agents_env_file_is_seen_at_boot(monkeypatch, tmp
     monkeypatch.setattr(httpx.Client, "send", httpx.Client.send)
     monkeypatch.setattr(httpx.AsyncClient, "send", httpx.AsyncClient.send)
     monkeypatch.setattr("windyfly.platform.get_project_root", lambda: tmp_path)
-    # conftest stubs load_dotenv suite-wide; here main() gets the real one, for an EXPLICIT path only (the bare
-    # upward search stays off, so no real .env can leak in).
+    # conftest stubs load_dotenv suite-wide; here the agent's env loader gets the real one (it only ever reads a NAMED
+    # file: WINDY_ENV_FILE, or the project .env when this agent's config is in the project, as here).
     from dotenv.main import load_dotenv as real_load_dotenv
 
-    monkeypatch.setattr(wmain, "load_dotenv", lambda path=None, **k: real_load_dotenv(path) if path else False)
+    import windyfly.env_file as env_file
+
+    monkeypatch.setattr(env_file, "load_dotenv", real_load_dotenv)
+    monkeypatch.delenv("WINDY_ENV_FILE", raising=False)
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("sys.argv", ["windyfly.main"])                # default --config windyfly.toml, in the project
 
     class _Stop(Exception):
         pass
@@ -127,7 +131,7 @@ def test_a_passport_only_in_the_agents_env_file_is_seen_at_boot(monkeypatch, tmp
     def stop(*a, **k):
         raise _Stop
 
-    monkeypatch.setattr(wmain.argparse, "ArgumentParser", stop)      # boot stops right after the .env + install
+    monkeypatch.setattr(wmain, "load_config", stop)                   # boot stops right after the .env + install
     assert synthetic.active() is False
     with pytest.raises(_Stop):
         wmain.main()

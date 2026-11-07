@@ -219,9 +219,20 @@ def apply_update(target_version: str | None = None) -> tuple[bool, str]:
         CACHE_FILE.unlink(missing_ok=True)
     except OSError:
         pass
+    # An existing service file now names its env file (Boss 2026-11-07T16:13:24Z, option B): an older macOS plist set
+    # only PATH. Best effort: the agent still reads its project .env implicitly when its config is in that project.
+    named = ""
+    try:
+        from windyfly.env_file import name_env_file_in_services
+
+        changed = name_env_file_in_services()
+        if changed:
+            named = f" The service file now names its env file ({', '.join(p.name for p in changed)})."
+    except Exception as e:  # noqa: BLE001 - never fail a good update over this
+        logger.warning("Could not name the env file in the service file: %s", e)
     return True, (
-        f"Updated to {detail or target_version or 'latest'} (verified). "
-        "Restart with 'windy restart'."
+        f"Updated to {detail or target_version or 'latest'} (verified)."
+        f"{named} Restart with 'windy restart'."
     )
 
 

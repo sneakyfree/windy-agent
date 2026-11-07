@@ -231,8 +231,8 @@ def run_self_test(*, exit_on_failure: bool = True) -> bool:
 
     # ── Setup ──
     try:
-        from dotenv import load_dotenv
-        load_dotenv()
+        from windyfly.env_file import load_agent_env
+        load_agent_env()
 
         from windyfly.config import load_config
         config = load_config()
