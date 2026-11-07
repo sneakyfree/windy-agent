@@ -237,7 +237,18 @@ def own_systemd_unit() -> SystemdUnitInfo | None:
     if parsed is None:
         return None
     unit, scope = parsed
+    if not _is_windy_unit(unit):
+        return None          # started by hand inside some OTHER service: never stop that service (Hub on #753)
     return SystemdUnitInfo(unit=unit, scope=scope, pid=os.getpid())
+
+
+def _is_windy_unit(unit: str) -> bool:
+    """A unit windy installs (windyfly*.service, windy-*.service incl. templates like windy-0@matrix.service), or the
+    one named in WINDY_SYSTEMD_UNIT for an install with its own unit name."""
+    named = os.environ.get("WINDY_SYSTEMD_UNIT", "").strip()
+    if named and unit == named:
+        return True
+    return unit.endswith(".service") and unit.startswith(("windyfly", "windy-"))
 
 
 _OUR_MARKERS = ("windyfly", "src/server.ts")

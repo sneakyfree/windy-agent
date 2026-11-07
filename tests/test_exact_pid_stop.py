@@ -113,6 +113,32 @@ def test_pid_is_ours_checks_uid_and_command_line():
     assert pid_is_ours(0) is False and pid_is_ours(-5) is False
 
 
+@pytest.mark.parametrize("leaf,expected", [
+    ("windy-0@matrix.service", "windy-0@matrix.service"),
+    ("windyfly.service", "windyfly.service"),
+    ("zero-lab.service", None),                  # not a name windy installs: fall through to the PID file
+    ("postgresql.service", None),                # started by hand inside another service: never stop it
+])
+def test_own_unit_is_only_a_unit_windy_installs(monkeypatch, leaf, expected):
+    from pathlib import Path as _P
+
+    import windyfly.platform as plat
+    monkeypatch.setattr(plat, "IS_LINUX", True)
+    monkeypatch.delenv("WINDY_SYSTEMD_UNIT", raising=False)
+    real_read = _P.read_text
+
+    def fake_read(self, *a, **k):
+        if str(self) == "/proc/self/cgroup":
+            return f"0::/user.slice/user-1000.slice/user@1000.service/app.slice/{leaf}\n"
+        return real_read(self, *a, **k)
+
+    monkeypatch.setattr(_P, "read_text", fake_read)
+    info = plat.own_systemd_unit()
+    assert (info.unit if info else None) == expected
+    monkeypatch.setenv("WINDY_SYSTEMD_UNIT", leaf)
+    assert plat.own_systemd_unit().unit == leaf  # an install that names its own unit
+
+
 def test_own_unit_reads_only_this_process_cgroup(monkeypatch, tmp_path):
     from pathlib import Path as _P
 
@@ -122,12 +148,12 @@ def test_own_unit_reads_only_this_process_cgroup(monkeypatch, tmp_path):
 
     def fake_read(self, *a, **k):
         if str(self) == "/proc/self/cgroup":
-            return "0::/user.slice/user-1000.slice/user@1000.service/app.slice/zero-lab.service\n"
+            return "0::/user.slice/user-1000.slice/user@1000.service/app.slice/windy-lab.service\n"
         return real_read(self, *a, **k)
 
     monkeypatch.setattr(_P, "read_text", fake_read)
     info = plat.own_systemd_unit()
-    assert info is not None and info.unit == "zero-lab.service" and info.scope == "user"
+    assert info is not None and info.unit == "windy-lab.service" and info.scope == "user"
 
 
 @pytest.mark.parametrize("cmd", ["stop", "kill"])
