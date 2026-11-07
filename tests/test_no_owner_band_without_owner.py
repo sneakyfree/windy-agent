@@ -343,6 +343,9 @@ def _dispatch_real(name: str, args: dict, registry, band: Band = Band.TRUSTED) -
     ("fs.delete_file", {"path": "{f}"}),
     ("fs.move_file", {"source": "{f}", "destination": "{root}/moved.txt"}),
     ("fs.write_file", {"path": "{f}", "content": "new", "overwrite": True}),    # WRITE_DESTRUCTIVE per call
+    ("fs.write_file", {"path": "{f}", "content": "new", "overwrite": "true"}),  # not a boolean: still counts (Hub)
+    ("fs.write_file", {"path": "{f}", "content": "new", "overwrite": 1}),
+    ("fs.write_file", {"path": "{f}", "content": "new", "overwrite": "yes"}),
 ])
 def test_a_goal_never_deletes_moves_or_overwrites_a_real_file(tmp_path, name, args) -> None:
     registry, root = _real_fs(tmp_path)

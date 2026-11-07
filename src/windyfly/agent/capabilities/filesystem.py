@@ -468,7 +468,7 @@ def _write_file_handler(
     resolved = _resolve_and_check(path, roots)
 
     exists = resolved.exists()
-    if exists and not overwrite:
+    if exists and overwrite is not True:      # only a real boolean true replaces a file ("true", 1, "yes" do not)
         raise FileExistsError(
             f"{path!r} already exists; pass overwrite=true to replace "
             "(elevates the call to Tier.WRITE_DESTRUCTIVE / TRUSTED+ band)"
@@ -1028,7 +1028,9 @@ def register_filesystem_capabilities(
         Tier.WRITE_DESTRUCTIVE (TRUSTED+) so grandma's USER-band
         instance can't accidentally overwrite files.
         """
-        if args.get("overwrite") is True:
+        # Any overwrite value other than absent/false counts ("true", 1, "yes"): the args schema is not enforced, so
+        # the band is judged on what was sent, not on what the handler will make of it (Hub on #759).
+        if args.get("overwrite") not in (None, False):
             return Tier.WRITE_DESTRUCTIVE
         return None
 
