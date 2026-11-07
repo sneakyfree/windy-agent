@@ -316,7 +316,7 @@ class CommandRegistry:
         # Header — short greeting, not a wall of text. Grandma reads
         # the first three lines; we want them to set context fast.
         lines = [
-            "🪰 *Windy Fly — what I can do*",
+            "🪰 *Your Windy Fly agent — what I can do*",
             "",
             "_Tap any command, or just type it. If I stop responding,"
             " try /resurrect — I'll switch to a free local brain so"

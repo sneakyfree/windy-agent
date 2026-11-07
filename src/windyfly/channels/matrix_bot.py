@@ -1578,7 +1578,7 @@ class WindyFlyMatrixBot(ChannelAdapter):
                     "m.room.message",
                     {
                         "msgtype": "m.text",
-                        "body": "Hey! I'm Windy Fly, your personal AI companion. 🪰",
+                        "body": "Hey! I'm your Windy Fly agent, a personal AI companion. 🪰",
                         "windy_original": True,
                         "windy_lang": "en",
                     },
