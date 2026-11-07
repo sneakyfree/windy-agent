@@ -192,3 +192,32 @@ class TestToolsCannotOpenTheSoulBelowOwner:
             out = _fetch_file_handler(owner="o", repo="r", path="some/dir/SOUL.md", base_url="http://127.0.0.1:9",
                                       token=None, allowed_owners=None)
         assert "soul file" in out.get("error", "")
+
+
+class TestARenamedSoulIsClosedToo:
+    """Hub's #744 note: the rule must follow the configured soul_path, not only a file named SOUL.md."""
+
+    def test_a_loaded_soul_with_another_name_is_refused_below_owner(self, tmp_path: Path) -> None:
+        from windyfly.agent.capabilities.filesystem import _read_file_handler
+        from windyfly.personality.engine import load_soul
+        from windyfly.tools.bands import turn_band
+        soul = tmp_path / "zed-personality.md"
+        soul.write_text(SOUL, encoding="utf-8")
+        link = tmp_path / "innocent.txt"
+        link.symlink_to(soul)
+        assert "PRIVATE-LINE-1" in load_soul(str(soul))          # the agent loads it as its soul
+        for band in (0, 1, 2):
+            with turn_band(band):
+                for p in (soul, link):
+                    with pytest.raises(PermissionError, match="soul file"):
+                        _read_file_handler(path=str(p), _allowed_roots=[str(tmp_path)])
+        with turn_band(3):
+            assert "PRIVATE-LINE-1" in str(_read_file_handler(path=str(soul), _allowed_roots=[str(tmp_path)]))
+
+    def test_an_ordinary_file_with_that_shape_is_still_readable(self, tmp_path: Path) -> None:
+        from windyfly.agent.capabilities.filesystem import _read_file_handler
+        from windyfly.tools.bands import turn_band
+        other = tmp_path / "zed-notes.md"
+        other.write_text("just notes\n", encoding="utf-8")
+        with turn_band(1):
+            assert "just notes" in str(_read_file_handler(path=str(other), _allowed_roots=[str(tmp_path)]))

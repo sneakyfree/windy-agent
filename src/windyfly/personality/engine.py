@@ -13,6 +13,16 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
+# Every soul file this process has loaded, resolved. The file tools refuse these below the OWNER band whatever the
+# file is called, so a soul_path pointing at a file with another name is as closed as SOUL.md (Hub's #744 note).
+_LOADED_SOUL_PATHS: set[Path] = set()
+
+
+def is_loaded_soul(path: Path) -> bool:
+    """True when ``path`` (already resolved) is a soul file this process has loaded."""
+    return path in _LOADED_SOUL_PATHS
+
+
 def load_soul(path: str = "SOUL.md") -> str:
     """Load the SOUL.md personality definition.
 
@@ -24,6 +34,7 @@ def load_soul(path: str = "SOUL.md") -> str:
     """
     soul_path = Path(path)
     if soul_path.exists():
+        _LOADED_SOUL_PATHS.add(soul_path.resolve())
         return soul_path.read_text(encoding="utf-8")
 
     return (
