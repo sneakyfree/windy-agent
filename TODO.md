@@ -41,10 +41,8 @@ Line standard (Boss BOARD 2026-11-07T00:02:22Z): - [ ] what · OWNER · ADDED ·
 - [ ] Windy Talk: if Talk hasn't claimed Talk + talk-site, write their TODO.md (check the BOARD first) · OWNER Windy Agent · ADDED 2026-11-04 · DUE 2026-11-09 12:00Z · STATUS later · SOURCE Boss 11-04
 
 **Tue 2026-11-10**
-- [ ] A 16th negative so the vectors prove L6 (e): stale with a FRESH issued_at (age from the agent's own send time, not the sender's issued_at; today an agent that trusts issued_at still passes all 15) · OWNER Word + Windy Fly Mobile · ADDED 2026-11-07 · DUE none (before the build) · STATUS waiting on Word (v3 asked by Mobile 02:49:43Z; negatives 11 -> 12) · SOURCE my vector report 2026-11-07 ~02:4xZ (fleet-say)
 - [ ] When I build the Windy Log decrypter: the exact header allowlist in front of the decrypt (the vectors prove it: without it zip/apu come out decrypt_failed, not bad_header), and test_recorded_words_never_act on positive 4 · OWNER Windy Agent · ADDED 2026-11-07 · DUE after Word's section merges · STATUS later · SOURCE windy-contracts #304 at 8d331073
 
-- [ ] Re-run the vectors at v3 (12 negatives) the day Mobile puts it on #304: mutant (2), age from issued_at, must now FAIL · OWNER Windy Agent · ADDED 2026-11-07 · DUE the day v3 lands · STATUS waiting on Word + Mobile · SOURCE Mobile 2026-11-07T02:49:43Z
 
 **Wed 2026-11-11**
 - [ ] My Windy Log codons to the WINDY LOG lane (tools windy_log.*; key event ai.windy.log_key; owner-only, dark, on Chat's DM tool road; sign then seal; request_id once, 5 min; test_recorded_words_never_act). Don't build before Word's section merges · OWNER Windy Agent · ADDED 2026-11-06 · DUE 2026-11-11 18:00Z · STATUS now (draft written) · SOURCE Boss BOARD 2026-11-06T17:39:06Z, 20:42:47Z, 20:46:07Z
@@ -112,7 +110,8 @@ Local-only branches: none left open (fix/home-pair-followups = #720, feat/home-i
 
 ## Done
 
-- [x] Windy Log vectors run EARLY (due 2026-11-10): Word's v2 (15: 4 open, 11 drop, why list with decrypt_failed) through master's vault/lease_jwe.py + an L6 (a)-(g) checker, 15/15 as expected; the ai.windy.log_key statement verifies; 3 of 4 mutants caught, the 4th = the issued_at gap above · OWNER Windy Agent · ADDED 2026-11-06 · DONE 2026-11-07 · PROOF windy-contracts #304 at 8d331073 (file sha256/16 aef4ac9fdb015a2f); report to Word + Mobile 2026-11-07 ~02:4xZ
+- [x] Vectors v3 (the 16th case: stale with a FRESH issued_at) re-run: 16/16 as expected, all 4 mutants caught (age from issued_at now fails); windy-agent/approved + a PR comment at #304's head · OWNER Windy Agent (asked), Word + Windy Fly Mobile (built) · ADDED 2026-11-07 · DONE 2026-11-07 · PROOF windy-contracts #304 at 10e8c46a (file sha256/16 e6f452ca35f9c245), status 02:54:49Z
+- [x] Windy Log vectors run EARLY (due 2026-11-10): Word's v2 (15: 4 open, 11 drop, why list with decrypt_failed) through master's vault/lease_jwe.py + an L6 (a)-(g) checker, 15/15 as expected; the ai.windy.log_key statement verifies; 3 of 4 mutants caught, the 4th = an issued_at gap, closed in v3 (line above) · OWNER Windy Agent · ADDED 2026-11-06 · DONE 2026-11-07 · PROOF windy-contracts #304 at 8d331073 (file sha256/16 aef4ac9fdb015a2f); report to Word + Mobile 2026-11-07 ~02:4xZ
 - [x] bad_tag + other_key merged into ONE decrypt_failed (both a drop; other_key would also catch a tampered encrypted_key) · OWNER Windy Agent + Word · ADDED 2026-11-07 · DONE 2026-11-07 · PROOF windy-contracts #304 at 8d331073
 - [x] #740 (same-day lines + the line standard) merged · OWNER Windy Agent · ADDED 2026-11-07 · DONE 2026-11-07 · PROOF 5419c3be (both stamps + CI at 1ea6baf3)
 - [x] TODO catch-ups merged (Boss 23:57:40Z) · OWNER Windy Agent · ADDED 2026-11-07 · DONE 2026-11-07 · PROOF #738 66a6d4d0, #739 2859e23b, windy-fly-site #25 a5717c21 + #26 39bc0582, windy-0-soul #3 34376523 (+ #2 23714607)
