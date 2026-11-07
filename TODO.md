@@ -17,7 +17,7 @@ stay in the lockbox, and Boss's GO by sha for production. Grant's gates before t
 Legal e-sign/archive/recall, Support email, smooth sign-up); (3) an attorney reviews the legal documents; (4) every
 token on every platform is rolled (Vault leads); (5) then the marketing money.
 
-Last full rewrite: 2026-11-07 00:01Z (catch-up, Boss BOARD 2026-11-06T23:57:40Z); updated 2026-11-07 00:19Z.
+Last full rewrite: 2026-11-07 00:01Z (catch-up, Boss BOARD 2026-11-06T23:57:40Z); updated 2026-11-07 00:56Z.
 
 ## Now
 
@@ -55,8 +55,11 @@ Last full rewrite: 2026-11-07 00:01Z (catch-up, Boss BOARD 2026-11-06T23:57:40Z)
 - Windy Talk: if Talk hasn't claimed Talk + talk-site, I write their TODO.md by 12:00Z (check the BOARD first).
 
 **Tue 11-10**
-- Windy Log tool contract (log-tools.v1, was memory-tools.v1; Windy Fly Mobile drafts, Word makes the vectors): run the
-  draft's test vectors against my decrypter; report.
+- Windy Log tool contract: windy-contracts #304 (Windy Fly Mobile's draft, up EARLY 11-07) read for the Agent side and
+  windy-agent/approved at 23cb5ee5 (L6 (a)-(g) drop rules, L12 recorded words are data not orders, the key event
+  ai.windy.log_key decided by me). Tue: run Word's vectors (incl. the bad_header and injected-transcript negatives) against
+  my decrypter; report. BUILD NOTE: the Windy Log decrypter checks the protected headers by an EXACT allowlist (the
+  Vault-lease decrypter only refuses zip/crit/apu/apv by name).
 
 **Wed 11-11**
 - By 18:00Z: my Windy Log codons to the WINDY LOG lane (Grant named it, BOARD 2026-11-06T20:42:47Z; tools windy_log.*,
@@ -70,6 +73,10 @@ Last full rewrite: 2026-11-07 00:01Z (catch-up, Boss BOARD 2026-11-06T23:57:40Z)
 - Desktop-door installer end-to-end lab (constraint: Hub's desktop-door code).
 
 **Fri 11-13**
+- ONE AGENT LIST (Boss BATCH RULINGS 2026-11-07T00:19:02Z (8); agreed on the BOARD 00:21:20Z): the Hub's GET /api/v1/agents
+  is the one list. The Hub's ONE dark PR by 18:00Z (Chat-only agents added, real standing with unknown = null, agent_matrix_id):
+  I READ it. The agent-auth view of the same list: its shape goes in Word's Wed 11-11 plan; then I build the Fly side DARK
+  (agent/teams.py reads it behind a flag; Chat's my-agents stays until then, then pairing-only).
 - windyfly.ai copy PR (plan APPROVED, Boss BOARD 2026-11-06T19:40:46Z): after #22; "Windy Fly" = the app (Mobile +
   Desktop), the agent = "your Windy Fly agent". hifly.ai keeps today's page: it moves to its OWN Pages project first
   (frozen at #22's merge), each on its own GO. "Free during early access" changes the same day the $1 hatch goes on.
@@ -140,6 +147,9 @@ Local-only branches: none left open (fix/home-pair-followups = #720, feat/home-i
 
 ## Done
 
+- 2026-11-07: TODO catch-ups merged: #738 66a6d4d0, #739 2859e23b, windy-fly-site #25 + #26, windy-0-soul #3 (+ #2
+  RECOVERY.md). Second reads stamped: windy-traveler #18 + #19 (offline-language spec, checked against production
+  models.json, the pinned en-pt files and windy-pro #1714), windytraveler-site #26, windy-fly-desktop #3.
 - 2026-11-07: windy-0-soul #2 RECOVERY.md MERGED 23714607 00:06Z (both stamps were on 2f2fb35b since 11-04; this file's
   'waiting on Boss' line was stale, Hub caught it).
 - 2026-11-06: #737 MERGED 6260343c (default + fallback soul say "a Windy Fly agent"; the instance name comes from
