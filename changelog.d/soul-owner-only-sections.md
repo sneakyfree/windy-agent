@@ -1,0 +1,1 @@
+- Soul sections can be marked `<!-- owner-only -->`: a marked heading and everything under it reach the owner's turns only, never a stranger's. The marker never reaches a model; a soul without markers is unchanged.

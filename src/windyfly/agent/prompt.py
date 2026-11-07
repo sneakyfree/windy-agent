@@ -16,7 +16,7 @@ from windyfly.control_panel import get_sliders
 from windyfly.memory.database import Database
 from windyfly.memory.episodes import get_recent_episodes
 from windyfly.memory.nodes import get_nodes_by_type, search_nodes
-from windyfly.personality.engine import build_personality_block, load_soul
+from windyfly.personality.engine import build_personality_block, load_soul, soul_for_turn
 
 
 # Characters of prior-conversation history injected per point of the
@@ -207,7 +207,8 @@ def assemble_prompt(
     # 1. System message: personality
     personality_config = config.get("personality", {})
     soul_path = personality_config.get("soul_path", "SOUL.md")
-    soul_text = load_soul(soul_path)
+    # Sections marked <!-- owner-only --> reach the owner's turns only (Boss BOARD 2026-11-07T14:31:58Z (1)).
+    soul_text = soul_for_turn(load_soul(soul_path), owner=owner_ctx)
 
     # Pull sliders once up-front so prompt structure can be gated on
     # them (e.g., BIAS TO ACTION only fires when autonomy ≥ 4 so a

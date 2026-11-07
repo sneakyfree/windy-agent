@@ -6,6 +6,7 @@ the system prompt personality block.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 
@@ -27,6 +28,46 @@ def load_soul(path: str = "SOUL.md") -> str:
         "When you introduce yourself, use your own name if you have one. "
         "Be warm, helpful, and honest. Remember what the user tells you."
     )
+
+
+# A soul section whose heading carries this marker is for the OWNER's turns only: a stranger's turn never gets it.
+# Example heading:  "## Operator notes <!-- owner-only -->". The marker itself never reaches any model.
+_OWNER_ONLY_MARK = re.compile(r"\s*<!--\s*owner-only\s*-->\s*", re.IGNORECASE)
+_HEADING = re.compile(r"^(#{1,6})\s")
+_FENCE = re.compile(r"^\s*(```|~~~)")
+
+
+def soul_for_turn(soul_text: str, *, owner: bool) -> str:
+    """The soul as this turn may see it.
+
+    An owner's turn gets every section. Any other turn (a stranger, a paired non-owner) gets the soul WITHOUT the
+    sections marked ``<!-- owner-only -->``: the marked heading and everything under it, up to the next heading of the
+    same or a higher level (deeper sub-headings go with it). Lines inside code fences are never headings. The marker is
+    removed in both cases. A soul without markers comes back unchanged, byte for byte.
+    """
+    if "owner-only" not in soul_text.lower():
+        return soul_text
+    out: list[str] = []
+    in_fence = False
+    skip_level = 0          # > 0 while inside an owner-only section of that heading level
+    for line in soul_text.splitlines(keepends=True):
+        if _FENCE.match(line):
+            in_fence = not in_fence
+        heading = None if in_fence else _HEADING.match(line)
+        if heading:
+            level = len(heading.group(1))
+            if skip_level and level <= skip_level:
+                skip_level = 0          # a sibling or higher heading ends the owner-only section
+            if not skip_level and _OWNER_ONLY_MARK.search(line):
+                if not owner:
+                    skip_level = level
+                    continue
+                ending = "\n" if line.endswith("\n") else ""
+                line = _OWNER_ONLY_MARK.sub(" ", line.rstrip("\n")).rstrip() + ending
+        if skip_level:
+            continue
+        out.append(line)
+    return "".join(out)
 
 
 # The sliders raw mode (the default) leaves out: only the tone of the personality block. Every other slider in a
