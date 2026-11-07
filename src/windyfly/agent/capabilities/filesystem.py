@@ -69,6 +69,18 @@ _ALWAYS_DENY = (
     ".pgpass",
     ".env",  # the repo .env for the agent itself
     ".windy",  # secrets file the launchd plist sources
+    # Hub's list (2026-11-05): logins, token stores and browser profiles under home.
+    ".claude",
+    ".secrets",
+    ".config/gh",
+    ".config/git-crypt-keys",
+    ".mozilla",
+    ".config/google-chrome",
+    ".config/chromium",
+    ".config/BraveSoftware",
+    "Library/Keychains",
+    "Library/Application Support/Google/Chrome",
+    "Library/Application Support/Firefox",
 )
 
 

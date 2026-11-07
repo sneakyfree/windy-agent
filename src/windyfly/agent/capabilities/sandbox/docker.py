@@ -134,11 +134,9 @@ class DockerDispatcher:
         path *will* exist, but the agent can't reach it via any
         first-class capability.
 
-        For shell.exec specifically, the container can ``ls /mnt/Home/.ssh``
-        and see the contents — that's a known property documented in
-        the Wave 5 design (Decision 6's blast-radius analysis).
-        Mitigation is the always-deny + read-only default + Docker
-        isolation layered together.
+        Inside the container every always-deny path under a mounted root is MASKED (Boss's hardening list, item
+        "shell.exec roots"): a folder gets an empty read-only tmpfs over it, a file gets /dev/null over it. Before,
+        the container could ``ls /mnt/Home/.ssh`` and read it, and with network=true send it out.
         """
         mode = "rw" if read_write else "ro"
         flags: list[str] = []
@@ -180,6 +178,13 @@ class DockerDispatcher:
                 dst_base = f"{base}_{counter}"
             seen_basenames.add(dst_base)
             flags.extend(["-v", f"{src}:/mnt/{dst_base}:{mode}"])
+            for d in _ALWAYS_DENY_TAILS:
+                hidden = src / d
+                target = f"/mnt/{dst_base}/{d}"
+                if hidden.is_dir():
+                    flags.extend(["--tmpfs", f"{target}:ro,nosuid,nodev,noexec,size=1k"])
+                elif hidden.exists():
+                    flags.extend(["-v", f"/dev/null:{target}:ro"])
         return flags
 
     def run(

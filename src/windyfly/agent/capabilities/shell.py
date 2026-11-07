@@ -190,11 +190,10 @@ def register_shell_capabilities(
         network: bool = False,
         timeout_s: int = 30,
     ) -> dict[str, Any]:
-        # The capability handler doesn't have the band in scope (the
-        # registry strips it before calling). For Wave 5 #1 we trust
-        # the static tier gate (TRUSTED+) plus the inline check
-        # for sandbox=host_rw. Future PR can thread the band in via
-        # a contextvar set by the registry.
+        # The turn's real band (tools.bands contextvar): host_rw needs the exact OWNER, and an unknown band is
+        # refused, on top of the static FULL_MACHINE tier gate.
+        from windyfly.tools.bands import current_band
+
         return _shell_exec_handler(
             command=command,
             sandbox=sandbox,
@@ -202,7 +201,7 @@ def register_shell_capabilities(
             timeout_s=timeout_s,
             _allowed_roots=allowed_roots,
             _dispatcher=dispatcher,
-            _band=Band.OWNER,  # see comment above; safe default for now
+            _band=current_band(),
         )
 
     registry.register(Capability(
