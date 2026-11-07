@@ -84,3 +84,37 @@ def test_the_shipped_denylist_holds_public_names_only() -> None:
     names = [x for x in deny.splitlines() if x.strip() and not x.startswith("#")]
     assert 1 <= len(names) <= 10
     assert not any("@" in n or any(c.isdigit() for c in n.replace("Windy 0", "")) for n in names)
+
+
+class TestDiffParsing:
+    """Hub on #747: hunks are read by their counts, renames count as added files, paths are never quoted away."""
+
+    def test_an_added_line_starting_with_plus_plus_is_still_read(self) -> None:
+        diff = ("diff --git a/x.md b/x.md\n--- a/x.md\n+++ b/x.md\n@@ -0,0 +1,3 @@\n"
+                "+++ looks like a header\n+agent " + REAL_PP + "\n+tail\n")
+        assert [t for _, t in lint.parse_added(diff)] == ["++ looks like a header", f"agent {REAL_PP}", "tail"]
+        assert lint.line_problems("x.md", lint.parse_added(diff)[1][1], DENY)
+
+    def test_line_numbers_follow_the_hunk_header(self) -> None:
+        diff = "@@ -5,2 +5,1 @@\n-old one\n-old two\n+new five\n@@ -9 +8,2 @@\n-x\n+eight\n+nine\n"
+        assert lint.parse_added(diff) == [(5, "new five"), (8, "eight"), (9, "nine")]
+
+    def test_a_rename_into_a_soul_folder_fails(self, tmp_path, monkeypatch) -> None:
+        import subprocess
+        g = lambda *a: subprocess.run(["git", *a], cwd=tmp_path, check=True, capture_output=True)  # noqa: E731
+        g("init", "-q", "-b", "main")
+        g("config", "user.email", "t@example.invalid")
+        g("config", "user.name", "t")
+        (tmp_path / "notes.md").write_text("plain notes\n", encoding="utf-8")
+        g("add", ".")
+        g("commit", "-qm", "base")
+        g("checkout", "-qb", "pr")
+        (tmp_path / "souls").mkdir()
+        g("mv", "notes.md", "souls/zed.md")
+        g("commit", "-qm", "rename")
+        monkeypatch.chdir(tmp_path)
+        assert "souls/zed.md" in lint.changed_files("main", added_only=True)
+        assert lint.main("main") == 1
+
+    def test_a_lowercase_real_passport_still_fails(self) -> None:
+        assert lint.line_problems("docs/a.md", "agent " + REAL_PP.lower(), DENY)

@@ -29,10 +29,9 @@ from pathlib import Path, PurePosixPath
 SOUL_NAMES = {"soul.md", "identity.md", "ecosystem.md"}
 PRODUCT_NAMES = {"windy fly", "hifly"}
 ALLOW = "soul-lint: allow"
-PASSPORT = re.compile(r"\bET2\d-(?!TEST-)(?!X{4}-)[A-Z0-9]{4}-[A-Z0-9]{4}\b")
+PASSPORT = re.compile(r"\bET2\d-(?!TEST-)(?!X{4}-)[A-Z0-9]{4}-[A-Z0-9]{4}\b", re.IGNORECASE)
 AGENT_MXID = re.compile(r"@agent_et2\d-(?!test-)(?!x{4}-)[a-z0-9]{4}-[a-z0-9]{4}\b", re.IGNORECASE)
 TOML_NAME = re.compile(r"^\s*name\s*=\s*[\"']([^\"']*)[\"']")
-DENYLIST_SCOPE = ("SOUL.md", "src/windyfly/personality/")
 
 
 def soul_file_problem(path: str) -> str | None:
@@ -88,20 +87,59 @@ def _git(*args: str) -> str:
     return subprocess.run(["git", *args], capture_output=True, text=True, check=True).stdout
 
 
+def changed_files(base: str, *, added_only: bool = False) -> list[str]:
+    """Paths changed in base...HEAD, NUL-separated (no quoting) and with renames OFF, so a rename counts as an added
+    file (Hub on #747: `git mv notes.md souls/x.md` must not slip through)."""
+    args = ["diff", "--name-only", "-z", "--no-renames"]
+    if added_only:
+        args.append("--diff-filter=A")
+    return [p for p in _git(*args, f"{base}...HEAD").split("\0") if p]
+
+
+_HUNK = re.compile(r"^@@ -\d+(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
+
+
+def parse_added(diff_text: str) -> list[tuple[int, str]]:
+    """Added lines of ONE file's ``git diff --unified=0`` output: [(new line number, text)].
+
+    Hunks are read by their counts (@@ -a,b +c,d @@ = b removed lines, then d added lines), never by guessing from a
+    line's first characters: an added line whose text starts with "++ " shows as "+++ " and once ended the scan
+    (Hub on #747)."""
+    out: list[tuple[int, str]] = []
+    lines = diff_text.split("\n")
+    i = 0
+    while i < len(lines):
+        m = _HUNK.match(lines[i])
+        i += 1
+        if not m:
+            continue
+        removed = int(m.group(1)) if m.group(1) is not None else 1
+        new_no = int(m.group(2))
+        added = int(m.group(3)) if m.group(3) is not None else 1
+        while removed and i < len(lines):
+            if lines[i].startswith("-"):
+                removed -= 1
+            i += 1
+        while added and i < len(lines):
+            line = lines[i]
+            i += 1
+            if line.startswith("\\"):          # "\ No newline at end of file"
+                continue
+            out.append((new_no, line[1:]))
+            new_no += 1
+            added -= 1
+    return out
+
+
 def added_lines(base: str) -> dict[str, list[tuple[int, str]]]:
     """{path: [(new line number, text), ...]} for every added line in base...HEAD."""
-    out: dict[str, list[tuple[int, str]]] = {}
-    path, n = None, 0
-    for raw in _git("diff", "--unified=0", "--no-color", "--no-ext-diff", f"{base}...HEAD").splitlines():
-        if raw.startswith("+++ "):
-            path = raw[6:] if raw.startswith("+++ b/") else None
-        elif raw.startswith("@@"):
-            m = re.search(r"\+(\d+)", raw)
-            n = int(m.group(1)) if m else 0
-        elif raw.startswith("+") and path:
-            out.setdefault(path, []).append((n, raw[1:]))
-            n += 1
-    return out
+    result: dict[str, list[tuple[int, str]]] = {}
+    for path in changed_files(base):
+        diff = _git("diff", "--unified=0", "--no-color", "--no-ext-diff", "--no-renames", f"{base}...HEAD", "--", path)
+        lines = parse_added(diff)
+        if lines:
+            result[path] = lines
+    return result
 
 
 def main(base: str) -> int:
@@ -110,7 +148,7 @@ def main(base: str) -> int:
     denylist = [x.strip() for x in deny_file.read_text().splitlines() if x.strip() and not x.startswith("#")] \
         if deny_file.exists() else []
     problems: list[str] = []
-    for path in _git("diff", "--name-only", "--diff-filter=A", f"{base}...HEAD").splitlines():
+    for path in changed_files(base, added_only=True):
         why = soul_file_problem(path)
         if why:
             problems.append(f"{path}: {why}")
