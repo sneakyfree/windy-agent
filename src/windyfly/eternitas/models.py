@@ -12,7 +12,7 @@ class RegistrationRequest(BaseModel):
     """Request to register a new bot with Eternitas."""
 
     name: str = Field(..., min_length=1, max_length=64)
-    description: str = Field(default="Windy Fly personal AI assistant")
+    description: str = Field(default="Windy Fly Agent, a personal AI assistant")
     bot_type: str = Field(default="personal_assistant")
     contact_email: str = Field(default="")
     intended_platforms: list[str] = Field(

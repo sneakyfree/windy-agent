@@ -114,7 +114,7 @@ def test_empty_response_after_tool_loop_returns_fallback_not_silence(
     # it, there must still be content — that's the bug we're guarding.
     body = response
     if "]" in response:
-        # Header has form "[🪰 Windy Fly · ...]\n\n" — strip past the ]\n\n
+        # Header has form "[🪰 Windy Fly Agent · ...]\n\n" — strip past the ]\n\n
         idx = response.find("]")
         body = response[idx+1:].strip()
     assert body, (

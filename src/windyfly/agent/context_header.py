@@ -11,7 +11,7 @@ Two surfaces in this module:
 
   2. **Full gas-tank panel** (existing): when context-window % drops
      by 10+ since last header OR an hour has passed since last
-     header, the full panel ``[🪰 Windy Fly · ts · 🟢 95%]`` replaces
+     header, the full panel ``[🪰 Windy Fly Agent · ts · 🟢 95%]`` replaces
      the single-emoji prefix. Same emoji is part of the panel so
      visual continuity is preserved across thresholds.
 
@@ -125,7 +125,7 @@ class ContextTracker:
         """Format the Windy Fly signature header.
 
         Returns:
-            Header string like: [🪰 Windy Fly · Mar 27, 10:56 AM · 🟢 93%]
+            Header string like: [🪰 Windy Fly Agent · Mar 27, 10:56 AM · 🟢 93%]
         """
         pct = self.pct_remaining
         now = datetime.now(timezone.utc).astimezone()
@@ -137,10 +137,10 @@ class ContextTracker:
 
         if self.last_engine:
             return (
-                f"[🪰 Windy Fly · {timestamp} · {indicator} {pct:.0f}% · "
+                f"[🪰 Windy Fly Agent · {timestamp} · {indicator} {pct:.0f}% · "
                 f"{self.last_engine}]"
             )
-        return f"[🪰 Windy Fly · {timestamp} · {indicator} {pct:.0f}%]"
+        return f"[🪰 Windy Fly Agent · {timestamp} · {indicator} {pct:.0f}%]"
 
 
 # Module-level singleton — one tracker per process
