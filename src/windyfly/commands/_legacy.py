@@ -35,6 +35,7 @@ from windyfly.platform import (
     get_project_root,
     process_alive,
     read_pid_file,
+    pid_is_ours,
     remove_pid_file,
     force_kill,
 )
@@ -851,7 +852,7 @@ def cmd_kill(_args: argparse.Namespace) -> None:
     # Kill known PIDs first
     if info:
         for pid in [info.brain, info.gateway]:
-            if pid and process_alive(pid):
+            if pid and process_alive(pid) and pid_is_ours(pid):
                 force_kill(pid)
                 killed += 1
 

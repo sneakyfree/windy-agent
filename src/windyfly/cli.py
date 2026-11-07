@@ -64,6 +64,7 @@ from windyfly.platform import (
     get_log_path,
     get_project_root,
     find_by_name,
+    pid_is_ours,
     process_alive,
     process_terminate,
     read_pid_file,
@@ -405,7 +406,7 @@ def cmd_stop(_args: argparse.Namespace) -> None:
         if pid is None:
             continue
         try:
-            if process_alive(pid):
+            if process_alive(pid) and pid_is_ours(pid):
                 if process_terminate(pid):
                     console.print(f"  [green]✓[/green] Stopped {label} (PID {pid})")
                     stopped += 1
@@ -631,7 +632,7 @@ def _cmd_kill(_args: argparse.Namespace) -> None:
 
     if pid_info:
         for label, pid in [("Brain", pid_info.brain), ("Gateway", pid_info.gateway)]:
-            if pid is not None and process_alive(pid):
+            if pid is not None and process_alive(pid) and pid_is_ours(pid):
                 if force_kill(pid):
                     console.print(f"  [green]✓[/green] Killed {label} (PID {pid})")
                     killed += 1

@@ -223,9 +223,9 @@ def _no_real_process_kills(request):
     #
     # systemctl_stop + os.system are the systemd-era twins of the
     # kill_by_name hazard. ``commands.core.cmd_stop`` / ``cmd_kill``
-    # resolve the live unit with find_systemd_unit_for_pattern(
-    # "windyfly.main") and hand it to systemctl_stop — on a machine
-    # running a live agent that resolves to the PRODUCTION unit, and
+    # resolve the unit with own_systemd_unit() (this process's own
+    # cgroup) and hand it to systemctl_stop — a test run inside a
+    # systemd service (a CI runner, a live agent's unit) resolves to it, and
     # a clean ``systemctl stop`` also suppresses Restart=, so the agent
     # stays down. os.system carries the `pkill -f windyfly`
     # fall-throughs that run when the systemd branch is not taken.

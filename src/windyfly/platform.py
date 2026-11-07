@@ -218,46 +218,55 @@ def _parse_systemd_unit_from_cgroup(
     return None
 
 
-def find_systemd_unit_for_pattern(pattern: str) -> SystemdUnitInfo | None:
-    """Find a running process whose cmdline contains PATTERN, and
-    return its systemd unit name + scope if it's managed by systemd.
+def own_systemd_unit() -> SystemdUnitInfo | None:
+    """The systemd unit THIS process runs under (its own cgroup), or None.
 
-    Why this exists: ``windy stop`` / ``windy kill`` used to do
-    ``pkill -9 -f windyfly``, but the agent runs under a unit with
-    ``Restart=on-failure RestartSec=10`` — so ``pkill -9`` just
-    triggered systemd's restart policy and revived the agent in 10s.
-    The journal showed an endless kill ↔ restart storm. The right
-    shutdown path under systemd is ``systemctl stop UNIT``, which
-    SIGTERMs, waits TimeoutStopSec, and then SIGKILLs *while marking
-    the unit inactive so no restart fires*.
-
-    Returns None on non-Linux, if no matching process is running, or
-    if the matched process isn't under a systemd unit.
+    Why this exists: ``windy stop`` / ``windy kill`` used to do ``pkill -9 -f windyfly``, but the agent runs under a
+    unit with ``Restart=on-failure`` -- so a kill just triggered systemd's restart. The right shutdown path under
+    systemd is ``systemctl stop UNIT``. It must be THIS agent's unit: an earlier version took the first process whose
+    command line matched "windyfly.main", which with two agents under one user (a lab and a real one) could pick the
+    other agent's unit (Hub on #753). Returns None on non-Linux or outside a systemd service.
     """
     if not IS_LINUX:
         return None
-    proc = Path("/proc")
-    if not proc.exists():
+    try:
+        cgroup = Path("/proc/self/cgroup").read_text(encoding="utf-8")
+    except OSError:
         return None
-    for entry in proc.iterdir():
-        if not entry.name.isdigit():
-            continue
+    parsed = _parse_systemd_unit_from_cgroup(cgroup)
+    if parsed is None:
+        return None
+    unit, scope = parsed
+    return SystemdUnitInfo(unit=unit, scope=scope, pid=os.getpid())
+
+
+_OUR_MARKERS = ("windyfly", "src/server.ts")
+
+
+def pid_is_ours(pid: int) -> bool:
+    """True only when ``pid`` is alive, belongs to THIS user, and its command line is a Windy Fly process (the agent,
+    the bridge, or the gateway). A PID file outlives a crash or a reboot, and its number can then belong to an
+    unrelated process of the same user: never signal one without this check (Hub on #753)."""
+    if pid <= 0:
+        return False
+    if IS_WINDOWS:
+        return process_alive(pid)
+    proc = Path(f"/proc/{pid}")
+    if proc.exists():
         try:
-            cmdline = (entry / "cmdline").read_text(encoding="utf-8").replace("\0", " ")
-        except (FileNotFoundError, PermissionError, ProcessLookupError):
-            continue
-        if pattern not in cmdline:
-            continue
-        try:
-            cgroup = (entry / "cgroup").read_text(encoding="utf-8")
-        except (FileNotFoundError, PermissionError):
-            continue
-        parsed = _parse_systemd_unit_from_cgroup(cgroup)
-        if parsed is None:
-            continue
-        unit, scope = parsed
-        return SystemdUnitInfo(unit=unit, scope=scope, pid=int(entry.name))
-    return None
+            if proc.stat().st_uid != os.getuid():
+                return False
+            args = (proc / "cmdline").read_bytes().replace(b"\0", b" ").decode("utf-8", "ignore")
+        except OSError:
+            return False
+        return any(m in args for m in _OUR_MARKERS)
+    try:
+        out = subprocess.run(["ps", "-p", str(pid), "-o", "uid=,args="],
+                             capture_output=True, text=True, timeout=5).stdout.strip()
+    except (FileNotFoundError, subprocess.SubprocessError, OSError):
+        return False
+    uid_s, _, args = out.partition(" ")
+    return uid_s.isdigit() and int(uid_s) == os.getuid() and any(m in args for m in _OUR_MARKERS)
 
 
 def systemctl_stop(info: SystemdUnitInfo, timeout: int = 30) -> tuple[bool, str]:
@@ -265,7 +274,7 @@ def systemctl_stop(info: SystemdUnitInfo, timeout: int = 30) -> tuple[bool, str]
 
     Returns (ok, message). ``systemctl stop`` is the only shutdown
     path that survives ``Restart=on-failure`` — see
-    ``find_systemd_unit_for_pattern`` for context.
+    ``own_systemd_unit`` for context.
     """
     cmd = ["systemctl"]
     if info.scope == "user":

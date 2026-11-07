@@ -110,7 +110,7 @@ async def test_cmd_stop_uses_systemctl_when_systemd_managed(fresh_commands):
     """cmd_stop must NOT pkill when systemd owns the process."""
     info = SystemdUnitInfo(unit="windy-0.service", scope="user", pid=1234)
     with patch(
-        "windyfly.platform.find_systemd_unit_for_pattern",
+        "windyfly.platform.own_systemd_unit",
         return_value=info,
     ), patch(
         "windyfly.platform.systemctl_stop",
@@ -131,7 +131,7 @@ async def test_cmd_kill_uses_systemctl_when_systemd_managed(fresh_commands):
     pkill -9 triggers Restart=on-failure and revives the agent."""
     info = SystemdUnitInfo(unit="windy-0.service", scope="user", pid=1234)
     with patch(
-        "windyfly.platform.find_systemd_unit_for_pattern",
+        "windyfly.platform.own_systemd_unit",
         return_value=info,
     ), patch(
         "windyfly.platform.systemctl_stop",
@@ -153,7 +153,7 @@ async def test_cmd_stop_falls_back_when_systemctl_fails(fresh_commands, tmp_path
     monkeypatch.chdir(tmp_path)
     info = SystemdUnitInfo(unit="windy-0.service", scope="user", pid=1234)
     with patch(
-        "windyfly.platform.find_systemd_unit_for_pattern",
+        "windyfly.platform.own_systemd_unit",
         return_value=info,
     ), patch(
         "windyfly.platform.systemctl_stop",
@@ -184,9 +184,10 @@ async def test_cmd_stop_uses_pidfile_when_not_systemd_managed(fresh_commands, tm
     monkeypatch.setattr(core_mod, "_PID_FILE", pid_file)
 
     with patch(
-        "windyfly.platform.find_systemd_unit_for_pattern",
+        "windyfly.platform.own_systemd_unit",
         return_value=None,
-    ), patch("os.kill") as os_kill, patch("os.system") as os_system:
+    ), patch("windyfly.platform.pid_is_ours", return_value=True), \
+            patch("os.kill") as os_kill, patch("os.system") as os_system:
         cmd = fresh_commands.get("stop")
         result = await cmd.handler({})
 

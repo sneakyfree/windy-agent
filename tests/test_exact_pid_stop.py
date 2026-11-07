@@ -36,7 +36,7 @@ async def test_no_unit_no_pid_file_kills_nothing_and_names_candidates(fresh_comm
     from windyfly.commands import core as core_mod
     monkeypatch.setattr(core_mod, "_PID_FILE", tmp_path / "none.pid")
     monkeypatch.setattr(core_mod, "_LOCK_FILE", tmp_path / "none.lock")
-    with patch("windyfly.platform.find_systemd_unit_for_pattern", return_value=None), \
+    with patch("windyfly.platform.own_systemd_unit", return_value=None), \
          patch("windyfly.platform.find_by_name", return_value=OTHERS), \
          patch("os.kill") as kill, patch("os.system") as system:
         out = await fresh_commands.get(name).handler({})
@@ -49,11 +49,12 @@ async def test_no_unit_no_pid_file_kills_nothing_and_names_candidates(fresh_comm
 async def test_kill_uses_only_the_pid_file(fresh_commands, tmp_path, monkeypatch):
     from windyfly.commands import core as core_mod
     pid_file = tmp_path / "windyfly.pid"
-    pid_file.write_text("brain=99991\ngateway=99992\n")
+    pid_file.write_text("brain=99991\ngateway=99992\nstarted=2026-11-07T16:00:00Z\n")
     monkeypatch.setattr(core_mod, "_PID_FILE", pid_file)
     monkeypatch.setattr(core_mod, "_LOCK_FILE", tmp_path / "none.lock")
-    with patch("windyfly.platform.find_systemd_unit_for_pattern", return_value=None), \
+    with patch("windyfly.platform.own_systemd_unit", return_value=None), \
          patch("windyfly.platform.find_by_name", return_value=OTHERS), \
+         patch("windyfly.platform.pid_is_ours", return_value=True), \
          patch("os.kill") as kill, patch("os.system") as system:
         out = await fresh_commands.get("kill").handler({})
     system.assert_not_called()
@@ -75,3 +76,70 @@ def test_cli_fallback_names_processes_instead_of_killing(capsys) -> None:
     kill.assert_not_called()
     out = capsys.readouterr().out
     assert "4242" in out and "Not stopping anything by name" in out
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("name", ["stop", "kill"])
+async def test_a_stale_pid_in_the_pid_file_is_never_signalled(fresh_commands, tmp_path, monkeypatch, name):
+    """After a crash or a reboot the PID file's number can belong to an unrelated process (Hub on #753)."""
+    from windyfly.commands import core as core_mod
+    pid_file = tmp_path / "windyfly.pid"
+    pid_file.write_text("brain=99991\nstarted=2026-11-07T16:00:00Z\n")
+    monkeypatch.setattr(core_mod, "_PID_FILE", pid_file)
+    monkeypatch.setattr(core_mod, "_LOCK_FILE", tmp_path / "none.lock")
+    with patch("windyfly.platform.own_systemd_unit", return_value=None), \
+         patch("windyfly.platform.find_by_name", return_value=[]), \
+         patch("windyfly.platform.pid_is_ours", return_value=False), \
+         patch("os.kill") as kill:
+        out = await fresh_commands.get(name).handler({})
+    kill.assert_not_called()
+    assert "Nothing to stop" in out
+
+
+def test_pid_is_ours_checks_uid_and_command_line():
+    import os
+    import subprocess
+    import sys
+
+    from windyfly.platform import pid_is_ours
+    assert pid_is_ours(os.getpid()) is False or "windyfly" in " ".join(sys.argv)   # pytest itself: not a windyfly cmd
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+    try:
+        assert pid_is_ours(child.pid) is False          # ours by uid, but not a Windy Fly command line
+    finally:
+        child.kill()
+        child.wait()
+    assert pid_is_ours(1) is False                      # another user's process
+    assert pid_is_ours(0) is False and pid_is_ours(-5) is False
+
+
+def test_own_unit_reads_only_this_process_cgroup(monkeypatch, tmp_path):
+    from pathlib import Path as _P
+
+    import windyfly.platform as plat
+    monkeypatch.setattr(plat, "IS_LINUX", True)
+    real_read = _P.read_text
+
+    def fake_read(self, *a, **k):
+        if str(self) == "/proc/self/cgroup":
+            return "0::/user.slice/user-1000.slice/user@1000.service/app.slice/zero-lab.service\n"
+        return real_read(self, *a, **k)
+
+    monkeypatch.setattr(_P, "read_text", fake_read)
+    info = plat.own_systemd_unit()
+    assert info is not None and info.unit == "zero-lab.service" and info.scope == "user"
+
+
+@pytest.mark.parametrize("cmd", ["stop", "kill"])
+def test_cli_never_signals_a_name_match(cmd, tmp_path, monkeypatch, capsys):
+    """The CLI's stop/kill with no PID file: find_by_name results are listed, never signalled."""
+    import windyfly.cli as cli
+    monkeypatch.setattr(cli, "read_pid_file", lambda root: None)
+    with patch.object(cli, "find_by_name", return_value=OTHERS), patch("os.kill") as kill, \
+         patch("windyfly.platform.force_kill") as fk, patch.object(cli, "process_terminate") as pt:
+        import argparse
+        (cli.cmd_stop if cmd == "stop" else cli._cmd_kill)(argparse.Namespace())
+    kill.assert_not_called()
+    fk.assert_not_called()
+    pt.assert_not_called()
+    assert "4242" in capsys.readouterr().out

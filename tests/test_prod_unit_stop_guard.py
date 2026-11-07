@@ -80,7 +80,7 @@ async def test_live_unit_is_never_really_stopped(fresh_commands, command):
     """With a live-looking unit discovered, the command must report
     success without the real systemctl or a shell pkill running.
 
-    Only ``find_systemd_unit_for_pattern`` is patched here — it stands in
+    Only ``own_systemd_unit`` is patched here — it stands in
     for "this machine has a running agent". Everything downstream is
     whatever conftest left in place.
     """
@@ -88,7 +88,7 @@ async def test_live_unit_is_never_really_stopped(fresh_commands, command):
 
     info = SystemdUnitInfo(unit="windy-0@matrix.service", scope="user", pid=4242)
     with patch(
-        "windyfly.platform.find_systemd_unit_for_pattern",
+        "windyfly.platform.own_systemd_unit",
         return_value=info,
     ):
         result = await fresh_commands.get(command).handler({})
