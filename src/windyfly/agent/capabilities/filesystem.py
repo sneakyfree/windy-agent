@@ -31,6 +31,7 @@ from __future__ import annotations
 import glob as glob_module
 import logging
 import os
+import sys
 import re
 from pathlib import Path
 from typing import Any
@@ -81,7 +82,31 @@ _ALWAYS_DENY = (
     "Library/Keychains",
     "Library/Application Support/Google/Chrome",
     "Library/Application Support/Firefox",
+    "Library/Application Support/BraveSoftware",
+    "Library/Application Support/Chromium",
+    "Library/Cookies",
+    # Hub on #755: package-registry and git tokens, cloud CLIs, keyrings, password stores.
+    ".npmrc",
+    ".pypirc",
+    ".git-credentials",
+    ".config/gcloud",
+    ".local/share/keyrings",
+    ".password-store",
 )
+
+# macOS and Windows disks are case-INsensitive by default: ~/.SSH or ~/library/keychains is the same folder there, so
+# the deny match ignores case on those systems (Hub on #755).
+_DENY_CASE_FOLD = sys.platform in ("darwin", "win32")
+
+
+def deny_match(path_str: str) -> str | None:
+    """The always-deny entry ``path_str`` (separators already '/') falls under, as a component or a tail; else None."""
+    hay = path_str.casefold() if _DENY_CASE_FOLD else path_str
+    for needle in _ALWAYS_DENY:
+        n = needle.casefold() if _DENY_CASE_FOLD else needle
+        if f"/{n}/" in hay or hay.endswith(f"/{n}") or hay.endswith(f"/{n}/"):
+            return needle
+    return None
 
 
 def _resolve_and_check(
@@ -107,17 +132,12 @@ def _resolve_and_check(
     # POSIX filename ever contained a literal backslash the only effect
     # is a stricter deny, which is the safe direction for this boundary.
     resolved_str = str(resolved).replace("\\", "/")
-    for needle in _ALWAYS_DENY:
-        # Match either as a path component or a tail
-        if (
-            f"/{needle}/" in resolved_str
-            or resolved_str.endswith(f"/{needle}")
-            or resolved_str.endswith(f"/{needle}/")
-        ):
-            raise PermissionError(
-                f"path {raw_path!r} resolves to {resolved} which lives "
-                f"under the always-deny list ({needle!r})"
-            )
+    needle = deny_match(resolved_str)
+    if needle is not None:
+        raise PermissionError(
+            f"path {raw_path!r} resolves to {resolved} which lives "
+            f"under the always-deny list ({needle!r})"
+        )
 
     # A soul file can hold owner-only sections (personality.engine.soul_for_turn), so only the OWNER's own turn may
     # open one through these tools; an unknown band counts as not the owner (Hub + Boss on #744, 2026-11-07).

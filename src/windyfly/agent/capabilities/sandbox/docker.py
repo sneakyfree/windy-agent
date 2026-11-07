@@ -23,10 +23,10 @@ blessed in PR #57's ``docs/wave5-shell-exec.md``:
   - **Exit code as data, not exception** (Decision 5) — non-zero
     exit returns a result envelope; only Docker-itself failures
     raise.
-  - **Always-deny paths absent from the container** — ``.ssh``,
-    ``.aws``, ``.env``, etc. are skipped during mount construction so
-    even ``ls -la /mnt`` inside the container returns "no such file
-    or directory."
+  - **Always-deny paths masked in the container** — every ``.ssh``,
+    ``.aws``, ``.env``, etc. found under a mounted root (at any depth,
+    by a bounded walk) gets an empty read-only layer over it; a root the
+    walk can't finish is not mounted at all.
 
 This file deliberately does NOT depend on the docker-py SDK. Calling
 the ``docker`` CLI via subprocess is a smaller dependency surface,
@@ -45,7 +45,9 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from windyfly.agent.capabilities.filesystem import _ALWAYS_DENY
+import os
+
+from windyfly.agent.capabilities.filesystem import _ALWAYS_DENY, deny_match
 
 logger = logging.getLogger(__name__)
 
@@ -55,8 +57,7 @@ DEFAULT_OUTPUT_CAP_BYTES = 64 * 1024
 HARD_TIMEOUT_CEILING_S = 300  # 5-minute hard cap regardless of caller request
 DEFAULT_MEMORY = "512m"
 
-# Always-deny path tails. Skipped during mount construction so the
-# directories literally do not exist inside the container.
+# Always-deny path tails, masked inside every mounted root (see build_mounts).
 #
 # Aliased from filesystem.py (imported at the top) rather than
 # re-declared. This WAS a second hand-maintained copy — "same list as
@@ -65,6 +66,79 @@ DEFAULT_MEMORY = "512m"
 # filesystem.py's matcher and never on this one, so .ssh stayed
 # mountable here. One list, one place.
 _ALWAYS_DENY_TAILS = _ALWAYS_DENY
+
+# The mask walk's bounds. A root the walk can't finish inside them is NOT mounted (fail closed): set narrower
+# [capabilities.filesystem] allowed_roots for a very large home.
+_MASK_WALK_MAX_ENTRIES = 100_000
+_MASK_WALK_MAX_DEPTH = 8
+# Folders the walk doesn't enter (build output, dependency trees): never a home for the deny list's secrets.
+_MASK_WALK_PRUNE = frozenset({".git", "node_modules", "__pycache__", ".venv", "venv", ".tox", ".mypy_cache"})
+
+
+def _empty_mask_file() -> Path:
+    """An empty read-only file to mount over a secret FILE. It lives in the state dir (~/.windy), which Docker Desktop
+    shares on macOS; /dev/null is refused there ("path not shared"), Hub on #755."""
+    from windyfly.platform import windy_state_dir
+
+    path = windy_state_dir() / "sandbox" / "empty"
+    if not path.is_file():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"")
+    path.chmod(0o444)
+    return path
+
+
+def deny_masks(src: Path, dst_base: str) -> list[str] | None:
+    """Docker flags masking every always-deny path under ``src`` (mounted at /mnt/<dst_base>), at any depth.
+
+    A folder gets an empty read-only tmpfs, a file an empty read-only file. A deny match that is a SYMLINK masks its
+    resolved target when that target is under ``src`` (Hub on #755). Returns None when the walk exceeds its bounds:
+    the caller then does not mount ``src`` at all.
+    """
+    flags: list[str] = []
+    seen = 0
+    root = str(src).replace("\\", "/").rstrip("/")
+
+    def mask(target: Path, *, as_dir: bool | None = None) -> None:
+        rel = target.relative_to(src).as_posix()
+        dst = f"/mnt/{dst_base}/{rel}"
+        if target.is_dir() if as_dir is None else as_dir:
+            flags.extend(["--tmpfs", f"{dst}:ro,nosuid,nodev,noexec,size=1k"])
+        else:
+            flags.extend(["-v", f"{_empty_mask_file()}:{dst}:ro"])
+
+    def check(path: Path) -> bool:
+        if deny_match(str(path).replace("\\", "/")) is None:
+            return False
+        if path.is_symlink():
+            real = path.resolve(strict=False)
+            if real.exists() and real.is_relative_to(src):
+                mask(real)       # the secret is inside this root under another name: hide it there
+            # And the link path itself, never followed out of the root (Hub on #755).
+            mask(path, as_dir=real.is_dir())
+            return True
+        mask(path)
+        return True
+
+    for dirpath, dirnames, filenames in os.walk(src, topdown=True, followlinks=False):
+        here = Path(dirpath)
+        depth = len(here.relative_to(src).parts)
+        seen += len(dirnames) + len(filenames)
+        if seen > _MASK_WALK_MAX_ENTRIES or depth > _MASK_WALK_MAX_DEPTH:
+            logger.warning("shell sandbox: root %s too large to check for secret folders; not mounted", root)
+            return None
+        keep = []
+        for d in dirnames:
+            if d in _MASK_WALK_PRUNE:
+                continue
+            if check(here / d):
+                continue         # masked whole: no need to look inside
+            if not (here / d).is_symlink():
+                keep.append(d)
+        dirnames[:] = keep
+        for f in filenames:
+            check(here / f)
+    return flags
 
 
 class DockerNotAvailable(RuntimeError):
@@ -164,10 +238,7 @@ class DockerDispatcher:
             # Matches a trailing component OR any interior component, so
             # multi-part entries like '.docker/config.json' work too.
             src_str = str(src).replace("\\", "/").rstrip("/")
-            if any(
-                src_str.endswith(f"/{d}") or f"/{d}/" in src_str
-                for d in _ALWAYS_DENY_TAILS
-            ):
+            if deny_match(src_str) is not None:
                 continue
             base = src.name or "root"
             # Resolve basename collisions deterministically
@@ -177,14 +248,12 @@ class DockerDispatcher:
                 counter += 1
                 dst_base = f"{base}_{counter}"
             seen_basenames.add(dst_base)
+            masks = deny_masks(src, dst_base)
+            if masks is None:
+                seen_basenames.discard(dst_base)
+                continue         # too large to check: not mounted (fail closed)
             flags.extend(["-v", f"{src}:/mnt/{dst_base}:{mode}"])
-            for d in _ALWAYS_DENY_TAILS:
-                hidden = src / d
-                target = f"/mnt/{dst_base}/{d}"
-                if hidden.is_dir():
-                    flags.extend(["--tmpfs", f"{target}:ro,nosuid,nodev,noexec,size=1k"])
-                elif hidden.exists():
-                    flags.extend(["-v", f"/dev/null:{target}:ro"])
+            flags.extend(masks)
         return flags
 
     def run(
