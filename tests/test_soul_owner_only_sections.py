@@ -214,6 +214,23 @@ class TestARenamedSoulIsClosedToo:
         with turn_band(3):
             assert "PRIVATE-LINE-1" in str(_read_file_handler(path=str(soul), _allowed_roots=[str(tmp_path)]))
 
+    def test_a_hard_link_to_the_loaded_soul_is_refused_below_owner(self, tmp_path: Path) -> None:
+        """Follow-up to #748: a hard link resolves to its own path, so the soul is matched by (st_dev, st_ino) too."""
+        import os
+
+        from windyfly.agent.capabilities.filesystem import _read_file_handler
+        from windyfly.personality.engine import load_soul
+        from windyfly.tools.bands import turn_band
+        soul = tmp_path / "zed-soul.md"
+        soul.write_text(SOUL, encoding="utf-8")
+        load_soul(str(soul))
+        hard = tmp_path / "harmless-notes.txt"
+        os.link(soul, hard)
+        with turn_band(1), pytest.raises(PermissionError, match="soul file"):
+            _read_file_handler(path=str(hard), _allowed_roots=[str(tmp_path)])
+        with turn_band(3):
+            assert "PRIVATE-LINE-1" in str(_read_file_handler(path=str(hard), _allowed_roots=[str(tmp_path)]))
+
     def test_an_ordinary_file_with_that_shape_is_still_readable(self, tmp_path: Path) -> None:
         from windyfly.agent.capabilities.filesystem import _read_file_handler
         from windyfly.tools.bands import turn_band
