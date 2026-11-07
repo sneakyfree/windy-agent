@@ -110,7 +110,7 @@ async def test_cmd_stop_uses_systemctl_when_systemd_managed(fresh_commands):
     """cmd_stop must NOT pkill when systemd owns the process."""
     info = SystemdUnitInfo(unit="windy-0.service", scope="user", pid=1234)
     with patch(
-        "windyfly.platform.find_systemd_unit_for_pattern",
+        "windyfly.platform.own_systemd_unit",
         return_value=info,
     ), patch(
         "windyfly.platform.systemctl_stop",
@@ -131,7 +131,7 @@ async def test_cmd_kill_uses_systemctl_when_systemd_managed(fresh_commands):
     pkill -9 triggers Restart=on-failure and revives the agent."""
     info = SystemdUnitInfo(unit="windy-0.service", scope="user", pid=1234)
     with patch(
-        "windyfly.platform.find_systemd_unit_for_pattern",
+        "windyfly.platform.own_systemd_unit",
         return_value=info,
     ), patch(
         "windyfly.platform.systemctl_stop",
@@ -148,12 +148,12 @@ async def test_cmd_kill_uses_systemctl_when_systemd_managed(fresh_commands):
 
 @pytest.mark.asyncio
 async def test_cmd_stop_falls_back_when_systemctl_fails(fresh_commands, tmp_path, monkeypatch):
-    """If systemctl fails, fall back to PID-file / pkill so a broken
-    systemctl doesn't leave the user with no way to stop."""
+    """If systemctl fails, fall back to the PID file; with no PID file, stop NOTHING by name (exact-PID rule) and
+    say so plainly."""
     monkeypatch.chdir(tmp_path)
     info = SystemdUnitInfo(unit="windy-0.service", scope="user", pid=1234)
     with patch(
-        "windyfly.platform.find_systemd_unit_for_pattern",
+        "windyfly.platform.own_systemd_unit",
         return_value=info,
     ), patch(
         "windyfly.platform.systemctl_stop",
@@ -162,9 +162,9 @@ async def test_cmd_stop_falls_back_when_systemctl_fails(fresh_commands, tmp_path
         cmd = fresh_commands.get("stop")
         result = await cmd.handler({})
 
-    # No PID file in tmp_path, so the os.system fallback fires.
-    assert os_system.called
-    assert "fallback" in result.lower() or "stopped" in result.lower()
+    # No PID file in tmp_path: nothing is killed by name, and the reply says why.
+    os_system.assert_not_called()
+    assert "nothing to stop" in result.lower() or "didn't stop anything" in result.lower()
 
 
 @pytest.mark.asyncio
@@ -184,9 +184,10 @@ async def test_cmd_stop_uses_pidfile_when_not_systemd_managed(fresh_commands, tm
     monkeypatch.setattr(core_mod, "_PID_FILE", pid_file)
 
     with patch(
-        "windyfly.platform.find_systemd_unit_for_pattern",
+        "windyfly.platform.own_systemd_unit",
         return_value=None,
-    ), patch("os.kill") as os_kill, patch("os.system") as os_system:
+    ), patch("windyfly.platform.pid_is_ours", return_value=True), \
+            patch("os.kill") as os_kill, patch("os.system") as os_system:
         cmd = fresh_commands.get("stop")
         result = await cmd.handler({})
 

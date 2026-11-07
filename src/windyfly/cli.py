@@ -63,7 +63,8 @@ from windyfly.platform import (
     get_data_dir,
     get_log_path,
     get_project_root,
-    kill_by_name,
+    find_by_name,
+    pid_is_ours,
     process_alive,
     process_terminate,
     read_pid_file,
@@ -405,7 +406,7 @@ def cmd_stop(_args: argparse.Namespace) -> None:
         if pid is None:
             continue
         try:
-            if process_alive(pid):
+            if process_alive(pid) and pid_is_ours(pid):
                 if process_terminate(pid):
                     console.print(f"  [green]✓[/green] Stopped {label} (PID {pid})")
                     stopped += 1
@@ -572,14 +573,18 @@ def cmd_setup(_args: argparse.Namespace) -> None:
         console.print("\n  [dim]Gateway stopped. Run `windy start` to launch the full stack.[/dim]")
 
 
+_AGENT_PATTERNS = ["windyfly.bridge.uds_server", "windyfly.main", "bun run src/server.ts"]
+
+
 def _do_kill_by_name() -> None:
-    """Fallback: try to kill processes by name."""
-    kill_by_name([
-        "windyfly.bridge.uds_server",
-        "windyfly.main",
-        "bun run src/server.ts",
-    ])
-    console.print("  [dim]Sent terminate signal to any matching processes[/dim]")
+    """No PID of ours to stop: name the matching processes instead of killing by name (exact-PID rule)."""
+    found = find_by_name(_AGENT_PATTERNS)
+    if not found:
+        return
+    console.print("  [yellow]Not stopping anything by name. These look like Windy Fly processes of yours; "
+                  "stop the one you mean by its PID (kill PID):[/yellow]")
+    for pid, args in found[:10]:
+        console.print(f"    {pid}  {args[:100]}")
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -627,7 +632,7 @@ def _cmd_kill(_args: argparse.Namespace) -> None:
 
     if pid_info:
         for label, pid in [("Brain", pid_info.brain), ("Gateway", pid_info.gateway)]:
-            if pid is not None and process_alive(pid):
+            if pid is not None and process_alive(pid) and pid_is_ours(pid):
                 if force_kill(pid):
                     console.print(f"  [green]✓[/green] Killed {label} (PID {pid})")
                     killed += 1

@@ -92,12 +92,36 @@ def _register_all():
         return "Run 'windy start' from terminal to start the agent stack."
     _r("start", "Start the agent (brain + gateway)", "01_process", cmd_start)
 
+    def _pids_from_pid_file() -> list[int]:
+        """The PID file's PIDs that are STILL a Windy Fly process of this user (a stale number is never signalled)."""
+        from windyfly.platform import pid_is_ours
+        pids: list[int] = []
+        try:
+            for line in _PID_FILE.read_text(encoding="utf-8").strip().split("\n"):
+                value = line.split("=", 1)[1].strip() if "=" in line else ""
+                if value.isdigit() and pid_is_ours(int(value)):
+                    pids.append(int(value))
+        except OSError:
+            pass
+        return pids
+
+    def _no_known_pid_reply() -> str:
+        # Exact-PID rule: no systemd unit and no PID file = we don't know which process is ours, so nothing is
+        # killed by name (a name also matches other agents on this machine). Name the candidates instead.
+        from windyfly.platform import find_by_name
+        found = find_by_name(["windyfly.main", "windyfly.bridge"])
+        if not found:
+            return "Nothing to stop: no service, no PID file, and no Windy Fly process of yours is running."
+        listed = "\n".join(f"  {pid}  {args[:80]}" for pid, args in found[:10])
+        return ("I didn't stop anything: there's no service or PID file telling me which process is mine, and "
+                "stopping by name could hit another agent. Stop the one you mean by its PID (kill PID):\n" + listed)
+
     async def cmd_stop(ctx):
         # Under systemd, pkill triggers Restart=on-failure and the
         # agent revives in RestartSec=10. systemctl stop is the only
         # path that actually stays stopped.
-        from windyfly.platform import find_systemd_unit_for_pattern, systemctl_stop
-        info = find_systemd_unit_for_pattern("windyfly.main")
+        from windyfly.platform import own_systemd_unit, systemctl_stop
+        info = own_systemd_unit()
         if info is not None:
             ok, msg = systemctl_stop(info)
             scope_flag = "--user " if info.scope == "user" else ""
@@ -105,27 +129,20 @@ def _register_all():
                 return f"Stopped via `systemctl {scope_flag}stop {info.unit}`."
             # Fall through to legacy paths if systemctl failed for any reason.
             logger.warning(
-                "systemctl stop %s failed (%s) — falling back to pid/pkill",
+                "systemctl stop %s failed (%s) — falling back to the PID file (never by name)",
                 info.unit, msg,
             )
 
-        pid_file = _PID_FILE
-        if pid_file.exists():
-            try:
-                content = pid_file.read_text(encoding="utf-8")
-                for line in content.strip().split("\n"):
-                    if "=" in line:
-                        pid = int(line.split("=")[1])
-                        try:
-                            os.kill(pid, 15)
-                        except OSError:
-                            pass
-                pid_file.unlink(missing_ok=True)
-                return "Windy Fly stopped."
-            except Exception as e:
-                return f"Error stopping: {e}"
-        os.system("pkill -f 'windyfly' 2>/dev/null")
-        return "Stop signal sent. No PID file found — used fallback kill."
+        pid_file_pids = _pids_from_pid_file()
+        if pid_file_pids:
+            for pid in pid_file_pids:
+                try:
+                    os.kill(pid, 15)
+                except OSError:
+                    pass
+            _PID_FILE.unlink(missing_ok=True)
+            return f"Windy Fly stopped ({len(pid_file_pids)} process(es) from the PID file)."
+        return _no_known_pid_reply()
     _r("stop", "Stop all Windy Fly processes", "01_process", cmd_stop)
 
     async def cmd_restart(ctx):
@@ -139,8 +156,8 @@ def _register_all():
         # revives the agent. systemctl stop sends SIGTERM and
         # escalates to SIGKILL after TimeoutStopSec, *and* marks the
         # unit inactive so no restart fires.
-        from windyfly.platform import find_systemd_unit_for_pattern, systemctl_stop
-        info = find_systemd_unit_for_pattern("windyfly.main")
+        from windyfly.platform import own_systemd_unit, systemctl_stop
+        info = own_systemd_unit()
         if info is not None:
             ok, msg = systemctl_stop(info, timeout=10)
             if ok:
@@ -150,14 +167,21 @@ def _register_all():
                     f"`systemctl{' --user' if info.scope == 'user' else ''} disable {info.unit}`."
                 )
             logger.warning(
-                "systemctl stop %s failed (%s) — falling back to pkill -9",
+                "systemctl stop %s failed (%s) — falling back to the PID file (never by name)",
                 info.unit, msg,
             )
 
-        os.system("pkill -9 -f 'windyfly' 2>/dev/null")
+        pid_file_pids = _pids_from_pid_file()
+        for pid in pid_file_pids:
+            try:
+                os.kill(pid, 9)
+            except OSError:
+                pass
+        if not pid_file_pids:
+            return _no_known_pid_reply()
         _PID_FILE.unlink(missing_ok=True)
         _LOCK_FILE.unlink(missing_ok=True)
-        return "All Windy Fly processes force-killed. Lock files removed."
+        return f"Force-killed {len(pid_file_pids)} process(es) from the PID file. Lock files removed."
     _r("kill", "Force-kill everything (emergency)", "01_process", cmd_kill, dangerous=True)
 
     async def cmd_ps(ctx):

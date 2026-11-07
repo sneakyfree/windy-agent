@@ -223,9 +223,9 @@ def _no_real_process_kills(request):
     #
     # systemctl_stop + os.system are the systemd-era twins of the
     # kill_by_name hazard. ``commands.core.cmd_stop`` / ``cmd_kill``
-    # resolve the live unit with find_systemd_unit_for_pattern(
-    # "windyfly.main") and hand it to systemctl_stop — on a machine
-    # running a live agent that resolves to the PRODUCTION unit, and
+    # resolve the unit with own_systemd_unit() (this process's own
+    # cgroup) and hand it to systemctl_stop — a test run inside a
+    # systemd service (a CI runner, a live agent's unit) resolves to it, and
     # a clean ``systemctl stop`` also suppresses Restart=, so the agent
     # stays down. os.system carries the `pkill -f windyfly`
     # fall-throughs that run when the systemd branch is not taken.
@@ -242,7 +242,7 @@ def _no_real_process_kills(request):
     # so patching the platform attribute intercepts the production call
     # while tests that import it at module scope (e.g.
     # tests/test_systemd_aware_stop.py) still exercise the real code.
-    with patch("windyfly.cli.kill_by_name", return_value=None), \
+    with patch("windyfly.cli.find_by_name", return_value=[]), \
          patch("windyfly.channels.rescue.schedule_restart"), \
          patch(
              "windyfly.platform.systemctl_stop",
