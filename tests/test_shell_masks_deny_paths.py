@@ -301,3 +301,28 @@ def test_live_container_starts_and_hides_symlinked_git_configs(tmp_path):
         pytest.skip("docker daemon not reachable")
     assert out.stdout.split()[:2] == ["0", "ok"], out.stdout + out.stderr
     assert _TOKEN not in out.stdout
+
+
+def test_user_level_git_configs_and_their_includes_are_masked(tmp_path, monkeypatch):
+    """The same shared check: ~/.gitconfig (and its variants) and a file it includes are masked when they carry one."""
+    home = _home(tmp_path)
+    monkeypatch.setenv("HOME", str(home))
+    (home / ".gitconfig").write_text(f"[include]\n\tpath = ~/work.inc\n{_CRED_CFG}", encoding="utf-8")
+    (home / "work.inc").write_text(_CRED_CFG, encoding="utf-8")
+    (home / ".gitconfig-plain").write_text("[user]\n\tname = A\n", encoding="utf-8")
+    joined = "\n".join(DockerDispatcher().build_mounts([str(home)]))
+    assert f"{_empty()}:/mnt/Home/.gitconfig:ro" in joined
+    assert f"{_empty()}:/mnt/Home/work.inc:ro" in joined
+    assert "/mnt/Home/.gitconfig-plain" not in joined
+
+
+def test_a_file_a_repo_config_includes_is_masked_when_it_carries_one(tmp_path):
+    home = _home(tmp_path)
+    _repo(home, "app", "[include]\n\tpath = ../../secret-remotes.inc\n[core]\n\tbare = false\n")
+    (home / "projects" / "secret-remotes.inc").write_text(_CRED_CFG, encoding="utf-8")
+    _repo(home, "other", "[include]\n\tpath = ../../plain.inc\n")
+    (home / "projects" / "plain.inc").write_text("[user]\n\tname = A\n", encoding="utf-8")
+    joined = "\n".join(DockerDispatcher().build_mounts([str(home)]))
+    assert f"{_empty()}:/mnt/Home/projects/secret-remotes.inc:ro" in joined
+    assert "/mnt/Home/projects/plain.inc" not in joined
+    assert "/mnt/Home/projects/app/.git/config:" not in joined          # the config itself holds no credential
