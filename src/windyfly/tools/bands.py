@@ -175,7 +175,8 @@ def task_turn_allowlist() -> frozenset[str] | None:
 # ── Goal turns: a background goal runs at TRUSTED, and an owner-only step pauses it (Boss BOARD 2026-11-07T19:26:03Z) ──
 #
 # A goal's own turns (goal_autorun, goal_pacing) have no human in them, so they run at TRUSTED: host_rw, the soul's
-# owner-only parts, the owner's memory and mail, model switching and anything that acts outward are refused. In a goal
+# owner-only parts, the owner's memory and mail, model switching, anything destructive (delete, move, git commit, an
+# overwrite: Boss 19:39:14Z) and anything that acts outward are refused. In a goal
 # turn the owner-only tools stay LISTED, so the model can try one, but the gate refuses every such call: the refusal
 # records the tool's NAME here, every later call in that turn is refused too, and the goal code pauses the goal and
 # asks the owner in chat. Resuming only unpauses: the goal never gets an owner grant (Hub's conditions on design A).
