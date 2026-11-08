@@ -17,10 +17,11 @@ stay in the lockbox, and Boss's GO by sha for production. Grant's gates before t
 Legal e-sign/archive/recall, Support email, smooth sign-up); (3) an attorney reviews the legal documents; (4) every
 token on every platform is rolled (Vault leads); (5) then the marketing money.
 
-Last full rewrite: 2026-11-07 00:01Z (catch-up, Boss BOARD 2026-11-06T23:57:40Z); updated 2026-11-07 01:53Z (line standard, Boss 2026-11-07T00:02:22Z); 2026-11-08 00:26Z (the 11-07 merges); 2026-11-08 02:56Z (#759 and #761 merged, #762 open); 2026-11-08 03:21Z (#762 merged); 2026-11-08 05:30Z (#765 merged).
+Last full rewrite: 2026-11-07 00:01Z (catch-up, Boss BOARD 2026-11-06T23:57:40Z); updated 2026-11-07 01:53Z (line standard, Boss 2026-11-07T00:02:22Z); 2026-11-08 00:26Z (the 11-07 merges); 2026-11-08 02:56Z (#759 and #761 merged, #762 open); 2026-11-08 03:21Z (#762 merged); 2026-11-08 05:30Z (#765 merged); 2026-11-08 15:38Z (Zero re-pinned; Test Boss line; fire-drill gate).
 
 ## Now
-- [ ] Zero re-pin to master (67 commits ahead of its pin): BOOKED SUN 11-08 15:30-16:00Z on Windy 0, GO by sha at the BEFORE; #746-#757 merged by 11-07 23:21Z; #759 c052f2db, #761 b7917d05, #762 9e7cf6be and #765 bf99ce5d merged 11-08, whether they ride is asked at the BEFORE; BEFORE with Hub's OK by 14:00Z incl. Eternitas standing and each unit's env-file lines; rollback = the previous pin in under 2 min · OWNER Windy Agent · ADDED 2026-11-04 · DUE 2026-11-08 16:00Z · STATUS later (the slot) · SOURCE Boss BOARD 2026-11-07T16:26:51Z; 19:26:03Z (the env-file check)
+- [ ] ALL TESTING ON SHARED MACHINES IS BOOKED THROUGH TEST BOSS (Grant's standing policy): before any lab, journey, AFTER test, load test or device session, this lane books it with Test Boss (what, where, how long, how heavy, the stop rule); recurring tests are standing windows (S-003 fire drill, S-004 continuity battery, S-005 liveness probe, S-006 red-alarm, S-007 touched-file tests: wait while load1 >= 40 or io avg60 >= 20, timeout 300) · OWNER Windy Agent · ADDED 2026-11-08 · DUE none · STATUS now (standing) · SOURCE Boss BOARD 2026-11-08T10:07:58Z
+- [ ] The weekly fire drill stops at its backup gate (no fresh encrypted backup of the agent's memory, so nothing is rehearsed): make the gate's backup succeed, prove it with one manual drill booked with Test Boss · OWNER Windy Agent · ADDED 2026-11-08 · DUE 2026-11-15 13:00Z (the next drill) · STATUS now · SOURCE the drill's own BOARD lines 2026-11-01T13:00:08Z and 2026-11-08T13:00:08Z
 - [ ] Calendar's lab Tue 11-10 13:05Z: the Chat roster agent runs from master; my pre-lab line names its exact sha · OWNER Windy Agent · ADDED 2026-11-07 · DUE 2026-11-10 13:05Z · STATUS later · SOURCE Windy Calendar 2026-11-07
 
 Line standard (Boss BOARD 2026-11-07T00:02:22Z): - [ ] what · OWNER · ADDED · DUE · STATUS · SOURCE; Done = - [x] · DONE · PROOF.
@@ -62,6 +63,7 @@ Line standard (Boss BOARD 2026-11-07T00:02:22Z): - [ ] what · OWNER · ADDED ·
 
 ## Waiting on
 
+- [ ] Windy 0's turns on its chosen model fall back to the local lifeboat: Windy Mind's upstream for that model refuses the request (account side, not the agent's code; seen before and after the 11-08 re-pin) · OWNER Windy Mind + Grant · ADDED 2026-11-08 · DUE none · STATUS waiting on Windy Mind and Grant · SOURCE Windy Agent BOARD 2026-11-08T15:37:19Z
 - [ ] Grant's own typed OK in this terminal before "Read TODO.md first; add every promise to it the same turn." goes into CLAUDE.md here, in windy-fly-site and in windy-0-soul · OWNER Grant · ADDED 2026-11-04 · DUE none · STATUS waiting on Grant · SOURCE asked 2026-11-04 11:45Z
 - [ ] Decision on #687 (ONE-WINDY-PLAN) · OWNER Boss · ADDED 2026-11-04 · DUE none · STATUS waiting on Boss · SOURCE #687
 - [ ] Revoke reason move_aborted for H13a (asked Eternitas too) · OWNER Hub · ADDED 2026-11-04 · DUE none · STATUS waiting on Hub · SOURCE windy-contracts #273
@@ -105,6 +107,7 @@ Local-only branches: none left open (fix/home-pair-followups = #720, feat/home-i
 
 ## Done
 
+- [x] Zero re-pin to master 1065c20b (86 commits from the old pin, #759 #761 #762 #765 among them), one channel at a time, no rollback needed · OWNER Windy Agent · ADDED 2026-11-04 · DONE 2026-11-08 · PROOF Boss GO BY SHA BOARD 2026-11-08T08:36:59Z on the BEFORE 08:35:31Z + Hub OK 08:35:15Z; AFTER BOARD 2026-11-08T15:37:19Z (3 units on 1065c20b, 0 ERROR, mint 200, env files, the memory DB in its old place)
 - [x] #765: the known gaps listed in #762's body (with Boss's and Hub's notes on #762) · OWNER Windy Agent · ADDED 2026-11-08 · DONE 2026-11-08 · PROOF bf99ce5d (Hub + Boss stamps at 49428a96, CI green)
 - [x] #762: the file tools refuse a git config that carries a credential, by the same check the shell sandbox masks with (#761 follow-up) · OWNER Windy Agent · ADDED 2026-11-08 · DONE 2026-11-08 · PROOF 9e7cf6be (Hub + Boss stamps at 755990ce, CI green)
 - [x] Follow-up to #755: the shell sandbox masks every git config that carries a credential (repo, bare, submodule, worktree, symlinked) · OWNER Windy Agent · ADDED 2026-11-07 · DONE 2026-11-08 · PROOF #761 merged b7917d05 (Hub + Boss stamps at 7865144d, CI green)
