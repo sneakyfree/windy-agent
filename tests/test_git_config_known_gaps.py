@@ -76,13 +76,41 @@ def test_what_stays_readable(tmp_path, text):
     "https://<token>@github.com/o/r.git",
     "https://x-access-token:${GH_TOKEN}@github.com/o/r.git",
     "https://$GH_TOKEN@github.com/o/r.git",
-    "https://me:YOUR_TOKEN@github.com/o/r.git",
+    "https://git:YOUR_TOKEN@github.com/o/r.git",
     "https://xxxx@github.com/o/r.git",
 ])
 def test_a_placeholder_is_not_a_credential(tmp_path, url):
     doc = tmp_path / "README.md"
     doc.write_text(f'[remote "origin"]\n\turl = {url}\n', encoding="utf-8")
     assert url in _read(doc, tmp_path)["content"]
+
+
+@pytest.mark.parametrize("secret", [
+    "https://{T}:password@github.com/o/r.git",
+    "https://{T}:xxx@github.com/o/r.git",
+    "https://{T}:pass@github.com/o/r.git",
+    "https://{T}:token@github.com/o/r.git",
+    "https://{T}:***@github.com/o/r.git",
+])
+def test_a_real_token_as_the_user_is_refused_whatever_the_password(tmp_path, secret):
+    """Hub on #765: the host takes the token as the USER with any password, so a placeholder password proves nothing."""
+    doc = tmp_path / "README.md"
+    doc.write_text('[remote "origin"]\n\turl = ' + secret.format(T=_TOKEN) + "\n", encoding="utf-8")
+    with pytest.raises(PermissionError):
+        _read(doc, tmp_path)
+
+
+def test_an_extraheader_with_a_real_word_before_a_placeholder_is_refused(tmp_path):
+    doc = tmp_path / "notes.txt"
+    doc.write_text(f"[http]\n\textraheader = Authorization: Bearer {_TOKEN} xxx\n", encoding="utf-8")
+    with pytest.raises(PermissionError):
+        _read(doc, tmp_path)
+
+
+def test_a_known_user_with_a_placeholder_password_stays_readable(tmp_path):
+    doc = tmp_path / "README.md"
+    doc.write_text('[remote "origin"]\n\turl = https://x-access-token:<token>@github.com/o/r.git\n', encoding="utf-8")
+    assert _read(doc, tmp_path)["content"]
 
 
 def test_an_extraheader_with_a_real_value_is_refused_and_a_placeholder_is_not(tmp_path):
@@ -125,7 +153,19 @@ def test_grep_drops_a_matching_credentialed_file_and_still_finds_the_rest(tmp_pa
     assert out["files_denied_by_allowlist"] == 1
 
 
-def test_grep_checks_only_a_file_that_matched_and_reads_each_file_once(tmp_path, monkeypatch):
+def test_grep_counts_are_the_same_whatever_the_pattern_no_oracle(tmp_path):
+    """Boss on #765: a pattern that matches the token and one that doesn't give the SAME counts, so nobody can read the
+    token one character at a time from files_denied / files_scanned."""
+    (tmp_path / "README.md").write_text(_README, encoding="utf-8")
+    (tmp_path / "notes.md").write_text("hello\n", encoding="utf-8")
+    runs = [_grep_files_handler(pattern=p, root=str(tmp_path), _allowed_roots=[str(tmp_path)])
+            for p in (_TOKEN[:5], "ghp_Z", "zzz-nowhere")]
+    counts = {(r["files_denied_by_allowlist"], r["files_scanned"]) for r in runs}
+    assert counts == {(1, 1)}
+    assert all(_TOKEN not in repr(r) for r in runs)
+
+
+def test_grep_checks_every_file_on_the_text_it_already_read(tmp_path, monkeypatch):
     (tmp_path / "README.md").write_text(_README, encoding="utf-8")
     (tmp_path / "notes.md").write_text("hello\n", encoding="utf-8")
     checked: list[str] = []
@@ -141,9 +181,8 @@ def test_grep_checks_only_a_file_that_matched_and_reads_each_file_once(tmp_path,
     monkeypatch.setattr("builtins.open", counting_open)
     out = _grep_files_handler(pattern="hello", root=str(tmp_path), _allowed_roots=[str(tmp_path)])
     assert [Path(m["path"]).name for m in out["matches"]] == ["notes.md"]
-    assert checked == ["hello\n"]                       # README did not match: not checked, and counted as scanned
-    assert out["files_denied_by_allowlist"] == 0
-    assert sorted(Path(p).name for p in opened) == ["README.md", "notes.md"]     # one open each
+    assert sorted(checked) == sorted([_README, "hello\n"])          # every file, matched or not
+    assert sorted(Path(p).name for p in opened) == ["README.md", "notes.md"]     # one open each: no second read
 
 
 # ── edit and move ─────────────────────────────────────────────────────────────────────────────────────────────────────

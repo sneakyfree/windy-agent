@@ -170,20 +170,34 @@ _PLACEHOLDER = re.compile(
 )
 
 
-def _secret_part(match: re.Match[str], text: str) -> str:
-    """The part of a _CRED match that would be the secret: the password of user:password, the token of TOKEN@, or
-    the last word of an extraheader's value."""
+# User names that are never the secret themselves (the token goes in the password): https://x-access-token:TOKEN@.
+_KNOWN_USERS = frozenset({"git", "x-access-token", "oauth2", "x-token-auth", "token", "user", "username"})
+# Words of an Authorization header that are not the secret.
+_AUTH_WORDS = frozenset({"authorization:", "authorization", "bearer", "basic", "token", "digest"})
+
+
+def _placeholder(word: str) -> bool:
+    return _PLACEHOLDER.match(word) is not None
+
+
+def _is_placeholder(match: re.Match[str], text: str) -> bool:
+    """Is EVERY part of this _CRED match that could hold the secret a placeholder (Hub on #765)? For a URL both the
+    user and the password count (a host accepts the token as the user with any password), the user may also be a
+    known non-secret name; for an extraheader every word after the header and scheme words counts."""
     found = match.group(0)
     if found.rstrip().lower().endswith("="):                    # extraheader = <value>
         end = text.find("\n", match.end())
         value = text[match.end(): len(text) if end < 0 else end].strip().strip("\"'")
-        return value.split()[-1] if value.split() else ""
+        words = [w for w in value.split() if w.lower() not in _AUTH_WORDS]
+        return all(_placeholder(w) for w in words)
     userinfo = found.split("://", 1)[1].rstrip("@")
-    return userinfo.rsplit(":", 1)[-1] if ":" in userinfo else userinfo
+    user, sep, password = userinfo.partition(":")
+    user_ok = _placeholder(user) or user.lower() in _KNOWN_USERS
+    return user_ok and (not sep or _placeholder(password))
 
 
 def _real_credential(text: str) -> bool:
-    return any(not _PLACEHOLDER.match(_secret_part(m, text)) for m in _CRED.finditer(text))
+    return any(not _is_placeholder(m, text) for m in _CRED.finditer(text))
 
 
 def text_has_git_credential(text: str) -> bool:

@@ -439,16 +439,17 @@ def _grep_files_handler(
             continue
         except OSError:
             continue
+        # The content rule on EVERY file read, before the pattern is tried: denied whatever the pattern, so the counts
+        # can't be an oracle for the token one character at a time (Boss on #765). The text is already in memory.
+        if git_secrets.text_has_git_credential(text):
+            files_denied += 1
+            continue
         found: list[dict[str, Any]] = []
         for line_no, line in enumerate(text.splitlines(), start=1):
             if len(found) >= max_matches_per_file or len(matches) + len(found) >= max_results:
                 break
             if regex.search(line):
                 found.append({"path": str(resolved_child), "line": line_no, "content": line[:300]})
-        # The content rule, on the text read above and only for a file that matched: a match line is how grep leaks.
-        if found and git_secrets.text_has_git_credential(text):
-            files_denied += 1
-            continue
         matches.extend(found)
         if len(matches) >= max_results:
             truncated = True
