@@ -116,3 +116,27 @@ def test_the_finish_guard_starts_every_unit_the_drill_covers(drill):
     _, _, calls, _ = run(WINDY_DRILL_UNITS="windy-0@telegram windy-0@matrix windy-0@extra")
     starts = [ln for ln in calls.splitlines() if ln.startswith("systemctl --user start")]
     assert starts and starts[-1] == "systemctl --user start windy-0@telegram windy-0@matrix windy-0@extra"
+
+
+def test_uv_off_the_unit_path_is_found_in_local_bin_and_the_drill_runs(drill, tmp_path):
+    """The 11-01 and 11-08 drills: a systemd user unit's PATH has no ~/.local/bin, so 'uv' was not found and the
+    backup never ran. The script finds uv at $HOME/.local/bin/uv by full path, once."""
+    run, _ = drill
+    local_bin = tmp_path / ".local" / "bin"
+    local_bin.mkdir(parents=True)
+    (tmp_path / "bin" / "uv").rename(local_bin / "uv")
+    r, st, calls, _board = run(FAKE_BACKUP="taken", PATH=f"{tmp_path / 'bin'}:/usr/bin:/bin")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert st["result"] == "PASS" and st["step_backup"] == "PASS" and st["step_turnover"] == "PASS"
+    # every step used the same uv, including the lifeboat step, which runs with HOME set to its scratch folder
+    assert calls.count("uv step") == 3 and "uv backup" in calls
+
+
+def test_no_uv_anywhere_says_so_and_stops_nothing(drill, tmp_path):
+    run, _ = drill
+    (tmp_path / "bin" / "uv").unlink()
+    r, st, calls, board = run(FAKE_BACKUP="taken", PATH=f"{tmp_path / 'bin'}:/usr/bin:/bin")
+    assert r.returncode == 1 and st["result"] == "FAIL" and st["step_backup"] == "FAIL"
+    assert st["detail"].startswith("uv not found at ") and "nothing was stopped" in st["detail"]
+    assert "systemctl --user stop" not in calls
+    assert "uv not found" in board
