@@ -95,10 +95,13 @@ def deny_masks(src: Path, dst_base: str) -> list[str] | None:
     A folder gets an empty read-only tmpfs, a file an empty read-only file. A deny match that is a SYMLINK masks its
     resolved target when that target is under ``src`` (Hub on #755). The walk never enters .git, but every git config
     file that carries a credential is masked as a file (git_secrets: a repo's, a bare clone's, a submodule's, a linked
-    worktree's). Returns None when the walk exceeds its bounds: the caller then does not mount ``src`` at all.
+    worktree's), with the files it includes and any hard link to it under the root. Returns None when the walk exceeds
+    its bounds: the caller then does not mount ``src`` at all.
     """
     flags: list[str] = []
     masked: set[str] = set()
+    cred_ids: set[tuple[int, int]] = set()       # (device, inode) of every credentialed file masked by path
+    linked: list[Path] = []                      # files with more than one hard link, checked after the walk
     seen = 0
     root = str(src).replace("\\", "/").rstrip("/")
 
@@ -130,6 +133,16 @@ def deny_masks(src: Path, dst_base: str) -> list[str] | None:
         real = p.resolve(strict=False)
         return real if real.exists() and real.is_relative_to(src) else None
 
+    def secret(p: Path) -> None:
+        """Mask a file that carries a credential, and remember its (device, inode) so a hard link to it under
+        another name is masked too (Boss + Hub on #762)."""
+        mask(p, as_dir=False)
+        try:
+            st = p.stat()
+            cred_ids.add((st.st_dev, st.st_ino))
+        except OSError:
+            pass
+
     def git_config(cfg: Path) -> None:
         """A git config file: masked when it carries a credential. A symlinked one is masked as a link (never followed
         out of the root), and its target too when that is under this root and carries one (Hub on #761)."""
@@ -137,15 +150,15 @@ def deny_masks(src: Path, dst_base: str) -> list[str] | None:
             mask(cfg, as_dir=False)
             real = inside(cfg)
             if real is not None and real.is_file() and git_secrets.has_credential(real):
-                mask(real, as_dir=False)
+                secret(real)
         elif cfg.is_file() and git_secrets.has_credential(cfg):
-            mask(cfg, as_dir=False)
-        # The files this config includes (one level), when under this root: a token can sit there under any name.
+            secret(cfg)
+        # The files this config includes (nested like git), when under this root: a token can sit there under any name.
         own = inside(cfg) if cfg.is_symlink() else cfg
         if own is not None and own.is_file():
             for inc in git_secrets.include_targets(own):
                 if inc.is_relative_to(src) and inc.is_file() and git_secrets.has_credential(inc):
-                    mask(inc, as_dir=False)
+                    secret(inc)
 
     def git_dir(gdir: Path, depth: int = 0) -> None:
         """A .git folder the walk does not enter: check its config files here. A symlinked submodule or worktree
@@ -188,6 +201,21 @@ def deny_masks(src: Path, dst_base: str) -> list[str] | None:
         for f in filenames:
             if not check(here / f) and git_secrets.is_git_config(here / f):
                 git_config(here / f)     # a bare or mirror clone (name.git/config), walked like any folder
+            else:
+                try:
+                    st = (here / f).lstat()
+                except OSError:
+                    continue
+                if st.st_nlink > 1:
+                    linked.append(here / f)
+    # A hard link, under any name, to a credentialed file masked above (its .git may be walked after the link).
+    for p in linked:
+        try:
+            st = p.lstat()
+        except OSError:
+            continue
+        if (st.st_dev, st.st_ino) in cred_ids:
+            mask(p, as_dir=False)
     return flags
 
 

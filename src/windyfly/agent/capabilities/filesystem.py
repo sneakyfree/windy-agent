@@ -117,7 +117,8 @@ GIT_CREDENTIAL_NEEDLE = "git config with a credential"
 
 def _is_credentialed_git_config(asked: Path, resolved: Path) -> bool:
     """Is this a git config file (by the name asked for OR the file it resolves to) that carries a credential, or
-    any other file directly inside a git folder that does (a config moved to another name and linked)?"""
+    any other file directly inside a git folder that does (a config moved to another name and linked), or a file with
+    more than one hard link that does?"""
     from windyfly.agent.capabilities import git_secrets
 
     if not resolved.is_file():
@@ -125,8 +126,23 @@ def _is_credentialed_git_config(asked: Path, resolved: Path) -> bool:
     if git_secrets.is_git_config(asked) or git_secrets.is_git_config(resolved):
         return git_secrets.has_credential(resolved)
     if git_secrets.in_git_dir(asked) or git_secrets.in_git_dir(resolved):
+        return git_secrets.has_credential(resolved, fail_closed=False, scan_all=True)
+    try:
+        linked = resolved.stat().st_nlink > 1
+    except OSError:
+        linked = False
+    if linked:   # a hard link to a config under a plain name (Boss + Hub on #762); up to MAX_BYTES
         return git_secrets.has_credential(resolved, fail_closed=False)
     return False
+
+
+def _refuse_git_credential(raw_path: str, resolved: Path) -> PermissionError:
+    """The same refusal words as the path check, for the content rule (Boss BOARD 2026-11-08T03:23:47Z). Names the
+    path only, never what is in the file."""
+    return PermissionError(
+        f"path {raw_path!r} resolves to {resolved} which lives "
+        f"under the always-deny list ({GIT_CREDENTIAL_NEEDLE!r})"
+    )
 
 
 def _resolve_and_check(
@@ -155,6 +171,8 @@ def _resolve_and_check(
     needle = deny_match(resolved_str)
     if needle is None and _is_credentialed_git_config(expanded, resolved):
         needle = GIT_CREDENTIAL_NEEDLE
+    if needle == GIT_CREDENTIAL_NEEDLE:
+        raise _refuse_git_credential(raw_path, resolved)
     if needle is not None:
         raise PermissionError(
             f"path {raw_path!r} resolves to {resolved} which lives "
@@ -220,6 +238,16 @@ def _read_file_handler(
     try:
         text = raw.decode("utf-8")
     except UnicodeDecodeError:
+        text = None
+    from windyfly.agent.capabilities import git_secrets
+
+    # The content rule on the WHOLE file, whatever max_bytes is: a cut just before the "@" would hide the match and return
+    # the token (Hub on #765). Not truncated: the bytes read above are the whole file. Truncated: stream the rest.
+    if text is not None and (
+        git_secrets.file_has_git_credential(resolved) if truncated else git_secrets.text_has_git_credential(text)
+    ):
+        raise _refuse_git_credential(path, resolved)
+    if text is None:
         return {
             "path": str(resolved),
             "size_bytes": size,
@@ -371,6 +399,8 @@ def _grep_files_handler(
     if not root_path.is_dir():
         raise NotADirectoryError(f"{root!r} is not a directory")
 
+    from windyfly.agent.capabilities import git_secrets
+
     flags = re.IGNORECASE if case_insensitive else 0
     try:
         regex = re.compile(pattern, flags)
@@ -407,25 +437,26 @@ def _grep_files_handler(
 
         try:
             with open(resolved_child, "r", encoding="utf-8", errors="strict") as f:
-                file_match_count = 0
-                for line_no, line in enumerate(f, start=1):
-                    if file_match_count >= max_matches_per_file:
-                        break
-                    if regex.search(line):
-                        matches.append({
-                            "path": str(resolved_child),
-                            "line": line_no,
-                            "content": line.rstrip("\n")[:300],
-                        })
-                        file_match_count += 1
-                        if len(matches) >= max_results:
-                            truncated = True
-                            break
+                text = f.read()
         except UnicodeDecodeError:
             files_skipped_binary += 1
             continue
         except OSError:
             continue
+        # The content rule on EVERY file read, before the pattern is tried: denied whatever the pattern, so the counts
+        # can't be an oracle for the token one character at a time (Boss on #765). The text is already in memory.
+        if git_secrets.text_has_git_credential(text):
+            files_denied += 1
+            continue
+        found: list[dict[str, Any]] = []
+        for line_no, line in enumerate(text.splitlines(), start=1):
+            if len(found) >= max_matches_per_file or len(matches) + len(found) >= max_results:
+                break
+            if regex.search(line):
+                found.append({"path": str(resolved_child), "line": line_no, "content": line[:300]})
+        matches.extend(found)
+        if len(matches) >= max_results:
+            truncated = True
 
         files_scanned += 1
         if truncated:
@@ -592,6 +623,10 @@ def _edit_file_handler(
         raise ValueError(
             f"{path!r} is not UTF-8 text; refusing to edit binary"
         )
+    from windyfly.agent.capabilities import git_secrets
+
+    if git_secrets.text_has_git_credential(original_text):   # before old_string is looked at: no oracle
+        raise _refuse_git_credential(path, resolved)
 
     occurrences = original_text.count(old_string)
     if occurrences == 0:
@@ -667,6 +702,10 @@ def _move_file_handler(
 
     if not src_resolved.exists():
         raise FileNotFoundError(f"source {source!r} does not exist")
+    from windyfly.agent.capabilities import git_secrets
+
+    if src_resolved.is_file() and git_secrets.file_has_git_credential(src_resolved):
+        raise _refuse_git_credential(source, src_resolved)
     if dst_resolved.exists():
         raise FileExistsError(
             f"destination {destination!r} already exists; refusing "
