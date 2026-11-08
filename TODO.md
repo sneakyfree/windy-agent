@@ -17,11 +17,10 @@ stay in the lockbox, and Boss's GO by sha for production. Grant's gates before t
 Legal e-sign/archive/recall, Support email, smooth sign-up); (3) an attorney reviews the legal documents; (4) every
 token on every platform is rolled (Vault leads); (5) then the marketing money.
 
-Last full rewrite: 2026-11-07 00:01Z (catch-up, Boss BOARD 2026-11-06T23:57:40Z); updated 2026-11-07 01:53Z (line standard, Boss 2026-11-07T00:02:22Z); 2026-11-08 00:26Z (the 11-07 merges); 2026-11-08 02:56Z (#759 and #761 merged, #762 open); 2026-11-08 03:21Z (#762 merged).
+Last full rewrite: 2026-11-07 00:01Z (catch-up, Boss BOARD 2026-11-06T23:57:40Z); updated 2026-11-07 01:53Z (line standard, Boss 2026-11-07T00:02:22Z); 2026-11-08 00:26Z (the 11-07 merges); 2026-11-08 02:56Z (#759 and #761 merged, #762 open); 2026-11-08 03:21Z (#762 merged); 2026-11-08 05:30Z (#765 merged).
 
 ## Now
-- [ ] Zero re-pin to master (67 commits ahead of its pin): BOOKED SUN 11-08 15:30-16:00Z on Windy 0, GO by sha at the BEFORE; #746-#757 merged by 11-07 23:21Z; #759 c052f2db, #761 b7917d05 and #762 9e7cf6be merged 11-08, whether they ride is asked at the BEFORE; BEFORE with Hub's OK by 14:00Z incl. Eternitas standing and each unit's env-file lines; rollback = the previous pin in under 2 min · OWNER Windy Agent · ADDED 2026-11-04 · DUE 2026-11-08 16:00Z · STATUS later (the slot) · SOURCE Boss BOARD 2026-11-07T16:26:51Z; 19:26:03Z (the env-file check)
-- [ ] The known gaps listed in #762's body (with Boss's and Hub's notes on #762) · OWNER Windy Agent · ADDED 2026-11-08 · DUE 2026-11-13 · STATUS later (known gap) · SOURCE #761 docstring + Boss's messages 2026-11-08 + Hub's note on #762 2026-11-08T02:57:03Z
+- [ ] Zero re-pin to master (67 commits ahead of its pin): BOOKED SUN 11-08 15:30-16:00Z on Windy 0, GO by sha at the BEFORE; #746-#757 merged by 11-07 23:21Z; #759 c052f2db, #761 b7917d05, #762 9e7cf6be and #765 bf99ce5d merged 11-08, whether they ride is asked at the BEFORE; BEFORE with Hub's OK by 14:00Z incl. Eternitas standing and each unit's env-file lines; rollback = the previous pin in under 2 min · OWNER Windy Agent · ADDED 2026-11-04 · DUE 2026-11-08 16:00Z · STATUS later (the slot) · SOURCE Boss BOARD 2026-11-07T16:26:51Z; 19:26:03Z (the env-file check)
 - [ ] Calendar's lab Tue 11-10 13:05Z: the Chat roster agent runs from master; my pre-lab line names its exact sha · OWNER Windy Agent · ADDED 2026-11-07 · DUE 2026-11-10 13:05Z · STATUS later · SOURCE Windy Calendar 2026-11-07
 
 Line standard (Boss BOARD 2026-11-07T00:02:22Z): - [ ] what · OWNER · ADDED · DUE · STATUS · SOURCE; Done = - [x] · DONE · PROOF.
@@ -106,6 +105,7 @@ Local-only branches: none left open (fix/home-pair-followups = #720, feat/home-i
 
 ## Done
 
+- [x] #765: the known gaps listed in #762's body (with Boss's and Hub's notes on #762) · OWNER Windy Agent · ADDED 2026-11-08 · DONE 2026-11-08 · PROOF bf99ce5d (Hub + Boss stamps at 49428a96, CI green)
 - [x] #762: the file tools refuse a git config that carries a credential, by the same check the shell sandbox masks with (#761 follow-up) · OWNER Windy Agent · ADDED 2026-11-08 · DONE 2026-11-08 · PROOF 9e7cf6be (Hub + Boss stamps at 755990ce, CI green)
 - [x] Follow-up to #755: the shell sandbox masks every git config that carries a credential (repo, bare, submodule, worktree, symlinked) · OWNER Windy Agent · ADDED 2026-11-07 · DONE 2026-11-08 · PROOF #761 merged b7917d05 (Hub + Boss stamps at 7865144d, CI green)
 - [x] #759, follow-up to #757: a goal turn refuses any call whose per-call tier is destructive, and an overwrite counts as destructive · OWNER Windy Agent · ADDED 2026-11-07 · DONE 2026-11-08 · PROOF c052f2db (Hub + Boss stamps at ca746f2b, CI green)
