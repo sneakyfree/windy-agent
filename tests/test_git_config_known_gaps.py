@@ -60,6 +60,26 @@ def test_a_readme_showing_a_remote_with_a_real_looking_token_is_refused_and_neve
     assert _TOKEN not in str(e.value) and "ghp_" not in str(e.value)
 
 
+def test_no_max_bytes_cut_returns_any_part_of_the_token(tmp_path):
+    """Hub on #765: a read cut just before the "@" hid the match and returned the token. Every cut, 1 to the full
+    length, is refused for a file the content rule covers."""
+    inc = tmp_path / "secrets" / "remotes.inc"
+    inc.parent.mkdir()
+    text = f'[url "https://{_TOKEN}@github.com/"]\n\tinsteadOf = https://github.com/\n'
+    inc.write_text(text, encoding="utf-8")
+    for n in range(1, len(text.encode()) + 1):
+        with pytest.raises(PermissionError) as e:
+            _read_file_handler(path=str(inc), max_bytes=n, _allowed_roots=[str(tmp_path)])
+        assert "ghp_" not in str(e.value)
+
+
+def test_a_cut_read_of_a_plain_file_still_works(tmp_path):
+    doc = tmp_path / "doc.md"
+    doc.write_text('[remote "origin"]\n\turl = https://github.com/o/r.git\n' * 3, encoding="utf-8")
+    out = _read_file_handler(path=str(doc), max_bytes=10, _allowed_roots=[str(tmp_path)])
+    assert out["truncated"] and out["content"] == '[remote "o'
+
+
 @pytest.mark.parametrize("text", [
     '[remote "origin"]\n\turl = https://github.com/o/r.git\n',                        # git header, plain https
     '[remote "origin"]\n\turl = ssh://git@github.com/o/r.git\n\tpushurl = git@h:o/r\n', # git header, ssh remotes

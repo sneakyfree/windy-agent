@@ -241,8 +241,12 @@ def _read_file_handler(
         text = None
     from windyfly.agent.capabilities import git_secrets
 
-    if text is not None and git_secrets.text_has_git_credential(text):
-        raise _refuse_git_credential(path, resolved)   # the content rule, on the bytes read above
+    # The content rule on the WHOLE file, whatever max_bytes is: a cut just before the "@" would hide the match and return
+    # the token (Hub on #765). Not truncated: the bytes read above are the whole file. Truncated: stream the rest.
+    if text is not None and (
+        git_secrets.file_has_git_credential(resolved) if truncated else git_secrets.text_has_git_credential(text)
+    ):
+        raise _refuse_git_credential(path, resolved)
     if text is None:
         return {
             "path": str(resolved),
