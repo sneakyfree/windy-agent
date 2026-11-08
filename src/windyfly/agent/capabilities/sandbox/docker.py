@@ -47,6 +47,7 @@ from pathlib import Path
 
 import os
 
+from windyfly.agent.capabilities import git_secrets
 from windyfly.agent.capabilities.filesystem import _ALWAYS_DENY, deny_match
 
 logger = logging.getLogger(__name__)
@@ -92,16 +93,21 @@ def deny_masks(src: Path, dst_base: str) -> list[str] | None:
     """Docker flags masking every always-deny path under ``src`` (mounted at /mnt/<dst_base>), at any depth.
 
     A folder gets an empty read-only tmpfs, a file an empty read-only file. A deny match that is a SYMLINK masks its
-    resolved target when that target is under ``src`` (Hub on #755). Returns None when the walk exceeds its bounds:
-    the caller then does not mount ``src`` at all.
+    resolved target when that target is under ``src`` (Hub on #755). The walk never enters .git, but every git config
+    file that carries a credential is masked as a file (git_secrets: a repo's, a bare clone's, a submodule's, a linked
+    worktree's). Returns None when the walk exceeds its bounds: the caller then does not mount ``src`` at all.
     """
     flags: list[str] = []
+    masked: set[str] = set()
     seen = 0
     root = str(src).replace("\\", "/").rstrip("/")
 
     def mask(target: Path, *, as_dir: bool | None = None) -> None:
         rel = target.relative_to(src).as_posix()
         dst = f"/mnt/{dst_base}/{rel}"
+        if dst in masked:
+            return               # Docker refuses two mounts on one path
+        masked.add(dst)
         if target.is_dir() if as_dir is None else as_dir:
             flags.extend(["--tmpfs", f"{dst}:ro,nosuid,nodev,noexec,size=1k"])
         else:
@@ -120,6 +126,38 @@ def deny_masks(src: Path, dst_base: str) -> list[str] | None:
         mask(path)
         return True
 
+    def inside(p: Path) -> Path | None:
+        real = p.resolve(strict=False)
+        return real if real.exists() and real.is_relative_to(src) else None
+
+    def git_config(cfg: Path) -> None:
+        """A git config file: masked when it carries a credential. A symlinked one is masked as a link (never followed
+        out of the root), and its target too when that is under this root and carries one (Hub on #761)."""
+        if cfg.is_symlink():
+            mask(cfg, as_dir=False)
+            real = inside(cfg)
+            if real is not None and real.is_file() and git_secrets.has_credential(real):
+                mask(real, as_dir=False)
+        elif cfg.is_file() and git_secrets.has_credential(cfg):
+            mask(cfg, as_dir=False)
+
+    def git_dir(gdir: Path, depth: int = 0) -> None:
+        """A .git folder the walk does not enter: check its config files here. A symlinked submodule or worktree
+        folder is masked as a link, and its target checked when it is under this root."""
+        files, links = git_secrets.git_dir_entries(gdir)
+        for cfg in files:
+            git_config(cfg)
+        for link in links:
+            mask(link, as_dir=True)
+            real = inside(link)
+            if real is not None and real.is_dir() and depth < 2:
+                if link.parent.name in ("modules", "worktrees"):
+                    for n in sorted(git_secrets.GIT_CONFIG_NAMES):
+                        if (real / n).is_file() or (real / n).is_symlink():
+                            git_config(real / n)
+                else:
+                    git_dir(real, depth + 1)
+
     for dirpath, dirnames, filenames in os.walk(src, topdown=True, followlinks=False):
         here = Path(dirpath)
         depth = len(here.relative_to(src).parts)
@@ -130,6 +168,11 @@ def deny_masks(src: Path, dst_base: str) -> list[str] | None:
         keep = []
         for d in dirnames:
             if d in _MASK_WALK_PRUNE:
+                if d == ".git":          # a credentialed remote in a repo's config (Hub on #755 / #761)
+                    if not (here / d).is_symlink():
+                        git_dir(here / d)
+                    elif (real := inside(here / d)) is not None and real.is_dir():
+                        git_dir(real)
                 continue
             if check(here / d):
                 continue         # masked whole: no need to look inside
@@ -137,7 +180,8 @@ def deny_masks(src: Path, dst_base: str) -> list[str] | None:
                 keep.append(d)
         dirnames[:] = keep
         for f in filenames:
-            check(here / f)
+            if not check(here / f) and git_secrets.is_git_config(here / f):
+                git_config(here / f)     # a bare or mirror clone (name.git/config), walked like any folder
     return flags
 
 
