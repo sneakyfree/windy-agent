@@ -193,7 +193,7 @@ def test_a_submodule_config_with_a_credential_is_masked(tmp_path):
 def test_a_repo_config_that_cannot_be_read_whole_is_masked(tmp_path, monkeypatch):
     home = _home(tmp_path)
     _repo(home, "app", "[core]\n\tbare = false\n" + "#" * 64)
-    monkeypatch.setattr("windyfly.agent.capabilities.sandbox.docker._GIT_CONFIG_MAX_BYTES", 16)
+    monkeypatch.setattr("windyfly.agent.capabilities.git_secrets.MAX_BYTES", 16)
     assert f"{_empty()}:/mnt/Home/projects/app/.git/config:ro" in "\n".join(DockerDispatcher().build_mounts([str(home)]))
 
 
@@ -211,4 +211,93 @@ def test_live_container_cannot_read_a_credentialed_repo_config(tmp_path):
     if out.returncode != 0 and "Cannot connect" in out.stderr:
         pytest.skip("docker daemon not reachable")
     assert out.stdout.split()[:3] == ["0", "ref:", "refs/heads/main"], out.stdout + out.stderr
+    assert _TOKEN not in out.stdout
+
+
+# ── Hub's three cases on #761 ────────────────────────────────────────────────────────────────────────────────────────
+
+_CRED_CFG = f'[remote "origin"]\n\turl = https://{_TOKEN}@github.com/o/r.git\n'
+
+
+def test_a_bare_or_mirror_clone_config_is_masked(tmp_path):
+    """name.git/config next to a HEAD: the walk enters a bare clone like any folder, and checks its config."""
+    home = _home(tmp_path)
+    bare = home / "projects" / "mirror.git"
+    bare.mkdir()
+    (bare / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    (bare / "config").write_text("[core]\n\tbare = true\n" + _CRED_CFG, encoding="utf-8")
+    plain = home / "projects" / "other"            # a file named config with no HEAD beside it is not a git config
+    plain.mkdir()
+    (plain / "config").write_text(_CRED_CFG, encoding="utf-8")
+    joined = "\n".join(DockerDispatcher().build_mounts([str(home)]))
+    assert f"{_empty()}:/mnt/Home/projects/mirror.git/config:ro" in joined
+    assert "/mnt/Home/projects/other/config" not in joined
+
+
+def test_a_symlinked_repo_config_masks_the_link_and_its_target(tmp_path):
+    home = _home(tmp_path)
+    git = _repo(home, "app", "")
+    (git / "config").unlink()
+    (git / "config.real").write_text(_CRED_CFG, encoding="utf-8")
+    (git / "config").symlink_to(git / "config.real")
+    joined = "\n".join(DockerDispatcher().build_mounts([str(home)]))
+    assert f"{_empty()}:/mnt/Home/projects/app/.git/config:ro" in joined
+    assert f"{_empty()}:/mnt/Home/projects/app/.git/config.real:ro" in joined
+
+
+def test_a_symlinked_submodule_folder_masks_the_link_and_checks_its_target(tmp_path):
+    home = _home(tmp_path)
+    git = _repo(home, "app", "[core]\n\tbare = false\n")
+    real = home / "projects" / "lib-gitdir"
+    real.mkdir()
+    (real / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    (real / "config").write_text(_CRED_CFG, encoding="utf-8")
+    (git / "modules").mkdir()
+    (git / "modules" / "lib").symlink_to(real, target_is_directory=True)
+    joined = "\n".join(DockerDispatcher().build_mounts([str(home)]))
+    assert "/mnt/Home/projects/app/.git/modules/lib:ro,nosuid,nodev,noexec,size=1k" in joined
+    assert f"{_empty()}:/mnt/Home/projects/lib-gitdir/config:ro" in joined
+    assert joined.count("/mnt/Home/projects/lib-gitdir/config:") == 1        # once, though two routes reach it
+
+
+@pytest.mark.parametrize("where", ["config.worktree", "worktrees/feature/config.worktree"])
+def test_worktree_configs_are_checked(tmp_path, where):
+    home = _home(tmp_path)
+    git = _repo(home, "app", "[core]\n\tbare = false\n")
+    cfg = git / where
+    cfg.parent.mkdir(parents=True, exist_ok=True)
+    (cfg.parent / "HEAD").write_text("ref: refs/heads/feature\n", encoding="utf-8")
+    cfg.write_text(_CRED_CFG, encoding="utf-8")
+    assert f"{_empty()}:/mnt/Home/projects/app/.git/{where}:ro" in "\n".join(DockerDispatcher().build_mounts([str(home)]))
+
+
+def test_the_shared_check_is_the_one_the_sandbox_uses():
+    """One check for the sandbox and (next) the file tools: docker.py keeps no copy of its own."""
+    import inspect
+
+    from windyfly.agent.capabilities.sandbox import docker
+
+    src = inspect.getsource(docker)
+    assert "git_secrets.has_credential" in src and "extraheader" not in src
+
+
+@pytest.mark.skipif(shutil.which("docker") is None, reason="needs docker")
+def test_live_container_starts_and_hides_symlinked_git_configs(tmp_path):
+    """Masks over symlink paths must not stop the container from starting, and the token never shows."""
+    home = _home(tmp_path)
+    git = _repo(home, "app", "")
+    (git / "config").unlink()
+    (git / "config.real").write_text(_CRED_CFG, encoding="utf-8")
+    (git / "config").symlink_to(git / "config.real")
+    flags = DockerDispatcher().build_mounts([str(home)])
+    try:
+        out = subprocess.run(["docker", "run", "--rm", "--network=none", *flags, "alpine:3", "sh", "-c",
+                              "wc -c < /mnt/Home/projects/app/.git/config.real; cat /mnt/Home/projects/app/.git/config"
+                              " 2>/dev/null; cat /mnt/Home/projects/notes.txt"],
+                             capture_output=True, text=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        pytest.skip("docker too slow here")
+    if out.returncode != 0 and "Cannot connect" in out.stderr:
+        pytest.skip("docker daemon not reachable")
+    assert out.stdout.split()[:2] == ["0", "ok"], out.stdout + out.stderr
     assert _TOKEN not in out.stdout
