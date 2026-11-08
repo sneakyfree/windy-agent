@@ -1,0 +1,1 @@
+- Fire drill: `uv` is resolved once by full path (`~/.local/bin/uv` when it is not on PATH), so the weekly drill run by a systemd user unit no longer dies before its backup gate; a missing uv is named as such instead of "no fresh backup".
