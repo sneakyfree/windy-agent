@@ -136,3 +136,79 @@ def test_live_container_cannot_read_a_masked_folder(tmp_path):
     lines = out.stdout.split()
     assert lines[:3] == ["ok", "0", "0"], out.stdout + out.stderr
     assert "SECRET-KEY-MATERIAL" not in out.stdout
+
+
+# ── A repo's git config with a credential in it (Hub's note on #755) ─────────────────────────────────────────────────
+# The walk never enters .git (it can be huge); its config files are checked on their own instead.
+
+_TOKEN = "ghp_FAKEFAKEFAKEFAKE"
+
+
+def _repo(home: Path, name: str, config: str) -> Path:
+    git = home / "projects" / name / ".git"
+    git.mkdir(parents=True)
+    (git / "config").write_text(config, encoding="utf-8")
+    (git / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    return git
+
+
+@pytest.mark.parametrize("config", [
+    f'[remote "origin"]\n\turl = https://{_TOKEN}@github.com/o/r.git\n',                  # a token as the user part
+    f'[remote "origin"]\n\turl = https://me:{_TOKEN}@example.com/r.git\n',                # user:password
+    f'[remote "origin"]\n\tURL = ssh://me:{_TOKEN}@example.com/r.git\n',                  # user:password, any scheme
+    f'[url "https://{_TOKEN}@github.com/"]\n\tinsteadOf = https://github.com/\n',         # in a section header
+    f'[http]\n\textraheader = AUTHORIZATION: basic {_TOKEN}\n',                           # an auth header
+    f'[http "https://example.com"]\n\textraHeader = Authorization: Bearer {_TOKEN}\n',
+])
+def test_a_repo_config_with_a_credential_is_masked(tmp_path, config):
+    home = _home(tmp_path)
+    _repo(home, "app", config)
+    joined = "\n".join(DockerDispatcher().build_mounts([str(home)]))
+    assert f"{_empty()}:/mnt/Home/projects/app/.git/config:ro" in joined
+    assert "/mnt/Home/projects/app/.git/HEAD" not in joined            # the rest of the repo stays as it was
+
+
+@pytest.mark.parametrize("config", [
+    '[remote "origin"]\n\turl = git@github.com:o/r.git\n',
+    '[remote "origin"]\n\turl = ssh://git@github.com/o/r.git\n',
+    '[remote "origin"]\n\turl = https://github.com/o/r.git\n',
+    '[core]\n\tbare = false\n',
+])
+def test_a_repo_config_without_a_credential_stays_readable(tmp_path, config):
+    home = _home(tmp_path)
+    _repo(home, "app", config)
+    assert "/.git/config" not in "\n".join(DockerDispatcher().build_mounts([str(home)]))
+
+
+def test_a_submodule_config_with_a_credential_is_masked(tmp_path):
+    home = _home(tmp_path)
+    git = _repo(home, "app", '[core]\n\tbare = false\n')
+    (git / "modules" / "lib").mkdir(parents=True)
+    (git / "modules" / "lib" / "config").write_text(f"[remote \"o\"]\n\turl = https://{_TOKEN}@h/x\n", encoding="utf-8")
+    joined = "\n".join(DockerDispatcher().build_mounts([str(home)]))
+    assert f"{_empty()}:/mnt/Home/projects/app/.git/modules/lib/config:ro" in joined
+    assert "/mnt/Home/projects/app/.git/config:" not in joined
+
+
+def test_a_repo_config_that_cannot_be_read_whole_is_masked(tmp_path, monkeypatch):
+    home = _home(tmp_path)
+    _repo(home, "app", "[core]\n\tbare = false\n" + "#" * 64)
+    monkeypatch.setattr("windyfly.agent.capabilities.sandbox.docker._GIT_CONFIG_MAX_BYTES", 16)
+    assert f"{_empty()}:/mnt/Home/projects/app/.git/config:ro" in "\n".join(DockerDispatcher().build_mounts([str(home)]))
+
+
+@pytest.mark.skipif(shutil.which("docker") is None, reason="needs docker")
+def test_live_container_cannot_read_a_credentialed_repo_config(tmp_path):
+    home = _home(tmp_path)
+    _repo(home, "app", f'[remote "origin"]\n\turl = https://{_TOKEN}@github.com/o/r.git\n')
+    flags = DockerDispatcher().build_mounts([str(home)])
+    try:
+        out = subprocess.run(["docker", "run", "--rm", "--network=none", *flags, "alpine:3", "sh", "-c",
+                              "wc -c < /mnt/Home/projects/app/.git/config; cat /mnt/Home/projects/app/.git/HEAD"],
+                             capture_output=True, text=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        pytest.skip("docker too slow here")
+    if out.returncode != 0 and "Cannot connect" in out.stderr:
+        pytest.skip("docker daemon not reachable")
+    assert out.stdout.split()[:3] == ["0", "ref:", "refs/heads/main"], out.stdout + out.stderr
+    assert _TOKEN not in out.stdout

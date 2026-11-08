@@ -46,6 +46,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import os
+import re
 
 from windyfly.agent.capabilities.filesystem import _ALWAYS_DENY, deny_match
 
@@ -75,6 +76,43 @@ _MASK_WALK_MAX_DEPTH = 8
 _MASK_WALK_PRUNE = frozenset({".git", "node_modules", "__pycache__", ".venv", "venv", ".tox", ".mypy_cache"})
 
 
+# A git config that carries a credential: a token or password in a remote URL (https://TOKEN@host, any
+# scheme://user:password@host, also inside a [url "..."] header), or an http extraheader (an Authorization header).
+# A plain ssh://git@host or git@host:repo has no secret and stays readable (Hub on #755).
+_GIT_CRED_URL = re.compile(
+    r"""(?i)\b(?:https?|ftps?)://[^/\s@"'\]]+@"""           # any user part on http(s)/ftp(s): a token
+    r"""|\b[a-z][a-z0-9+.-]*://[^/\s@:"'\]]*:[^/\s@"'\]]*@"""  # user:password on any scheme
+    r"""|^\s*extraheader\s*=""",                             # http.extraheader (an Authorization header)
+    re.MULTILINE,
+)
+_GIT_CONFIG_MAX_BYTES = 1_000_000
+
+
+def _git_config_has_credential(path: Path) -> bool:
+    """True when this git config carries a credential, or can't be read whole (fail closed: mask it)."""
+    try:
+        if path.stat().st_size > _GIT_CONFIG_MAX_BYTES:
+            return True
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return True
+    return _GIT_CRED_URL.search(text) is not None
+
+
+def _git_credential_configs(git_dir: Path) -> list[Path]:
+    """The config files inside a repo's .git folder (its own + each submodule's, one level) that carry a credential.
+    The walk never enters .git, so these are checked here instead."""
+    found = []
+    candidates = [git_dir / "config"]
+    modules = git_dir / "modules"
+    if modules.is_dir() and not modules.is_symlink():
+        candidates += sorted(m / "config" for m in modules.iterdir() if m.is_dir() and not m.is_symlink())
+    for cfg in candidates:
+        if cfg.is_file() and not cfg.is_symlink() and _git_config_has_credential(cfg):
+            found.append(cfg)
+    return found
+
+
 def _empty_mask_file() -> Path:
     """An empty read-only file to mount over a secret FILE. It lives in the state dir (~/.windy), which Docker Desktop
     shares on macOS; /dev/null is refused there ("path not shared"), Hub on #755."""
@@ -92,8 +130,9 @@ def deny_masks(src: Path, dst_base: str) -> list[str] | None:
     """Docker flags masking every always-deny path under ``src`` (mounted at /mnt/<dst_base>), at any depth.
 
     A folder gets an empty read-only tmpfs, a file an empty read-only file. A deny match that is a SYMLINK masks its
-    resolved target when that target is under ``src`` (Hub on #755). Returns None when the walk exceeds its bounds:
-    the caller then does not mount ``src`` at all.
+    resolved target when that target is under ``src`` (Hub on #755). The walk never enters .git, but a repo's config
+    (and each submodule's) that carries a credential is masked as a file. Returns None when the walk exceeds its
+    bounds: the caller then does not mount ``src`` at all.
     """
     flags: list[str] = []
     seen = 0
@@ -130,6 +169,9 @@ def deny_masks(src: Path, dst_base: str) -> list[str] | None:
         keep = []
         for d in dirnames:
             if d in _MASK_WALK_PRUNE:
+                if d == ".git" and not (here / d).is_symlink():
+                    for cfg in _git_credential_configs(here / d):
+                        mask(cfg, as_dir=False)      # a credentialed remote in a repo's config (Hub on #755)
                 continue
             if check(here / d):
                 continue         # masked whole: no need to look inside
