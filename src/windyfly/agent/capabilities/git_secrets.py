@@ -8,9 +8,12 @@ bare or mirror clone ``mirror.git/config``, a submodule's ``.git/modules/<name>`
 token or password in a URL (``https://TOKEN@host``, any ``scheme://user:password@host``, also inside a
 ``[url "..."]`` header) or an http extraheader (an Authorization header). A plain ``ssh://git@host``, ``git@host:repo`` or ``https://host`` remote has no secret.
 
-A repo config's own includes are checked by the shell sandbox (it reads each repo config it passes); the file tools
-can't know a file is included by some repo without reading every repo's config, so for them only the global configs'
-includes count. Not covered: includes of includes, hooks, and anything else under .git.
+Includes are followed the way git does, to a depth of 10 (includes of includes). A repo config's own includes are
+checked by the shell sandbox (it reads each repo config it passes); the file tools can't know a file is included by some
+repo without reading every repo's config, so for them only the global configs' includes count. A file directly inside a
+git folder (a config renamed and linked) is scanned whole, however big. A hard link to a credentialed config: the file
+tools check any file with more than one link (up to MAX_BYTES); the sandbox masks any file under the root that shares
+(device, inode) with a credentialed config it found. Not covered: hooks and anything else under .git.
 """
 
 from __future__ import annotations
@@ -27,10 +30,15 @@ _CRED = re.compile(
     re.MULTILINE,
 )
 MAX_BYTES = 1_000_000
+INCLUDE_DEPTH = 10            # git's own limit on nested includes
+_CHUNK = 1 << 20
+_OVERLAP = 64 * 1024          # longer than any token: a match split across two chunks is still seen
 
 
 _INCLUDE_PATH = re.compile(r"""^\s*path\s*=\s*["']?([^"'\n]+?)["']?\s*$""", re.MULTILINE | re.IGNORECASE)
-_include_cache: dict[tuple[tuple[str, float], ...], frozenset[Path]] = {}
+# One entry: (the (path, mtime) of the global configs AND every file they include, the include targets). Any of those
+# changing (or appearing) makes it stale. It holds only WHICH files; content is read on every check (Hub on #761).
+_include_cache: list[tuple[tuple[tuple[str, float], ...], frozenset[Path]]] = []
 
 
 def _global_configs() -> list[Path]:
@@ -38,10 +46,7 @@ def _global_configs() -> list[Path]:
     return [home / ".gitconfig", home / ".config" / "git" / "config"]
 
 
-def include_targets(cfg: Path) -> list[Path]:
-    """The files ONE git config includes ([include] / [includeIf] ``path = ...``), resolved (``~`` and relative to the
-    config's folder). One level: what those files include is not followed. Only WHICH files; never whether they hold a
-    credential (that is checked on every read, Hub on #761)."""
+def _direct_includes(cfg: Path) -> list[Path]:
     try:
         if cfg.stat().st_size > MAX_BYTES:
             return []
@@ -55,23 +60,50 @@ def include_targets(cfg: Path) -> list[Path]:
     return out
 
 
-def global_include_targets() -> frozenset[Path]:
-    """The files the user's global git configs include ([include] / [includeIf] ``path = ...``, one level): a token
-    can sit in any of them under any name (Boss on #761). Cached while the global configs are unchanged."""
-    key = []
-    for cfg in _global_configs():
+def include_targets(cfg: Path, *, depth: int = INCLUDE_DEPTH) -> list[Path]:
+    """The files a git config includes ([include] / [includeIf] ``path = ...``), resolved (``~`` and relative to the
+    including file's folder), and what THOSE include, to ``depth`` levels like git; a loop is followed once. Only
+    WHICH files; never whether they hold a credential (that is checked on every read, Hub on #761)."""
+    out: list[Path] = []
+    seen: set[Path] = set()
+    todo = [(cfg, 0)]
+    while todo:
+        cur, level = todo.pop()
+        for target in _direct_includes(cur):
+            if target in seen:
+                continue
+            seen.add(target)
+            out.append(target)
+            if level + 1 < depth:
+                todo.append((target, level + 1))
+    return out
+
+
+def _stamp(paths: list[Path]) -> tuple[tuple[str, float], ...]:
+    out = []
+    for p in paths:
         try:
-            key.append((str(cfg), cfg.stat().st_mtime))
+            out.append((str(p), p.stat().st_mtime))
         except OSError:
-            key.append((str(cfg), -1.0))
-    k = tuple(key)
-    if k not in _include_cache:
-        found: set[Path] = set()
-        for cfg in _global_configs():
-            found.update(include_targets(cfg))
-        _include_cache.clear()
-        _include_cache[k] = frozenset(found)
-    return _include_cache[k]
+            out.append((str(p), -1.0))
+    return tuple(out)
+
+
+def global_include_targets() -> frozenset[Path]:
+    """The files the user's global git configs include ([include] / [includeIf] ``path = ...``, nested like git): a
+    token can sit in any of them under any name (Boss on #761). Cached while none of those files changes."""
+    configs = _global_configs()
+    if _include_cache:
+        stamp, targets = _include_cache[0]
+        same_home = [p for p, _ in stamp[: len(configs)]] == [str(c) for c in configs]
+        if same_home and _stamp([Path(p) for p, _ in stamp]) == stamp:
+            return targets
+    found: set[Path] = set()
+    for cfg in configs:
+        found.update(include_targets(cfg))
+    targets = frozenset(found)
+    _include_cache[:] = [(_stamp([*configs, *sorted(targets)]), targets)]
+    return targets
 
 
 def _global_name(path: Path) -> bool:
@@ -99,16 +131,85 @@ def in_git_dir(path: Path) -> bool:
     return path.name != "HEAD" and (path.parent / "HEAD").exists()
 
 
-def has_credential(path: Path, *, fail_closed: bool = True) -> bool:
-    """Does this file carry a credential? One that can't be read whole counts as yes unless ``fail_closed`` is off
-    (used for files that are not git configs by name, so a big binary file in .git isn't refused for its size)."""
+def _scan(path: Path) -> bool:
+    """Does ``path`` hold a credential anywhere? Read in chunks, each searched with the tail of the one before."""
+    tail = ""
+    with path.open("rb") as fh:
+        while block := fh.read(_CHUNK):
+            text = tail + block.decode("utf-8", errors="replace")
+            if _CRED.search(text):
+                return True
+            tail = text[-_OVERLAP:]
+            tail = tail[tail.find("\n") + 1:]     # start at a line, so ^extraheader can't match mid-line
+    return False
+
+
+def has_credential(path: Path, *, fail_closed: bool = True, scan_all: bool = False) -> bool:
+    """Does this file carry a credential? Past MAX_BYTES: yes when ``fail_closed`` (a git config by name), else
+    scanned whole when ``scan_all`` (a file directly in a git folder, padded: Hub on #762), else no. A file that
+    can't be read counts as ``fail_closed``."""
     try:
         if path.stat().st_size > MAX_BYTES:
-            return fail_closed
+            return True if fail_closed else (scan_all and _scan(path))
         text = path.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return fail_closed
     return _CRED.search(text) is not None
+
+
+# ── The content rule (Boss BOARD 2026-11-08T03:23:47Z): ANY file, whatever its name or place, whose text has a
+# git-only section header at the start of a line AND a credential that is not a placeholder. This is what closes the
+# file tools' repo-include reverse lookup (a file some repo's config includes, under any name) without reading every
+# repo's config; it also covers hard links, renames and includes of includes. The owner can still read such a file
+# from their own shell.
+_GIT_HEADER = re.compile(r"(?im)^\s*\[\s*(?:remote|url|http|credential|submodule)\b")
+# A README's https://<token>@host or ${GH_TOKEN} is not a credential (Hub on the 11-13 gaps).
+_PLACEHOLDER = re.compile(
+    r"""(?ix)^(?:<[^>]*>|\$\{[^}]*\}|\$[a-z_]\w*|%[a-z_]\w*%|\{\{[^}]*\}\}|x{3,}|\*+|\.{3,}
+    |(?:your[_-]?)?(?:token|password|passwd|pass|secret|pat|key|api[_-]?key)(?:[_-]?here)?)$"""
+)
+
+
+def _secret_part(match: re.Match[str], text: str) -> str:
+    """The part of a _CRED match that would be the secret: the password of user:password, the token of TOKEN@, or
+    the last word of an extraheader's value."""
+    found = match.group(0)
+    if found.rstrip().lower().endswith("="):                    # extraheader = <value>
+        end = text.find("\n", match.end())
+        value = text[match.end(): len(text) if end < 0 else end].strip().strip("\"'")
+        return value.split()[-1] if value.split() else ""
+    userinfo = found.split("://", 1)[1].rstrip("@")
+    return userinfo.rsplit(":", 1)[-1] if ":" in userinfo else userinfo
+
+
+def _real_credential(text: str) -> bool:
+    return any(not _PLACEHOLDER.match(_secret_part(m, text)) for m in _CRED.finditer(text))
+
+
+def text_has_git_credential(text: str) -> bool:
+    """The content rule, on text a tool has ALREADY read (no second read): a git-only section header at the start of a
+    line and a real (not placeholder) credential, in the same text."""
+    return _GIT_HEADER.search(text) is not None and _real_credential(text)
+
+
+def file_has_git_credential(path: Path) -> bool:
+    """The content rule for a tool that does not read the file itself (move): the whole file, streamed like _scan.
+    A file that can't be read counts as no (the tool's own open then fails)."""
+    header = cred = False
+    tail = ""
+    try:
+        with path.open("rb") as fh:
+            while block := fh.read(_CHUNK):
+                text = tail + block.decode("utf-8", errors="replace")
+                header = header or _GIT_HEADER.search(text) is not None
+                cred = cred or _real_credential(text)
+                if header and cred:
+                    return True
+                tail = text[-_OVERLAP:]
+                tail = tail[tail.find("\n") + 1:]
+    except OSError:
+        return False
+    return False
 
 
 def git_dir_entries(git_dir: Path) -> tuple[list[Path], list[Path]]:
