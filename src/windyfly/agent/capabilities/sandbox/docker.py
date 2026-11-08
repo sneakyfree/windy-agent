@@ -140,6 +140,12 @@ def deny_masks(src: Path, dst_base: str) -> list[str] | None:
                 mask(real, as_dir=False)
         elif cfg.is_file() and git_secrets.has_credential(cfg):
             mask(cfg, as_dir=False)
+        # The files this config includes (one level), when under this root: a token can sit there under any name.
+        own = inside(cfg) if cfg.is_symlink() else cfg
+        if own is not None and own.is_file():
+            for inc in git_secrets.include_targets(own):
+                if inc.is_relative_to(src) and inc.is_file() and git_secrets.has_credential(inc):
+                    mask(inc, as_dir=False)
 
     def git_dir(gdir: Path, depth: int = 0) -> None:
         """A .git folder the walk does not enter: check its config files here. A symlinked submodule or worktree

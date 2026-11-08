@@ -109,6 +109,26 @@ def deny_match(path_str: str) -> str | None:
     return None
 
 
+# A git config file that carries a credential (a token or password in a remote URL, or an http auth header) is on
+# the always-deny list by CONTENT: the same check the shell sandbox masks with (capabilities/git_secrets.py, Hub on
+# #761), so the two can't drift. The name it is refused under:
+GIT_CREDENTIAL_NEEDLE = "git config with a credential"
+
+
+def _is_credentialed_git_config(asked: Path, resolved: Path) -> bool:
+    """Is this a git config file (by the name asked for OR the file it resolves to) that carries a credential, or
+    any other file directly inside a git folder that does (a config moved to another name and linked)?"""
+    from windyfly.agent.capabilities import git_secrets
+
+    if not resolved.is_file():
+        return False
+    if git_secrets.is_git_config(asked) or git_secrets.is_git_config(resolved):
+        return git_secrets.has_credential(resolved)
+    if git_secrets.in_git_dir(asked) or git_secrets.in_git_dir(resolved):
+        return git_secrets.has_credential(resolved, fail_closed=False)
+    return False
+
+
 def _resolve_and_check(
     raw_path: str,
     allowed_roots: list[str],
@@ -133,6 +153,8 @@ def _resolve_and_check(
     # is a stricter deny, which is the safe direction for this boundary.
     resolved_str = str(resolved).replace("\\", "/")
     needle = deny_match(resolved_str)
+    if needle is None and _is_credentialed_git_config(expanded, resolved):
+        needle = GIT_CREDENTIAL_NEEDLE
     if needle is not None:
         raise PermissionError(
             f"path {raw_path!r} resolves to {resolved} which lives "
