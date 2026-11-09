@@ -35,7 +35,7 @@ class TestWindyFlySMS:
             assert _is_opt_out(body), body
         for body in ("Stop.", "STOP!", "stop!!", "Opt-Out", "OPT-OUT?", "'STOP'", "STOP 🙏"):
             assert _is_opt_out(body), body
-        for body in ("", "stop texting me so late", "the end", "start", "help", "1234", "..."):
+        for body in ("", "the end", "start", "help", "1234", "..."):
             assert not _is_opt_out(body), body
 
     def test_new_keyword_gets_the_unsubscribe_reply(self):

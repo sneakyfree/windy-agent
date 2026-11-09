@@ -32,8 +32,8 @@ logger = logging.getLogger(__name__)
 MAX_OUTBOUND_SMS_PER_DAY = 50
 
 # Opt-out keywords (Windy Legal, LEGAL DECISION 28, BOARD 2026-11-09T11:14:19Z): the carrier-standard set,
-# matched on letters only (case, spaces and punctuation ignored), so "opt out", "Opt-Out" and "Stop." all count. The whole message must be
-# the keyword: "please stop texting me so late" goes to the agent as an ordinary message.
+# matched on letters only (case, spaces and punctuation ignored), so "opt out", "Opt-Out" and "Stop." all count.
+# Short phrases count too, by LEGAL DECISION 28 (5): see _is_opt_out.
 _OPT_OUT_KEYWORDS = frozenset({"STOP", "STOPALL", "UNSUBSCRIBE", "CANCEL", "END", "QUIT", "REVOKE", "OPTOUT"})
 
 
@@ -57,8 +57,43 @@ def _keyword(body: str) -> str:
     return "".join(ch for ch in (body or "") if ch.isalpha()).upper()
 
 
+# LEGAL DECISION 28 (5) (Windy Legal, BOARD 2026-11-09): short phrases count too.
+_STRONG_WORDS = frozenset({"STOP", "STOPALL", "UNSUBSCRIBE", "OPTOUT", "REVOKE"})
+_STRONG_MAX_WORDS = 4
+_OPT_OUT_PHRASES = tuple(p.split() for p in (
+    "STOP TEXTING", "STOP MESSAGING", "STOP SENDING", "DONT TEXT", "DO NOT TEXT", "REMOVE ME", "TAKE ME OFF",
+    "OPT ME OUT", "NO MORE TEXTS",
+))
+
+
+def _words(body: str) -> list[str]:
+    """The message as letters-only words, upper case: "Don't text me!" -> DONT TEXT ME; "opt-out" -> OPTOUT."""
+    out = []
+    for token in (body or "").split():
+        w = "".join(ch for ch in token if ch.isalpha()).upper()
+        if w:
+            out.append(w)
+    return out
+
+
+def _has_run(words: list[str], run: list[str]) -> bool:
+    n = len(run)
+    return any(words[i:i + n] == run for i in range(len(words) - n + 1))
+
+
 def _is_opt_out(body: str) -> bool:
-    return _keyword(body) in _OPT_OUT_KEYWORDS
+    """LEGAL DECISION 28 (5), on letters-only words:
+    (1) the whole message is a keyword (STOP STOPALL UNSUBSCRIBE CANCEL END QUIT REVOKE OPTOUT / "OPT OUT");
+    (2) a STRONG word (STOP STOPALL UNSUBSCRIBE OPTOUT/"OPT OUT" REVOKE) in a message of 4 words or fewer;
+    (3) one of Legal's phrases anywhere, at any length ("stop texting", "remove me", ...);
+    (4) END, QUIT and CANCEL count only as the whole message ("cancel my appointment" is a request);
+    (5) anything else is an ordinary message."""
+    if _keyword(body) in _OPT_OUT_KEYWORDS:
+        return True
+    words = _words(body)
+    if len(words) <= _STRONG_MAX_WORDS and (_STRONG_WORDS & set(words) or _has_run(words, ["OPT", "OUT"])):
+        return True
+    return any(_has_run(words, p) for p in _OPT_OUT_PHRASES)
 
 
 def _is_help(body: str) -> bool:

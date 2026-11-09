@@ -252,3 +252,49 @@ class TestHelp:
         with patch("windyfly.channels.sms.agent_respond") as agent:
             assert owner_only.handle_inbound(PERSON, "can you help me") == ""  # non-owner, switch off
         assert not agent.called
+
+
+class TestDecision28Rule5:
+    """LEGAL DECISION 28 (5): every example pinned both ways."""
+
+    @pytest.mark.parametrize("body", [
+        # (1) whole-message keywords
+        "STOP", "stopall", "Unsubscribe", "CANCEL", "end", "Quit", "revoke", "OPTOUT", "opt out", "Opt-Out!",
+        # (2) a strong word in 4 words or fewer
+        "stop please", "please stop", "STOP NOW", "stop texting me", "unsubscribe me", "please opt out",
+        "revoke my consent", "stopall now please", "Stop. Now. Please.", "please opt-out now",
+        # (3) phrases anywhere, at any length
+        "stop texting", "stop messaging", "stop sending", "dont text", "don't text", "do not text",
+        "remove me", "take me off", "opt me out", "no more texts",
+        "hey can you please stop texting me every single morning",
+        "I asked before, please don't text this number again ever",
+        "whoever this is please remove me from your list right now",
+        "could you take me off whatever list this is thanks",
+        "Seriously, NO MORE TEXTS from this bot, I mean it",
+    ])
+    def test_opts_out(self, body):
+        assert sms_mod._is_opt_out(body), body
+
+    @pytest.mark.parametrize("body", [
+        # (4) END, QUIT, CANCEL only as the whole message
+        "cancel my appointment", "please cancel", "end of the day works", "I quit my job today",
+        "can we end the call", "cancel it",
+        # (2) a strong word in MORE than 4 words is ordinary (unless a phrase in (3) matches)
+        "I will stop by the office at noon", "can you please stop the timer now", "did you revoke the old key yesterday",
+        # (5) anything else
+        "", "hello", "help", "start", "yes", "stopwatch", "nonstop", "texting is fine", "remove the meeting",
+        "take me to the airport", "no more meetings today", "do not call", "opt in",
+    ])
+    def test_ordinary(self, body):
+        assert not sms_mod._is_opt_out(body), body
+
+    def test_a_phrase_records_the_opt_out_end_to_end(self, chan):
+        sms, _, _ = chan
+        assert "unsubscribed" in sms.handle_inbound(PERSON, "please don't text me again").lower()
+        assert sms.is_opted_out(PERSON)
+
+    def test_cancel_my_appointment_goes_to_the_agent(self, chan):
+        sms, _, _ = chan
+        with patch("windyfly.channels.sms.agent_respond", return_value="ok") as agent:
+            assert sms.handle_inbound(PERSON, "cancel my appointment") == "ok"
+        assert agent.called and not sms.is_opted_out(PERSON)
