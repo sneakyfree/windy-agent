@@ -64,6 +64,19 @@ class TestRecordAndRefuse:
         assert sms.handle_inbound(PERSON, " start ") == ""
         assert not sms.is_opted_out(PERSON)
 
+    @pytest.mark.parametrize("body", ["Stop.", "STOP!", "stop!!", "Opt-Out", "'stop'"])
+    def test_punctuation_still_opts_out(self, chan, body):
+        # Boss 2026-11-09T11:23:26Z: letters only.
+        sms, _, _ = chan
+        assert "unsubscribed" in sms.handle_inbound(PERSON, body).lower()
+        assert sms.is_opted_out(PERSON)
+
+    def test_start_with_punctuation_clears_it(self, chan):
+        sms, _, _ = chan
+        sms.handle_inbound(PERSON, "STOP")
+        sms.handle_inbound(PERSON, "Start!")
+        assert not sms.is_opted_out(PERSON)
+
     def test_unstop_clears_it(self, chan):
         sms, _, _ = chan
         sms.handle_inbound(PERSON, "STOP")
@@ -211,12 +224,14 @@ class TestHelp:
         monkeypatch.setattr("windyfly.tools.outbound_identity._config", {})
         return chan[0]
 
-    @pytest.mark.parametrize("body", ["HELP", "help", " Help ", "H E L P"])
+    @pytest.mark.parametrize("body", ["HELP", "help", " Help ", "H E L P", "Help?", "HELP!!", "help."])
     def test_help_gets_the_exact_words_and_not_the_agent(self, owner_only, monkeypatch, body):
         monkeypatch.setenv("WINDY_OWNER_NAME", "Grant Whitmer")
         with patch("windyfly.channels.sms.agent_respond") as agent:
             out = owner_only.handle_inbound(PERSON, body)
-        assert out == self.WORDS.format(agent="Robin", owner="Grant Whitmer") and not agent.called
+        # First name only: HELP reaches strangers (Legal's privacy change).
+        assert out == self.WORDS.format(agent="Robin", owner="Grant") and not agent.called
+        assert "Whitmer" not in out
 
     def test_no_owner_name_uses_its_owner(self, owner_only, monkeypatch):
         monkeypatch.delenv("WINDY_OWNER_NAME", raising=False)

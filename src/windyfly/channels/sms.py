@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 MAX_OUTBOUND_SMS_PER_DAY = 50
 
 # Opt-out keywords (Windy Legal, LEGAL DECISION 28, BOARD 2026-11-09T11:14:19Z): the carrier-standard set,
-# matched with case and spaces ignored, so "opt out", "Opt Out" and " STOP " all count. The whole message must be
+# matched on letters only (case, spaces and punctuation ignored), so "opt out", "Opt-Out" and "Stop." all count. The whole message must be
 # the keyword: "please stop texting me so late" goes to the agent as an ordinary message.
 _OPT_OUT_KEYWORDS = frozenset({"STOP", "STOPALL", "UNSUBSCRIBE", "CANCEL", "END", "QUIT", "REVOKE", "OPTOUT"})
 
@@ -51,26 +51,33 @@ CREATE TABLE IF NOT EXISTS sms_optouts (
 """
 
 
+def _keyword(body: str) -> str:
+    """The message as one keyword: letters only, upper case. "Stop.", "STOP!", " s t o p " and "Opt-Out" all
+    become STOP / OPTOUT (Boss 2026-11-09T11:23:26Z). The WHOLE message must be the keyword."""
+    return "".join(ch for ch in (body or "") if ch.isalpha()).upper()
+
+
 def _is_opt_out(body: str) -> bool:
-    return "".join((body or "").split()).upper() in _OPT_OUT_KEYWORDS
+    return _keyword(body) in _OPT_OUT_KEYWORDS
 
 
 def _is_help(body: str) -> bool:
-    return "".join((body or "").split()).upper() == "HELP"
+    return _keyword(body) == "HELP"
 
 
 def help_reply() -> str:
     """LEGAL DECISION 28 (2), exact words (Legal BOARD 2026-11-09T11:21:40Z; Boss 11:21:06Z). Contract id sms.help
-    lands in tool-phrases 1.1 under P2. With no owner name set, Legal's confirmed fallback is "its owner"."""
+    lands in tool-phrases 1.1 under P2. HELP goes to strangers too, so the owner's FIRST name only, as the SMS
+    sign-off gives (Legal, privacy); with no owner name set, Legal's confirmed fallback is "its owner"."""
     from windyfly.tools import outbound_identity as oi
 
-    owner = oi.owner_name() or "its owner"
+    owner = oi.owner_first_name() or "its owner"
     return (f"This is {oi.agent_name()}, an AI assistant texting for {owner} through Windy. "
             "For help, email support@windyword.ai. Reply STOP to opt out.")
 
 
 def _is_opt_in(body: str) -> bool:
-    return "".join((body or "").split()).upper() in _OPT_IN_KEYWORDS
+    return _keyword(body) in _OPT_IN_KEYWORDS
 
 
 def _number_key(number: str) -> str:
