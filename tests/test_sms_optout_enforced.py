@@ -298,3 +298,34 @@ class TestDecision28Rule5:
         with patch("windyfly.channels.sms.agent_respond", return_value="ok") as agent:
             assert sms.handle_inbound(PERSON, "cancel my appointment") == "ok"
         assert agent.called and not sms.is_opted_out(PERSON)
+
+
+class TestSlashUsesTheChannelsDatabase:
+    """Hub 2026-11-09T11:25:19Z: /sms must read the file the channel records STOP in (config memory.db_path),
+    even when WINDYFLY_DB_PATH points elsewhere."""
+
+    def test_config_db_path_wins_over_the_env(self, chan, monkeypatch, tmp_path):
+        sms, _, path = chan
+        sms.handle_inbound(PERSON, "STOP")
+        monkeypatch.setenv("WINDYFLY_DB_PATH", str(tmp_path / "some-other.db"))
+        assert sms_mod.number_opted_out(PERSON, config={"memory": {"db_path": str(path)}}) is True
+
+    def test_no_path_and_no_config_refuses(self):
+        assert sms_mod.number_opted_out(PERSON) is True
+
+    def test_slash_sms_reads_the_configured_file(self, chan, monkeypatch, tmp_path):
+        sms, _, path = chan
+        sms.handle_inbound(PERSON, "STOP")
+        monkeypatch.setenv("WINDYFLY_DB_PATH", str(tmp_path / "some-other.db"))
+        monkeypatch.setenv("TWILIO_ACCOUNT_SID", "ACtest123")
+        monkeypatch.setenv("TWILIO_AUTH_TOKEN", "t")
+        monkeypatch.setenv("TWILIO_PHONE_NUMBER", "+15551234567")
+        from windyfly.commands import ecosystem
+        from windyfly.commands.registry import registry
+
+        monkeypatch.setattr(ecosystem, "_config", None)
+        ecosystem.init_ecosystem(config={"memory": {"db_path": str(path)}})
+        cmd = {c.name: c for c in registry.all()}["sms"].handler
+        with patch.dict("sys.modules", {"twilio": None, "twilio.rest": None}):
+            out = asyncio.run(cmd({"_args": [PERSON, "hi"]}))
+        assert out == "That number has opted out of texts (they replied STOP), so I didn't send it."

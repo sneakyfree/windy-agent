@@ -12,11 +12,14 @@ from windyfly.commands.registry import Command, registry
 logger = logging.getLogger(__name__)
 
 _db = None
+_config = None   # the agent's config, so /sms reads the SAME memory database the SMS channel records STOP in
 
 
-def init_ecosystem(db=None):
-    global _db
+def init_ecosystem(db=None, config=None):
+    global _db, _config
     _db = db
+    if config is not None:
+        _config = config
     _register_ecosystem()
 
 
@@ -129,10 +132,10 @@ def _register_ecosystem():
         if not sms_enabled():
             return "Texting isn't available yet; I can reach them by email or you can message them in Windy Chat."  # sms.unavailable
         from windyfly.channels.sms import may_text, number_opted_out
-        if not may_text(number):
+        if not may_text(number, _config):
             # Boss's opt-out order (1)(b): owner only unless WINDY_SMS_ALLOW_NON_OWNER=1. Text = sms.unavailable.
             return "Texting isn't available yet; I can reach them by email or you can message them in Windy Chat."
-        if number_opted_out(number):
+        if number_opted_out(number, config=_config):
             # LEGAL DECISION 28: never text a person who sent STOP, on any path. Text = sms.recipient_opted_out.
             return "That number has opted out of texts (they replied STOP), so I didn't send it."
         sid = os.environ.get("TWILIO_ACCOUNT_SID", "")

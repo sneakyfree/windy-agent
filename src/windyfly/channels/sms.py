@@ -145,15 +145,19 @@ def may_text(number: str, config: dict[str, Any] | None = None) -> bool:
     return non_owner_allowed() or _number_key(number) in owner_numbers(config)
 
 
-def number_opted_out(number: str, db_path: str | None = None) -> bool:
+def number_opted_out(number: str, db_path: str | None = None, config: dict[str, Any] | None = None) -> bool:
     """For a send path that has no channel object (the /sms command): has this number opted out? Reads the same
-    sms_optouts table. No database or no table yet = nothing recorded = False. Any other read error = True: when in
-    doubt, do not text."""
+    sms_optouts table, in the SAME file the channel uses: resolve_db_path(config memory.db_path), as main.py does
+    (Hub 2026-11-09T11:25:19Z). With neither a path nor a config, it cannot know which file the channel uses, so it
+    answers True (refuse). No database or no table yet = nothing recorded = False. Any other read error = True:
+    when in doubt, do not text."""
     import sqlite3
 
     from windyfly.memory.db_location import resolve_db_path
 
-    path = db_path or resolve_db_path()
+    if db_path is None and config is None:
+        return True
+    path = db_path or resolve_db_path(((config or {}).get("memory") or {}).get("db_path"))
     if not os.path.isfile(path):
         return False
     try:
