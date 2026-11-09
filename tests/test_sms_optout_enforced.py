@@ -329,3 +329,42 @@ class TestSlashUsesTheChannelsDatabase:
         with patch.dict("sys.modules", {"twilio": None, "twilio.rest": None}):
             out = asyncio.run(cmd({"_args": [PERSON, "hi"]}))
         assert out == "That number has opted out of texts (they replied STOP), so I didn't send it."
+
+
+class TestDecision28Rule6Owner:
+    """LEGAL DECISION 28 (6): from the owner's own number only (1), a whole-message keyword, opts out."""
+
+    OWNER = "+15550001111"
+
+    @pytest.mark.parametrize("body", ["STOP", "stop.", "Unsubscribe", "OPT OUT", "cancel", "END", "quit!"])
+    def test_owner_whole_message_keyword_opts_out(self, body):
+        assert sms_mod._is_opt_out(body, from_owner=True), body
+
+    @pytest.mark.parametrize("body", [
+        "don't text Bob until Monday", "stop texting the landlord", "stop please", "please stop", "STOP NOW",
+        "remove me from the group chat", "take me off the dinner list", "no more texts to Sam", "unsubscribe me",
+        "opt me out of the newsletter", "do not text my mother",
+    ])
+    def test_owner_phrases_are_orders_to_the_agent(self, body):
+        assert not sms_mod._is_opt_out(body, from_owner=True), body
+        assert sms_mod._is_opt_out(body, from_owner=False), body  # everyone else keeps (1)-(3)
+
+    def test_end_to_end_owner_order_reaches_the_agent(self, chan, monkeypatch):
+        sms, _, _ = chan
+        monkeypatch.setenv("WINDY_OWNER_IDS", f"sms:{self.OWNER}")
+        with patch("windyfly.channels.sms.agent_respond", return_value="OK, I won't text Bob.") as agent:
+            out = sms.handle_inbound("+1 555 000 1111", "don't text Bob until Monday")
+        assert out == "OK, I won't text Bob." and agent.called and not sms.is_opted_out(self.OWNER)
+
+    def test_end_to_end_owner_stop_still_opts_out(self, chan, monkeypatch):
+        sms, _, _ = chan
+        monkeypatch.setenv("WINDY_OWNER_IDS", f"sms:{self.OWNER}")
+        assert "unsubscribed" in sms.handle_inbound(self.OWNER, "STOP").lower()
+        assert sms.is_opted_out(self.OWNER)
+
+    def test_a_first_contact_binding_is_not_the_owner_here_either(self, chan, monkeypatch):
+        sms, _, _ = chan
+        monkeypatch.delenv("WINDY_OWNER_IDS", raising=False)
+        monkeypatch.setattr("windyfly.channels.identity._load_bindings", lambda: {"sms": {PERSON}})
+        sms.handle_inbound(PERSON, "please don't text me")
+        assert sms.is_opted_out(PERSON)

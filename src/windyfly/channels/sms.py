@@ -81,15 +81,19 @@ def _has_run(words: list[str], run: list[str]) -> bool:
     return any(words[i:i + n] == run for i in range(len(words) - n + 1))
 
 
-def _is_opt_out(body: str) -> bool:
+def _is_opt_out(body: str, from_owner: bool = False) -> bool:
     """LEGAL DECISION 28 (5), on letters-only words:
     (1) the whole message is a keyword (STOP STOPALL UNSUBSCRIBE CANCEL END QUIT REVOKE OPTOUT / "OPT OUT");
     (2) a STRONG word (STOP STOPALL UNSUBSCRIBE OPTOUT/"OPT OUT" REVOKE) in a message of 4 words or fewer;
     (3) one of Legal's phrases anywhere, at any length ("stop texting", "remove me", ...);
     (4) END, QUIT and CANCEL count only as the whole message ("cancel my appointment" is a request);
-    (5) anything else is an ordinary message."""
+    (5) anything else is an ordinary message.
+    LEGAL DECISION 28 (6): from the OWNER's own number (owner_numbers(), explicit settings only) only (1) counts:
+    "don't text Bob until Monday" is an order to the agent, and the owner can always send STOP."""
     if _keyword(body) in _OPT_OUT_KEYWORDS:
         return True
+    if from_owner:
+        return False
     words = _words(body)
     if len(words) <= _STRONG_MAX_WORDS and (_STRONG_WORDS & set(words) or _has_run(words, ["OPT", "OUT"])):
         return True
@@ -253,7 +257,8 @@ class WindyFlySMS:
             Agent's response text.
         """
         # Handle STOP/opt-out: record it FIRST, then confirm (the one text a person gets after STOP).
-        if _is_opt_out(body):
+        from_owner = _number_key(from_number) in owner_numbers(self.config)
+        if _is_opt_out(body, from_owner=from_owner):
             self.record_opt_out(from_number)
             log_event(self.db, self.write_queue, "sms.optout", {"phone": from_number})
             return "You've been unsubscribed. Reply START to re-subscribe."
