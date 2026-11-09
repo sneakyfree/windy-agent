@@ -55,6 +55,20 @@ def _is_opt_out(body: str) -> bool:
     return "".join((body or "").split()).upper() in _OPT_OUT_KEYWORDS
 
 
+def _is_help(body: str) -> bool:
+    return "".join((body or "").split()).upper() == "HELP"
+
+
+def help_reply() -> str:
+    """LEGAL DECISION 28 (2), exact words (Legal BOARD 2026-11-09T11:21:40Z; Boss 11:21:06Z). Contract id sms.help
+    lands in tool-phrases 1.1 under P2. With no owner name set, Legal's confirmed fallback is "its owner"."""
+    from windyfly.tools import outbound_identity as oi
+
+    owner = oi.owner_name() or "its owner"
+    return (f"This is {oi.agent_name()}, an AI assistant texting for {owner} through Windy. "
+            "For help, email support@windyword.ai. Reply STOP to opt out.")
+
+
 def _is_opt_in(body: str) -> bool:
     return "".join((body or "").split()).upper() in _OPT_IN_KEYWORDS
 
@@ -204,13 +218,19 @@ class WindyFlySMS:
             log_event(self.db, self.write_queue, "sms.optin", {"phone": from_number})
             return ""
 
+        # HELP: the required compliance reply, to ANYONE, an opted-out person or a non-owner too (they asked for
+        # it; LEGAL DECISION 28, Legal 11:21:40Z). The agent is not asked.
+        if _is_help(body):
+            log_event(self.db, self.write_queue, "sms.help", {"phone": from_number})
+            return help_reply()
+
         # Still opted out: no reply at all, and the agent is not asked to answer.
         if self.is_opted_out(from_number):
             log_event(self.db, self.write_queue, "sms.inbound_opted_out", {"phone": from_number})
             return ""
 
         # Owner only unless the allow switch is on: a reply is a text too, so a non-owner gets none and the agent is
-        # not asked (Boss's opt-out order (1)(b)). The STOP confirmation above still goes to anyone.
+        # not asked (Boss's opt-out order (1)(b)). The STOP confirmation and the HELP reply above still go to anyone.
         if not may_text(from_number, self.config):
             log_event(self.db, self.write_queue, "sms.inbound_not_owner", {"phone": from_number})
             return ""

@@ -195,3 +195,45 @@ class TestOwnerOnly:
         with patch("windyfly.channels.sms.number_opted_out", return_value=False):
             out = asyncio.run(cmd({"_args": [PERSON, "hi"]}))
         assert out.startswith("Texting isn't available yet")
+
+
+class TestHelp:
+    """LEGAL DECISION 28 (2) words; Boss 11:21:06Z and Legal 11:21:40Z: HELP goes to anyone, opted out or not."""
+
+    WORDS = ("This is {agent}, an AI assistant texting for {owner} through Windy. "
+             "For help, email support@windyword.ai. Reply STOP to opt out.")
+
+    @pytest.fixture
+    def owner_only(self, chan, monkeypatch):
+        monkeypatch.delenv("WINDY_SMS_ALLOW_NON_OWNER", raising=False)
+        monkeypatch.setenv("WINDY_OWNER_IDS", "sms:+15550001111")
+        monkeypatch.setenv("WINDYFLY_AGENT_NAME", "Robin")
+        monkeypatch.setattr("windyfly.tools.outbound_identity._config", {})
+        return chan[0]
+
+    @pytest.mark.parametrize("body", ["HELP", "help", " Help ", "H E L P"])
+    def test_help_gets_the_exact_words_and_not_the_agent(self, owner_only, monkeypatch, body):
+        monkeypatch.setenv("WINDY_OWNER_NAME", "Grant Whitmer")
+        with patch("windyfly.channels.sms.agent_respond") as agent:
+            out = owner_only.handle_inbound(PERSON, body)
+        assert out == self.WORDS.format(agent="Robin", owner="Grant Whitmer") and not agent.called
+
+    def test_no_owner_name_uses_its_owner(self, owner_only, monkeypatch):
+        monkeypatch.delenv("WINDY_OWNER_NAME", raising=False)
+        assert owner_only.handle_inbound(PERSON, "HELP") == self.WORDS.format(agent="Robin", owner="its owner")
+
+    def test_an_opted_out_person_who_texts_help_gets_it_and_nothing_else(self, owner_only, monkeypatch):
+        monkeypatch.setenv("WINDY_SMS_ALLOW_NON_OWNER", "1")  # even with the switch on, the opt-out holds
+        owner_only.handle_inbound(PERSON, "STOP")
+        assert owner_only.handle_inbound(PERSON, "help").startswith("This is Robin, an AI assistant")
+        assert owner_only.is_opted_out(PERSON)  # HELP does not re-subscribe
+        with patch("windyfly.channels.sms.agent_respond") as agent:
+            assert owner_only.handle_inbound(PERSON, "hello?") == ""
+        assert not agent.called
+        with _no_network():
+            assert owner_only.send_sms(PERSON, "x")["error"] == "recipient_opted_out"
+
+    def test_help_inside_a_sentence_is_an_ordinary_message(self, owner_only):
+        with patch("windyfly.channels.sms.agent_respond") as agent:
+            assert owner_only.handle_inbound(PERSON, "can you help me") == ""  # non-owner, switch off
+        assert not agent.called
