@@ -1152,11 +1152,13 @@ def _try_mind_broker(
                 _last_mind_unreadable = True
                 logger.warning("Windy Mind still cannot read the pause switch; holding off (no fallback)")
                 return None
-        if resp.status_code in _MIND_BUSY:
+        if resp.status_code in _MIND_BUSY and _refused_key_provider(resp) is None:
             # Busy, not broken (Mind 2026-09-24: free quotas spent, a lane
             # down). One retry after a short wait usually lands, and beats a
             # sticky drop to the local lifeboat model. Turns run off the
             # event loop (agent/executor.py), so this sleep blocks no channel.
+            # A 502 that says the owner's OWN key was refused (x-mind-connection) is not busy:
+            # a retry only sends the same empty key again and makes the owner wait (Mind #601).
             try:
                 wait = float(resp.headers.get("retry-after") or _MIND_BUSY_WAIT_S)
             except (TypeError, ValueError):

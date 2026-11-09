@@ -70,6 +70,26 @@ class TestBroker:
         assert out is None and models._last_mind_failure == "mind key refused:Groq"
         assert not models._is_provider_in_cooldown("windy-mind")
 
+    def test_a_refused_key_502_is_sent_once_with_no_wait(self, monkeypatch):
+        # Mind #601: the owner's key refused upstream -> 502 + x-mind-connection. No busy retry.
+        calls, sleeps = [], []
+        r = _resp(error=None)
+        r.headers = {"x-mind-connection": "anthropic"}
+        monkeypatch.setattr("httpx.post", lambda *a, **k: calls.append(1) or r)
+        monkeypatch.setattr(models.time, "sleep", sleeps.append)
+        out = models._try_mind_broker([{"role": "user", "content": "x"}], "claude-sonnet-5-5", None, 100, None)
+        assert out is None and models._last_mind_failure == "mind key refused:Anthropic"
+        assert len(calls) == 1 and sleeps == []
+        assert not models._is_provider_in_cooldown("windy-mind")
+
+    def test_a_plain_busy_502_keeps_its_one_retry(self, monkeypatch):
+        calls, sleeps = [], []
+        monkeypatch.setattr("httpx.post", lambda *a, **k: calls.append(1) or _resp(error="upstream"))
+        monkeypatch.setattr(models.time, "sleep", sleeps.append)
+        models._try_mind_broker([{"role": "user", "content": "x"}], None, None, 100, None)
+        assert len(calls) == 2 and sleeps == [models._MIND_BUSY_WAIT_S]
+        assert models._last_mind_failure == "mind http 502"
+
     def test_other_5xx_still_cools_down(self, monkeypatch):
         monkeypatch.setattr("httpx.post", lambda *a, **k: _resp(status=503, error="upstream"))
         models._try_mind_broker([{"role": "user", "content": "x"}], None, None, 100, None)
