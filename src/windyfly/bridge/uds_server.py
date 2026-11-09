@@ -470,6 +470,8 @@ class UDSBridge:
             params.get("From", ""),
             params.get("Body", ""),
         )
+        if not response:
+            return {"twiml": "<Response></Response>"}  # nothing is sent (START, or a person who opted out)
         return {"twiml": f"<Response><Message>{response}</Message></Response>"}
 
     async def _handle_sms_send(self, params: dict) -> dict:

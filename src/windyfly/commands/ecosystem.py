@@ -125,6 +125,16 @@ def _register_ecosystem():
             return "Usage: /sms <+1234567890> <message>"
         number = args[0]
         message = " ".join(args[1:])
+        from windyfly.sms_park import sms_enabled
+        if not sms_enabled():
+            return "Texting isn't available yet; I can reach them by email or you can message them in Windy Chat."  # sms.unavailable
+        from windyfly.channels.sms import may_text, number_opted_out
+        if not may_text(number):
+            # Boss's opt-out order (1)(b): owner only unless WINDY_SMS_ALLOW_NON_OWNER=1. Text = sms.unavailable.
+            return "Texting isn't available yet; I can reach them by email or you can message them in Windy Chat."
+        if number_opted_out(number):
+            # LEGAL DECISION 28: never text a person who sent STOP, on any path. Text = sms.recipient_opted_out.
+            return "That number has opted out of texts (they replied STOP), so I didn't send it."
         sid = os.environ.get("TWILIO_ACCOUNT_SID", "")
         token = os.environ.get("TWILIO_AUTH_TOKEN", "")
         from_number = os.environ.get("TWILIO_PHONE_NUMBER", "")

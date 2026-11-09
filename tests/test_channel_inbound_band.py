@@ -23,7 +23,8 @@ def _cfg():
     }
 
 
-def test_sms_inbound_threads_resolved_band():
+def test_sms_inbound_threads_resolved_band(monkeypatch):
+    monkeypatch.setenv("WINDY_SMS_ALLOW_NON_OWNER", "1")  # a non-owner sender; the owner-only rule is tested elsewhere
     os.environ["TWILIO_ACCOUNT_SID"] = "ACtest123"
     os.environ["TWILIO_AUTH_TOKEN"] = "test_token"
     os.environ["TWILIO_PHONE_NUMBER"] = "+15551234567"

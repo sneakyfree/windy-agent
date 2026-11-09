@@ -1,0 +1,4 @@
+- **A person who texts STOP is never texted again.** Windy Fly's own texting channel now keeps a record when someone
+  texts STOP (or STOPALL, UNSUBSCRIBE, CANCEL, END, QUIT, REVOKE, OPT OUT, in any case and spacing). It refuses every
+  later text to that number, on every path, until they text START. "Yes" never re-subscribes anyone. Until the owner
+  turns it on, the channel texts only the owner's own number.
