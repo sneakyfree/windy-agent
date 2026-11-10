@@ -323,3 +323,24 @@ def test_with_the_fallback_on_the_helper_still_works_as_today(monkeypatch):
     monkeypatch.setenv("WINDY_MIND_HELPER", "1")
     monkeypatch.delenv(mind_auth.LEGACY_FLAG, raising=False)
     assert models._mind_helper_enabled() is True
+
+
+def test_a_held_mint_warns_once_not_on_every_call(monkeypatch, caplog):
+    """While the agent waits after a 429, every call falls back quietly: one warning, not one per call."""
+    import logging
+
+    from windyfly.agent import mind_auth, service_auth
+
+    monkeypatch.setattr(mind_auth, "enabled", lambda: True)
+    monkeypatch.setattr(mind_auth, "_warned", set(), raising=False)
+    left = iter([59.0, 44.0, 12.0])
+
+    def held(aud, method, url):
+        raise service_auth.ServiceAuthError("rate_limited", "waiting before asking Eternitas again")
+
+    monkeypatch.setattr(service_auth, "agent_headers", held)
+    with caplog.at_level(logging.WARNING, logger="windyfly.agent.mind_auth"):
+        for _ in left:
+            headers, agent = mind_auth.headers("POST", "https://mind.test/v1/chat", "ept-abc")
+            assert agent is False
+    assert len([r for r in caplog.records if "no EPT+agent" in r.getMessage()]) <= 1

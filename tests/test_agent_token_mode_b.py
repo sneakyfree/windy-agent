@@ -57,6 +57,7 @@ class FakeTokens:
 @pytest.fixture
 def registered(env):
     ak.clear_token_cache()
+    ak.clear_mint_wait()
     r = ak.ensure_registered(transport=FakeEternitas().transport())
     assert r["status"] == "registered"
     yield r["kid"]
@@ -226,3 +227,114 @@ def test_every_legacy_mind_request_is_counted_on_the_health_row():
     assert ah._iv.mind_legacy_auth == 2
     ah._reset_for_tests()
     assert ah._iv.mind_legacy_auth == 0
+
+
+# ── after a 429 the agent waits; it does not ask again (Zero 2026-11-08 to 11-10: 11,640 x 429) ──
+
+class Limited:
+    """429 for the first ``refusals`` calls (with or without Retry-After), then real tokens."""
+
+    def __init__(self, kid: str, refusals: int, retry_after: str | None = "60") -> None:
+        self.ok, self.refusals, self.retry_after, self.calls = FakeTokens(kid), refusals, retry_after, 0
+
+    def handle(self, req: httpx.Request) -> httpx.Response:
+        self.calls += 1
+        if self.calls <= self.refusals:
+            headers = {"Retry-After": self.retry_after} if self.retry_after else {}
+            return httpx.Response(429, headers=headers, json={"detail": {"code": "rate_limited"}})
+        return self.ok.handle(req)
+
+
+def _clock(monkeypatch, start: float = 1_800_000_000.0):
+    t = {"now": start}
+    monkeypatch.setattr(ak.time, "time", lambda: t["now"])
+    return t
+
+
+def test_after_a_429_the_next_calls_do_not_reach_eternitas(registered, monkeypatch):
+    clock = _clock(monkeypatch)
+    f = Limited(registered, refusals=99)
+    t = httpx.MockTransport(f.handle)
+    with pytest.raises(ak.AgentTokenError) as first:
+        ak.request_agent_token("windy-mind", transport=t)
+    assert first.value.status == 429 and f.calls == 1
+    for aud in ("windy-mind", "windy-text", "windy-calendar"):  # the limit is per passport: every audience waits
+        clock["now"] += 5
+        with pytest.raises(ak.AgentTokenError) as again:
+            ak.request_agent_token(aud, transport=t)
+        assert again.value.status == 429 and again.value.code == "rate_limited"
+        assert 0 < again.value.retry_after <= 121
+    assert f.calls == 1  # 3 more asks, 0 more network calls: Eternitas's window can close
+
+
+def test_when_the_wait_is_over_the_agent_asks_again_and_a_token_clears_it(registered, monkeypatch):
+    clock = _clock(monkeypatch)
+    f = Limited(registered, refusals=1)
+    t = httpx.MockTransport(f.handle)
+    with pytest.raises(ak.AgentTokenError):
+        ak.request_agent_token("windy-mind", transport=t)
+    clock["now"] += 120.5  # twice Retry-After 60 plus the 1 s edge: still waiting
+    with pytest.raises(ak.AgentTokenError):
+        ak.request_agent_token("windy-mind", transport=t)
+    assert f.calls == 1
+    clock["now"] += 1
+    assert ak.request_agent_token("windy-mind", transport=t)["token"]
+    assert f.calls == 2 and not ak._MINT_WAIT
+
+
+def test_a_429_without_retry_after_waits_twice_the_60_second_window(registered, monkeypatch):
+    clock = _clock(monkeypatch)
+    f = Limited(registered, refusals=1, retry_after=None)
+    t = httpx.MockTransport(f.handle)
+    with pytest.raises(ak.AgentTokenError):
+        ak.request_agent_token("windy-mind", transport=t)
+    clock["now"] += 119
+    with pytest.raises(ak.AgentTokenError):
+        ak.request_agent_token("windy-mind", transport=t)
+    clock["now"] += 3
+    assert ak.request_agent_token("windy-mind", transport=t)["token"] and f.calls == 2
+
+
+def _asks_until_free(wait: float, limit: int = 20) -> int | None:
+    """Two processes of one agent against Eternitas as it is today: a refused ask re-arms the 60 s window.
+    A is refused at 0, B at 30; each asks again the moment its own wait ends. Returns how many more asks it
+    takes until one gets through, or None if none does within ``limit``."""
+    window_until = 30.0 + 60.0  # B's refused ask at 30 re-armed A's window
+    next_ask = {"A": wait, "B": 30.0 + wait}
+    for n in range(1, limit + 1):
+        who = min(next_ask, key=lambda k: next_ask[k])
+        now = next_ask[who]
+        if now >= window_until:
+            return n
+        window_until = now + 60.0
+        next_ask[who] = now + wait
+    return None
+
+
+def test_two_processes_of_one_agent_cannot_keep_each_other_locked():
+    # Retry-After + 1 s alone never frees the passport: each process's ask lands inside the other's window.
+    assert _asks_until_free(ak.RATE_LIMIT_WAIT_S + 1.0) is None
+    # The shipped wait (twice Retry-After, + 1 s) gets through on the very next ask.
+    assert _asks_until_free(ak.RATE_LIMIT_WAIT_S * ak.RATE_LIMIT_WAIT_FACTOR + 1.0) == 1
+
+
+def test_a_huge_retry_after_is_capped(registered, monkeypatch):
+    clock = _clock(monkeypatch)
+    f = Limited(registered, refusals=1, retry_after="86400")
+    t = httpx.MockTransport(f.handle)
+    with pytest.raises(ak.AgentTokenError):
+        ak.request_agent_token("windy-mind", transport=t)
+    clock["now"] += ak.RATE_LIMIT_WAIT_MAX_S + 2
+    assert ak.request_agent_token("windy-mind", transport=t)["token"]
+
+
+def test_a_valid_cached_token_keeps_working_during_the_wait_with_no_network_call(registered, monkeypatch):
+    clock = _clock(monkeypatch)
+    good = ak.request_agent_token("windy-mind", transport=httpx.MockTransport(FakeTokens(registered).handle))
+    f = Limited(registered, refusals=99)
+    t = httpx.MockTransport(f.handle)
+    clock["now"] += 240  # past the early-refresh point, the token still valid for 60 s
+    assert ak.request_agent_token("windy-mind", transport=t)["token"] == good["token"] and f.calls == 1
+    clock["now"] += 10
+    assert ak.request_agent_token("windy-mind", transport=t)["token"] == good["token"]
+    assert f.calls == 1  # the second ask stayed home
