@@ -75,7 +75,7 @@ lineage, lifecycle ceremonies (hatching).
 moat — see Section 5.
 
 **Key code:**
-- `src/windyfly/birth_certificate.py` — agent's identity proof
+- The birth certificate is issued by Eternitas at the Windy hatch ceremony; this repo holds no certificate code (`src/windyfly/hub_hatch.py` opens the ceremony)
 - `src/windyfly/soul_import/` — import personality from OpenClaw / Hermes
 - `src/windyfly/personality/` — soul, sliders, drift detection
 - `src/windyfly/eternitas/` — passport client

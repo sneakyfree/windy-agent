@@ -1133,29 +1133,6 @@ def cmd_phone(_args: argparse.Namespace) -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# windy cert
-# ═══════════════════════════════════════════════════════════════════════
-
-
-def cmd_cert(_args: argparse.Namespace) -> None:
-    """Show/open birth certificate."""
-    import glob
-
-    certs = sorted(glob.glob(str(PROJECT_ROOT / "data" / "birth_certificate_*.pdf")))
-    if not certs:
-        console.print("[dim]No certificate. Run [bold]windy go[/bold] to generate.[/dim]")
-        return
-
-    cert = certs[-1]  # latest
-    console.print(f"  [bold]Certificate:[/bold]  {cert}")
-
-    # Try to open on macOS
-    if sys.platform == "darwin":
-        subprocess.run(["open", cert], capture_output=True)
-        console.print("  [dim]Opening PDF...[/dim]")
-
-
-# ═══════════════════════════════════════════════════════════════════════
 # windy model
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -2166,12 +2143,6 @@ def cmd_export(_args: argparse.Namespace) -> None:
         for sound_file in sounds_dir.iterdir():
             if sound_file.is_file():
                 files_to_backup.append((sound_file, f"data/sounds/{sound_file.name}"))
-
-    # Birth certificates
-    import glob
-    for cert in glob.glob(str(PROJECT_ROOT / "data" / "birth_certificate_*.pdf")):
-        cert_path = Path(cert)
-        files_to_backup.append((cert_path, f"data/{cert_path.name}"))
 
     if not files_to_backup:
         snap_dir.cleanup()

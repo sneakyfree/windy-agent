@@ -26,7 +26,6 @@ Commands::
     windy whoami           — Show which Windy account is signed in
     windy mail             — Show mail status
     windy phone            — Show phone status
-    windy cert             — Show birth certificate
     windy config show      — View current configuration
     windy config set K V   — Set a config value
     windy config reset     — Re-run setup wizard
@@ -947,11 +946,6 @@ def _cmd_phone(_args: argparse.Namespace) -> None:
     cmd_phone(_args)
 
 
-def _cmd_cert(_args: argparse.Namespace) -> None:
-    """Show birth certificate."""
-    from windyfly.commands import cmd_cert
-    cmd_cert(_args)
-
 
 def _cmd_model(args: argparse.Namespace) -> None:
     """Show/change LLM model."""
@@ -1201,7 +1195,6 @@ _COMMAND_CATEGORIES = [
         ("home pair", "Bring your agent home with a code your phone approves"),
         ("mail", "Show mail status"),
         ("phone", "Show phone status"),
-        ("cert", "Show birth certificate"),
         ("keys", "Manage the wk_ bot credential (show, rotate)"),
         ("agent-key", "Eternitas signing key (status, rotate, reset, revoke)"),
     ]),
@@ -1698,8 +1691,6 @@ def main() -> None:
     # windy phone
     sub.add_parser("phone", help="Show phone status")
 
-    # windy cert
-    sub.add_parser("cert", help="Show birth certificate")
 
     # windy keys — manage the wk_ bot credential (rotate, inspect)
     keys_parser = sub.add_parser("keys", help="Manage the wk_ bot credential")
@@ -1925,7 +1916,6 @@ def main() -> None:
         "agent-key": _cmd_agent_key,
         "mail": _cmd_mail,
         "phone": _cmd_phone,
-        "cert": _cmd_cert,
         # Configuration
         "config": _get_cmd_config,
         "model": _cmd_model,
