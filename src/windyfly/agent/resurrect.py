@@ -655,6 +655,8 @@ def auto_resurrect_attempt(
 # transient blip clears within a few replies.
 
 _RECOVERY_PROBE_INTERVAL_S = 120.0
+# One tiny real answer from Mind. A refusal comes back at once; this only bounds a slow or dead Mind.
+_MIND_ANSWER_TIMEOUT_S = 10.0
 
 # Post-recovery grace (Risk 2 hardening):
 # After a successful climb-out of lifeboat, suppress auto_resurrect
@@ -730,7 +732,15 @@ def _paid_health_probe(timeout: float = 4.0) -> dict[str, Any]:
     every probe, recover, immediately re-fail on the next call,
     and ping-pong forever.
 
-    This probe sends the actual API key against the provider's
+    Windy Mind (the primary brain of every keyless agent) is asked for
+    ONE tiny real answer, with the model the agent was using when it
+    fell back (``models.mind_can_answer``). "Mind is up" is not enough:
+    Mind's /v1/models answers 200 while the chat call is refused, e.g.
+    when the owner's own provider key is out of credit, and that made
+    the agent "recover" and fall back again on every pair of turns
+    (Windy Zero, 2026-11-08 to 11-10).
+
+    A directly configured key is still checked against its provider's
     /v1/models endpoint:
       - 2xx → key valid → return ok=True with provider name
       - 401/403 → key DEAD → skip provider, try next
@@ -748,7 +758,9 @@ def _paid_health_probe(timeout: float = 4.0) -> dict[str, Any]:
     except Exception as e:
         return {"ok": False, "reason": "import_failed", "detail": str(e)}
 
-    candidates: list[tuple[str, str, dict[str, str]]] = []
+    last_status: int | None = None
+    last_provider: str | None = None
+    mind_reason: str | None = None
     # Windy Mind first: it is the PRIMARY brain for keyless agents (every
     # hatched agent, and Windy Zero since ADR-064). Without this candidate a
     # Mind-routed agent could never leave lifeboat on its own: the probe only
@@ -757,12 +769,15 @@ def _paid_health_probe(timeout: float = 4.0) -> dict[str, Any]:
     ept = (os.environ.get("ETERNITAS_PASSPORT_TOKEN") or os.environ.get("ETERNITAS_PASSPORT") or "").strip()
     if ept:
         try:
-            from windyfly.agent import mind_auth
-            from windyfly.agent.models import resolve_mind_url
-            _mind_models = f"{resolve_mind_url().rstrip('/')}/v1/models"
-            candidates.append(("windy-mind", _mind_models, mind_auth.headers("GET", _mind_models, ept)[0]))
-        except Exception:  # noqa: BLE001
-            pass
+            from windyfly.agent.models import mind_can_answer
+            mind = mind_can_answer(resurrection_state().get("previous_model"), _MIND_ANSWER_TIMEOUT_S)
+        except Exception as e:  # noqa: BLE001
+            mind = {"ok": False, "status": None, "reason": f"probe error: {type(e).__name__}"}
+        if mind.get("ok"):
+            return {"ok": True, "provider": "windy-mind", "status": mind.get("status")}
+        last_status, last_provider, mind_reason = mind.get("status"), "windy-mind", mind.get("reason")
+
+    candidates: list[tuple[str, str, dict[str, str]]] = []
     if (key := os.environ.get("ANTHROPIC_API_KEY")):
         if key.startswith("sk-ant-oat"):
             # OAuth (Max-plan) tokens 401 the x-api-key path unconditionally,
@@ -788,11 +803,9 @@ def _paid_health_probe(timeout: float = 4.0) -> dict[str, Any]:
             "https://api.openai.com/v1/models",
             {"Authorization": f"Bearer {key}"},
         ))
-    if not candidates:
+    if not candidates and not ept:
         return {"ok": False, "reason": "no_keys_configured"}
 
-    last_status: int | None = None
-    last_provider: str | None = None
     for provider, url, headers in candidates:
         for attempt in (1, 2):
             try:
@@ -813,12 +826,15 @@ def _paid_health_probe(timeout: float = 4.0) -> dict[str, Any]:
                 continue
             except Exception:
                 continue
-    return {
+    out: dict[str, Any] = {
         "ok": False,
         "reason": "all_keys_failed",
         "last_status": last_status,
         "last_provider": last_provider,
     }
+    if mind_reason:
+        out["mind_reason"] = mind_reason
+    return out
 
 
 def _recovery_probe_marker_path() -> Path:
