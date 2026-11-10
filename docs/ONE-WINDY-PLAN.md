@@ -326,6 +326,8 @@ Source: a code read of windy-pro-mobile main db8950b+, not a device run unless m
 | Agent chat | the Fly app's chat IS the agent's Windy Chat room (Matrix); no second store | none. Tonight's lossy-network fixes: #387 (one Matrix txnId per message, ending the duplicate sends) and #388 (a queued message older than 20 h, or from another device, shows "May not have sent. Tap to send again.") | done (138) |
 
 ## C. One runtime for every agent
+**DECIDED: option 2 (Grant 2026-11-02; Boss BOARD 2026-11-10T18:13:09Z).** The lean Windy Fly, as written under "Recommendation" below, is the ONE runtime every agent moves to. Gate (Boss, unchanged since 2026-11-02): the lab first; real people and Windy Zero only on Boss's GO, Zero last. The re-cut plan against today's master is due on the BOARD by 2026-11-12 18:00Z, then one status line every Monday 18:00Z until it is the one body.
+
 **This replaces the convergence plan's "decide after 12-15" (Boss, 2026-11-02 15:01Z).**
 
 Today:
