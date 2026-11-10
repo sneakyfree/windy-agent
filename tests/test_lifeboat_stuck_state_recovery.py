@@ -367,7 +367,10 @@ class TestMindRoutedAgentCanLeaveLifeboat:
     only direct Anthropic/OpenAI keys, so lifeboat was a one-way door
     (Windy Zero stress test, 2026-09-24)."""
 
-    def test_probe_uses_mind_with_the_ept(self, monkeypatch):
+    def test_probe_asks_mind_for_a_real_answer_with_the_ept(self, monkeypatch):
+        """The Mind check is one tiny real chat call (2026-11-10): /v1/models answering 200 proved only that
+        Mind was up, and made Zero "recover" 13 times while every chat call was refused."""
+        from windyfly.agent import models
         from windyfly.agent import resurrect as _r
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
@@ -378,15 +381,17 @@ class TestMindRoutedAgentCanLeaveLifeboat:
         class _Resp:
             status_code = 200
 
-        def fake_get(url, headers=None, timeout=None):
-            seen.update(url=url, headers=headers)
+        def fake_post(url, ept, body, timeout):
+            seen.update(url=url, ept=ept, body=body)
             return _Resp()
 
-        with patch("httpx.get", side_effect=fake_get):
+        monkeypatch.setattr(models.mind_auth, "post", fake_post)
+        with patch("httpx.get", side_effect=AssertionError("Mind is not asked for /v1/models any more")):
             out = _r._paid_health_probe()
         assert out == {"ok": True, "provider": "windy-mind", "status": 200}
-        assert seen["url"] == "https://mind.test/v1/models"
-        assert seen["headers"]["Authorization"] == "Bearer ept-abc"
+        assert seen["url"] == "https://mind.test/v1/chat"
+        assert seen["ept"] == "ept-abc"
+        assert seen["body"]["max_tokens"] == models._MIND_PING_MAX_TOKENS
 
     def test_no_ept_and_no_keys_is_still_no_keys(self, monkeypatch):
         from windyfly.agent import resurrect as _r

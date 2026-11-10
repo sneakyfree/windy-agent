@@ -754,6 +754,46 @@ def _refused_key_provider(resp: Any) -> str | None:
     return _PROVIDER_NAMES.get(name.lower(), name[:1].upper() + name[1:]) if name else ""
 
 
+_MIND_PING_MAX_TOKENS = 16
+
+
+def mind_can_answer(model: str | None, timeout: float = 10.0) -> dict[str, Any]:
+    """Ask Windy Mind for ONE tiny real answer, the way a turn does: same URL, same credential, same model.
+
+    This is the fallback's recovery check. "Mind is up" (GET /v1/models = 200) is not the fact that matters:
+    Mind can be healthy while the chat call is refused, e.g. the owner's own provider key is out of credit
+    (Windy Zero, 2026-11-08 to 11-10: 13 "recovered" lines, each followed in the same second by a 400).
+    Only an answer proves the next turn will get one.
+
+    Returns ``{"ok": True, "status": 2xx}`` or ``{"ok": False, "status": int | None, "reason": str}``.
+    Never raises, never touches the cool-downs, never logs the request content. A refused call costs nothing;
+    a successful one costs at most ``_MIND_PING_MAX_TOKENS`` output tokens, once per recovery.
+    """
+    import os
+
+    ept = os.environ.get("ETERNITAS_PASSPORT_TOKEN") or os.environ.get("ETERNITAS_PASSPORT")
+    if not ept:
+        return {"ok": False, "status": None, "reason": "no_ept"}
+    url = f"{resolve_mind_url().rstrip('/')}/v1/chat"
+    body: dict[str, Any] = {
+        "messages": [{"role": "user", "content": "Reply with the single word OK."}],
+        "max_tokens": _MIND_PING_MAX_TOKENS,
+    }
+    if model:
+        body["model"] = model
+    try:
+        resp = mind_auth.post(url, ept, body, timeout)
+        if resp.status_code == 422 and "model" in body:
+            # The same catalog-drift rule as a real turn: Mind does not know the name, so the broker picks.
+            resp = mind_auth.post(url, ept, {k: v for k, v in body.items() if k != "model"}, timeout)
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "status": None, "reason": f"unreachable: {type(e).__name__}"}
+    status = int(getattr(resp, "status_code", 0) or 0)
+    if 200 <= status < 300:
+        return {"ok": True, "status": status}
+    return {"ok": False, "status": status, "reason": _mind_error_detail(resp)[:200]}
+
+
 def _mind_error_detail(resp: Any) -> str:
     """Mind's error code/message for logs; never the request content."""
     try:
