@@ -1218,6 +1218,37 @@ REFRESH_EARLY_S = 90
 STALE_GRACE_S = 5
 MINT_RETRY_S = 0.5
 
+# After Eternitas answers 429, this agent does not ask again until the wait is over: Retry-After when it sends one,
+# else its 60 s window. Zero, 2026-11-08 to 11-10: 11,640 answers of 429 against 1,853 of 200. Every outgoing call
+# (a heartbeat alone is one every 30 s) asked for a token again, and every refused ask kept Eternitas's window
+# open, so the passport stayed locked out for days. The wait is per key, across every audience, because the limit
+# is per passport. A token that is still valid keeps working meanwhile.
+RATE_LIMIT_WAIT_S = 60.0
+RATE_LIMIT_WAIT_MAX_S = 300.0
+_MINT_WAIT: dict[str, float] = {}  # kid -> epoch seconds until which this process does not ask Eternitas
+
+
+def _hold_after_429(kid: str, err: "AgentTokenError", now: float) -> None:
+    wait = err.retry_after if err.retry_after and err.retry_after > 0 else RATE_LIMIT_WAIT_S
+    with _TOKEN_LOCK:
+        _MINT_WAIT[kid] = now + min(wait, RATE_LIMIT_WAIT_MAX_S) + 1.0  # +1 s: never land on the window's edge
+
+
+def _held_for(kid: str, now: float) -> float:
+    """Seconds this key must still wait before asking Eternitas again (0 = free to ask)."""
+    with _TOKEN_LOCK:
+        until = _MINT_WAIT.get(kid, 0.0)
+        if until <= now:
+            _MINT_WAIT.pop(kid, None)
+            return 0.0
+        return until - now
+
+
+def clear_mint_wait() -> None:
+    """Forget every wait (tests, and `windy agent-key` after the owner fixed something by hand)."""
+    with _TOKEN_LOCK:
+        _MINT_WAIT.clear()
+
 
 def _transient(err: "AgentTokenError") -> bool:
     return err.code == "unreachable" or err.status == 429 or err.status >= 500
@@ -1239,8 +1270,10 @@ def request_agent_token(aud: str, *, transport: httpx.BaseTransport | None = Non
 
     Auth is ONLY a DPoP proof by that key: no bearer, so a leaked EPT can't mint these.
     Cached per (kid, aud) until ``min_ttl`` seconds before expiry (tokens live ≤5 min;
-    Eternitas allows 30 mints/min per passport). A TRANSIENT mint failure (network, 5xx, 429) returns the cached
+    Eternitas limits mints per passport per minute). A TRANSIENT mint failure (network, 5xx, 429) returns the cached
     token while it is still valid; with nothing cached, a network failure is retried once after MINT_RETRY_S.
+    After a 429 nothing is asked of Eternitas until its Retry-After (or 60 s) has passed: the still-valid cached
+    token is returned, or the same 429 is raised with the seconds left, without a network call.
     Any other refusal (revoked, suspended...) drops the cached token and raises. Returns Eternitas's body
     ``{token, token_type, expires_in, aud, passport}`` plus ``expires_at`` (epoch s).
     Raises :class:`AgentTokenError`. Services that take the token for WRITES also want a
@@ -1254,6 +1287,12 @@ def request_agent_token(aud: str, *, transport: httpx.BaseTransport | None = Non
             return dict(hit)
     url = f"{_base_url()}{TOKEN_PATH}"
     usable = hit if hit and hit["expires_at"] - STALE_GRACE_S > now else None
+    left = _held_for(kid, now)
+    if left > 0:
+        if usable is not None:
+            return dict(usable)
+        # A fixed message: callers warn once per (code, message), and the seconds left are in retry_after.
+        raise AgentTokenError("rate_limited", "waiting before asking Eternitas again", 429, left)
     try:
         try:
             resp = _mint(url, aud, key, transport)
@@ -1267,6 +1306,8 @@ def request_agent_token(aud: str, *, transport: httpx.BaseTransport | None = Non
             _standing_from_refusal(resp, code)
             raise AgentTokenError(code or f"http_{resp.status_code}", msg, resp.status_code, retry_after_s(resp))
     except AgentTokenError as err:
+        if err.status == 429:
+            _hold_after_429(kid, err, now)
         if usable is not None and _transient(err):
             logger.info("agent keys: refresh for %s failed (%s %s); the cached token is still valid", aud,
                         err.code, err.message)
@@ -1287,6 +1328,7 @@ def request_agent_token(aud: str, *, transport: httpx.BaseTransport | None = Non
     out["expires_at"] = now + min(int(body.get("expires_in") or 300), 300)
     with _TOKEN_LOCK:
         _TOKEN_CACHE[(kid, aud)] = out
+        _MINT_WAIT.pop(kid, None)
     _standing_good_mint()
     return dict(out)
 
