@@ -31,6 +31,7 @@ from windyfly.agent.models import (
 )
 from windyfly.agent.offline import get_offline_response, is_online
 from windyfly.agent.prompt import assemble_prompt
+from windyfly.agent.standing import AgentStopped as _AgentStopped
 from windyfly.agent.tracing import set_request_id, request_id_short
 from windyfly.config import default_model as _default_model
 from windyfly.control_panel import get_sliders
@@ -576,6 +577,20 @@ def _pause_unreadable_answer(session_id: str) -> str:
     return PAUSE_UNREADABLE_REPLY
 
 
+def _standing_answer(session_id: str, stop: dict[str, Any] | None, band: Any = None) -> str:
+    """While Eternitas has this agent stopped: the standing line for a person, NOTHING for another agent or a phone
+    result turn (the same rules as the owner's pause). Only an OWNER-band turn hears the reason and the restore date;
+    any other person gets the neutral line (Hub on #294)."""
+    from windyfly.agent import standing as _standing
+    from windyfly.agent.capabilities import Band
+    from windyfly.channels import silence as _silence
+
+    if _silence.is_agent_sender(session_id) or _phone_result_turn(session_id):
+        return ""
+    owner = band is not None and int(band) == int(Band.OWNER)
+    return _standing.answer(stop, owner=owner)
+
+
 def _paused_answer(session_id: str) -> str:
     """While the owner has this agent stopped: the plain line for a person, NOTHING for
     another agent. Two stopped agents of one owner in a room would otherwise answer each
@@ -644,6 +659,22 @@ def _dispatch_tool_call(*args: Any, **kwargs: Any) -> str:
     return result
 
 
+def _goal_call_tier(cap: Any, fn_args: Any) -> Any:
+    """The tier of THIS call: the capability's, raised by its per-call check (fs.write_file with overwrite=true is
+    WRITE_DESTRUCTIVE). Args that do not parse, or a check that fails, count as the highest tier (the goal pauses)."""
+    from windyfly.agent.capabilities import Tier as _Tier
+
+    check = getattr(cap, "runtime_tier_check", None)
+    if check is None:
+        return cap.tier
+    try:
+        args = json.loads(fn_args) if isinstance(fn_args, str) and fn_args else (fn_args or {})
+        raised = check(args) if isinstance(args, dict) else max(_Tier)
+    except Exception:  # noqa: BLE001 - fail closed: the goal pauses for the owner
+        raised = max(_Tier)
+    return max(cap.tier, raised) if raised is not None else cap.tier
+
+
 def _dispatch_tool_call_inner(
     fn_name: str,
     fn_args: Any,
@@ -661,10 +692,28 @@ def _dispatch_tool_call_inner(
     encoded if non-string so the LLM can parse it. A retired tool name (tool trim phase 1) runs as
     the tool that does its job now (windyfly.tools.aliases); aliases are never offered to the model.
     """
+    from windyfly.tools import bands as _bands
     from windyfly.tools.aliases import resolve as _resolve_alias
 
     fn_name, fn_args = _resolve_alias(fn_name, fn_args)
     cap = capability_registry.get(fn_name)
+    paused = json.dumps({"error": _bands.PAUSED_TEXT})
+    if _bands.in_goal_turn():
+        # A background goal's turn (TRUSTED, Boss 2026-11-07T19:26:03Z): once it has tried an owner-only step, nothing
+        # else runs this turn; an owner-only, destructive (delete, move, git commit: an undo log is not the owner's
+        # say, Boss 19:39:14Z) or outward tool is refused here and pauses the goal.
+        if _bands.needs_owner() is not None:
+            return paused
+        from windyfly.agent.capabilities import Band as _Band, Tier as _Tier
+
+        if cap is not None:
+            if (band is None or int(band) < int(cap.band_required or _Band.OWNER)
+                    or int(_goal_call_tier(cap, fn_args)) >= int(_Tier.WRITE_DESTRUCTIVE)):
+                _bands.note_needs_owner(fn_name)
+                return paused
+        elif tool_registry is not None and not _bands.allowed(fn_name, band):
+            _bands.note_needs_owner(fn_name)
+            return paused
     if cap is not None:
         if isinstance(fn_args, str):
             try:
@@ -677,9 +726,14 @@ def _dispatch_tool_call_inner(
             result = capability_registry.invoke_sync(fn_name, fn_args, band)
         except capability_denied_exc as e:
             logger.info("Capability denied: %s", e)
+            if _bands.in_goal_turn():
+                _bands.note_needs_owner(fn_name)
+                return paused
             return json.dumps({"error": f"capability_denied: {e}"})
         except Exception as e:
             logger.warning("Capability %s failed: %s", fn_name, e)
+            if _bands.needs_owner() is not None:      # refused inside the tool (shell host_rw) in a goal turn
+                return paused
             return json.dumps({"error": f"{type(e).__name__}: {e}"})
         return result if isinstance(result, str) else json.dumps(result, default=str)
 
@@ -886,6 +940,14 @@ def _agent_respond_turn(
     # Hub + Mind, 10-02). Checked every turn (≤ once per 30 s, no model call) so it
     # also stops an agent that is on the local lifeboat or on Max OAuth. STOP means
     # stop: no model, no other provider, no local backup brain.
+    # 0.55. Stopped by ETERNITAS: a refused mint (retired, suspended, revoked, or this computer's key revoked) latched
+    # a stop that survives a restart; only a good mint lifts it (Boss 11-04). No model, no tool, no lifeboat.
+    from windyfly.agent import standing as _standing
+    _stop = _standing.stopped()
+    if _stop:
+        logger.info("[req:%s] stopped by Eternitas (%s) — not answering", request_id_short(), _stop.get("code"))
+        return _standing_answer(session_id, _stop, band)
+
     from windyfly.agent import models as _models
     if _models.check_owner_pause():
         logger.info("[req:%s] stopped by owner in Windy Mind — not answering", request_id_short())
@@ -910,13 +972,22 @@ def _agent_respond_turn(
     if _is_first_contact(db) and not _silence_welcome.is_agent_sender(session_id):
         _mark_welcomed(db)  # latch BEFORE the async episode writes land
         welcome = _format_welcome(config)
-        write_queue.enqueue(Priority.HIGH, save_episode, db, "user",
-                            user_message, session_id=session_id)
-        write_queue.enqueue(Priority.HIGH, save_episode, db, "assistant",
-                            welcome, session_id=session_id)
         log_event(db, write_queue, "first_contact.welcome",
                   {"user_message": user_message[:100]})
-        return welcome
+        # The welcome never SWALLOWS the message (Boss 11-03): the same exchange answers it as a normal turn, which
+        # keeps the person's message and that answer in memory. The latch above keeps this from welcoming twice.
+        try:
+            answer = _agent_respond_turn(config, db, write_queue, user_message, session_id,
+                                         tool_registry=tool_registry, band=band)
+        except Exception as exc:  # noqa: BLE001
+            # The model is down (dead credentials at hatch): the welcome still goes out, needing no model, and the
+            # person's message is kept (Hub on #699).
+            logger.warning("[req:%s] first contact: the answer failed (%s); sending the welcome alone",
+                           request_id_short(), type(exc).__name__)
+            write_queue.enqueue(Priority.HIGH, save_episode, db, "user", user_message, session_id=session_id)
+            write_queue.enqueue(Priority.HIGH, save_episode, db, "assistant", welcome, session_id=session_id)
+            return welcome
+        return f"{welcome}\n\n{answer}" if answer else welcome
 
     # 1. Assemble prompt
     # Pass current session's pct_remaining so the prompt assembler
@@ -1272,10 +1343,14 @@ def _agent_respond_turn(
     # Legacy ToolRegistry tools are offered by band (windyfly.tools.bands): USER sees only public
     # reads, the owner's data and every outward tool are the owner's (Hub ruling 10-17). The same
     # table gates them again at execution. Capability tools below are band-filtered by their registry.
-    legacy_tools = tool_registry.get_schemas(band) if tool_registry else []
+    # A background goal's turn LISTS the owner's tools too, so trying one pauses the goal and asks the owner; the gate
+    # in _dispatch_tool_call_inner still refuses every one of them (windyfly.tools.bands.goal_turn).
+    from windyfly.tools.bands import listing_band as _listing_band
+
+    legacy_tools = tool_registry.get_schemas(_listing_band(band)) if tool_registry else []
     if band <= Band.SANDBOX:
         legacy_tools = []
-    capability_tools = capability_registry.tool_schemas_for_band(band)
+    capability_tools = capability_registry.tool_schemas_for_band(_listing_band(band))
     # Phone tools exist only on a turn whose owner's phone is online (phone-tools.v1).
     from windyfly.channels import phone_tools as _phone_tools
 
@@ -1417,6 +1492,9 @@ def _agent_respond_turn(
         # never the lifeboat below.
         logger.info("[req:%s] stopped by owner in Windy Mind mid-turn", request_id_short())
         return _paused_answer(session_id)
+    except _AgentStopped as e:
+        logger.info("[req:%s] stopped by Eternitas mid-turn (%s)", request_id_short(), e.stop.get("code"))
+        return _standing_answer(session_id, e.stop, band)
     except RuntimeError as e:
         msg = str(e)
         if "providers in chain" in msg or "providers" in msg.lower():
@@ -2001,30 +2079,40 @@ def _agent_respond_turn(
     #    Only the owner's own words, and only on a turn that read no untrusted
     #    content: anyone else's "my name is X" is not a fact about the owner,
     #    and anyone else's "I need to ..." is not the owner's goal (6.).
+    # Steps 5 and 6 run AFTER the answer is saved (step 3): a failure in either is logged by its type only and the turn
+    # carries on, so the person still gets the answer that is already in memory (Hub, after #699).
     owner_words = band >= Band.OWNER and not turn_tainted
-    _extract_and_store_facts(db, write_queue, user_message, owner=owner_words)
+    try:
+        _extract_and_store_facts(db, write_queue, user_message, owner=owner_words)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[req:%s] fact extraction failed after the answer was saved (%s); carrying on",
+                       request_id_short(), type(exc).__name__)
 
     # 6. Intent detection (MEDIUM priority) — regex fast-path + LLM fallback
-    proactivity = loop_sliders.get("proactivity", 5)
-    intent = (
-        detect_intent(user_message, config=config, proactivity=proactivity)
-        if owner_words else None
-    )
-    if intent and intent.get("has_intent"):
-        # Dedup: don't create if a similar active intent already exists;
-        # mentioning it again keeps it fresh so daily decay never pauses it.
-        from windyfly.memory.intents import find_similar_intent, touch_intent
-        existing = find_similar_intent(db, intent["description"])
-        if existing:
-            write_queue.enqueue(Priority.MEDIUM, touch_intent, db, existing["id"])
-        else:
-            write_queue.enqueue(
-                Priority.MEDIUM,
-                create_intent,
-                db,
-                intent["description"],
-                origin=intent["origin"],
-            )
+    try:
+        proactivity = loop_sliders.get("proactivity", 5)
+        intent = (
+            detect_intent(user_message, config=config, proactivity=proactivity)
+            if owner_words else None
+        )
+        if intent and intent.get("has_intent"):
+            # Dedup: don't create if a similar active intent already exists;
+            # mentioning it again keeps it fresh so daily decay never pauses it.
+            from windyfly.memory.intents import find_similar_intent, touch_intent
+            existing = find_similar_intent(db, intent["description"])
+            if existing:
+                write_queue.enqueue(Priority.MEDIUM, touch_intent, db, existing["id"])
+            else:
+                write_queue.enqueue(
+                    Priority.MEDIUM,
+                    create_intent,
+                    db,
+                    intent["description"],
+                    origin=intent["origin"],
+                )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[req:%s] intent detection failed after the answer was saved (%s); carrying on",
+                       request_id_short(), type(exc).__name__)
 
     # 7. Log event for observability
     log_event(db, write_queue, "agent.respond", {

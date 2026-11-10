@@ -24,6 +24,7 @@ The goal-autorun/goal-pacing orchestrators already run their calls via
 from __future__ import annotations
 
 import asyncio
+import contextvars
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from typing import Any, Callable
@@ -46,5 +47,7 @@ async def run_turn(fn: Callable[..., Any], /, *args: Any, **kwargs: Any) -> Any:
         turn_timing.note_queued(time.monotonic() - submitted)
         return call()
 
+    # The caller's context (e.g. agent.action_key's trigger) goes with the turn, as asyncio.to_thread does.
+    ctx = contextvars.copy_context()
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(_turn_executor, _timed)
+    return await loop.run_in_executor(_turn_executor, ctx.run, _timed)

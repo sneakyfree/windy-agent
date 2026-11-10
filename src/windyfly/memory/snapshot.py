@@ -24,6 +24,7 @@ import contextlib
 import os
 import shutil
 import sqlite3
+import stat
 import tarfile
 import tempfile
 from collections.abc import Iterator
@@ -92,3 +93,39 @@ def private_tar(path: str | os.PathLike) -> Iterator[tarfile.TarFile]:
         os.fchmod(fd, 0o600)
     with os.fdopen(fd, "wb") as fh, tarfile.open(fileobj=fh, mode="w:gz") as tar:
         yield tar
+
+
+def tighten_old_exports(folder: str | os.PathLike) -> int:
+    """Make export archives written before archives were private (they came out 0644) owner-only too.
+
+    Only ``windyfly-backup-*.tar.gz`` regular files this account owns are touched, and only their mode: the file is
+    opened with O_NOFOLLOW (a symlink is skipped, never followed) and fchmod'ed, so nothing is read or rewritten.
+    Never raises; returns how many were tightened."""
+    if not hasattr(os, "fchmod"):
+        return 0
+    done = 0
+    for p in Path(folder).glob("windyfly-backup-*.tar.gz"):
+        # lstat FIRST: never open a FIFO or a device (an O_RDONLY open of a FIFO blocks until a writer comes, and
+        # /export also scans the cwd, which may be a shared folder anyone can plant one in; Hub on #686).
+        try:
+            pre = os.lstat(p)
+        except OSError:
+            continue
+        if not stat.S_ISREG(pre.st_mode) or pre.st_uid != os.getuid() or not pre.st_mode & 0o077:
+            continue
+        try:
+            fd = os.open(p, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
+        except OSError:
+            continue
+        try:
+            st = os.fstat(fd)
+            # The same file we checked (not swapped in between), still a regular file of ours.
+            if (st.st_ino, st.st_dev) == (pre.st_ino, pre.st_dev) and stat.S_ISREG(st.st_mode) \
+                    and st.st_uid == os.getuid() and st.st_mode & 0o077:
+                os.fchmod(fd, 0o600)
+                done += 1
+        except OSError:
+            pass
+        finally:
+            os.close(fd)
+    return done

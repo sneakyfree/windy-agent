@@ -107,8 +107,8 @@ def test_p1_07_main_loads_env_files_before_the_config():
     fn = next(n for n in ast.parse(inspect.getsource(main_mod)).body
               if isinstance(n, ast.FunctionDef) and n.name == "main")
     order = [n.func.id for n in ast.walk(fn)
-             if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id in ("load_dotenv", "load_config")]
-    assert order[:1] == ["load_dotenv"] and "load_config" in order
+             if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id in ("load_agent_env", "load_config")]
+    assert order[:1] == ["load_agent_env"] and "load_config" in order   # the env file (option B) before the config
 
 
 def test_p1_06_the_whole_prompt_stays_under_the_effective_limit(tmp_path):

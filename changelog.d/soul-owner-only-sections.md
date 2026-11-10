@@ -1,0 +1,1 @@
+- Soul sections can be marked `<!-- owner-only -->`: a marked heading and everything under it reach the OWNER's own turns only (the exact owner band; a trusted helper or a turn with no band never gets them). The file tools and github.fetch_file refuse to open a SOUL.md below the owner. A marker the parser can't place fails closed. A soul without markers is unchanged.

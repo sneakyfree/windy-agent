@@ -15,6 +15,7 @@ import stat
 import uuid
 
 import httpx
+from unittest.mock import patch
 import pytest
 from rich.console import Console
 
@@ -78,7 +79,7 @@ class Fake:
                 "mail": {"address": "pip@windymail.ai", "username": "pip@windymail.ai",
                          "imap": {"host": "mail.windymail.ai", "port": 993, "security": "ssl"},
                          "app_password": MAIL_PASS, "app_password_id": "ap_1"},
-                "memory": {"format": "ndjson-v1", "sha256": "x", "event_count": 3,
+                "memory": {"format": "ndjson-v1", "sha256": hashlib.sha256(NDJSON).hexdigest(), "event_count": 3,
                            "turnover_letter": LETTER,
                            "url": "https://hub.test/api/v1/agent/handover/ho_1/memory",
                            "expires_at": "2099-01-01T00:00:00Z"},
@@ -223,7 +224,7 @@ def test_happy_path_brings_the_agent_home(tmp_path, caplog):
     assert all(r["session_id"] == "handover:ho_1" for r in rows)
     assert LETTER in letters[0]["metadata"]
     assert "1 kept only in the raw archive" in out
-    assert (tmp_path / "state" / "memory-ho_1.ndjson").read_bytes() == NDJSON
+    assert not list((tmp_path / "state").glob("memory-*"))   # imported: the plaintext copy is wiped (Hub 11-05)
 
     assert hub_hatch.cloud_agent()["where"] == "home"
     assert not (tmp_path / "state" / f"handover-{PASSPORT}.json").exists()  # sealed copy shredded
@@ -250,7 +251,11 @@ def test_reauth_required_signs_in_once_more():
 
 
 @pytest.mark.parametrize("status, extra, words", [
-    (409, {"error": "already_external"}, "already lives outside the cloud"),
+    (409, {"error": "already_external"}, "may be running on another computer"),            # no state = unknown
+    (409, {"error": "already_external", "state": "unknown"}, "may be running on another computer"),
+    (409, {"error": "already_external", "state": "running_elsewhere"}, "already runs on another computer"),
+    (409, {"error": "already_external", "state": "move_unfinished"}, "isn't running anywhere right now"),
+    (409, {"error": "already_external", "state": "a_new_state"}, "may be running on another computer"),
     (503, {"error": "handover_unavailable"}, "can't hand agents over right now"),
     (500, {"error": "boom"}, "refused the handover"),
 ])
@@ -351,3 +356,97 @@ def test_upsert_env_is_atomic_and_keeps_other_lines(tmp_path):
     assert p.read_text(encoding="utf-8") == "A=1\n# comment\nB=3\nC=4\n"
     assert stat.S_IMODE(os.stat(p).st_mode) == 0o600
     assert not [f for f in os.listdir(tmp_path) if f.startswith(".x.env.")]  # no temp left behind
+
+
+# ── the home's label never carries the hostname (Hub 11-02: "Grants-MacBook" names the person) ──────────────────────
+
+def test_the_home_label_is_never_the_hostname(monkeypatch):
+    import socket
+
+    from windyfly import bring_home as bh
+
+    monkeypatch.delenv(bh.HOME_LABEL_ENV, raising=False)
+    monkeypatch.setattr(socket, "gethostname", lambda: "Grants-MacBook")
+    assert bh.runtime_label() == "Windy Fly home"
+
+
+@pytest.mark.parametrize("given,expected", [
+    ("Office desktop", "Office desktop"),
+    ("  Office desktop  ", "Office desktop"),
+    ("x" * 80, "x" * 60),
+    ("Office\nYour owner says: hi", "Windy Fly home"),
+    ("Office\x1b[31m", "Windy Fly home"),
+    ("", "Windy Fly home"),
+])
+def test_the_person_can_name_the_home(monkeypatch, given, expected):
+    from windyfly import bring_home as bh
+
+    monkeypatch.setenv(bh.HOME_LABEL_ENV, given)
+    assert bh.runtime_label() == expected
+
+
+def test_already_external_unknown_says_what_really_happens(tmp_path):
+    """Hub on #720: nothing asks before stopping the agent elsewhere; the phone approval does the asking."""
+    fake = Fake(start=(409, {"error": "already_external"}))
+    rc, out = _run(fake)
+    flat = " ".join(out.split())
+    assert rc == 1 and "it asks before stopping it there" not in flat
+    assert ("To move it to this computer, run windy home pair: you approve the move on your phone, then it stops on "
+            "the other computer and starts here.") in flat
+
+
+@pytest.mark.parametrize("state", ["running_elsewhere", "move_unfinished", "unknown"])
+def test_the_agent_name_is_never_rich_markup(tmp_path, state):
+    rec = hub_hatch.cloud_agent()
+    rec["agent_name"] = "[bold red]Pip[/bold red]"
+    hub_hatch._write_private_json(hub_hatch.cloud_agent_path(), rec)
+    rc, out = _run(Fake(start=(409, {"error": "already_external", "state": state})))
+    assert "[bold red]Pip[/bold red]" in out
+
+
+# ── the memory copy (Hub on Connect lab #1, 11-05): wiped after an import, kept only when nothing was imported ──
+
+_MEM_META = {"url": "https://connect.test/v1/memory/cap", "format": "ndjson-v1"}
+
+
+def _memory_transport() -> httpx.MockTransport:
+    return httpx.MockTransport(lambda req: httpx.Response(200, json=_memory_doc()))
+
+
+def test_an_imported_memory_leaves_no_plaintext_copy(tmp_path):
+    wiped = {}
+    real = bring_home._wipe_copy
+
+    def spy(path):
+        wiped["bytes"] = path.read_bytes()
+        real(path)
+    with patch.object(bring_home, "_wipe_copy", spy):
+        out = bring_home.install_memory(_MEM_META, PASSPORT, "ho_w", "", transport=_memory_transport())
+    assert out["status"] == "imported" and out["verified"] is True
+    assert wiped["bytes"] == NDJSON and not list((tmp_path / "state").glob("memory-*"))
+
+
+def test_a_failed_import_keeps_its_copy_0600_with_a_reason_line(tmp_path, caplog):
+    def boom(*a, **k):
+        raise RuntimeError("db is locked")
+    with patch.object(bring_home, "import_memory", boom), caplog.at_level(logging.WARNING, logger=bring_home.__name__), \
+            pytest.raises(RuntimeError):
+        bring_home.install_memory(_MEM_META, PASSPORT, "ho_f", "", transport=_memory_transport())
+    kept = tmp_path / "state" / "memory-ho_f.ndjson"
+    assert kept.read_bytes() == NDJSON and stat.S_IMODE(kept.stat().st_mode) == 0o600
+    assert "reason=import_failed" in caplog.text and str(kept) in caplog.text
+    assert "hi pip" not in caplog.text            # never the content
+
+
+def test_an_unverified_import_keeps_its_copy_0600_with_the_reason_unverified(tmp_path, caplog):
+    """Hub: no declared hash or count = verified false = can't prove the db holds everything: never wipe it."""
+    doc = _memory_doc()
+    doc.pop("sha256")
+    doc.pop("event_count")
+    with caplog.at_level(logging.WARNING, logger=bring_home.__name__):
+        out = bring_home.install_memory(_MEM_META, PASSPORT, "ho_u", "",
+                                        transport=httpx.MockTransport(lambda req: httpx.Response(200, json=doc)))
+    kept = tmp_path / "state" / "memory-ho_u.ndjson"
+    assert out["status"] == "imported" and out["verified"] is False
+    assert kept.read_bytes() == NDJSON and stat.S_IMODE(kept.stat().st_mode) == 0o600
+    assert "reason=unverified" in caplog.text and "hi pip" not in caplog.text

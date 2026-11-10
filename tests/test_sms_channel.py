@@ -27,6 +27,25 @@ class TestWindyFlySMS:
         wq.stop()
         db.close()
 
+    def test_opt_out_keywords_ignore_case_and_spaces(self):
+        # Windy Legal, LEGAL DECISION 28: the carrier-standard opt-out words, case- and space-insensitive.
+        from windyfly.channels.sms import _is_opt_out
+        for body in ("STOP", " stop ", "StopAll", "STOP ALL", "unsubscribe", "Cancel", "END", "quit", "Revoke",
+                     "OPTOUT", "opt out", "Opt  Out", "\tOPT\nOUT "):
+            assert _is_opt_out(body), body
+        for body in ("Stop.", "STOP!", "stop!!", "Opt-Out", "OPT-OUT?", "'STOP'", "STOP 🙏"):
+            assert _is_opt_out(body), body
+        for body in ("", "the end", "start", "help", "1234", "..."):
+            assert not _is_opt_out(body), body
+
+    def test_new_keyword_gets_the_unsubscribe_reply(self):
+        sms, db, wq = self._make_sms()
+        with patch("windyfly.channels.sms.agent_respond") as agent:
+            response = sms.handle_inbound("+15559999999", "opt out")
+        assert "unsubscribed" in response.lower() and not agent.called
+        wq.stop()
+        db.close()
+
     def test_rate_limit(self):
         sms, db, wq = self._make_sms()
         sms._outbound_today = 50
@@ -48,7 +67,8 @@ class TestWindyFlySMS:
 
     def test_contact_auto_saved(self):
         sms, db, wq = self._make_sms()
-        with patch("windyfly.channels.sms.agent_respond", return_value="Hi!"):
+        with patch("windyfly.channels.sms.agent_respond", return_value="Hi!"), \
+             patch.dict(os.environ, {"WINDY_SMS_ALLOW_NON_OWNER": "1"}):
             sms.handle_inbound("+15559999999", "Hello")
         import time
         time.sleep(0.3)

@@ -470,6 +470,8 @@ class UDSBridge:
             params.get("From", ""),
             params.get("Body", ""),
         )
+        if not response:
+            return {"twiml": "<Response></Response>"}  # nothing is sent (START, or a person who opted out)
         return {"twiml": f"<Response><Message>{response}</Message></Response>"}
 
     async def _handle_sms_send(self, params: dict) -> dict:
@@ -758,12 +760,11 @@ async def _serve_forever() -> None:
     import signal
     import sys
 
-    from dotenv import load_dotenv
-
     from windyfly import runtime_claim
     from windyfly.config import load_config
+    from windyfly.env_file import load_agent_env
 
-    load_dotenv()
+    load_agent_env("windyfly.toml")   # option B (env_file.py): never a bare dotenv search
 
     # Config is required — without windyfly.toml we don't know the DB
     # path, the channel config, etc. Fail loud if the caller forgot
@@ -805,7 +806,9 @@ async def _serve_forever() -> None:
         runtime_claim.start_heartbeat()
         runtime_claim.register_atexit_release()
 
-    db_path = config.get("memory", {}).get("db_path", "data/windyfly.db")
+    from windyfly.memory.db_location import resolve_db_path
+
+    db_path = resolve_db_path(config.get("memory", {}).get("db_path"))
     db = Database(db_path)
     write_queue = WriteQueue()
     write_queue.start()

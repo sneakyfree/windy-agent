@@ -6,6 +6,7 @@ windyfly, #528's budget even reset on any human message, so a "stop" bought six 
 
 from __future__ import annotations
 
+import itertools
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -42,12 +43,16 @@ def _bot():
     return bot
 
 
+_IDS = itertools.count()
+
+
 def _msg(sender, body="hi", content=None, members=3):
     room = MagicMock()
     room.room_id, room.display_name, room.joined_count = ROOM, "Virgin Islands trip", members
     room.user_name.return_value = "someone"
     ev = MagicMock()
-    ev.sender, ev.body, ev.server_timestamp, ev.event_id = sender, body, time.time() * 1000, "$e"
+    ev.sender, ev.body, ev.server_timestamp = sender, body, time.time() * 1000
+    ev.event_id = f"$e{next(_IDS)}"  # every Matrix event has its own id (the at-most-once record keys on it)
     ev.source = {"content": {"msgtype": "m.text", "body": body, **(content or {})}}
     return room, ev
 
@@ -293,7 +298,7 @@ async def test_no_form_of_slash_stop_from_the_owner_reaches_the_process_stop(mon
     from windyfly import platform as _platform
 
     stopped_process = []
-    monkeypatch.setattr(_platform, "find_systemd_unit_for_pattern", lambda *a: stopped_process.append(a) or None)
+    monkeypatch.setattr(_platform, "own_systemd_unit", lambda *a: stopped_process.append(a) or None)
     monkeypatch.setattr(_platform, "systemctl_stop", lambda *a: stopped_process.append(a) or (True, ""))
     monkeypatch.setattr(_core.os, "kill", lambda *a: stopped_process.append(a))
     bot = _bot()
@@ -312,7 +317,7 @@ def _process_control(monkeypatch, name, platform):
 
     init_all_commands(db=Database(":memory:"), config={})
     ran = []
-    monkeypatch.setattr(_platform, "find_systemd_unit_for_pattern", lambda *a: ran.append(a) or None)
+    monkeypatch.setattr(_platform, "own_systemd_unit", lambda *a: ran.append(a) or None)
     monkeypatch.setattr(_platform, "systemctl_stop", lambda *a: ran.append(a) or (True, ""))
     monkeypatch.setattr(_core.os, "kill", lambda *a: ran.append(a))
     monkeypatch.setattr(_core.os, "system", lambda *a: ran.append(a) or 0)
@@ -348,7 +353,7 @@ def test_process_control_is_refused_unless_the_platform_is_terminal_or_cli(monke
 
     init_all_commands(db=Database(":memory:"), config={})
     ran = []
-    monkeypatch.setattr(_platform, "find_systemd_unit_for_pattern", lambda *a: ran.append(a) or None)
+    monkeypatch.setattr(_platform, "own_systemd_unit", lambda *a: ran.append(a) or None)
     monkeypatch.setattr(_platform, "systemctl_stop", lambda *a: ran.append(a) or (True, ""))
     monkeypatch.setattr(_core.os, "kill", lambda *a: ran.append(a))
     monkeypatch.setattr(_core.os, "system", lambda *a: ran.append(a) or 0)

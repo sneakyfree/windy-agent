@@ -118,8 +118,13 @@ def make_call(message: str) -> dict[str, Any]:
     if resp.status_code == 200 or resp.status_code == 502:
         _arm_recent_call_guard(now)  # placed, or windy-text's "may have dialled" (502)
     if resp.status_code == 200:
-        return {"status": "calling", "call_id": body.get("call_id"), "call_status": body.get("status"),
-                "time_limit_seconds": body.get("time_limit_seconds")}
+        out = {"status": "calling", "call_id": body.get("call_id"), "call_status": body.get("status"),
+               "time_limit_seconds": body.get("time_limit_seconds")}
+        # windy-text #124: the same Idempotency-Key within its window answers the FIRST call's 200 again, marked
+        # `Idempotent-Replay: true`, and dials nothing. Say so, so the model doesn't report a second call.
+        if resp.headers.get("Idempotent-Replay", "").strip().lower() == "true":
+            out["replayed"] = True
+        return out
     code = body.get("error") or body.get("code") or body.get("detail")
     logger.info("make_call: refused %s %s", resp.status_code, code)
     return {"status": "refused", "http_status": resp.status_code, "code": code if isinstance(code, str) else None}
@@ -135,7 +140,8 @@ def register_voice_tools(registry: ToolRegistry) -> None:
             "Phones your owner, and only your owner, and speaks a short message. Returns {status: 'calling', "
             "call_id, call_status, time_limit_seconds}, {status: 'refused', http_status, code} or "
             "{status: 'unknown', error} when windy-text did not answer in time (a call may still be placed). "
-            "If the status is unknown, do not call again: tell your owner a call may have been placed."
+            "If the status is unknown, do not call again: tell your owner a call may have been placed. "
+            "replayed: true means this is the same call as before: nothing new was dialed."
         ),
         parameters={
             "type": "object",

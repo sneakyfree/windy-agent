@@ -10,6 +10,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 
 from windyfly.commands.registry import Command, registry
+from windyfly.memory.db_location import resolve_db_path
 from windyfly.platform import get_data_dir, get_pid_path, get_project_root
 
 logger = logging.getLogger(__name__)
@@ -91,12 +92,36 @@ def _register_all():
         return "Run 'windy start' from terminal to start the agent stack."
     _r("start", "Start the agent (brain + gateway)", "01_process", cmd_start)
 
+    def _pids_from_pid_file() -> list[int]:
+        """The PID file's PIDs that are STILL a Windy Fly process of this user (a stale number is never signalled)."""
+        from windyfly.platform import pid_is_ours
+        pids: list[int] = []
+        try:
+            for line in _PID_FILE.read_text(encoding="utf-8").strip().split("\n"):
+                value = line.split("=", 1)[1].strip() if "=" in line else ""
+                if value.isdigit() and pid_is_ours(int(value)):
+                    pids.append(int(value))
+        except OSError:
+            pass
+        return pids
+
+    def _no_known_pid_reply() -> str:
+        # Exact-PID rule: no systemd unit and no PID file = we don't know which process is ours, so nothing is
+        # killed by name (a name also matches other agents on this machine). Name the candidates instead.
+        from windyfly.platform import find_by_name
+        found = find_by_name(["windyfly.main", "windyfly.bridge"])
+        if not found:
+            return "Nothing to stop: no service, no PID file, and no Windy Fly process of yours is running."
+        listed = "\n".join(f"  {pid}  {args[:80]}" for pid, args in found[:10])
+        return ("I didn't stop anything: there's no service or PID file telling me which process is mine, and "
+                "stopping by name could hit another agent. Stop the one you mean by its PID (kill PID):\n" + listed)
+
     async def cmd_stop(ctx):
         # Under systemd, pkill triggers Restart=on-failure and the
         # agent revives in RestartSec=10. systemctl stop is the only
         # path that actually stays stopped.
-        from windyfly.platform import find_systemd_unit_for_pattern, systemctl_stop
-        info = find_systemd_unit_for_pattern("windyfly.main")
+        from windyfly.platform import own_systemd_unit, systemctl_stop
+        info = own_systemd_unit()
         if info is not None:
             ok, msg = systemctl_stop(info)
             scope_flag = "--user " if info.scope == "user" else ""
@@ -104,27 +129,20 @@ def _register_all():
                 return f"Stopped via `systemctl {scope_flag}stop {info.unit}`."
             # Fall through to legacy paths if systemctl failed for any reason.
             logger.warning(
-                "systemctl stop %s failed (%s) — falling back to pid/pkill",
+                "systemctl stop %s failed (%s) — falling back to the PID file (never by name)",
                 info.unit, msg,
             )
 
-        pid_file = _PID_FILE
-        if pid_file.exists():
-            try:
-                content = pid_file.read_text(encoding="utf-8")
-                for line in content.strip().split("\n"):
-                    if "=" in line:
-                        pid = int(line.split("=")[1])
-                        try:
-                            os.kill(pid, 15)
-                        except OSError:
-                            pass
-                pid_file.unlink(missing_ok=True)
-                return "Windy Fly stopped."
-            except Exception as e:
-                return f"Error stopping: {e}"
-        os.system("pkill -f 'windyfly' 2>/dev/null")
-        return "Stop signal sent. No PID file found — used fallback kill."
+        pid_file_pids = _pids_from_pid_file()
+        if pid_file_pids:
+            for pid in pid_file_pids:
+                try:
+                    os.kill(pid, 15)
+                except OSError:
+                    pass
+            _PID_FILE.unlink(missing_ok=True)
+            return f"Windy Fly stopped ({len(pid_file_pids)} process(es) from the PID file)."
+        return _no_known_pid_reply()
     _r("stop", "Stop all Windy Fly processes", "01_process", cmd_stop)
 
     async def cmd_restart(ctx):
@@ -138,8 +156,8 @@ def _register_all():
         # revives the agent. systemctl stop sends SIGTERM and
         # escalates to SIGKILL after TimeoutStopSec, *and* marks the
         # unit inactive so no restart fires.
-        from windyfly.platform import find_systemd_unit_for_pattern, systemctl_stop
-        info = find_systemd_unit_for_pattern("windyfly.main")
+        from windyfly.platform import own_systemd_unit, systemctl_stop
+        info = own_systemd_unit()
         if info is not None:
             ok, msg = systemctl_stop(info, timeout=10)
             if ok:
@@ -149,14 +167,21 @@ def _register_all():
                     f"`systemctl{' --user' if info.scope == 'user' else ''} disable {info.unit}`."
                 )
             logger.warning(
-                "systemctl stop %s failed (%s) — falling back to pkill -9",
+                "systemctl stop %s failed (%s) — falling back to the PID file (never by name)",
                 info.unit, msg,
             )
 
-        os.system("pkill -9 -f 'windyfly' 2>/dev/null")
+        pid_file_pids = _pids_from_pid_file()
+        for pid in pid_file_pids:
+            try:
+                os.kill(pid, 9)
+            except OSError:
+                pass
+        if not pid_file_pids:
+            return _no_known_pid_reply()
         _PID_FILE.unlink(missing_ok=True)
         _LOCK_FILE.unlink(missing_ok=True)
-        return "All Windy Fly processes force-killed. Lock files removed."
+        return f"Force-killed {len(pid_file_pids)} process(es) from the PID file. Lock files removed."
     _r("kill", "Force-kill everything (emergency)", "01_process", cmd_kill, dangerous=True)
 
     async def cmd_ps(ctx):
@@ -234,7 +259,7 @@ def _register_all():
         api_key = bool(os.environ.get("OPENAI_API_KEY") or os.environ.get("ANTHROPIC_API_KEY"))
         lines.append(f"  {'✓' if api_key else '✗'} LLM API key ({'set' if api_key else 'MISSING — agent cannot respond'})")
         lines.append(f"  ✓ DEFAULT_MODEL = {os.environ.get('DEFAULT_MODEL', 'not set')}")
-        db_path = os.environ.get("WINDYFLY_DB_PATH", "data/windyfly.db")
+        db_path = resolve_db_path()
         lines.append("\nDatabase:")
         if os.path.exists(db_path):
             size_mb = os.path.getsize(db_path) / 1024 / 1024
@@ -585,7 +610,7 @@ def _register_all():
             pass
 
         # ── Persistence / identity ────────────────────────────────
-        db_path = os.environ.get("WINDYFLY_DB_PATH", "data/windyfly.db")
+        db_path = resolve_db_path()
         size = (
             f"{os.path.getsize(db_path)/1024/1024:.1f}MB"
             if os.path.exists(db_path) else "no db"
@@ -633,10 +658,7 @@ def _register_all():
 
         # DB writability — actually try a write so we catch lock /
         # WAL / disk-full issues that env-var checks miss.
-        db_path = (_config or {}).get("memory", {}).get(
-            "db_path",
-            os.environ.get("WINDYFLY_DB_PATH", "data/windyfly.db"),
-        )
+        db_path = resolve_db_path((_config or {}).get("memory", {}).get("db_path"))
         if os.path.exists(db_path):
             size_mb = os.path.getsize(db_path) / 1024 / 1024
             db_line = f"DB: {db_path} ({size_mb:.2f}MB)"
@@ -949,13 +971,18 @@ def _register_all():
             wq.start()
             try:
                 from windyfly.agent.capabilities import Band
+                from windyfly.tools.bands import command_sender_band, docker_only
 
-                response = agent_respond(
-                    cfg, _db, wq,
-                    "What is 2+2? Reply with just the number.",
-                    "benchmark-session",
-                    band=Band.OWNER,          # /benchmark is an owner command
-                )
+                # OWNER only when the owner's own command started this run in this process (the in-process gate
+                # set it); anything else runs at USER. Either way the shell is Docker only (Boss 2026-11-07T19:26:03Z).
+                run_band = Band.OWNER if command_sender_band() == Band.OWNER else Band.USER
+                with docker_only():
+                    response = agent_respond(
+                        cfg, _db, wq,
+                        "What is 2+2? Reply with just the number.",
+                        "benchmark-session",
+                        band=run_band,
+                    )
             finally:
                 try:
                     wq.stop()
@@ -1143,6 +1170,22 @@ def _register_all():
 
         # ── With arg: resolve + persist ──────────────────────────
         picked = mind_catalog.resolve(arg, catalog) if catalog else None
+        if catalog and picked is None:
+            # A family word whose every model is down, or a hand-list alias (smartest, balanced, ...): the catalog row
+            # it names, so Mind's availability decides, never the hand list (Boss 11-03: never confirm a switch Mind
+            # will refuse).
+            fam = mind_catalog.resolve_any(arg, catalog)
+            alias = resolve(arg)
+            picked = fam or next((m for m in catalog if alias is not None and m["id"] == alias.id), None)
+        if picked is not None and not picked.get("available_now", True):
+            name = picked.get("display_name") or picked["id"]
+            refused = f"I can't switch to {name}: {mind_catalog.unavailable_words(picked.get('unavailable_reason'))}."
+            current = _resolve_active_model(platform, channel_id)
+            cur_row = next((m for m in catalog if m.get("id") == current), None) if catalog else None
+            if cur_row is not None and not cur_row.get("available_now", True):
+                # the current model is down too: "still answering with X" would be untrue (Hub on #706)
+                return f"{refused} Windy Mind will pick one for me."
+            return f"{refused} I'm still answering with {current}."
         if picked is not None:
             if not platform or not channel_id:
                 return (
@@ -1152,16 +1195,15 @@ def _register_all():
                 )
             from windyfly.agent.session_reset import set_model as _set_model
             _set_model(platform, channel_id, picked["id"])
-            down = "" if picked.get("available_now", True) else " It isn't available right now, so Windy Mind may answer on another model until it is."
             return (
                 f"🤖 Switched to {picked.get('display_name') or picked['id']} ({picked['id']}). "
-                f"Effective on your next message; current conversation carries over. Use /new for a clean break.{down}"
+                f"Effective on your next message; current conversation carries over. Use /new for a clean break."
             )
+        if catalog:
+            return (f"🤔 Windy Mind doesn't offer me '{arg}'. Try one of: "
+                    + ", ".join(m["id"] for m in catalog[:8]) + ".")
         target = resolve(arg)
         if target is None:
-            if catalog:
-                return (f"🤔 Windy Mind doesn't offer me '{arg}'. Try one of: "
-                        + ", ".join(m["id"] for m in catalog[:8]) + ".")
             return (
                 f"🤔 I don't know the model '{arg}'. Try one of: "
                 "opus, sonnet, haiku (or smartest, balanced, fastest)."
@@ -1769,7 +1811,7 @@ def _register_all():
                 from windyfly.memory.episodes import count_episodes
                 node_count = count_nodes(_db)
                 episode_count = count_episodes(_db)
-                db_path = os.environ.get("WINDYFLY_DB_PATH", "data/windyfly.db")
+                db_path = resolve_db_path()
                 size = os.path.getsize(db_path) / 1024 / 1024 if os.path.exists(db_path) else 0
                 return f"Memory: {node_count} nodes, {episode_count} episodes | DB: {size:.1f} MB"
             except Exception as e:
@@ -2179,7 +2221,7 @@ def _register_budget_through_help():
         # Parse: first arg is time-like, rest is message
         from windyfly.tools.reminders import set_reminder
         from windyfly.memory.database import Database
-        _db = Database(os.environ.get("WINDYFLY_DB_PATH", "data/windyfly.db"))
+        _db = Database(resolve_db_path())
         # Find the time boundary — look for common time starters
         text = " ".join(args)
         for sep in ["to ", "that "]:
@@ -2202,7 +2244,7 @@ def _register_budget_through_help():
     async def cmd_reminders(ctx):
         from windyfly.tools.reminders import list_reminders
         from windyfly.memory.database import Database
-        _db = Database(os.environ.get("WINDYFLY_DB_PATH", "data/windyfly.db"))
+        _db = Database(resolve_db_path())
         result = list_reminders(_db)
         _db.close()
         return result.get("message", "No reminders.")
@@ -2212,7 +2254,7 @@ def _register_budget_through_help():
         args = ctx.get("_args", [])
         from windyfly.tools.todos import add_todo, list_todos, complete_todo, delete_todo
         from windyfly.memory.database import Database
-        _db = Database(os.environ.get("WINDYFLY_DB_PATH", "data/windyfly.db"))
+        _db = Database(resolve_db_path())
         action = args[0] if args else "list"
         rest = " ".join(args[1:])
         if action == "add" and rest:
@@ -2502,13 +2544,11 @@ def _register_budget_through_help():
             # answer "where does my stuff live?", and a relative answer
             # that also ✗'d every line because of the cwd was the exact
             # opposite of an answer.
-            db_override = os.environ.get("WINDYFLY_DB_PATH")
             paths = [
                 ("Config", PROJECT_ROOT / "windyfly.toml"),
                 ("Environment", PROJECT_ROOT / ".env"),
                 ("Personality", PROJECT_ROOT / "SOUL.md"),
-                ("Database", Path(db_override) if db_override
-                 else PROJECT_ROOT / "data" / "windyfly.db"),
+                ("Database", Path(resolve_db_path((_config or {}).get("memory", {}).get("db_path")))),
                 ("Audio", PROJECT_ROOT / "data" / "sounds" / "its-alive.wav"),
                 ("Logs", PROJECT_ROOT / "data" / "windyfly.log"),
             ]
@@ -2582,13 +2622,10 @@ def _register_budget_through_help():
         # running agent's locks and leave out everything still in the WAL.
         import tempfile
 
-        from windyfly.memory.snapshot import copy_db, private_tar
-        db_path = Path((_config or {}).get("memory", {}).get(
-            "db_path",
-            os.environ.get("WINDYFLY_DB_PATH", "data/windyfly.db"),
-        ))
-        if not db_path.is_absolute():
-            db_path = PROJECT_ROOT / db_path
+        from windyfly.memory.snapshot import copy_db, private_tar, tighten_old_exports
+        for folder in {PROJECT_ROOT, Path.cwd()}:
+            tighten_old_exports(folder)
+        db_path = Path(resolve_db_path((_config or {}).get("memory", {}).get("db_path")))
         files_to_backup: list[tuple[Path, str]] = []
         for rel in [".env", "windyfly.toml", "SOUL.md"]:
             src = PROJECT_ROOT / rel

@@ -11,7 +11,7 @@ limits); Vault agent-routes 1.5.0 (lease.targets). Order, so nothing is leased t
      only ever asked about a call that could run (G4 a: the host is already in lease.targets). The owner's confirm
      screen (R16) comes with Hub/Mobile; until then a write simply waits and never runs;
   7. send through the pinned egress; scrub the decoded body and allow-listed headers of every form of the value;
-  8. release the lease in finally, always.
+  8. release the lease in finally, always (when Vault marks it revocable; an item lease just expires).
 Returns a dict with a contract code (no words: the tool adds them) or the CallResult / NeedsOwnerOk shape.
 """
 
@@ -213,8 +213,9 @@ def call(*, item_id: str, method: str, url: str, auth: str, header_name: str | N
         logger.info("vault.call_api: %s %s -> %d", method, target.host, resp.status_code)  # host+method+status
         return {"ok": True, "status": resp.status_code, "headers": kept, "body": cut, "truncated": cut != text}
     finally:
-        # 8. always give the key back
-        try:
-            vc.release(lease.lease_id)
-        except vc.VaultError as e:
-            logger.info("vault.call_api: release refused (%s); the lease expires on its own", e.code)
+        # 8. always give the key back, when Vault can take it back (a non-revocable lease expires on its own)
+        if lease.revocable:
+            try:
+                vc.release(lease.lease_id)
+            except vc.VaultError as e:
+                logger.info("vault.call_api: release refused (%s); the lease expires on its own", e.code)

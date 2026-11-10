@@ -7,6 +7,7 @@ the contract's own examples.
 from __future__ import annotations
 
 import copy
+import itertools
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -341,8 +342,13 @@ def _room(members=(OWNER, ME, FLIGHTS, HOTELS)):
     return room
 
 
-def _ev(sender, content, event_id="$e", notice=False):
+_EV_IDS = itertools.count()
+
+
+def _ev(sender, content, event_id=None, notice=False):
     ev = MagicMock(spec=nio.RoomMessageNotice) if notice else MagicMock()
+    # Every Matrix event has its own id (the at-most-once record keys on it).
+    event_id = event_id or f"$e{next(_EV_IDS)}"
     ev.sender, ev.body, ev.server_timestamp, ev.event_id = sender, content.get("body", ""), time.time() * 1000, event_id
     ev.source = {"content": content}
     return ev

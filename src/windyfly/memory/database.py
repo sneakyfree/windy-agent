@@ -6,6 +6,7 @@ Single source of truth — one .db file, WAL mode, zero ops.
 from __future__ import annotations
 
 import logging
+import os
 import sqlite3
 import threading
 import time
@@ -741,6 +742,21 @@ _CALLABLE_MIGRATIONS = {
 }
 
 
+def _create_owner_only(db_path: str) -> None:
+    """A NEW memory file is owner-only from its first byte: it holds the chat history (Hub on #700). SQLite takes an
+    empty file as a new database. A file that exists already keeps its mode."""
+    path = Path(db_path)
+    if db_path == ":memory:" or db_path.startswith("file:") or path.exists():
+        return
+    try:
+        os.close(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600))
+        from windyfly.state_files import restrict_to_owner
+
+        restrict_to_owner(path)
+    except FileExistsError:
+        pass
+
+
 class Database:
     """SQLite database wrapper with migrations and dict-like row access."""
 
@@ -851,6 +867,7 @@ class Database:
         # Ensure data directory exists
         path = Path(db_path)
         path.parent.mkdir(parents=True, exist_ok=True)
+        _create_owner_only(db_path)
 
         self.db_path = db_path
         self.quarantined_from = None
@@ -859,6 +876,7 @@ class Database:
         if reason is not None:
             self.conn.close()
             self.quarantined_from = self._quarantine(path, reason)
+            _create_owner_only(db_path)  # the fresh file that replaces it is owner-only too (Hub on #700)
             self.conn = self._connect(db_path)
         # Serialize all access to the shared connection. ``check_same_thread=False``
         # tells sqlite3 to allow cross-thread use, but it does NOT make the

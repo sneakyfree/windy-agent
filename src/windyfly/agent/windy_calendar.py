@@ -41,8 +41,22 @@ def _base() -> str:
     return (os.environ.get("WINDY_CALENDAR_URL") or DEFAULT_BASE).strip().rstrip("/")
 
 
-def _plain(status: int, body: dict[str, Any], *, write: bool) -> dict[str, Any]:
+# windy-contracts #275 (tools-invoke 1.5.0): the SAME idempotency key with DIFFERENT details = 422
+# idempotency_key_reused, and nothing is made. It means THIS request already made something with other details, never
+# that the slot is taken by someone else (Boss 11-04 16:12Z; Hub #9).
+_KEY_REUSED_SAY = {
+    "book_appointment": "This booking was already made with different details; ask me to change that booking instead of "
+                        "booking again.",
+    "add_event": "That event is already on the calendar with different details; ask me to change it instead.",
+}
+
+
+def _plain(status: int, body: dict[str, Any], *, write: bool, tool: str = "") -> dict[str, Any]:
     err, reason = str(body.get("error") or ""), str(body.get("reason") or "")
+    if err == "idempotency_key_reused":
+        return {"ok": False, "code": err,
+                "say": _KEY_REUSED_SAY.get(tool, "That was already done with different details; ask me to change it "
+                                                  "instead.")}
     if err == "confirm_required":
         raw = body.get("confirmation")
         conf: dict[str, Any] = raw if isinstance(raw, dict) else {}
@@ -53,6 +67,8 @@ def _plain(status: int, body: dict[str, Any], *, write: bool) -> dict[str, Any]:
             say = "My owner has blocked me from their calendar."
         elif reason == "no_calendar":
             say = "There isn't a Windy Calendar set up for my owner yet."
+        elif reason == "own_agent_only":  # windy-calendar #96/#109: only the calendar's own agent may do this
+            say = "Windy Calendar only lets its owner's own agent do that, so I didn't."
         elif write:
             say = "I'm not trusted enough yet to change my owner's calendar."
         else:
@@ -112,4 +128,4 @@ def invoke(name: str, arguments: dict[str, Any] | None = None, *, write: bool = 
     if resp.status_code == 200 and body.get("ok") is True:
         return {"ok": True, "result": body.get("result")}
     logger.info("windy calendar: %s refused: %s %s", name, body.get("error"), body.get("reason"))
-    return _plain(resp.status_code, body, write=write)
+    return _plain(resp.status_code, body, write=write, tool=name)

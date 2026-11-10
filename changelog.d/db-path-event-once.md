@@ -1,0 +1,1 @@
+- `agent.db_path_ambiguous` is sent once per process for an ambiguous pair, on the same once-key as its warning line, instead of on every database open (Hub's note on #715).

@@ -1,0 +1,1 @@
+- **Bringing an agent home no longer sends your computer's name.** `windy bring-home` used to send the machine's hostname as the home's label, which on a laptop is often the owner's own name. It now sends "Windy Fly home", unless you name the home yourself with `WINDY_HOME_LABEL`. The label is stored by Windy Accounts and isn't shown anywhere.

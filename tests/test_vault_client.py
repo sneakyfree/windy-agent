@@ -42,10 +42,10 @@ def vault(monkeypatch):
     return sent, answers, forgot
 
 
-def _lease_body(kid=None):
+def _lease_body(kid=None, revocable=False):
     return {"lease_id": "lse_l6kpl4pyah7use6z", "item_id": "itm_x", "mode": "static_key",
             "value_jwe": VECTOR["expect_compact"], "kid": kid or VECTOR["kid"], "issued_at": 1800000000,
-            "expires_at": 1800000900, "revocable": False}
+            "expires_at": 1800000900, "revocable": revocable}
 
 
 def test_off_by_default_and_without_a_url(monkeypatch):
@@ -98,8 +98,12 @@ def test_a_lease_carries_its_targets_normalized_and_drops_anything_malformed(vau
     assert vc.lease("itm_x").targets == expected
 
 
-def test_a_lease_to_a_key_we_no_longer_hold_reregisters_once(vault, monkeypatch):
+@pytest.mark.parametrize("revocable", [True, False])
+def test_a_lease_to_a_key_we_no_longer_hold_reregisters_once(vault, monkeypatch, revocable):
+    """A revocable lease is given back before asking again; one Vault can't take back (an item lease) just expires."""
     sent, answers, _ = vault
+    body = _lease_body(revocable=revocable)
+    released = [(200, {"released": True})] if revocable else []
     held = {"have": False}
     monkeypatch.setattr(vc.lease_key, "private_for",
                         lambda kid: _recipient() if held["have"] and kid == VECTOR["kid"] else None)
@@ -111,18 +115,20 @@ def test_a_lease_to_a_key_we_no_longer_hold_reregisters_once(vault, monkeypatch)
         return VECTOR["kid"]
 
     monkeypatch.setattr(vc.lease_key, "register", register)
-    answers.extend([(200, _lease_body()), (200, {"released": True}), (200, _lease_body())])
-    assert vc.lease("itm_x").value == VECTOR["plaintext_utf8"] and regs == [1]
-    assert [r["url"].rsplit("/v1/agent/", 1)[1] for r in sent] == ["lease", "lease/lse_l6kpl4pyah7use6z/release", "lease"]
+    answers.extend([(200, body), *released, (200, body)])
+    got = vc.lease("itm_x")
+    assert got.value == VECTOR["plaintext_utf8"] and regs == [1] and got.revocable is revocable
+    assert [r["url"].rsplit("/v1/agent/", 1)[1] for r in sent] == (
+        ["lease", "lease/lse_l6kpl4pyah7use6z/release", "lease"] if revocable else ["lease", "lease"])
 
     held["have"] = False
     monkeypatch.setattr(vc.lease_key, "register", lambda put: VECTOR["kid"])  # still not held: give up
     sent.clear()
-    answers.extend([(200, _lease_body()), (200, {"released": True}), (200, _lease_body()), (200, {"released": True})])
+    answers.extend([(200, body), *released, (200, body), *released])
     with pytest.raises(vc.VaultError) as e:
         vc.lease("itm_x")
     assert e.value.code == "unknown_lease_key"
-    assert sum(r["url"].endswith("/release") for r in sent) == 2  # both undecryptable leases given back
+    assert sum(r["url"].endswith("/release") for r in sent) == (2 if revocable else 0)  # given back only if it can be
 
 
 def test_a_refused_token_is_reminted_once(vault):

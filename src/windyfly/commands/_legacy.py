@@ -35,6 +35,7 @@ from windyfly.platform import (
     get_project_root,
     process_alive,
     read_pid_file,
+    pid_is_ours,
     remove_pid_file,
     force_kill,
 )
@@ -98,8 +99,10 @@ def _format_uptime(started_iso: str) -> str:
 
 
 def _get_db_path() -> Path:
-    """Return path to the windyfly database."""
-    return PROJECT_ROOT / "data" / "windyfly.db"
+    """Return path to the windyfly database (the one rule: memory/db_location.py)."""
+    from windyfly.memory.db_location import resolve_db_path
+
+    return Path(resolve_db_path())
 
 
 def _open_db():
@@ -840,7 +843,7 @@ def cmd_version(_args: argparse.Namespace) -> None:
 
 def cmd_kill(_args: argparse.Namespace) -> None:
     """Force-kill all Windy Fly processes."""
-    from windyfly.platform import kill_by_name
+    from windyfly.platform import find_by_name
 
     project_root = PROJECT_ROOT
     info = read_pid_file(project_root)
@@ -849,12 +852,12 @@ def cmd_kill(_args: argparse.Namespace) -> None:
     # Kill known PIDs first
     if info:
         for pid in [info.brain, info.gateway]:
-            if pid and process_alive(pid):
+            if pid and process_alive(pid) and pid_is_ours(pid):
                 force_kill(pid)
                 killed += 1
 
-    # Fallback: kill by name pattern
-    kill_by_name(["windyfly", "windy.fly", "windyfly.bridge", "windyfly.main"])
+    # No killing by name (exact-PID rule): name what else looks like ours instead.
+    others = find_by_name(["windyfly.main", "windyfly.bridge"])
 
     # Clean up files
     remove_pid_file(project_root)
@@ -864,7 +867,11 @@ def cmd_kill(_args: argparse.Namespace) -> None:
     if ipc.mode == "uds" and os.path.exists(ipc.socket_path):
         os.unlink(ipc.socket_path)
 
-    console.print("[bold green]All Windy Fly processes force-killed.[/bold green]")
+    console.print(f"[bold green]Force-killed {killed} process(es) from the PID file.[/bold green]")
+    if others:
+        console.print("[yellow]Not killed (no PID file entry; stop the one you mean by its PID):[/yellow]")
+        for pid, args in others[:10]:
+            console.print(f"  {pid}  {args[:100]}")
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -2138,7 +2145,8 @@ def cmd_export(_args: argparse.Namespace) -> None:
     # of a live WAL database leaves out everything not yet checkpointed.
     import tempfile
 
-    from windyfly.memory.snapshot import copy_db, private_tar
+    from windyfly.memory.snapshot import copy_db, private_tar, tighten_old_exports
+    tighten_old_exports(PROJECT_ROOT)
     snap_dir = tempfile.TemporaryDirectory(prefix="windyfly-export-")
     db_path = _get_db_path()
     if db_path.exists():

@@ -85,6 +85,18 @@ def _already_welcomed(db: "Database") -> bool:
         return False
 
 
+def _brought_home() -> bool:
+    """An agent brought home (a handover) already met its owner: its hatch greeting and turnover letter came before.
+    Read from bring-home's own record, not the memory database, so a database in another folder can't make it a
+    stranger again (Boss 11-03, the #696 lab C)."""
+    try:
+        from windyfly.hub_hatch import cloud_agent
+
+        return cloud_agent().get("where") == "home"
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def is_first_contact(db: "Database") -> bool:
     """True iff the bot has zero prior memory of any kind.
 
@@ -97,7 +109,7 @@ def is_first_contact(db: "Database") -> bool:
     welcome-loop forever — better to fall through to the LLM and
     surface the real problem.
     """
-    if _already_welcomed(db):
+    if _already_welcomed(db) or _brought_home():
         return False
     try:
         ep_row = db.fetchone("SELECT COUNT(*) AS c FROM episodes")
@@ -134,7 +146,7 @@ _WELCOME_BODY = (
 
 # Legacy constant — the unnamed/brand-name rendering. Kept because
 # callers and tests reference it as the canonical shape.
-WELCOME_TEXT = f"🪰 *Hi! I'm Windy Fly — your personal AI companion.*\n\n{_WELCOME_BODY}"
+WELCOME_TEXT = f"🪰 *Hi! I'm your Windy Fly agent, a personal AI companion.*\n\n{_WELCOME_BODY}"
 
 
 def format_welcome(config: dict | None = None) -> str:
@@ -142,8 +154,8 @@ def format_welcome(config: dict | None = None) -> str:
 
     The name comes from config ``[agent] name`` — set at the Naming
     Ceremony (quickstart Stage 2 / the web hatch). Falls back to the
-    brand name for unnamed/legacy configs, which renders the exact
-    historical WELCOME_TEXT. Function form (not constant) so future
+    brand name for unnamed/legacy configs, which renders WELCOME_TEXT
+    ("your Windy Fly agent" since #749). Function form (not constant) so future
     per-language / per-band variants can be added without breaking
     callers."""
     name = ""

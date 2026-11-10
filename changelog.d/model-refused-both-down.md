@@ -1,0 +1,1 @@
+- `/model` no longer says "I'm still answering with X" when X is unavailable too; it says "Windy Mind will pick one for me." instead (Hub's note on #706).

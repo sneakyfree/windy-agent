@@ -382,3 +382,42 @@ class TestBudgetNotices:
             direct_get.assert_not_called()
             assert result["budget_exhausted"] is True
             assert "notice_to_user" in result
+
+
+class TestAPairedComputerWithOnlyItsKey:
+    """A `windy home pair` computer (#700) has its registered key and no stored passport token. Until Fly speaks
+    Windy Search's mode B (~11-11), web_search and fetch_url say plainly it isn't available there yet: no setup
+    error, no "windy ept refresh", no network call (Boss 11-04)."""
+
+    @pytest.fixture
+    def key_only(self, monkeypatch):
+        import windyfly.tools.web_search as ws
+
+        monkeypatch.delenv("WINDY_PASSPORT_EPT", raising=False)
+        monkeypatch.setattr("windyfly.eternitas.agent_keys.has_registered_key", lambda: True)
+        net = MagicMock(side_effect=AssertionError("no network call"))
+        monkeypatch.setattr(ws, "search_via_windy_search", net)
+        monkeypatch.setattr(ws, "fetch_via_windy_search", net)
+        monkeypatch.setattr(ws, "_direct_fetch_url", net)
+        return net
+
+    @pytest.mark.parametrize("call", [lambda: web_search("anything"), lambda: fetch_url("https://example.com")])
+    def test_it_says_plainly_it_is_not_available_here_yet(self, key_only, call):
+        out = call()
+        assert out["ok"] is False and out["code"] == "web_search_not_on_this_computer_yet"
+        assert out["say"] == "I can't search the web from this computer yet. I can answer from what I already know."
+        assert "ept refresh" not in str(out) and "ETERNITAS_PASSPORT_TOKEN" not in str(out)
+        assert key_only.call_count == 0
+
+    def test_a_stored_passport_token_still_wins(self, key_only, monkeypatch):
+        import windyfly.tools.web_search as ws
+
+        monkeypatch.setenv("WINDY_PASSPORT_EPT", "ey...test...")
+        monkeypatch.setattr(ws, "search_via_windy_search", lambda q, n: {"query": q, "results": []})
+        assert web_search("anything") == {"query": "anything", "results": []}
+
+    def test_no_key_and_no_token_is_still_the_setup_error(self, monkeypatch):
+        monkeypatch.delenv("WINDY_PASSPORT_EPT", raising=False)
+        monkeypatch.setattr("windyfly.eternitas.agent_keys.has_registered_key", lambda: False)
+        with pytest.raises(RuntimeError, match="WEB_SEARCH_UNAVAILABLE"):
+            web_search("anything")

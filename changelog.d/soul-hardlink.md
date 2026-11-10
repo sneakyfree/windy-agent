@@ -1,0 +1,1 @@
+- Soul: a HARD link to the loaded soul file is refused below owner too (matched by file id, not only by path).

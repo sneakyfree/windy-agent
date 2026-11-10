@@ -24,7 +24,7 @@ Schema (other top-level keys in the file are preserved)::
     {"eternitas": {
         "private_key": "<PEM of the ACTIVE key>",   # the Drops SDK reads this
         "kid": "<RFC 7638 thumbprint of the active key>",
-        "keys": [{"kid", "private_key", "status": "active|retiring",
+        "keys": [{"kid", "private_key", "status": "active|retiring|pending",
                   "created_at", "registered_at"}]}}
 
 At most two keys live in the file: the active one and, during a rotation, the
@@ -37,6 +37,7 @@ result dict with a ``status``.
 from __future__ import annotations
 
 import base64
+import calendar
 import hashlib
 import json
 import logging
@@ -47,7 +48,7 @@ import threading
 import time
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import httpx
 from cryptography.hazmat.primitives import hashes, serialization
@@ -225,8 +226,10 @@ def load_credentials(path: Path | None = None) -> dict[str, Any]:
 def save_credentials(data: dict[str, Any], path: Path | None = None) -> None:
     """Atomic 0600 write; the previous file (if any) is kept as a timestamped
     0600 backup next to it. Private keys never leave this directory."""
+    from windyfly.state_files import ensure_private_dir, restrict_to_owner
+
     path = path or credentials_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
+    ensure_private_dir(path.parent)
     if path.exists():
         stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
         backup = path.with_name(f"{path.name}.bak-{stamp}")
@@ -235,15 +238,16 @@ def save_credentials(data: dict[str, Any], path: Path | None = None) -> None:
             backup = path.with_name(f"{path.name}.bak-{stamp}-{n}")
             n += 1
         shutil.copy2(path, backup)
-        os.chmod(backup, 0o600)
+        restrict_to_owner(backup)
     fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
     try:
-        os.fchmod(fd, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        os.close(fd)
+        restrict_to_owner(Path(tmp))  # before a key is in it (os.fchmod does not exist on Windows)
+        with open(tmp, "w", encoding="utf-8") as fh:
             json.dump(data, fh, indent=2)
             fh.write("\n")
         os.replace(tmp, path)
-        os.chmod(path, 0o600)
+        restrict_to_owner(path)
     except Exception:
         try:
             os.unlink(tmp)
@@ -370,8 +374,10 @@ def _is_route_missing(resp: httpx.Response) -> bool:
 
 
 def _post(client: httpx.Client, path: str, bearer: str | None,
-          body: dict[str, Any] | None = None) -> httpx.Response:
+          body: dict[str, Any] | None = None, *, proof: str | None = None) -> httpx.Response:
     headers = {"Authorization": f"Bearer {bearer}"} if bearer else {}
+    if proof:
+        headers["Eternitas-Agent-Proof"] = proof
     resp = client.post(f"{_base_url()}{path}", json=body or {}, headers=headers)
     if _is_route_missing(resp):
         raise _Unsupported(path)
@@ -408,7 +414,10 @@ def challenge(client: httpx.Client, passport: str) -> str:
 
 
 def _register(client: httpx.Client, passport: str, key: ec.EllipticCurvePrivateKey, bearer: str,
-              *, reason: str | None = None) -> httpx.Response:
+              *, reason: str | None = None, signer: dict[str, Any] | None = None) -> httpx.Response:
+    """Register ``key``. With ``signer`` (key-ops v1, eternitas #302) the OLD active key authorises it with an
+    ``Eternitas-Agent-Proof`` header and no bearer is sent; the body proof is the NEW key's own, over a SECOND
+    challenge (each nonce is single use)."""
     try:
         nonce = challenge(client, passport)
     except _ChallengeFailed as exc:
@@ -420,7 +429,15 @@ def _register(client: httpx.Client, passport: str, key: ec.EllipticCurvePrivateK
     }
     if reason:
         body["reason"] = reason  # owner path only: "recovery" | "handover"
-    resp = _post(client, f"/api/v1/bots/{passport}/keys", bearer, body)
+    path = f"/api/v1/bots/{passport}/keys"
+    if signer is not None:
+        try:
+            header_proof = _proof_by(client, passport, signer, "POST", path)
+        except _ChallengeFailed as exc:
+            return exc.resp
+        resp = _post(client, path, None, body, proof=header_proof)
+    else:
+        resp = _post(client, path, bearer, body)
     if resp.status_code in (200, 201):
         got = str(resp.json().get("kid") or "")
         if got != thumbprint(public_jwk(key)):
@@ -439,12 +456,24 @@ def agent_proof(client: httpx.Client, passport: str, htm: str, path: str,
     entry = active_entry(load_credentials(cred_path or credentials_path()))
     if entry is None or not entry.get("registered_at"):
         return None
+    return _proof_by(client, passport, entry, htm, path)
+
+
+def _proof_by(client: httpx.Client, passport: str, entry: dict[str, Any], htm: str, path: str) -> str:
+    """An ``Eternitas-Agent-Proof`` signed by THIS key entry (header kid = its kid), over a fresh nonce. ``htu`` is
+    the route PATH (Eternitas compares the path only, key-ops v1)."""
     key = load_private_key(entry["private_key"])
     nonce = challenge(client, passport)
     header = {"alg": ALG, "typ": "JWT", "kid": entry["kid"]}
     claims = {"passport": passport, "nonce": nonce, "iat": int(time.time()),
               "htm": htm.upper(), "htu": path}
     return _compact(key, header, json.dumps(claims, separators=(",", ":")).encode("utf-8"))
+
+
+def key_ops_enabled() -> bool:
+    """Key-ops v1 (eternitas #302, live Mon 11-09): the agent rotates with its OWN active key, no passport token.
+    DARK until its own GO: ``WINDY_AGENT_KEY_OPS=1``."""
+    return os.environ.get("WINDY_AGENT_KEY_OPS", "").strip() == "1"
 
 
 def has_registered_key(path: Path | None = None) -> bool:
@@ -490,12 +519,152 @@ def ensure_registered(*, transport: httpx.BaseTransport | None = None,
     """
     try:
         with _LOCK:
-            return _ensure(transport, path or credentials_path())
+            out = _ensure(transport, path or credentials_path())
+            prune_key_backups(transport=transport, path=path or credentials_path())
+            prune_env_backups()
+            return out
     except _Unsupported:
         return _note_unsupported()
     except Exception as exc:
         logger.warning("agent keys: unexpected %s", type(exc).__name__)
         return {"status": "failed", "error": type(exc).__name__}
+
+
+# ── old credentials backups (Hub on #714; rule OK'd by Hub 11-04 ~22:0xZ) ──────────────────────────────────
+#
+# save_credentials keeps a 0600 credentials.json.bak-<utc> on every save, so a retired private key lives on in old
+# backups for ever. Delete one ONLY when it is older than _BAK_KEEP_DAYS (by the stamp in its name) AND every kid in it
+# is in the current file or listed as RETIRED or REVOKED on the passport's live public key list. Any other status
+# (active, a status Eternitas may add later such as pending) or a kid the list doesn't show keeps the backup: it fails
+# safe (Hub on #725). An unreadable list deletes nothing that needs it; the newest backup is always kept; an
+# unparseable one is kept and counted. Deleting = overwrite with zeros + fsync, then unlink: best effort on
+# copy-on-write filesystems and SSDs, defence in depth, NOT a secure erase. Logs carry counts only, never a kid. (The env-file copies .bak-ept-/.bak-deregister-
+# have their own names and are not touched here.)
+_BAK_KEEP_DAYS = 30
+_GONE_STATUSES = ("retired", "revoked")
+
+
+def _bak_stamp(p: Path, base: str, kind: str = "") -> float | None:
+    rest = p.name[len(f"{base}.bak-{kind}"):]
+    try:
+        return calendar.timegm(time.strptime(rest[:16], "%Y%m%dT%H%M%SZ"))
+    except ValueError:
+        return None
+
+
+def _kids_in(data: dict[str, Any]) -> set[str] | None:
+    sec = data.get("eternitas")
+    if not isinstance(sec, dict):
+        return None
+    kids = {str(e.get("kid")) for e in sec.get("keys") or [] if isinstance(e, dict) and e.get("kid")}
+    if sec.get("kid"):
+        kids.add(str(sec["kid"]))
+    return kids
+
+
+def _wipe(p: Path) -> None:
+    size = p.stat().st_size
+    with open(p, "r+b") as fh:
+        fh.write(b"\0" * size)
+        fh.flush()
+        os.fsync(fh.fileno())
+    p.unlink()
+
+
+def prune_key_backups(*, transport: httpx.BaseTransport | None = None, path: Path | None = None,
+                      now: float | None = None) -> dict[str, int]:
+    """Delete old credentials backups whose keys are all current or retired/revoked (rule above). Never raises."""
+    counts = {"deleted": 0, "kept_recent": 0, "kept_active_key": 0, "kept_unreadable": 0, "kept_list_unknown": 0}
+    try:
+        path = path or credentials_path()
+        now = time.time() if now is None else now
+        dated = [(st, b) for b in path.parent.glob(f"{path.name}.bak-*")
+                 if (st := _bak_stamp(b, path.name)) is not None]
+        dated.sort()
+        if dated:
+            dated.pop()  # the newest is always kept
+            counts["kept_recent"] += 1
+        current = _kids_in(load_credentials(path)) or set()
+        old: list[tuple[Path, set[str]]] = []
+        for stamp, b in dated:
+            if now - stamp < _BAK_KEEP_DAYS * 86400:
+                counts["kept_recent"] += 1
+                continue
+            try:
+                kids = _kids_in(json.loads(b.read_text(encoding="utf-8")))
+            except (OSError, ValueError):
+                kids = None
+            if kids is None:
+                counts["kept_unreadable"] += 1
+                continue
+            old.append((b, kids - current))
+        gone: set[str] | None = set()  # kids the live list shows retired or revoked; only these may be wiped
+        if any(rest for _, rest in old):
+            gone = None
+            passport = current_passport()
+            if passport:
+                try:
+                    with httpx.Client(timeout=_HTTP_TIMEOUT, transport=transport) as client:
+                        listed = client.get(f"{_base_url()}/api/v1/bots/{passport}/keys")
+                    if listed.status_code == 200:
+                        gone = {str(k.get("kid")) for k in listed.json().get("keys", [])
+                                if k.get("status") in _GONE_STATUSES}
+                except Exception:  # noqa: BLE001
+                    gone = None
+        for b, rest in old:
+            if rest and gone is None:
+                counts["kept_list_unknown"] += 1
+            elif rest - (gone or set()):
+                counts["kept_active_key"] += 1
+            else:
+                _wipe(b)
+                counts["deleted"] += 1
+        if counts["deleted"] or counts["kept_unreadable"] or counts["kept_list_unknown"]:
+            logger.info("agent keys: old credentials backups: deleted %d, kept %d recent, %d with a key not "
+                        "retired/revoked, %d unreadable, %d (key list unreadable)", counts["deleted"], counts["kept_recent"],
+                        counts["kept_active_key"], counts["kept_unreadable"], counts["kept_list_unknown"])
+    except Exception as exc:  # noqa: BLE001  (never break ensure_registered)
+        logger.warning("agent keys: backup prune skipped (%s)", type(exc).__name__)
+    return counts
+
+
+def prune_env_backups(env_path: Path | None = None, *, now: float | None = None) -> dict[str, int]:
+    """The env-file copies ept_refresh (.bak-ept-) and deregister (.bak-deregister-) make hold that file's secrets
+    (an old EPT, API keys). Each is made owner-only (0600); per kind the newest is always kept, and one older than
+    _BAK_KEEP_DAYS is wiped (zeros + fsync) and removed (Hub 11-04). Counts only in logs. Never raises."""
+    counts = {"deleted": 0, "kept": 0}
+    try:
+        from windyfly.eternitas.ept_refresh import resolve_env_file
+        from windyfly.state_files import restrict_to_owner
+
+        env_path = env_path or resolve_env_file()
+        if env_path is None:
+            return counts
+        now = time.time() if now is None else now
+        for kind in ("ept-", "deregister-"):
+            dated = []
+            for b in env_path.parent.glob(f"{env_path.name}.bak-{kind}*"):
+                restrict_to_owner(b)
+                st = _bak_stamp(b, env_path.name, kind)
+                if st is None:
+                    counts["kept"] += 1
+                else:
+                    dated.append((st, b))
+            dated.sort()
+            if dated:
+                dated.pop()  # the newest of each kind is always kept
+                counts["kept"] += 1
+            for st, b in dated:
+                if now - st < _BAK_KEEP_DAYS * 86400:
+                    counts["kept"] += 1
+                else:
+                    _wipe(b)
+                    counts["deleted"] += 1
+        if counts["deleted"]:
+            logger.info("agent keys: old env-file backups: deleted %d, kept %d", counts["deleted"], counts["kept"])
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("agent keys: env-file backup prune skipped (%s)", type(exc).__name__)
+    return counts
 
 
 def _bearer(passport: str) -> tuple[str, str]:
@@ -504,6 +673,134 @@ def _bearer(passport: str) -> tuple[str, str]:
     so there is no silent owner fallback; that's what ``reset`` is for."""
     own = _own_ept(passport)
     return (own, "own_ept") if own else ("", "")
+
+
+def local_kid(*, path: Path | None = None) -> str:
+    """This computer's active key id, generating (and saving, unregistered) a key if there is none."""
+    return begin_local_key(path=path)[0]
+
+
+def begin_local_key(*, path: Path | None = None) -> tuple[str, Callable[[], None]]:
+    """This computer's active key id for a pairing round, plus an UNDO that removes exactly what this call made.
+
+    Pairing sends the kid BEFORE a passport exists here (Windy Connect binds the code to it). A round that ends
+    without the key registered tells the person "Nothing was changed" (Boss 11-03), so the undo puts the credentials
+    file back as it was: removed if this call created it, else its exact previous bytes, and the backup this call
+    wrote is deleted (it would hold nothing new, but it is still something left behind). A key that existed before,
+    or one that got registered meanwhile, is never touched. The private key never leaves this machine."""
+    path = path or credentials_path()
+    with _LOCK:
+        data = load_credentials(path)
+        entry = active_entry(data)
+        if entry is not None:
+            return str(entry["kid"]), lambda: None
+        dir_existed = path.parent.exists()
+        before = path.read_bytes() if path.exists() else None
+        old_backups = set(path.parent.glob(f"{path.name}.bak-*")) if dir_existed else set()
+        sec = _section(data)
+        entry = _new_entry(generate_private_key())
+        sec["keys"] = [e for e in sec["keys"] if e.get("status") == "retiring"] + [entry]
+        _set_active(sec, entry)
+        save_credentials(data, path)
+        logger.info("agent keys: generated a new signing key %s…", entry["kid"][:8])
+        kid = str(entry["kid"])
+
+    def undo() -> None:
+        with _LOCK:
+            now_entry = active_entry(load_credentials(path))
+            if now_entry is None or now_entry.get("kid") != kid or now_entry.get("registered_at"):
+                return
+            try:
+                if before is None:
+                    path.unlink(missing_ok=True)
+                else:
+                    from windyfly.state_files import restrict_to_owner
+
+                    fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
+                    restrict_to_owner(Path(tmp))  # owner-only before the old contents go in (#697)
+                    with os.fdopen(fd, "wb") as fh:
+                        fh.write(before)
+                    os.replace(tmp, path)
+                for extra in set(path.parent.glob(f"{path.name}.bak-*")) - old_backups:
+                    extra.unlink(missing_ok=True)
+                if not dir_existed:
+                    path.parent.rmdir()  # only when empty; a non-empty folder raises and stays
+            except OSError as exc:
+                logger.warning("agent keys: could not undo the new key (%s)", type(exc).__name__)
+            else:
+                logger.info("agent keys: removed the unregistered key %s… this round made", kid[:8])
+
+    return kid, undo
+
+
+def register_with_bootstrap(passport: str, bootstrap_token: str, *, transport: httpx.BaseTransport | None = None,
+                            path: Path | None = None) -> dict[str, Any]:
+    """Register this computer's active key for ``passport`` with the one-time bootstrap token a home pairing
+    delivered (Windy Connect #105, Hub's desktop door): the owner's token never reaches the computer. The token is
+    only ever sent as the Bearer of this one request, never logged or stored. Never raises.
+
+    A key already registered counts only for the SAME passport (the entry records it; an older entry falls back to
+    this agent's passport): a key that belongs to another agent is never handed to a new one (Hub on #700). A 409
+    key_exists (Eternitas kept an earlier registration whose answer was lost) is settled by reading the passport's
+    keys: our kid active there = registered.
+
+    ``status``: registered | already_registered | failed (with http/code)."""
+    path = path or credentials_path()
+    try:
+        with _LOCK:
+            data = load_credentials(path)
+            entry = active_entry(data)
+            if entry is None:
+                return {"status": "failed", "code": "no_local_key"}
+            if entry.get("registered_at"):
+                if (entry.get("passport") or current_passport()) == passport:
+                    return {"status": "already_registered", "kid": entry["kid"]}
+                return {"status": "failed", "code": "key_belongs_to_other_agent"}
+            with httpx.Client(timeout=_HTTP_TIMEOUT, transport=transport) as client:
+                resp = _register(client, passport, load_private_key(entry["private_key"]), bootstrap_token)
+                if resp.status_code == 409 and error_code(resp)[0] == "key_exists" and \
+                        _kid_active_for(client, passport, str(entry["kid"])):
+                    resp = httpx.Response(201, json={"kid": entry["kid"]})
+                    logger.info("agent keys: %s… was already registered for %s (the earlier answer was lost)",
+                                entry["kid"][:8], passport[:9])
+            if resp.status_code not in (200, 201):
+                return _http_fail("key registration (bootstrap)", resp)
+            entry["registered_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            entry["passport"] = passport
+            save_credentials(data, path)
+            logger.info("agent keys: registered %s… for %s (via bootstrap)", entry["kid"][:8], passport[:9])
+            return {"status": "registered", "kid": entry["kid"]}
+    except (httpx.ConnectError, httpx.ConnectTimeout) as exc:  # never reached Eternitas: nothing was registered
+        logger.warning("agent keys: bootstrap registration could not connect (%s)", type(exc).__name__)
+        return {"status": "failed", "code": type(exc).__name__}
+    except httpx.TransportError as exc:
+        # The request may have arrived and the answer got lost: Eternitas may hold this key now. "unknown" keeps the
+        # key, so the next round's 409 key_exists settles it (Hub on #700).
+        logger.warning("agent keys: bootstrap registration outcome unknown (%s)", type(exc).__name__)
+        return {"status": "unknown", "code": type(exc).__name__}
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("agent keys: bootstrap registration hit %s", type(exc).__name__)
+        return {"status": "failed", "code": type(exc).__name__}
+
+
+def _kid_active_for(client: httpx.Client, passport: str, kid: str) -> bool:
+    try:
+        listed = client.get(f"{_base_url()}/api/v1/bots/{passport}/keys")
+        return listed.status_code == 200 and any(
+            k.get("kid") == kid and k.get("status") in ("active", None) for k in listed.json().get("keys", []))
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _kid_still_active(client: httpx.Client, passport: str, kid: str) -> bool | None:
+    """True/False from the passport's public key list; None when the list can't be read (then nothing is decided)."""
+    try:
+        listed = client.get(f"{_base_url()}/api/v1/bots/{passport}/keys")
+        if listed.status_code != 200:
+            return None
+        return any(k.get("kid") == kid and k.get("status") in ("active", None) for k in listed.json().get("keys", []))
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def _ensure(transport, path: Path) -> dict[str, Any]:
@@ -525,6 +822,11 @@ def _ensure(transport, path: Path) -> dict[str, Any]:
         return {"status": "already_registered", "kid": entry["kid"]}
 
     bearer, via = _bearer(passport)
+    if key_ops_enabled() and entry.get("registered_at"):
+        # Only a pending retire is left: each retiring key retires ITSELF with its own proof (no token needed).
+        with httpx.Client(timeout=_HTTP_TIMEOUT, transport=transport) as client:
+            _retire_pending(client, passport, "", data, path, self_proof=True)
+        return {"status": "registered", "kid": entry["kid"], "via": "agent_key", "registered_via": None}
     if not bearer:
         logger.warning("agent keys: can't register (the passport token is missing or expired); "
                        "run `windy login` then `windy ept refresh`, or `windy agent-key reset`")
@@ -538,6 +840,7 @@ def _ensure(transport, path: Path) -> dict[str, Any]:
                 return _http_fail("key registration", resp)
             registered_via = resp.json().get("registered_via")
             entry["registered_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            entry["passport"] = passport  # whose key this is (Hub on #700)
             save_credentials(data, path)
             logger.info("agent keys: registered %s… for %s (via %s)", entry["kid"][:8], passport[:9], via)
         _retire_pending(client, passport, bearer, data, path)
@@ -545,11 +848,28 @@ def _ensure(transport, path: Path) -> dict[str, Any]:
 
 
 def _retire_pending(client: httpx.Client, passport: str, bearer: str,
-                    data: dict[str, Any], path: Path) -> None:
+                    data: dict[str, Any], path: Path, *, self_proof: bool = False) -> None:
+    """Retire every ``retiring`` key. ``self_proof`` (key-ops v1): the key signs its OWN retire (a key may only
+    remove itself on the agent-key path; 403 not_this_key otherwise), so no bearer is sent."""
     sec = _section(data)
     for e in [e for e in sec["keys"] if e.get("status") == "retiring"]:
-        resp = _post(client, f"/api/v1/bots/{passport}/keys/{e['kid']}/retire", bearer)
-        if resp.status_code in (200, 204, 404, 409):  # 404/409: already gone/retired
+        route = f"/api/v1/bots/{passport}/keys/{e['kid']}/retire"
+        if self_proof:
+            try:
+                resp = _post(client, route, None, proof=_proof_by(client, passport, e, "POST", route))
+            except _ChallengeFailed as exc:
+                resp = exc.resp
+        else:
+            resp = _post(client, route, bearer)
+        done = resp.status_code in (200, 204, 404, 409)  # 404/409: already gone/retired
+        if self_proof and resp.status_code == 409 and error_code(resp)[0] not in ("key_not_active", "already_revoked"):
+            done = False  # e.g. 409 last_active_key: Eternitas REFUSED, the key is still active there
+        if self_proof and resp.status_code in (400, 401):
+            # A key that is no longer active fails the proof check FIRST (401 invalid_agent_proof, or the
+            # challenge), so "already retired" never comes back as 409 here (Hub on #714). Read the public list:
+            # not active there = done (the retire landed and its answer was lost); still active = keep it.
+            done = _kid_still_active(client, passport, str(e["kid"])) is False
+        if done:
             sec["keys"] = [k for k in sec["keys"] if k.get("kid") != e["kid"]]
             save_credentials(data, path)
             logger.info("agent keys: retired %s…", e["kid"][:8])
@@ -574,6 +894,8 @@ def rotate(*, transport: httpx.BaseTransport | None = None, path: Path | None = 
             old = active_entry(data)
             if old is None or not old.get("registered_at"):
                 return {"status": "failed", "error": "no_registered_key"}
+            if key_ops_enabled():  # key-ops v1: the old key authorises, no passport token at all
+                return _rotate_by_key(transport, path, passport, data, old)
             bearer, via = _bearer(passport)
             if not bearer:
                 return {"status": "needs_login"}
@@ -584,6 +906,7 @@ def rotate(*, transport: httpx.BaseTransport | None = None, path: Path | None = 
                 if resp.status_code not in (200, 201):
                     return _http_fail("new key registration", resp)
                 new["registered_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                new["passport"] = passport
                 old["status"] = "retiring"
                 sec["keys"] = [old, new]
                 _set_active(sec, new)
@@ -595,6 +918,64 @@ def rotate(*, transport: httpx.BaseTransport | None = None, path: Path | None = 
     except Exception as exc:
         logger.warning("agent keys: rotate failed (%s)", type(exc).__name__)
         return {"status": "failed", "error": type(exc).__name__}
+
+
+def _rotate_by_key(transport: httpx.BaseTransport | None, path: Path, passport: str,
+                   data: dict[str, Any], old: dict[str, Any]) -> dict[str, Any]:
+    """Key-ops v1 rotation (caller holds _LOCK). The NEW key is saved as ``pending`` BEFORE it is sent, so a lost
+    answer never loses a key Eternitas may now hold (Hub on #714: an orphan active key nobody holds could not be
+    retired on this path, since a key only retires itself). A later rotate reuses that pending key and settles it by
+    reading the passport's public key list (our kid active there = registered), as register_with_bootstrap does.
+
+    ``status``: rotated | unknown (the answer was lost; the pending key stays for the next try) | failed."""
+    sec = _section(data)
+    new = next((e for e in sec["keys"] if e.get("status") == "pending"), None)
+    if new is None:
+        new = {**_new_entry(generate_private_key()), "status": "pending"}
+        sec["keys"].append(new)
+        save_credentials(data, path)
+    key = load_private_key(new["private_key"])
+    with httpx.Client(timeout=_HTTP_TIMEOUT, transport=transport) as client:
+        try:
+            landed: bool | None = _kid_active_for(client, passport, str(new["kid"]))
+            if not landed:
+                resp = _register(client, passport, key, "", signer=old)
+                code = resp.status_code
+                if code in (200, 201):
+                    landed = True
+                elif code == 409 and error_code(resp)[0] == "key_exists":
+                    # Eternitas has this kid: settle from the public list. Unreadable = unknown, never a refusal.
+                    landed = _kid_still_active(client, passport, str(new["kid"]))
+                elif code >= 500 or code in (408, 409, 429):
+                    landed = None  # a proxy 502/504 can come after Eternitas committed (Hub on #714)
+                else:
+                    landed = False
+                if landed is None:
+                    if code == 409 and error_code(resp)[0] != "key_exists":  # e.g. too_many_active_keys: refused now, but an earlier lost try may be one of
+                        return {**_http_fail("new key registration", resp), "kid": new["kid"]}  # them: keep it
+                    logger.warning("agent keys: new key registration outcome unknown (HTTP %s); kept as pending", code)
+                    return {"status": "unknown", "http": code, "code": error_code(resp)[0], "kid": new["kid"]}
+                if not landed:
+                    # A definite 4xx refusal: Eternitas did not take this key. Drop it so nothing piles up.
+                    sec["keys"] = [e for e in sec["keys"] if e.get("kid") != new["kid"]]
+                    save_credentials(data, path)
+                    return _http_fail("new key registration", resp)
+        except httpx.TransportError as exc:
+            logger.warning("agent keys: new key registration outcome unknown (%s); kept as pending",
+                           type(exc).__name__)
+            return {"status": "unknown", "code": type(exc).__name__, "kid": new["kid"]}
+        new["status"] = "active"
+        new["registered_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        new["passport"] = passport
+        old["status"] = "retiring"
+        sec["keys"] = [e for e in sec["keys"] if e.get("kid") not in (old["kid"], new["kid"])] + [old, new]
+        _set_active(sec, new)
+        save_credentials(data, path)
+        try:
+            _retire_pending(client, passport, "", data, path, self_proof=True)
+        except httpx.TransportError as exc:  # the new key is active: rotated; the daily job finishes the retire
+            logger.warning("agent keys: retire of the old key deferred (%s)", type(exc).__name__)
+    return {"status": "rotated", "kid": new["kid"], "old_kid": old["kid"], "via": "agent_key"}
 
 
 def reset(*, transport: httpx.BaseTransport | None = None, path: Path | None = None,
@@ -883,6 +1264,7 @@ def request_agent_token(aud: str, *, transport: httpx.BaseTransport | None = Non
             resp = _mint(url, aud, key, transport)
         if resp.status_code != 200:
             code, msg = error_code(resp)
+            _standing_from_refusal(resp, code)
             raise AgentTokenError(code or f"http_{resp.status_code}", msg, resp.status_code, retry_after_s(resp))
     except AgentTokenError as err:
         if usable is not None and _transient(err):
@@ -905,7 +1287,42 @@ def request_agent_token(aud: str, *, transport: httpx.BaseTransport | None = Non
     out["expires_at"] = now + min(int(body.get("expires_in") or 300), 300)
     with _TOKEN_LOCK:
         _TOKEN_CACHE[(kid, aud)] = out
+    _standing_good_mint()
     return dict(out)
+
+
+def _refusal_fields(resp: httpx.Response) -> dict[str, Any]:
+    """The extra fields of an Eternitas refusal (retired_until, reason), from ``detail`` or the top level."""
+    try:
+        body = resp.json()
+    except Exception:  # noqa: BLE001
+        return {}
+    if not isinstance(body, dict):
+        return {}
+    detail: dict[str, Any] = body["detail"] if isinstance(body.get("detail"), dict) else {}
+    return {k: detail.get(k, body.get(k)) for k in ("retired_until", "reason")}
+
+
+def _standing_from_refusal(resp: httpx.Response, code: str) -> None:
+    """A refusal that means the agent may not run (retired, suspended, revoked, this key revoked) latches the stop
+    (windyfly.agent.standing). Any other refusal changes nothing."""
+    try:
+        from windyfly.agent import standing
+
+        if standing.kind_of(code):
+            standing.latch(code, **_refusal_fields(resp))
+    except Exception as exc:  # noqa: BLE001 — the refusal itself is still raised
+        logger.warning("standing: could not record the stop (%s)", type(exc).__name__)
+
+
+def _standing_good_mint() -> None:
+    try:
+        from windyfly.agent import standing
+
+        if standing.stopped():
+            standing.clear()
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("standing: %s", type(exc).__name__)
 
 
 def service_dpop(htm: str, url: str, *, cred_path: Path | None = None) -> str:
@@ -914,6 +1331,32 @@ def service_dpop(htm: str, url: str, *, cred_path: Path | None = None) -> str:
     ``url`` is the absolute URL of THAT request; the proof signs :func:`htu` of it."""
     key, _ = _active_key(cred_path)
     return dpop_proof(key, htm, htu(url))
+
+
+PICKUP_PROOF_TYP = "windy-pickup-proof+jwt"
+
+
+def pickup_proof(handover_id: str, htm: str, url: str, *, path: Path | None = None) -> str:
+    """The desktop door's proof that THIS computer holds the round's key (home handover desktop pickup code, P5):
+    a compact ES256 JWS, header {alg, typ windy-pickup-proof+jwt, kid, jwk}, payload {handover_id, htm, htu, iat,
+    jti}. ``htu`` is the full URL without query (the Hub compares the path; one signer for this and DPoP). The jwk
+    rides every proof (the Hub needs it on the first; on later ones it is checked against the kept key). The key
+    may still be UNREGISTERED: it is the one whose kid started the round."""
+    entry = active_entry(load_credentials(path or credentials_path()))
+    if entry is None:
+        raise AgentTokenError("no_key", "no local agent key for this round")
+    key = load_private_key(entry["private_key"])
+    header = {"alg": ALG, "typ": PICKUP_PROOF_TYP, "kid": str(entry["kid"]), "jwk": public_jwk(key)}
+    claims = {"handover_id": handover_id, "htm": htm.upper(), "htu": htu(url), "iat": int(time.time()),
+              "jti": _b64u(os.urandom(16))}
+    return _compact(key, header, json.dumps(claims, separators=(",", ":")).encode("utf-8"))
+
+
+def bus_dpop(htm: str, htu_raw: str, *, cred_path: Path | None = None) -> str:
+    """A DPoP proof whose htu is signed VERBATIM (no URL normalising), for a non-HTTP target such as Windy Code's
+    IDE agent bus ("urn:windycode:agent-bus", compared byte for byte; Eternitas ruled 11-04). Fresh iat + jti."""
+    key, _ = _active_key(cred_path)
+    return dpop_proof(key, htm, htu_raw)
 
 
 def htu(url: str) -> str:

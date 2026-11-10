@@ -126,6 +126,14 @@ def _fetch_file_handler(
     # Normalize: strip leading/trailing slashes from path; the API is
     # finicky about leading slashes.
     path_norm = path.strip("/")
+    # A soul file can hold owner-only sections: only the OWNER's own turn may fetch one (Hub + Boss on #744).
+    if path_norm.rsplit("/", 1)[-1].lower() == "soul.md":
+        from windyfly.agent.capabilities.descriptor import Band
+        from windyfly.tools.bands import current_band
+
+        band = current_band()
+        if band is None or int(band) < int(Band.OWNER):
+            return {"error": "That is an agent's soul file, which only its owner may open."}
     api_path = f"/repos/{owner}/{repo}/contents/{path_norm}"
     params = {"ref": ref} if ref else None
     try:

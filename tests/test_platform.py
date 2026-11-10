@@ -28,7 +28,7 @@ from windyfly.platform import (
     get_log_path,
     get_pid_path,
     get_temp_dir,
-    kill_by_name,
+    find_by_name,
     process_alive,
     process_terminate,
 )
@@ -157,10 +157,14 @@ class TestProcessTerminate:
         assert isinstance(result, bool)
 
 
-class TestKillByName:
-    def test_nonmatching_pattern_no_crash(self):
-        """kill_by_name with a pattern matching nothing should not crash."""
-        kill_by_name(["definitely_not_a_real_process_name_xyz_12345"])
+class TestFindByName:
+    def test_nonmatching_pattern_finds_nothing(self):
+        assert find_by_name(["definitely_not_a_real_process_name_xyz_12345"]) == []
+
+    def test_never_lists_this_process_or_its_parent(self):
+        import os
+        pids = {pid for pid, _ in find_by_name(["python", "pytest"])}
+        assert os.getpid() not in pids and os.getppid() not in pids
 
 
 # ═══════════════════════════════════════════════════════════════════════

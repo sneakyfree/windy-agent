@@ -1,0 +1,16 @@
+name: soul-identity-lint
+# This repo is PUBLIC and generic: fail a PR that ADDS a real agent's soul file, passport id, agent Matrix id,
+# instance [agent] name, or a denylisted name where identity text ships (Boss repo review 2026-11-06T22:10:16Z).
+on:
+  pull_request:
+jobs:
+  lint:
+    # Fork PRs never reach the self-hosted runner (public repo; Boss ruling 10-01).
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, linux, x64]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Soul/identity lint (added files and lines only)
+        run: python3 .github/lint/lint-soul-identity.py "origin/${{ github.base_ref }}"

@@ -12,7 +12,6 @@ import sys
 import threading
 import time
 
-from dotenv import load_dotenv
 
 from windyfly.config import load_config
 
@@ -299,21 +298,6 @@ def _configure_logging(channel: str, log_level: str) -> None:
 
 def main() -> None:
     """Main entry point for Windy Fly."""
-    # The agent's own .env lives in its project folder (where `windy go` /
-    # `windy bring-home` wrote it). A bare load_dotenv() searches upward
-    # from THIS module's directory, which on a pip install is
-    # site-packages, so the project file must be named explicitly. Neither
-    # call overrides variables already set (systemd EnvironmentFile wins).
-    from windyfly.platform import get_project_root
-
-    load_dotenv(get_project_root() / ".env")
-    load_dotenv()
-    # Synthetic marking again, now that the .env is in: a test-born agent's passport may live only there (windy
-    # bring-home writes it), so the CLI's earlier install() could not see it yet (Hub on #647). Idempotent.
-    from windyfly.observability import synthetic
-
-    synthetic.install()
-
     parser = argparse.ArgumentParser(description="Windy Fly — AI agent brain")
     sub = parser.add_subparsers(dest="subcommand")
 
@@ -341,6 +325,17 @@ def main() -> None:
     sub.add_parser("test", help="Run self-test")
 
     args = parser.parse_args()
+
+    # This agent's env file (Boss 2026-11-07T16:13:24Z, option B): WINDY_ENV_FILE, else the project .env only when
+    # THIS agent's config lives in that project; never a bare load_dotenv() (env_file.py). Nothing set is overridden.
+    from windyfly.env_file import load_agent_env
+
+    load_agent_env(args.config)
+    # Synthetic marking again, now that the env file is in: a test-born agent's passport may live only there (windy
+    # bring-home writes it), so the CLI's earlier install() could not see it yet (Hub on #647). Idempotent.
+    from windyfly.observability import synthetic
+
+    synthetic.install()
 
     # Handle subcommands first
     if args.subcommand == "status":
@@ -427,9 +422,17 @@ def main() -> None:
         salvage_provider_keys()
     except Exception as exc:  # noqa: BLE001 - startup must not die on cleanup
         logger.warning("provider salvage skipped (%s); retrying at next start", type(exc).__name__)
+    try:  # Search mode B (dark): say once which Search base its proofs are made for (Search's flip list)
+        from windyfly.tools.windy_search_client import log_mode_b_base
+
+        log_mode_b_base()
+    except Exception:  # noqa: BLE001  (a log line never blocks a boot)
+        pass
 
     # Start background decay scheduler (G7)
-    db_path = config.get("memory", {}).get("db_path", "data/windyfly.db")
+    from windyfly.memory.db_location import resolve_db_path
+
+    db_path = resolve_db_path(config.get("memory", {}).get("db_path"))
     _start_decay_scheduler(config, db_path, args.channel)
     from windyfly.memory.split_check import start_split_watch
     start_split_watch(db_path)
@@ -481,6 +484,13 @@ def main() -> None:
     elif _claim_outcome == runtime_claim.ClaimOutcome.GRANTED:
         runtime_claim.start_heartbeat()
         runtime_claim.register_atexit_release()
+    # Eternitas standing: one check a minute WHENEVER the agent runs (every outcome but CONFLICT, which exited above),
+    # so a retire (or a restore) takes effect within standing.QUIET_WITHIN_S even when nobody writes (Boss 11-04; Hub's
+    # #265 'quiet within N s'). Not only on GRANTED: while stopped the probe is the only thing that lifts the stop, and
+    # a DEGRADED claim (Mind down at boot, a retired agent's 401/403, a refused key-only mint) or a SKIPPED one must
+    # still recover (Hub on #709).
+    from windyfly.agent import standing as _standing
+    _standing.start_probe()
 
     # Launch channel
     if args.channel == "cli":

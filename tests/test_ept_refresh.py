@@ -261,3 +261,123 @@ def test_kept_without_echoing_the_token_is_unchanged_not_failed(monkeypatch):
     )
     assert out["status"] == "unchanged"
     assert out["reason"] == "not_due"
+
+
+# ── after an EPT cutoff (Eternitas ept-cutoff v1) ────────────────────
+
+def _cutoff_then(calls: list, new_token: str, *, second_status: int = 200):
+    """Eternitas refuses the agent's own pre-cutoff EPT; the next call gets ``second_status``."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        if len(calls) == 1:
+            return httpx.Response(401, json={"detail": {"code": "ept_before_cutoff",
+                                                        "message": "EPT was issued before the passport's cutoff"}})
+        if second_status != 200:
+            return httpx.Response(second_status, json={"detail": "nope"})
+        return httpx.Response(200, json={"passport": PASSPORT, "ept_token": new_token, "reissued": True,
+                                         "reissue_reason": "before_cutoff"})
+    return httpx.MockTransport(handler)
+
+
+def test_cutoff_renews_with_the_owners_windy_sign_in(monkeypatch):
+    monkeypatch.setenv(er.ENV_KEY, make_ept(exp_in=10 * DAY))
+    import windyfly.hub_login as hl
+    monkeypatch.setattr(hl, "get_access_token", lambda *a, **k: "hub-access-token")
+    calls: list = []
+    new = make_ept(exp_in=365 * DAY)
+    r = er.refresh_ept(transport=_cutoff_then(calls, new))
+    assert [c.headers["Authorization"] for c in calls][1] == "Bearer hub-access-token"
+    assert len(calls) == 2
+    assert r["status"] == "refreshed" and r["via"] == "owner_hub_login"
+    assert os.environ[er.ENV_KEY] == new
+
+
+def test_cutoff_without_a_sign_in_says_to_sign_in(monkeypatch):
+    monkeypatch.setenv(er.ENV_KEY, make_ept(exp_in=10 * DAY))
+    calls: list = []
+    r = er.refresh_ept(transport=_cutoff_then(calls, make_ept(exp_in=365 * DAY)))
+    assert len(calls) == 1
+    assert r["status"] == "failed" and r["http"] == 401 and "windy login" in r["hint"]
+
+
+def test_cutoff_tries_the_sign_in_once_only(monkeypatch):
+    monkeypatch.setenv(er.ENV_KEY, make_ept(exp_in=10 * DAY))
+    import windyfly.hub_login as hl
+    monkeypatch.setattr(hl, "get_access_token", lambda *a, **k: "hub-access-token")
+    calls: list = []
+    r = er.refresh_ept(transport=_cutoff_then(calls, "", second_status=401))
+    assert len(calls) == 2
+    # A cached owner sign-in from before the cutoff is refused too (Hub on #691): say to sign in fresh.
+    assert r["status"] == "failed" and r["http"] == 401 and "windy login" in r["hint"]
+
+
+def test_a_plain_401_does_not_switch_to_the_sign_in(monkeypatch):
+    # Only Eternitas' ept_before_cutoff code moves to the owner's sign-in; any other 401 keeps today's answer.
+    monkeypatch.setenv(er.ENV_KEY, make_ept(exp_in=10 * DAY))
+    import windyfly.hub_login as hl
+    monkeypatch.setattr(hl, "get_access_token", lambda *a, **k: "hub-access-token")
+    calls: list = []
+    r = er.refresh_ept(transport=transport(calls, status=401))
+    assert len(calls) == 1 and "windy login" in r["hint"]
+
+
+def test_cutoff_never_logs_a_token(monkeypatch, caplog):
+    old = make_ept(exp_in=10 * DAY)
+    monkeypatch.setenv(er.ENV_KEY, old)
+    import windyfly.hub_login as hl
+    monkeypatch.setattr(hl, "get_access_token", lambda *a, **k: "hub-access-token")
+    new = make_ept(exp_in=365 * DAY)
+    with caplog.at_level(logging.DEBUG):
+        er.refresh_ept(transport=_cutoff_then([], new))
+    for secret in (old, new, "hub-access-token"):
+        assert secret not in caplog.text
+
+
+def test_another_coded_401_does_not_switch_to_the_sign_in(monkeypatch):
+    monkeypatch.setenv(er.ENV_KEY, make_ept(exp_in=10 * DAY))
+    import windyfly.hub_login as hl
+    monkeypatch.setattr(hl, "get_access_token", lambda *a, **k: "hub-access-token")
+    calls: list = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(401, json={"detail": {"code": "invalid_token", "message": "bad token"}})
+    r = er.refresh_ept(transport=httpx.MockTransport(handler))
+    assert len(calls) == 1 and "windy login" in r["hint"]
+
+
+def test_a_pre_cutoff_owner_sign_in_ends_in_sign_in_again_never_a_loop(monkeypatch):
+    """Eternitas #295: the cutoff also refuses the owner's Windy tokens from before it (401 windy_token_before_cutoff).
+    Final for that sign-in: one retry only, then the existing "windy login" hint."""
+    monkeypatch.setenv(er.ENV_KEY, make_ept(exp_in=10 * DAY))
+    import windyfly.hub_login as hl
+    monkeypatch.setattr(hl, "get_access_token", lambda *a, **k: "cached-hub-token")
+    calls: list = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        code = "ept_before_cutoff" if len(calls) == 1 else "windy_token_before_cutoff"
+        return httpx.Response(401, json={"detail": {"code": code, "message": "before the cutoff"}})
+    r = er.refresh_ept(transport=httpx.MockTransport(handler))
+    assert len(calls) == 2
+    assert r["status"] == "failed" and "windy login" in r["hint"]
+
+
+# ── a standing stop is lifted only by a usable token (Hub on #709) ──────────────────────────────
+
+@pytest.mark.parametrize("new_token,reissued,lifted", [
+    ("", True, False),        # an empty 200: nothing minted
+    ("not-a-jwt", True, False),
+    ("", False, True),        # Eternitas' explicit "kept": a good answer
+    (None, True, True),       # a usable new token
+])
+def test_only_a_usable_200_lifts_a_standing_stop(monkeypatch, tmp_path, new_token, reissued, lifted):
+    from windyfly.agent import standing
+
+    monkeypatch.setenv("WINDY_STATE_DIR", str(tmp_path / "state"))
+    standing._cache.update(mtime=None, value=None)
+    standing.latch("passport_suspended")
+    monkeypatch.setenv(er.ENV_KEY, make_ept(exp_in=200 * DAY))
+    token = make_ept(exp_in=365 * DAY) if new_token is None else new_token
+    er.refresh_ept(force=True, transport=transport([], new_token=token, reissued=reissued))
+    assert (standing.stopped() is None) is lifted

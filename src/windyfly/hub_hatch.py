@@ -72,14 +72,15 @@ def _read_json(path: Path) -> dict[str, Any]:
 
 
 def _write_private_json(path: Path, data: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
+    from windyfly.state_files import ensure_private_dir, restrict_to_owner
+
+    ensure_private_dir(path.parent)
     tmp = path.with_name(path.name + ".tmp")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    try:
-        os.write(fd, json.dumps(data).encode("utf-8"))
-    finally:
-        os.close(fd)
-    os.chmod(tmp, 0o600)
+    os.close(fd)
+    restrict_to_owner(tmp)  # before the token is in it (Windows: an owner-only ACL)
+    with open(tmp, "wb") as fh:
+        fh.write(json.dumps(data).encode("utf-8"))
     os.replace(tmp, path)
 
 

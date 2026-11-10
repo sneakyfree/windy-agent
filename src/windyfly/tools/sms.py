@@ -163,6 +163,10 @@ _PLAIN_ERRORS: dict[str, str] = {
 _NO_SIGN_IN = "I couldn't sign in to Windy Text just now, so I didn't send it."
 _STANDING = "My Eternitas standing doesn't allow sending texts right now, so I didn't send it."
 _BRIEFLY_DOWN = "Texting is briefly unavailable on Windy's side, so I didn't send it. Try again shortly."
+# Boss's FINAL words (11-03 09:15Z; Hub #9 on the facts) for EVERY unknown outcome of a send (a timeout, a broken
+# connection after the request left, a 5xx other than a before-send 503, a 422 key_reused). True as code, not only as an
+# instruction to the model. "I didn't send it" (_BRIEFLY_DOWN) stays only where it is true.
+_TEXT_UNSURE = "Windy Text had trouble, so I can't be sure the text went. If you want me to try again, just ask."
 
 
 def refusal_sentence(status: int, code: str | None) -> str:
@@ -404,12 +408,30 @@ def _send_byo(base_url: str, to: str | None, body: str) -> dict[str, Any]:
     send_headers, code = agent_auth(send_url, "POST")
     if send_headers is None:
         return _no_auth(code)
+    from windyfly.agent import action_key as _ak
+
+    idem = _ak.headers("sms.send", to or "owner")  # ONE key per intended text (Windy Text #125)
+
+    def post() -> httpx.Response:
+        return httpx.post(send_url, json={"body": text} if to is None else {"to": to, "body": text},
+                          headers={**send_headers, "Content-Type": "application/json", **idem}, timeout=_TIMEOUT)
+
     try:
-        resp = httpx.post(send_url,
-                          json={"body": text} if to is None else {"to": to, "body": text},
-                          headers={**send_headers, "Content-Type": "application/json"}, timeout=_TIMEOUT)
-    except httpx.HTTPError as exc:
-        return {"status": "failed", "sent": False, "error": f"Couldn't reach Windy Text: {type(exc).__name__}"}
+        resp = post()
+        if resp.status_code == 409 and idem and _text_code(resp) == "send_in_progress":
+            time.sleep(2.0)  # the first try of this same text is still running: ask once more, same key
+            resp = post()
+    except httpx.ConnectError:
+        return _no_answer(to, connected=False)  # never reached Windy Text
+    except httpx.HTTPError:
+        return _no_answer(to, connected=True)   # a timeout / broken connection after the request left: unknown
+    said = _judge(resp, to)
+    if said:
+        return {"status": "failed", "sent": False if said == _BRIEFLY_DOWN else None,
+                "http_status": resp.status_code, "error": said}
+    if _text_code(resp) == "idempotency_key_malformed":
+        return {"status": "failed", "sent": False, "http_status": resp.status_code,
+                "error_code": _text_code(resp), "error": refusal_sentence(resp.status_code, None)}
     if resp.status_code in (200, 201):
         try:
             data = resp.json()
@@ -435,6 +457,51 @@ def _send_byo(base_url: str, to: str | None, body: str) -> dict[str, Any]:
             "error": plain or refusal_sentence(resp.status_code, None)}
 
 
+# 503s that say for sure THIS request sent nothing (Hub 11-03, Text's /send order): the credential checks
+# (keys_unavailable, revocation_unavailable) refuse before the handler runs at all; spend_ledger_unavailable comes AFTER
+# the key claim but before Twilio, and Text stores it as the key's outcome (a same-key retry replays it). Only these may
+# say "I didn't send it", and only when no earlier try of this send had an unknown outcome (action_key.settle).
+_NOT_SENT_503 = frozenset({"spend_ledger_unavailable", "keys_unavailable", "revocation_unavailable"})
+
+
+def _judge(resp: httpx.Response, to: str | None) -> str:
+    """Settle this try of the send (agent.action_key.settle) and return the sentence it needs, or "" when the usual
+    answer path applies (a 2xx, or a final refusal with its own plain sentence). _TEXT_UNSURE when the text may have
+    gone (a 5xx other than _NOT_SENT_503, an idempotency 409, a 422 key_reused, or ANY non-2xx after an earlier unknown
+    try); _BRIEFLY_DOWN for a _NOT_SENT_503 when nothing earlier is in doubt."""
+    from windyfly.agent import action_key as _ak
+
+    code = _text_code(resp)
+    before = resp.status_code == 503 and code in _NOT_SENT_503
+    verdict = _ak.settle("sms.send", to or "owner", status=resp.status_code, code=code, final=True if before else None)
+    if verdict == "unsure":
+        return _TEXT_UNSURE
+    return _BRIEFLY_DOWN if before else ""
+
+
+def _no_answer(to: str | None, connected: bool) -> dict[str, Any]:
+    """A try that got no answer. Never connected: nothing went (unless an earlier try is in doubt). Connected, then
+    lost: the text may have gone."""
+    from windyfly.agent import action_key as _ak
+
+    verdict = _ak.settle("sms.send", to or "owner", status=None, final=None if connected else True)
+    if verdict == "unsure":
+        return {"status": "failed", "sent": None, "error": _TEXT_UNSURE}
+    return {"status": "failed", "sent": False, "error": _BRIEFLY_DOWN}
+
+
+def _text_code(resp: httpx.Response) -> str:
+    """Windy Text's machine code for a refusal, or ""."""
+    try:
+        err = resp.json()
+    except ValueError:
+        return ""
+    if not isinstance(err, dict):
+        return ""
+    code = err.get("error_code") or err.get("error") or (err.get("detail") if isinstance(err.get("detail"), str) else "")
+    return code if isinstance(code, str) else ""
+
+
 def _deliver(base_url: str, ept: str, to: str | None, body: str) -> dict[str, Any]:
     text = _with_footer(body)
     if len(text) > _MAX_SMS_CHARS:
@@ -442,30 +509,47 @@ def _deliver(base_url: str, ept: str, to: str | None, body: str) -> dict[str, An
             "status": "failed",
             "error": f"Text too long ({len(text)} characters with the sign-off; the limit is {_MAX_SMS_CHARS}).",
         }
-    try:
-        resp = httpx.post(
+    # ONE key per intended text (agent.action_key; Windy Text #125): a repeat gets the first result back and is never
+    # sent twice. Reused on this function's own retry.
+    from windyfly.agent import action_key as _ak
+
+    idem = _ak.headers("sms.send", to or "owner")
+
+    def post() -> httpx.Response:
+        return httpx.post(
             f"{base_url}/sms/send",
             headers={
                 "Authorization": f"Bearer {ept}",
                 "Content-Type": "application/json",
+                **idem,
             },
             # Never a `from`: Windy Text picks the owner's number (422 if sent).
             json={"body": text} if to is None else {"to": to, "body": text},
             timeout=_TIMEOUT,
         )
-    except httpx.ConnectError as exc:
-        return {
-            "status": "failed",
-            "error": f"Cannot reach windy-text at {base_url}: {exc}",
-        }
-    except httpx.HTTPError as exc:
-        return {"status": "failed", "error": f"windy-text transport error: {exc}"}
+
+    try:
+        resp = post()
+        if resp.status_code == 409 and idem and _text_code(resp) == "send_in_progress":
+            time.sleep(2.0)  # the first try of this same text is still running: ask once more, same key
+            resp = post()
+    except httpx.ConnectError:
+        return _no_answer(to, connected=False)  # never reached Windy Text
+    except httpx.HTTPError:
+        return _no_answer(to, connected=True)   # a timeout / broken connection after the request left: unknown
+
+    said = _judge(resp, to)
+    if said:
+        return {"status": "failed", "sent": False if said == _BRIEFLY_DOWN else None,
+                "http_status": resp.status_code, "error": said}
 
     if resp.status_code in (200, 201):
         try:
             data = resp.json()
         except ValueError:
             data = {}
+        if resp.headers.get("Idempotent-Replay", "").lower() == "true":
+            logger.info("Windy Text: this text was already sent (idempotent replay); not sent again")
         return {
             "status": "sent",
             "sid": data.get("sid", ""),
@@ -494,6 +578,11 @@ def _deliver(base_url: str, ept: str, to: str | None, body: str) -> dict[str, An
             "http_status": resp.status_code,
         }
     raw_code = err.get("error_code") or err.get("error")
+    if _text_code(resp) == "idempotency_key_malformed":
+        raw_code = _text_code(resp)  # Text #125 sends these as FastAPI's {"detail": code} (Hub on #693)
+        # One of ours (two sends sharing a key): one plain sentence, never Windy Text's raw wording (Hub on #693).
+        return {"status": "failed", "error": refusal_sentence(resp.status_code, None),
+                "http_status": resp.status_code, "error_code": raw_code, "sent": False}
     plain = plain_error(raw_code if isinstance(raw_code, str) else None)
     return {
         "status": "failed",

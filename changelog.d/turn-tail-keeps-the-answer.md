@@ -1,0 +1,1 @@
+- **An answer that's already saved is always sent.** After saving your message and its answer, the agent notes facts and spots things you intend to do. If either of those failed, the whole turn failed, so you got no answer even though it was in memory. Now such a failure is logged (its kind only, never your words) and the answer still goes out.

@@ -16,7 +16,7 @@ from windyfly.control_panel import get_sliders
 from windyfly.memory.database import Database
 from windyfly.memory.episodes import get_recent_episodes
 from windyfly.memory.nodes import get_nodes_by_type, search_nodes
-from windyfly.personality.engine import build_personality_block, load_soul
+from windyfly.personality.engine import build_personality_block, load_soul, soul_for_turn
 
 
 # Characters of prior-conversation history injected per point of the
@@ -132,6 +132,24 @@ def _is_first_contact(db: Database) -> bool:
 _URL_IN_MESSAGE = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
 
 
+# The product name was [agent] name's default before agents were "Windy Fly agents" (Grant 11-06): an agent whose
+# config still says it has no name of its own, so the IDENTITY line names no instance.
+_PRODUCT_NAMES = frozenset({"windy fly"})
+
+
+def agent_own_name(config: dict[str, Any] | None) -> str | None:
+    """The agent's own name from config ([agent] name), or None when it has none of its own.
+
+    A missing/blank name, or the old product-name default "Windy Fly", is no name. One line, at most 64 characters:
+    it goes into the system prompt."""
+    agent = (config or {}).get("agent") or {}
+    raw = agent.get("name") if isinstance(agent, dict) else None
+    name = " ".join(str(raw or "").split())[:64].strip()
+    if not name or name.casefold() in _PRODUCT_NAMES:
+        return None
+    return name
+
+
 def assemble_prompt(
     config: dict[str, Any],
     db: Database,
@@ -189,7 +207,14 @@ def assemble_prompt(
     # 1. System message: personality
     personality_config = config.get("personality", {})
     soul_path = personality_config.get("soul_path", "SOUL.md")
-    soul_text = load_soul(soul_path)
+    # Sections marked <!-- owner-only --> reach the OWNER's own turns only: the exact OWNER band, never a trusted
+    # helper, and closed when no band is passed (Boss BOARD 2026-11-07T14:31:58Z (1) + 14:37:53Z; Hub on #744).
+    # Real turns lose nothing: agent_respond maps a missing band to OWNER before it calls this.
+    from windyfly.agent.capabilities import Band as _SoulBand
+
+    soul_text = soul_for_turn(
+        load_soul(soul_path), owner=band_value is not None and band_value == int(_SoulBand.OWNER),
+    )
 
     # Pull sliders once up-front so prompt structure can be gated on
     # them (e.g., BIAS TO ACTION only fires when autonomy ≥ 4 so a
@@ -263,7 +288,7 @@ def assemble_prompt(
     #      reply. If a tool isn't in the list, say "I don't have a
     #      [tool] capability" — NOT "I'm sandboxed" or "my network
     #      is locked down" (those are confabulations).
-    #   3. Identity: you are Windy Fly (this instance is Windy 0).
+    #   3. Identity: you are a Windy Fly agent with your own name ([agent] name in config, if it has one).
     #      Don't impersonate Kit 0 (the VPS coordinator) or OC1-7
     #      (OpenClaw GPU agents). When ecosystem agents are asked
     #      about, route via the user or via the appropriate tool.
@@ -293,9 +318,12 @@ def assemble_prompt(
         "capabilities you were not given for this reply."
     )
     if owner_ctx:
+        own_name = agent_own_name(config)
         runtime_guardrail += (
-            "\n3. IDENTITY: You are Windy Fly (consumer brand) / Windy 0 "
-            "(this instance). You are NOT Kit 0 (VPS coordinator), Kit "
+            "\n3. IDENTITY: You are a Windy Fly agent, and your own name is the "
+            "one your soul gives you: use it when you introduce yourself. "
+            + (f"This instance is {own_name}. " if own_name else "")
+            + "You are NOT Kit 0 (VPS coordinator), Kit "
             "0C2-0C5, or OpenClaw OC1-OC7. Do not impersonate those "
             "agents or claim to dispatch them directly — refer the user "
             "to the right agent if a task needs one.\n"
@@ -310,12 +338,28 @@ def assemble_prompt(
             "can't introspect my own env from in here — check the env "
             "file wherever you (the operator) launched me from'. NEVER "
             "conflate yourself with a sister agent that DOES live on a "
-            "remote host (Kit 0 lives on a VPS; you, Windy Fly, may not) "
+            "remote host (Kit 0 lives on a VPS; you, a Windy Fly agent, may not) "
             "— that conflation produces a confidently-wrong SSH "
             "instruction the user will then execute against the wrong "
             "machine. (See RUNTIME CONTEXT below for facts you DO know.)"
         )
     system_parts.append(runtime_guardrail)
+
+    # YOUR WINDY (Grant 2026-11-02, windy-contracts your-windy.v1): the agent's own Windy facts, read live once per
+    # session. DARK: "" unless WINDY_YOUR_WINDY=1. OWNER ONLY (Boss 19:43Z; Hub on #692): the block holds the owner's
+    # plan and quota, and a suggestion ("keep that password in your Vault") points at the owner's Vault. So the exact
+    # OWNER band, never a trusted helper, and CLOSED when a caller passes no band (owner_ctx is open for those).
+    from windyfly.agent import your_windy
+    from windyfly.agent.capabilities import Band as _Band
+
+    owner_only = band_value is not None and band_value == int(_Band.OWNER)
+    yw = your_windy.block() if owner_only else ""
+    if yw:
+        system_parts.append(yw)
+        # Next to the facts, the bounded suggestion rule (Grant ~19:25Z, Boss 19:31Z). DARK: WINDY_SUGGEST_FEATURES=1.
+        tips = your_windy.suggestion_block(db, session_id, user_message)
+        if tips:
+            system_parts.append(tips)
 
     # WINDY FACTS (Hub, 10-02): a hosted agent told Grant 'Free / Pro $20 / Max $200 /
     # Teams' (Anthropic's plans, recited from model memory). Prices come ONLY from the
@@ -480,7 +524,7 @@ def assemble_prompt(
             "the user. Questions are a last resort after investigation "
             "fails — not a first response.\n\n"
             "3. SISTER AGENTS ARE NOT GATEKEEPERS. The IDENTITY "
-            "guardrail says you are Windy Fly, not Kit 0 — that means "
+            "guardrail says you are a Windy Fly agent, not Kit 0 — that means "
             "don't IMPERSONATE Kit 0 and don't claim to DISPATCH Kit 0 "
             "directly. It does NOT mean defer every fleet operation to "
             "Kit 0. You have ssh.exec to the fleet hosts (kit-0c2, "

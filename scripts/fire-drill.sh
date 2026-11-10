@@ -46,6 +46,10 @@ CONFIG="${WINDYFLY_CONFIG:-$HOME/.local/share/windyfly/soul/config.toml}"
 UNITS="${WINDY_DRILL_UNITS:-windy-0@telegram windy-0@matrix}"
 BACKUP_MAX_AGE_S="${WINDY_FIRE_DRILL_BACKUP_MAX_AGE_S:-3600}"
 BOARD_FILE="${WINDY_DRILL_BOARD_FILE:-}"
+# uv lives in ~/.local/bin, which a systemd user unit's PATH does not hold: the 2026-11-01 and 11-08 drills died on
+# "uv: command not found" before the backup ran and were reported as "no fresh backup". Resolve it ONCE, here, by full
+# path (the lifeboat step later runs with HOME=$SCRATCH, so a later $HOME lookup would point at the wrong folder).
+UV_BIN="${WINDY_UV_BIN:-$(command -v uv 2>/dev/null || echo "$HOME/.local/bin/uv")}"
 DB_LINE_RE='not a database|memory split|DatabaseError|is locked|database.*locked'
 START_EPOCH="$(date +%s)"
 NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -134,7 +138,7 @@ post_board() { # one line on the fleet BOARD, when configured
 
 # ── Step 0: backup gate (before anything is stopped) ───────────────
 drill_backup() {
-    (cd "$AGENT_DIR" && WINDYFLY_CONFIG="$CONFIG" MAX_AGE="$BACKUP_MAX_AGE_S" uv run python - <<'PY'
+    (cd "$AGENT_DIR" && WINDYFLY_CONFIG="$CONFIG" MAX_AGE="$BACKUP_MAX_AGE_S" "$UV_BIN" run python - <<'PY'
 import asyncio, os, sys
 from datetime import datetime, timezone
 from windyfly import cloud_backup as cb
@@ -205,7 +209,7 @@ drill_lifeboat() {
      ANTHROPIC_API_KEY="sk-ant-api03-FAKE-dead-key-for-fire-drill-only" \
      MIND_API_URL="http://127.0.0.1:9" \
      HOME="$SCRATCH" \
-     uv run python - <<'PY'
+     "$UV_BIN" run python - <<'PY'
 import os, sys, time
 os.makedirs(os.environ["WINDY_STATE_DIR"], exist_ok=True)
 from windyfly.config import load_config
@@ -242,7 +246,7 @@ drill_engine_swap() {
     (cd "$AGENT_DIR" && \
      WINDYFLY_DB_PATH="$SCRATCH/swap.db" \
      WINDY_STATE_DIR="$SCRATCH/state-swap" \
-     uv run python - <<'PY'
+     "$UV_BIN" run python - <<'PY'
 import os, sys, time
 os.makedirs(os.environ["WINDY_STATE_DIR"], exist_ok=True)
 from windyfly.config import load_config
@@ -271,7 +275,7 @@ drill_turnover() {
     (cd "$AGENT_DIR" && \
      WINDYFLY_DB_PATH="$SCRATCH/turnover.db" \
      WINDY_STATE_DIR="$SCRATCH/state-turnover" \
-     uv run python - <<'PY'
+     "$UV_BIN" run python - <<'PY'
 import os, sys
 os.makedirs(os.environ["WINDY_STATE_DIR"], exist_ok=True)
 from windyfly.memory.database import Database
@@ -288,7 +292,11 @@ PY
 
 step backup drill_backup
 if [[ "${RESULT[backup]}" != PASS ]]; then
-    DETAIL="no fresh encrypted backup of the agent DB: nothing was stopped"
+    if [[ ! -x "$UV_BIN" ]]; then
+        DETAIL="uv not found at $UV_BIN, so the backup could not run: nothing was stopped"
+    else
+        DETAIL="no fresh encrypted backup of the agent DB: nothing was stopped"
+    fi
     write_status FAIL
     post_board
     logger -t windy-fire-drill "fire drill FAILED before start: $DETAIL"

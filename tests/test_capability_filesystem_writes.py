@@ -599,3 +599,44 @@ def test_edit_file_outside_allowlist_refused(write_sandbox):
             _allowed_roots=[write_sandbox["allowed"]],
             _journal_path=write_sandbox["journal"],
         )
+
+
+# ── overwrite must be a real boolean true (Hub on #759) ────────────
+# The args schema is not enforced, so "true", 1 or "yes" used to overwrite at USER band (the tier check only knew
+# `is True`). Now any value other than absent/false raises the tier, and only a real `true` replaces the file.
+
+
+def _fs_registry(write_sandbox):
+    r = CapabilityRegistry()
+    register_filesystem_capabilities(r, config={"capabilities": {"filesystem": {
+        "allowed_roots": [write_sandbox["allowed"]], "undo_journal_path": write_sandbox["journal"]}}})
+    return r
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("value", ["true", 1, "yes", True])
+async def test_any_overwrite_value_needs_trusted_at_user_band(write_sandbox, value):
+    target = os.path.join(write_sandbox["allowed"], "existing.txt")
+    with pytest.raises(CapabilityDenied):
+        await _fs_registry(write_sandbox).invoke(
+            "fs.write_file", {"path": target, "content": "clobbered", "overwrite": value}, Band.USER)
+    assert Path(target).read_text(encoding="utf-8") == "original content\n"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("value", ["true", 1, "yes"])
+async def test_only_a_real_true_overwrites_even_at_owner(write_sandbox, value):
+    target = os.path.join(write_sandbox["allowed"], "existing.txt")
+    with pytest.raises(FileExistsError):
+        await _fs_registry(write_sandbox).invoke(
+            "fs.write_file", {"path": target, "content": "clobbered", "overwrite": value}, Band.OWNER)
+    assert Path(target).read_text(encoding="utf-8") == "original content\n"
+
+
+@pytest.mark.asyncio
+async def test_a_real_true_still_overwrites_at_trusted(write_sandbox):
+    target = os.path.join(write_sandbox["allowed"], "existing.txt")
+    out = await _fs_registry(write_sandbox).invoke(
+        "fs.write_file", {"path": target, "content": "replaced", "overwrite": True}, Band.TRUSTED)
+    assert out["executed"] is True
+    assert Path(target).read_text(encoding="utf-8") == "replaced"

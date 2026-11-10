@@ -195,7 +195,7 @@ def show_ecosystem_status(hatch_result=None, config: dict | None = None) -> None
     ))
 
     table = Table(
-        title=f"{BRAND_EMOJI} Windy Fly \u2014 Born Into the Ecosystem",
+        title=f"{BRAND_EMOJI} Your Windy Fly agent \u2014 Born Into the Ecosystem",
         title_style="bold cyan",
         border_style="cyan",
         show_lines=True,

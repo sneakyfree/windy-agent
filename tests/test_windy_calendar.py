@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from unittest.mock import MagicMock
 
 import pytest
@@ -117,6 +118,45 @@ def test_book_sends_idempotency_key_and_reports_slot_taken(calls):
     assert out["outcome"] == "slot_taken" and out["next_slots"] == ["x"]
 
 
+def test_book_in_progress_is_still_working_never_booked(calls):
+    # windy-calendar #127: while the first call with this key runs, Calendar answers ok:true + outcome in_progress
+    # whatever the arguments. Never "booked", never "made with different details".
+    _answer(calls, _resp(200, {"ok": True, "result": {"outcome": "in_progress", "retry_after_seconds": 5}}))
+    out = _cap("windy_calendar.book").handler(starts_at_utc="2026-10-12T15:00:00Z", booker_name="A",
+                                              booker_email="a@b.c", idempotency_key="k1")
+    assert out["ok"] is False and out["outcome"] == "in_progress" and out["retry_after_seconds"] == 5
+    assert out["say"] == "I'm still making that booking. Ask me again in a moment."
+    assert "different details" not in out["say"] and len(calls) == 1  # one call: no retry loop of its own
+
+
+def test_add_event_in_progress_is_still_working(add_on, calls):
+    _answer(calls, _resp(200, {"ok": True, "result": {"outcome": "in_progress", "retry_after_seconds": 5}}))
+    out = _cap("windy_calendar.add_event").handler(title="t", starts_at_utc="2026-10-12T15:00:00Z")
+    assert out["ok"] is False and out["say"] == "I'm still adding that one. Ask me again in a moment."
+
+
+def test_the_same_booking_always_sends_the_same_key(calls, monkeypatch):
+    """A retry (the model asks twice, a timeout) returns the FIRST booking, never "just taken" (Calendar 11-04)."""
+    monkeypatch.setenv("ETERNITAS_PASSPORT", "ET26-BOOK-0001")
+    book = _cap("windy_calendar.book").handler
+    base = {"starts_at_utc": "2026-10-12T15:00:00Z", "booker_name": "A", "booker_email": "Ann@Example.com"}
+
+    def key(**kw):
+        _answer(calls, _resp(200, {"ok": True, "result": {"outcome": "booked"}}))
+        book(**{**base, **kw})
+        return calls[-1][1]["json"]["arguments"]["idempotency_key"]
+
+    first = key()
+    assert re.fullmatch(r"[A-Za-z0-9._:-]{8,128}", first)                 # Calendar's idempotency_key pattern
+    assert key() == first                                                   # a retry: the same key
+    assert key(booker_email=" ann@example.COM ") == first                   # the email, lowercased
+    assert key(booker_name="Ann B", booker_phone="+15550100", booker_note="x", booker_tz="America/Denver") == first
+    assert key(starts_at_utc="2026-10-12T16:00:00Z") != first               # another time: another booking
+    assert key(booker_email="bob@example.com") != first                     # another booker: another booking
+    monkeypatch.setenv("ETERNITAS_PASSPORT", "ET26-BOOK-0002")
+    assert key() != first                                                   # another agent: another key
+
+
 def test_confirm_required_waits_and_is_not_retried(calls):
     _answer(calls, _resp(200, {"ok": False, "error": "confirm_required", "confirmation": {"id": "c1", "waiting_in": "inbox"}}))
     out = wc.invoke("cancel_appointment", {"appointment_id": "1"}, write=True)
@@ -129,6 +169,7 @@ def test_confirm_required_waits_and_is_not_retried(calls):
     (403, {"ok": False, "error": "denied", "reason": "no_calendar"}, False, "isn't a Windy Calendar"),
     (403, {"ok": False, "error": "denied", "reason": "insufficient_band"}, False, "can't see"),
     (403, {"ok": False, "error": "denied", "reason": "untrusted_write"}, True, "not trusted enough"),
+    (403, {"ok": False, "error": "denied", "reason": "own_agent_only"}, True, "owner's own agent do that"),
     (400, {"ok": False, "error": "rate_limited", "reason": "own_calendar_daily_cap"}, True, "daily limit"),
     (400, {"ok": False, "error": "invalid_arguments", "reason": "impossible_time"}, True, "doesn't work"),
     (503, {"ok": False, "error": "auth_unavailable"}, False, "couldn't reach"),
@@ -230,17 +271,62 @@ def test_only_a_listed_same_owner_sibling_resolves_to_trusted(monkeypatch, tmp_p
 
 
 def test_no_other_module_issues_the_trusted_band():
-    """Hub: if anything else could return TRUSTED, calendar book/block would open to it. Today the only
-    place that ASSIGNS the band is channels/identity.py (the sibling branch)."""
+    """Hub: if anything else could return TRUSTED, calendar book/block would open to it. The places that ASSIGN
+    the band: channels/identity.py (the sibling branch), and agent/goal_autorun.py's goal_band() ONLY (a background
+    goal runs at TRUSTED, never OWNER: Boss BOARD 2026-11-07T19:26:03Z), where book/block pause the goal instead
+    (test_a_goal_turn_never_books_or_blocks below)."""
+    import ast
     import re
     from pathlib import Path
 
     src = Path(__file__).resolve().parent.parent / "src" / "windyfly"
     # a band VALUE being produced for a sender: `band = Band.TRUSTED` or `return Band.TRUSTED`
     pat = re.compile(r"\bband\s*=\s*Band\.TRUSTED\b|\breturn\s+Band\.TRUSTED\b")
-    offenders = sorted(str(p.relative_to(src)) for p in src.rglob("*.py")
-                       if pat.search(p.read_text("utf-8")) and p.name != "identity.py")
+    allowed = {"channels/identity.py": None, "agent/goal_autorun.py": "goal_band"}
+    offenders = []
+    for p in sorted(src.rglob("*.py")):
+        rel, text = str(p.relative_to(src)), p.read_text("utf-8")
+        hits = list(pat.finditer(text))
+        if not hits or (rel in allowed and allowed[rel] is None):
+            continue
+        if rel in allowed and len(hits) == 1:      # only once, and INSIDE the one named function (Hub: by ast,
+            line = text.count("\n", 0, hits[0].start()) + 1   # so module code after that function does not pass)
+            inside = [n.name for n in ast.walk(ast.parse(text)) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+                      and n.lineno <= line <= (n.end_lineno or n.lineno)]
+            if inside == [allowed[rel]]:
+                continue
+        offenders.append(rel)
     assert offenders == [], offenders
+
+
+@pytest.mark.parametrize("cid", ["book", "block"])
+def test_a_goal_turn_never_books_or_blocks(calls, cid):
+    """A background goal at TRUSTED (goal_band) reaches book/block's band, but they are EXTERNAL_EFFECT: the goal
+    pauses for the owner and Calendar is never called. A person's TRUSTED turn is unchanged."""
+    import json
+
+    from windyfly.agent.capabilities import CapabilityDenied
+    from windyfly.agent.goal_autorun import goal_band
+    from windyfly.agent.loop import _dispatch_tool_call_inner
+    from windyfly.tools import bands
+
+    cap = _cap(f"windy_calendar.{cid}")
+    ran: list[str] = []
+
+    class _One:
+        def get(self, name):
+            return cap if name == cap.id else None
+
+        def invoke_sync(self, name, args, band):
+            ran.append(name)
+            return "ran"
+
+    with bands.goal_turn():
+        out = _dispatch_tool_call_inner(cap.id, "{}", None, _One(), goal_band(), CapabilityDenied)
+        assert out == json.dumps({"error": bands.PAUSED_TEXT})
+        assert bands.needs_owner() == cap.id
+    assert ran == []
+    assert _dispatch_tool_call_inner(cap.id, "{}", None, _One(), Band.TRUSTED, CapabilityDenied) == "ran"
 
 
 # ── Calendar's contract: mode B applies to GET /tools too (a DPoP proof on every request) ─────────
@@ -411,10 +497,76 @@ def test_add_event_wire_and_outcome_as_data(add_on):
     assert out == {"ok": True, "outcome": "added", "outside_open_hours": True}
 
 
-@pytest.mark.parametrize("outcome", ["overlaps_booking", "in_the_past", "too_far_ahead", "not_enabled", "in_progress"])
-def test_every_calendar_outcome_reaches_the_model_unchanged(add_on, outcome):
+@pytest.mark.parametrize("outcome", ["overlaps_booking", "in_the_past", "too_far_ahead", "invalid_time",
+                                     "not_enabled", "in_progress", "own_agent_only"])
+def test_only_added_is_ok_every_other_outcome_is_a_refusal_in_fixed_words(add_on, outcome):
+    """Calendar answers 200 for every outcome (windy-calendar #109); "ok" must mean the event IS on the calendar, so
+    the model can never say "added" for in_the_past, an overlap or a switched-off Calendar."""
     _answer(add_on, _resp(200, {"ok": True, "result": {"outcome": outcome}}))
-    assert _cap("windy_calendar.add_event").handler(**EVENT) == {"ok": True, "outcome": outcome}
+    out = _cap("windy_calendar.add_event").handler(**EVENT)
+    assert out == {"ok": False, "outcome": outcome, "say": wcal.ADD_EVENT_SAY[outcome]}
+
+
+def test_an_unknown_outcome_is_a_refusal_too(add_on):
+    _answer(add_on, _resp(200, {"ok": True, "result": {"outcome": "something_new"}}))
+    out = _cap("windy_calendar.add_event").handler(**EVENT)
+    assert out["ok"] is False and out["say"].startswith("Windy Calendar gave an answer I don't understand")
+    _answer(add_on, _resp(200, {"ok": True, "result": {}}))
+    assert _cap("windy_calendar.add_event").handler(**EVENT)["ok"] is False
+
+
+APPT = {"id": "a1", "kind": "event", "title": "Dentist", "starts_at_utc": "2026-11-05T15:00:00Z",
+        "ends_at_utc": "2026-11-05T15:45:00Z", "location": "12 Main St"}
+REPLAY = _resp(200, {"ok": True, "result": {"outcome": "added", "idempotent_replay": True, "appointment": APPT}})
+
+
+def test_a_replay_names_the_event_in_the_owners_own_time(add_on):
+    """ONE sentence for both runtimes (Boss 11-02, Chat's roster wording); the zone is Calendar's owner_timezone."""
+    _answer(add_on, REPLAY, _resp(200, {"ok": True, "result": {"owner_timezone": "America/New_York", "slots": []}}))
+    out = _cap("windy_calendar.add_event").handler(**EVENT)
+    assert out["ok"] is True and out["appointment"] == APPT and out["idempotent_replay"] is True
+    assert out["say"] == "That's already on your calendar: Dentist, Thu, Nov 5, 10:00 AM. I didn't add it a second time."
+    probe = add_on[1][1]["json"]
+    assert probe["name"] == "get_availability" and probe["arguments"]["from"] == probe["arguments"]["to"] == "2026-11-05"
+
+
+@pytest.mark.parametrize("zone_answer", [
+    _resp(200, {"ok": True, "result": {"slots": []}}),                           # no owner_timezone
+    _resp(200, {"ok": True, "result": {"owner_timezone": "Mars/Olympus_Mons"}}),  # not an IANA zone
+    _resp(503, {"ok": False, "error": "auth_unavailable"}),                       # Calendar didn't answer
+])
+def test_a_replay_without_a_readable_zone_uses_the_short_form(add_on, zone_answer):
+    _answer(add_on, REPLAY, zone_answer)
+    out = _cap("windy_calendar.add_event").handler(**EVENT)
+    assert out["ok"] is True and out["say"] == wcal.ADD_EVENT_REPLAY_SHORT
+
+
+@pytest.mark.parametrize("appt", [{"id": "a1"}, {"id": "a1", "starts_at_utc": "2026-11-05T15:00:00Z"},
+                                  {"id": "a1", "title": "Dentist"}])
+def test_a_replay_without_a_title_or_time_asks_nothing_more(add_on, appt):
+    """Never "That's already on your calendar: , Thu ...": no title or no time = the short form, no zone read."""
+    _answer(add_on, _resp(200, {"ok": True, "result": {"outcome": "added", "idempotent_replay": True,
+                                                        "appointment": appt}}),
+            _resp(200, {"ok": True, "result": {"owner_timezone": "America/New_York"}}))
+    out = _cap("windy_calendar.add_event").handler(**EVENT)
+    assert out["say"] == wcal.ADD_EVENT_REPLAY_SHORT and len(add_on) == 1
+
+
+@pytest.mark.parametrize("starts,tz,want", [
+    ("2026-11-05T15:00:00Z", "America/New_York", "Thu, Nov 5, 10:00 AM"),
+    ("2026-11-05T23:30:00Z", "America/Los_Angeles", "Thu, Nov 5, 3:30 PM"),
+    ("2026-11-06T05:00:00Z", "America/New_York", "Fri, Nov 6, 12:00 AM"),
+    ("2026-11-05T06:30:00Z", "Asia/Kolkata", "Thu, Nov 5, 12:00 PM"),
+    ("2026-07-04T16:05:00Z", "America/New_York", "Sat, Jul 4, 12:05 PM"),  # daylight time
+])
+def test_owner_when_matches_the_rosters_en_us_format(monkeypatch, starts, tz, want):
+    monkeypatch.setattr(wc, "invoke", lambda *a, **k: {"ok": True, "result": {"owner_timezone": tz}})
+    assert wcal.owner_when(starts) == want
+
+
+def test_a_first_add_carries_no_replay_sentence(add_on):
+    _answer(add_on, _resp(200, {"ok": True, "result": {"outcome": "added"}}))
+    assert "say" not in _cap("windy_calendar.add_event").handler(**EVENT)
 
 
 def test_a_refusal_is_the_clients_plain_sentence(add_on):
@@ -427,7 +579,7 @@ def test_the_flag_off_at_call_time_sends_nothing(add_on, monkeypatch):
     c = _cap("windy_calendar.add_event")
     monkeypatch.setenv(wcal.ADD_EVENT_FLAG, "0")
     n = len(add_on)
-    assert c.handler(**EVENT) == {"ok": False, "outcome": "not_enabled"}
+    assert c.handler(**EVENT) == {"ok": False, "outcome": "not_enabled", "say": wcal.ADD_EVENT_SAY["not_enabled"]}
     assert len(add_on) == n
 
 
@@ -498,3 +650,22 @@ def test_book_passes_outside_open_hours_through(calls):
     _answer(calls, _resp(200, {"ok": True, "result": {"outcome": "booked", "outside_open_hours": True}}))
     out = _cap("windy_calendar.book").handler(starts_at_utc="2026-10-23T01:00:00Z", booker_name="A", booker_email="a@b.c")
     assert out["ok"] is True and out["outside_open_hours"] is True
+
+
+
+# ── windy-contracts #275: a reused key with different details (422 idempotency_key_reused) ───────────────────────────
+
+@pytest.mark.parametrize("tool,cap,args,words", [
+    ("book_appointment", "windy_calendar.book",
+     {"starts_at_utc": "2026-10-12T15:00:00Z", "booker_name": "A", "booker_email": "a@b.c"},
+     "This booking was already made with different details; ask me to change that booking instead of booking again."),
+    ("add_event", "windy_calendar.add_event",
+     {"title": "Dentist", "starts_at_utc": "2026-10-12T15:00:00Z", "duration_minutes": 30},
+     "That event is already on the calendar with different details; ask me to change it instead."),
+])
+def test_a_reused_key_with_other_details_is_a_true_sentence_never_slot_taken(calls, monkeypatch, tool, cap, args, words):
+    monkeypatch.setenv("WINDY_CALENDAR_ADD_EVENT", "1")
+    _answer(calls, _resp(422, {"ok": False, "error": "idempotency_key_reused"}))
+    out = wc.invoke(tool, dict(args, idempotency_key="k-12345678"), write=True)
+    assert out == {"ok": False, "code": "idempotency_key_reused", "say": words}
+    assert len(calls) == 1                                                  # never retried: nothing was made

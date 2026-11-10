@@ -21,7 +21,6 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
-from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +82,9 @@ def load_config(path: str | None = None) -> dict[str, Any]:
     Raises:
         FileNotFoundError: when the config file does not exist.
     """
-    load_dotenv()
+    from windyfly.env_file import load_agent_env
+
+    load_agent_env(path)
 
     if path is None:
         path = os.environ.get("WINDYFLY_CONFIG", "windyfly.toml")

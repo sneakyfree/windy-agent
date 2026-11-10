@@ -165,3 +165,78 @@ def test_disabled_by_env(monkeypatch):
     reg = CapabilityRegistry()
     mc.register_mcp_client_capabilities(reg, CONFIG)
     assert reg.get("mcp.list_tools") is None
+
+
+# ── hands.mcp.v1 rev.7 consent_surface_rule (windy-contracts #278): the refusal is FINAL ──────────────────
+
+class _RefusingConnector(_StubConnector):
+    def __init__(self, content, is_error=False):
+        super().__init__()
+        self.content, self.is_error = content, is_error
+
+    async def call(self, spec, tool, arguments):
+        self.calls.append((spec.name, tool, arguments))
+        return {"isError": self.is_error, "content": self.content}
+
+
+@pytest.mark.parametrize("content,is_error", [
+    ('{"ok": false, "error": "windy_consent_surface"}', False),
+    ('{"ok": false, "error": "windy_consent_surface", "detail": "Windy Accounts sign-in"}', True),
+])
+def test_a_consent_surface_refusal_is_final_with_fixed_words(monkeypatch, content, is_error):
+    s = _RefusingConnector(content, is_error)
+    monkeypatch.setattr(mc, "_CONNECTOR", s)
+    _, _, call = mc._make_handlers(mc._parse_allowlist(CONFIG))
+    out = _run(call(server="windy-word", tool="type_text", arguments={"text": "x"}))
+    assert out["ok"] is False and out["final"] is True and out["do_not_retry"] is True
+    assert out["error"] == "windy_consent_surface" and out["say"] == mc.CONSENT_SURFACE_SAY
+    assert "result" not in out and len(s.calls) == 1  # one call, no retry, the tool's own text not relayed
+
+
+@pytest.mark.parametrize("content", ['{"ok": false, "error": "not_found"}', '{"ok": true}', "plain text",
+                                     '["windy_consent_surface"]', '{"ok": 0, "error": "windy_consent_surface"}'])
+def test_anything_else_is_passed_through_as_before(monkeypatch, content):
+    monkeypatch.setattr(mc, "_CONNECTOR", _RefusingConnector(content))
+    _, _, call = mc._make_handlers(mc._parse_allowlist(CONFIG))
+    out = _run(call(server="windy-word", tool="click_element", arguments={}))
+    assert "final" not in out and out["result"] == content
+
+
+class _BlocksConnector(_StubConnector):
+    """The real connector's shape: joined text + each block + structuredContent (Hub on #719: rev.7 does not say ONE
+    text block, so a refusal in any single block, or in structuredContent, still counts)."""
+
+    def __init__(self, blocks, structured=None):
+        super().__init__()
+        self.blocks, self.structured = blocks, structured
+
+    async def call(self, spec, tool, arguments):
+        self.calls.append((spec.name, tool, arguments))
+        out = {"isError": True, "content": "\n".join(self.blocks), "blocks": list(self.blocks)}
+        if self.structured is not None:
+            out["structured"] = self.structured
+        return out
+
+
+REFUSAL = '{"ok": false, "error": "windy_consent_surface"}'
+
+
+@pytest.mark.parametrize("blocks,structured", [
+    ([REFUSAL, "That window is a Windy sign-in page."], None),     # a human note in a second block
+    (["Refused.", '{\n  "ok": false,\n  "error": "windy_consent_surface"\n}'], None),  # pretty JSON, second block
+    (["Refused (see structured content)."], {"ok": False, "error": "windy_consent_surface"}),
+])
+def test_the_refusal_counts_in_any_one_block_or_structured_content(monkeypatch, blocks, structured):
+    s = _BlocksConnector(blocks, structured)
+    monkeypatch.setattr(mc, "_CONNECTOR", s)
+    _, _, call = mc._make_handlers(mc._parse_allowlist(CONFIG))
+    out = _run(call(server="windy-word", tool="type_text", arguments={"text": "x"}))
+    assert out["final"] is True and out["error"] == "windy_consent_surface" and len(s.calls) == 1
+
+
+def test_a_block_that_only_mentions_the_code_is_not_a_refusal(monkeypatch):
+    s = _BlocksConnector(["The error windy_consent_surface means a Windy screen.", '{"ok": true}'])
+    monkeypatch.setattr(mc, "_CONNECTOR", s)
+    _, _, call = mc._make_handlers(mc._parse_allowlist(CONFIG))
+    out = _run(call(server="windy-word", tool="read_screen", arguments={}))
+    assert "final" not in out

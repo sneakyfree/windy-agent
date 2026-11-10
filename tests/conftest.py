@@ -27,6 +27,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -222,9 +223,9 @@ def _no_real_process_kills(request):
     #
     # systemctl_stop + os.system are the systemd-era twins of the
     # kill_by_name hazard. ``commands.core.cmd_stop`` / ``cmd_kill``
-    # resolve the live unit with find_systemd_unit_for_pattern(
-    # "windyfly.main") and hand it to systemctl_stop — on a machine
-    # running a live agent that resolves to the PRODUCTION unit, and
+    # resolve the unit with own_systemd_unit() (this process's own
+    # cgroup) and hand it to systemctl_stop — a test run inside a
+    # systemd service (a CI runner, a live agent's unit) resolves to it, and
     # a clean ``systemctl stop`` also suppresses Restart=, so the agent
     # stays down. os.system carries the `pkill -f windyfly`
     # fall-throughs that run when the systemd branch is not taken.
@@ -241,7 +242,7 @@ def _no_real_process_kills(request):
     # so patching the platform attribute intercepts the production call
     # while tests that import it at module scope (e.g.
     # tests/test_systemd_aware_stop.py) still exercise the real code.
-    with patch("windyfly.cli.kill_by_name", return_value=None), \
+    with patch("windyfly.cli.find_by_name", return_value=[]), \
          patch("windyfly.channels.rescue.schedule_restart"), \
          patch(
              "windyfly.platform.systemctl_stop",
@@ -343,7 +344,37 @@ def _isolate_project_root(request, monkeypatch, tmp_path):
         ):
             if hasattr(mod, attr):
                 monkeypatch.setattr(mod, attr, root / rel)
+    # Two more import-time paths under the real project root that the suite wrote into the checkout (Hub on #700,
+    # 11-03): cloud_backup's backup state and the bot-key audit log.
+    for mod_name, attr, rel in (("windyfly.cloud_backup", "_BACKUP_STATE_FILE", "data/backup_state.json"),
+                                ("windyfly.auth.audit", "AUDIT_LOG_PATH", "data/audit/bot_key_usage.jsonl")):
+        try:
+            mod = importlib.import_module(mod_name)
+        except Exception:
+            continue
+        if hasattr(mod, attr):
+            monkeypatch.setattr(mod, attr, root / rel)
     yield
+
+
+# Files a test must never leave in the checkout (each one was found there after a suite run, 11-03). A leftover
+# data/windyfly.db is worse than clutter: since #699 a database at its old place is USED, so one test's leak became
+# the next run's memory.
+_REPO = Path(__file__).resolve().parent.parent
+_NEVER_IN_CHECKOUT = ("data/windyfly.db", "data/windyfly.db-wal", "data/windyfly.db-shm", "data/backup_state.json",
+                      "data/audit", "data/runtime_claim.json", ".env.ept-lock")
+
+
+@pytest.fixture(autouse=True)
+def _no_files_left_in_the_checkout(request):
+    """Fails the test that CREATES one of those files in the checkout, naming it (a file that was already there
+    before the test is left alone: a developer's own checkout may hold one)."""
+    before = {rel for rel in _NEVER_IN_CHECKOUT if (_REPO / rel).exists()}
+    yield
+    made = [rel for rel in _NEVER_IN_CHECKOUT if rel not in before and (_REPO / rel).exists()]
+    if made:
+        pytest.fail(f"{request.node.nodeid} left {made} in the checkout ({_REPO}); write under tmp_path instead",
+                    pytrace=False)
 
 
 @pytest.fixture(autouse=True)
@@ -493,3 +524,15 @@ def _no_owner_pause_check(monkeypatch):
     monkeypatch.setattr(models, "check_owner_pause", lambda force=False: models.owner_paused())
     yield
     models.clear_owner_pause()
+
+
+@pytest.fixture(autouse=True)
+def _isolated_matrix_state(tmp_path, monkeypatch):
+    """Each test gets its own at-most-once record and sync position (never ~/.windy's)."""
+    from windyfly.channels import handled_events, sync_position
+
+    monkeypatch.setenv(handled_events.ENV_VAR, str(tmp_path / "handled_events.json"))
+    monkeypatch.setenv(sync_position.ENV_VAR, str(tmp_path / "matrix_sync_position.json"))
+    handled_events.reset_cache()
+    yield
+    handled_events.reset_cache()

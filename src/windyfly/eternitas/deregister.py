@@ -125,7 +125,9 @@ def mark_local_revoked(passport: str) -> dict[str, Any]:
             return {"env_file": str(path), "changed": False}
         backup = path.with_name(f"{path.name}.bak-deregister-{stamp}")
         shutil.copy2(path, backup)
-        os.chmod(backup, mode)
+        from windyfly.state_files import restrict_to_owner
+
+        restrict_to_owner(backup)  # 0600 whatever the env file's mode: it holds the env file's secrets (Hub)
         fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as fh:

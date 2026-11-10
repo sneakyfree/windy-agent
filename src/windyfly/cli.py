@@ -63,7 +63,8 @@ from windyfly.platform import (
     get_data_dir,
     get_log_path,
     get_project_root,
-    kill_by_name,
+    find_by_name,
+    pid_is_ours,
     process_alive,
     process_terminate,
     read_pid_file,
@@ -405,7 +406,7 @@ def cmd_stop(_args: argparse.Namespace) -> None:
         if pid is None:
             continue
         try:
-            if process_alive(pid):
+            if process_alive(pid) and pid_is_ours(pid):
                 if process_terminate(pid):
                     console.print(f"  [green]✓[/green] Stopped {label} (PID {pid})")
                     stopped += 1
@@ -572,14 +573,18 @@ def cmd_setup(_args: argparse.Namespace) -> None:
         console.print("\n  [dim]Gateway stopped. Run `windy start` to launch the full stack.[/dim]")
 
 
+_AGENT_PATTERNS = ["windyfly.bridge.uds_server", "windyfly.main", "bun run src/server.ts"]
+
+
 def _do_kill_by_name() -> None:
-    """Fallback: try to kill processes by name."""
-    kill_by_name([
-        "windyfly.bridge.uds_server",
-        "windyfly.main",
-        "bun run src/server.ts",
-    ])
-    console.print("  [dim]Sent terminate signal to any matching processes[/dim]")
+    """No PID of ours to stop: name the matching processes instead of killing by name (exact-PID rule)."""
+    found = find_by_name(_AGENT_PATTERNS)
+    if not found:
+        return
+    console.print("  [yellow]Not stopping anything by name. These look like Windy Fly processes of yours; "
+                  "stop the one you mean by its PID (kill PID):[/yellow]")
+    for pid, args in found[:10]:
+        console.print(f"    {pid}  {args[:100]}")
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -627,7 +632,7 @@ def _cmd_kill(_args: argparse.Namespace) -> None:
 
     if pid_info:
         for label, pid in [("Brain", pid_info.brain), ("Gateway", pid_info.gateway)]:
-            if pid is not None and process_alive(pid):
+            if pid is not None and process_alive(pid) and pid_is_ours(pid):
                 if force_kill(pid):
                     console.print(f"  [green]✓[/green] Killed {label} (PID {pid})")
                     killed += 1
@@ -826,6 +831,26 @@ def _cmd_bring_home(args: argparse.Namespace) -> None:
     from windyfly.bring_home import run
 
     sys.exit(run(console))
+
+
+def _cmd_home(args: argparse.Namespace) -> None:
+    """windy home pair — bring your agent home to this computer with a code your phone approves (Windy Connect)."""
+    import sys
+
+    if getattr(args, "home_command", None) == "install":
+        # Windy Word's desktop door: the ticket comes on stdin only (home handover desktop pickup code, #273).
+        from windyfly.home_install import install
+
+        sys.exit(install(console, ticket=args.ticket, json_status=bool(args.json_status)))
+    if getattr(args, "home_command", None) != "pair":
+        console.print("Usage: windy home pair [--json-status] [--device-name NAME] [--yes]\n"
+                      "       windy home install --ticket - [--json-status]")
+        sys.exit(2)
+    from windyfly.home_pair import pair
+
+    ask = console.input if sys.stdin.isatty() and not args.json_status else None
+    sys.exit(pair(console, json_status=bool(args.json_status), device_name=args.device_name or "",
+                  yes=bool(args.yes), ask=ask))
 
 
 def _cmd_deregister(args: argparse.Namespace) -> None:
@@ -1173,6 +1198,7 @@ _COMMAND_CATEGORIES = [
         ("ept refresh", "Renew the Eternitas passport token"),
         ("deregister", "Permanently revoke this agent's Eternitas passport"),
         ("bring-home", "Move your cloud agent onto this machine"),
+        ("home pair", "Bring your agent home with a code your phone approves"),
         ("mail", "Show mail status"),
         ("phone", "Show phone status"),
         ("cert", "Show birth certificate"),
@@ -1324,6 +1350,11 @@ def _install_launchd(uv_path: str, brain_log: str) -> None:
     plist_dir.mkdir(parents=True, exist_ok=True)
     plist_path = plist_dir / "com.windyfly.agent.plist"
 
+    env_file = PROJECT_ROOT / ".env"
+    from xml.sax.saxutils import escape as _xml
+
+    env_entry = (f"\n        <key>WINDY_ENV_FILE</key>\n        <string>{_xml(str(env_file))}</string>"
+                 if env_file.exists() else "")
     plist_content = f"""\
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
@@ -1360,7 +1391,7 @@ def _install_launchd(uv_path: str, brain_log: str) -> None:
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>/usr/local/bin:/usr/bin:/bin:{Path.home()}/.local/bin:{Path.home()}/.bun/bin</string>
+        <string>/usr/local/bin:/usr/bin:/bin:{Path.home()}/.local/bin:{Path.home()}/.bun/bin</string>{env_entry}
     </dict>
 </dict>
 </plist>
@@ -1386,7 +1417,10 @@ def _install_systemd(uv_path: str, brain_log: str) -> None:
 
     # Build EnvironmentFile line if .env exists
     env_file = PROJECT_ROOT / ".env"
-    env_line = f"EnvironmentFile={env_file}" if env_file.exists() else ""
+    from windyfly.env_file import systemd_quote
+
+    env_line = (f'EnvironmentFile={env_file}\nEnvironment="WINDY_ENV_FILE={systemd_quote(str(env_file))}"'
+                if env_file.exists() else "")
 
     unit_content = f"""\
 [Unit]
@@ -1467,6 +1501,10 @@ def main() -> None:
     from windyfly.observability import synthetic
 
     synthetic.install()  # X-Windy-Synthetic on every request, probes only
+    # The CLI is the owner's own tool in their own project: name the project .env explicitly, so everything it starts
+    # (the agent, the bridge) reads that file by name (Boss 2026-11-07T16:13:24Z, option B).
+    if not os.environ.get("WINDY_ENV_FILE", "").strip() and (PROJECT_ROOT / ".env").is_file():
+        os.environ["WINDY_ENV_FILE"] = str(PROJECT_ROOT / ".env")
     parser = argparse.ArgumentParser(
         prog="windy",
         description="Windy Fly — Your AI. Your Rules. Your Ecosystem.",
@@ -1632,6 +1670,22 @@ def main() -> None:
 
     # windy bring-home — move a cloud-born agent onto this machine (hub handover)
     sub.add_parser("bring-home", help="Move your cloud agent onto this machine")
+
+    # windy home pair — bring your agent home with a code your phone approves (Windy Connect #105)
+    home_parser = sub.add_parser("home", help="Bring your agent home to this computer")
+    home_sub = home_parser.add_subparsers(dest="home_command")
+    home_pair = home_sub.add_parser("pair", help="Pair this computer with a code your phone approves")
+    home_pair.add_argument("--json-status", action="store_true",
+                           help="One JSON object per line on stdout, for a program driving this")
+    home_pair.add_argument("--yes", action="store_true",
+                           help="Answer yes to replacing this computer's link to an agent in the cloud")
+    home_pair.add_argument("--device-name", default="",
+                           help="The name your phone shows for this computer (default: your home label)")
+    home_install = home_sub.add_parser("install", help="Windy Word's desktop install: the ticket comes on stdin")
+    home_install.add_argument("--ticket", required=True,
+                              help="Only '-': the ticket is read from stdin, never from the command line")
+    home_install.add_argument("--json-status", action="store_true",
+                              help="One JSON object per line on stdout, for Windy Word")
 
     # windy deregister — the owner permanently revokes the agent's passport
     dereg_parser = sub.add_parser("deregister", help="Permanently revoke this agent's Eternitas passport")
@@ -1866,6 +1920,7 @@ def main() -> None:
         "ept": _cmd_ept,
         "deregister": _cmd_deregister,
         "bring-home": _cmd_bring_home,
+        "home": _cmd_home,
         "keys": _cmd_keys,
         "agent-key": _cmd_agent_key,
         "mail": _cmd_mail,

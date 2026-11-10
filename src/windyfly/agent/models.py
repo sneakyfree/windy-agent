@@ -1152,11 +1152,13 @@ def _try_mind_broker(
                 _last_mind_unreadable = True
                 logger.warning("Windy Mind still cannot read the pause switch; holding off (no fallback)")
                 return None
-        if resp.status_code in _MIND_BUSY:
+        if resp.status_code in _MIND_BUSY and _refused_key_provider(resp) is None:
             # Busy, not broken (Mind 2026-09-24: free quotas spent, a lane
             # down). One retry after a short wait usually lands, and beats a
             # sticky drop to the local lifeboat model. Turns run off the
             # event loop (agent/executor.py), so this sleep blocks no channel.
+            # A 502 that says the owner's OWN key was refused (x-mind-connection) is not busy:
+            # a retry only sends the same empty key again and makes the owner wait (Mind #601).
             try:
                 wait = float(resp.headers.get("retry-after") or _MIND_BUSY_WAIT_S)
             except (TypeError, ValueError):
@@ -1187,6 +1189,16 @@ def _try_mind_broker(
             _last_mind_failure = "mind stopped by owner"
             _latch_pause(stop)
             return None
+        if resp.status_code in (401, 403):
+            # Mind refused because Eternitas did: the agent is retired, suspended or revoked (Hub's #265 Q4). That is
+            # a STOP like the owner's (windyfly.agent.standing), never "Mind unavailable" and never the lifeboat.
+            from windyfly.agent import standing as _standing
+
+            standing_code = _mind_error_code(resp) or _mind_body_error_code(resp)
+            if _standing.kind_of(standing_code):
+                _standing.latch(standing_code)
+                _last_mind_failure = f"mind {standing_code}"
+                return None
         if resp.status_code == 403 and _mind_error_code(resp) == _NO_THIRD_PARTY_MODEL:
             # The named model runs outside Windy: no model swap, no direct chain (Mind 10-15).
             _last_mind_failure = f"mind {_NO_THIRD_PARTY_MODEL}"
@@ -1600,6 +1612,11 @@ def call_llm(
         _record_llm_call(record)
 
     global _last_mind_stop
+    from windyfly.agent.standing import AgentStopped, stopped as _standing_stop
+    if _standing_stop():
+        # Eternitas refused this agent's token (retired, suspended, revoked, this key revoked): no Mind call, no
+        # provider, no local model, until a good mint lifts it (Boss 11-04).
+        raise AgentStopped()
     if check_owner_pause():
         # Stopped by the owner: no Mind call, no direct provider, no local model.
         raise AgentPausedByOwner(_paused.get("reason", ""))
@@ -1608,6 +1625,8 @@ def call_llm(
         _t0 = time.monotonic()
         mind_resp = _try_mind_broker(messages, model, temperature, max_tokens, tools)
         mind_note = _last_mind_failure if mind_resp is None else None
+        if mind_resp is None and _standing_stop():
+            raise AgentStopped()   # a refused mint DURING this call: never the lifeboat below
         if mind_resp is None and _last_mind_stop:
             raise AgentPausedByOwner(_last_mind_stop)
         if mind_resp is None and _last_mind_unreadable:

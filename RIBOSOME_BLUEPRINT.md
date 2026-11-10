@@ -4,7 +4,7 @@
 > Any fresh AI session can read this file and execute every step without additional context.
 >
 > **Created:** 2026-03-27 by conversation `993c8581-d587-491e-a26b-9808c0960a6d`
-> **Codebase:** `/Users/thewindstorm/Desktop/Grant's Folder/windy-agent`
+> **Codebase:** your windy-agent checkout
 > **Framework:** Python 3.12 (uv), Bun/TypeScript gateway, SQLite memory store
 > **Current state:** 321 tests passing, commit `db0488b` on `master`
 
@@ -15,7 +15,7 @@
 Before building anything, verify the starting state:
 
 ```bash
-cd "/Users/thewindstorm/Desktop/Grant's Folder/windy-agent"
+cd windy-agent   # your checkout
 uv run pytest tests/ -x -q   # Must show 321 passed
 git log -1 --oneline          # Must show db0488b or later
 ```
@@ -1242,7 +1242,7 @@ After all 6 features are implemented, run these verification steps in order:
 
 ```bash
 # 1. Full regression — must pass ALL tests (321 existing + new)
-cd "/Users/thewindstorm/Desktop/Grant's Folder/windy-agent"
+cd windy-agent   # your checkout
 uv run pytest tests/ -x -q
 
 # 2. Count new tests — should be ~25-30 new

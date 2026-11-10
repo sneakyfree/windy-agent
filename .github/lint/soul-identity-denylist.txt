@@ -1,0 +1,3 @@
+# Real agent and owner names that must never ship in the generic soul, the personality code or a .toml config.
+# PUBLIC names only (this repo is public): nothing private goes here. One per line, matched case-insensitively.
+Windy 0

@@ -1,0 +1,1 @@
+- The file tools also refuse, below the owner, any soul file the agent has loaded (resolved, so a link to it too), whatever it is named; before, only a file named SOUL.md was refused.

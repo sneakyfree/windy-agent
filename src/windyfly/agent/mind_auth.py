@@ -60,7 +60,8 @@ def legacy_allowed() -> bool:
 
 
 def _fallback(ept: str) -> dict[str, str]:
-    return legacy_headers(ept) if legacy_allowed() else {}
+    """No long-lived token (a key-only agent) = nothing to fall back on: no header, and no legacy-auth count."""
+    return legacy_headers(ept) if ept and legacy_allowed() else {}
 
 
 def legacy_headers(ept: str) -> dict[str, str]:
@@ -93,7 +94,9 @@ def headers(method: str, url: str, ept: str) -> tuple[dict[str, str], bool]:
         else:
             _warn_once(f"mint:{exc.code}:{exc.detail}", "Windy Mind: no EPT+agent (%s %s); %s",
                        exc.code, exc.detail,
-                       "using the legacy EPT" if legacy_allowed() else "no legacy fallback, so Mind will refuse")
+                       "using the legacy EPT" if legacy_allowed() and ept
+                       else "no legacy EPT on this agent, so Mind will refuse" if legacy_allowed()
+                       else "no legacy fallback, so Mind will refuse")
         return _fallback(ept), False
 
 
@@ -125,7 +128,7 @@ def _call(send: Any, method: str, url: str, ept: str) -> Any:
         auth, agent = headers(method, url, ept)
         resp = send(auth)
         code = refused_auth(resp) if agent else None
-        if code and legacy_allowed():
+        if code and legacy_allowed() and ept:
             _warn_once(f"refused:{code}", "Windy Mind refused the EPT+agent twice (%s); using the legacy EPT", code)
             resp = send(legacy_headers(ept))
         elif code:
@@ -172,6 +175,6 @@ def get(url: str, ept: str, timeout: float) -> Any:
     resp = httpx.get(url, headers=auth, timeout=timeout)
     if agent and refused_auth(resp):
         forget_token()
-        if legacy_allowed():
+        if legacy_allowed() and ept:
             resp = httpx.get(url, headers=legacy_headers(ept), timeout=timeout)
     return resp

@@ -1,0 +1,1 @@
+- The shell sandbox masks every always-deny path inside its mounts (an empty read-only tmpfs over folders, /dev/null over files); the deny list adds logins, token stores and browser profiles; host_rw checks the turn's real band.
