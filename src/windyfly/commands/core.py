@@ -2338,15 +2338,6 @@ def _register_budget_through_help():
         return "📱 No phone number. Configure Twilio credentials."
     _r("phone", "Show phone number", "09_identity", cmd_phone_status)
 
-    async def cmd_cert(ctx):
-        import glob
-        certs = glob.glob("data/birth_certificate_*.pdf")
-        if certs:
-            latest = sorted(certs)[-1]
-            return f"📜 Birth Certificate: {latest}\n(Open with: open {latest})"
-        return "📜 No birth certificate. Run /go to generate."
-    _r("cert", "Show or open birth certificate", "09_identity", cmd_cert, aliases=["certificate"])
-
     async def cmd_channels(ctx):
         channels = {
             "CLI": ("Always on", True),
@@ -2632,8 +2623,6 @@ def _register_budget_through_help():
             if src.exists():
                 files_to_backup.append((src, rel))
         for f in sorted((PROJECT_ROOT / "data" / "sounds").glob("*")):
-            files_to_backup.append((f, str(f.relative_to(PROJECT_ROOT))))
-        for f in sorted((PROJECT_ROOT / "data").glob("birth_certificate_*.pdf")):
             files_to_backup.append((f, str(f.relative_to(PROJECT_ROOT))))
         try:
             with tempfile.TemporaryDirectory(prefix="windyfly-export-") as tmp:

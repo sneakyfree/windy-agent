@@ -15,7 +15,7 @@ from __future__ import annotations
 
 # The frozen 2026-07-04 duplicate set. SHRINK ONLY.
 KNOWN_DUPLICATES = frozenset({
-    "budget", "cert", "config", "debug", "doctor", "export", "import",
+    "budget", "config", "debug", "doctor", "export", "import",
     "kill", "logs", "mail", "memory", "model", "passport", "phone",
     "ps", "repl", "reset", "restart", "skills", "soul", "update",
     "version",

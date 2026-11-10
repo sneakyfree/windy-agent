@@ -270,15 +270,6 @@ def show_ecosystem_status(hatch_result=None, config: dict | None = None) -> None
     else:
         table.add_row("Phone", "[dim]Pending[/dim]", "Add Twilio creds to enable")
 
-    # ── Birth Certificate ──
-    cert_num = getattr(hatch_result, "certificate_number", "") if hatch_result else ""
-    cert_path = getattr(hatch_result, "birth_certificate_path", "") if hatch_result else ""
-    if cert_num:
-        detail = cert_path if cert_path else cert_num
-        table.add_row("Certificate", "[green]Ready[/green]", detail)
-    else:
-        table.add_row("Certificate", "[dim]Pending[/dim]", "Generated on hatch")
-
     # ── Windy Word ──
     windy_pro_url = eco.get("windy_pro_url") or os.environ.get("WINDY_API_URL", "")
     windy_jwt = os.environ.get("WINDY_JWT", "")
