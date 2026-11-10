@@ -263,7 +263,7 @@ def test_after_a_429_the_next_calls_do_not_reach_eternitas(registered, monkeypat
         with pytest.raises(ak.AgentTokenError) as again:
             ak.request_agent_token(aud, transport=t)
         assert again.value.status == 429 and again.value.code == "rate_limited"
-        assert 0 < again.value.retry_after <= 61
+        assert 0 < again.value.retry_after <= 121
     assert f.calls == 1  # 3 more asks, 0 more network calls: Eternitas's window can close
 
 
@@ -273,7 +273,7 @@ def test_when_the_wait_is_over_the_agent_asks_again_and_a_token_clears_it(regist
     t = httpx.MockTransport(f.handle)
     with pytest.raises(ak.AgentTokenError):
         ak.request_agent_token("windy-mind", transport=t)
-    clock["now"] += 60.5  # Retry-After 60 plus the 1 s edge: still waiting
+    clock["now"] += 120.5  # twice Retry-After 60 plus the 1 s edge: still waiting
     with pytest.raises(ak.AgentTokenError):
         ak.request_agent_token("windy-mind", transport=t)
     assert f.calls == 1
@@ -282,17 +282,40 @@ def test_when_the_wait_is_over_the_agent_asks_again_and_a_token_clears_it(regist
     assert f.calls == 2 and not ak._MINT_WAIT
 
 
-def test_a_429_without_retry_after_waits_the_60_second_window(registered, monkeypatch):
+def test_a_429_without_retry_after_waits_twice_the_60_second_window(registered, monkeypatch):
     clock = _clock(monkeypatch)
     f = Limited(registered, refusals=1, retry_after=None)
     t = httpx.MockTransport(f.handle)
     with pytest.raises(ak.AgentTokenError):
         ak.request_agent_token("windy-mind", transport=t)
-    clock["now"] += 59
+    clock["now"] += 119
     with pytest.raises(ak.AgentTokenError):
         ak.request_agent_token("windy-mind", transport=t)
     clock["now"] += 3
     assert ak.request_agent_token("windy-mind", transport=t)["token"] and f.calls == 2
+
+
+def _asks_until_free(wait: float, limit: int = 20) -> int | None:
+    """Two processes of one agent against Eternitas as it is today: a refused ask re-arms the 60 s window.
+    A is refused at 0, B at 30; each asks again the moment its own wait ends. Returns how many more asks it
+    takes until one gets through, or None if none does within ``limit``."""
+    window_until = 30.0 + 60.0  # B's refused ask at 30 re-armed A's window
+    next_ask = {"A": wait, "B": 30.0 + wait}
+    for n in range(1, limit + 1):
+        who = min(next_ask, key=lambda k: next_ask[k])
+        now = next_ask[who]
+        if now >= window_until:
+            return n
+        window_until = now + 60.0
+        next_ask[who] = now + wait
+    return None
+
+
+def test_two_processes_of_one_agent_cannot_keep_each_other_locked():
+    # Retry-After + 1 s alone never frees the passport: each process's ask lands inside the other's window.
+    assert _asks_until_free(ak.RATE_LIMIT_WAIT_S + 1.0) is None
+    # The shipped wait (twice Retry-After, + 1 s) gets through on the very next ask.
+    assert _asks_until_free(ak.RATE_LIMIT_WAIT_S * ak.RATE_LIMIT_WAIT_FACTOR + 1.0) == 1
 
 
 def test_a_huge_retry_after_is_capped(registered, monkeypatch):

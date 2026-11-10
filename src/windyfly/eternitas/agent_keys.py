@@ -1223,7 +1223,14 @@ MINT_RETRY_S = 0.5
 # (a heartbeat alone is one every 30 s) asked for a token again, and every refused ask kept Eternitas's window
 # open, so the passport stayed locked out for days. The wait is per key, across every audience, because the limit
 # is per passport. A token that is still valid keeps working meanwhile.
+#
+# The wait is TWICE what Eternitas names, plus 1 s (Eternitas, BOARD 2026-11-10T19:10:21Z). The wait lives in one
+# process, and one agent can run two (Zero does). While a refused ask re-arms Eternitas's window, two processes
+# that each wait 61 s after their own 429 keep each other locked: A refused at t, B at t+30, A again at t+61, B at
+# t+91, and so on. With 121 s, A is still waiting when B's window closes. Once Eternitas's window is fixed (a
+# refused ask no longer re-arms it) the doubling costs one extra minute after a refusal and nothing else.
 RATE_LIMIT_WAIT_S = 60.0
+RATE_LIMIT_WAIT_FACTOR = 2.0
 RATE_LIMIT_WAIT_MAX_S = 300.0
 _MINT_WAIT: dict[str, float] = {}  # kid -> epoch seconds until which this process does not ask Eternitas
 
@@ -1231,7 +1238,8 @@ _MINT_WAIT: dict[str, float] = {}  # kid -> epoch seconds until which this proce
 def _hold_after_429(kid: str, err: "AgentTokenError", now: float) -> None:
     wait = err.retry_after if err.retry_after and err.retry_after > 0 else RATE_LIMIT_WAIT_S
     with _TOKEN_LOCK:
-        _MINT_WAIT[kid] = now + min(wait, RATE_LIMIT_WAIT_MAX_S) + 1.0  # +1 s: never land on the window's edge
+        # +1 s: never land on the window's edge
+        _MINT_WAIT[kid] = now + min(wait * RATE_LIMIT_WAIT_FACTOR, RATE_LIMIT_WAIT_MAX_S) + 1.0
 
 
 def _held_for(kid: str, now: float) -> float:
@@ -1272,8 +1280,8 @@ def request_agent_token(aud: str, *, transport: httpx.BaseTransport | None = Non
     Cached per (kid, aud) until ``min_ttl`` seconds before expiry (tokens live ≤5 min;
     Eternitas limits mints per passport per minute). A TRANSIENT mint failure (network, 5xx, 429) returns the cached
     token while it is still valid; with nothing cached, a network failure is retried once after MINT_RETRY_S.
-    After a 429 nothing is asked of Eternitas until its Retry-After (or 60 s) has passed: the still-valid cached
-    token is returned, or the same 429 is raised with the seconds left, without a network call.
+    After a 429 nothing is asked of Eternitas until twice its Retry-After (or 60 s) has passed: the still-valid
+    cached token is returned, or the same 429 is raised with the seconds left, without a network call.
     Any other refusal (revoked, suspended...) drops the cached token and raises. Returns Eternitas's body
     ``{token, token_type, expires_in, aud, passport}`` plus ``expires_at`` (epoch s).
     Raises :class:`AgentTokenError`. Services that take the token for WRITES also want a
