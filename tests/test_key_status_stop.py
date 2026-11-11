@@ -20,7 +20,7 @@ import pytest
 from windyfly.agent import standing
 from windyfly.eternitas import agent_keys as ak
 
-PASSPORT = "ET26-KSTS-0001"
+PASSPORT = "ET26-TEST-KSTS"
 NEUTRAL = "Pip can't run on this computer right now, so it isn't answering here."
 MOVE_LINE = ("The move to this computer didn't finish, so Pip is still running where it was, not on this computer. "
              "To try again, run windy home pair for a new code.")
