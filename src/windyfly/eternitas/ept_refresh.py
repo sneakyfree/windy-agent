@@ -231,6 +231,7 @@ def _refresh_by_agent_key(passport: str, url: str, transport) -> httpx.Response 
         from windyfly.eternitas import agent_keys
         if not agent_keys.has_registered_key():
             return None
+        kid = agent_keys.active_kid()
         with httpx.Client(timeout=_HTTP_TIMEOUT, transport=transport) as client:
             proof = agent_keys.agent_proof(client, passport, "POST", f"/api/v1/bots/{passport}/ept/refresh")
             if not proof:
@@ -242,8 +243,11 @@ def _refresh_by_agent_key(passport: str, url: str, transport) -> httpx.Response 
         return None
     if resp.status_code == 200:
         return resp
-    from windyfly.eternitas.agent_keys import error_code
-    code, message = error_code(resp)
+    from windyfly.eternitas.agent_keys import _standing_from_refusal, refusal_code
+    code, message = refusal_code(resp)
+    # Eternitas says why on this call too (eternitas #349: it is the call a moved-away computer makes first). A key
+    # it names as revoked or retired is the key_revoked stop; any other refusal changes nothing, as before.
+    _standing_from_refusal(resp, code, kid=kid)
     logger.warning("EPT refresh for %s via agent key: HTTP %s %s %s; trying the token paths",
                    _passport_prefix(passport), resp.status_code, code, message)
     return None
@@ -351,8 +355,9 @@ def _refresh(force: bool, transport, now) -> dict[str, Any]:
         data = {}
     # Only a 200 that really carries a token (or Eternitas' explicit "kept") is a good mint that lifts a standing stop;
     # an empty or broken 200 changes nothing (Hub on #709).
+    by_key = path_used == "agent_key"   # a token-path renew never lifts a key_revoked stop (agent_keys)
     if not new_token and data.get("reissued") is False:
-        _standing_good_mint()
+        _standing_good_mint(by_key=by_key)
         # Eternitas kept the current EPT and said why (reissue_reason); it
         # need not echo the token back. That's success, not a failure.
         logger.info("EPT refresh for %s: kept (%s)", _passport_prefix(passport),
@@ -363,7 +368,8 @@ def _refresh(force: bool, transport, now) -> dict[str, Any]:
         logger.warning("EPT refresh for %s: response carried no usable token",
                        _passport_prefix(passport))
         return {"status": "failed", "error": "no_token"}
-    _standing_good_mint()  # Eternitas minted a usable token for this passport: a standing stop (if any) is lifted
+    # Eternitas minted a usable token for this passport: a standing stop (if any) is lifted
+    _standing_good_mint(by_key=by_key)
 
     reissued = bool(data.get("reissued"))
     reason = data.get("reissue_reason")
