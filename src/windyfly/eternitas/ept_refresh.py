@@ -298,10 +298,13 @@ def refresh_ept(
         return {"status": "failed", "error": type(exc).__name__}
 
 
-def _refresh_by_agent_key(passport: str, url: str, transport) -> httpx.Response | None:
+def _refresh_by_agent_key(passport: str, url: str, transport,
+                          refused: list[httpx.Response] | None = None) -> httpx.Response | None:
     """POST /ept/refresh with ``Eternitas-Agent-Proof`` signed by the agent's
     active registered key. None (→ use the bearer paths) when there is no such
-    key or the attempt fails; Eternitas never falls through to Bearer itself."""
+    key or the attempt fails; Eternitas never falls through to Bearer itself.
+    When Eternitas ANSWERED and refused the proof (a 4xx other than 429), that answer is appended to ``refused``:
+    the caller then never renews with the owner's cached Windy sign-in (Eternitas, BOARD 2026-11-11T08:18:15Z)."""
     try:
         from windyfly.eternitas import agent_keys
         if not agent_keys.has_registered_key():
@@ -323,9 +326,25 @@ def _refresh_by_agent_key(passport: str, url: str, transport) -> httpx.Response 
     # Eternitas says why on this call too (eternitas #349: it is the call a moved-away computer makes first). A key
     # it names as revoked or retired is the key_revoked stop; any other refusal changes nothing, as before.
     _standing_from_refusal(resp, code, kid=kid)
+    if refused is not None and 400 <= resp.status_code < 500 and resp.status_code != 429:
+        refused.append(resp)
     logger.warning("EPT refresh for %s via agent key: HTTP %s %s %s; trying the token paths",
                    _passport_prefix(passport), resp.status_code, code, message)
     return None
+
+
+def _no_signin_after_key_refusal(passport: str, refused: httpx.Response) -> dict[str, Any]:
+    """An agent that holds a key and whose key proof Eternitas refused does not fetch the passport's stored year-long
+    token with the owner's cached Windy sign-in: on a computer the agent was moved away from, that sign-in is still
+    there, and the fallback would undo the cut (Eternitas, BOARD 2026-11-11T08:18:15Z). If Eternitas named the key
+    as ended, the stop is already recorded and says its one sentence; the owner pairs the agent again."""
+    from windyfly.eternitas.agent_keys import refusal_code
+
+    code, _ = refusal_code(refused)
+    logger.warning("EPT refresh for %s: Eternitas refused this computer's key (HTTP %s %s); the owner's Windy sign-in "
+                   "is not used to renew an agent that holds a key", _passport_prefix(passport),
+                   refused.status_code, code)
+    return {"status": "failed", "http": refused.status_code, "code": code, "via": "agent_key"}
 
 
 def _owner_hub_token() -> str | None:
@@ -384,7 +403,8 @@ def _refresh(force: bool, transport, now) -> dict[str, Any]:
     # (c) The agent's own registered signing key (agent-keys v1). Needs no
     # bearer at all, so it also works once the EPT has lapsed. Any failure
     # falls back to (a)/(b) below.
-    resp: httpx.Response | None = _refresh_by_agent_key(passport, url, transport)
+    key_refused: list[httpx.Response] = []
+    resp: httpx.Response | None = _refresh_by_agent_key(passport, url, transport, key_refused)
     path_used = "agent_key" if resp is not None else ""
     after_cutoff = False
 
@@ -394,6 +414,8 @@ def _refresh(force: bool, transport, now) -> dict[str, Any]:
         bearer = ""
         if token and isinstance(exp, (int, float)) and exp > t and claims.get("sub") == passport:
             bearer, path_used = token, "own_ept"
+        elif key_refused:
+            return _no_signin_after_key_refusal(passport, key_refused[0])
         else:
             hub = _owner_hub_token()
             if hub:
@@ -408,6 +430,8 @@ def _refresh(force: bool, transport, now) -> dict[str, Any]:
         try:
             with httpx.Client(timeout=_HTTP_TIMEOUT, transport=transport) as client:
                 resp = client.post(url, json={}, headers={"Authorization": f"Bearer {bearer}"})
+                if resp.status_code == 401 and path_used == "own_ept" and _is_before_cutoff(resp) and key_refused:
+                    return _no_signin_after_key_refusal(passport, key_refused[0])
                 if resp.status_code == 401 and path_used == "own_ept" and _is_before_cutoff(resp):
                     # Eternitas set an EPT cutoff on this passport (ept-cutoff v1): every EPT issued before it is
                     # dead, this one included. The owner's own Windy sign-in is the normal way back in.
