@@ -280,6 +280,15 @@ def test_a_different_name_alone_is_not_called_a_swap(on_the_fallback, monkeypatc
     assert "is healthy again" not in out["notice"]
 
 
+def test_the_model_name_shown_to_the_owner_is_capped_and_has_no_control_characters(on_the_fallback, monkeypatch):
+    _mind(monkeypatch, _resp(200, {"x-mind-model": "evil\x1b[31m\x00name" + "x" * 300,
+                                   "x-mind-fellback-from": "a\x07b"}))
+    out = _r.attempt_paid_recovery()
+    assert out["served_model"] == ("evil[31mname" + "x" * 300)[:80] and len(out["served_model"]) == 80
+    assert all(ch.isprintable() or ch == "\n" for ch in out["notice"])
+    assert len(out["notice"]) < 300
+
+
 def test_a_recovery_with_no_model_header_keeps_the_old_sentence(on_the_fallback, monkeypatch):
     _mind(monkeypatch, _resp(200))
     out = _r.attempt_paid_recovery()

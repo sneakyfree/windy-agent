@@ -795,6 +795,14 @@ def _log_mind_refusal(resp: Any, where: str) -> None:
 
 
 _MIND_PING_MAX_TOKENS = 16
+_MODEL_NAME_MAX = 80
+
+
+def _clean_model_name(raw: Any) -> str | None:
+    """A model name from a response header, safe to show the owner and to log: no control characters, at most 80
+    characters (the same cap Windy Chat uses for this name; the Hub's note on #778, 2026-11-11T04:50:58Z)."""
+    name = "".join(ch for ch in str(raw or "") if ch.isprintable()).strip()[:_MODEL_NAME_MAX]
+    return name or None
 
 
 def mind_can_answer(model: str | None, timeout: float = 10.0) -> dict[str, Any]:
@@ -845,8 +853,8 @@ def mind_can_answer(model: str | None, timeout: float = 10.0) -> dict[str, Any]:
     status = int(getattr(resp, "status_code", 0) or 0)
     headers = getattr(resp, "headers", None) or {}
     if 200 <= status < 300:
-        served = str(headers.get("x-mind-model") or "").strip() or None
-        fellback = str(headers.get("x-mind-fellback-from") or "").strip() or None
+        served = _clean_model_name(headers.get("x-mind-model"))
+        fellback = _clean_model_name(headers.get("x-mind-fellback-from"))
         swapped = bool(fellback or str(headers.get("x-mind-served-reason") or "").strip())
         return {"ok": True, "status": status, "asked_model": asked, "served_model": served,
                 "fellback_from": fellback, "swapped": swapped,
