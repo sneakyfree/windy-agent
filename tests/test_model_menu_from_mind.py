@@ -252,3 +252,52 @@ async def test_when_the_current_model_is_down_too_mind_picks_never_still_answeri
     assert reply == ("I can't switch to Claude Sonnet 5.5: it has reached its usage limit for now. "
                      "Windy Mind will pick one for me.")
     assert "still answering" not in reply and get_model("telegram", "1") == "claude-opus-5-5"
+
+
+# ── the label is read live from catalog/me (menu.v1 1.16.0); the vendored copy is only the fallback ──
+
+RENAMED = "Let outside AI companies help when Windy is busy"
+
+
+def test_the_label_mind_serves_with_the_catalog_is_the_one_said(monkeypatch):
+    _mind_answers(monkeypatch, body={"data": CATALOG, "outside_ai_label": RENAMED})
+    assert mind_catalog.outside_ai_label() == mind_catalog.OUTSIDE_AI_LABEL      # nothing read yet: the fallback
+    assert mind_catalog.my_catalog() is not None
+    assert mind_catalog.outside_ai_label() == RENAMED
+    assert mind_catalog.unavailable_words("outside_ai_switch_off") == f"your '{RENAMED}' setting is off"
+
+
+@pytest.mark.asyncio
+async def test_model_names_the_setting_as_mind_labels_it_today(monkeypatch):
+    off = [{"id": "kimi-k2", "display_name": "Kimi K2", "power_rating": 60, "available_now": False,
+            "unavailable_reason": "outside_ai_switch_off"}]
+    _mind_answers(monkeypatch, body={"data": off, "outside_ai_label": RENAMED})
+    reply = await _model("kimi-k2")
+    assert f"your '{RENAMED}' setting is off" in reply and mind_catalog.OUTSIDE_AI_LABEL not in reply
+
+
+def test_a_mind_that_sends_no_label_gets_the_vendored_words(monkeypatch):
+    _mind_answers(monkeypatch)                                                   # an older Mind: data only
+    mind_catalog.my_catalog()
+    assert mind_catalog.outside_ai_label() == mind_catalog.OUTSIDE_AI_LABEL
+
+
+def test_a_failed_read_keeps_the_last_label_mind_served(monkeypatch):
+    _mind_answers(monkeypatch, body={"data": CATALOG, "outside_ai_label": RENAMED})
+    mind_catalog.my_catalog()
+    with mind_catalog._lock:
+        mind_catalog._cache["at"] = 0.0                                          # the 60 s cache has run out
+    _mind_answers(monkeypatch, boom=True)
+    assert mind_catalog.my_catalog() is None
+    assert mind_catalog.outside_ai_label() == RENAMED
+
+
+@pytest.mark.parametrize("served, said", [
+    ("  Use   outside\nAI\tcompanies  ", "Use outside AI companies"),             # one line, single spaces
+    ("Use\u202e outside\u0000 AI\u200b", "Use outside AI"),                       # control and format marks dropped
+    ("x" * 300, "x" * 120),                                                      # the contract's length
+    ("", None), ("\u200b\u0007", None), (17, None), (None, None), (["Use"], None),
+])
+def test_only_plain_text_within_the_contracts_length_is_shown(served, said):
+    assert mind_catalog._clean_label(served) == said
+
