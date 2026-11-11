@@ -477,14 +477,6 @@ def _no_cost_sink_leak():
 
 
 @pytest.fixture(autouse=True)
-def _sms_unparked_for_legacy_tests(monkeypatch):
-    """SMS/phone are parked in production (WINDY_ENABLE_SMS unset). The older SMS and
-    phone tests exercise the unparked code, so they run with the flag on;
-    tests/test_sms_parked.py removes it to prove the parked default."""
-    monkeypatch.setenv("WINDY_ENABLE_SMS", "1")
-
-
-@pytest.fixture(autouse=True)
 def _no_real_ollama(monkeypatch):
     """No test may reach a real Ollama (localhost:11434): CI runs on Veron, the
     production GPU host (Windy Cloud, 10-01: 2,940 warm-up calls in 30 h). Requests

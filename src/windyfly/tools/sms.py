@@ -662,6 +662,8 @@ def register_sms_tools(registry: ToolRegistry, db: Database | None = None,
     global _db, _config
     _db = db
     _config = config
+    if db is not None:
+        sms_optout.tidy_at_start(db)
     if byo_enabled():
         consent = (
             "Omit `to` to text the owner. A number the owner has not approved returns "

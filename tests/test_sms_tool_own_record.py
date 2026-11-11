@@ -322,15 +322,51 @@ def test_the_log_lines_hold_the_last_four_digits_only(box, caplog):
     assert "8888" in text and STOPPED not in text and "5558888888" not in text
 
 
-def test_the_tool_does_not_need_the_direct_channel():
-    """So the channel can be cut without touching this check: the record, the owner rule and Legal's sentence all
-    come from windyfly.sms_optout."""
+def test_there_is_no_direct_channel_and_the_tool_does_not_look_for_one():
+    """The agent texts through the Windy Text tool only. The record, the owner-only gate and Legal's sentence all
+    live in windyfly.sms_optout."""
+    import importlib.util
+
+    assert importlib.util.find_spec("windyfly.channels.sms") is None
+    assert importlib.util.find_spec("windyfly.sms_park") is None
     src = (Path(sms.__file__)).read_text(encoding="utf-8")
     assert not re.search(r"^\s*(from|import)\s+windyfly\.channels\.sms\b", src, re.M)
     assert "from windyfly.channels import sms" not in src
-    from windyfly.channels import sms as chan
 
-    assert chan.KEY_MISSING_NOTICE is so.KEY_MISSING_NOTICE and chan.owner_numbers is so.owner_numbers
+
+def test_there_is_no_sms_command_and_no_sms_start_option():
+    from windyfly import main as entry
+    from windyfly.commands import ecosystem
+    from windyfly.commands.registry import registry
+
+    ecosystem.init_ecosystem()
+    assert "sms" not in {c.name for c in registry.all()}
+    assert "sms" not in entry.CHANNEL_CHOICES
+
+
+# ── the read-only path, at the edges ──
+
+def test_no_database_yet_means_nothing_recorded(tmp_path):
+    assert so.state_readonly(STOPPED, str(tmp_path / "none.db")) == so.CLEAR
+
+
+# ── start-up housekeeping the direct channel used to do ──
+
+def test_plain_rows_from_the_old_code_become_fingerprints_when_the_tool_is_registered(box):
+    box["db"].conn.executescript(so._SQL)
+    box["db"].execute("INSERT INTO sms_optouts (number, opted_out_at) VALUES (?, ?)",
+                      (so.number_key(STOPPED), "2026-11-01T00:00:00Z"))
+    box["db"].commit()
+    sms.register_sms_tools(ToolRegistry(), box["db"], {})
+    rows = [r["number"] for r in box["db"].fetchall("SELECT number FROM sms_optouts")]
+    assert so.number_key(STOPPED) not in rows and sum(1 for n in rows if so.is_fingerprint(n)) == 1
+    assert sms.send_sms(STOPPED, "hello")["status"] == "opted_out"
+
+
+def test_registering_the_tool_for_an_agent_with_no_record_makes_no_table_and_no_key(box):
+    sms.register_sms_tools(ToolRegistry(), box["db"], {})
+    assert box["db"].fetchone("SELECT 1 AS x FROM sqlite_master WHERE name = 'sms_optouts'") is None
+    assert not so.key_path(box["path"]).exists()
 
 
 # ── the count Legal asked for ──

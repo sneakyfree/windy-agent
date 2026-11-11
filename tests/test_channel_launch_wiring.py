@@ -26,7 +26,7 @@ class TestChannelChoices:
             assert ch in CHANNEL_CHOICES, f"{ch} should be launchable"
 
     def test_existing_channels_preserved(self):
-        for ch in ("cli", "matrix", "sms", "telegram", "discord", "slack"):
+        for ch in ("cli", "matrix", "telegram", "discord", "slack"):
             assert ch in CHANNEL_CHOICES
 
     def test_whatsapp_is_not_an_in_agent_channel(self):

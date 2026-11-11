@@ -12,7 +12,7 @@ from windyfly.commands.registry import Command, registry
 logger = logging.getLogger(__name__)
 
 _db = None
-_config = None   # the agent's config, so /sms reads the SAME memory database the SMS channel records STOP in
+_config = None   # the agent's config
 
 
 def init_ecosystem(db=None, config=None):
@@ -122,54 +122,18 @@ def _register_ecosystem():
     # PHONE — Twilio via Windy Cloud (115-118)
     # ═══════════════════════════════════════════════════════════════
 
-    async def cmd_sms(ctx):
-        args = ctx.get("_args", [])
-        if len(args) < 2:
-            return "Usage: /sms <+1234567890> <message>"
-        number = args[0]
-        message = " ".join(args[1:])
-        from windyfly.sms_park import sms_enabled
-        if not sms_enabled():
-            return "Texting isn't available yet; I can reach them by email or you can message them in Windy Chat."  # sms.unavailable
-        from windyfly import sms_optout
-        from windyfly.channels.sms import KEY_MISSING_NOTICE, may_text, number_opted_out, optout_state
-        if not may_text(number, _config):
-            # Boss's opt-out order (1)(b): owner only unless WINDY_SMS_ALLOW_NON_OWNER=1. Text = sms.unavailable.
-            return "Texting isn't available yet; I can reach them by email or you can message them in Windy Chat."
-        if number_opted_out(number, config=_config):
-            if optout_state(number, config=_config) == "key_missing":
-                # LEGAL DECISION 28 (9)(2): the record cannot be read, so only the owner is texted.
-                return KEY_MISSING_NOTICE
-            if optout_state(number, config=_config) == sms_optout.UNREADABLE:
-                return sms_optout.UNREADABLE_NOTICE    # an error, not a STOP (Legal, BOARD 2026-11-11T04:55:36Z)
-            # LEGAL DECISION 28: never text a person who sent STOP, on any path. Text = sms.recipient_opted_out.
-            return "That number has opted out of texts (they replied STOP), so I didn't send it."
-        sid = os.environ.get("TWILIO_ACCOUNT_SID", "")
-        token = os.environ.get("TWILIO_AUTH_TOKEN", "")
-        from_number = os.environ.get("TWILIO_PHONE_NUMBER", "")
-        if not all([sid, token, from_number]):
-            return "Phone not configured. Set TWILIO_* env vars."
-        try:
-            from twilio.rest import Client
-            client = Client(sid, token)
-            msg = client.messages.create(body=message, from_=from_number, to=number)
-            return f"✓ SMS sent to {number} (SID: {msg.sid})"
-        except ImportError:
-            return "Twilio SDK not installed. Run: pip install twilio"
-        except Exception as e:
-            return f"SMS failed: {e}"
-    _re("sms", "Send an SMS message", "15_phone", cmd_sms,
-        usage="sms <number> <message>", dangerous=True)
+    # There is no /sms command and no direct SMS channel any more (lean Windy Fly): the agent texts through the
+    # Windy Text tool only, behind its own do-not-text record and the owner-only gate (windyfly.sms_optout).
 
     async def cmd_call(ctx):
         args = ctx.get("_args", [])
         if not args:
             return "Usage: /call <+1234567890>"
-        return f"Voice calls coming soon. For now, use /sms {args[0]} <message>"
+        return "Voice calls are not available yet."
     _re("call", "Initiate a voice call (coming soon)", "15_phone", cmd_call, usage="call <number>")
 
     async def cmd_sms_history(ctx):
-        return "SMS history available when Twilio is configured."
+        return "There is no text history here: your agent texts through Windy Text."
     _re("sms-history", "Show recent SMS messages", "15_phone", cmd_sms_history)
 
     async def cmd_voicemail(ctx):

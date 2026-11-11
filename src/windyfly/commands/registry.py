@@ -68,7 +68,7 @@ _REMOTE_ALLOWED_CATEGORIES = frozenset({
     # (/inbox, /read-mail, /mail-stats, /sms-history,
     # /voicemail) stay one-tap — they don't mutate state.
     "14_email",        # /inbox, /read-mail (R/O) + /send-mail, /reply-mail (gated)
-    "15_phone",        # /sms-history, /voicemail (R/O) + /sms (gated)
+    "15_phone",        # /sms-history, /voicemail (R/O); /sms left with the direct SMS channel
 })
 
 # Channel → allowed category set. Unlisted platforms get the remote

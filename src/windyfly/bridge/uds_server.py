@@ -192,8 +192,6 @@ class UDSBridge:
             "soul.preview": self._handle_soul_preview,
             "soul.import": self._handle_soul_import,
             "soul.reject": self._handle_soul_reject,
-            "sms.inbound": self._handle_sms_inbound,
-            "sms.send": self._handle_sms_send,
             "email.inbound": self._handle_email_inbound,
             "journal.list": self._handle_journal_list,
             "assessment.run": self._handle_assessment_run,
@@ -462,23 +460,6 @@ class UDSBridge:
             # the owner can still clear the one waiting dashboard import.
             return flow.dashboard_cancel()
         return flow.dashboard_reject(params.get("token"))
-
-    async def _handle_sms_inbound(self, params: dict) -> dict:
-        from windyfly.channels.sms import WindyFlySMS
-        sms = WindyFlySMS(self.config, self.db, self.write_queue)
-        response = sms.handle_inbound(
-            params.get("From", ""),
-            params.get("Body", ""),
-        )
-        if not response:
-            return {"twiml": "<Response></Response>"}  # nothing is sent (START, or a person who opted out)
-        return {"twiml": f"<Response><Message>{response}</Message></Response>"}
-
-    async def _handle_sms_send(self, params: dict) -> dict:
-        from windyfly.channels.sms import WindyFlySMS
-        sms = WindyFlySMS(self.config, self.db, self.write_queue)
-        result = sms.send_sms(params.get("to", ""), params.get("message", ""))
-        return result
 
     async def _handle_email_inbound(self, params: dict) -> dict:
         from windyfly.channels.email import WindyFlyEmail

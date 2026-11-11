@@ -451,7 +451,7 @@ class OptOutStore:
 
 
 def state_readonly(number: str, db_path: str) -> str:
-    """The same answer for a send path with no channel object (the /sms command), from a read-only connection.
+    """The same answer for a send path with no store object (the Windy Text tool), from a read-only connection.
     No database or no table yet = nothing recorded = CLEAR. A read error = UNREADABLE: when in doubt nobody is
     texted, and nobody is said to have replied STOP."""
     nk = number_key(number)
@@ -532,8 +532,8 @@ def forget_told(db_path: str | os.PathLike) -> None:
 
 
 def send_state(number: str, db_path: str, config: dict[str, Any] | None = None) -> str:
-    """What ANY path that is about to text ``number`` must ask first (the direct channel, the /sms command, the
-    Windy Text tool): CLEAR, OPTED_OUT or KEY_MISSING. KEY_MISSING never applies to the owner's own number: while
+    """What ANY path that is about to text ``number`` must ask first (today the one path: the Windy Text
+    tool): CLEAR, OPTED_OUT or KEY_MISSING. KEY_MISSING never applies to the owner's own number: while
     the record cannot be read, the owner is the one person the agent may still text (LEGAL DECISION 28 (9)(2))."""
     state = state_readonly(number, db_path)
     if state == KEY_MISSING and number_key(number) in owner_numbers(config):
@@ -662,3 +662,16 @@ def carry_into(incoming: Any, db_path: str | os.PathLike, live: dict[str, Any]) 
     incoming.executemany("INSERT OR IGNORE INTO sms_optouts (number, opted_out_at) VALUES (?, ?)", rows)
     incoming.commit()
     return len(rows)
+
+
+def tidy_at_start(db: Any) -> None:
+    """Once per start, from the place the texting tool is registered (the direct channel did this when it was
+    built, and it is gone): if this agent holds a record, open it, which turns plain rows written by 0.9.x into
+    fingerprints and takes in a pending STOP once the key is back; and mask old sms.* activity lines. An agent with no
+    record gets no table and no key from this. Never raises: a start must not fail over housekeeping."""
+    try:
+        if db.fetchone("SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = 'sms_optouts'") is not None:
+            OptOutStore(db)
+        mask_old_events(db)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("do-not-text record: start-up housekeeping did not finish (%s)", type(e).__name__)

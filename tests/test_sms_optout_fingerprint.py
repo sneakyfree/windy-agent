@@ -11,6 +11,7 @@ import os
 import sqlite3
 import stat
 import tarfile
+import time
 from unittest.mock import patch
 
 import pytest
@@ -18,7 +19,8 @@ import pytest
 from windyfly import backup_restore as br
 from windyfly import cloud_backup as cb
 from windyfly import sms_optout as so
-from windyfly.channels import sms as sms_mod
+from windyfly.tools import sms as tool
+from windyfly.tools.registry import ToolRegistry
 from windyfly.memory.database import Database
 from windyfly.memory.write_queue import WriteQueue
 
@@ -27,19 +29,54 @@ PERSON_KEY = "15559999999"
 OTHER = "+15558888888"
 OWNER = "+15550001111"
 OWNER_BACKUP_KEY = "o" * 44
+MAIL: list[tuple[str, str]] = []       # what the owner was mailed in this test
+
+
+class _Texting:
+    """The record and the ONE texting path that is left, the Windy Text tool, as one small object for these tests:
+    stop() and start() write the record the way a texted STOP and START did; send() asks the tool."""
+
+    def __init__(self, db):
+        tool.register_sms_tools(ToolRegistry(), db, {})
+        self.optouts = so.OptOutStore(db)
+
+    def stop(self, number: str) -> None:
+        self.optouts.record(number)
+
+    def start(self, number: str) -> None:
+        self.optouts.clear(number)
+
+    def is_opted_out(self, number: str) -> bool:
+        return self.optouts.state(number) == so.OPTED_OUT
+
+    def send(self, to: str) -> dict:
+        tool._approve(to)
+        return tool.send_sms(to, "x")
 
 
 @pytest.fixture
 def env(monkeypatch, tmp_path):
+    import httpx
+
+    from windyfly.agent import owner_mail
+
     monkeypatch.setenv("WINDY_SMS_ALLOW_NON_OWNER", "1")
     monkeypatch.setenv("WINDY_OWNER_IDS", f"sms:{OWNER}")
-    monkeypatch.setenv("TWILIO_ACCOUNT_SID", "ACtest123")
-    monkeypatch.setenv("TWILIO_AUTH_TOKEN", "test_token")
-    monkeypatch.setenv("TWILIO_PHONE_NUMBER", "+15551234567")
+    monkeypatch.setenv("WINDY_TEXT_BASE_URL", "https://api.windytext.test")
+    monkeypatch.setenv("WINDY_PASSPORT_EPT", "test_ept_jwt_value")
+    monkeypatch.delenv("WINDY_TEXT_BYO", raising=False)
+    monkeypatch.setenv("WINDYFLY_AGENT_NAME", "Pip")
+    monkeypatch.setenv("WINDY_OWNER_NAME", "Grant Whitmer")
+    monkeypatch.setattr(tool, "_pending", {})
+    MAIL.clear()
+    monkeypatch.setattr(owner_mail, "send_sync", lambda subject, body: MAIL.append((subject, body)) or True)
+    monkeypatch.setattr(tool.httpx, "post", lambda url, json=None, headers=None, timeout=None: httpx.Response(
+        200, json={"sid": "SM1"}, request=httpx.Request("POST", url)))
     so._warned.clear()
-    sms_mod._masked_once.clear()
     (tmp_path / "data").mkdir()
-    return tmp_path / "data" / "mem.db"
+    yield tmp_path / "data" / "mem.db"
+    monkeypatch.setattr(tool, "_db", None)
+    monkeypatch.setattr(tool, "_config", None)
 
 
 @pytest.fixture
@@ -50,7 +87,7 @@ def chan(env):
     box = {"db": db, "wq": wq, "path": env}
 
     def make():
-        return sms_mod.WindyFlySMS({"agent": {"default_model": "m"}, "personality": {}}, db, wq)
+        return _Texting(db)
 
     box["make"] = make
     box["sms"] = make()
@@ -72,25 +109,14 @@ def _mode(p) -> int:
 
 
 def _no_network():
-    return patch("urllib.request.urlopen", side_effect=AssertionError("Twilio must not be called"))
-
-
-class _Sent:
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *a):
-        return False
-
-    def read(self):
-        return b'{"sid": "SM1"}'
+    return patch.object(tool.httpx, "post", side_effect=AssertionError("no request may leave"))
 
 
 # ── (8)(1): a fingerprint, not the number ──
 
 def test_stop_stores_a_fingerprint_and_the_number_is_nowhere_in_the_record(chan):
     sms, db = chan["sms"], chan["db"]
-    sms.handle_inbound(PERSON, "STOP")
+    sms.stop(PERSON)
     key = so.load_key(chan["path"])
     assert key is not None and len(key) == 32
     assert _fingerprints(db) == [so.fingerprint(key, PERSON)]
@@ -102,7 +128,7 @@ def test_the_key_is_its_own_0600_file_beside_the_memory_and_not_in_the_database(
     path = so.key_path(chan["path"])
     assert path.parent == chan["path"].parent and _mode(path) == 0o600
     key = path.read_bytes()
-    chan["sms"].handle_inbound(PERSON, "STOP")
+    chan["sms"].stop(PERSON)
     chan["db"].execute("PRAGMA wal_checkpoint(TRUNCATE)")
     raw = chan["path"].read_bytes()
     assert key not in raw and key.hex().encode() not in raw
@@ -123,13 +149,13 @@ def test_plain_rows_from_the_old_code_become_fingerprints_at_start_up(env):
         db.execute("INSERT INTO sms_optouts VALUES (?, ?)", (PERSON_KEY, "2026-11-09T12:00:00+00:00"))
         db.execute("INSERT INTO sms_optouts VALUES (?, ?)", ("15558887777", "2026-11-09T13:00:00+00:00"))
         db.commit()
-        sms = sms_mod.WindyFlySMS({}, db, wq)
+        sms = _Texting(db)
         key = so.load_key(env)
         rows = {r["number"]: r["opted_out_at"] for r in db.fetchall("SELECT * FROM sms_optouts")}
         assert rows[so.fingerprint(key, PERSON)] == "2026-11-09T12:00:00+00:00"      # the time is kept
         assert len(_fingerprints(db)) == 2 and PERSON_KEY not in rows and "15558887777" not in rows
         with _no_network():
-            assert sms.send_sms(PERSON, "x")["error"] == "recipient_opted_out"
+            assert sms.send(PERSON)["status"] == "opted_out"
     finally:
         wq.stop()
         db.close()
@@ -209,7 +235,7 @@ def test_a_fresh_key_is_made_exclusively(env):
 
 def test_an_opt_out_row_never_expires(chan):
     sms, db = chan["sms"], chan["db"]
-    sms.handle_inbound(PERSON, "STOP")
+    sms.stop(PERSON)
     db.execute("UPDATE sms_optouts SET opted_out_at = '2001-01-01T00:00:00+00:00'")
     db.commit()
     chan["wq"].stop()            # every queued event write (and its 30-day prune of the events table) has run
@@ -218,8 +244,8 @@ def test_an_opt_out_row_never_expires(chan):
 
 def test_start_removes_the_fingerprint(chan):
     sms, db = chan["sms"], chan["db"]
-    sms.handle_inbound(PERSON, "STOP")
-    sms.handle_inbound(PERSON, "START")
+    sms.stop(PERSON)
+    sms.start(PERSON)
     assert _fingerprints(db) == [] and not sms.is_opted_out(PERSON)
 
 
@@ -232,29 +258,6 @@ def test_mask_keeps_the_last_four_digits():
     assert so.mask("12") == "•••-••••" and so.mask("") == "•••-••••"
 
 
-def test_no_sms_event_holds_a_whole_number(chan):
-    sms, db = chan["sms"], chan["db"]
-    sms.handle_inbound(PERSON, "HELP")
-    sms.handle_inbound(PERSON, "STOP")
-    sms.handle_inbound(PERSON, "hello?")
-    with _no_network():
-        sms.send_sms(PERSON, "x")
-    with patch("urllib.request.urlopen", return_value=_Sent()):
-        sms.send_sms(OTHER, "x")
-    with patch("windyfly.channels.sms.agent_respond", return_value="ok"):
-        sms.handle_inbound(OTHER, "hi")
-    sms.handle_inbound(PERSON, "START")
-    chan["wq"].stop()
-    events = db.fetchall("SELECT event_type, data FROM events WHERE event_type LIKE 'sms.%'")
-    kinds = {e["event_type"] for e in events}
-    assert {"sms.help", "sms.optout", "sms.inbound_opted_out", "sms.outbound_refused", "sms.outbound",
-            "sms.inbound", "sms.optin"} <= kinds
-    blob = " ".join(e["data"] for e in events)
-    for whole in ("5559999999", "5558888888"):
-        assert whole not in blob
-    assert json.dumps("+1 •••-•••-9999") in blob and json.dumps("+1 •••-•••-8888") in blob
-
-
 def test_lines_the_old_code_wrote_are_masked_once_at_start_up(env):
     db = Database(str(env))
     wq = WriteQueue()
@@ -264,7 +267,7 @@ def test_lines_the_old_code_wrote_are_masked_once_at_start_up(env):
                            ("sms.outbound", {"to": OTHER, "sid": "SM1"}), ("agent.respond", {"to": OTHER})):
             db.execute("INSERT INTO events (event_type, data, request_id) VALUES (?, ?, '')", (kind, json.dumps(data)))
         db.commit()
-        sms_mod.WindyFlySMS({}, db, wq)
+        _Texting(db)
         got = {e["event_type"]: json.loads(e["data"]) for e in db.fetchall("SELECT event_type, data FROM events")}
         assert got["sms.optout"] == {"phone": "+1 •••-•••-9999"}
         assert got["sms.inbound"] == {"from": "+1 •••-•••-8888", "body_length": 2}
@@ -290,7 +293,7 @@ def test_a_fresh_key_is_made_only_when_the_record_holds_no_fingerprints(chan):
     first = _lose_the_key(chan)
     again = chan["make"]()                                   # an empty record: a new key is fine
     assert so.load_key(chan["path"]) not in (None, first) and not again.optouts.failed_closed
-    again.handle_inbound(PERSON, "STOP")
+    again.stop(PERSON)
     _lose_the_key(chan)
     lost = chan["make"]()
     assert lost.optouts.failed_closed and so.load_key(chan["path"]) is None      # never a new key over fingerprints
@@ -298,89 +301,84 @@ def test_a_fresh_key_is_made_only_when_the_record_holds_no_fingerprints(chan):
     del sms
 
 
+def _mailed() -> list[tuple[str, str]]:
+    for _ in range(50):                                      # the mail goes from a thread
+        if MAIL:
+            break
+        time.sleep(0.1)
+    return list(MAIL)
+
+
 def test_with_the_key_gone_only_the_owner_is_texted(chan):
-    chan["sms"].handle_inbound(PERSON, "STOP")
+    chan["sms"].stop(PERSON)
     _lose_the_key(chan)
     sms = chan["make"]()
-    with _no_network(), patch("windyfly.agent.owner_mail.send_sync") as mail:
-        first = sms.send_sms(OTHER, "x")                     # a number that never opted out: nobody can tell
-        second = sms.send_sms(PERSON, "x")
-    assert first["status"] == "refused" and first["error"] == "optout_key_missing"
-    assert first["owner_notice"] == sms_mod.KEY_MISSING_NOTICE
-    assert second == {"status": "refused", "error": "optout_key_missing"}       # the owner is told ONCE
-    assert mail.call_count == 1
-    with patch("urllib.request.urlopen", return_value=_Sent()):
-        assert sms.send_sms(OWNER, "x") == {"status": "sent", "message_sid": "SM1"}
+    refusal = {"status": "failed", "sent": False, "error_code": "optout_key_missing", "error": so.KEY_MISSING_NOTICE}
+    with _no_network():
+        assert sms.send(OTHER) == refusal                    # a number that never opted out: nobody can tell
+        assert sms.send(PERSON) == refusal
+    assert _mailed() == [("Your agent can only text you for now", so.KEY_MISSING_NOTICE)]   # the owner is told ONCE
+    assert sms.send(OWNER)["status"] == "sent"
 
 
 def test_the_owner_notice_is_legals_sentence_word_for_word():
     # Windy Legal, BOARD 2026-11-11T03:24:49Z (a).
-    assert sms_mod.KEY_MISSING_NOTICE == (
+    assert so.KEY_MISSING_NOTICE == (
         "Right now I can only text you. The key that protects my do-not-text list is missing from this computer, "
         "so I can't tell who asked me to stop texting them. Restoring my latest backup brings the key back, if "
         "that backup has it. Until then I won't text anyone else.")
 
 
-def test_a_new_channel_object_does_not_tell_the_owner_again(chan):
-    chan["sms"].handle_inbound(PERSON, "STOP")
+def test_a_new_start_does_not_tell_the_owner_again(chan):
+    chan["sms"].stop(PERSON)
     _lose_the_key(chan)
-    with _no_network(), patch("windyfly.agent.owner_mail.send_sync") as mail:
-        assert "owner_notice" in chan["make"]().send_sms(OTHER, "x")
-        assert "owner_notice" not in chan["make"]().send_sms(OTHER, "x")
-    assert mail.call_count == 1
+    with _no_network():
+        chan["make"]().send(OTHER)
+        assert _mailed()
+        chan["make"]().send(OTHER)                           # a second process start, a second refusal
+    time.sleep(0.3)
+    assert len(MAIL) == 1
 
 
 def test_nothing_clears_the_record_to_get_texting_back(chan):
     sms, db = chan["sms"], chan["db"]
-    sms.handle_inbound(PERSON, "STOP")
+    sms.stop(PERSON)
     before = _rows(db)
     _lose_the_key(chan)
     lost = chan["make"]()
-    with _no_network(), patch("windyfly.agent.owner_mail.send_sync"):
-        lost.send_sms(OTHER, "x")
-        lost.handle_inbound(OTHER, "hello")
-        lost.handle_inbound(PERSON, "START")                 # cannot be matched without the key: stays opted out
-        lost.clear_opt_out(PERSON)
+    with _no_network():
+        lost.send(OTHER)
+        lost.start(PERSON)                                   # cannot be matched without the key: stays opted out
+        lost.optouts.clear(PERSON)
     assert _rows(db) == before and so.load_key(chan["path"]) is None
     public = {n for n in dir(so.OptOutStore) if not n.startswith("_")}
     assert public == {"clear", "failed_closed", "record", "state"}             # no reset, no wipe, no force
 
 
-def test_with_the_key_gone_a_stranger_gets_no_reply_and_the_agent_is_not_asked(chan):
-    chan["sms"].handle_inbound(PERSON, "STOP")
-    _lose_the_key(chan)
-    sms = chan["make"]()
-    with patch("windyfly.channels.sms.agent_respond", return_value="ok") as agent:
-        assert sms.handle_inbound(OTHER, "hello") == ""
-        assert not agent.called
-        assert sms.handle_inbound(OWNER, "hello") == "ok"    # the owner still talks to their agent
-
-
 def test_the_wrong_key_counts_as_missing(chan):
-    chan["sms"].handle_inbound(PERSON, "STOP")
+    chan["sms"].stop(PERSON)
     so.write_key(chan["path"], b"\x07" * 32)                 # a key file from some other memory
     sms = chan["make"]()
     assert sms.optouts.failed_closed
-    with _no_network(), patch("windyfly.agent.owner_mail.send_sync"):
-        assert sms.send_sms(OTHER, "x")["error"] == "optout_key_missing"
+    with _no_network():
+        assert sms.send(OTHER)["error_code"] == "optout_key_missing"
     assert so.key_path(chan["path"]).read_bytes() == b"\x07" * 32             # and it is not overwritten
 
 
-# ── (9)(3) + (10): STOP and HELP still answer; a STOP then is kept and recorded when the key is back ──
+# ── (9)(3) + (10): a STOP while the key is missing is kept and recorded when the key is back ──
 
-def test_stop_while_failed_closed_is_confirmed_kept_0600_and_recorded_when_the_key_returns(chan):
-    chan["sms"].handle_inbound(PERSON, "STOP")
+def test_stop_while_failed_closed_is_kept_0600_and_recorded_when_the_key_returns(chan):
+    chan["sms"].stop(PERSON)
     key = _lose_the_key(chan)
     sms = chan["make"]()
-    assert "unsubscribed" in sms.handle_inbound(OTHER, "stop").lower()
-    assert sms.handle_inbound(OTHER, "HELP").startswith("This is ")
+    sms.stop(OTHER)
     pending = so.pending_path(chan["path"])
     assert _mode(pending) == 0o600
     (row,) = [json.loads(line) for line in pending.read_text().splitlines()]
     assert row["number"] == "15558888888" and row["at"]
     assert sms.is_opted_out(OTHER)                           # known even now: it is in the pending list
     assert len(_fingerprints(chan["db"])) == 1               # nothing could be fingerprinted yet
-    sms.handle_inbound(OTHER, "STOP")                        # twice is one line
+    sms.stop(OTHER)                                         # twice is one line
     assert len(pending.read_text().splitlines()) == 1
 
     so.write_key(chan["path"], key)                          # the key is back (a restore does this)
@@ -388,43 +386,42 @@ def test_stop_while_failed_closed_is_confirmed_kept_0600_and_recorded_when_the_k
     assert not back.optouts.failed_closed and not pending.exists()
     assert sorted(_fingerprints(chan["db"])) == sorted([so.fingerprint(key, PERSON), so.fingerprint(key, OTHER)])
     with _no_network():
-        assert back.send_sms(OTHER, "x")["error"] == "recipient_opted_out"
-        assert back.send_sms(PERSON, "x")["error"] == "recipient_opted_out"
+        assert back.send(OTHER)["status"] == "opted_out"
+        assert back.send(PERSON)["status"] == "opted_out"
 
 
-def test_the_same_channel_object_recovers_when_the_key_file_returns(chan):
-    chan["sms"].handle_inbound(PERSON, "STOP")
+def test_texting_recovers_when_the_key_file_returns(chan):
+    chan["sms"].stop(PERSON)
     key = _lose_the_key(chan)
     sms = chan["make"]()
-    with _no_network(), patch("windyfly.agent.owner_mail.send_sync"):
-        assert sms.send_sms(OTHER, "x")["error"] == "optout_key_missing"
+    with _no_network():
+        assert sms.send(OTHER)["error_code"] == "optout_key_missing"
     so.write_key(chan["path"], key)
-    with patch("urllib.request.urlopen", return_value=_Sent()):
-        assert sms.send_sms(OTHER, "x")["status"] == "sent"
-    assert not (chan["path"].parent / sms_mod._TOLD_FILE).exists()   # a later loss tells the owner again
+    assert sms.send(OTHER)["status"] == "sent"
+    assert not (chan["path"].parent / so.TOLD_FILE).exists()   # a later loss tells the owner again
 
 
 def test_start_while_failed_closed_drops_a_pending_stop_only(chan):
-    chan["sms"].handle_inbound(PERSON, "STOP")
+    chan["sms"].stop(PERSON)
     _lose_the_key(chan)
     sms = chan["make"]()
-    sms.handle_inbound(OTHER, "STOP")
-    sms.handle_inbound(OTHER, "START")
+    sms.stop(OTHER)
+    sms.start(OTHER)
     assert not so.pending_path(chan["path"]).exists() and len(_fingerprints(chan["db"])) == 1
 
 
-# ── the /sms command reads the same record ──
+# ── the read-only path the Windy Text tool asks gives the same answers ──
 
 def test_the_read_only_path_gives_the_same_three_answers(chan):
     path = str(chan["path"])
     assert so.state_readonly(PERSON, path) == so.CLEAR
-    chan["sms"].handle_inbound(PERSON, "STOP")
+    chan["sms"].stop(PERSON)
     assert so.state_readonly("555 999 9999", path) == so.OPTED_OUT
     assert so.state_readonly(OTHER, path) == so.CLEAR
     key = _lose_the_key(chan)
     assert so.state_readonly(OTHER, path) == so.KEY_MISSING
-    assert sms_mod.number_opted_out(OTHER, path) is True
-    assert sms_mod.optout_state(OWNER, path, {}) == so.CLEAR                      # WINDY_OWNER_IDS names the owner
+    assert so.send_state(OTHER, path) == so.KEY_MISSING
+    assert so.send_state(OWNER, path, {}) == so.CLEAR                             # WINDY_OWNER_IDS names the owner
     so.write_key(path, b"\x07" * 32)
     assert so.state_readonly(OTHER, path) == so.KEY_MISSING                       # the wrong key
     so.write_key(path, key)
@@ -441,31 +438,15 @@ def test_a_plain_row_not_yet_converted_still_counts_on_the_read_only_path(env):
     assert so.state_readonly(OTHER, str(env)) == so.CLEAR and so.load_key(env) is None   # reading makes no key
 
 
-def test_slash_sms_says_why_when_the_key_is_gone(chan, monkeypatch):
-    import asyncio
-
-    from windyfly.commands import ecosystem
-    from windyfly.commands.registry import registry
-
-    chan["sms"].handle_inbound(PERSON, "STOP")
-    _lose_the_key(chan)
-    monkeypatch.setattr(ecosystem, "_config", None)
-    ecosystem.init_ecosystem(config={"memory": {"db_path": str(chan["path"])}})
-    cmd = {c.name: c for c in registry.all()}["sms"].handler
-    with patch.dict("sys.modules", {"twilio": None, "twilio.rest": None}):
-        assert asyncio.run(cmd({"_args": [OTHER, "hi"]})) == sms_mod.KEY_MISSING_NOTICE
-        assert "Twilio SDK not installed" in asyncio.run(cmd({"_args": [OWNER, "hi"]}))   # the owner gets through
-
-
 def test_a_database_with_no_file_writes_no_key_file_anywhere(env, tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     db = Database(":memory:")
     wq = WriteQueue()
     wq.start()
     try:
-        sms = sms_mod.WindyFlySMS({}, db, wq)
-        sms.handle_inbound(PERSON, "STOP")
-        again = sms_mod.WindyFlySMS({}, db, wq)
+        sms = _Texting(db)
+        sms.stop(PERSON)
+        again = _Texting(db)
         assert again.is_opted_out(PERSON) and len(_fingerprints(db)) == 1
         assert not list(tmp_path.glob("sms-optout*"))
     finally:
@@ -545,7 +526,7 @@ def _uploaded_plain(sent: dict) -> tuple[bytes, dict]:
 def test_a_cloud_backup_carries_the_key_inside_the_encryption(chan, cloud):
     import asyncio
 
-    chan["sms"].handle_inbound(PERSON, "STOP")
+    chan["sms"].stop(PERSON)
     key = so.load_key(chan["path"])
     out = asyncio.run(cb.backup_to_cloud({"memory": {"db_path": str(chan["path"])}}))
     assert out["success"], out
@@ -570,7 +551,7 @@ def test_an_install_that_never_texted_uploads_the_database_alone(env, cloud):
 
 def test_a_restore_brings_the_key_back_so_every_opt_out_still_matches(chan, tmp_path):
     sms, db = chan["sms"], chan["db"]
-    sms.handle_inbound(PERSON, "STOP")
+    sms.stop(PERSON)
     key = so.load_key(chan["path"])
     bundle = cb.pack_bundle(br._serialize(db), so.backup_files(chan["path"]))
 
@@ -582,7 +563,7 @@ def test_a_restore_brings_the_key_back_so_every_opt_out_still_matches(chan, tmp_
     back = chan["make"]()
     assert not back.optouts.failed_closed
     with _no_network():
-        assert back.send_sms(PERSON, "x")["error"] == "recipient_opted_out"
+        assert back.send(PERSON)["status"] == "opted_out"
 
 
 # ── a restore and an undo never remove an opt-out (Hub on #777, BOARD 2026-11-11T04:00:49Z; Boss 03:37:10Z (b)) ──
@@ -598,9 +579,9 @@ def test_a_stop_recorded_after_the_backup_survives_the_restore(chan, monkeypatch
     """The Hub's probe: STOP, back up, another STOP, restore the backup. Both people stay opted out."""
     monkeypatch.setenv("WINDY_BACKUP_KEY", OWNER_BACKUP_KEY)
     sms, db = chan["sms"], chan["db"]
-    sms.handle_inbound(PERSON, "STOP")
+    sms.stop(PERSON)
     old_bundle = cb.pack_bundle(br._serialize(db), so.backup_files(chan["path"]))
-    sms.handle_inbound(OTHER, "STOP")
+    sms.stop(OTHER)
     key = so.load_key(chan["path"])
     br._write_undo(db, cb._get_encryption_key())
     assert br._restore_into(db, old_bundle) is None
@@ -609,19 +590,19 @@ def test_a_stop_recorded_after_the_backup_survives_the_restore(chan, monkeypatch
     assert len(_fingerprints(db)) == 2                                    # by count: nothing was dropped
     assert so.load_key(chan["path"]) == key                               # the same key: still the one in use
     with _no_network():
-        assert back.send_sms(OTHER, "x")["error"] == "recipient_opted_out"
+        assert back.send(OTHER)["status"] == "opted_out"
 
 
 def test_a_stop_recorded_between_a_restore_and_its_undo_survives_the_undo(chan, monkeypatch):
     monkeypatch.setenv("WINDY_BACKUP_KEY", OWNER_BACKUP_KEY)
     sms, db = chan["sms"], chan["db"]
-    sms.handle_inbound(PERSON, "STOP")
+    sms.stop(PERSON)
     old_bundle = cb.pack_bundle(br._serialize(db), so.backup_files(chan["path"]))
-    sms.handle_inbound(OTHER, "STOP")
+    sms.stop(OTHER)
     owner_key = cb._get_encryption_key()
     br._write_undo(db, owner_key)
     assert br._restore_into(db, old_bundle) is None
-    chan["make"]().handle_inbound(THIRD, "STOP")                          # after the restore, before the undo
+    chan["make"]().stop(THIRD)                          # after the restore, before the undo
     _at, blob = br._read_undo(db)
     assert br._restore_into(db, cb._decrypt_data(blob, owner_key)) is None
     undone = chan["make"]()
@@ -631,14 +612,14 @@ def test_a_stop_recorded_between_a_restore_and_its_undo_survives_the_undo(chan, 
 def test_a_restore_under_another_key_keeps_both_keys_and_undo_keeps_every_opt_out(chan, monkeypatch):
     monkeypatch.setenv("WINDY_BACKUP_KEY", OWNER_BACKUP_KEY)
     sms, db = chan["sms"], chan["db"]
-    sms.handle_inbound(PERSON, "STOP")
+    sms.stop(PERSON)
     old_key = so.load_key(chan["path"])
     old_bundle = cb.pack_bundle(br._serialize(db), so.backup_files(chan["path"]))
 
-    sms.handle_inbound(PERSON, "START")                         # today: an empty record under a NEW key
+    sms.start(PERSON)                         # today: an empty record under a NEW key
     so.key_path(chan["path"]).unlink()
     today = chan["make"]()
-    today.handle_inbound(OTHER, "STOP")
+    today.stop(OTHER)
     new_key = so.load_key(chan["path"])
     assert new_key != old_key
 
@@ -664,44 +645,44 @@ def test_a_restore_under_another_key_keeps_both_keys_and_undo_keeps_every_opt_ou
 
 def test_start_clears_an_opt_out_made_under_an_earlier_key(chan):
     sms, db = chan["sms"], chan["db"]
-    sms.handle_inbound(PERSON, "STOP")
+    sms.stop(PERSON)
     old_bundle = cb.pack_bundle(br._serialize(db), so.backup_files(chan["path"]))
-    sms.handle_inbound(PERSON, "START")
+    sms.start(PERSON)
     so.key_path(chan["path"]).unlink()
-    chan["make"]().handle_inbound(OTHER, "STOP")                # under a new key
+    chan["make"]().stop(OTHER)                # under a new key
     assert br._restore_into(db, old_bundle) is None             # OTHER's fingerprint now sits under an earlier key
     back = chan["make"]()
     assert back.is_opted_out(OTHER)
-    back.handle_inbound(OTHER, "START")
+    back.start(OTHER)
     assert not back.is_opted_out(OTHER) and back.is_opted_out(PERSON)
-    back.handle_inbound(THIRD, "STOP")                          # new opt-outs use the key in use
+    back.stop(THIRD)                          # new opt-outs use the key in use
     assert so.fingerprint(so.load_key(chan["path"]), THIRD) in _rows(db)
 
 
 def test_losing_an_earlier_key_fails_closed(chan):
     sms, db = chan["sms"], chan["db"]
-    sms.handle_inbound(PERSON, "STOP")
+    sms.stop(PERSON)
     old_bundle = cb.pack_bundle(br._serialize(db), so.backup_files(chan["path"]))
-    sms.handle_inbound(PERSON, "START")
+    sms.start(PERSON)
     so.key_path(chan["path"]).unlink()
-    chan["make"]().handle_inbound(OTHER, "STOP")
+    chan["make"]().stop(OTHER)
     assert br._restore_into(db, old_bundle) is None
     (name,) = _earlier_files(chan)
     (chan["path"].parent / name).unlink()                       # some fingerprints can no longer be matched
     lost = chan["make"]()
     assert lost.optouts.failed_closed
     assert so.state_readonly(THIRD, str(chan["path"])) == so.KEY_MISSING
-    with _no_network(), patch("windyfly.agent.owner_mail.send_sync"):
-        assert lost.send_sms(THIRD, "x")["error"] == "optout_key_missing"
+    with _no_network():
+        assert lost.send(THIRD)["error_code"] == "optout_key_missing"
 
 
 def test_earlier_keys_travel_in_the_backup_and_come_back_on_a_new_computer(chan):
     sms, db = chan["sms"], chan["db"]
-    sms.handle_inbound(PERSON, "STOP")
+    sms.stop(PERSON)
     old_bundle = cb.pack_bundle(br._serialize(db), so.backup_files(chan["path"]))
-    sms.handle_inbound(PERSON, "START")
+    sms.start(PERSON)
     so.key_path(chan["path"]).unlink()
-    chan["make"]().handle_inbound(OTHER, "STOP")
+    chan["make"]().stop(OTHER)
     assert br._restore_into(db, old_bundle) is None
     side = so.backup_files(chan["path"])
     (earlier,) = [n for n in side if so.is_earlier_name(n)]
@@ -755,9 +736,9 @@ def test_a_restore_with_no_opt_outs_on_either_side_writes_no_key_file(env, tmp_p
 
 def test_if_the_live_record_cannot_be_carried_nothing_is_restored(chan, monkeypatch):
     sms, db = chan["sms"], chan["db"]
-    sms.handle_inbound(PERSON, "STOP")
+    sms.stop(PERSON)
     old_bundle = cb.pack_bundle(br._serialize(db), so.backup_files(chan["path"]))
-    sms.handle_inbound(OTHER, "STOP")
+    sms.stop(OTHER)
     before = sorted(_rows(db))
     monkeypatch.setattr(so, "keep_earlier_key", lambda *a: (_ for _ in ()).throw(OSError("disk full")))
     with pytest.raises(br._CopyFailed):
@@ -767,7 +748,7 @@ def test_if_the_live_record_cannot_be_carried_nothing_is_restored(chan, monkeypa
 
 def test_a_key_file_that_cannot_be_written_after_the_copy_is_reported_not_raised(chan, monkeypatch):
     sms, db = chan["sms"], chan["db"]
-    sms.handle_inbound(PERSON, "STOP")
+    sms.stop(PERSON)
     bundle = cb.pack_bundle(br._serialize(db), so.backup_files(chan["path"]))
     monkeypatch.setattr(so, "restore_files", lambda *a: (_ for _ in ()).throw(OSError("read-only")))
     assert br._restore_into(db, bundle) == "do-not-text key"
@@ -784,9 +765,9 @@ def test_a_leftover_tmp_file_does_not_loosen_the_key(chan):
 
 def test_a_restored_older_memory_without_its_key_fails_closed_rather_than_matching_nobody(chan):
     sms, db = chan["sms"], chan["db"]
-    sms.handle_inbound(PERSON, "STOP")
+    sms.stop(PERSON)
     old_memory = br._serialize(db)                              # a backup made by code that did not carry the key
-    sms.handle_inbound(PERSON, "START")
+    sms.start(PERSON)
     so.key_path(chan["path"]).unlink()
     chan["make"]()                                              # a new key today
     assert br._restore_into(db, old_memory) is None
@@ -794,13 +775,13 @@ def test_a_restored_older_memory_without_its_key_fails_closed_rather_than_matchi
 
 
 def test_pending_stops_travel_with_a_backup_and_are_merged(chan):
-    chan["sms"].handle_inbound(PERSON, "STOP")
+    chan["sms"].stop(PERSON)
     key = _lose_the_key(chan)
-    chan["make"]().handle_inbound(OTHER, "STOP")
+    chan["make"]().stop(OTHER)
     side = so.backup_files(chan["path"])
     assert set(side) == {so.PENDING_FILE}                       # no key to carry, but the kept STOP goes along
     so.pending_path(chan["path"]).unlink()
-    chan["make"]().handle_inbound("+15557776666", "STOP")
+    chan["make"]().stop("+15557776666")
     so.restore_files(chan["path"], {**side, so.KEY_FILE: key})
     back = chan["make"]()
     assert back.is_opted_out(OTHER) and back.is_opted_out("+15557776666") and back.is_opted_out(PERSON)
@@ -812,7 +793,7 @@ async def test_a_local_export_holds_the_key_beside_the_memory(chan, tmp_path, mo
     from windyfly.commands import core as core_mod
     from windyfly.commands.registry import registry
 
-    chan["sms"].handle_inbound(PERSON, "STOP")
+    chan["sms"].stop(PERSON)
     install = tmp_path / "install"
     install.mkdir()
     monkeypatch.setattr(core_mod, "PROJECT_ROOT", install)
@@ -860,7 +841,7 @@ def test_the_cli_export_holds_the_same_side_files(chan, tmp_path, monkeypatch):
 
     from windyfly.commands import _legacy
 
-    chan["sms"].handle_inbound(PERSON, "STOP")
+    chan["sms"].stop(PERSON)
     so.keep_earlier_key(chan["path"], b"e" * 32)
     chan["db"].execute("PRAGMA wal_checkpoint(TRUNCATE)")
     out = tmp_path / "cli"
