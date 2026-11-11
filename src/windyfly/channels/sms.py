@@ -144,12 +144,12 @@ def optout_state(number: str, db_path: str | None = None, config: dict[str, Any]
     """For a send path that has no channel object (the /sms command): "clear", "opted_out" or "key_missing". Reads
     the same sms_optouts table, in the SAME file the channel uses: resolve_db_path(config memory.db_path), as
     main.py does (Hub 2026-11-09T11:25:19Z). With neither a path nor a config it cannot know which file the channel
-    uses, so it answers "opted_out" (refuse). "key_missing" = the record has fingerprints and the key is gone
+    uses, so it answers "unreadable" (refuse, and nobody is said to have replied STOP). "key_missing" = the record has fingerprints and the key is gone
     (LEGAL DECISION 28 (9)(2)): every number but the owner's is refused."""
     from windyfly.memory.db_location import resolve_db_path
 
     if db_path is None and config is None:
-        return sms_optout.OPTED_OUT
+        return sms_optout.UNREADABLE
     path = db_path or resolve_db_path(((config or {}).get("memory") or {}).get("db_path"))
     return sms_optout.send_state(number, path, config)
 

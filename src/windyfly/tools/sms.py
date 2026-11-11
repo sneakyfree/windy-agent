@@ -122,15 +122,19 @@ def _own_record_refuses(to: str | None) -> dict[str, Any] | None:
     Windy Text keeps its own record and still refuses on its side; this check is the agent's half, so a STOP the
     agent itself received is honoured by every path that can text, whatever becomes of the direct channel
     (LEGAL, BOARD 2026-11-11T03:24:49Z). ``to`` None = the owner's own verified phone (BYO): never refused here.
-    No database wired = this agent has no record of its own. A read that fails = refuse: when in doubt, do not text.
+    No database wired = this agent has no record of its own. A read that fails = refuse, in Legal's words for
+    that case (BOARD 2026-11-11T04:55:36Z): when in doubt, do not text, and do not say the person replied STOP.
     """
     if not to or _db is None:
         return None
     try:
         state = sms_optout.send_state(to, str(_db.db_path), _config)
     except Exception:  # noqa: BLE001
+        state = sms_optout.UNREADABLE
+    if state == sms_optout.UNREADABLE:
         logger.warning("SMS tool: the do-not-text record could not be read; not texting %s", sms_optout.mask(to))
-        state = sms_optout.OPTED_OUT
+        return {"status": "failed", "sent": False, "error_code": "optout_unreadable",
+                "error": sms_optout.UNREADABLE_NOTICE}
     if state == sms_optout.CLEAR:
         return None
     if state == sms_optout.KEY_MISSING:
