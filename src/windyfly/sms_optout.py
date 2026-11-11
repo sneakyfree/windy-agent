@@ -55,6 +55,13 @@ CLEAR = "clear"
 OPTED_OUT = "opted_out"
 KEY_MISSING = "key_missing"
 
+# Said to the owner when the fingerprint key is missing while the record has entries (LEGAL DECISION 28 (9)(2)).
+# Windy Legal's words, word for word (BOARD 2026-11-11T03:24:49Z (a)): a backup made before 0.9.x carried no key.
+# It lives here, with the record, so every texting path says the same sentence.
+KEY_MISSING_NOTICE = ("Right now I can only text you. The key that protects my do-not-text list is missing from "
+                      "this computer, so I can't tell who asked me to stop texting them. Restoring my latest backup "
+                      "brings the key back, if that backup has it. Until then I won't text anyone else.")
+
 _SQL = """
 CREATE TABLE IF NOT EXISTS sms_optouts (
     number TEXT PRIMARY KEY,
@@ -462,6 +469,27 @@ def state_readonly(number: str, db_path: str) -> str:
     if not complete:
         return KEY_MISSING
     return OPTED_OUT if any(fingerprint(k, number) in rows for k in usable) else CLEAR
+
+
+def owner_numbers(config: dict[str, Any] | None = None) -> set[str]:
+    """The owner's own SMS numbers, from EXPLICIT settings only: WINDY_OWNER_IDS and config [trust] owner_ids
+    ("sms:+1555..."). A first-contact binding never counts here: a stranger who texted first is not the owner."""
+    from windyfly.channels.identity import _parse_pairs
+
+    nums = set(_parse_pairs(os.environ.get("WINDY_OWNER_IDS", "")).get("sms", set()))
+    for pair in ((config or {}).get("trust", {}) or {}).get("owner_ids", []) or []:
+        nums |= _parse_pairs(str(pair)).get("sms", set())
+    return {number_key(n) for n in nums if number_key(n)}
+
+
+def send_state(number: str, db_path: str, config: dict[str, Any] | None = None) -> str:
+    """What ANY path that is about to text ``number`` must ask first (the direct channel, the /sms command, the
+    Windy Text tool): CLEAR, OPTED_OUT or KEY_MISSING. KEY_MISSING never applies to the owner's own number: while
+    the record cannot be read, the owner is the one person the agent may still text (LEGAL DECISION 28 (9)(2))."""
+    state = state_readonly(number, db_path)
+    if state == KEY_MISSING and number_key(number) in owner_numbers(config):
+        return CLEAR
+    return state
 
 
 def mask_old_events(db: Any) -> int:

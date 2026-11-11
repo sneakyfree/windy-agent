@@ -57,6 +57,7 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
+from windyfly import sms_optout
 from windyfly.tools.registry import ToolRegistry
 
 if TYPE_CHECKING:
@@ -83,6 +84,7 @@ CREATE TABLE IF NOT EXISTS sms_approved (
 """
 
 _db: Database | None = None
+_config: dict[str, Any] | None = None
 _approved_mem: set[str] = set()          # used only when no database is wired
 _pending: dict[str, dict[str, Any]] = {}  # confirm_token -> {to, body, body_sha256, expires}
 
@@ -108,6 +110,35 @@ def _windy_text_env() -> tuple[str, str]:
         # agent SMS off on real installs until then.
         os.environ.get("WINDY_PASSPORT_EPT", ""),
     )
+
+
+_OPTED_OUT_SENTENCE = "That number has opted out of texts (they replied STOP). I won't text it."
+
+
+def _own_record_refuses(to: str | None) -> dict[str, Any] | None:
+    """This agent's OWN do-not-text record, read before ANY call to Windy Text (windyfly.sms_optout: the same
+    table the direct SMS channel writes a STOP to, and the same pending list). None = the record does not object.
+
+    Windy Text keeps its own record and still refuses on its side; this check is the agent's half, so a STOP the
+    agent itself received is honoured by every path that can text, whatever becomes of the direct channel
+    (LEGAL, BOARD 2026-11-11T03:24:49Z). ``to`` None = the owner's own verified phone (BYO): never refused here.
+    No database wired = this agent has no record of its own. A read that fails = refuse: when in doubt, do not text.
+    """
+    if not to or _db is None:
+        return None
+    try:
+        state = sms_optout.send_state(to, str(_db.db_path), _config)
+    except Exception:  # noqa: BLE001
+        logger.warning("SMS tool: the do-not-text record could not be read; not texting %s", sms_optout.mask(to))
+        state = sms_optout.OPTED_OUT
+    if state == sms_optout.CLEAR:
+        return None
+    if state == sms_optout.KEY_MISSING:
+        logger.info("SMS tool: not texting %s (the do-not-text key is missing)", sms_optout.mask(to))
+        return {"status": "failed", "sent": False, "error_code": "optout_key_missing",
+                "error": sms_optout.KEY_MISSING_NOTICE}
+    logger.info("SMS tool: not texting %s (opted out in this agent's own record)", sms_optout.mask(to))
+    return {"status": "opted_out", "sent": False, "error": _OPTED_OUT_SENTENCE}
 
 
 def _is_approved(number: str) -> bool:
@@ -200,6 +231,10 @@ def send_sms(to: str | None = None, body: str = "") -> dict[str, Any]:
     a yes. Otherwise ``sent`` / ``unavailable`` / ``failed`` /
     ``opted_out`` as before.
     """
+    refused = _own_record_refuses(to)
+    if refused is not None:
+        return refused       # before the first-text question too: there is nothing for the owner to approve
+
     if byo_enabled():
         return _send_byo(_windy_text_base(), to, body)
 
@@ -247,6 +282,9 @@ def confirm_sms(confirm_token: str) -> dict[str, Any]:
         return {"status": "refused", "error": "Unknown or already-used confirmation. Ask again with send_sms."}
     if time.time() > pending["expires"]:
         return {"status": "refused", "error": "That confirmation expired (10 minutes). Ask again with send_sms."}
+    refused = _own_record_refuses(pending["to"])
+    if refused is not None:
+        return refused       # a STOP that arrived between the question and the owner's yes
     base_url, ept = _windy_text_env()
     if not ept:
         return {"status": "unavailable", "error": _UNAVAILABLE}
@@ -372,6 +410,9 @@ def _request_approval(base_url: str, to: str) -> dict[str, Any]:
 
 
 def _send_byo(base_url: str, to: str | None, body: str) -> dict[str, Any]:
+    refused = _own_record_refuses(to)
+    if refused is not None:
+        return refused
     if to and not _E164_RE.match(to):
         return {"status": "failed",
                 "error": f"`to` must be E.164 (start with +, country code, then digits). Got {to!r}."}
@@ -503,6 +544,9 @@ def _text_code(resp: httpx.Response) -> str:
 
 
 def _deliver(base_url: str, ept: str, to: str | None, body: str) -> dict[str, Any]:
+    refused = _own_record_refuses(to)
+    if refused is not None:
+        return refused       # the last gate before the request leaves, for every caller of this function
     text = _with_footer(body)
     if len(text) > _MAX_SMS_CHARS:
         return {
@@ -593,10 +637,13 @@ def _deliver(base_url: str, ept: str, to: str | None, body: str) -> dict[str, An
     }
 
 
-def register_sms_tools(registry: ToolRegistry, db: Database | None = None) -> None:
-    """Register ``send_sms`` and ``confirm_sms`` with the tool registry."""
-    global _db
+def register_sms_tools(registry: ToolRegistry, db: Database | None = None,
+                       config: dict[str, Any] | None = None) -> None:
+    """Register ``send_sms`` and ``confirm_sms`` with the tool registry. ``db`` is the agent's memory: its
+    do-not-text record is read before every send. ``config`` names the owner's own numbers ([trust] owner_ids)."""
+    global _db, _config
     _db = db
+    _config = config
     if byo_enabled():
         consent = (
             "Omit `to` to text the owner. A number the owner has not approved returns "

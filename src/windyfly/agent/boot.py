@@ -201,7 +201,7 @@ def _step_register_chat(ctx: BootContext) -> None:
 
 def _step_register_sms(ctx: BootContext) -> None:
     from windyfly.tools.sms import register_sms_tools
-    register_sms_tools(ctx.tool_registry, ctx.db)
+    register_sms_tools(ctx.tool_registry, ctx.db, ctx.config)
 
 
 def _step_register_voice(ctx: BootContext) -> None:
