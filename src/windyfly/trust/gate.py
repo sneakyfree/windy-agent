@@ -76,7 +76,7 @@ def require_trust_sync(action: str, passport: str | None = None, db=None, live: 
     import asyncio
     import os
 
-    from windyfly.trust.check import _TIMEOUT, _cache_read, decide_unrefreshed
+    from windyfly.trust.check import _TIMEOUT, NO_LIVE_VERDICT, _cache_read, decide_unrefreshed
 
     pp = passport or os.environ.get("ETERNITAS_PASSPORT", "")
     cached = _cache_read(pp, db=db) if pp and not live else None
@@ -111,9 +111,9 @@ def require_trust_sync(action: str, passport: str | None = None, db=None, live: 
         logger.warning("Trust gate (sync): the fetch did not finish in time for '%s'", action)
         decision = decide_unrefreshed(action, pp, db=db) if pp else TrustDecision(
             allowed=True, snapshot=TrustSnapshot(passport="none", band="unknown"), reason="no passport")
-        if live and decision.allowed:
-            raise TrustDenied(action=action, band="unknown", reason="no live answer from Eternitas in time",
-                              unverified=True) from None
+        if live and (decision.allowed or decision.unverified):
+            # The same sentence as check_trust's live path: one way to say "no live answer" (Boss on #781).
+            raise TrustDenied(action=action, band="unknown", reason=NO_LIVE_VERDICT, unverified=True) from None
         if not decision.allowed:
             raise TrustDenied(action=action, band=decision.snapshot.band, reason=decision.reason,
                               unverified=decision.unverified) from None

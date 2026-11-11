@@ -183,6 +183,18 @@ def default_jobs(config: dict[str, Any]) -> list[MaintenanceJob]:
         if not disabled():
             ensure_registered()
 
+    def _trust_pull() -> None:
+        # An idle agent makes no trust check, so nothing would notice that Eternitas lowered its standing. This
+        # pull keeps the verdict current and lets trust/notice.py tell the owner once. No passport = nothing asked.
+        import os
+
+        passport = os.environ.get("ETERNITAS_PASSPORT", "")
+        if not passport:
+            return
+        from windyfly.trust.check import pull_soon
+
+        pull_soon(passport)
+
     jobs = [
         MaintenanceJob(
             name="journal.daily",
@@ -209,6 +221,12 @@ def default_jobs(config: dict[str, Any]) -> list[MaintenanceJob]:
             name="eternitas.agent_keys.daily",
             run=_agent_keys,
             due=daily_due(after_hour=0),
+        ),
+        # The agent's own standing, pulled every tick (the cache makes it one fetch per 15 minutes at most).
+        MaintenanceJob(
+            name="eternitas.trust_pull",
+            run=_trust_pull,
+            due=interval_due(TICK_SECONDS),
         ),
     ]
 
