@@ -113,6 +113,25 @@ def _no_tools_turn(fn: Any) -> Any:
     return call
 
 
+def _forwarded_turn(fn: Any) -> Any:
+    """``fn`` run as a turn on FORWARDED words (the phone's ai.windy.forwarded mark): it starts tainted."""
+    from windyfly.tools.bands import forwarded_words
+
+    def call(*args: Any, **kwargs: Any) -> Any:
+        with forwarded_words():
+            return fn(*args, **kwargs)
+
+    return call
+
+
+def is_forwarded(event: Any) -> bool:
+    """The phone's mark for forwarded words (message-actions.v1): content key ai.windy.forwarded = {"from": name}.
+    Any object under that key counts; the name itself is never read for anything."""
+    src = getattr(event, "source", None)
+    content = src.get("content") if isinstance(src, dict) else None
+    return isinstance(content, dict) and isinstance(content.get("ai.windy.forwarded"), dict)
+
+
 def _task_tools_turn(fn: Any) -> Any:
     """``fn`` run with the task-turn allowlist set in the agent-turn thread (public reads only)."""
     from windyfly.tools.bands import task_turn_tools
@@ -199,6 +218,9 @@ _GAP_SAY = ("I was offline for a while and may have missed some of your messages
             "If you asked me something I haven't answered, please send it again.")
 # Boss 11:18Z, FINAL: said for EVERY unrequested file from the owner (awake or after a resume), once per file.
 _FILE_SAY = "I only open a file when I've asked you for one, so I haven't opened the file you sent."
+# LEGAL YES, word for word (BOARD 2026-11-11T11:34:15Z), once per picture: the body has no image reader, and before
+# this a picture got no answer at all (Windy Fly Mobile's need (9)). It goes the day an image reader ships.
+_PICTURE_SAY = "I can't see pictures here, so I haven't looked at the one you sent."
 _WAKE_GAP_S = 120.0  # a sync that succeeds this long after the last one is a WAKE (a suspended laptop, Hub on #696)
 # The runtime claim after a sleep (runtime_claim.gate; Boss 11-03 12:12Z FINAL, Hub #9). Each said ONCE per period,
 # in the owner's DM only.
@@ -1371,6 +1393,8 @@ class WindyFlyMatrixBot(ChannelAdapter):
             if _phone.enabled() and not agent_turn:
                 await self._mark_phone(session_id, room_id, sender, turn_band)
             respond: Any = agent_respond
+            if is_forwarded(event):
+                respond = _forwarded_turn(respond)
             if not agent_turn and not agent_sender:
                 team_room = await self._team_room_for(room, event, body, turn_band)
                 if team_room is not None:
@@ -1720,7 +1744,25 @@ class WindyFlyMatrixBot(ChannelAdapter):
 
     # ── sync health callbacks (run INSIDE nio's sync_forever loop) ──────
 
-    async def _say_unrequested_file(self, room: nio.MatrixRoom, event: Any) -> None:
+    async def _on_image(self, room: nio.MatrixRoom, event: Any) -> None:
+        """A picture from the owner: never opened (there is no image reader); one plain line, once per picture, in the
+        owner's own DM, under the same rules as an unrequested file."""
+        if event.sender == self.bot_user_id:
+            return
+        from windyfly.agent.capabilities.descriptor import Band
+        from windyfly.channels.identity import resolve_band
+
+        if resolve_band("matrix", event.sender, config=self.config) < Band.OWNER:
+            return
+        claim = await self._claim_verdict(event)
+        if claim == "paused":
+            self._held_events.append((self._on_image, room, event))
+            return
+        if claim != "act":
+            return
+        await self._say_unrequested_file(room, event, _PICTURE_SAY)
+
+    async def _say_unrequested_file(self, room: nio.MatrixRoom, event: Any, say: str = _FILE_SAY) -> None:
         """The owner sent a file nothing asked for, in the owner's DM: it is not opened (no unrequested file is), and
         saying nothing was the gap (Boss 11:18Z; Hub #9 on the scope). One plain line, once per file (handled_events). The first sync of a fresh start keeps
         skipping old files silently, like old messages."""
@@ -1735,7 +1777,7 @@ class WindyFlyMatrixBot(ChannelAdapter):
         if not _handled.claim(room.room_id, eid if isinstance(eid, str) else "", int(event.server_timestamp)):
             return
         await self.client.room_send(room.room_id, "m.room.message",
-                                    {"msgtype": "m.text", "body": _FILE_SAY, "windy_original": True})
+                                    {"msgtype": "m.text", "body": say, "windy_original": True})
 
     async def _say_catchup_notes(self, response: Any, gap_line: bool = True) -> None:
         """After a wake's sync was handled (nio runs response callbacks after event callbacks, so the stale count is
@@ -2191,6 +2233,7 @@ class WindyFlyMatrixBot(ChannelAdapter):
         # Typed task messages (agent-teamwork.v1) are m.notice; every other notice is dropped in _on_message.
         self.client.add_event_callback(self._on_message, nio.RoomMessageNotice)
         self.client.add_event_callback(self._on_file, nio.RoomMessageFile)
+        self.client.add_event_callback(self._on_image, nio.RoomMessageImage)
         self.client.add_event_callback(self._on_stop_event, nio.UnknownEvent)
         self.client.add_event_callback(self._on_invite, nio.InviteMemberEvent)
         self.client.add_event_callback(self._on_encrypted_event, nio.MegolmEvent)
