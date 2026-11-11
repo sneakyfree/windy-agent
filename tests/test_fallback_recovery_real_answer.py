@@ -99,7 +99,9 @@ def test_the_check_asks_for_the_model_the_agent_fell_back_from(on_the_fallback, 
 def test_a_model_name_mind_does_not_know_is_retried_without_it(on_the_fallback, monkeypatch):
     """The same rule as a real turn (422 = catalog drift, the broker picks)."""
     calls = _mind_answers(monkeypatch, _Resp(422), _Resp(200))
-    assert _r._paid_health_probe() == {"ok": True, "provider": "windy-mind", "status": 200}
+    out = _r._paid_health_probe()
+    assert out["ok"] is True and out["provider"] == "windy-mind" and out["status"] == 200
+    assert out["asked_model"] is None and out["own_model"] is False     # the broker picked: nothing is claimed
     assert "model" in calls[0]["body"] and "model" not in calls[1]["body"]
 
 

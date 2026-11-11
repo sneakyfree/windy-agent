@@ -393,6 +393,7 @@ def resurrect(
         _record_ollama_outcome(success=True)
     except Exception as e:
         logger.debug("ollama counter clear failed during resurrect: %s", e)
+    _note_recovery_probe(True)   # a new fallback: its recovery checks start again at one per 120 s
 
     # Pre-load the model so the user's first chat doesn't pay the
     # 1.5-2s model-load cost on top of CPU inference. Best-effort —
@@ -655,6 +656,12 @@ def auto_resurrect_attempt(
 # transient blip clears within a few replies.
 
 _RECOVERY_PROBE_INTERVAL_S = 120.0
+# Manners Windy Mind asked for (BOARD 2026-11-10T18:51:55Z, asks (a) and (b)). An owner out of credit can stay out
+# for days, and every check is a real hop on their key: after 15 failed checks in a row, one per 10 minutes (144 a
+# day instead of 720). And when Mind answers 429 or 503 with Retry-After, no check before that time.
+_RECOVERY_PROBE_SLOW_AFTER = 15
+_RECOVERY_PROBE_SLOW_INTERVAL_S = 600.0
+_RECOVERY_PROBE_RETRY_AFTER_MAX_S = 3600.0
 # One tiny real answer from Mind. A refusal comes back at once; this only bounds a slow or dead Mind.
 _MIND_ANSWER_TIMEOUT_S = 10.0
 
@@ -761,6 +768,7 @@ def _paid_health_probe(timeout: float = 4.0) -> dict[str, Any]:
     last_status: int | None = None
     last_provider: str | None = None
     mind_reason: str | None = None
+    mind_retry_after: float | None = None
     # Windy Mind first: it is the PRIMARY brain for keyless agents (every
     # hatched agent, and Windy Zero since ADR-064). Without this candidate a
     # Mind-routed agent could never leave lifeboat on its own: the probe only
@@ -774,8 +782,12 @@ def _paid_health_probe(timeout: float = 4.0) -> dict[str, Any]:
         except Exception as e:  # noqa: BLE001
             mind = {"ok": False, "status": None, "reason": f"probe error: {type(e).__name__}"}
         if mind.get("ok"):
-            return {"ok": True, "provider": "windy-mind", "status": mind.get("status")}
+            return {"ok": True, "provider": "windy-mind", "status": mind.get("status"),
+                    "asked_model": mind.get("asked_model"), "served_model": mind.get("served_model"),
+                    "fellback_from": mind.get("fellback_from"), "swapped": bool(mind.get("swapped")),
+                    "own_model": bool(mind.get("own_model"))}
         last_status, last_provider, mind_reason = mind.get("status"), "windy-mind", mind.get("reason")
+        mind_retry_after = mind.get("retry_after") if mind.get("status") in (429, 503) else None
 
     candidates: list[tuple[str, str, dict[str, str]]] = []
     if (key := os.environ.get("ANTHROPIC_API_KEY")):
@@ -834,6 +846,8 @@ def _paid_health_probe(timeout: float = 4.0) -> dict[str, Any]:
     }
     if mind_reason:
         out["mind_reason"] = mind_reason
+    if mind_retry_after:
+        out["retry_after"] = mind_retry_after
     return out
 
 
@@ -847,7 +861,47 @@ def _recovery_probe_marker_path() -> Path:
     ))
 
 
+def _recovery_probe_state_path() -> Path:
+    """How the checks have gone since the fallback began: failures in a row, and Mind's "not before" time."""
+    marker = _recovery_probe_marker_path()
+    return marker.with_name(marker.name + ".state")
+
+
+def _recovery_probe_state() -> dict[str, float]:
+    try:
+        raw = json.loads(_recovery_probe_state_path().read_text(encoding="utf-8"))
+        return {"fails": float(raw.get("fails") or 0), "not_before": float(raw.get("not_before") or 0)}
+    except Exception:
+        return {"fails": 0.0, "not_before": 0.0}
+
+
+def _note_recovery_probe(ok: bool, retry_after: float | None = None) -> None:
+    """Record a check's outcome. An answer, or a new fallback, starts the count again."""
+    path = _recovery_probe_state_path()
+    try:
+        if ok:
+            path.unlink(missing_ok=True)
+            return
+        state = _recovery_probe_state()
+        now = datetime.now(timezone.utc).timestamp()
+        wait = min(float(retry_after), _RECOVERY_PROBE_RETRY_AFTER_MAX_S) if retry_after and retry_after > 0 else 0.0
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"fails": int(state["fails"]) + 1, "not_before": now + wait if wait else 0}),
+                        encoding="utf-8")
+    except Exception as e:
+        logger.debug("recovery-probe state write failed: %s", e)
+
+
+def recovery_probe_interval() -> float:
+    """Seconds between checks right now: 120, or 600 after 15 failed checks in a row."""
+    slow = _recovery_probe_state()["fails"] >= _RECOVERY_PROBE_SLOW_AFTER
+    return _RECOVERY_PROBE_SLOW_INTERVAL_S if slow else _RECOVERY_PROBE_INTERVAL_S
+
+
 def _within_recovery_probe_cooldown() -> bool:
+    now = datetime.now(timezone.utc).timestamp()
+    if now < _recovery_probe_state()["not_before"]:
+        return True                          # Mind said when to come back (Retry-After on a 429 or 503)
     path = _recovery_probe_marker_path()
     if not path.exists():
         return False
@@ -855,8 +909,7 @@ def _within_recovery_probe_cooldown() -> bool:
         last = float(path.read_text(encoding="utf-8").strip())
     except Exception:
         return False
-    age = datetime.now(timezone.utc).timestamp() - last
-    return age < _RECOVERY_PROBE_INTERVAL_S
+    return now - last < recovery_probe_interval()
 
 
 def _mark_recovery_probe() -> None:
@@ -895,11 +948,13 @@ def attempt_paid_recovery() -> dict[str, Any]:
     # not enough.
     probe = _paid_health_probe()
     if not probe.get("ok"):
+        _note_recovery_probe(False, probe.get("retry_after"))
         return {
             "recovered": False,
             "reason": "still_offline",
             "probe": probe,
         }
+    _note_recovery_probe(True)
 
     # Paid LLM is healthy. Clear the flag and let the caller fall
     # through to the normal paid path.
@@ -924,19 +979,35 @@ def attempt_paid_recovery() -> dict[str, Any]:
             _record_provider_success("windy-mind")
         except Exception:  # noqa: BLE001
             pass
-    notice = (
-        f"✅ Recovered — {provider} is healthy again, switching back "
-        f"from lifeboat mode (was using "
-        f"{prior_model or 'local model'}).\n\n"
-    )
+    served, asked = probe.get("served_model"), probe.get("asked_model")
+    if provider == "windy-mind" and served and not probe.get("own_model"):
+        # Say only what is true (P9): Mind answers again, and this is the model that answered. "My own model is
+        # back" would be a claim the answer does not support (Mind, BOARD 2026-11-10T18:51:55Z (1)).
+        # "instead of ... for now" is said only when MIND reports a swap (its fallback chain, the shared-free
+        # swap, the budget swap). A different name alone can be Mind's full name for the agent's short one.
+        swapped = bool(probe.get("swapped"))
+        was = f" instead of {asked}" if swapped and asked and asked != served else ""
+        notice = (
+            f"✅ Windy Mind is answering again, with {served}{was}{' for now' if swapped else ''}. Switching "
+            f"back from lifeboat mode (was using {prior_model or 'local model'}).\n\n"
+        )
+    else:
+        notice = (
+            f"✅ Recovered — {provider} is healthy again, switching back "
+            f"from lifeboat mode (was using "
+            f"{prior_model or 'local model'}).\n\n"
+        )
     logger.info(
-        "RECOVERED: %s key validated, cleared resurrect flag "
-        "(prior_model=%s)", provider, prior_model,
+        "RECOVERED: %s answered, cleared resurrect flag (prior_model=%s asked=%s served=%s fellback_from=%s "
+        "swapped=%s own_model=%s)", provider, prior_model, asked, served, probe.get("fellback_from"),
+        bool(probe.get("swapped")), bool(probe.get("own_model")),
     )
     return {
         "recovered": True,
         "prior_model": prior_model,
         "provider": provider,
+        "served_model": served,
+        "own_model": bool(probe.get("own_model")),
         "notice": notice,
     }
 
@@ -989,7 +1060,7 @@ def lifeboat_status() -> dict[str, Any]:
         "auto_resurrect_last_attempt_ts": auto["last_attempt_ts"],
         "recovery_probe_last_ts": recov_last_ts,
         "recovery_probe_in_cooldown": _within_recovery_probe_cooldown(),
-        "recovery_probe_interval_s": _RECOVERY_PROBE_INTERVAL_S,
+        "recovery_probe_interval_s": recovery_probe_interval(),
         "post_recovery_grace_last_ts": grace_last_ts,
         "in_post_recovery_grace": _within_post_recovery_grace(),
         "post_recovery_grace_s": _POST_RECOVERY_GRACE_S,
