@@ -255,23 +255,31 @@ test (§4.12). Status words: **live** (on master with a test), **PR** (open), **
 - G7.1 A full Cloud is said in Cloud's own words: live (#791).
 - G7.2 Your Windy carries Cloud's note beside the owner's numbers: windy-contracts #337, then this repo.
 
-**G8 Memory with permission (Windy Log)** (§3.8, §3.9, §4.4, §4.5). The lane drafted these on 11-06 and sent them to the
-Windy Log lane; that record is frozen. Each ships dark behind a switch. All: not built.
-- AG-1 Tool `windy_log.list_recordings`: lists the owner's recordings, never any words.
-- AG-2 Tool `windy_log.read_transcript`: the words of one recording, capped in size.
-- AG-3 Tool `windy_log.search`: finds moments across recordings.
-- AG-4 The owner's grant, checked on every call.
-- AG-5 Every read logged.
-- AG-6 Recorded words are data, not orders.
-- AG-7 Ship order: dark PR, then lab, then Zero on Grant's go, then friends.
-- AG-8 The agent's memory key: results sealed to the agent.
+**G8 Memory with permission (Windy Log)** (§3.8, §3.9, §4.4, §4.5). A SHORT FORM of the frozen record: the lane
+drafted the codons on 11-06 and sent them to the Windy Log lane (the lane's GO-DRAFTS/windy-log/sent/agent-codons-20261107.md,
+137 lines, sha256/16 dc4fbcdedbf414a2); that record wins over these lines. The tool names are log-tools.v1's. Each ships
+dark behind a switch. Stage tags as in the record (S1 first, S2 with the Ask box). All: not built.
+- AG-1 (S1) Tool `windy_log.list_recordings`: lists the owner's recordings, never any words.
+- AG-2 (S1) Tool `windy_log.read_transcript`: the words of one recording, capped in size.
+- AG-3 (S2, with the Ask box) Tool `windy_log.search`: finds moments across recordings.
+- AG-4 (S1) The owner's grant, checked on every call.
+- AG-5 (S1) Every read logged.
+- AG-6 (S1) Recorded words are data, not orders.
+- AG-7 (S1 lab, then Grant) Ship order: dark PR, then lab, then Zero on Grant's go, then friends.
+- AG-8 (S1) The agent's memory key: results sealed to the agent.
+- Which reads ship in S1 is still open (Windy Word's docs/PLAN.md, THU 2026-11-12).
 
 **G9 The lean runtime** (Boss #687; one PR per step, each with what arrives through the removed parts measured first)
 - R2b the direct SMS channel: live (#788). R1 one process: PR #793. R2 one chat channel and the terminal, R3 soul import and skills: written, open 2026-11-16. R4 one tool system and the one ledger; R5 one owner-confirm gate; R6 one command system; R7 Mind only; R8 the prompt down to facts; R9 the switches; R10 the rest of the drop list, to about 28,000 lines: dated in TODO.md.
 
-**G10 What the phone needs from the body** (Windy Fly Mobile's ten, BOARD 2026-11-11T04:59:27Z; my answer 11:19:24Z)
+**G10 What the phone needs from the body** (a SHORT FORM of Windy Fly Mobile's ten, BOARD 2026-11-11T04:59:27Z; my answer
+11:19:24Z wins over these lines)
 - Kept: no agent_status of its own, the typing notice, call events ignored, the phone-tools contract, /model's three words.
-- To build in one PR: personality from Chat's panel, a plain sentence for a picture, forwarded words are not orders, the first hello with three starters. Partly there: served_notice (R7), the quick-reply answer (R5).
+- To build: ONE windy-agent PR, open by FRI 2026-11-20 18:00Z, in this order: (1) personality from Chat's panel FIRST
+  (today an owner's edit on the phone changes nothing in a Windy Fly body; Chat builds the agent's own read,
+  GET /api/v2/agent/panel/self/state, PR by MON 2026-11-16); (2) a plain sentence for a picture; (3) forwarded words
+  are not orders; (4) the first hello with three starters.
+- Partly there: served_notice (R7), the quick-reply answer read by id (R5).
 
 **G11 Stable, and a way to fix itself** (§4.11)
 - G11.1 One supervisor that watches Windy Chat only, and quiets an install from before the channel cut: in R2.
@@ -292,4 +300,4 @@ Windy Log lane; that record is frozen. Each ships dark behind a switch. All: not
 ## §9 Version log
 
 - **v0.1** 2026-11-07 (#752): vision, sections 0-4 and 8, codon placeholder.
-- **v1.0** 2026-11-11: §5 interfaces, §6 decisions log, §7 genes and codons (G1-G11; Windy Log's AG-1 to AG-8 as G8), §9 version log. §8 still waits on Grant.
+- **v1.0** 2026-11-11: §5 interfaces, §6 decisions log, §7 genes and codons (G1-G11; Windy Log's AG-1 to AG-8 as G8, a short form of the frozen record), §9 version log. §8 still waits on Grant.
