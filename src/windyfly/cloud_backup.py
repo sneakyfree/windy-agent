@@ -24,9 +24,11 @@ from __future__ import annotations
 import asyncio
 import gzip
 import hashlib
+import io
 import json
 import logging
 import os
+import tarfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -197,6 +199,57 @@ async def _no_credential(auth_header: dict, cloud_url: str) -> bool:
     return await asyncio.to_thread(cloud_auth.agent_headers, "GET", cloud_url) is None
 
 
+# A backup's plain bytes are the database alone, or (when the install has files that must travel with it, each as
+# its own file and never as a database column: LEGAL DECISION 28 (9)(1)) a tar holding the database and those files.
+BUNDLE_DB = "windyfly.db"
+BUNDLE_FORMAT = "tar.v1"
+_BUNDLE_SIDE_MAX = 1024 * 1024          # a side file is a 32-byte key or a short list, never more
+_BUNDLE_SIDE_FILES_MAX = 64             # the key in use, the pending list, and a key kept per earlier restore
+_SQLITE_MAGIC = b"SQLite format 3\x00"
+
+
+def pack_bundle(raw_db: bytes, side: dict[str, bytes]) -> bytes:
+    if not side:
+        return raw_db
+    buf = io.BytesIO()
+    with tarfile.TarFile(fileobj=buf, mode="w") as tar:      # a plain tar: binary, so no text encoding is in play
+        for name, data in [(BUNDLE_DB, raw_db), *sorted(side.items())]:
+            info = tarfile.TarInfo(name)
+            info.size, info.mode, info.mtime = len(data), 0o600, int(time.time())
+            tar.addfile(info, io.BytesIO(data))
+    return buf.getvalue()
+
+
+def split_bundle(data: bytes) -> tuple[bytes, dict[str, bytes]]:
+    """(database bytes, side files). Bytes that are a database already, or are not a bundle, come back unchanged
+    with no side files; the caller's database check then says what they are. Only plain files with the names this
+    code writes are read (sms_optout.is_side_file): nothing is ever unpacked to disk from here."""
+    if data.startswith(_SQLITE_MAGIC):
+        return data, {}
+    from windyfly import sms_optout
+
+    db_bytes: bytes | None = None
+    side: dict[str, bytes] = {}
+    try:
+        with tarfile.open(fileobj=io.BytesIO(data), mode="r:") as tar:
+            for member in tar:
+                if not member.isreg():
+                    continue
+                if member.name == BUNDLE_DB and db_bytes is None:
+                    f = tar.extractfile(member)
+                    db_bytes = f.read() if f else None
+                elif (sms_optout.is_side_file(member.name) and member.size <= _BUNDLE_SIDE_MAX
+                      and member.name not in side and len(side) < _BUNDLE_SIDE_FILES_MAX):
+                    f = tar.extractfile(member)
+                    if f:
+                        side[member.name] = f.read()
+    except (tarfile.TarError, EOFError, OSError):
+        return data, {}
+    if db_bytes is None:
+        return data, {}
+    return db_bytes, side
+
+
 def owner_key_missing() -> bool:
     """True when the agent has no owner-held WINDY_BACKUP_KEY: then no backup is uploaded (Boss 10-17)."""
     return not os.environ.get("WINDY_BACKUP_KEY", "")
@@ -307,8 +360,11 @@ async def backup_to_cloud(config: dict | None = None, *, suspect: bool = False) 
     # backups — plus it's less R2 to store/transfer. Order matters:
     # encrypted bytes are incompressible, so gzip must come first.
     # Restore reverses via _maybe_decompress (gzip-magic detection).
+    from windyfly import sms_optout
+
+    side = sms_optout.backup_files(db_path)
     key = _get_encryption_key()
-    compressed = gzip.compress(raw_data)
+    compressed = gzip.compress(pack_bundle(raw_data, side))
     encrypted = _encrypt_data(compressed, key)
     checksum = hashlib.sha256(raw_data).hexdigest()  # of the ORIGINAL db
 
@@ -331,6 +387,8 @@ async def backup_to_cloud(config: dict | None = None, *, suspect: bool = False) 
         # keep a few backups; Cloud enforces retention server-side
         "retention_count": _RETENTION_COUNT,
         "episodes": episode_count(db_path),
+        # Present only when the database travels with side files (the SMS do-not-text key): see pack_bundle.
+        **({"bundle": BUNDLE_FORMAT} if side else {}),
         # Windy Cloud's rotation never lets a suspect backup push out the newest good one (its rule A/B).
         **({"suspect": True} if suspect else {}),
     })

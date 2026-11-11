@@ -23,7 +23,9 @@ from windyfly.channels.identity import resolve_band
 from windyfly.memory.database import Database
 from windyfly.memory.nodes import get_nodes_by_type, upsert_node
 from windyfly.memory.write_queue import WriteQueue
+from windyfly import sms_optout
 from windyfly.observability.events import log_event
+from windyfly.sms_optout import mask
 from windyfly.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -42,13 +44,16 @@ _OPT_OUT_KEYWORDS = frozenset({"STOP", "STOPALL", "UNSUBSCRIBE", "CANCEL", "END"
 _OPT_IN_KEYWORDS = frozenset({"START", "UNSTOP"})
 
 # The opt-out record. A person who texted STOP to this number is never texted again from this channel until they
-# text START: send_sms refuses, and their later messages get no reply (LEGAL DECISION 28 (4)(a)).
-_OPTOUT_SQL = """
-CREATE TABLE IF NOT EXISTS sms_optouts (
-    number TEXT PRIMARY KEY,
-    opted_out_at TEXT NOT NULL
-);
-"""
+# text START: send_sms refuses, and their later messages get no reply (LEGAL DECISION 28 (4)(a)). The record holds
+# keyed fingerprints, never numbers (LEGAL DECISION 28 (8)): see windyfly.sms_optout.
+
+# Said to the owner ONCE when the fingerprint key is missing while the record has entries (LEGAL DECISION 28 (9)(2)).
+# Windy Legal's words, word for word (BOARD 2026-11-11T03:24:49Z (a)): a backup made before 0.9.x carried no key.
+KEY_MISSING_NOTICE = ("Right now I can only text you. The key that protects my do-not-text list is missing from "
+                      "this computer, so I can't tell who asked me to stop texting them. Restoring my latest backup "
+                      "brings the key back, if that backup has it. Until then I won't text anyone else.")
+_TOLD_FILE = "sms-optout-key-missing.told"
+_masked_once: set[str] = set()
 
 
 def _keyword(body: str) -> str:
@@ -119,11 +124,7 @@ def _is_opt_in(body: str) -> bool:
     return _keyword(body) in _OPT_IN_KEYWORDS
 
 
-def _number_key(number: str) -> str:
-    """One key per phone number, whatever its spelling: digits only, and a 10-digit North American number gets its
-    country code, so "+1 (555) 123-4567", "15551234567" and "5551234567" are the same person."""
-    digits = "".join(ch for ch in (number or "") if ch.isdigit())
-    return "1" + digits if len(digits) == 10 else digits
+_number_key = sms_optout.number_key
 
 
 def non_owner_allowed() -> bool:
@@ -149,31 +150,26 @@ def may_text(number: str, config: dict[str, Any] | None = None) -> bool:
     return non_owner_allowed() or _number_key(number) in owner_numbers(config)
 
 
-def number_opted_out(number: str, db_path: str | None = None, config: dict[str, Any] | None = None) -> bool:
-    """For a send path that has no channel object (the /sms command): has this number opted out? Reads the same
-    sms_optouts table, in the SAME file the channel uses: resolve_db_path(config memory.db_path), as main.py does
-    (Hub 2026-11-09T11:25:19Z). With neither a path nor a config, it cannot know which file the channel uses, so it
-    answers True (refuse). No database or no table yet = nothing recorded = False. Any other read error = True:
-    when in doubt, do not text."""
-    import sqlite3
-
+def optout_state(number: str, db_path: str | None = None, config: dict[str, Any] | None = None) -> str:
+    """For a send path that has no channel object (the /sms command): "clear", "opted_out" or "key_missing". Reads
+    the same sms_optouts table, in the SAME file the channel uses: resolve_db_path(config memory.db_path), as
+    main.py does (Hub 2026-11-09T11:25:19Z). With neither a path nor a config it cannot know which file the channel
+    uses, so it answers "opted_out" (refuse). "key_missing" = the record has fingerprints and the key is gone
+    (LEGAL DECISION 28 (9)(2)): every number but the owner's is refused."""
     from windyfly.memory.db_location import resolve_db_path
 
     if db_path is None and config is None:
-        return True
+        return sms_optout.OPTED_OUT
     path = db_path or resolve_db_path(((config or {}).get("memory") or {}).get("db_path"))
-    if not os.path.isfile(path):
-        return False
-    try:
-        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
-        try:
-            if con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='sms_optouts'").fetchone() is None:
-                return False
-            return con.execute("SELECT 1 FROM sms_optouts WHERE number = ?", (_number_key(number),)).fetchone() is not None
-        finally:
-            con.close()
-    except sqlite3.Error:
-        return True
+    state = sms_optout.state_readonly(number, path)
+    if state == sms_optout.KEY_MISSING and _number_key(number) in owner_numbers(config):
+        return sms_optout.CLEAR
+    return state
+
+
+def number_opted_out(number: str, db_path: str | None = None, config: dict[str, Any] | None = None) -> bool:
+    """True when this number must not be texted: it opted out, or nobody can tell (see optout_state)."""
+    return optout_state(number, db_path, config) != sms_optout.CLEAR
 
 
 class WindyFlySMS:
@@ -206,8 +202,10 @@ class WindyFlySMS:
                 "TWILIO_AUTH_TOKEN, and TWILIO_PHONE_NUMBER in .env"
             )
 
-        self.db.execute(_OPTOUT_SQL)
-        self.db.commit()
+        self.optouts = sms_optout.OptOutStore(self.db)
+        if str(self.db.db_path) not in _masked_once:      # once per process: lines 0.9.x wrote with whole numbers
+            _masked_once.add(str(self.db.db_path))
+            sms_optout.mask_old_events(self.db)
 
         # Map phone number → session_id
         self._phone_sessions: dict[str, str] = {}
@@ -232,19 +230,55 @@ class WindyFlySMS:
         return self._outbound_today < MAX_OUTBOUND_SMS_PER_DAY
 
     def record_opt_out(self, number: str) -> None:
-        import datetime
-        self.db.execute(
-            "INSERT OR REPLACE INTO sms_optouts (number, opted_out_at) VALUES (?, ?)",
-            (_number_key(number), datetime.datetime.now(datetime.timezone.utc).isoformat()),
-        )
-        self.db.commit()
+        self.optouts.record(number)
 
     def clear_opt_out(self, number: str) -> None:
-        self.db.execute("DELETE FROM sms_optouts WHERE number = ?", (_number_key(number),))
-        self.db.commit()
+        self.optouts.clear(number)
 
     def is_opted_out(self, number: str) -> bool:
-        return self.db.fetchone("SELECT 1 AS x FROM sms_optouts WHERE number = ?", (_number_key(number),)) is not None
+        return self.optouts.state(number) == sms_optout.OPTED_OUT
+
+    def _blocked(self, number: str) -> str | None:
+        """Why this number may not be texted, or None. "optout_key_missing" = the record cannot be read (its key is
+        gone), so only the owner is texted (LEGAL DECISION 28 (9)(2))."""
+        state = self.optouts.state(number)
+        if state == sms_optout.OPTED_OUT:
+            return "recipient_opted_out"
+        if state == sms_optout.KEY_MISSING and _number_key(number) not in owner_numbers(self.config):
+            return "optout_key_missing"
+        return None
+
+    def _tell_owner_once(self) -> str | None:
+        """The notice text the first time, None after. The marker goes away when the key is back."""
+        from pathlib import Path
+
+        if sms_optout.in_memory(self.db.db_path):
+            return None
+        marker = Path(str(self.db.db_path)).parent / _TOLD_FILE
+        try:
+            fd = os.open(marker, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        except FileExistsError:
+            return None
+        except OSError:
+            return None
+        os.close(fd)
+        import threading
+
+        from windyfly.agent import owner_mail
+
+        threading.Thread(target=owner_mail.send_sync, daemon=True,
+                         args=("Your agent can only text you for now", KEY_MISSING_NOTICE)).start()
+        return KEY_MISSING_NOTICE
+
+    def _forget_told(self) -> None:
+        from pathlib import Path
+
+        if sms_optout.in_memory(self.db.db_path):
+            return
+        try:
+            os.unlink(Path(str(self.db.db_path)).parent / _TOLD_FILE)
+        except OSError:
+            pass
 
     def handle_inbound(self, from_number: str, body: str) -> str:
         """Handle an inbound SMS message.
@@ -260,30 +294,34 @@ class WindyFlySMS:
         from_owner = _number_key(from_number) in owner_numbers(self.config)
         if _is_opt_out(body, from_owner=from_owner):
             self.record_opt_out(from_number)
-            log_event(self.db, self.write_queue, "sms.optout", {"phone": from_number})
+            log_event(self.db, self.write_queue, "sms.optout", {"phone": mask(from_number)})
             return "You've been unsubscribed. Reply START to re-subscribe."
 
         # START/UNSTOP: clear the record. No reply of our own (no new sentence; Twilio may send its own).
         if _is_opt_in(body):
             self.clear_opt_out(from_number)
-            log_event(self.db, self.write_queue, "sms.optin", {"phone": from_number})
+            log_event(self.db, self.write_queue, "sms.optin", {"phone": mask(from_number)})
             return ""
 
         # HELP: the required compliance reply, to ANYONE, an opted-out person or a non-owner too (they asked for
         # it; LEGAL DECISION 28, Legal 11:21:40Z). The agent is not asked.
         if _is_help(body):
-            log_event(self.db, self.write_queue, "sms.help", {"phone": from_number})
+            log_event(self.db, self.write_queue, "sms.help", {"phone": mask(from_number)})
             return help_reply()
 
-        # Still opted out: no reply at all, and the agent is not asked to answer.
-        if self.is_opted_out(from_number):
-            log_event(self.db, self.write_queue, "sms.inbound_opted_out", {"phone": from_number})
+        # Still opted out, or nobody can tell (the key is missing): no reply at all, and the agent is not asked.
+        blocked = self._blocked(from_number)
+        if blocked == "recipient_opted_out":
+            log_event(self.db, self.write_queue, "sms.inbound_opted_out", {"phone": mask(from_number)})
+            return ""
+        if blocked:
+            log_event(self.db, self.write_queue, "sms.inbound_key_missing", {"phone": mask(from_number)})
             return ""
 
         # Owner only unless the allow switch is on: a reply is a text too, so a non-owner gets none and the agent is
         # not asked (Boss's opt-out order (1)(b)). The STOP confirmation and the HELP reply above still go to anyone.
         if not may_text(from_number, self.config):
-            log_event(self.db, self.write_queue, "sms.inbound_not_owner", {"phone": from_number})
+            log_event(self.db, self.write_queue, "sms.inbound_not_owner", {"phone": mask(from_number)})
             return ""
 
         session_id = self._get_session_id(from_number)
@@ -309,7 +347,7 @@ class WindyFlySMS:
         )
 
         log_event(self.db, self.write_queue, "sms.inbound", {
-            "from": from_number,
+            "from": mask(from_number),
             "body_length": len(body),
             "response_length": len(response),
         })
@@ -329,14 +367,25 @@ class WindyFlySMS:
         Raises:
             RuntimeError: If rate limit exceeded.
         """
-        if self.is_opted_out(to_number):
+        blocked = self._blocked(to_number)
+        if blocked == "recipient_opted_out":
             # Never text a person who sent STOP (LEGAL DECISION 28). Same code as Windy Text's refusal.
-            log_event(self.db, self.write_queue, "sms.outbound_refused", {"to": to_number, "code": "recipient_opted_out"})
-            return {"status": "refused", "error": "recipient_opted_out"}
+            log_event(self.db, self.write_queue, "sms.outbound_refused", {"to": mask(to_number), "code": blocked})
+            return {"status": "refused", "error": blocked}
+        if blocked:
+            # The record cannot be read (its key is gone): only the owner is texted, and the owner hears why once.
+            log_event(self.db, self.write_queue, "sms.outbound_refused", {"to": mask(to_number), "code": blocked})
+            out: dict[str, Any] = {"status": "refused", "error": blocked}
+            notice = self._tell_owner_once()
+            if notice:
+                out["owner_notice"] = notice
+            return out
+        if not self.optouts.failed_closed:
+            self._forget_told()
 
         if not may_text(to_number, self.config):
             # Boss's opt-out order (1)(b): owner only unless WINDY_SMS_ALLOW_NON_OWNER=1.
-            log_event(self.db, self.write_queue, "sms.outbound_refused", {"to": to_number, "code": "not_owner"})
+            log_event(self.db, self.write_queue, "sms.outbound_refused", {"to": mask(to_number), "code": "not_owner"})
             return {"status": "refused", "error": "not_owner"}
 
         if not self._check_rate_limit():
@@ -375,7 +424,7 @@ class WindyFlySMS:
                 result = json.loads(resp.read().decode())
                 self._outbound_today += 1
                 log_event(self.db, self.write_queue, "sms.outbound", {
-                    "to": to_number,
+                    "to": mask(to_number),
                     "sid": result.get("sid", ""),
                 })
                 return {"status": "sent", "message_sid": result.get("sid", "")}
