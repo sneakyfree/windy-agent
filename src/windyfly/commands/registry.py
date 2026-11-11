@@ -202,10 +202,17 @@ class CommandRegistry:
             try:
                 from windyfly.trust.gate import TrustDenied, require_trust_sync
 
-                require_trust_sync(action)
+                require_trust_sync(action, live=cmd.name in _LIVE_TRUST_COMMANDS)
             except TrustDenied as denied:
-                logger.warning("Trust gate denied /%s: %s", cmd.name, denied)
-                return f"Trust gate denied /{cmd.name}: {denied.reason}"
+                if denied.unverified and platform in _LOCAL_PLATFORMS:
+                    # Nobody could tell just now (Eternitas did not answer), and the person is at their own
+                    # keyboard: an outage must not lock an owner out of their own agent (principle 10). A verdict
+                    # AGAINST the agent (revoked, suspended, not allowed) is refused here like anywhere else.
+                    logger.warning("Trust gate: no fresh verdict for /%s; the owner is at the keyboard, going on",
+                                   cmd.name)
+                else:
+                    logger.warning("Trust gate denied /%s: %s", cmd.name, denied)
+                    return f"Trust gate denied /{cmd.name}: {denied.reason}"
             except Exception as exc:
                 logger.warning("Trust gate check failed for /%s (fail-open): %s", cmd.name, exc)
 
@@ -386,6 +393,11 @@ def _platform_may_invoke(platform: str, category: str) -> bool:
     if override:
         return category in override
     return category in _REMOTE_ALLOWED_CATEGORIES
+
+
+# High-value commands: the verdict is asked LIVE, never from the cache (Eternitas, BOARD 2026-11-11T05:15:50Z:
+# money, consent, deleting data, a change of owner). Today one gated command is of that kind.
+_LIVE_TRUST_COMMANDS = frozenset({"factory-reset"})
 
 
 def _needs_trust_gate(cmd: Command) -> bool:

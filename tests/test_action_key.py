@@ -18,6 +18,9 @@ EVENT = "$owner-send:chat.windychat.ai"
 @pytest.fixture(autouse=True)
 def _passport(monkeypatch):
     monkeypatch.setenv("ETERNITAS_PASSPORT", "ET26-TEST-86FT")
+    # These tests are about the one key per send, not the trust gate: no registry is asked. (Before 2026-11 the
+    # gate allowed a send whenever Eternitas could not be reached, so this file passed without saying so.)
+    monkeypatch.setenv("ETERNITAS_USE_MOCK", "true")
 
 
 def test_no_trigger_means_no_key():
