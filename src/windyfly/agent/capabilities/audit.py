@@ -208,7 +208,8 @@ def install_audit_hooks(
 # call, Cloud upload, the builder, domains) did not, so an outward send left no row. ``audited_call`` writes the
 # same start + end rows for those calls, and for the owner's own "send" of a held mail (channels/base.py).
 # PRIVACY: argument NAMES only, never values (a send's values are a recipient and a message: a real person's data),
-# and no error text (it can echo them); the result's error code is kept only as a short id.
+# and only names DECLARED by the tool: a key the model made up (it could be an address or a sentence) is counted,
+# never written (the Hub's must-fix on #798). No error text either; the result's error code is kept only as a short id.
 _TOOL_LEDGER: tuple[Database, WriteQueue] | None = None
 _CODE_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 
@@ -246,18 +247,26 @@ def audited_call(
     arguments: Any,
     call: Callable[[], Any],
     *,
+    declared: Any = None,
     band: Band | None = None,
     via: str | None = None,
 ) -> Any:
     """Run ``call`` and write ONE agent_actions row for it (``tool.<name>``). Returns ``call``'s result and
-    re-raises its exception. A ledger write that fails is logged and never stops the call."""
+    re-raises its exception. A ledger write that fails is logged and never stops the call.
+
+    ``declared``: the tool's own parameter names. Only those are written; every other key is counted as
+    ``undeclared``. With no ``declared``, no name is written at all, only the count."""
     led = _TOOL_LEDGER
     if led is None:
         return call()
     db, write_queue = led
     action_id = uuid.uuid4().hex
-    names = sorted(str(k) for k in arguments) if isinstance(arguments, dict) else []
+    keys = [str(k) for k in arguments] if isinstance(arguments, dict) else []
+    known = {str(d) for d in declared} if declared is not None else set()
+    names = sorted(k for k in keys if k in known)
     meta: dict[str, Any] = {"arg_names": names}
+    if len(keys) > len(names):
+        meta["undeclared"] = len(keys) - len(names)
     if via:
         meta["via"] = via
     if band is None:

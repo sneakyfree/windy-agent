@@ -54,7 +54,8 @@ def _rows(db, wq):
 def _registry(**fns):
     reg = ToolRegistry()
     for name, fn in fns.items():
-        reg.register(name, name, {"type": "object", "properties": {}}, fn)
+        props = {p: {} for p in inspect.signature(fn).parameters if not p.startswith("_")}
+        reg.register(name, name, {"type": "object", "properties": props}, fn)
     return reg
 
 
@@ -188,3 +189,33 @@ def test_the_owner_s_yes_to_a_held_publish_writes_one_row(ledger, monkeypatch):
     (row,) = _rows(db, wq)
     assert row["capability_id"] == "tool.windycodeweb_publish" and row["success"] == 1
     assert json.loads(row["args_json"]) == {"arg_names": ["project_id"], "via": "owner_yes"}
+
+
+def test_a_key_the_model_made_up_is_counted_never_written(ledger):
+    """The Hub's must-fix on #798: only the tool's declared parameter names enter the row; an extra key (here an
+    address used as a key, as a prompt in an incoming mail could ask) is a count, never a name."""
+    db, wq = ledger
+    reg = ToolRegistry()
+    reg.register("send_email", "send", {"type": "object", "properties": {"to": {}, "subject": {}, "body": {}}},
+                 lambda to, subject, body: {"status": "pending_owner_approval"})
+    with turn_band(Band.OWNER):
+        reg.execute("send_email", {"to": SECRET_TO, "subject": "hi", "body": SECRET_BODY, SECRET_TO: "x"})
+    (row,) = _rows(db, wq)
+    assert json.loads(row["args_json"]) == {"arg_names": ["body", "subject", "to"], "undeclared": 1}
+    _no_values_anywhere(row)
+
+
+def test_with_no_declared_names_only_a_count_is_written(ledger):
+    db, wq = ledger
+    audit.audited_call("send_sms", {SECRET_TO: 1, "to": 2}, lambda: {"status": "sent"}, band=Band.OWNER)
+    (row,) = _rows(db, wq)
+    assert json.loads(row["args_json"]) == {"arg_names": [], "undeclared": 2}
+    _no_values_anywhere(row)
+
+
+def test_the_held_builder_args_are_declared_in_code():
+    from windyfly.tools import windycode_web as wcw
+
+    assert wcw._HELD_ARG_NAMES == {"project_id", "fqdn", "bundle_actions"}
+    src = inspect.getsource(wcw.owner_confirm)
+    assert "declared=_HELD_ARG_NAMES" in src

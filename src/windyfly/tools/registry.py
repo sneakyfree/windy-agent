@@ -107,7 +107,7 @@ class ToolRegistry:
                 # ONE ledger: an outward tool writes the same agent_actions row a capability does (names only).
                 from windyfly.agent.capabilities.audit import audited_call
 
-                result = audited_call(name, args, lambda: fn(**args))
+                result = audited_call(name, args, lambda: fn(**args), declared=self._declared(name))
             else:
                 result = fn(**args)
             if isinstance(result, str):
@@ -116,6 +116,13 @@ class ToolRegistry:
         except Exception as e:
             logger.error("Tool '%s' failed: %s", name, e)
             return json.dumps({"error": str(e)})
+
+    def _declared(self, name: str) -> set[str]:
+        """The parameter names this tool's own schema declares (the ledger writes only these)."""
+        for s in self._schemas:
+            if s["function"]["name"] == name:
+                return set((s["function"].get("parameters") or {}).get("properties") or {})
+        return set()
 
     @property
     def tool_count(self) -> int:
