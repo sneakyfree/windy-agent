@@ -31,7 +31,7 @@ Built in waves (strand-to-green plan, 2026-10-10): 5a set the frame plus Part 1 
 | P1.1.3 | One shared Matrix bot id (@windyfly) | retired: every agent is its own @agent_<passport>, minted at hatch; the shared id was removed (#505) | — |
 | P1.1.4 | Licence: proprietary (Copyright 2026 Windstorm Labs LLC, all rights reserved) in LICENSE, the package metadata and the README | live | `tests/strand/test_p1_foundation.py::test_p1_1_licence_is_proprietary` |
 | P1.1.5 | Runs on Python 3.12 or newer | live | `tests/strand/test_p1_foundation.py::test_p1_1_python_312_or_newer` |
-| P1.1.6 | TypeScript/Bun gateway, tested in CI | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
+| P1.1.6 | TypeScript/Bun gateway, tested in CI | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
 | P1.1.7 | SQLite with FTS5 full-text search | live | `tests/strand/test_p1_memory.py::test_p1_4_episodes_fts_finds_saved_text` |
 | P1.1.8 | sqlite-vec vector search | retired: never loaded; dependency and claims removed (#505) | — |
 | P1.1.9 | matrix-nio is the chat protocol library | live | `tests/strand/test_p1_foundation.py::test_p1_1_matrix_nio_is_the_chat_protocol` |
@@ -390,16 +390,16 @@ Built in waves (strand-to-green plan, 2026-10-10): 5a set the frame plus Part 1 
 
 | Codon | Promise | Status | Test |
 |---|---|---|---|
-| P3.41.1 | The brain opens its bridge socket and removes it on stop | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
-| P3.41.2 | A malformed frame gets a structured error, not a crash | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
-| P3.41.3 | A chat turn round-trips through the bridge | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
-| P3.41.4 | Sliders are read and set through the bridge | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
-| P3.41.5 | Today's spend is read through the bridge | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
-| P3.41.6 | Goals are listed through the bridge | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
-| P3.41.7 | Memory is searched through the bridge (knowledge nodes) | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
-| P3.41.8 | Bridge memory search also searches past conversations (none in guest mode; a 300-character preview each) | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
-| P3.41.9 | The gateway's health route reports whether the brain is connected | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
-| P3.41.10 | Gateway HTTP and WebSocket chat are proven end to end without a live stack (gateway/tests/e2e-bridge.test.ts: the real gateway against a stand-in brain socket, run by CI) | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
+| P3.41.1 | The brain opens its bridge socket and removes it on stop | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
+| P3.41.2 | A malformed frame gets a structured error, not a crash | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
+| P3.41.3 | A chat turn round-trips through the bridge | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
+| P3.41.4 | Sliders are read and set through the bridge | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
+| P3.41.5 | Today's spend is read through the bridge | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
+| P3.41.6 | Goals are listed through the bridge | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
+| P3.41.7 | Memory is searched through the bridge (knowledge nodes) | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
+| P3.41.8 | Bridge memory search also searches past conversations (none in guest mode; a 300-character preview each) | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
+| P3.41.9 | The gateway's health route reports whether the brain is connected | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
+| P3.41.10 | Gateway HTTP and WebSocket chat are proven end to end without a live stack (gateway/tests/e2e-bridge.test.ts: the real gateway against a stand-in brain socket, run by CI) | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
 
 ### P3.42 Cognitive decay (gene 4.2)
 
@@ -452,16 +452,16 @@ Built in waves (strand-to-green plan, 2026-10-10): 5a set the frame plus Part 1 
 
 | Codon | Promise | Status | Test |
 |---|---|---|---|
-| P4.51.1 | The dashboard summary has every section, even on an empty agent | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
-| P4.51.2 | It counts memories and conversations | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
-| P4.51.3 | Memories are broken down by how sure the agent is and by scope | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
-| P4.51.4 | Spend today, this week, this month and by kind of task | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
-| P4.51.5 | Unpriced (local or Mind) cost rows never break the summary | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
-| P4.51.6 | Failures: total, resolved and the improvement rate | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
-| P4.51.7 | The five most used promoted skills, with their success rate | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
-| P4.51.8 | Goals counted as active, completed and paused ("abandoned") | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
-| P4.51.9 | The personality preset is named, or "custom" | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
-| P4.51.10 | The summary is served through the bridge to the gateway | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
+| P4.51.1 | The dashboard summary has every section, even on an empty agent | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
+| P4.51.2 | It counts memories and conversations | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
+| P4.51.3 | Memories are broken down by how sure the agent is and by scope | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
+| P4.51.4 | Spend today, this week, this month and by kind of task | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
+| P4.51.5 | Unpriced (local or Mind) cost rows never break the summary | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
+| P4.51.6 | Failures: total, resolved and the improvement rate | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
+| P4.51.7 | The five most used promoted skills, with their success rate | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
+| P4.51.8 | Goals counted as active, completed and paused ("abandoned") | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
+| P4.51.9 | The personality preset is named, or "custom" | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
+| P4.51.10 | The summary is served through the bridge to the gateway | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
 
 ### P4.52 Personality versioning, drift and rollback (gene 5.2)
 
@@ -473,14 +473,14 @@ Built in waves (strand-to-green plan, 2026-10-10): 5a set the frame plus Part 1 
 | P4.52.4 | The owner's own slider changes are never called drift | live | `tests/test_personality_drift.py::TestDetectDrift::test_owner_change_is_not_drift` |
 | P4.52.5 | A move of 2 points or less is not drift | live | `tests/test_personality_drift.py::TestDetectDrift::test_small_agent_change_is_not_drift` |
 | P4.52.6 | The daily check detects before it snapshots, so drift can fire | live | `tests/test_personality_drift.py::TestPeriodicCheck::test_scheduler_detects_before_snapshotting` |
-| P4.52.7 | Drift reaches the owner's dashboard summary | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
+| P4.52.7 | Drift reaches the owner's dashboard summary | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
 | P4.52.8 | The drift alert clears once the drift is gone | live | `tests/test_personality_drift.py::TestPeriodicCheck::test_alert_clears_when_drift_resolves` |
 | P4.52.9 | A rollback restores the earlier value and clears the drift | live | `tests/test_personality_drift.py::TestRollback::test_rollback_restores_value_and_clears_drift` |
 | P4.52.10 | A rollback is recorded in the history as a rollback | live | `tests/strand/test_p4_phase5.py::test_p4_52_a_rollback_is_recorded_as_a_rollback` |
 | P4.52.11 | A rollback touches personality sliders only | live | `tests/test_personality_drift.py::TestRollback::test_rollback_only_touches_personality_sliders` |
 | P4.52.12 | Before a rollback the owner sees exactly what will change (the diff), and nothing is written | live | `tests/test_personality_drift.py::TestRollbackShowsExactlyWhatItRestores::test_plan_lists_only_what_changes_and_writes_nothing` |
-| P4.52.13 | If a slider moved after the preview, the rollback restores nothing | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
-| P4.52.14 | The preview works through the bridge | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
+| P4.52.13 | If a slider moved after the preview, the rollback restores nothing | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
+| P4.52.14 | The preview works through the bridge | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
 
 ### P4.53 Automated skill evaluation v2 (gene 5.3)
 
@@ -501,7 +501,7 @@ Built in waves (strand-to-green plan, 2026-10-10): 5a set the frame plus Part 1 
 | P4.54.6 | A surfaced goal is recorded without its description | live | `tests/test_event_log.py::test_intent_surface_on_create_and_touch_without_the_description` |
 | P4.54.7 | Recording an event never breaks the write it describes | live | `tests/test_event_log.py::test_record_event_never_breaks_the_write_it_describes` |
 | P4.54.8 | Events older than 30 days are pruned | live | `tests/test_retention.py::TestEventsPrune::test_prune_events_drops_old_keeps_recent` |
-| P4.54.9 | Events are read (and filtered by type) through the bridge | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
+| P4.54.9 | Events are read (and filtered by type) through the bridge | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
 | P4.54.10 | cost.log, skill.evaluate and matrix.message events | retired: no emitter and no reader here or in 9 sister repos; the cost ledger is the one cost record (#524) | — |
 | P4.54.11 | Console logs are structured JSON | retired: the event log is the structured record; console output is for humans (#524) | — |
 
@@ -515,7 +515,7 @@ Built in waves (strand-to-green plan, 2026-10-10): 5a set the frame plus Part 1 
 
 | Codon | Promise | Status | Test |
 |---|---|---|---|
-| P4.C5.1 | The dashboard returns the full summary | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
+| P4.C5.1 | The dashboard returns the full summary | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
 | P4.C5.2 | A snapshot is saved to soul_history | live | `tests/test_retention.py::TestSnapshotDedup::test_changed_slider_records_exactly_one_new_row` |
 | P4.C5.3 | Drift detection flags changes the owner did not make | live | `tests/test_personality_drift.py::TestDetectDrift::test_owner_change_is_not_drift` |
 | P4.C5.4 | A rollback restores the earlier state | live | `tests/test_personality_drift.py::TestRollback::test_rollback_restores_value_and_clears_drift` |
@@ -532,11 +532,11 @@ are the new genes (Wave 5g).
 | Codon | Promise | Status | Test |
 |---|---|---|---|
 | P4.11.1 | The brain's parts exist: loop, memory, skills, control panel, Matrix bot | live | `tests/strand/test_p4_map_index.py::test_p4_11_the_brain_parts_in_the_map_exist` |
-| P4.11.2 | The gateway serves the web UI (localhost:3000 by default) | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
-| P4.11.3 | The gateway's WebSocket chat works end to end | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
-| P4.11.4 | Sliders are set through the gateway's REST route | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
-| P4.11.5 | Spend is read through the gateway's REST route | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
-| P4.11.6 | The gateway talks to the brain over the UDS bridge (the brain's own process, not the Matrix bot's) | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
+| P4.11.2 | The gateway serves the web UI (localhost:3000 by default) | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
+| P4.11.3 | The gateway's WebSocket chat works end to end | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
+| P4.11.4 | Sliders are set through the gateway's REST route | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
+| P4.11.5 | Spend is read through the gateway's REST route | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
+| P4.11.6 | The gateway talks to the brain over the UDS bridge (the brain's own process, not the Matrix bot's) | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
 | P4.11.7 | The homeserver is Windy Chat (chat.windychat.ai) | live | `tests/test_contract_matrix.py::TestBotIdentityContract::test_default_homeserver` |
 | P4.11.8 | One shared @windyfly bot user | retired: every agent is its own @agent_<passport>, minted at hatch; the shared id was removed (#505) | — |
 | P4.11.9 | Rooms are end-to-end encrypted | retired: never active (no olm); dead E2E code removed, one honest line for encrypted events (#505) | — |
@@ -641,9 +641,9 @@ are the new genes (Wave 5g).
 
 | Codon | Promise | Status | Test |
 |---|---|---|---|
-| P4.C4.1 | The UDS bridge carries JSON between brain and gateway | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
-| P4.C4.2 | The Bun gateway serves HTTP on port 3000 (by default) | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
-| P4.C4.3 | WebSocket chat works end to end | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
+| P4.C4.1 | The UDS bridge carries JSON between brain and gateway | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
+| P4.C4.2 | The Bun gateway serves HTTP on port 3000 (by default) | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
+| P4.C4.3 | WebSocket chat works end to end | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
 | P4.C4.4 | Decay lowers old memories' scores | live | `tests/test_phase4.py::TestCognitiveDecay::test_decay_returns_counts` |
 | P4.C4.5 | Aged memories (below 0.05) are deleted | retired: decay may dim, never erase (Doctrine Law 1) (#312) | — |
 | P4.C4.6 | A contradicting update is detected | live | `tests/test_phase4.py::TestConflictDetector::test_detects_conflict` |
@@ -799,7 +799,7 @@ are the new genes (Wave 5g).
 |---|---|---|---|
 | P5.92.1 | After an emotional turn a one-line moment is saved | live | `tests/strand/test_p5_extended.py::test_p5_92_a_moment_is_saved_after_an_emotional_turn` |
 | P5.92.2 | Saved moments reach the prompt | live | `tests/test_relationship_moments.py::TestRelationshipMomentsInPrompt::test_moments_appear_in_assembled_prompt` |
-| P5.92.3 | Moments are listed through the bridge | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
+| P5.92.3 | Moments are listed through the bridge | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
 | P5.92.4 | Moments are captured only when emotional sensitivity is 3 or more (the old warmth gate) | live | `tests/strand/test_p5_extended.py::test_p5_92_moments_are_captured_only_at_emotional_sensitivity_3_or_more` |
 
 ### P5.93 Agent journal (gene C9.3)
@@ -809,16 +809,16 @@ are the new genes (Wave 5g).
 | P5.93.1 | A journal entry is written on the 10th turn of a session | live | `tests/strand/test_p5_extended.py::test_p5_93_a_journal_entry_is_written_on_the_tenth_turn_of_a_session` |
 | P5.93.2 | Sessions do not share the turn count | live | `tests/strand/test_p5_extended.py::test_p5_93_sessions_do_not_share_the_count` |
 | P5.93.3 | An emotional turn is journaled at once | live | `tests/strand/test_p5_extended.py::test_p5_93_an_emotional_turn_is_journaled_at_once` |
-| P5.93.4 | Journal entries are read through the bridge | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
-| P5.93.5 | The gateway answers with the same key when the brain is down | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
+| P5.93.4 | Journal entries are read through the bridge | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
+| P5.93.5 | The gateway answers with the same key when the brain is down | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
 
 ### P5.94 Self-assessment report card (gene C9.4)
 
 | Codon | Promise | Status | Test |
 |---|---|---|---|
-| P5.94.1 | A six-score report with a grade | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
-| P5.94.2 | The report is kept as a memory | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
-| P5.94.3 | It runs through the bridge | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
+| P5.94.1 | A six-score report with a grade | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
+| P5.94.2 | The report is kept as a memory | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
+| P5.94.3 | It runs through the bridge | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
 | P5.94.4 | The six scores are the strand's (memory accuracy, response quality, cost, satisfaction, skill health, uptime) | retired: the report card keeps its own six (retention, failure rate, soul currency, relationship depth, consistency, cost efficiency); the six scores in src/windyfly/agent/self_assessment.py are the record (#542) | — |
 | P5.94.5 | It runs weekly | retired: the report card runs on demand (assessment.run); nothing schedules it and none is wanted (#546) | — |
 
@@ -829,38 +829,38 @@ are the new genes (Wave 5g).
 | P5.C9.1 | The context header shows the time and the percentage | live | `tests/test_context_header.py::TestContextTracker::test_format_header_green` |
 | P5.C9.2 | A relationship moment is saved after an emotional turn | live | `tests/strand/test_p5_extended.py::test_p5_92_a_moment_is_saved_after_an_emotional_turn` |
 | P5.C9.3 | A journal entry is written on the 10th turn | live | `tests/strand/test_p5_extended.py::test_p5_93_a_journal_entry_is_written_on_the_tenth_turn_of_a_session` |
-| P5.C9.4 | Self-assessment returns a six-score report | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
+| P5.C9.4 | Self-assessment returns a six-score report | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
 
 ### P5.101 Personality versioning API (gene C10.1)
 
 | Codon | Promise | Status | Test |
 |---|---|---|---|
-| P5.101.1 | The history comes back through the bridge | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
-| P5.101.2 | A snapshot is made through the bridge | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
-| P5.101.3 | Drift is found through the bridge | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
-| P5.101.4 | A confirmed rollback through the bridge restores the value | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
+| P5.101.1 | The history comes back through the bridge | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
+| P5.101.2 | A snapshot is made through the bridge | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
+| P5.101.3 | Drift is found through the bridge | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
+| P5.101.4 | A confirmed rollback through the bridge restores the value | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
 
 ### P5.102 Skills API (gene C10.2)
 
 | Codon | Promise | Status | Test |
 |---|---|---|---|
-| P5.102.1 | Skills are created and listed through the bridge | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
-| P5.102.2 | A skill is promoted through the bridge | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
-| P5.102.3 | A skill in a code language is refused | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
-| P5.102.4 | A skill rolls back through the bridge, and says so only when it did | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
+| P5.102.1 | Skills are created and listed through the bridge | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
+| P5.102.2 | A skill is promoted through the bridge | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
+| P5.102.3 | A skill in a code language is refused | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
+| P5.102.4 | A skill rolls back through the bridge, and says so only when it did | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
 | P5.102.5 | Evaluate, golden tests and regression through the bridge | retired: executable skills removed (#504) | — |
 
 ### P5.103 System internals API (gene C10.3)
 
 | Codon | Promise | Status | Test |
 |---|---|---|---|
-| P5.103.1 | Decay runs through the bridge and reports counts | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
-| P5.103.2 | Unresolved conflicts are listed | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
-| P5.103.3 | A conflict is resolved | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
-| P5.103.4 | Failures are listed | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
+| P5.103.1 | Decay runs through the bridge and reports counts | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
+| P5.103.2 | Unresolved conflicts are listed | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
+| P5.103.3 | A conflict is resolved | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
+| P5.103.4 | Failures are listed | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
 | P5.103.5 | The mode is read and set | retired: modes did nothing; removed (#499) | — |
-| P5.103.6 | Offline status reports the connection and the local model | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
-| P5.103.7 | Events are listed and filtered | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
+| P5.103.6 | Offline status reports the connection and the local model | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
+| P5.103.7 | Events are listed and filtered | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
 
 ### P5.104 Offline message queue (gene C10.4)
 
@@ -876,24 +876,24 @@ are the new genes (Wave 5g).
 
 | Codon | Promise | Status | Test |
 |---|---|---|---|
-| P5.C10.1 | Personality history returns the soul_history rows | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
-| P5.C10.2 | A personality snapshot creates a checkpoint | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
-| P5.C10.3 | Drift detection flags changed sliders | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
-| P5.C10.4 | The skills list returns the skills | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
+| P5.C10.1 | Personality history returns the soul_history rows | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
+| P5.C10.2 | A personality snapshot creates a checkpoint | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
+| P5.C10.3 | Drift detection flags changed sliders | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
+| P5.C10.4 | The skills list returns the skills | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
 | P5.C10.5 | Skill evaluation runs the 3-gate pipeline | retired: executable skills, sandbox and gates removed (#504) | — |
-| P5.C10.6 | The decay endpoint runs and returns counts | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
-| P5.C10.7 | The conflicts list returns unresolved entries | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
-| P5.C10.8 | Resolving a conflict updates the database | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
+| P5.C10.6 | The decay endpoint runs and returns counts | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
+| P5.C10.7 | The conflicts list returns unresolved entries | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
+| P5.C10.8 | Resolving a conflict updates the database | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
 | P5.C10.9 | Setting the mode validates and persists it | retired: modes removed (#499) | — |
-| P5.C10.10 | Offline status reports connectivity and the local model | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
-| P5.C10.11 | Events come back with 24-hour counts | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
+| P5.C10.10 | Offline status reports connectivity and the local model | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
+| P5.C10.11 | Events come back with 24-hour counts | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
 | P5.C10.12 | The offline queue persists messages to disk | live | `tests/test_offline_queue_atomic.py::TestOfflineQueueAtomic::test_atomic_write_survives_crash` |
 
 ### P5.CNT Updated master counts (Part 5)
 
 | Codon | Promise | Status | Test |
 |---|---|---|---|
-| P5.CNT.1 | Every bridge method the gateway calls exists in the brain | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
+| P5.CNT.1 | Every bridge method the gateway calls exists in the brain | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
 | P5.CNT.2 | 93 codons, ~52 files, 11 phases, ~61 routes, 39 bridge methods | retired: the old plan's counts; this file's script counts are the record (#526) | — |
 
 ## New genes (Wave 5g): what the original strand did not have
@@ -953,10 +953,10 @@ own behaviour.
 | N2.14 | (ours) Revoking the passport also disables the local token (that one line is commented out, with a backup) | live | `tests/test_deregister.py::test_mark_local_revoked_comments_out_only_the_ept_line_atomically` |
 | N2.15 | A revoked passport blocks a trust-gated action (send_email) | live | `tests/contract/test_trust_check.py::TestGate::test_revoked_status_blocks_everything` |
 | N2.16 | A known revocation still blocks when Eternitas cannot be reached | live | `tests/contract/test_trust_check.py::TestRevocationSurvivesOutage::test_known_revocation_denies_when_service_unreachable[revoked]` |
-| N2.17 | A revocation webhook clears the cached trust verdict | retired: the agent pulls its standing and takes no push; the receiver left with the gateway, lean Windy Fly step R1 (#687) | — |
-| N2.18 | A trust webhook whose body was changed fails its HMAC check | retired: the agent pulls its standing and takes no push; the receiver left with the gateway, lean Windy Fly step R1 (#687) | — |
-| N2.19 | (ours) A trust webhook with a bad signature is refused through the bridge and changes nothing | retired: the agent pulls its standing and takes no push; the receiver left with the gateway, lean Windy Fly step R1 (#687) | — |
-| N2.20 | (ours) The dashboard's trust banner says "unknown" until a verdict is cached, then shows the cached band | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687) | — |
+| N2.17 | A revocation webhook clears the cached trust verdict | retired: the agent pulls its standing and takes no push; the receiver left with the gateway, lean Windy Fly step R1 (#687, PR #793) | — |
+| N2.18 | A trust webhook whose body was changed fails its HMAC check | retired: the agent pulls its standing and takes no push; the receiver left with the gateway, lean Windy Fly step R1 (#687, PR #793) | — |
+| N2.19 | (ours) A trust webhook with a bad signature is refused through the bridge and changes nothing | retired: the agent pulls its standing and takes no push; the receiver left with the gateway, lean Windy Fly step R1 (#687, PR #793) | — |
+| N2.20 | (ours) The dashboard's trust banner says "unknown" until a verdict is cached, then shows the cached band | retired: the second process (bridge, gateway, dashboard) left with the lean Windy Fly, step R1 (#687, PR #793) | — |
 | N2.21 | The hatch summary says when a passport is suspended or revoked | retired: the line read _WINDYFLY_PASSPORT_DEAD, which nothing ever set; the dead branch is removed (#547) | — |
 | N2.22 | A refused renewal tells the person what will actually help (a revoked or suspended passport is not fixed by signing in again) | live | `tests/test_ept_refresh.py::test_a_revoked_refresh_does_not_say_sign_in` |
 
