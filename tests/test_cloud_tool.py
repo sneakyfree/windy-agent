@@ -36,6 +36,7 @@ class FakeCloud:
         self.files: dict[str, dict] = {}
         self.blobs: dict[str, bytes] = {}
         self.status: dict[str, int] = {}          # path suffix -> forced status
+        self.body: dict[str, object] = {}         # path suffix -> the body sent with that forced status
         self.redirect: str | None = None
         self.disposition: str | None = None
         self.no_length = False
@@ -47,7 +48,7 @@ class FakeCloud:
         assert not any(h.lower().startswith(("x-agent", "dpop", "x-eternitas")) for h in request.headers)
         for suffix, code in self.status.items():
             if path.endswith(suffix):
-                return httpx.Response(code, json={"detail": "x"})
+                return httpx.Response(code, json=self.body.get(suffix, {"detail": "x"}))
         if self.redirect:
             return httpx.Response(302, headers={"Location": self.redirect})
         if path == "/api/v1/storage/upload" and request.method == "POST":
@@ -157,13 +158,61 @@ def test_download_answers_are_plain(fake, code, words):
     assert words in cloud.download_cloud_file("f9")["error"]
 
 
-@pytest.mark.parametrize("code,words", [(413, "100 MB"), (507, "quota is full"), (503, "trust")])
+@pytest.mark.parametrize("code,words", [(413, "100 MB"), (507, "Your Windy Cloud storage is full."), (503, "trust")])
 def test_upload_answers_are_plain_and_a_503_is_not_retried(fake, code, words):
     fake.status["/storage/upload"] = code
     with _turn():
         out = cloud.upload_to_cloud(str(_doc(fake)))
     assert words in out["error"]
     assert sum(1 for r in fake.requests if r.url.path == "/api/v1/storage/upload") == 1
+
+
+# LEGAL (BOARD 2026-11-11T07:58:43Z (2)): on a 507 the agent says Windy Cloud's own words as sent; if Cloud sends
+# none, "Your Windy Cloud storage is full." (the word "quota" is gone). The two sentences below are Cloud's of today
+# (api/app/errors.py) and LEGAL DECISION 69's, which Cloud sends once its flag is on.
+CLOUD_TODAY = "Your storage is full."
+DECISION_69 = ("Your storage is full. Your websites count toward it, including every saved version. "
+               "Free up space or choose a bigger plan.")
+
+
+@pytest.mark.parametrize("sentence", [CLOUD_TODAY, DECISION_69])
+def test_a_full_storage_answer_says_windy_clouds_own_words_as_sent(fake, sentence):
+    fake.status["/storage/upload"] = 507
+    fake.body["/storage/upload"] = {"error": {"code": "quota_exceeded", "message": sentence},
+                                    "detail": {"code": "quota_exceeded", "machine_cause": "person_quota"}}
+    with _turn():
+        out = cloud.upload_to_cloud(str(_doc(fake)))
+    assert out == {"status": "failed", "http_status": 507, "error": sentence}
+
+
+@pytest.mark.parametrize("body", [
+    {"detail": "Your storage is full."},                       # no envelope: not Cloud's published sentence
+    {"error": "full"}, {"error": {"code": "quota_exceeded"}}, {"error": {"message": 7}},
+    {"error": {"message": "  \n\t "}}, ["x"], "full",
+])
+def test_with_no_sentence_from_cloud_it_says_legals_fallback(fake, body):
+    fake.status["/storage/upload"] = 507
+    fake.body["/storage/upload"] = body
+    with _turn():
+        out = cloud.upload_to_cloud(str(_doc(fake)))
+    assert out["error"] == "Your Windy Cloud storage is full." and "quota" not in out["error"]
+
+
+def test_clouds_sentence_arrives_on_one_line_and_bounded(fake):
+    fake.status["/storage/upload"] = 507
+    fake.body["/storage/upload"] = {"error": {"message": "Your storage\nis full.\x00\x1b[31m " + "x" * 900}}
+    with _turn():
+        out = cloud.upload_to_cloud(str(_doc(fake)))
+    assert out["error"].startswith("Your storage is full. [31m x") and len(out["error"]) == 300
+    assert "\n" not in out["error"] and "\x1b" not in out["error"] and "\x00" not in out["error"]
+
+
+def test_only_a_507_passes_clouds_words_on(fake):
+    fake.status["/storage/upload"] = 413
+    fake.body["/storage/upload"] = {"error": {"code": "too_large", "message": "Some other sentence."}}
+    with _turn():
+        out = cloud.upload_to_cloud(str(_doc(fake)))
+    assert "100 MB" in out["error"] and "Some other sentence" not in out["error"]
 
 
 def test_another_identitys_file_id_is_a_plain_not_found(fake):

@@ -1,0 +1,1 @@
+- **A full Windy Cloud is said in Windy Cloud's own words.** When a file can't be saved because your storage is full, your agent now passes on the sentence Windy Cloud sends, so it says the same as your Cloud screen. If Cloud sends none, it says "Your Windy Cloud storage is full."
