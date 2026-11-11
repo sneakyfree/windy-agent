@@ -551,6 +551,24 @@ class TestAHomeThatPullsItsTrust:
             assert route.call_count == 2
 
 
+# Windy Legal's words (BOARD 2026-11-11T05:54:01Z), typed out here on purpose: a change to either constant fails.
+LEGAL_FRESH_SENTENCE = ("I didn't do this, because I couldn't check with Eternitas that I'm still allowed to. "
+                        "Ask me again in a few minutes.")
+LEGAL_LIVE_SENTENCE = ("This needs a live check with Eternitas that I'm still allowed to do it, and Eternitas didn't "
+                       "answer. I didn't do it; ask me again in a few minutes.")
+
+
+def test_the_two_owner_sentences_are_legals_word_for_word():
+    assert NO_FRESH_VERDICT == LEGAL_FRESH_SENTENCE and NO_LIVE_VERDICT == LEGAL_LIVE_SENTENCE
+    assert "holding" not in NO_FRESH_VERDICT + NO_LIVE_VERDICT       # the action is refused, never queued
+
+
+def test_a_longer_cache_life_suggested_by_the_registry_is_capped_at_five_minutes(db):
+    from windyfly.trust.check import _capped_ttl
+
+    assert [_capped_ttl(v) for v in (60, 300, 301, 86400, None, 0, "x")] == [60, 300, 300, 300, 300, 300, 300]
+
+
 class TestTheOwnerAtTheKeyboard:
     """An outage at Eternitas must not lock a person out of their own agent (principle 10). A verdict AGAINST the
     agent is refused at the keyboard like anywhere else."""
@@ -609,10 +627,11 @@ class TestTheOwnerAtTheKeyboard:
         """The keyboard exception is for ordinary gated commands. factory-reset needs a live answer everywhere."""
         with respx.mock(base_url=ETERNITAS_BASE) as mock:
             route = _unreachable(mock)
-            out, ran = run_cmd("factory-reset", "terminal")           # nothing was ever fetched: the plain sentence
-            assert route.called and ran == [] and out == f"Trust gate denied /factory-reset: {NO_FRESH_VERDICT}"
+            out, ran = run_cmd("factory-reset", "terminal")           # nothing was ever fetched: still the live sentence
+            assert route.called and ran == [] and out == f"Trust gate denied /factory-reset: {NO_LIVE_VERDICT}"
+            assert out.endswith(LEGAL_LIVE_SENTENCE)                  # Legal: pinned word for word in this test
             out, ran = run_cmd("factory-reset", "cli")
-            assert ran == [] and out == f"Trust gate denied /factory-reset: {NO_FRESH_VERDICT}"
+            assert ran == [] and out == f"Trust gate denied /factory-reset: {NO_LIVE_VERDICT}"
             out, ran = run_cmd("run", "terminal")                     # the ordinary one still goes on
             assert ran == ["ran"]
 
@@ -624,6 +643,21 @@ class TestTheOwnerAtTheKeyboard:
             route.mock(side_effect=httpx.ConnectError("down"))
             out, ran = run_cmd("factory-reset", "terminal")
         assert ran == [] and out == f"Trust gate denied /factory-reset: {NO_LIVE_VERDICT}"
+
+    def test_a_gate_that_itself_breaks_is_the_nobody_could_tell_case(self, run_cmd, monkeypatch):
+        """The catch-all under the gate used to let every gated command run (Eternitas's note on 6702ebab)."""
+        from windyfly.trust import gate
+
+        def boom(*a, **k):
+            raise RuntimeError("cache file locked")
+
+        monkeypatch.setattr(gate, "require_trust_sync", boom)
+        out, ran = run_cmd("send-mail", "telegram")
+        assert ran == [] and out == f"Trust gate denied /send-mail: {NO_FRESH_VERDICT}"
+        out, ran = run_cmd("factory-reset", "terminal")               # high-value: refused at the keyboard too
+        assert ran == [] and out == f"Trust gate denied /factory-reset: {NO_FRESH_VERDICT}"
+        out, ran = run_cmd("run", "terminal")                         # ordinary, at the owner's own keyboard
+        assert ran == ["ran"]
 
     def test_the_high_value_command_asks_live(self, run_cmd):
         with respx.mock(base_url=ETERNITAS_BASE) as mock:

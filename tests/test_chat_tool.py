@@ -247,13 +247,12 @@ class TestTrustGate:
 
     @patch("windyfly.tools.chat.require_trust_sync")
     @patch("windyfly.tools.chat.httpx.put")
-    def test_trust_check_exception_fails_open(
+    def test_a_trust_check_that_breaks_sends_nothing(
         self, mock_put: MagicMock, mock_require_trust: MagicMock,
         matrix_env: None, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """If the trust check ITSELF errors (Eternitas outage, network
-        blip, SQLite missing), fail-open with a log line — don't block
-        chat for transient outages of the trust kernel."""
+        """If the trust check ITSELF errors (a locked cache file, a bug), nobody could tell: nothing is sent and
+        the owner's sentence comes back. It used to send anyway (Eternitas's note on #781)."""
         monkeypatch.setenv("ETERNITAS_PASSPORT", "ET26-WIND-Y123")
 
         def fake_require_trust(action, passport=None, db=None):
@@ -265,10 +264,11 @@ class TestTrustGate:
         mock_response.json.return_value = {"event_id": "$evt1"}
         mock_put.return_value = mock_response
 
+        from windyfly.trust.check import NO_FRESH_VERDICT
+
         result = send_chat_message(body="hi", to_room="!a:test")
-        # Fail-open: chat still sent despite trust-check error
-        assert result["status"] == "sent"
-        mock_put.assert_called_once()
+        assert result["status"] == "denied" and result["error"] == NO_FRESH_VERDICT
+        mock_put.assert_not_called()
 
 
 def test_trust_gate_still_runs_inside_a_running_event_loop(monkeypatch):

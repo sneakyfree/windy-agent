@@ -194,9 +194,9 @@ class CommandRegistry:
                 f"from a terminal.", quiet, f"To {cmd.name} me, use `windy {cmd.name}` in a terminal.") if x)
 
         # Trust gate — sensitive commands go through Eternitas before
-        # dispatch. We fail closed on TrustDenied; fail open on any
-        # other exception so a broken trust service doesn't nuke the
-        # CLI for the owner.
+        # dispatch. We fail closed on TrustDenied and on a gate that
+        # itself breaks; only an ordinary command at the owner's own
+        # keyboard goes on when nobody could tell.
         if _needs_trust_gate(cmd):
             action = _trust_action_for(cmd.name)
             try:
@@ -217,7 +217,17 @@ class CommandRegistry:
                     logger.warning("Trust gate denied /%s: %s", cmd.name, denied)
                     return f"Trust gate denied /{cmd.name}: {denied.reason}"
             except Exception as exc:
-                logger.warning("Trust gate check failed for /%s (fail-open): %s", cmd.name, exc)
+                # The gate itself broke (a locked cache file, a bug). Nobody could tell, so it is the same case as
+                # no verdict: refuse, except an ordinary command at the owner's own keyboard (Eternitas's note (a),
+                # BOARD 2026-11-11T05:46:22Z). It used to let every gated command run.
+                if platform in _LOCAL_PLATFORMS and cmd.name not in _LIVE_TRUST_COMMANDS:
+                    logger.warning("Trust gate check failed for /%s; the owner is at the keyboard, going on: %s",
+                                   cmd.name, exc)
+                else:
+                    from windyfly.trust.check import NO_FRESH_VERDICT
+
+                    logger.warning("Trust gate check failed for /%s, refusing: %s", cmd.name, exc)
+                    return f"Trust gate denied /{cmd.name}: {NO_FRESH_VERDICT}"
 
         # Dangerous command gating — require explicit confirmation
         if cmd.dangerous:

@@ -49,10 +49,12 @@ CACHE_TTL = timedelta(seconds=DEFAULT_CACHE_TTL_SECONDS)
 # How long the last verdict that was really fetched may still be used when a refresh fails. After that the passport
 # counts as not good until a fetch succeeds.
 MAX_VERDICT_AGE_SECONDS = 600
-# TrustDecision.reason for "no verdict I may still use". The owner reads it.
-NO_FRESH_VERDICT = ("I couldn't confirm my standing with Eternitas in the last 10 minutes, so I'm holding this "
-                    "until it answers.")
-NO_LIVE_VERDICT = "This needs a live answer from Eternitas about my standing, and none came. I'm holding it until one does."
+# TrustDecision.reason for "no verdict I may still use". The owner reads it. Windy Legal's words, word for word
+# (BOARD 2026-11-11T05:54:01Z): the action is REFUSED, never queued, so neither sentence says "holding".
+NO_FRESH_VERDICT = ("I didn't do this, because I couldn't check with Eternitas that I'm still allowed to. "
+                    "Ask me again in a few minutes.")
+NO_LIVE_VERDICT = ("This needs a live check with Eternitas that I'm still allowed to do it, and Eternitas didn't "
+                   "answer. I didn't do it; ask me again in a few minutes.")
 _TIMEOUT = 5.0
 
 _TABLE_DDL = """
@@ -172,6 +174,16 @@ def _parse_dt(raw: str) -> datetime:
         return datetime.now(timezone.utc)
 
 
+def _capped_ttl(suggested: object) -> int:
+    """The registry may suggest a SHORTER cache life than 5 minutes, never a longer one: the home keeps the published
+    rule (cache 5 minutes at most) whatever a later answer suggests (Eternitas, BOARD 2026-11-11T05:46:22Z (b))."""
+    try:
+        value = int(suggested or DEFAULT_CACHE_TTL_SECONDS)  # type: ignore[call-overload]
+    except (TypeError, ValueError):
+        value = DEFAULT_CACHE_TTL_SECONDS
+    return max(1, min(value, DEFAULT_CACHE_TTL_SECONDS))
+
+
 def _cache_read(passport: str, db=None, max_age_seconds: int | None = None) -> TrustSnapshot | None:
     """The cached verdict while it is fresh (its own TTL), or, with ``max_age_seconds``, while it is at most that
     old. The age counts from ``cached_at``: the time of the last SUCCESSFUL fetch."""
@@ -189,7 +201,7 @@ def _cache_read(passport: str, db=None, max_age_seconds: int | None = None) -> T
 
     cached_at = _parse_dt(row["cached_at"])
     ttl = timedelta(seconds=max_age_seconds if max_age_seconds is not None
-                    else int(row["cache_ttl_seconds"] or DEFAULT_CACHE_TTL_SECONDS))
+                    else _capped_ttl(row["cache_ttl_seconds"]))
     if datetime.now(timezone.utc) - cached_at > ttl:
         return None
 
@@ -292,7 +304,7 @@ def _snapshot_from_response(passport: str, data: dict) -> TrustSnapshot:
         allowed_actions=list(data.get("allowed_actions", []) or []),
         denied_actions=list(data.get("denied_actions", []) or []),
         evaluated_at=_parse_dt(data.get("evaluated_at", "")),
-        cache_ttl_seconds=int(data.get("cache_ttl_seconds", DEFAULT_CACHE_TTL_SECONDS)),
+        cache_ttl_seconds=_capped_ttl(data.get("cache_ttl_seconds", DEFAULT_CACHE_TTL_SECONDS)),
     )
 
 
@@ -446,7 +458,9 @@ async def check_trust(action: str, passport: str | None = None, db=None, live: b
     snap: TrustSnapshot | None = await get_trust(passport=pp, db=db, force_refresh=live)
     if snap is None:
         decision = decide_unrefreshed(action, pp, db=db)
-        if live and decision.allowed and not _use_mock():
+        if live and (decision.allowed or decision.unverified) and not _use_mock():
+            # No live answer. A cached yes does not stand in for it, and with no verdict at all the live sentence is
+            # still the true one. A verdict AGAINST the agent (decided above, not unverified) keeps its own reason.
             return TrustDecision(allowed=False, snapshot=decision.snapshot, reason=NO_LIVE_VERDICT, unverified=True)
         return decision
 
