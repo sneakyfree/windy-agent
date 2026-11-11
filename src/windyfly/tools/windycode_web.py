@@ -571,7 +571,12 @@ def owner_confirm(text: str) -> str | None:
     denied = _publish_gate()
     if denied:
         return f"Not done: {denied['error']}"
-    out = _call(held["fly_tool"], {**held["args"], "confirm_token": held["token"]})
+    from windyfly.agent.capabilities import Band
+    from windyfly.agent.capabilities.audit import audited_call
+
+    out = audited_call(held["fly_tool"], held["args"],
+                       lambda: _call(held["fly_tool"], {**held["args"], "confirm_token": held["token"]}),
+                       band=Band.OWNER, via="owner_yes")
     if out.get("status") == "ok":
         return str(out.get("speak") or f"Done: {word}.")
     return f"Not done: {out.get('error') or out.get('status')}"

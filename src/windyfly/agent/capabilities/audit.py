@@ -203,6 +203,106 @@ def install_audit_hooks(
     logger.info("Capability audit hooks installed")
 
 
+# ── The ONE ledger for the older tool registry's outward tools ──────────────────────────────────────────────
+# Capabilities reach agent_actions through the hooks above; the older ToolRegistry (mail, chat, text, the owner
+# call, Cloud upload, the builder, domains) did not, so an outward send left no row. ``audited_call`` writes the
+# same start + end rows for those calls, and for the owner's own "send" of a held mail (channels/base.py).
+# PRIVACY: argument NAMES only, never values (a send's values are a recipient and a message: a real person's data),
+# and no error text (it can echo them); the result's error code is kept only as a short id.
+_TOOL_LEDGER: tuple[Database, WriteQueue] | None = None
+_CODE_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+
+
+def install_tool_ledger(db: Database, write_queue: WriteQueue) -> None:
+    """Point every :func:`audited_call` at this agent's ledger (boot step capabilities.audit)."""
+    global _TOOL_LEDGER
+    _TOOL_LEDGER = (db, write_queue)
+
+
+def tool_ledger_installed() -> bool:
+    return _TOOL_LEDGER is not None
+
+
+def _result_failure(result: Any) -> str | None:
+    """A short failure id when a tool's result says it did not act, else None."""
+    if isinstance(result, str):
+        try:
+            result = json.loads(result)
+        except ValueError:
+            return None
+    if not isinstance(result, dict):
+        return None
+    err = result.get("error")
+    if err or result.get("failed") is True:
+        for code in (result.get("code"), result.get("status"), err):   # a short id only; never a sentence
+            if isinstance(code, str) and _CODE_RE.match(code):
+                return code
+        return "tool_error"
+    return None
+
+
+def audited_call(
+    name: str,
+    arguments: Any,
+    call: Callable[[], Any],
+    *,
+    band: Band | None = None,
+    via: str | None = None,
+) -> Any:
+    """Run ``call`` and write ONE agent_actions row for it (``tool.<name>``). Returns ``call``'s result and
+    re-raises its exception. A ledger write that fails is logged and never stops the call."""
+    led = _TOOL_LEDGER
+    if led is None:
+        return call()
+    db, write_queue = led
+    action_id = uuid.uuid4().hex
+    names = sorted(str(k) for k in arguments) if isinstance(arguments, dict) else []
+    meta: dict[str, Any] = {"arg_names": names}
+    if via:
+        meta["via"] = via
+    if band is None:
+        from windyfly.tools.bands import current_band
+
+        band = current_band()
+    started = time.time()
+    try:
+        record_action_start(
+            db, write_queue,
+            action_id=action_id,
+            capability_id=f"tool.{name}",
+            tier=4,  # Tier.EXTERNAL_EFFECT: every call routed here acts outward
+            band=band.name if band is not None else "NONE",
+            sandbox_tier="none",
+            args_json=json.dumps(meta),
+            started_at=_now_iso(),
+            session_id=get_current_session_id(),
+        )
+    except Exception as e:  # noqa: BLE001  (the ledger never blocks the owner's action)
+        logger.warning("tool ledger start failed for %s: %s", name, type(e).__name__)
+
+    def _end(error_class: str | None) -> None:
+        try:
+            record_action_end(
+                db, write_queue,
+                action_id=action_id,
+                success=error_class is None,
+                duration_ms=int((time.time() - started) * 1000),
+                error_class=error_class,
+                error_message=None,
+                ended_at=_now_iso(),
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("tool ledger end failed for %s: %s", name, type(e).__name__)
+
+    try:
+        result = call()
+    except Exception as e:
+        _end(type(e).__name__)
+        raise
+    _end(_result_failure(result))
+    return result
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 

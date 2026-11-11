@@ -100,8 +100,16 @@ class ToolRegistry:
                 return json.dumps({"error": "arguments must be a JSON object"})
             arguments = parsed
 
+        fn = self._tools[name]
+        args = arguments
         try:
-            result = self._tools[name](**arguments)
+            if _bands.TOOL_CLASS.get(name) == "outward":
+                # ONE ledger: an outward tool writes the same agent_actions row a capability does (names only).
+                from windyfly.agent.capabilities.audit import audited_call
+
+                result = audited_call(name, args, lambda: fn(**args))
+            else:
+                result = fn(**args)
             if isinstance(result, str):
                 return result
             return json.dumps(result, indent=2, default=str)
