@@ -827,3 +827,47 @@ async def test_a_local_export_holds_the_key_beside_the_memory(chan, tmp_path, mo
         assert "data/windyfly.db" in tar.getnames()
         member = tar.getmember(f"data/{so.KEY_FILE}")
         assert member.mode == 0o600 and tar.extractfile(member).read() == so.load_key(chan["path"])
+
+
+@pytest.mark.asyncio
+async def test_a_local_export_also_holds_earlier_keys_and_the_pending_list(chan, tmp_path, monkeypatch):
+    from windyfly.commands import core as core_mod
+    from windyfly.commands.registry import registry
+
+    earlier = b"e" * 32
+    so.keep_earlier_key(chan["path"], earlier)
+    so._write_pending(chan["path"], [{"number": "15557776666", "at": "t"}])
+    (chan["path"].parent / "sms-optout-notes.txt").write_text("not ours", encoding="utf-8")
+    install = tmp_path / "install"
+    install.mkdir()
+    monkeypatch.setattr(core_mod, "PROJECT_ROOT", install)
+    monkeypatch.setattr(core_mod, "_config", {"memory": {"db_path": str(chan["path"])}})
+    registry._commands.clear()
+    registry._aliases.clear()
+    core_mod._register_all()
+    monkeypatch.chdir(tmp_path)
+    assert "Backup saved" in await registry.get("export").handler({})
+    (archive,) = tmp_path.glob("windyfly-backup-*.tar.gz")
+    with tarfile.open(archive) as tar:
+        names = set(tar.getnames())
+        assert {f"data/{so.KEY_FILE}", f"data/{so.earlier_name(earlier)}", f"data/{so.PENDING_FILE}"} <= names
+        assert "data/sms-optout-notes.txt" not in names
+        assert tar.extractfile(f"data/{so.earlier_name(earlier)}").read() == earlier
+
+
+def test_the_cli_export_holds_the_same_side_files(chan, tmp_path, monkeypatch):
+    from argparse import Namespace
+
+    from windyfly.commands import _legacy
+
+    chan["sms"].handle_inbound(PERSON, "STOP")
+    so.keep_earlier_key(chan["path"], b"e" * 32)
+    chan["db"].execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    out = tmp_path / "cli"
+    out.mkdir()
+    monkeypatch.setattr(_legacy, "PROJECT_ROOT", out)
+    monkeypatch.setattr(_legacy, "_get_db_path", lambda: chan["path"])
+    _legacy.cmd_export(Namespace())
+    (archive,) = out.glob("windyfly-backup-*.tar.gz")
+    with tarfile.open(archive) as tar:
+        assert {f"data/{so.KEY_FILE}", f"data/{so.earlier_name(b'e' * 32)}"} <= set(tar.getnames())

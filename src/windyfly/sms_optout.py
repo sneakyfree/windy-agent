@@ -495,6 +495,18 @@ def is_side_file(name: str) -> bool:
     return name in (KEY_FILE, PENDING_FILE) or is_earlier_name(name)
 
 
+def side_file_paths(db_path: str | os.PathLike) -> list[Path]:
+    """The files beside the database that belong to this record (the key in use, earlier keys, the pending
+    list), for an export that copies files as they are."""
+    if in_memory(db_path):
+        return []
+    folder = Path(str(db_path)).parent
+    try:
+        return sorted(folder / n for n in os.listdir(folder) if is_side_file(n) and (folder / n).is_file())
+    except OSError:
+        return []
+
+
 def backup_files(db_path: str | os.PathLike) -> dict[str, bytes]:
     """What goes into a backup beside the database, each as its own file: the key in use, any earlier keys, and
     the pending STOPs if any."""

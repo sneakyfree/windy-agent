@@ -2633,9 +2633,8 @@ def _register_budget_through_help():
                     # The SMS do-not-text key (and any STOP kept while it was missing) travels beside the memory
                     # it belongs to, as its own file (LEGAL DECISION 28 (9)(1)).
                     from windyfly import sms_optout
-                    for side in (sms_optout.KEY_FILE, sms_optout.PENDING_FILE):
-                        if (db_path.parent / side).is_file():
-                            files_to_backup.append((db_path.parent / side, f"data/{side}"))
+                    for side in sms_optout.side_file_paths(db_path):     # the key in use, earlier keys, pending
+                        files_to_backup.append((side, f"data/{side.name}"))
                 with private_tar(filename) as tar:
                     for src, arcname in files_to_backup:
                         tar.add(src, arcname=arcname)

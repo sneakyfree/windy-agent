@@ -2132,9 +2132,8 @@ def cmd_export(_args: argparse.Namespace) -> None:
         files_to_backup.append((snap, "data/windyfly.db"))
         # The SMS do-not-text key travels beside the memory it belongs to (LEGAL DECISION 28 (9)(1)).
         from windyfly import sms_optout
-        for side in (sms_optout.KEY_FILE, sms_optout.PENDING_FILE):
-            if (db_path.parent / side).is_file():
-                files_to_backup.append((db_path.parent / side, f"data/{side}"))
+        for side in sms_optout.side_file_paths(db_path):     # the key in use, earlier keys, pending
+            files_to_backup.append((side, f"data/{side.name}"))
 
     # Config files
     for fname in [".env", "windyfly.toml", "SOUL.md"]:
