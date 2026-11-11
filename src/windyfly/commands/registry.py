@@ -204,10 +204,13 @@ class CommandRegistry:
 
                 require_trust_sync(action, live=cmd.name in _LIVE_TRUST_COMMANDS)
             except TrustDenied as denied:
-                if denied.unverified and platform in _LOCAL_PLATFORMS:
+                if (denied.unverified and platform in _LOCAL_PLATFORMS
+                        and cmd.name not in _LIVE_TRUST_COMMANDS):
                     # Nobody could tell just now (Eternitas did not answer), and the person is at their own
                     # keyboard: an outage must not lock an owner out of their own agent (principle 10). A verdict
                     # AGAINST the agent (revoked, suspended, not allowed) is refused here like anywhere else.
+                    # A high-value command is refused here too: it needs a LIVE answer, at the keyboard as
+                    # anywhere (Eternitas's condition 2; the Hub's read, BOARD 2026-11-11T06:02:01Z).
                     logger.warning("Trust gate: no fresh verdict for /%s; the owner is at the keyboard, going on",
                                    cmd.name)
                 else:

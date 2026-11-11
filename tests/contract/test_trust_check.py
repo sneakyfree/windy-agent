@@ -605,6 +605,26 @@ class TestTheOwnerAtTheKeyboard:
             out, ran = run_cmd("run", "terminal")
         assert ran == [] and out.startswith("Trust gate denied /run")
 
+    def test_the_high_value_command_with_no_live_answer_is_refused_at_the_keyboard(self, run_cmd):
+        """The keyboard exception is for ordinary gated commands. factory-reset needs a live answer everywhere."""
+        with respx.mock(base_url=ETERNITAS_BASE) as mock:
+            route = _unreachable(mock)
+            out, ran = run_cmd("factory-reset", "terminal")           # nothing was ever fetched: the plain sentence
+            assert route.called and ran == [] and out == f"Trust gate denied /factory-reset: {NO_FRESH_VERDICT}"
+            out, ran = run_cmd("factory-reset", "cli")
+            assert ran == [] and out == f"Trust gate denied /factory-reset: {NO_FRESH_VERDICT}"
+            out, ran = run_cmd("run", "terminal")                     # the ordinary one still goes on
+            assert ran == ["ran"]
+
+    def test_a_good_cached_verdict_does_not_stand_in_for_the_live_answer(self, run_cmd):
+        with respx.mock(base_url=ETERNITAS_BASE, assert_all_called=False) as mock:
+            route = mock.get(f"/api/v1/trust/{PASSPORT}").mock(
+                return_value=httpx.Response(200, json=_live_response_body()))
+            run_cmd("run", "terminal")                                # fills the cache with a good verdict
+            route.mock(side_effect=httpx.ConnectError("down"))
+            out, ran = run_cmd("factory-reset", "terminal")
+        assert ran == [] and out == f"Trust gate denied /factory-reset: {NO_LIVE_VERDICT}"
+
     def test_the_high_value_command_asks_live(self, run_cmd):
         with respx.mock(base_url=ETERNITAS_BASE) as mock:
             route = mock.get(f"/api/v1/trust/{PASSPORT}").mock(
