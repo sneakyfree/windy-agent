@@ -396,6 +396,50 @@ def error_code(resp: httpx.Response) -> tuple[str, str]:
     return "", str(detail)[:200]
 
 
+# agent-key-ops.v1, "Why a mint with a revoked key says why" (eternitas #349, dark there behind HOME_HANDOVER_DOORS):
+# a mint or a key-proof renew refused because THIS key is no longer active keeps its usual 401 and its usual code
+# (invalid_dpop_proof on the mint, invalid_agent_proof on the renew) and adds ``key_status`` ("revoked" or
+# "retired") and, for a revoked key, ``reason`` (move_aborted, moved_away, owner_revoked, self_revoked, ept_cutoff,
+# passport_revoked, other). The spec: a client reads those two, never the code. Eternitas sends them only when the
+# proof otherwise verified with that same key, so only the key's holder ever reads them.
+KEY_REVOKED = "key_revoked"
+_DEAD_KEY_STATUSES = frozenset({"revoked", "retired"})
+
+
+def refused_key_status(resp: httpx.Response) -> str | None:
+    """"revoked" or "retired" when a 401 from Eternitas says this key is no longer active; else None."""
+    if resp.status_code != 401:
+        return None
+    try:
+        detail = resp.json().get("detail")
+    except Exception:  # noqa: BLE001
+        return None
+    status = detail.get("key_status") if isinstance(detail, dict) else None
+    return status if isinstance(status, str) and status in _DEAD_KEY_STATUSES else None
+
+
+def refusal_code(resp: httpx.Response) -> tuple[str, str]:
+    """:func:`error_code`, with one reading added: a 401 that names a dead key (``key_status``) is ``key_revoked``,
+    the stop this agent already knows (windyfly.agent.standing), whatever the code beside it. A code that is
+    itself a stop (a suspended or revoked passport) is never replaced."""
+    code, message = error_code(resp)
+    if refused_key_status(resp) is not None:
+        from windyfly.agent import standing
+
+        if not standing.kind_of(code):
+            return KEY_REVOKED, message
+    return code, message
+
+
+def active_kid(cred_path: Path | None = None) -> str | None:
+    """The kid of this computer's active key right now, or None."""
+    try:
+        entry = active_entry(load_credentials(cred_path or credentials_path()))
+    except Exception:  # noqa: BLE001
+        return None
+    return str(entry["kid"]) if entry and entry.get("kid") else None
+
+
 class _ChallengeFailed(Exception):
     def __init__(self, resp: httpx.Response) -> None:
         super().__init__(resp.status_code)
@@ -1310,8 +1354,8 @@ def request_agent_token(aud: str, *, transport: httpx.BaseTransport | None = Non
             time.sleep(MINT_RETRY_S)  # nothing cached to fall back on: one more try
             resp = _mint(url, aud, key, transport)
         if resp.status_code != 200:
-            code, msg = error_code(resp)
-            _standing_from_refusal(resp, code)
+            code, msg = refusal_code(resp)
+            _standing_from_refusal(resp, code, kid=kid, cred_path=cred_path)
             raise AgentTokenError(code or f"http_{resp.status_code}", msg, resp.status_code, retry_after_s(resp))
     except AgentTokenError as err:
         if err.status == 429:
@@ -1353,23 +1397,34 @@ def _refusal_fields(resp: httpx.Response) -> dict[str, Any]:
     return {k: detail.get(k, body.get(k)) for k in ("retired_until", "reason")}
 
 
-def _standing_from_refusal(resp: httpx.Response, code: str) -> None:
+def _standing_from_refusal(resp: httpx.Response, code: str, *, kid: str | None = None,
+                           cred_path: Path | None = None) -> None:
     """A refusal that means the agent may not run (retired, suspended, revoked, this key revoked) latches the stop
-    (windyfly.agent.standing). Any other refusal changes nothing."""
+    (windyfly.agent.standing). Any other refusal changes nothing. ``kid`` = the key that asked: a key refusal for
+    a key this computer has since replaced (its own rotation retired it while the ask was on its way) is no stop,
+    because the next ask uses the new key."""
     try:
         from windyfly.agent import standing
 
-        if standing.kind_of(code):
+        kind = standing.kind_of(code)
+        if kind == KEY_REVOKED and kid is not None and active_kid(cred_path) != kid:
+            logger.info("standing: a refusal for a key this computer no longer uses (%s…); no stop", kid[:8])
+            return
+        if kind:
             standing.latch(code, **_refusal_fields(resp))
     except Exception as exc:  # noqa: BLE001 — the refusal itself is still raised
         logger.warning("standing: could not record the stop (%s)", type(exc).__name__)
 
 
-def _standing_good_mint() -> None:
+def _standing_good_mint(*, by_key: bool = True) -> None:
+    """A good mint lifts the stop. ``by_key=False`` (a renew that Eternitas granted on a passport token, not on
+    this computer's key) never lifts a key_revoked stop: that token says nothing about the key, and the next mint
+    with the key would only stop the agent again."""
     try:
         from windyfly.agent import standing
 
-        if standing.stopped():
+        stop = standing.stopped()
+        if stop and (by_key or stop.get("kind") != KEY_REVOKED):
             standing.clear()
     except Exception as exc:  # noqa: BLE001
         logger.debug("standing: %s", type(exc).__name__)

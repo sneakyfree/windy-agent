@@ -46,6 +46,8 @@ STOP_CODES = {
     "passport_revoked": "revoked",
     "agent_revoked": "revoked",
     "agent_key_revoked": "key_revoked",
+    # What Eternitas really sends for a dead key is a 401 with key_status beside its usual code (agent-key-ops.v1);
+    # eternitas.agent_keys.refusal_code reads that and hands this module "key_revoked".
     "key_revoked": "key_revoked",
 }
 
@@ -137,7 +139,10 @@ def _agent_name() -> str:
 
 # The person's line for each kind. Retired = Boss's line (11-04, Hub #9 with #265 1.1); the date is Eternitas' own
 # retired_until, never a guess: absent = the line without it. key_revoked + reason move_aborted = home 1.1 H13a's line
-# (Boss + Hub #9, 11-04). Any other key_revoked stays neutral until Eternitas names the reason (Hub 11-04).
+# (Boss + Hub #9, 11-04). key_revoked + reason moved_away = LEGAL DECISION 58 (BOARD 2026-11-11T07:07:42Z), word for
+# word: on the OLD computer after a move that worked, the person needs to know nothing is broken. Every other
+# key_revoked (owner_revoked, self_revoked, ept_cutoff, passport_revoked, a retired key, other) keeps the neutral
+# line, which makes no claim about why.
 def answer(stop: dict[str, Any] | None = None, name: str | None = None, *, owner: bool = True) -> str:
     """The one plain line. Only the OWNER hears why and what they can do (a restore date, a command): anyone else
     who writes gets the same neutral line whatever the stop is (Hub's ruling on agents-retire 1.1, #294)."""
@@ -162,6 +167,8 @@ def answer(stop: dict[str, Any] | None = None, name: str | None = None, *, owner
     if kind == "key_revoked" and stop.get("reason") == "move_aborted":
         return (f"The move to this computer didn't finish, so {who} is still running where it was, not on this "
                 "computer. To try again, run windy home pair for a new code.")
+    if kind == "key_revoked" and stop.get("reason") == "moved_away":
+        return f"{who} has moved to another computer, so it isn't answering here anymore."
     return f"{who} can't run on this computer right now, so it isn't answering here."
 
 
