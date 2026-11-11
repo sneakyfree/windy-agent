@@ -5,4 +5,5 @@
   small private file beside your agent's memory. It travels inside your encrypted backup, so a restore keeps the
   list working. If that key is ever lost, your agent texts only you until the key is back, and tells you once why.
   A backup made before this version does not hold the key.
-  A STOP that arrives in the meantime is still kept and still confirmed.
+  A STOP that arrives in the meantime is still kept and still confirmed. Restoring an older backup, or undoing a
+  restore, never removes anyone from the list.

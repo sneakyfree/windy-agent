@@ -14,6 +14,10 @@ Rules, each pinned by a test:
 - While failed closed, a STOP is still kept: it goes to a 0600 pending file (normalised number + time), and is
   fingerprinted and removed from that file as soon as the key is back.
 - An opt-out row never expires.
+- A backup restore, and its undo, never removes an opt-out. The live record's rows are put into the memory that
+  replaces it, and the key they were made with is kept beside the restored one as an EARLIER key
+  (``sms-optout-earlier-<id>.key``). A number is opted out if it matches under ANY key the record has a check row
+  for; if a check row's key is not on this computer, some fingerprints cannot be matched, so it fails closed.
 - A fresh key is made exclusively, and the look-then-make happens under the database's write lock, so two stores
   that start together (two processes after an upgrade) end with ONE key and every row under it.
 - The table also holds ONE check row made from the key ("k:" + a fingerprint of a fixed word). A key file that does
@@ -32,6 +36,7 @@ import hmac
 import json
 import logging
 import os
+import re
 import secrets
 import sqlite3
 import time
@@ -42,6 +47,7 @@ logger = logging.getLogger(__name__)
 
 KEY_FILE = "sms-optout.key"
 PENDING_FILE = "sms-optout-pending.jsonl"
+_EARLIER_NAME = re.compile(r"^sms-optout-earlier-[0-9a-f]{16}\.key$")
 KEY_BYTES = 32
 
 # What a caller learns about one number.
@@ -80,14 +86,6 @@ def is_check(value: str) -> bool:
     return value.startswith(_CHECK_PREFIX)
 
 
-def key_fits(key: bytes | None, numbers: list[str]) -> bool:
-    """True when ``key`` is the key these rows were made with: no check row yet, or its own check row."""
-    if key is None:
-        return False
-    checks = [n for n in numbers if is_check(n)]
-    return not checks or key_check(key) in checks
-
-
 def is_fingerprint(value: str) -> bool:
     """A stored fingerprint is 64 hex characters. A plain row from 0.9.x is digits only and at most 15 long, so the
     two can never be confused."""
@@ -117,11 +115,7 @@ def pending_path(db_path: str | os.PathLike) -> Path:
     return Path(str(db_path)).parent / PENDING_FILE
 
 
-def load_key(db_path: str | os.PathLike) -> bytes | None:
-    """The install's key, or None when there is none. A file of the wrong size is not a key."""
-    if in_memory(db_path):
-        return None
-    path = key_path(db_path)
+def _read_key_file(path: Path) -> bytes | None:
     try:
         fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
     except OSError:
@@ -136,21 +130,82 @@ def load_key(db_path: str | os.PathLike) -> bytes | None:
     return data if len(data) == KEY_BYTES else None
 
 
-def write_key(db_path: str | os.PathLike, key: bytes) -> None:
-    """Put ``key`` in place (0600, never through a link), replacing whatever is there. Used for a fresh key and by a
-    backup restore, which brings back the key the restored fingerprints were made with."""
+def _write_key_file(path: Path, key: bytes) -> None:
     if len(key) != KEY_BYTES:
         raise ValueError("an opt-out key is 32 bytes")
-    if in_memory(db_path):
-        raise ValueError("a database with no file has no place for a key file")
-    path = key_path(db_path)
     tmp = path.with_name(path.name + ".tmp")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
     with os.fdopen(fd, "wb") as f:
+        os.fchmod(f.fileno(), 0o600)             # a leftover .tmp keeps its old mode otherwise (Hub on #777)
         f.write(key)
         f.flush()
         os.fsync(f.fileno())
     os.replace(tmp, path)
+
+
+def load_key(db_path: str | os.PathLike) -> bytes | None:
+    """The install's key IN USE (new opt-outs are fingerprinted with it), or None when there is none. A file of
+    the wrong size is not a key."""
+    if in_memory(db_path):
+        return None
+    return _read_key_file(key_path(db_path))
+
+
+def write_key(db_path: str | os.PathLike, key: bytes) -> None:
+    """Put ``key`` in place as the key in use (0600, never through a link), replacing whatever is there. Used by
+    a backup restore, which brings back the key the restored fingerprints were made with."""
+    if len(key) != KEY_BYTES:
+        raise ValueError("an opt-out key is 32 bytes")
+    if in_memory(db_path):
+        raise ValueError("a database with no file has no place for a key file")
+    _write_key_file(key_path(db_path), key)
+
+
+def is_earlier_name(name: str) -> bool:
+    return bool(_EARLIER_NAME.match(name))
+
+
+def earlier_name(key: bytes) -> str:
+    """The file name an earlier key is kept under: named after its check, so the same key is one file."""
+    return f"sms-optout-earlier-{key_check(key)[len(_CHECK_PREFIX):][:16]}.key"
+
+
+def load_earlier_keys(db_path: str | os.PathLike) -> list[bytes]:
+    """Keys kept from before a restore: fingerprints made with them still have to match."""
+    if in_memory(db_path):
+        return []
+    out: list[bytes] = []
+    try:
+        names = sorted(n for n in os.listdir(Path(str(db_path)).parent) if is_earlier_name(n))
+    except OSError:
+        return out
+    for name in names:
+        key = _read_key_file(Path(str(db_path)).parent / name)
+        if key is not None and earlier_name(key) == name and key not in out:
+            out.append(key)
+    return out
+
+
+def keep_earlier_key(db_path: str | os.PathLike, key: bytes) -> None:
+    if in_memory(db_path):
+        return
+    _write_key_file(Path(str(db_path)).parent / earlier_name(key), key)
+
+
+def keyring(db_path: str | os.PathLike, numbers: list[str]) -> tuple[list[bytes], bool]:
+    """(the keys this record can be read with, the key in use first; whether EVERY fingerprint can be matched).
+
+    A key counts when the record holds its check row. A check row whose key is not on this computer means some
+    fingerprints cannot be matched: not complete. A record with no check row at all (one made before check rows,
+    or an empty one) takes the key in use as it is."""
+    primary = load_key(db_path)
+    on_disk = ([primary] if primary is not None else []) + [k for k in load_earlier_keys(db_path) if k != primary]
+    checks = {n for n in numbers if is_check(n)}
+    has_fingerprints = any(is_fingerprint(n) for n in numbers)
+    if not checks:
+        return ([primary] if primary is not None else []), (primary is not None or not has_fingerprints)
+    usable = [k for k in on_disk if key_check(k) in checks]
+    return usable, ({key_check(k) for k in usable} >= checks or not has_fingerprints)
 
 
 def make_key(db_path: str | os.PathLike) -> bytes:
@@ -224,25 +279,38 @@ class OptOutStore:
     def __init__(self, db: Any) -> None:
         self.db = db
         self.db_path = str(db.db_path)
-        self._key: bytes | None = None
+        self._keys: list[bytes] = []         # the key in use first, then earlier keys; empty = failed closed
         self.db.execute(_SQL)
         self.db.commit()
         self._open()
+
+    @property
+    def _key(self) -> bytes | None:
+        """The key in use: new opt-outs are fingerprinted with it."""
+        return self._keys[0] if self._keys else None
 
     # ── key and start-up ──
 
     def _rows(self) -> list[tuple[str, str]]:
         return [(r["number"], r["opted_out_at"]) for r in self.db.fetchall("SELECT number, opted_out_at FROM sms_optouts")]
 
+    def _fail_closed(self) -> None:
+        self._keys = []
+        if "lost" not in _warned:
+            _warned.add("lost")
+            logger.error("SMS do-not-text key is missing while the record has entries: texting is limited to the "
+                         "owner until the key is restored (a backup restore brings it back)")
+
     def _open(self) -> None:
-        """Find the key, or make one if that is safe; then convert plain rows and take in pending STOPs."""
-        rows = self._rows()
-        numbers = [n for n, _ in rows]
+        """Find the keys, or make one if that is safe; then convert plain rows and take in pending STOPs."""
+        numbers = [n for n, _ in self._rows()]
         if not in_memory(self.db_path):
-            key = load_key(self.db_path)
-            settled = key is not None and key_check(key) in numbers
+            primary = load_key(self.db_path)
+            usable, complete = keyring(self.db_path, numbers)
+            settled = primary is not None and key_check(primary) in numbers and complete
             if settled and not any(not is_fingerprint(n) and not is_check(n) for n in numbers):
-                self._key = key                          # the usual case: nothing to decide, nothing to write
+                assert primary is not None
+                self._keys = [primary] + [k for k in usable if k != primary]   # the usual case: nothing to write
                 _warned.discard("lost")
                 self._take_in_pending()
                 return
@@ -260,7 +328,7 @@ class OptOutStore:
             except BaseException:
                 conn.rollback()
                 raise
-        if self._key is not None:
+        if self._keys:
             self._take_in_pending()
 
     def _open_locked(self, conn: Any) -> None:
@@ -268,30 +336,31 @@ class OptOutStore:
         numbers = [n for n, _ in rows]
         has_fingerprints = any(is_fingerprint(n) for n in numbers)
         key: bytes
+        others: list[bytes] = []
         if in_memory(self.db_path):                      # no file, no folder: the key lives and dies with the connection
             held = getattr(self.db, "_sms_optout_key", None)
             key = held if isinstance(held, bytes) else secrets.token_bytes(KEY_BYTES)
             self.db._sms_optout_key = key
         else:
+            usable, complete = keyring(self.db_path, numbers)
+            if has_fingerprints and not complete:
+                self._fail_closed()                      # fingerprints nobody can match
+                return
             found = load_key(self.db_path)
-            if found is not None and has_fingerprints and not key_fits(found, numbers):
-                found = None                             # the wrong key for these fingerprints: as good as missing
-            if found is None:
-                if has_fingerprints:
-                    self._key = None                     # fingerprints nobody can match: fail closed
-                    if "lost" not in _warned:
-                        _warned.add("lost")
-                        logger.error("SMS do-not-text key is missing while the record has entries: texting is "
-                                     "limited to the owner until the key is restored (a backup restore brings "
-                                     "it back)")
-                    return
-                found = make_key(self.db_path)
+            if found is None and has_fingerprints:
+                found = usable[0]                        # every fingerprint is matched by an earlier key:
+                write_key(self.db_path, found)           # it becomes the key in use again
+            elif found is None:
+                found = make_key(self.db_path)           # a fresh key: only when no fingerprint exists
             key = found
-        self._key = key
+            others = [k for k in usable if k != key]
+        self._keys = [key, *others]
         _warned.discard("lost")
-        if key_check(key) not in numbers:                # first use of this key on this table (no fingerprints yet)
-            conn.execute("DELETE FROM sms_optouts WHERE number LIKE 'k:%'")
-            conn.execute("INSERT INTO sms_optouts (number, opted_out_at) VALUES (?, ?)", (key_check(key), _now()))
+        if not has_fingerprints:                         # check rows of keys that no fingerprint was made with
+            conn.execute("DELETE FROM sms_optouts WHERE number LIKE 'k:%' AND number != ?", (key_check(key),))
+        if key_check(key) not in numbers:
+            conn.execute("INSERT OR IGNORE INTO sms_optouts (number, opted_out_at) VALUES (?, ?)",
+                         (key_check(key), _now()))
         plain = [(n, at) for n, at in rows if not is_fingerprint(n) and not is_check(n)]
         for n, at in plain:                              # the same transaction: all of them or none
             conn.execute("INSERT OR IGNORE INTO sms_optouts (number, opted_out_at) VALUES (?, ?)",
@@ -302,24 +371,29 @@ class OptOutStore:
 
     def _take_in_pending(self) -> None:
         rows = _read_pending(self.db_path)
-        if not rows or self._key is None:
+        key = self._key
+        if not rows or key is None:
             return
         for row in rows:
             self.db.execute("INSERT OR IGNORE INTO sms_optouts (number, opted_out_at) VALUES (?, ?)",
-                            (fingerprint(self._key, row["number"]), row["at"]))
+                            (fingerprint(key, row["number"]), row["at"]))
         self.db.commit()
         _write_pending(self.db_path, [])     # only after the commit: a crash in between keeps the file
         logger.info("SMS do-not-text record: %d STOP(s) kept while the key was missing are now recorded", len(rows))
 
     @property
     def failed_closed(self) -> bool:
-        """True while the record holds fingerprints and there is no key. Checked again each time, so putting the key
-        file back (a restore does it) ends it without a restart."""
-        if self._key is None:
+        """True while the record holds fingerprints that no key on this computer can match. Checked again each
+        time, so putting the key file back (a restore does it) ends it without a restart."""
+        if not self._keys:
             self._open()
-        return self._key is None
+        return not self._keys
 
     # ── the record ──
+
+    def _prints(self, number: str) -> list[str]:
+        """This number under every key the record can be read with, plus its plain form (a row 0.9.x wrote)."""
+        return [*(fingerprint(k, number) for k in self._keys), number_key(number)]
 
     def record(self, number: str) -> None:
         if self.failed_closed:
@@ -329,13 +403,14 @@ class OptOutStore:
                 rows.append({"number": nk, "at": _now()})
                 _write_pending(self.db_path, rows)
             return
-        assert self._key is not None
+        key = self._key
+        assert key is not None
         self.db.execute("INSERT OR REPLACE INTO sms_optouts (number, opted_out_at) VALUES (?, ?)",
-                        (fingerprint(self._key, number), _now()))
+                        (fingerprint(key, number), _now()))
         self.db.commit()
 
     def clear(self, number: str) -> None:
-        """START. Without the key a fingerprint row cannot be found, so only a pending STOP is dropped; the person
+        """START. Without the keys a fingerprint row cannot be found, so only a pending STOP is dropped; the person
         stays opted out (the safe side) and START works again once the key is back."""
         nk = number_key(number)
         rows = _read_pending(self.db_path)
@@ -344,8 +419,8 @@ class OptOutStore:
             _write_pending(self.db_path, kept)
         if self.failed_closed:
             return
-        assert self._key is not None
-        self.db.execute("DELETE FROM sms_optouts WHERE number IN (?, ?)", (fingerprint(self._key, number), nk))
+        prints = self._prints(number)
+        self.db.execute(f"DELETE FROM sms_optouts WHERE number IN ({','.join('?' * len(prints))})", tuple(prints))
         self.db.commit()
 
     def state(self, number: str) -> str:
@@ -355,9 +430,9 @@ class OptOutStore:
             return OPTED_OUT
         if self.failed_closed:
             return KEY_MISSING
-        assert self._key is not None
-        hit = self.db.fetchone("SELECT 1 AS x FROM sms_optouts WHERE number IN (?, ?)",
-                               (fingerprint(self._key, number), nk))
+        prints = self._prints(number)
+        hit = self.db.fetchone(f"SELECT 1 AS x FROM sms_optouts WHERE number IN ({','.join('?' * len(prints))})",
+                               tuple(prints))
         return OPTED_OUT if hit is not None else CLEAR
 
 
@@ -383,10 +458,10 @@ def state_readonly(number: str, db_path: str) -> str:
         return OPTED_OUT
     if not any(is_fingerprint(n) for n in rows):
         return CLEAR
-    key = load_key(db_path)
-    if key is None or not key_fits(key, rows):
+    usable, complete = keyring(db_path, rows)
+    if not complete:
         return KEY_MISSING
-    return OPTED_OUT if fingerprint(key, number) in rows else CLEAR
+    return OPTED_OUT if any(fingerprint(k, number) in rows for k in usable) else CLEAR
 
 
 def mask_old_events(db: Any) -> int:
@@ -415,12 +490,21 @@ def mask_old_events(db: Any) -> int:
 
 # ── travelling inside the owner's encrypted backup (LEGAL DECISION 28 (9)(1)) ──
 
+def is_side_file(name: str) -> bool:
+    """A file name this module puts beside the database in a backup."""
+    return name in (KEY_FILE, PENDING_FILE) or is_earlier_name(name)
+
+
 def backup_files(db_path: str | os.PathLike) -> dict[str, bytes]:
-    """What goes into a backup beside the database, each as its own file: the key, and the pending STOPs if any."""
+    """What goes into a backup beside the database, each as its own file: the key in use, any earlier keys, and
+    the pending STOPs if any."""
     out: dict[str, bytes] = {}
     key = load_key(db_path)
     if key is not None:
         out[KEY_FILE] = key
+    for earlier in load_earlier_keys(db_path):
+        if earlier != key:
+            out[earlier_name(earlier)] = earlier
     rows = _read_pending(db_path)
     if rows:
         out[PENDING_FILE] = "".join(json.dumps(r) + "\n" for r in rows).encode()
@@ -428,8 +512,12 @@ def backup_files(db_path: str | os.PathLike) -> dict[str, bytes]:
 
 
 def restore_files(db_path: str | os.PathLike, files: dict[str, bytes]) -> None:
-    """Put a backup's key in place (the restored fingerprints were made with it) and add its pending STOPs to any
-    kept here. A backup without a key leaves the key file alone; the check row then decides whether it fits."""
+    """Put a backup's key in place as the key in use (the restored fingerprints were made with it), keep its
+    earlier keys, and add its pending STOPs to any kept here. A backup without a key leaves the key in use
+    alone; the check rows then decide whether every fingerprint can be matched."""
+    for name, data in files.items():
+        if is_earlier_name(name) and len(data) == KEY_BYTES and earlier_name(data) == name:
+            keep_earlier_key(db_path, data)
     key = files.get(KEY_FILE)
     if key is not None and len(key) == KEY_BYTES:
         write_key(db_path, key)
@@ -446,3 +534,42 @@ def restore_files(db_path: str | os.PathLike, files: dict[str, bytes]) -> None:
                 seen.add(str(row["number"]))
                 rows.append({"number": str(row["number"]), "at": str(row.get("at") or _now())})
         _write_pending(db_path, rows)
+
+
+# ── a restore never removes an opt-out (Hub on #777, BOARD 2026-11-11T04:00:49Z; Boss 03:37:10Z (b)) ──
+
+def live_record(conn: Any, db_path: str | os.PathLike) -> dict[str, Any]:
+    """The record as it is NOW in the live database, read just before a restore replaces that database: every
+    row, and every key on this computer. Empty when nobody ever opted out."""
+    if in_memory(db_path):
+        return {"rows": [], "keys": []}
+    try:
+        if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='sms_optouts'").fetchone() is None:
+            return {"rows": [], "keys": []}
+        rows = [(r[0], r[1]) for r in conn.execute("SELECT number, opted_out_at FROM sms_optouts").fetchall()]
+    except sqlite3.Error:
+        return {"rows": [], "keys": []}
+    if not any(not is_check(n) for n, _ in rows):
+        return {"rows": [], "keys": []}                  # check rows only: there is no opt-out to carry
+    primary = load_key(db_path)
+    keys = ([primary] if primary is not None else []) + [k for k in load_earlier_keys(db_path) if k != primary]
+    return {"rows": rows, "keys": keys}
+
+
+def carry_into(incoming: Any, db_path: str | os.PathLike, live: dict[str, Any]) -> int:
+    """Put the live record into ``incoming``, the database a restore (or an undo) is about to copy over the live
+    one, and keep the live keys as earlier keys. The copy then lands with BOTH records in it, in one step, so an
+    opt-out made after that backup is never removed. Returns how many rows were carried.
+
+    The keys are written BEFORE the copy: if the copy then fails, an extra copy of a key that is still in use is
+    all that is left. Opt-outs only ever accumulate here: a person who texted START after the backup and then
+    STOP-ed before it stays opted out, the safe side, until they text START again."""
+    rows = live.get("rows") or []
+    if not rows:
+        return 0
+    for key in live.get("keys") or []:
+        keep_earlier_key(db_path, key)
+    incoming.execute(_SQL)
+    incoming.executemany("INSERT OR IGNORE INTO sms_optouts (number, opted_out_at) VALUES (?, ?)", rows)
+    incoming.commit()
+    return len(rows)

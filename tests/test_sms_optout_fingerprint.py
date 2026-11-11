@@ -585,7 +585,50 @@ def test_a_restore_brings_the_key_back_so_every_opt_out_still_matches(chan, tmp_
         assert back.send_sms(PERSON, "x")["error"] == "recipient_opted_out"
 
 
-def test_a_restore_replaces_a_newer_key_and_undo_puts_that_one_back(chan, monkeypatch):
+# ── a restore and an undo never remove an opt-out (Hub on #777, BOARD 2026-11-11T04:00:49Z; Boss 03:37:10Z (b)) ──
+
+THIRD = "+15557776666"
+
+
+def _earlier_files(chan) -> list[str]:
+    return sorted(p.name for p in chan["path"].parent.iterdir() if so.is_earlier_name(p.name))
+
+
+def test_a_stop_recorded_after_the_backup_survives_the_restore(chan, monkeypatch):
+    """The Hub's probe: STOP, back up, another STOP, restore the backup. Both people stay opted out."""
+    monkeypatch.setenv("WINDY_BACKUP_KEY", OWNER_BACKUP_KEY)
+    sms, db = chan["sms"], chan["db"]
+    sms.handle_inbound(PERSON, "STOP")
+    old_bundle = cb.pack_bundle(br._serialize(db), so.backup_files(chan["path"]))
+    sms.handle_inbound(OTHER, "STOP")
+    key = so.load_key(chan["path"])
+    br._write_undo(db, cb._get_encryption_key())
+    assert br._restore_into(db, old_bundle) is None
+    back = chan["make"]()
+    assert back.is_opted_out(OTHER) and back.is_opted_out(PERSON) and not back.optouts.failed_closed
+    assert len(_fingerprints(db)) == 2                                    # by count: nothing was dropped
+    assert so.load_key(chan["path"]) == key                               # the same key: still the one in use
+    with _no_network():
+        assert back.send_sms(OTHER, "x")["error"] == "recipient_opted_out"
+
+
+def test_a_stop_recorded_between_a_restore_and_its_undo_survives_the_undo(chan, monkeypatch):
+    monkeypatch.setenv("WINDY_BACKUP_KEY", OWNER_BACKUP_KEY)
+    sms, db = chan["sms"], chan["db"]
+    sms.handle_inbound(PERSON, "STOP")
+    old_bundle = cb.pack_bundle(br._serialize(db), so.backup_files(chan["path"]))
+    sms.handle_inbound(OTHER, "STOP")
+    owner_key = cb._get_encryption_key()
+    br._write_undo(db, owner_key)
+    assert br._restore_into(db, old_bundle) is None
+    chan["make"]().handle_inbound(THIRD, "STOP")                          # after the restore, before the undo
+    _at, blob = br._read_undo(db)
+    assert br._restore_into(db, cb._decrypt_data(blob, owner_key)) is None
+    undone = chan["make"]()
+    assert all(undone.is_opted_out(n) for n in (PERSON, OTHER, THIRD)) and len(_fingerprints(db)) == 3
+
+
+def test_a_restore_under_another_key_keeps_both_keys_and_undo_keeps_every_opt_out(chan, monkeypatch):
     monkeypatch.setenv("WINDY_BACKUP_KEY", OWNER_BACKUP_KEY)
     sms, db = chan["sms"], chan["db"]
     sms.handle_inbound(PERSON, "STOP")
@@ -602,9 +645,12 @@ def test_a_restore_replaces_a_newer_key_and_undo_puts_that_one_back(chan, monkey
     owner_key = cb._get_encryption_key()
     br._write_undo(db, owner_key)                               # what /backup yes does before it restores
     assert br._restore_into(db, old_bundle) is None
-    assert so.load_key(chan["path"]) == old_key
+    assert so.load_key(chan["path"]) == old_key                 # the restored memory's key is the one in use
+    assert _earlier_files(chan) == [so.earlier_name(new_key)]   # and today's key is kept beside it
     restored = chan["make"]()
-    assert restored.is_opted_out(PERSON) and not restored.optouts.failed_closed
+    assert restored.is_opted_out(PERSON) and restored.is_opted_out(OTHER) and not restored.optouts.failed_closed
+    assert sorted(n for n in _rows(db) if so.is_check(n)) == sorted([so.key_check(old_key), so.key_check(new_key)])
+    assert so.state_readonly(OTHER, str(chan["path"])) == so.OPTED_OUT     # the /sms path reads both keys too
 
     _at, blob = br._read_undo(db)
     undo = cb._decrypt_data(blob, owner_key)
@@ -612,7 +658,128 @@ def test_a_restore_replaces_a_newer_key_and_undo_puts_that_one_back(chan, monkey
     assert br._restore_into(db, undo) is None
     assert so.load_key(chan["path"]) == new_key
     undone = chan["make"]()
-    assert undone.is_opted_out(OTHER) and not undone.is_opted_out(PERSON) and not undone.optouts.failed_closed
+    assert undone.is_opted_out(OTHER) and undone.is_opted_out(PERSON) and not undone.optouts.failed_closed
+    assert _earlier_files(chan) == sorted([so.earlier_name(new_key), so.earlier_name(old_key)])
+
+
+def test_start_clears_an_opt_out_made_under_an_earlier_key(chan):
+    sms, db = chan["sms"], chan["db"]
+    sms.handle_inbound(PERSON, "STOP")
+    old_bundle = cb.pack_bundle(br._serialize(db), so.backup_files(chan["path"]))
+    sms.handle_inbound(PERSON, "START")
+    so.key_path(chan["path"]).unlink()
+    chan["make"]().handle_inbound(OTHER, "STOP")                # under a new key
+    assert br._restore_into(db, old_bundle) is None             # OTHER's fingerprint now sits under an earlier key
+    back = chan["make"]()
+    assert back.is_opted_out(OTHER)
+    back.handle_inbound(OTHER, "START")
+    assert not back.is_opted_out(OTHER) and back.is_opted_out(PERSON)
+    back.handle_inbound(THIRD, "STOP")                          # new opt-outs use the key in use
+    assert so.fingerprint(so.load_key(chan["path"]), THIRD) in _rows(db)
+
+
+def test_losing_an_earlier_key_fails_closed(chan):
+    sms, db = chan["sms"], chan["db"]
+    sms.handle_inbound(PERSON, "STOP")
+    old_bundle = cb.pack_bundle(br._serialize(db), so.backup_files(chan["path"]))
+    sms.handle_inbound(PERSON, "START")
+    so.key_path(chan["path"]).unlink()
+    chan["make"]().handle_inbound(OTHER, "STOP")
+    assert br._restore_into(db, old_bundle) is None
+    (name,) = _earlier_files(chan)
+    (chan["path"].parent / name).unlink()                       # some fingerprints can no longer be matched
+    lost = chan["make"]()
+    assert lost.optouts.failed_closed
+    assert so.state_readonly(THIRD, str(chan["path"])) == so.KEY_MISSING
+    with _no_network(), patch("windyfly.agent.owner_mail.send_sync"):
+        assert lost.send_sms(THIRD, "x")["error"] == "optout_key_missing"
+
+
+def test_earlier_keys_travel_in_the_backup_and_come_back_on_a_new_computer(chan):
+    sms, db = chan["sms"], chan["db"]
+    sms.handle_inbound(PERSON, "STOP")
+    old_bundle = cb.pack_bundle(br._serialize(db), so.backup_files(chan["path"]))
+    sms.handle_inbound(PERSON, "START")
+    so.key_path(chan["path"]).unlink()
+    chan["make"]().handle_inbound(OTHER, "STOP")
+    assert br._restore_into(db, old_bundle) is None
+    side = so.backup_files(chan["path"])
+    (earlier,) = [n for n in side if so.is_earlier_name(n)]
+    bundle = cb.pack_bundle(br._serialize(db), side)
+    assert cb.split_bundle(bundle)[1] == side                   # the bundle reader takes the earlier-key name
+
+    for p in list(chan["path"].parent.iterdir()):               # a new computer: no key file of any kind
+        if p.name.startswith("sms-optout"):
+            p.unlink()
+    db.execute("DELETE FROM sms_optouts")
+    db.commit()
+    assert br._restore_into(db, bundle) is None
+    back = chan["make"]()
+    assert back.is_opted_out(PERSON) and back.is_opted_out(OTHER) and not back.optouts.failed_closed
+    assert _earlier_files(chan) == [earlier]
+
+
+def test_only_real_earlier_key_names_are_read_from_a_bundle():
+    import io
+
+    raw = b"SQLite format 3\x00" + b"x" * 100
+    key = b"e" * 32
+    good = so.earlier_name(key)
+    buf = io.BytesIO()
+    with tarfile.TarFile(fileobj=buf, mode="w") as tar:
+        for name, data in ((cb.BUNDLE_DB, raw), (good, key), ("sms-optout-earlier-zzzz.key", key),
+                           ("x/sms-optout-earlier-0123456789abcdef.key", key),
+                           ("sms-optout-earlier-0123456789abcdef.key.sh", key)):
+            info = tarfile.TarInfo(name)
+            info.size = len(data)
+            tar.addfile(info, io.BytesIO(data))
+    assert cb.split_bundle(buf.getvalue()) == (raw, {good: key})
+    assert so.is_earlier_name(good) and not so.is_earlier_name("sms-optout-earlier-0123456789ABCDEF.key")
+
+
+def test_an_earlier_key_file_whose_name_does_not_fit_its_key_is_ignored(chan, tmp_path):
+    other = b"q" * 32
+    so.restore_files(chan["path"], {so.earlier_name(b"e" * 32): other})   # a file named after another key
+    assert _earlier_files(chan) == [] and so.load_earlier_keys(chan["path"]) == []
+
+
+def test_a_restore_with_no_opt_outs_on_either_side_writes_no_key_file(env, tmp_path):
+    db = Database(str(env))
+    try:
+        raw = br._serialize(db)
+        assert br._restore_into(db, raw) is None
+        assert not [p for p in env.parent.iterdir() if p.name.startswith("sms-optout")]
+    finally:
+        db.close()
+
+
+def test_if_the_live_record_cannot_be_carried_nothing_is_restored(chan, monkeypatch):
+    sms, db = chan["sms"], chan["db"]
+    sms.handle_inbound(PERSON, "STOP")
+    old_bundle = cb.pack_bundle(br._serialize(db), so.backup_files(chan["path"]))
+    sms.handle_inbound(OTHER, "STOP")
+    before = sorted(_rows(db))
+    monkeypatch.setattr(so, "keep_earlier_key", lambda *a: (_ for _ in ()).throw(OSError("disk full")))
+    with pytest.raises(br._CopyFailed):
+        br._restore_into(db, old_bundle)
+    assert sorted(_rows(db)) == before and chan["make"]().is_opted_out(OTHER)
+
+
+def test_a_key_file_that_cannot_be_written_after_the_copy_is_reported_not_raised(chan, monkeypatch):
+    sms, db = chan["sms"], chan["db"]
+    sms.handle_inbound(PERSON, "STOP")
+    bundle = cb.pack_bundle(br._serialize(db), so.backup_files(chan["path"]))
+    monkeypatch.setattr(so, "restore_files", lambda *a: (_ for _ in ()).throw(OSError("read-only")))
+    assert br._restore_into(db, bundle) == "do-not-text key"
+
+
+def test_a_leftover_tmp_file_does_not_loosen_the_key(chan):
+    path = so.key_path(chan["path"])
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_bytes(b"old")
+    os.chmod(tmp, 0o644)
+    so.write_key(chan["path"], b"n" * 32)
+    assert _mode(path) == 0o600 and path.read_bytes() == b"n" * 32
 
 
 def test_a_restored_older_memory_without_its_key_fails_closed_rather_than_matching_nobody(chan):

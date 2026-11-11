@@ -204,6 +204,7 @@ async def _no_credential(auth_header: dict, cloud_url: str) -> bool:
 BUNDLE_DB = "windyfly.db"
 BUNDLE_FORMAT = "tar.v1"
 _BUNDLE_SIDE_MAX = 1024 * 1024          # a side file is a 32-byte key or a short list, never more
+_BUNDLE_SIDE_FILES_MAX = 64             # the key in use, the pending list, and a key kept per earlier restore
 _SQLITE_MAGIC = b"SQLite format 3\x00"
 
 
@@ -222,12 +223,11 @@ def pack_bundle(raw_db: bytes, side: dict[str, bytes]) -> bytes:
 def split_bundle(data: bytes) -> tuple[bytes, dict[str, bytes]]:
     """(database bytes, side files). Bytes that are a database already, or are not a bundle, come back unchanged
     with no side files; the caller's database check then says what they are. Only plain files with the names this
-    code writes are read: nothing is ever unpacked to disk from here."""
+    code writes are read (sms_optout.is_side_file): nothing is ever unpacked to disk from here."""
     if data.startswith(_SQLITE_MAGIC):
         return data, {}
     from windyfly import sms_optout
 
-    known = {sms_optout.KEY_FILE, sms_optout.PENDING_FILE}
     db_bytes: bytes | None = None
     side: dict[str, bytes] = {}
     try:
@@ -238,7 +238,8 @@ def split_bundle(data: bytes) -> tuple[bytes, dict[str, bytes]]:
                 if member.name == BUNDLE_DB and db_bytes is None:
                     f = tar.extractfile(member)
                     db_bytes = f.read() if f else None
-                elif member.name in known and member.size <= _BUNDLE_SIDE_MAX and member.name not in side:
+                elif (sms_optout.is_side_file(member.name) and member.size <= _BUNDLE_SIDE_MAX
+                      and member.name not in side and len(side) < _BUNDLE_SIDE_FILES_MAX):
                     f = tar.extractfile(member)
                     if f:
                         side[member.name] = f.read()

@@ -362,23 +362,37 @@ def _copy_pages(src: sqlite3.Connection, dst: sqlite3.Connection) -> None:
 
 def _restore_into(db: Any, data: bytes) -> str | None:
     """Copy ``data`` (a checked database, alone or in a bundle) into the live connection, under the database lock.
-    Returns None when the restored memory passes its checks, else which check failed ("integrity" or
-    "foreign-key"). A bundle's side files (the SMS do-not-text key) are put in place once the copy has landed."""
+    Returns None when the restored memory passes its checks, else which check failed ("integrity",
+    "foreign-key" or "do-not-text key"). A bundle's side files (the SMS do-not-text key) are put in place once the
+    copy has landed. The live do-not-text record is carried across: nothing here ever removes an opt-out."""
     from windyfly import sms_optout
     from windyfly.cloud_backup import split_bundle
 
     data, side = split_bundle(data)
+    key_trouble = False
     src = sqlite3.connect(":memory:")
     try:
         src.deserialize(_loadable(data))        # the header edit is on an in-memory copy only
         with db._lock:
             db.conn.commit()
+            # A restore (and an undo) never removes an opt-out: the live do-not-text record is put into the
+            # memory that is about to replace it, under this lock, so the ONE copy below lands with both.
+            try:
+                sms_optout.carry_into(src, db.db_path, sms_optout.live_record(db.conn, db.db_path))
+            except (OSError, sqlite3.Error) as e:
+                raise _CopyFailed(f"do-not-text record: {type(e).__name__}") from e
             try:
                 _copy_pages(src, db.conn)
             except sqlite3.Error as e:
                 raise _CopyFailed(type(e).__name__) from e
             if side:
-                sms_optout.restore_files(db.db_path, side)   # the key these fingerprints were made with
+                try:
+                    sms_optout.restore_files(db.db_path, side)   # the key these fingerprints were made with
+                except OSError as e:
+                    # The memory landed but its key file did not: the record then fails closed (only the owner
+                    # is texted), which is the safe side; say so instead of raising out of the restore.
+                    key_trouble = True
+                    logger.error("backup restore: the do-not-text key could not be written (%s)", type(e).__name__)
             try:
                 db._run_migrations()           # an older backup is brought up to this code's schema
             except Exception as e:
@@ -387,6 +401,8 @@ def _restore_into(db: Any, data: bytes) -> str | None:
             ok = db.conn.execute("PRAGMA integrity_check").fetchone()
             fk = db.conn.execute("PRAGMA foreign_key_check").fetchall()
         failed = "integrity" if not ok or ok[0] != "ok" else ("foreign-key" if fk else None)
+        if failed is None and key_trouble:
+            failed = "do-not-text key"
         if failed:
             logger.error("backup restore: check after restore failed (integrity=%s, fk=%d)",
                          ok[0] if ok else None, len(fk))
