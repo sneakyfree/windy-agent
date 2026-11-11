@@ -30,7 +30,7 @@ _BACKUP_CHECK_SECONDS = 60 * 60
 # — it's served by the Windy-run Matrix-bridge gateway (a separate repo),
 # not an in-agent adapter, per the locked ADR/gateway design.
 CHANNEL_CHOICES = [
-    "cli", "matrix", "sms", "telegram", "discord", "slack",
+    "cli", "matrix", "telegram", "discord", "slack",
     "signal", "irc", "teams",
 ]
 
@@ -838,30 +838,6 @@ def main() -> None:
             lambda db, wq: TeamsChannel(),
             preflight=_teams_preflight,
         )
-    elif args.channel == "sms":
-        import asyncio
-        from windyfly.channels.sms import WindyFlySMS
-        from windyfly.memory.database import Database
-        from windyfly.memory.write_queue import WriteQueue
-
-        db = Database(db_path)
-        write_queue = WriteQueue()
-        write_queue.start()
-        # Every LLM call in this process lands in this ledger.
-        from windyfly.memory.cost_ledger import install_cost_sink
-        install_cost_sink(db, write_queue)
-
-        sms = WindyFlySMS(config, db, write_queue)
-        logger.info("SMS channel initialized with number %s", sms.phone_number)
-        # SMS channel runs via gateway webhooks, not a standalone loop.
-        # Keep the process alive for the UDS bridge.
-        try:
-            asyncio.get_event_loop().run_forever()
-        except KeyboardInterrupt:
-            pass
-        finally:
-            write_queue.stop()
-            db.close()
 
 
 if __name__ == "__main__":

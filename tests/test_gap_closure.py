@@ -297,7 +297,7 @@ class TestDispatchRegistry:
         "agent.respond", "memory.search", "sliders.get", "sliders.set",
         "sliders.info", "cost.daily", "intents.list", "dashboard.summary",
         "soul.preview", "soul.import",
-        "sms.inbound", "sms.send", "email.inbound",
+        "email.inbound",
         "journal.list", "assessment.run",
         # Gap closure additions
         "cost.monthly", "config.reload",
@@ -332,19 +332,20 @@ class TestDispatchRegistry:
         db.close()
 
     def test_dispatch_count(self):
-        """The real dispatch table: 34 methods. Retired 2026-10-10:
+        """The real dispatch table: 36 methods. Retired 2026-10-10:
         mode.get / mode.set, shape_shift.execute / shape_shift.restore,
         skills.evaluate / skills.golden_tests / skills.regression; 2026-10-12:
         email.send (an unused door around the owner's send confirmation).
         Added 2026-10-17: history.preview / history.delete (strand N10.1), and
         soul.upload / soul.reject (soul import from the dashboard; soul.preview and
         soul.import now take an upload token, never a host path).
-        REQUIRED_METHODS covers 32 of them (memory.delete, trust.webhook, the two
+        Removed 2026-11-11 with the direct SMS channel: sms.inbound / sms.send (lean Windy Fly).
+        REQUIRED_METHODS covers 30 of them (memory.delete, trust.webhook, the two
         history methods and the two new soul methods are pinned by their own tests)."""
         bridge, db, _ = _make_bridge()
         table = bridge._handler_table()
-        assert len(table) == 38
-        assert len(self.REQUIRED_METHODS) == 32
+        assert len(table) == 36
+        assert len(self.REQUIRED_METHODS) == 30
         assert set(self.REQUIRED_METHODS) <= set(table)
         assert set(table) - set(self.REQUIRED_METHODS) == {
             "memory.delete", "trust.webhook", "history.preview", "history.delete", "soul.upload", "soul.reject",

@@ -965,31 +965,8 @@ async function handleRequest(req: Request, server: import("bun").Server<any>): P
       }
     }
 
-    // SMS webhook (Twilio inbound)
-    if (path === "/api/sms/webhook" && req.method === "POST") {
-      const body = await req.json();
-      try {
-        const result = await bridge.call("sms.inbound", body);
-        return new Response(result.twiml || "", {
-          headers: { "Content-Type": "text/xml", ...headers },
-        });
-      } catch {
-        return new Response("<Response/>", {
-          headers: { "Content-Type": "text/xml", ...headers },
-        });
-      }
-    }
-
-    // SMS send (outbound)
-    if (path === "/api/sms/send" && req.method === "POST") {
-      const body = (await req.json()) as { to: string; message: string };
-      try {
-        const result = await bridge.call("sms.send", body);
-        return Response.json(result, { headers });
-      } catch {
-        return Response.json({ error: "Brain offline", _offline: true }, { status: 503, headers });
-      }
-    }
+    // There are no /api/sms routes any more: the agent's direct SMS channel is gone (lean Windy Fly).
+    // Texting goes through the Windy Text tool only.
 
     // Email webhook (SendGrid Inbound Parse)
     if (path === "/api/email/webhook" && req.method === "POST") {

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from pathlib import Path
 
 import httpx
@@ -39,6 +40,7 @@ FRIEND = "+15557777777"
 def box(monkeypatch, tmp_path):
     """The old (non-BYO) sender, switched on, with a file-backed memory and every number already approved."""
     monkeypatch.setenv("WINDY_TEXT_BASE_URL", "https://api.windytext.test")
+    monkeypatch.setenv("WINDY_SMS_ALLOW_NON_OWNER", "1")   # these tests text contacts, not only the owner
     monkeypatch.setenv("WINDY_PASSPORT_EPT", "test_ept_jwt_value")
     monkeypatch.delenv("WINDY_TEXT_BYO", raising=False)
     monkeypatch.setenv("WINDY_OWNER_IDS", f"sms:{OWNER}")
@@ -52,6 +54,10 @@ def box(monkeypatch, tmp_path):
     for n in (OWNER, STOPPED, FRIEND):
         sms._approve(n)
     calls: list[tuple[str, str]] = []
+    mail: list[tuple[str, str]] = []
+    from windyfly.agent import owner_mail
+
+    monkeypatch.setattr(owner_mail, "send_sync", lambda subject, body: mail.append((subject, body)) or True)
 
     def post(url, json=None, headers=None, timeout=None):
         calls.append(("POST", url))
@@ -63,7 +69,7 @@ def box(monkeypatch, tmp_path):
 
     monkeypatch.setattr(sms.httpx, "post", post)
     monkeypatch.setattr(sms.httpx, "get", get)
-    yield _Box(db=db, calls=calls, path=tmp_path / "data" / "mem.db")
+    yield _Box(db=db, calls=calls, mail=mail, path=tmp_path / "data" / "mem.db")
     monkeypatch.setattr(sms, "_db", None)
     monkeypatch.setattr(sms, "_config", None)
     db.close()
@@ -243,6 +249,69 @@ def test_no_memory_wired_means_no_record_to_ask(box, monkeypatch):
     assert sms.send_sms(FRIEND, "hello")["status"] == "sent"
 
 
+# ── the owner-only gate (default: the agent texts its owner and nobody else) ──
+
+@pytest.fixture
+def owner_only(box, monkeypatch):
+    monkeypatch.delenv("WINDY_SMS_ALLOW_NON_OWNER")
+    return box
+
+
+def test_by_default_a_contact_is_not_texted_and_no_request_leaves(owner_only):
+    out = sms.send_sms(FRIEND, "hello")
+    assert out == {"status": "unavailable", "sent": False, "error": sms._UNAVAILABLE}
+    assert owner_only["calls"] == []
+
+
+def test_by_default_the_owner_is_still_texted(owner_only):
+    assert sms.send_sms(OWNER, "hello")["status"] == "sent"
+
+
+def test_by_default_the_owner_is_not_asked_to_approve_a_contact(owner_only):
+    out = sms.send_sms("+15556662222", "hello")              # never approved
+    assert out["status"] == "unavailable" and "confirm_token" not in out and sms._pending == {}
+
+
+def test_by_default_the_last_gate_refuses_a_contact_for_any_caller(owner_only):
+    assert sms._deliver("https://api.windytext.test", "ept", FRIEND, "hello")["status"] == "unavailable"
+    assert owner_only["calls"] == []
+
+
+def test_by_default_byo_texts_the_owners_own_phone_and_no_contact(owner_only, monkeypatch):
+    _byo(monkeypatch)
+    assert sms.send_sms(FRIEND, "hello")["status"] == "unavailable" and owner_only["calls"] == []
+    assert sms.send_sms(None, "hello")["status"].startswith("sent")
+
+
+@pytest.mark.parametrize("value", ["", "0", "true", "yes", " 2 "])
+def test_only_the_exact_switch_value_opens_the_gate(owner_only, monkeypatch, value):
+    monkeypatch.setenv("WINDY_SMS_ALLOW_NON_OWNER", value)
+    assert sms.send_sms(FRIEND, "hello")["status"] == "unavailable"
+
+
+# ── the owner hears once that the key is missing ──
+
+def test_the_owner_is_mailed_once_when_the_key_is_missing_and_again_after_it_came_back(box, monkeypatch):
+    box["store"].record(STOPPED)
+    key = so.key_path(box["path"])
+    saved = key.read_bytes()
+    key.unlink()
+    assert sms.send_sms(FRIEND, "hello")["error"] == so.KEY_MISSING_NOTICE
+    assert sms.send_sms(FRIEND, "again")["error"] == so.KEY_MISSING_NOTICE
+    assert sms.send_sms(OWNER, "hello")["status"] == "sent"   # texting the owner does not reset the marker
+    for _ in range(50):                                       # the mail goes from a thread
+        if box["mail"]:
+            break
+        time.sleep(0.1)
+    assert box["mail"] == [("Your agent can only text you for now", so.KEY_MISSING_NOTICE)]
+    marker = box["path"].parent / so.TOLD_FILE
+    assert marker.exists() and (marker.stat().st_mode & 0o777) == 0o600
+
+    so.write_key(box["path"], saved)                          # the key is back
+    assert sms.send_sms(FRIEND, "hello")["status"] == "sent"
+    assert not marker.exists()                                # so a later loss tells the owner again
+
+
 # ── what is written down ──
 
 def test_the_log_lines_hold_the_last_four_digits_only(box, caplog):
@@ -253,15 +322,51 @@ def test_the_log_lines_hold_the_last_four_digits_only(box, caplog):
     assert "8888" in text and STOPPED not in text and "5558888888" not in text
 
 
-def test_the_tool_does_not_need_the_direct_channel():
-    """So the channel can be cut without touching this check: the record, the owner rule and Legal's sentence all
-    come from windyfly.sms_optout."""
+def test_there_is_no_direct_channel_and_the_tool_does_not_look_for_one():
+    """The agent texts through the Windy Text tool only. The record, the owner-only gate and Legal's sentence all
+    live in windyfly.sms_optout."""
+    import importlib.util
+
+    assert importlib.util.find_spec("windyfly.channels.sms") is None
+    assert importlib.util.find_spec("windyfly.sms_park") is None
     src = (Path(sms.__file__)).read_text(encoding="utf-8")
     assert not re.search(r"^\s*(from|import)\s+windyfly\.channels\.sms\b", src, re.M)
     assert "from windyfly.channels import sms" not in src
-    from windyfly.channels import sms as chan
 
-    assert chan.KEY_MISSING_NOTICE is so.KEY_MISSING_NOTICE and chan.owner_numbers is so.owner_numbers
+
+def test_there_is_no_sms_command_and_no_sms_start_option():
+    from windyfly import main as entry
+    from windyfly.commands import ecosystem
+    from windyfly.commands.registry import registry
+
+    ecosystem.init_ecosystem()
+    assert "sms" not in {c.name for c in registry.all()}
+    assert "sms" not in entry.CHANNEL_CHOICES
+
+
+# ── the read-only path, at the edges ──
+
+def test_no_database_yet_means_nothing_recorded(tmp_path):
+    assert so.state_readonly(STOPPED, str(tmp_path / "none.db")) == so.CLEAR
+
+
+# ── start-up housekeeping the direct channel used to do ──
+
+def test_plain_rows_from_the_old_code_become_fingerprints_when_the_tool_is_registered(box):
+    box["db"].conn.executescript(so._SQL)
+    box["db"].execute("INSERT INTO sms_optouts (number, opted_out_at) VALUES (?, ?)",
+                      (so.number_key(STOPPED), "2026-11-01T00:00:00Z"))
+    box["db"].commit()
+    sms.register_sms_tools(ToolRegistry(), box["db"], {})
+    rows = [r["number"] for r in box["db"].fetchall("SELECT number FROM sms_optouts")]
+    assert so.number_key(STOPPED) not in rows and sum(1 for n in rows if so.is_fingerprint(n)) == 1
+    assert sms.send_sms(STOPPED, "hello")["status"] == "opted_out"
+
+
+def test_registering_the_tool_for_an_agent_with_no_record_makes_no_table_and_no_key(box):
+    sms.register_sms_tools(ToolRegistry(), box["db"], {})
+    assert box["db"].fetchone("SELECT 1 AS x FROM sqlite_master WHERE name = 'sms_optouts'") is None
+    assert not so.key_path(box["path"]).exists()
 
 
 # ── the count Legal asked for ──

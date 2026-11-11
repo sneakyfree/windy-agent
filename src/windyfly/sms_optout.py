@@ -47,6 +47,7 @@ logger = logging.getLogger(__name__)
 
 KEY_FILE = "sms-optout.key"
 PENDING_FILE = "sms-optout-pending.jsonl"
+TOLD_FILE = "sms-optout-key-missing.told"     # the owner was told once that the key is missing
 _EARLIER_NAME = re.compile(r"^sms-optout-earlier-[0-9a-f]{16}\.key$")
 KEY_BYTES = 32
 
@@ -450,7 +451,7 @@ class OptOutStore:
 
 
 def state_readonly(number: str, db_path: str) -> str:
-    """The same answer for a send path with no channel object (the /sms command), from a read-only connection.
+    """The same answer for a send path with no store object (the Windy Text tool), from a read-only connection.
     No database or no table yet = nothing recorded = CLEAR. A read error = UNREADABLE: when in doubt nobody is
     texted, and nobody is said to have replied STOP."""
     nk = number_key(number)
@@ -489,9 +490,50 @@ def owner_numbers(config: dict[str, Any] | None = None) -> set[str]:
     return {number_key(n) for n in nums if number_key(n)}
 
 
+def non_owner_allowed() -> bool:
+    """WINDY_SMS_ALLOW_NON_OWNER=1 lets the agent text numbers other than its owner's own. Default OFF (Boss's
+    opt-out order, BOARD 2026-11-09T11:18:02Z (1)(b)): with it off, the only person the agent ever texts is its
+    owner."""
+    return os.environ.get("WINDY_SMS_ALLOW_NON_OWNER", "").strip() == "1"
+
+
+def may_text(number: str, config: dict[str, Any] | None = None) -> bool:
+    """The owner-only gate: the owner's own number always, anyone else only with the allow switch on. It stands in
+    front of every texting path together with the record (Windy Legal, BOARD 2026-11-11T03:24:49Z)."""
+    return non_owner_allowed() or number_key(number) in owner_numbers(config)
+
+
+def tell_owner_once(db_path: str | os.PathLike) -> bool:
+    """The owner hears ONCE, by mail, that the key is missing (LEGAL DECISION 28 (9)(2)). True the first time. A
+    0600 marker beside the memory remembers it was said; ``forget_told`` removes it when the key is back."""
+    if in_memory(db_path):
+        return False
+    try:
+        fd = os.open(Path(str(db_path)).parent / TOLD_FILE, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    except OSError:                              # already said (FileExistsError), or it cannot be remembered
+        return False
+    os.close(fd)
+    import threading
+
+    from windyfly.agent import owner_mail
+
+    threading.Thread(target=owner_mail.send_sync, daemon=True,
+                     args=("Your agent can only text you for now", KEY_MISSING_NOTICE)).start()
+    return True
+
+
+def forget_told(db_path: str | os.PathLike) -> None:
+    if in_memory(db_path):
+        return
+    try:
+        os.unlink(Path(str(db_path)).parent / TOLD_FILE)
+    except OSError:
+        pass
+
+
 def send_state(number: str, db_path: str, config: dict[str, Any] | None = None) -> str:
-    """What ANY path that is about to text ``number`` must ask first (the direct channel, the /sms command, the
-    Windy Text tool): CLEAR, OPTED_OUT or KEY_MISSING. KEY_MISSING never applies to the owner's own number: while
+    """What ANY path that is about to text ``number`` must ask first (today the one path: the Windy Text
+    tool): CLEAR, OPTED_OUT or KEY_MISSING. KEY_MISSING never applies to the owner's own number: while
     the record cannot be read, the owner is the one person the agent may still text (LEGAL DECISION 28 (9)(2))."""
     state = state_readonly(number, db_path)
     if state == KEY_MISSING and number_key(number) in owner_numbers(config):
@@ -620,3 +662,16 @@ def carry_into(incoming: Any, db_path: str | os.PathLike, live: dict[str, Any]) 
     incoming.executemany("INSERT OR IGNORE INTO sms_optouts (number, opted_out_at) VALUES (?, ?)", rows)
     incoming.commit()
     return len(rows)
+
+
+def tidy_at_start(db: Any) -> None:
+    """Once per start, from the place the texting tool is registered (the direct channel did this when it was
+    built, and it is gone): if this agent holds a record, open it, which turns plain rows written by 0.9.x into
+    fingerprints and takes in a pending STOP once the key is back; and mask old sms.* activity lines. An agent with no
+    record gets no table and no key from this. Never raises: a start must not fail over housekeeping."""
+    try:
+        if db.fetchone("SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = 'sms_optouts'") is not None:
+            OptOutStore(db)
+        mask_old_events(db)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("do-not-text record: start-up housekeeping did not finish (%s)", type(e).__name__)

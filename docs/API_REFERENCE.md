@@ -503,7 +503,7 @@ List recent events with optional type filter.
 `agent.respond`, `memory.write`, `skill.evaluate`, `cost.log`, `failure.detect`,
 `intent.surface`, `conflict.detect`, `decay.run`, `matrix.message`, `matrix.reconnect`,
 `personality.change`, `personality_drift`, `offline.fallback`,
-`sms.inbound`, `sms.outbound`, `sms.optout`, `email.inbound`, `email.outbound`
+`email.inbound`, `email.outbound`
 
 **Response:**
 ```json
@@ -526,40 +526,6 @@ List recent events with optional type filter.
 ---
 
 ## Channels
-
-### `POST /api/sms/webhook`
-
-Twilio inbound SMS webhook. Processes the message through the agent and returns TwiML.
-
-**Request (Twilio format):**
-```json
-{
-  "From": "+15551234567",
-  "Body": "Hey Windy, what's the weather?"
-}
-```
-
-**Response (TwiML):**
-```xml
-<Response><Message>It's sunny and 72°F today! ☀️</Message></Response>
-```
-
-### `POST /api/sms/send`
-
-Send an outbound SMS.
-
-**Request:**
-```json
-{
-  "to": "+15551234567",
-  "message": "Hey! Just checking in. 🪰"
-}
-```
-
-**Response:**
-```json
-{ "status": "sent", "sid": "SM..." }
-```
 
 ### `POST /api/email/webhook`
 

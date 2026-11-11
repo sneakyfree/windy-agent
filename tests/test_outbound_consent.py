@@ -25,6 +25,7 @@ NUMBER = "+15557654321"
 @pytest.fixture(autouse=True)
 def _env(monkeypatch):
     monkeypatch.setenv("WINDY_TEXT_BASE_URL", "https://api.windytext.test")
+    monkeypatch.setenv("WINDY_SMS_ALLOW_NON_OWNER", "1")   # these tests text contacts, not only the owner
     monkeypatch.setenv("WINDY_PASSPORT_EPT", "ept")
     monkeypatch.setenv("WINDYFLY_AGENT_NAME", "Pip")
     monkeypatch.setenv("WINDY_OWNER_NAME", "Grant Whitmer")

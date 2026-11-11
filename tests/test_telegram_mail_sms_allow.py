@@ -61,9 +61,9 @@ def test_reply_mail_is_dangerous(db):
     assert cmds["reply-mail"].dangerous is True
 
 
-def test_sms_is_dangerous(db):
-    cmds = {c.name: c for c in registry.all()}
-    assert cmds["sms"].dangerous is True
+def test_there_is_no_sms_command(db):
+    # It left with the direct SMS channel (lean Windy Fly): the agent texts through the Windy Text tool only.
+    assert "sms" not in {c.name for c in registry.all()}
 
 
 def test_read_only_mail_commands_NOT_dangerous(db):
@@ -117,17 +117,6 @@ async def test_telegram_send_mail_requires_confirm(db):
     # Must NOT be denied
     assert "not allowed from" not in out.lower()
     # Must require confirmation
-    assert "confirm" in out.lower() or "--confirm" in out
-
-
-@pytest.mark.asyncio
-async def test_telegram_sms_requires_confirm(db):
-    ok, out = await handle_incoming(
-        "/sms 5551234567 test",
-        {"platform": "telegram", "channel_id": "x"},
-    )
-    assert ok is True
-    assert "not allowed from" not in out.lower()
     assert "confirm" in out.lower() or "--confirm" in out
 
 

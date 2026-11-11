@@ -15,6 +15,7 @@ from windyfly.tools.registry import ToolRegistry
 @pytest.fixture(autouse=True)
 def _env(monkeypatch):
     monkeypatch.setenv("WINDY_TEXT_BYO", "1")
+    monkeypatch.setenv("WINDY_SMS_ALLOW_NON_OWNER", "1")   # these tests text contacts, not only the owner
     monkeypatch.setenv("ETERNITAS_PASSPORT_TOKEN", "ept-own")
     monkeypatch.setenv("WINDYFLY_AGENT_NAME", "Ava")
     monkeypatch.setenv("WINDY_OWNER_NAME", "Grant Whitmer")
