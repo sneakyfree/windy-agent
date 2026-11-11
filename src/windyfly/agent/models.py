@@ -731,8 +731,10 @@ def _refused_key_provider(resp: Any) -> str | None:
 
     Two forms are read, so it does not matter whether the agent or Mind ships first (Boss RULING, BOARD
     2026-11-11T03:37:10Z; Mind 03:39:03Z):
-      - NEW: a 4xx (Mind proposes 402 for credit, 424 for the key itself; the Hub rules the codes) with the
-        provider in ``x-mind-connection``. The header is the contract: a 4xx without it is an ordinary refusal.
+      - NEW: a 4xx with the provider in ``x-mind-connection`` (mind-refusal.v1 1.17.0, x-edge-safe-status: ONE
+        status, 424, for the key itself and for its billing; the header is RESERVED for this refusal). The header
+        is the contract, never the number: a 4xx without it is an ordinary refusal, so a 402 on /v1/chat
+        (own_key_required, budget_spent) is not read as a refused key.
       - OLD: 502 + ``x-mind-error: connection`` / ``x-mind-connection`` (mind-refusal.v1 1.3.0). Through
         api.windymind.ai the edge replaces a 502's words and headers, so this form only ever arrived on Mind's own
         network (Mind FINDING A, 2026-11-11T03:17:18Z); that is why Mind is changing it.

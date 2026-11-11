@@ -50,6 +50,18 @@ def test_a_4xx_without_the_header_is_an_ordinary_refusal(status):
         _resp(status, body={"detail": "your connected groq key was refused upstream"})) is None
 
 
+@pytest.mark.parametrize("code", ["own_key_required", "budget_spent"])
+def test_a_402_on_chat_is_never_a_refused_key(code):
+    """mind-refusal.v1 1.17.0: 402 on /v1/chat means own_key_required or budget_spent, and x-mind-connection is
+    reserved for the own-key refusal (424), so these carry no such header and stay ordinary refusals."""
+    assert models._refused_key_provider(_resp(402, {"x-mind-error": code})) is None
+
+
+def test_the_contracts_424_is_read_by_its_header_and_not_by_its_number():
+    assert models._refused_key_provider(_resp(424, {"x-mind-connection": "groq"})) == "Groq"
+    assert models._refused_key_provider(_resp(424)) is None
+
+
 @pytest.mark.parametrize("status", [401, 403, 429])
 def test_standing_stops_and_rate_limits_are_never_a_key_refusal(status):
     assert models._refused_key_provider(_resp(status, {"x-mind-connection": "anthropic"})) is None
