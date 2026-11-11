@@ -229,6 +229,44 @@ def pause(reason: str = "manual", actor: str = "user") -> dict[str, Any]:
         return {"ok": False, "error": str(e)}
 
 
+def pause_first(reason: str, actor: str = "auto") -> bool:
+    """Write the pause flag ONLY if no one has: True for the one caller that paused, False when it was already there.
+
+    One step (the Hub's note on #785): two channel processes that both see a breach in the same moment used to both
+    pause and both tell the owner. The flag is written to a file of this process's own and then hard-linked into
+    place; a link onto an existing name fails, so exactly one caller wins. Never raises; a write that fails is False."""
+    import os
+
+    path = _pause_flag_path()
+    payload = {"ts": datetime.now(timezone.utc).isoformat(), "reason": reason, "actor": actor}
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.{id(payload)}.tmp")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+        try:
+            os.link(tmp, path)
+        except FileExistsError:
+            return False
+        except OSError:
+            # A file system with no hard links must still pause (a missed pause costs money; a torn flag still
+            # reads as paused): create the name exclusively instead, so one caller still wins.
+            try:
+                with open(path, "x", encoding="utf-8") as f:
+                    f.write(json.dumps(payload) + "\n")
+            except FileExistsError:
+                return False
+        logger.warning("PAUSED: actor=%s reason=%s — LLM calls blocked until /resume", actor, reason)
+        return True
+    except Exception as e:  # noqa: BLE001
+        logger.error("pause flag write failed: %s", e)
+        return False
+    finally:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
 def resume() -> dict[str, Any]:
     """Delete the pause flag. Best-effort — missing flag is a no-op."""
     path = _pause_flag_path()
@@ -420,7 +458,9 @@ def maybe_auto_pause(
         f"auto: burn rate ${breach['current_hourly']:.2f}/hr "
         f"exceeds ${breach['threshold']:.2f}/hr threshold"
     )
-    pause(reason=reason, actor="auto")
+    if not pause_first(reason, actor="auto"):
+        # Another process paused in the same moment and tells the owner; this one says nothing (one notice).
+        return {"action": "noop:already_paused"}
     return {
         "action": "paused",
         "current_hourly": breach["current_hourly"],
