@@ -1,0 +1,1 @@
+- **Your agent backs up to Windy Cloud as itself, never with your sign-in.** An agent that has its own key no longer sends your Windy sign-in to Windy Cloud when its own token can't be had for a moment; the backup waits for its own token instead. Every time a Cloud call does fall back to an older credential, it is now counted in the log (never the credential itself).
