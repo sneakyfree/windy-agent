@@ -211,7 +211,7 @@ def pack_bundle(raw_db: bytes, side: dict[str, bytes]) -> bytes:
     if not side:
         return raw_db
     buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w") as tar:
+    with tarfile.TarFile(fileobj=buf, mode="w") as tar:      # a plain tar: binary, so no text encoding is in play
         for name, data in [(BUNDLE_DB, raw_db), *sorted(side.items())]:
             info = tarfile.TarInfo(name)
             info.size, info.mode, info.mtime = len(data), 0o600, int(time.time())
