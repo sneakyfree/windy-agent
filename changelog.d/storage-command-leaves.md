@@ -1,0 +1,1 @@
+- **`/storage` is gone.** It asked the account server with a person's sign-in token, which an agent never holds, so it only ever answered "Error: 401". Your storage is shown in the Windy Cloud panel of your account and in the Cloud console.

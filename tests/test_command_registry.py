@@ -60,6 +60,13 @@ class TestRegistryLoading:
     def test_aliases_registered(self, loaded_registry):
         assert len(loaded_registry._aliases) >= 40, "Expected 40+ aliases"
 
+    def test_no_storage_command(self, loaded_registry):
+        """/storage asked the account server with a person's sign-in token, which a born agent never holds, so it
+        answered "Error: 401". The owner's storage figure and the words on what counts toward it live where Windy
+        Cloud draws them (LEGAL DECISIONS 60 and 69, BOARD 2026-11-11), not in a second copy here."""
+        assert loaded_registry.get("storage") is None
+        assert "storage" not in loaded_registry._aliases
+
     def test_categories_exist(self, loaded_registry):
         cats = loaded_registry.by_category()
         assert len(cats) >= 15, f"Expected 15+ categories, got {len(cats)}"
