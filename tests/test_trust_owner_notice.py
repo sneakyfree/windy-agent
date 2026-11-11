@@ -210,18 +210,40 @@ def test_the_maintenance_list_pulls_the_standing_every_tick():
 
 def test_the_pull_job_asks_nothing_without_a_passport(monkeypatch):
     monkeypatch.delenv("ETERNITAS_PASSPORT", raising=False)
-    asked: list[int] = []
-
-    async def get_trust(*a, **k):
-        asked.append(1)
-
-    monkeypatch.setattr(check, "get_trust", get_trust)
+    asked: list[str] = []
+    monkeypatch.setattr(check, "pull_soon", lambda passport: asked.append(passport))
     job = {j.name: j for j in maintenance.default_jobs({"memory": {"db_path": ":memory:"}})}["eternitas.trust_pull"]
     job.run()
     assert asked == []
     monkeypatch.setenv("ETERNITAS_PASSPORT", PASSPORT)
     job.run()
-    assert asked == [1]
+    assert asked == [PASSPORT]
+
+
+def test_the_timed_pull_waits_its_own_offset_on_a_helper_thread_and_never_raises(monkeypatch):
+    """Many agents on one home restart in the same second; each pulls at its own fixed offset (Eternitas's ask)."""
+    import threading
+
+    slept: list[float] = []
+    asked: list[tuple[str, str]] = []
+
+    async def get_trust(passport=None, **k):
+        asked.append((passport, threading.current_thread().name))
+        raise RuntimeError("registry down")
+
+    monkeypatch.setattr(check.time, "sleep", slept.append)
+    monkeypatch.setattr(check, "get_trust", get_trust)
+    t = check.pull_soon(PASSPORT)
+    t.join(5)
+    assert not t.is_alive()
+    assert slept == [check.pull_offset(PASSPORT)] and 0 <= slept[0] < check.PULL_SPREAD_S
+    assert asked == [(PASSPORT, "trust-pull")]
+
+
+def test_offsets_are_fixed_per_passport_and_spread_out():
+    offsets = {check.pull_offset(f"ET26-TEST-{i:04d}") for i in range(200)}
+    assert check.pull_offset(PASSPORT) == check.pull_offset(PASSPORT)
+    assert len(offsets) > 60 and max(offsets) < check.PULL_SPREAD_S
 
 
 # ── Boss's nit on #781: one sentence for "no live answer" ───────────────────────────────────────────────────

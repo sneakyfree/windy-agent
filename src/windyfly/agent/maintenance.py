@@ -182,14 +182,14 @@ def default_jobs(config: dict[str, Any]) -> list[MaintenanceJob]:
     def _trust_pull() -> None:
         # An idle agent makes no trust check, so nothing would notice that Eternitas lowered its standing. This
         # pull keeps the verdict current and lets trust/notice.py tell the owner once. No passport = nothing asked.
-        import asyncio
         import os
 
-        if not os.environ.get("ETERNITAS_PASSPORT", ""):
+        passport = os.environ.get("ETERNITAS_PASSPORT", "")
+        if not passport:
             return
-        from windyfly.trust.check import get_trust
+        from windyfly.trust.check import pull_soon
 
-        asyncio.run(get_trust())
+        pull_soon(passport)
 
     jobs = [
         MaintenanceJob(
