@@ -47,11 +47,9 @@ _OPT_IN_KEYWORDS = frozenset({"START", "UNSTOP"})
 # text START: send_sms refuses, and their later messages get no reply (LEGAL DECISION 28 (4)(a)). The record holds
 # keyed fingerprints, never numbers (LEGAL DECISION 28 (8)): see windyfly.sms_optout.
 
-# Said to the owner ONCE when the fingerprint key is missing while the record has entries (LEGAL DECISION 28 (9)(2)).
-# Windy Legal's words, word for word (BOARD 2026-11-11T03:24:49Z (a)): a backup made before 0.9.x carried no key.
-KEY_MISSING_NOTICE = ("Right now I can only text you. The key that protects my do-not-text list is missing from "
-                      "this computer, so I can't tell who asked me to stop texting them. Restoring my latest backup "
-                      "brings the key back, if that backup has it. Until then I won't text anyone else.")
+# Said to the owner ONCE when the fingerprint key is missing while the record has entries (LEGAL DECISION 28 (9)(2)):
+# Windy Legal's sentence, kept with the record in windyfly.sms_optout so every texting path says the same words.
+KEY_MISSING_NOTICE = sms_optout.KEY_MISSING_NOTICE
 _TOLD_FILE = "sms-optout-key-missing.told"
 _masked_once: set[str] = set()
 
@@ -134,15 +132,7 @@ def non_owner_allowed() -> bool:
     return os.environ.get("WINDY_SMS_ALLOW_NON_OWNER", "").strip() == "1"
 
 
-def owner_numbers(config: dict[str, Any] | None = None) -> set[str]:
-    """The owner's own SMS numbers, from EXPLICIT settings only: WINDY_OWNER_IDS and config [trust] owner_ids
-    ("sms:+1555..."). A first-contact binding never counts here: a stranger who texted first is not the owner."""
-    from windyfly.channels.identity import _parse_pairs
-
-    nums = set(_parse_pairs(os.environ.get("WINDY_OWNER_IDS", "")).get("sms", set()))
-    for pair in ((config or {}).get("trust", {}) or {}).get("owner_ids", []) or []:
-        nums |= _parse_pairs(str(pair)).get("sms", set())
-    return {_number_key(n) for n in nums if _number_key(n)}
+owner_numbers = sms_optout.owner_numbers   # the owner rule lives with the record
 
 
 def may_text(number: str, config: dict[str, Any] | None = None) -> bool:
@@ -161,10 +151,7 @@ def optout_state(number: str, db_path: str | None = None, config: dict[str, Any]
     if db_path is None and config is None:
         return sms_optout.OPTED_OUT
     path = db_path or resolve_db_path(((config or {}).get("memory") or {}).get("db_path"))
-    state = sms_optout.state_readonly(number, path)
-    if state == sms_optout.KEY_MISSING and _number_key(number) in owner_numbers(config):
-        return sms_optout.CLEAR
-    return state
+    return sms_optout.send_state(number, path, config)
 
 
 def number_opted_out(number: str, db_path: str | None = None, config: dict[str, Any] | None = None) -> bool:
