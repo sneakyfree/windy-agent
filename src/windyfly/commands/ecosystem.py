@@ -405,24 +405,10 @@ def _register_ecosystem():
         return f"DOWNLOAD_FILE:{args[0]}"
     _re("download", "Download a file from Windy Cloud", "19_cloud", cmd_download, usage="download <file_id>")
 
-    async def cmd_storage(ctx):
-        api_url = os.environ.get("WINDY_API_URL", "")
-        jwt = os.environ.get("WINDY_JWT", "")
-        if not api_url:
-            return "Windy Cloud not configured."
-        try:
-            import httpx
-            r = httpx.get(f"{api_url}/api/v1/billing/summary",
-                         headers={"Authorization": f"Bearer {jwt}"} if jwt else {}, timeout=10)
-            if r.status_code == 200:
-                data = r.json()
-                used = data.get("storageUsed", 0) / 1024 / 1024
-                limit = data.get("storageLimit", 0) / 1024 / 1024
-                return f"☁️  Storage: {used:.1f} MB / {limit:.0f} MB"
-            return f"Error: {r.status_code}"
-        except Exception as e:
-            return f"Error: {e}"
-    _re("storage", "Show cloud storage usage", "19_cloud", cmd_storage)
+    # No /storage here. It asked the account server's billing summary with a person's sign-in token, which an agent
+    # born through the hatch never holds, so it answered "Error: 401". An owner sees their storage in the Hub's Cloud
+    # panel and in the Cloud console, where the words on what counts toward it are Windy Cloud's own. What the agent
+    # itself knows about storage is in YOUR WINDY (agent/your_windy.py).
 
     async def cmd_sync(ctx):
         return "SYNC_CLOUD"
