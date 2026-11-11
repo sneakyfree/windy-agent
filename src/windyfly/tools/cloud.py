@@ -6,7 +6,7 @@ This module follows the contract Windy Cloud gave on 10-17 (specs/AGENT_CLOUD_FI
 2026-10-17.md):
 
 - ``POST {cloud}/api/v1/storage/upload`` (multipart ``file`` + ``product``, ``file_type``, ``metadata``)
-  returns ``{file_id, key, size, content_type, ...}``. 100 MB per file (413), 507 when the quota is full, and
+  returns ``{file_id, key, size, content_type, ...}``. 100 MB per file (413), 507 when the storage is full, and
   a same-name upload moves the old one to the trash.
 - ``GET {cloud}/api/v1/storage/files?product=&limit=&offset=`` returns ``{files, total, next_token,
   truncated}``; items carry ``file_id``, ``filename``, ``size_bytes``, ``created_at`` and more.
@@ -74,8 +74,10 @@ _PLAIN = {
     429: "This month's Windy Cloud archive-read allowance is used up.",
     502: "Windy Cloud's storage had an error. Try again in a moment.",
     503: "Windy Cloud could not check trust just now, so it refused. Try again in a moment.",
-    507: "Your Windy Cloud storage quota is full.",
+    # Said only when Windy Cloud sends no sentence of its own with the 507 (LEGAL, BOARD 2026-11-11T07:58:43Z).
+    507: "Your Windy Cloud storage is full.",
 }
+_CLOUD_WORDS_MAX = 300
 
 
 def _creds() -> tuple[str, str]:
@@ -93,10 +95,28 @@ def _unavailable() -> dict[str, Any]:
             "error": "Windy Cloud is not set up for this agent (WINDY_CLOUD_URL and a token are needed)."}
 
 
+def _cloud_words(resp: httpx.Response) -> str:
+    """Windy Cloud's own sentence for a refusal: ``error.message`` of its error envelope (windy-contracts
+    cloud/error-envelope.v1), as sent, on one line and at most 300 characters. "" when it sent none."""
+    try:
+        err = resp.json().get("error")
+    except Exception:  # noqa: BLE001 - no body, not JSON, not an object
+        return ""
+    msg = err.get("message") if isinstance(err, dict) else None
+    if not isinstance(msg, str):
+        return ""
+    msg = " ".join("".join(ch if ch.isprintable() else " " for ch in msg).split())
+    return msg[:_CLOUD_WORDS_MAX]
+
+
 def _refused(resp: httpx.Response) -> dict[str, Any]:
     code = resp.status_code
     if 300 <= code < 400:
         return {"status": "failed", "error": "Windy Cloud answered with a redirect; not followed."}
+    if code == 507:
+        # What is full, and what counts toward it, is Windy Cloud's to say: one sentence, in one place. The agent
+        # passes it on as sent, so the day Cloud's sentence changes the agent says the new one with no release.
+        return {"status": "failed", "http_status": code, "error": _cloud_words(resp) or _PLAIN[507]}
     return {"status": "failed", "http_status": code,
             "error": _PLAIN.get(code, f"Windy Cloud answered {code}.")}
 
