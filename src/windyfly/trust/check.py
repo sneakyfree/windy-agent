@@ -372,8 +372,26 @@ async def get_trust(passport: str | None = None, db=None, force_refresh: bool = 
 
     fresh = await _fetch(passport)
     if fresh:
+        _note_change(passport, fresh, db)
         _cache_write(fresh, db=db)
     return fresh
+
+
+def _note_change(passport: str, fresh: TrustSnapshot, db=None) -> None:
+    """A fetched verdict worse than the one before: the owner is told once (trust/notice.py). Never raises and never
+    waits for the mail: the verdict itself is what the caller asked for."""
+    try:
+        from windyfly.trust import notice
+
+        db = db or _db()
+        _ensure_table(db)
+        row = db.conn.execute("SELECT status, band FROM trust_cache WHERE passport = ?", (passport,)).fetchone()
+        before = (row["status"], row["band"]) if row else None
+        changed = notice.observe(passport, fresh.status, fresh.band, db, before=before)
+        if changed or notice.has_pending(passport, db):
+            notice.deliver_in_background(passport)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Trust: could not record a change of standing (%s)", type(exc).__name__)
 
 
 def _strict_mode() -> bool:
