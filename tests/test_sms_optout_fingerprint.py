@@ -159,6 +159,54 @@ def test_a_failed_conversion_changes_nothing(env, monkeypatch):
         db.close()
 
 
+def test_two_stores_starting_together_after_the_upgrade_end_with_one_key(env):
+    """Boss 2026-11-11T03:37:10Z (a): plain rows and no key yet, two processes open at the same moment. Each used
+    to make its own key; the second file won and the first one's fingerprints matched nobody."""
+    import threading
+
+    con = sqlite3.connect(str(env))
+    con.execute(so._SQL)
+    numbers = [f"1555000{i:04d}" for i in range(40)]
+    con.executemany("INSERT INTO sms_optouts VALUES (?, 't')", [(n,) for n in numbers])
+    con.commit()
+    con.close()
+    dbs = [Database(str(env)) for _ in range(4)]          # four connections = four processes, as SQLite sees it
+    gate, stores, errors = threading.Barrier(len(dbs)), {}, []
+
+    def start(i):
+        try:
+            gate.wait(timeout=10)
+            stores[i] = so.OptOutStore(dbs[i])
+        except Exception as e:  # noqa: BLE001
+            errors.append(e)
+
+    threads = [threading.Thread(target=start, args=(i,)) for i in range(len(dbs))]
+    try:
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=30)
+        assert not errors, errors
+        key = so.load_key(env)
+        assert {st._key for st in stores.values()} == {key}                    # ONE key, held by all of them
+        rows = _rows(dbs[0])
+        assert sorted(n for n in rows if so.is_fingerprint(n)) == sorted(so.fingerprint(key, n) for n in numbers)
+        assert [n for n in rows if so.is_check(n)] == [so.key_check(key)]      # one check row, for that key
+        assert all(stores[i].state(n) == so.OPTED_OUT for i in stores for n in (numbers[0], numbers[-1]))
+    finally:
+        for d in dbs:
+            d.close()
+
+
+def test_a_fresh_key_is_made_exclusively(env):
+    first = so.make_key(env)
+    assert so.make_key(env) == first and so.load_key(env) == first             # the second caller takes the first's
+    assert _mode(so.key_path(env)) == 0o600
+    so.key_path(env).write_bytes(b"short")                                     # a file that is not a key
+    again = so.make_key(env)
+    assert len(again) == 32 and so.load_key(env) == again
+
+
 def test_an_opt_out_row_never_expires(chan):
     sms, db = chan["sms"], chan["db"]
     sms.handle_inbound(PERSON, "STOP")

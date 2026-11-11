@@ -14,6 +14,8 @@ Rules, each pinned by a test:
 - While failed closed, a STOP is still kept: it goes to a 0600 pending file (normalised number + time), and is
   fingerprinted and removed from that file as soon as the key is back.
 - An opt-out row never expires.
+- A fresh key is made exclusively, and the look-then-make happens under the database's write lock, so two stores
+  that start together (two processes after an upgrade) end with ONE key and every row under it.
 - The table also holds ONE check row made from the key ("k:" + a fingerprint of a fixed word). A key file that does
   not produce that row is the wrong key (a restored older memory, a copied file): it counts as missing, so a wrong
   key can never make the record silently match nobody.
@@ -32,6 +34,7 @@ import logging
 import os
 import secrets
 import sqlite3
+import time
 from pathlib import Path
 from typing import Any
 
@@ -150,6 +153,29 @@ def write_key(db_path: str | os.PathLike, key: bytes) -> None:
     os.replace(tmp, path)
 
 
+def make_key(db_path: str | os.PathLike) -> bytes:
+    """A fresh key, made EXCLUSIVELY: if a key file is already there (another store made it a moment ago), that
+    key is returned and nothing is written. A file that still holds no key after a short wait is not a key and is
+    replaced; callers hold the database's write lock, so no other store is writing one then."""
+    path = key_path(db_path)
+    key = secrets.token_bytes(KEY_BYTES)
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    except FileExistsError:
+        for _ in range(20):
+            existing = load_key(db_path)
+            if existing is not None:
+                return existing
+            time.sleep(0.05)
+        write_key(db_path, key)
+        return key
+    with os.fdopen(fd, "wb") as f:
+        f.write(key)
+        f.flush()
+        os.fsync(f.fileno())
+    return key
+
+
 def _now() -> str:
     return datetime.datetime.now(datetime.timezone.utc).isoformat()
 
@@ -210,54 +236,69 @@ class OptOutStore:
 
     def _open(self) -> None:
         """Find the key, or make one if that is safe; then convert plain rows and take in pending STOPs."""
-        numbers = [n for n, _ in self._rows()]
-        if in_memory(self.db_path):                      # no file, no folder: the key lives and dies with the connection
-            key = getattr(self.db, "_sms_optout_key", None) or secrets.token_bytes(KEY_BYTES)
-            self.db._sms_optout_key = key
-            self._key = key
-            self._convert_plain_rows()
-            return
-        key = load_key(self.db_path)
-        has_fingerprints = any(is_fingerprint(n) for n in numbers)
-        if key is not None and not key_fits(key, numbers):
-            key = None if has_fingerprints else key      # the wrong key for these fingerprints: as good as missing
-        if key is None:
-            if has_fingerprints:
-                self._key = None            # fingerprints nobody can match: fail closed
-                if "lost" not in _warned:
-                    _warned.add("lost")
-                    logger.error("SMS do-not-text key is missing while the record has entries: texting is limited "
-                                 "to the owner until the key is restored (a backup restore brings it back)")
+        rows = self._rows()
+        numbers = [n for n, _ in rows]
+        if not in_memory(self.db_path):
+            key = load_key(self.db_path)
+            settled = key is not None and key_check(key) in numbers
+            if settled and not any(not is_fingerprint(n) and not is_check(n) for n in numbers):
+                self._key = key                          # the usual case: nothing to decide, nothing to write
+                _warned.discard("lost")
+                self._take_in_pending()
                 return
-            key = secrets.token_bytes(KEY_BYTES)
-            write_key(self.db_path, key)
-        self._key = key
-        _warned.discard("lost")
-        if key_check(key) not in numbers:               # first use of this key on this table (no fingerprints yet)
-            self.db.execute("DELETE FROM sms_optouts WHERE number LIKE 'k:%'")
-            self.db.execute("INSERT INTO sms_optouts (number, opted_out_at) VALUES (?, ?)", (key_check(key), _now()))
-            self.db.commit()
-        self._convert_plain_rows()
-        self._take_in_pending()
-
-    def _convert_plain_rows(self) -> None:
-        plain = [(n, at) for n, at in self._rows() if not is_fingerprint(n) and not is_check(n)]
-        if not plain or self._key is None:
-            return
+        # Something has to be decided or written (first start, an upgrade with plain rows, a key that is gone).
+        # ONE store at a time does that, in this process and across processes: the look and the write happen under
+        # the database's write lock, and a fresh key is made exclusively. Otherwise two stores starting together
+        # could each make a key, and the fingerprints made with the losing key would match nobody.
         with self.db._lock:
             conn = self.db.conn
             conn.commit()
+            conn.execute("BEGIN IMMEDIATE")
             try:
-                conn.execute("BEGIN IMMEDIATE")
-                for n, at in plain:
-                    conn.execute("INSERT OR IGNORE INTO sms_optouts (number, opted_out_at) VALUES (?, ?)",
-                                 (fingerprint(self._key, n), at))
-                    conn.execute("DELETE FROM sms_optouts WHERE number = ?", (n,))
+                self._open_locked(conn)
                 conn.commit()
-            except sqlite3.Error:
+            except BaseException:
                 conn.rollback()
                 raise
-        logger.info("SMS do-not-text record: %d plain number(s) replaced by fingerprints", len(plain))
+        if self._key is not None:
+            self._take_in_pending()
+
+    def _open_locked(self, conn: Any) -> None:
+        rows = [(r[0], r[1]) for r in conn.execute("SELECT number, opted_out_at FROM sms_optouts").fetchall()]
+        numbers = [n for n, _ in rows]
+        has_fingerprints = any(is_fingerprint(n) for n in numbers)
+        key: bytes
+        if in_memory(self.db_path):                      # no file, no folder: the key lives and dies with the connection
+            held = getattr(self.db, "_sms_optout_key", None)
+            key = held if isinstance(held, bytes) else secrets.token_bytes(KEY_BYTES)
+            self.db._sms_optout_key = key
+        else:
+            found = load_key(self.db_path)
+            if found is not None and has_fingerprints and not key_fits(found, numbers):
+                found = None                             # the wrong key for these fingerprints: as good as missing
+            if found is None:
+                if has_fingerprints:
+                    self._key = None                     # fingerprints nobody can match: fail closed
+                    if "lost" not in _warned:
+                        _warned.add("lost")
+                        logger.error("SMS do-not-text key is missing while the record has entries: texting is "
+                                     "limited to the owner until the key is restored (a backup restore brings "
+                                     "it back)")
+                    return
+                found = make_key(self.db_path)
+            key = found
+        self._key = key
+        _warned.discard("lost")
+        if key_check(key) not in numbers:                # first use of this key on this table (no fingerprints yet)
+            conn.execute("DELETE FROM sms_optouts WHERE number LIKE 'k:%'")
+            conn.execute("INSERT INTO sms_optouts (number, opted_out_at) VALUES (?, ?)", (key_check(key), _now()))
+        plain = [(n, at) for n, at in rows if not is_fingerprint(n) and not is_check(n)]
+        for n, at in plain:                              # the same transaction: all of them or none
+            conn.execute("INSERT OR IGNORE INTO sms_optouts (number, opted_out_at) VALUES (?, ?)",
+                         (fingerprint(key, n), at))
+            conn.execute("DELETE FROM sms_optouts WHERE number = ?", (n,))
+        if plain:
+            logger.info("SMS do-not-text record: %d plain number(s) replaced by fingerprints", len(plain))
 
     def _take_in_pending(self) -> None:
         rows = _read_pending(self.db_path)
