@@ -409,16 +409,44 @@ def test_after_a_cutoff_a_refused_key_never_reaches_the_owner_s_sign_in_either(t
     assert calls == [("key", None), ("bearer", f"Bearer {os.environ[er.ENV_KEY]}")]   # own token once, never the sign-in
 
 
-@pytest.mark.parametrize("key_answer", [(429, {"detail": "slow down"}), (503, {"detail": "busy"})])
-def test_a_busy_eternitas_is_not_a_refusal_and_the_old_paths_stay(tmp_path, monkeypatch, key_answer):
+@pytest.mark.parametrize("key_answer", [(429, {"detail": "slow down"}), (503, {"detail": "busy"}),
+                                        (500, {"detail": "oops"})])
+def test_a_busy_eternitas_never_sends_a_key_holder_to_the_owner_s_sign_in(tmp_path, monkeypatch, key_answer):
+    """Eternitas RULING 2026-11-11T13:08:48Z: a key holder never renews with the owner's cached sign-in, whatever the
+    key call returned; a transient failure is failed, and the next tick asks again by key."""
     _registered_key()
     _signed_in(monkeypatch)
     env_file(tmp_path, make_ept(iat=T0 - 400 * DAY, exp=T0 - DAY), monkeypatch)
     calls: list = []
     new = make_ept(iat=T0, exp=T0 + 365 * DAY)
     res = er.refresh_ept(transport=key_then_bearer(calls, key_answer, renew_reply(new, expires_in=None)), now=T0)
-    assert res["status"] == "refreshed" and res["via"] == "owner_hub_login"
-    assert calls[-1] == ("bearer", "Bearer owner-cached-signin")
+    assert res["status"] == "failed" and res["via"] == "agent_key" and res["http"] == key_answer[0]
+    assert [c[0] for c in calls] == ["key"]                     # the sign-in is never sent
+
+
+def test_a_key_call_that_cannot_be_made_never_reaches_the_owner_s_sign_in(tmp_path, monkeypatch):
+    """A timeout or a local signing error alike: failed, no bearer at all."""
+    _registered_key()
+    _signed_in(monkeypatch)
+    env_file(tmp_path, make_ept(iat=T0 - 400 * DAY, exp=T0 - DAY), monkeypatch)
+    monkeypatch.setattr(ak, "agent_proof", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("signing failed")))
+    calls: list = []
+    res = er.refresh_ept(transport=key_then_bearer(calls, (200, {}), (200, {})), now=T0)
+    assert res == {"status": "failed", "code": "key_call_failed", "via": "agent_key"}
+    assert calls == []
+
+
+def test_a_key_holder_whose_own_token_is_still_valid_may_use_it(tmp_path, monkeypatch):
+    """Only the OWNER's sign-in is closed to a key holder; the agent's own unexpired token still renews."""
+    _registered_key()
+    _signed_in(monkeypatch)
+    env_file(tmp_path, make_ept(iat=T0 - 300 * DAY, exp=T0 + 60 * DAY), monkeypatch)
+    calls: list = []
+    new = make_ept(iat=T0, exp=T0 + 365 * DAY)
+    res = er.refresh_ept(transport=key_then_bearer(calls, (503, {"detail": "busy"}), renew_reply(new, expires_in=None)),
+                         now=T0, force=True)
+    assert res["status"] == "refreshed" and res["via"] == "own_ept"
+    assert "Bearer owner-cached-signin" not in [c[1] for c in calls]
 
 
 def test_an_agent_with_no_key_keeps_the_owner_s_sign_in(tmp_path, monkeypatch):
