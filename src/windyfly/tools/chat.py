@@ -127,17 +127,18 @@ def send_chat_message(body: str, to_room: str | None = None, mentions: list[str]
                 "error": str(denied),
             }
         except Exception as exc:
-            # Fail-open with loud log if the trust check itself errors
-            # (Eternitas outage, network blip, SQLite cache miss with
-            # offline node, etc.). The moat's strict enforcement is at
-            # the chat server's directory service, not here — this is a
-            # client-side fast-path. Per ADR-019 chat depends on Eternitas
-            # being highly available; transient outage shouldn't take down
-            # every agent's chat send simultaneously.
-            logger.warning(
-                "Chat trust gate FAIL-OPEN (exception during check): %s",
-                exc,
-            )
+            # The trust check itself broke (a locked cache file, a bug). Nobody could tell, so nothing is sent:
+            # the same answer as no fresh verdict (Eternitas's note (a), BOARD 2026-11-11T05:46:22Z). This used
+            # to send anyway.
+            from windyfly.trust.check import NO_FRESH_VERDICT
+
+            logger.warning("Chat trust gate could not decide, not sending: %s", exc)
+            return {
+                "status": "denied",
+                "reason": NO_FRESH_VERDICT,
+                "action": _TRUST_ACTION,
+                "error": NO_FRESH_VERDICT,
+            }
 
     txn_id = uuid.uuid4().hex
     url = (

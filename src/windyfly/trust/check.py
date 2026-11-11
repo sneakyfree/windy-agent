@@ -23,6 +23,13 @@ Critical band has empty allowed_actions by contract. status ∈
 
 The snapshot is cached in the agent's SQLite (trust_cache table).
 Server-suggested cache_ttl_seconds is honoured (falls back to 5 min).
+
+A home PULLS this; it has no inbound port for a push. Eternitas's rule for every verifier (BOARD
+2026-11-11T05:15:50Z; eternitas.ai/developers, "Revocation, on every request") therefore applies to the home too:
+
+1. cache at most 5 minutes, and if the verdict cannot be refreshed for 10 minutes the passport counts as NOT good:
+   every gated action is refused until a fetch succeeds (never a stale yes, and never "unknown = yes");
+2. a high-value act asks live, with no cache.
 """
 
 from __future__ import annotations
@@ -39,6 +46,15 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_CACHE_TTL_SECONDS = 300
 CACHE_TTL = timedelta(seconds=DEFAULT_CACHE_TTL_SECONDS)
+# How long the last verdict that was really fetched may still be used when a refresh fails. After that the passport
+# counts as not good until a fetch succeeds.
+MAX_VERDICT_AGE_SECONDS = 600
+# TrustDecision.reason for "no verdict I may still use". The owner reads it. Windy Legal's words, word for word
+# (BOARD 2026-11-11T05:54:01Z): the action is REFUSED, never queued, so neither sentence says "holding".
+NO_FRESH_VERDICT = ("I didn't do this, because I couldn't check with Eternitas that I'm still allowed to. "
+                    "Ask me again in a few minutes.")
+NO_LIVE_VERDICT = ("This needs a live check with Eternitas that I'm still allowed to do it, and Eternitas didn't "
+                   "answer. I didn't do it; ask me again in a few minutes.")
 _TIMEOUT = 5.0
 
 _TABLE_DDL = """
@@ -118,6 +134,10 @@ class TrustDecision:
     allowed: bool
     snapshot: TrustSnapshot
     reason: str = ""
+    #: True when the answer is "nobody could tell just now" (no verdict fresh enough), not a verdict against the
+    #: agent. The command registry lets the OWNER AT THE KEYBOARD through in that case only: an outage at Eternitas
+    #: must not lock a person out of their own agent.
+    unverified: bool = False
 
 
 def _eternitas_url() -> str:
@@ -154,7 +174,19 @@ def _parse_dt(raw: str) -> datetime:
         return datetime.now(timezone.utc)
 
 
-def _cache_read(passport: str, db=None) -> TrustSnapshot | None:
+def _capped_ttl(suggested: object) -> int:
+    """The registry may suggest a SHORTER cache life than 5 minutes, never a longer one: the home keeps the published
+    rule (cache 5 minutes at most) whatever a later answer suggests (Eternitas, BOARD 2026-11-11T05:46:22Z (b))."""
+    try:
+        value = int(suggested or DEFAULT_CACHE_TTL_SECONDS)  # type: ignore[call-overload]
+    except (TypeError, ValueError):
+        value = DEFAULT_CACHE_TTL_SECONDS
+    return max(1, min(value, DEFAULT_CACHE_TTL_SECONDS))
+
+
+def _cache_read(passport: str, db=None, max_age_seconds: int | None = None) -> TrustSnapshot | None:
+    """The cached verdict while it is fresh (its own TTL), or, with ``max_age_seconds``, while it is at most that
+    old. The age counts from ``cached_at``: the time of the last SUCCESSFUL fetch."""
     db = db or _db()
     _ensure_table(db)
     row = db.conn.execute(
@@ -168,7 +200,8 @@ def _cache_read(passport: str, db=None) -> TrustSnapshot | None:
         return None
 
     cached_at = _parse_dt(row["cached_at"])
-    ttl = timedelta(seconds=int(row["cache_ttl_seconds"] or DEFAULT_CACHE_TTL_SECONDS))
+    ttl = timedelta(seconds=max_age_seconds if max_age_seconds is not None
+                    else _capped_ttl(row["cache_ttl_seconds"]))
     if datetime.now(timezone.utc) - cached_at > ttl:
         return None
 
@@ -271,7 +304,7 @@ def _snapshot_from_response(passport: str, data: dict) -> TrustSnapshot:
         allowed_actions=list(data.get("allowed_actions", []) or []),
         denied_actions=list(data.get("denied_actions", []) or []),
         evaluated_at=_parse_dt(data.get("evaluated_at", "")),
-        cache_ttl_seconds=int(data.get("cache_ttl_seconds", DEFAULT_CACHE_TTL_SECONDS)),
+        cache_ttl_seconds=_capped_ttl(data.get("cache_ttl_seconds", DEFAULT_CACHE_TTL_SECONDS)),
     )
 
 
@@ -348,29 +381,70 @@ def _strict_mode() -> bool:
     return os.environ.get("WINDYFLY_TRUST_STRICT", "").lower() in ("1", "true", "yes")
 
 
-async def check_trust(action: str, passport: str | None = None, db=None) -> TrustDecision:
+def decide_unrefreshed(action: str, pp: str, db=None) -> TrustDecision:
+    """The decision when NO fresh verdict could be had (the fetch failed, or could not be made). In this order:
+
+    1. A suspended / revoked / not-born status once seen is never forgotten: refuse. Losing contact with Eternitas
+       is not evidence of reinstatement; that needs a successful fetch, the one thing an offline agent cannot fake.
+    2. WINDYFLY_TRUST_STRICT=1: refuse at once.
+    3. ETERNITAS_USE_MOCK (tests and local development only): no registry is asked at all, so there is nothing to
+       be stale; allow, as before.
+    4. The last verdict that was really fetched, if it is at most MAX_VERDICT_AGE_SECONDS old, still decides: with
+       ITS allowed actions, not "everything".
+    5. Otherwise the passport counts as not good: refuse, ``unverified=True``.
+
+    Until 2026-11 step 5 was "allow" for as long as the outage lasted, whatever the last verdict had allowed.
+    """
+    last_known = _cache_read_last_known_status(pp, db=db)
+    if last_known in ("suspended", "revoked", "being_born", "not_born"):
+        logger.warning(
+            "Trust service unreachable; denying '%s' because the last "
+            "verdict we received for %s was '%s'. Going offline does not "
+            "restore a revoked passport.",
+            action, pp, last_known,
+        )
+        return TrustDecision(
+            allowed=False,
+            snapshot=TrustSnapshot(passport=pp, status=last_known, band="unknown"),
+            reason=(
+                f"trust service unavailable and last known status was "
+                f"'{last_known}' — revocation is not forgotten on outage"
+            ),
+        )
+
+    unknown = TrustSnapshot(passport=pp, status="unknown", band="unknown")
+    if _strict_mode():
+        # Strict means refuse at once and everywhere, the keyboard included: not marked "unverified".
+        return TrustDecision(allowed=False, snapshot=unknown, reason="trust service unavailable (strict mode)")
+    if _use_mock():
+        return TrustDecision(allowed=True, snapshot=unknown, reason="no registry is asked (ETERNITAS_USE_MOCK)")
+
+    last = _cache_read(pp, db=db, max_age_seconds=MAX_VERDICT_AGE_SECONDS)
+    if last is not None:
+        if last.allows(action):
+            return TrustDecision(allowed=True, snapshot=last,
+                                 reason="Eternitas did not answer; using its last verdict, under 10 minutes old")
+        return TrustDecision(
+            allowed=False, snapshot=last,
+            reason=f"action '{action}' (mapped to '{map_gate_action(action)}') not allowed for status={last.status} "
+                   f"band={last.band} clearance={last.clearance_level}")
+    logger.warning("Trust: no verdict for %s in the last %d s; refusing '%s' until a fetch succeeds",
+                   pp, MAX_VERDICT_AGE_SECONDS, action)
+    return TrustDecision(allowed=False, snapshot=unknown, reason=NO_FRESH_VERDICT, unverified=True)
+
+
+async def check_trust(action: str, passport: str | None = None, db=None, live: bool = False) -> TrustDecision:
     """Decide whether `action` is currently allowed.
 
     Humans / standalone mode (no passport) → skip: the gate is a
     property of passport-bearing agents, so asking about the human
-    operator would be a category error. Fail-open.
+    operator would be a category error.
 
-    Default policy (fail-open): if we have no snapshot — URL unset,
-    service down, rate-limited, 404 — we allow the action. Trust is a
-    safety/audit layer; a downed trust service shouldn't silently
-    freeze the agent.
+    A passport-bearing agent needs a verdict: the cached one while it is fresh (5 minutes), else a fetch. When the
+    fetch fails, ``decide_unrefreshed`` rules (the last fetched verdict for at most 10 minutes, then refuse).
 
-    **Exception: a revocation we have already seen is never forgotten.**
-    Fail-open applies to genuine ignorance, not to amnesia. Without this,
-    revocation could be defeated by simply going offline: the snapshot
-    ages out after `cache_ttl_seconds` (5 min), the refetch fails, and a
-    revoked agent gets every action back. Losing contact with Eternitas
-    is not evidence of reinstatement, so a last-known suspended/revoked
-    status denies regardless of strict mode. Reinstatement requires a
-    successful fetch saying so, which is the one thing an offline agent
-    cannot fake.
-
-    Operators can flip to fail-closed with WINDYFLY_TRUST_STRICT=1.
+    ``live=True`` is for a high-value act (deleting data, a change of owner, money, consent): the cache is not
+    used at all. No live answer = refuse.
     """
     pp = passport or os.environ.get("ETERNITAS_PASSPORT", "")
     if not pp:
@@ -381,37 +455,14 @@ async def check_trust(action: str, passport: str | None = None, db=None) -> Trus
             reason="no passport (human or standalone) — trust gate skipped",
         )
 
-    snap: TrustSnapshot | None = await get_trust(passport=pp, db=db)
+    snap: TrustSnapshot | None = await get_trust(passport=pp, db=db, force_refresh=live)
     if snap is None:
-        last_known = _cache_read_last_known_status(pp, db=db)
-        if last_known in ("suspended", "revoked", "being_born", "not_born"):
-            logger.warning(
-                "Trust service unreachable; denying '%s' because the last "
-                "verdict we received for %s was '%s'. Going offline does not "
-                "restore a revoked passport.",
-                action, pp, last_known,
-            )
-            return TrustDecision(
-                allowed=False,
-                snapshot=TrustSnapshot(passport=pp, status=last_known, band="unknown"),
-                reason=(
-                    f"trust service unavailable and last known status was "
-                    f"'{last_known}' — revocation is not forgotten on outage"
-                ),
-            )
-
-        snap = TrustSnapshot(passport=pp, status="unknown", band="unknown")
-        if _strict_mode():
-            return TrustDecision(
-                allowed=False,
-                snapshot=snap,
-                reason="trust service unavailable (strict mode)",
-            )
-        return TrustDecision(
-            allowed=True,
-            snapshot=snap,
-            reason="no trust snapshot available (fail-open)",
-        )
+        decision = decide_unrefreshed(action, pp, db=db)
+        if live and (decision.allowed or decision.unverified) and not _use_mock():
+            # No live answer. A cached yes does not stand in for it, and with no verdict at all the live sentence is
+            # still the true one. A verdict AGAINST the agent (decided above, not unverified) keeps its own reason.
+            return TrustDecision(allowed=False, snapshot=decision.snapshot, reason=NO_LIVE_VERDICT, unverified=True)
+        return decision
 
     if snap.allows(action):
         return TrustDecision(allowed=True, snapshot=snap)
