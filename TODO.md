@@ -62,7 +62,7 @@ Line standard (Boss BOARD 2026-11-07T00:02:22Z): - [ ] what · OWNER · ADDED ·
 
 
 **Wed 2026-11-11**
-- [ ] Search mode B: the Fly flip (WINDY_SEARCH_EPT_AGENT) = its own GO + lab; drop the 502 render-failed stored-EPT send only after Search's own "live" message · OWNER Windy Agent · ADDED 2026-11-04 · DUE 2026-11-11 13:00Z (Search live) · STATUS waiting on Search · SOURCE windy-search #129; GO-DRAFTS/SEARCH-modeB-answers-20261104.md
+- [ ] Search mode B: the Fly flip (WINDY_SEARCH_EPT_AGENT) = its own GO + lab; drop the 502 render-failed stored-EPT send only after Search's own "live" message · OWNER Windy Agent · ADDED 2026-11-04 · DUE 2026-11-13 18:00Z (Search's date for turning its mode B on) · STATUS waiting on Search: verifier.v1 mode-B code LIVE and DARK since 2026-11-11T13:00:58Z (Search BOARD 2026-11-11T13:01:36Z); the Fly flip comes after Search's own ON slot, so its date is asked · SOURCE windy-search #129; GO-DRAFTS/SEARCH-modeB-answers-20261104.md
 - [ ] Desktop-door installer end-to-end lab · OWNER Windy Agent · ADDED 2026-11-04 · DUE 2026-11-11 (my check of the blocker; the original date) · STATUS the pace is withdrawn (Boss BOARD 2026-11-11T03:10:18Z); blocked by the Hub's desktop-door code: at the due time I read the blocker again and either start or say on the BOARD that it still waits · SOURCE windy-agent #726 (merged 2026-11-05T10:13:42Z, GitHub; no BOARD line)
 
 **Fri 2026-11-13**
