@@ -193,12 +193,41 @@ def test_a_stop_kept_while_the_key_was_missing_is_honoured(box):
 
 # ── when the record cannot be read, or there is none ──
 
-def test_a_record_that_cannot_be_read_means_no_text(box, monkeypatch):
+UNREADABLE = {"status": "failed", "sent": False, "error_code": "optout_unreadable", "error": so.UNREADABLE_NOTICE}
+
+
+def test_the_sentence_for_a_record_that_cannot_be_read_is_legals_word_for_word():
+    # Windy Legal, BOARD 2026-11-11T04:55:36Z.
+    assert so.UNREADABLE_NOTICE == ("I didn't text that number. I couldn't read my do-not-text list just now, so I "
+                                    "can't tell whether they asked me to stop texting them.")
+
+
+def test_a_record_that_cannot_be_read_means_no_text_and_nobody_is_said_to_have_replied_stop(box, monkeypatch):
     def boom(*a, **k):
         raise OSError("disk")
 
     monkeypatch.setattr(so, "state_readonly", boom)
-    assert sms.send_sms(FRIEND, "hello")["status"] == "opted_out" and box["calls"] == []
+    out = sms.send_sms(FRIEND, "hello")
+    assert out == UNREADABLE and "STOP" not in out["error"] and box["calls"] == []
+
+
+def test_a_damaged_memory_file_is_the_same_case(box, tmp_path):
+    bad = tmp_path / "bad.db"
+    bad.write_bytes(b"not a database" * 100)
+    assert so.state_readonly(FRIEND, str(bad)) == so.UNREADABLE
+    assert so.send_state(OWNER, str(bad), {}) == so.UNREADABLE        # the owner too: nobody can tell just now
+
+    class _Db:
+        db_path = str(bad)
+
+    sms._db = _Db()                                           # the fixture puts None back afterwards
+    assert sms.send_sms(FRIEND, "hello") == UNREADABLE and sms.send_sms(OWNER, "hello") == UNREADABLE
+    assert box["calls"] == []
+
+
+def test_a_number_the_record_really_holds_still_gets_the_stop_sentence(box):
+    box["store"].record(STOPPED)
+    assert "replied STOP" in sms.send_sms(STOPPED, "hello")["error"]
 
 
 def test_an_agent_with_no_record_sends_as_before(box):

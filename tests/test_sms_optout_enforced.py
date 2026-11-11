@@ -139,9 +139,19 @@ class TestSlashCommandPath:
         monkeypatch.setenv("TWILIO_ACCOUNT_SID", "ACtest123")
         monkeypatch.setenv("TWILIO_AUTH_TOKEN", "t")
         monkeypatch.setenv("TWILIO_PHONE_NUMBER", "+15551234567")
-        with patch("windyfly.channels.sms.number_opted_out", return_value=True):
+        with patch("windyfly.channels.sms.number_opted_out", return_value=True), \
+                patch("windyfly.channels.sms.optout_state", return_value="opted_out"):
             out = asyncio.run(self._sms_cmd()({"_args": [PERSON, "hi"]}))
         assert out == "That number has opted out of texts (they replied STOP), so I didn't send it."
+
+    def test_slash_sms_with_a_record_that_cannot_be_read_does_not_say_stop(self, monkeypatch):
+        monkeypatch.setenv("WINDY_SMS_ALLOW_NON_OWNER", "1")
+        from windyfly import sms_optout
+
+        with patch("windyfly.channels.sms.optout_state", return_value=sms_optout.UNREADABLE), \
+                patch("windyfly.channels.sms.number_opted_out", return_value=True):
+            out = asyncio.run(self._sms_cmd()({"_args": [PERSON, "hi"]}))
+        assert out == sms_optout.UNREADABLE_NOTICE and "STOP" not in out
 
     def test_slash_sms_is_parked_like_every_other_sms_path(self, monkeypatch):
         monkeypatch.delenv("WINDY_ENABLE_SMS", raising=False)

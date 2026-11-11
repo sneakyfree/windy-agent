@@ -54,6 +54,7 @@ KEY_BYTES = 32
 CLEAR = "clear"
 OPTED_OUT = "opted_out"
 KEY_MISSING = "key_missing"
+UNREADABLE = "unreadable"       # the record could not be read just now (an error, not a STOP): nobody is texted
 
 # Said to the owner when the fingerprint key is missing while the record has entries (LEGAL DECISION 28 (9)(2)).
 # Windy Legal's words, word for word (BOARD 2026-11-11T03:24:49Z (a)): a backup made before 0.9.x carried no key.
@@ -61,6 +62,11 @@ KEY_MISSING = "key_missing"
 KEY_MISSING_NOTICE = ("Right now I can only text you. The key that protects my do-not-text list is missing from "
                       "this computer, so I can't tell who asked me to stop texting them. Restoring my latest backup "
                       "brings the key back, if that backup has it. Until then I won't text anyone else.")
+
+# Said when the record cannot be READ (an error, not a STOP). Windy Legal's words, word for word (BOARD
+# 2026-11-11T04:55:36Z): the owner must not be told the person replied STOP when nobody knows that.
+UNREADABLE_NOTICE = ("I didn't text that number. I couldn't read my do-not-text list just now, so I can't tell "
+                     "whether they asked me to stop texting them.")
 
 _SQL = """
 CREATE TABLE IF NOT EXISTS sms_optouts (
@@ -445,7 +451,8 @@ class OptOutStore:
 
 def state_readonly(number: str, db_path: str) -> str:
     """The same answer for a send path with no channel object (the /sms command), from a read-only connection.
-    No database or no table yet = nothing recorded = CLEAR. A read error = OPTED_OUT: when in doubt, do not text."""
+    No database or no table yet = nothing recorded = CLEAR. A read error = UNREADABLE: when in doubt nobody is
+    texted, and nobody is said to have replied STOP."""
     nk = number_key(number)
     if any(r["number"] == nk for r in _read_pending(db_path)):
         return OPTED_OUT
@@ -460,7 +467,7 @@ def state_readonly(number: str, db_path: str) -> str:
         finally:
             con.close()
     except sqlite3.Error:
-        return OPTED_OUT
+        return UNREADABLE
     if nk in rows:                           # a plain row not converted yet still counts
         return OPTED_OUT
     if not any(is_fingerprint(n) for n in rows):
