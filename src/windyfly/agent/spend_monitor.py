@@ -434,15 +434,17 @@ AUTO_PAUSE_CHECK_S = 300.0
 
 
 def auto_pause_notice(result: dict[str, Any]) -> str:
-    """What the owner is told when the agent paused itself for a runaway burn rate: plain text, for any channel.
-    The same words the Telegram channel has said since the guard was built, without its markup."""
+    """What the owner is told when the agent paused itself for spending too fast. Plain text, the ONE copy, said
+    by every channel. Windy Legal's words, word for word (LEGAL DECISION 55, BOARD 2026-11-11T06:43:52Z): no "LLM
+    calls", "burn rate" or "threshold"; "the last few minutes" stays true if the 15-minute window changes."""
     hourly = float(result.get("current_hourly") or 0)
     threshold = float(result.get("threshold") or 0)
     return (
-        "⚠️ Auto-paused: burn rate too high\n\n"
-        f"My burn rate hit ${hourly:.2f}/hour (threshold ${threshold:.2f}/hr).\n\n"
-        "I've stopped making LLM calls to protect your wallet. Say /resume when you want me thinking again, "
-        "or /spend to see the breakdown."
+        "⚠️ I paused myself because I was spending too fast.\n\n"
+        f"In the last few minutes I was spending at ${hourly:.2f} an hour, and I pause myself at "
+        f"${threshold:.2f} an hour.\n\n"
+        "Until you say /resume, I won't use the AI model, which is where this spending came from. "
+        "Say /spend to see where the money went."
     )
 
 

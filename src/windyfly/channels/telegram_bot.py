@@ -678,19 +678,12 @@ class TelegramChannel(ChannelAdapter):
             return
         hourly = result.get("current_hourly", 0)
         threshold = result.get("threshold", 0)
-        msg = (
-            f"⚠️ *Auto-paused — burn rate too high*\n\n"
-            f"My burn rate hit *${hourly:.2f}/hour* "
-            f"(threshold ${threshold:.2f}/hr).\n\n"
-            f"I've stopped making LLM calls to protect your wallet. "
-            f"Say */resume* when you want me thinking again, or "
-            f"*/spend* to see the breakdown."
-        )
+        from windyfly.agent.spend_monitor import auto_pause_notice
+
+        msg = auto_pause_notice(result)        # the one copy of the words (Legal), plain text: no parse mode
         for owner_id in self._allowed_user_ids:
             try:
-                await self._app.bot.send_message(
-                    chat_id=owner_id, text=msg, parse_mode="Markdown",
-                )
+                await self._app.bot.send_message(chat_id=owner_id, text=msg)
             except Exception as e:
                 logger.warning("auto-pause DM to %s failed: %s", owner_id, e)
         logger.warning(
