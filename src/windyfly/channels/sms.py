@@ -48,9 +48,10 @@ _OPT_IN_KEYWORDS = frozenset({"START", "UNSTOP"})
 # keyed fingerprints, never numbers (LEGAL DECISION 28 (8)): see windyfly.sms_optout.
 
 # Said to the owner ONCE when the fingerprint key is missing while the record has entries (LEGAL DECISION 28 (9)(2)).
-KEY_MISSING_NOTICE = ("I can only text you right now. The key that protects my do-not-text list is missing from "
-                      "this computer, so I can't check who asked me to stop. Restoring my latest backup brings the "
-                      "key back.")
+# Windy Legal's words, word for word (BOARD 2026-11-11T03:24:49Z (a)): a backup made before 0.9.x carried no key.
+KEY_MISSING_NOTICE = ("Right now I can only text you. The key that protects my do-not-text list is missing from "
+                      "this computer, so I can't tell who asked me to stop texting them. Restoring my latest backup "
+                      "brings the key back, if that backup has it. Until then I won't text anyone else.")
 _TOLD_FILE = "sms-optout-key-missing.told"
 _masked_once: set[str] = set()
 

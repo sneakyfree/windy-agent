@@ -265,6 +265,14 @@ def test_with_the_key_gone_only_the_owner_is_texted(chan):
         assert sms.send_sms(OWNER, "x") == {"status": "sent", "message_sid": "SM1"}
 
 
+def test_the_owner_notice_is_legals_sentence_word_for_word():
+    # Windy Legal, BOARD 2026-11-11T03:24:49Z (a).
+    assert sms_mod.KEY_MISSING_NOTICE == (
+        "Right now I can only text you. The key that protects my do-not-text list is missing from this computer, "
+        "so I can't tell who asked me to stop texting them. Restoring my latest backup brings the key back, if "
+        "that backup has it. Until then I won't text anyone else.")
+
+
 def test_a_new_channel_object_does_not_tell_the_owner_again(chan):
     chan["sms"].handle_inbound(PERSON, "STOP")
     _lose_the_key(chan)
