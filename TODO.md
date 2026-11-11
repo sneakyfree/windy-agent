@@ -62,7 +62,6 @@ Line standard (Boss BOARD 2026-11-07T00:02:22Z): - [ ] what · OWNER · ADDED ·
 
 
 **Wed 2026-11-11**
-- [ ] The 102 bare "Windy Fly" strings in src listed by meaning (agent / product / CLI); change only the agent ones to "your Windy Fly agent" · OWNER Windy Agent · ADDED 2026-11-06 · DUE 2026-11-11 18:00Z · STATUS waiting on CI (#749, Hub + Boss stamped; 97 found today, sorted in docs/brand/windy-fly-strings.md) · SOURCE Boss TILE RULINGS BOARD 2026-11-06T19:19:22Z
 - [ ] Search mode B: the Fly flip (WINDY_SEARCH_EPT_AGENT) = its own GO + lab; drop the 502 render-failed stored-EPT send only after Search's own "live" message · OWNER Windy Agent · ADDED 2026-11-04 · DUE 2026-11-11 13:00Z (Search live) · STATUS waiting on Search · SOURCE windy-search #129; GO-DRAFTS/SEARCH-modeB-answers-20261104.md
 - [ ] Desktop-door installer end-to-end lab · OWNER Windy Agent · ADDED 2026-11-04 · DUE 2026-11-11 (my check of the blocker; the original date) · STATUS the pace is withdrawn (Boss BOARD 2026-11-11T03:10:18Z); blocked by the Hub's desktop-door code: at the due time I read the blocker again and either start or say on the BOARD that it still waits · SOURCE windy-agent #726 (merged 2026-11-05T10:13:42Z, GitHub; no BOARD line)
 
@@ -121,6 +120,7 @@ Local-only branches: none left open (fix/home-pair-followups = #720, feat/home-i
 
 ## Done
 
+- [x] The bare "Windy Fly" strings in src listed by meaning (agent / product / CLI) and only the agent ones changed to "your Windy Fly agent" · OWNER Windy Agent · ADDED 2026-11-06 · DONE 2026-11-07 · PROOF #749 merged as d5372995 (GitHub 2026-11-07T19:48:50Z); the list is docs/brand/windy-fly-strings.md (found 2026-11-11 by my old-notes check: the open line had kept "waiting on CI")
 - [x] #783: when the do-not-text record cannot be READ, the owner hears Legal's sentence for that case, and the STOP sentence only for a number the record holds · OWNER Windy Agent · ADDED 2026-11-11 · DONE 2026-11-11 · PROOF 76d41ff3 (Hub + Boss on 494fd69e, Legal's match-check, CI green; merged 2026-11-11T07:29:16Z; BOARD 2026-11-11T07:34:37Z)
 - [x] #782, Windy Log codon WL-AG1 as a test: the day a Windy Log tool reaches the agent's source, the rule that its answers keep every later model call on the log surface must arrive in the same PR · OWNER Windy Agent · ADDED 2026-11-11 · DONE 2026-11-11 · PROOF 37e71a08 (Windy Log + Hub + Boss on 7d0b2596, CI green; merged 2026-11-11T07:29:31Z; BOARD 2026-11-11T07:34:37Z)
 - [x] #781: a home that pulls its trust verdict from Eternitas uses the last fetched one for at most 10 minutes, then refuses every trust-gated action until a fetch succeeds; a high-value act asks live; the owner at the keyboard keeps their own agent; Legal's two sentences word for word · OWNER Windy Agent · ADDED 2026-11-11 · DONE 2026-11-11 · PROOF fbbc7dde (Hub + Boss on c107aad5, CI green; merged 2026-11-11T07:19:26Z; BOARD 2026-11-11T07:19:52Z)
