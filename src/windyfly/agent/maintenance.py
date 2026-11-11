@@ -174,6 +174,10 @@ def default_jobs(config: dict[str, Any]) -> list[MaintenanceJob]:
         from windyfly.eternitas.ept_refresh import refresh_ept
         refresh_ept()
 
+    def _renew_short_ept() -> None:
+        from windyfly.eternitas.ept_refresh import renew_short_lived
+        renew_short_lived()
+
     def _agent_keys() -> None:
         from windyfly.eternitas.agent_keys import disabled, ensure_registered
         if not disabled():
@@ -191,6 +195,13 @@ def default_jobs(config: dict[str, Any]) -> list[MaintenanceJob]:
             name="eternitas.ept_refresh.daily",
             run=_refresh_ept,
             due=daily_due(after_hour=0),
+        ),
+        # A key-bound passport token lives 24 hours (Eternitas ept-key-binding.v1): once a calendar day is not once
+        # per 24 hours, so every tick checks, locally, whether it is at half its life; only then does an ask go out.
+        MaintenanceJob(
+            name="eternitas.ept_renew.short_lived",
+            run=_renew_short_ept,
+            due=interval_due(TICK_SECONDS - 60),   # every tick: a tick a second early must not skip to the next
         ),
         # Agent signing key: registers one once Eternitas supports it, and
         # finishes a rotation whose retire step failed.
