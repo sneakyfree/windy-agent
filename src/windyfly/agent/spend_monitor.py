@@ -429,6 +429,25 @@ def maybe_auto_pause(
     }
 
 
+# How often a channel asks maybe_auto_pause (the Telegram heartbeat's interval, kept).
+AUTO_PAUSE_CHECK_S = 300.0
+
+
+def auto_pause_notice(result: dict[str, Any]) -> str:
+    """What the owner is told when the agent paused itself for spending too fast. Plain text, the ONE copy, said
+    by every channel. Windy Legal's words, word for word (LEGAL DECISION 55, BOARD 2026-11-11T06:43:52Z): no "LLM
+    calls", "burn rate" or "threshold"; "the last few minutes" stays true if the 15-minute window changes."""
+    hourly = float(result.get("current_hourly") or 0)
+    threshold = float(result.get("threshold") or 0)
+    return (
+        "⚠️ I paused myself because I was spending too fast.\n\n"
+        f"In the last few minutes I was spending at ${hourly:.2f} an hour, and I pause myself at "
+        f"${threshold:.2f} an hour.\n\n"
+        "Until you say /resume, I won't use the AI model, which is where this spending came from. "
+        "Say /spend to see where the money went."
+    )
+
+
 def check_burn_threshold(
     db: "Database",
     threshold_usd_per_hour: float | None = None,

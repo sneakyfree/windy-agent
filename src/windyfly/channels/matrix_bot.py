@@ -277,6 +277,8 @@ class WindyFlyMatrixBot(ChannelAdapter):
         # The maintenance loop, when this process is the agent's maintenance runner (strand N4.30).
         self._maintenance_task: asyncio.Task[None] | None = None
         self._maintenance_stop_event: asyncio.Event | None = None
+        # The burn-rate guard (spend_monitor.maybe_auto_pause), asked every few minutes while the channel runs.
+        self._auto_pause_task: asyncio.Task[None] | None = None
         self._last_pending_retry = 0.0
         # When each kept reply was first kept; replies dropped for age are counted.
         self._pending_kept_at: dict[tuple[str, str], float] = {}
@@ -1967,6 +1969,40 @@ class WindyFlyMatrixBot(ChannelAdapter):
         except Exception as e:
             logger.warning("maintenance loop exited with error: %s", e)
 
+    async def _auto_pause_loop(self) -> None:
+        """Ask the burn-rate guard every AUTO_PAUSE_CHECK_S until the channel stops. Never ends on an error."""
+        from windyfly.agent import spend_monitor
+
+        while not self._shutting_down:
+            await asyncio.sleep(spend_monitor.AUTO_PAUSE_CHECK_S)
+            if self._shutting_down:
+                return
+            await self._auto_pause_check()
+
+    async def _auto_pause_check(self) -> bool:
+        """One look at the burn rate. True when THIS look paused the agent (the owner is then told in their
+        direct room). The ledger read runs off the event loop; a failure is logged and the loop goes on."""
+        from windyfly.agent import spend_monitor
+
+        try:
+            result = await asyncio.get_running_loop().run_in_executor(
+                None, spend_monitor.maybe_auto_pause, self.db)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("auto-pause check failed: %s", e)
+            return False
+        if result.get("action") != "paused":
+            return False
+        room = self._hatch_dm_room_id
+        if not room:
+            logger.warning("auto-paused for burn rate, and there is no direct room with the owner to say so in")
+            return True
+        try:
+            await self.client.room_send(room, "m.room.message", {
+                "msgtype": "m.text", "body": spend_monitor.auto_pause_notice(result), "windy_original": True})
+        except Exception as e:  # noqa: BLE001
+            logger.warning("auto-paused for burn rate; telling the owner failed: %s", e)
+        return True
+
     def _make_inbox_watch_job(self):
         """Inbox watch (agent/inbox_watch.py) on Matrix: new mail is told to the owner in their direct
         room. The job runs in a worker thread, so delivery hops back onto the event loop."""
@@ -2001,6 +2037,8 @@ class WindyFlyMatrixBot(ChannelAdapter):
             self._maintenance_stop_event.set()
         if self._maintenance_task is not None:
             self._maintenance_task.cancel()
+        if self._auto_pause_task is not None:
+            self._auto_pause_task.cancel()
         # Leave a handoff for the next boot — same deterministic writer
         # as /new, so a deliberate stop never strands the next session
         # without context (Principle #7; the 2026-07-17 01:15 stop left
@@ -2193,6 +2231,9 @@ class WindyFlyMatrixBot(ChannelAdapter):
 
         # Start heartbeat in background
         heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+        # The burn-rate guard. It ran only inside the Telegram channel, so an agent on Windy Chat alone had none.
+        # Every process may ask: the first to see the breach pauses and tells the owner, the others see "paused".
+        self._auto_pause_task = asyncio.create_task(self._auto_pause_loop())
         # Inbound texts (dark: WINDY_TEXT_BYO=1).
         from windyfly.tools import sms as _sms
         if _sms.byo_enabled() and self._hatch_dm_room_id:
