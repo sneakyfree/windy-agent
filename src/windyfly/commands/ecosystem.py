@@ -131,11 +131,14 @@ def _register_ecosystem():
         from windyfly.sms_park import sms_enabled
         if not sms_enabled():
             return "Texting isn't available yet; I can reach them by email or you can message them in Windy Chat."  # sms.unavailable
-        from windyfly.channels.sms import may_text, number_opted_out
+        from windyfly.channels.sms import KEY_MISSING_NOTICE, may_text, number_opted_out, optout_state
         if not may_text(number, _config):
             # Boss's opt-out order (1)(b): owner only unless WINDY_SMS_ALLOW_NON_OWNER=1. Text = sms.unavailable.
             return "Texting isn't available yet; I can reach them by email or you can message them in Windy Chat."
         if number_opted_out(number, config=_config):
+            if optout_state(number, config=_config) == "key_missing":
+                # LEGAL DECISION 28 (9)(2): the record cannot be read, so only the owner is texted.
+                return KEY_MISSING_NOTICE
             # LEGAL DECISION 28: never text a person who sent STOP, on any path. Text = sms.recipient_opted_out.
             return "That number has opted out of texts (they replied STOP), so I didn't send it."
         sid = os.environ.get("TWILIO_ACCOUNT_SID", "")
