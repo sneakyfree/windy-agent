@@ -268,7 +268,9 @@ def _decrypt_checked(blob: bytes, owner_key: bytes, db: Any) -> tuple[bytes, dic
     except Exception as e:
         raise RestoreError("That backup can't be opened with this agent's WINDY_BACKUP_KEY: it was made with "
                            "a different key, or it is damaged. Nothing was changed.") from e
-    facts = check_database_bytes(data)
+    from windyfly.cloud_backup import split_bundle
+
+    facts = check_database_bytes(split_bundle(data)[0])   # ``data`` stays whole: its side files are used at apply
     with db._lock:
         live_page = db.conn.execute("PRAGMA page_size").fetchone()[0]
     if facts["page_size"] != live_page:
@@ -333,9 +335,11 @@ def _serialize(db: Any) -> bytes:
 
 
 def _write_undo(db: Any, owner_key: bytes) -> None:
-    from windyfly.cloud_backup import _encrypt_data
+    from windyfly import sms_optout
+    from windyfly.cloud_backup import _encrypt_data, pack_bundle
 
-    blob = _encrypt_data(_serialize(db), owner_key)
+    # The undo copy carries the do-not-text key of the memory it holds, as a restore may replace that key.
+    blob = _encrypt_data(pack_bundle(_serialize(db), sms_optout.backup_files(db.db_path)), owner_key)
     path = _undo_path(db)
     tmp = path.with_name(path.name + ".tmp")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
@@ -357,8 +361,13 @@ def _copy_pages(src: sqlite3.Connection, dst: sqlite3.Connection) -> None:
 
 
 def _restore_into(db: Any, data: bytes) -> str | None:
-    """Copy ``data`` (a checked database) into the live connection, under the database lock. Returns None
-    when the restored memory passes its checks, else which check failed ("integrity" or "foreign-key")."""
+    """Copy ``data`` (a checked database, alone or in a bundle) into the live connection, under the database lock.
+    Returns None when the restored memory passes its checks, else which check failed ("integrity" or
+    "foreign-key"). A bundle's side files (the SMS do-not-text key) are put in place once the copy has landed."""
+    from windyfly import sms_optout
+    from windyfly.cloud_backup import split_bundle
+
+    data, side = split_bundle(data)
     src = sqlite3.connect(":memory:")
     try:
         src.deserialize(_loadable(data))        # the header edit is on an in-memory copy only
@@ -368,6 +377,8 @@ def _restore_into(db: Any, data: bytes) -> str | None:
                 _copy_pages(src, db.conn)
             except sqlite3.Error as e:
                 raise _CopyFailed(type(e).__name__) from e
+            if side:
+                sms_optout.restore_files(db.db_path, side)   # the key these fingerprints were made with
             try:
                 db._run_migrations()           # an older backup is brought up to this code's schema
             except Exception as e:
@@ -473,8 +484,10 @@ async def _prepare(db: Any, key: str, config: dict | None) -> str | tuple[str, A
         else:
             from windyfly.cloud_backup import _decrypt_data
 
+            from windyfly.cloud_backup import split_bundle
+
             data = _decrypt_data(blob, owner_key)
-            check_database_bytes(data)
+            check_database_bytes(split_bundle(data)[0])
     except RestoreError as e:
         return str(e)
     except (OSError, ValueError):
@@ -515,7 +528,9 @@ def ask_undo(db: Any, key: str) -> str:
         except Exception as e:
             raise RestoreError("The undo copy can't be opened with this agent's WINDY_BACKUP_KEY. "
                                "Nothing was changed.") from e
-        facts = check_database_bytes(data)
+        from windyfly.cloud_backup import split_bundle
+
+        facts = check_database_bytes(split_bundle(data)[0])
         del data
     except RestoreError as e:
         return str(e)
