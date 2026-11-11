@@ -810,7 +810,9 @@ def mind_can_answer(model: str | None, timeout: float = 10.0) -> dict[str, Any]:
     (``x-mind-model``) and whether MIND says it served another model than the one asked for (``swapped``:
     ``x-mind-fellback-from`` or ``x-mind-served-reason`` came). ``own_model`` is True only when the model that
     served is the one that was asked for and Mind reports no swap (Mind, BOARD 2026-11-10T18:51:55Z (1)).
-    A different name alone is not a swap: Mind resolves short and retired names ("sonnet") to the full one.
+    A different name alone is not a swap (Mind, BOARD 2026-11-11T04:18:22Z): Mind resolves short and retired
+    names to the full one, serves a declared successor under the old name, and answers with its catalog spelling,
+    each with neither header. Names are compared without regard to case.
 
     Returns ``{"ok": True, "status": 2xx, "asked_model", "served_model", "fellback_from", "swapped",
     "own_model"}`` or
@@ -848,7 +850,7 @@ def mind_can_answer(model: str | None, timeout: float = 10.0) -> dict[str, Any]:
         swapped = bool(fellback or str(headers.get("x-mind-served-reason") or "").strip())
         return {"ok": True, "status": status, "asked_model": asked, "served_model": served,
                 "fellback_from": fellback, "swapped": swapped,
-                "own_model": bool(asked and served and served == asked and not swapped)}
+                "own_model": bool(asked and served and served.lower() == asked.lower() and not swapped)}
     _log_mind_refusal(resp, "the recovery check")
     return {"ok": False, "status": status, "reason": _mind_error_detail(resp)[:200],
             "retry_after": _parse_retry_after(resp)}

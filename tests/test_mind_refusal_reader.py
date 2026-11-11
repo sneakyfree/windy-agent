@@ -248,10 +248,30 @@ def test_another_model_answering_is_never_called_my_own_model_is_back(on_the_fal
         assert "instead of claude-sonnet-5-5" in out["notice"]
 
 
-@pytest.mark.parametrize("served", ["claude-sonnet-5-5-20261001", "llama-3.3-70b"])
+def test_minds_spelling_of_the_same_name_is_the_agents_own_model(on_the_fallback, monkeypatch):
+    """Mind matches names without regard to case and answers with its catalog spelling (Mind, BOARD
+    2026-11-11T04:18:22Z (3)): that is the same model, not another one."""
+    _mind(monkeypatch, _resp(200, {"x-mind-model": "Claude-Sonnet-5-5"}))
+    out = _r.attempt_paid_recovery()
+    assert out["recovered"] is True and out["own_model"] is True
+    assert out["notice"].startswith("✅ Recovered — windy-mind is healthy again")
+
+
+def test_a_swap_onto_the_same_name_in_another_spelling_names_no_instead_of(on_the_fallback, monkeypatch):
+    _mind(monkeypatch, _resp(200, {"x-mind-model": "Claude-Sonnet-5-5", "x-mind-fellback-from": "claude-opus-5-5"}))
+    out = _r.attempt_paid_recovery()
+    assert out["own_model"] is False and "instead of" not in out["notice"] and " for now. " in out["notice"]
+
+
+@pytest.mark.parametrize("served", [
+    "claude-haiku-5-5",                # a declared successor serves the name the agent uses (Mind's case 1)
+    "claude-sonnet-5",                 # a retired or short name mapped to its successor (case 2)
+    "groq/gpt-oss-120b",
+])
 def test_a_different_name_alone_is_not_called_a_swap(on_the_fallback, monkeypatch, served):
-    """Mind resolves a short or retired name to the full one and reports no swap. The agent then names the model
-    that answered and claims nothing more: no "instead of", no "for now", no "my own model is back"."""
+    """Mind reports no swap in these cases: neither x-mind-fellback-from nor x-mind-served-reason comes. The agent
+    then names the model that answered and claims nothing more: no "instead of", no "for now", no "my own model
+    is back"."""
     _mind(monkeypatch, _resp(200, {"x-mind-model": served}))
     out = _r.attempt_paid_recovery()
     assert out["recovered"] is True and out["own_model"] is False

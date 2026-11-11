@@ -984,9 +984,10 @@ def attempt_paid_recovery() -> dict[str, Any]:
         # Say only what is true (P9): Mind answers again, and this is the model that answered. "My own model is
         # back" would be a claim the answer does not support (Mind, BOARD 2026-11-10T18:51:55Z (1)).
         # "instead of ... for now" is said only when MIND reports a swap (its fallback chain, the shared-free
-        # swap, the budget swap). A different name alone can be Mind's full name for the agent's short one.
+        # swap, the budget swap). A different name alone can be Mind's full name for the agent's short or retired
+        # one, a declared successor, or only Mind's spelling (Mind, BOARD 2026-11-11T04:18:22Z): none is "for now".
         swapped = bool(probe.get("swapped"))
-        was = f" instead of {asked}" if swapped and asked and asked != served else ""
+        was = f" instead of {asked}" if swapped and asked and str(asked).lower() != str(served).lower() else ""
         notice = (
             f"✅ Windy Mind is answering again, with {served}{was}{' for now' if swapped else ''}. Switching "
             f"back from lifeboat mode (was using {prior_model or 'local model'}).\n\n"
