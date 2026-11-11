@@ -21,6 +21,7 @@ def _passport(monkeypatch):
     # These tests are about the one key per send, not the trust gate: no registry is asked. (Before 2026-11 the
     # gate allowed a send whenever Eternitas could not be reached, so this file passed without saying so.)
     monkeypatch.setenv("ETERNITAS_USE_MOCK", "true")
+    monkeypatch.setenv("WINDY_SMS_ALLOW_NON_OWNER", "1")   # the text cases here go to contacts, not only the owner
 
 
 def test_no_trigger_means_no_key():

@@ -47,6 +47,7 @@ logger = logging.getLogger(__name__)
 
 KEY_FILE = "sms-optout.key"
 PENDING_FILE = "sms-optout-pending.jsonl"
+TOLD_FILE = "sms-optout-key-missing.told"     # the owner was told once that the key is missing
 _EARLIER_NAME = re.compile(r"^sms-optout-earlier-[0-9a-f]{16}\.key$")
 KEY_BYTES = 32
 
@@ -487,6 +488,47 @@ def owner_numbers(config: dict[str, Any] | None = None) -> set[str]:
     for pair in ((config or {}).get("trust", {}) or {}).get("owner_ids", []) or []:
         nums |= _parse_pairs(str(pair)).get("sms", set())
     return {number_key(n) for n in nums if number_key(n)}
+
+
+def non_owner_allowed() -> bool:
+    """WINDY_SMS_ALLOW_NON_OWNER=1 lets the agent text numbers other than its owner's own. Default OFF (Boss's
+    opt-out order, BOARD 2026-11-09T11:18:02Z (1)(b)): with it off, the only person the agent ever texts is its
+    owner."""
+    return os.environ.get("WINDY_SMS_ALLOW_NON_OWNER", "").strip() == "1"
+
+
+def may_text(number: str, config: dict[str, Any] | None = None) -> bool:
+    """The owner-only gate: the owner's own number always, anyone else only with the allow switch on. It stands in
+    front of every texting path together with the record (Windy Legal, BOARD 2026-11-11T03:24:49Z)."""
+    return non_owner_allowed() or number_key(number) in owner_numbers(config)
+
+
+def tell_owner_once(db_path: str | os.PathLike) -> bool:
+    """The owner hears ONCE, by mail, that the key is missing (LEGAL DECISION 28 (9)(2)). True the first time. A
+    0600 marker beside the memory remembers it was said; ``forget_told`` removes it when the key is back."""
+    if in_memory(db_path):
+        return False
+    try:
+        fd = os.open(Path(str(db_path)).parent / TOLD_FILE, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    except OSError:                              # already said (FileExistsError), or it cannot be remembered
+        return False
+    os.close(fd)
+    import threading
+
+    from windyfly.agent import owner_mail
+
+    threading.Thread(target=owner_mail.send_sync, daemon=True,
+                     args=("Your agent can only text you for now", KEY_MISSING_NOTICE)).start()
+    return True
+
+
+def forget_told(db_path: str | os.PathLike) -> None:
+    if in_memory(db_path):
+        return
+    try:
+        os.unlink(Path(str(db_path)).parent / TOLD_FILE)
+    except OSError:
+        pass
 
 
 def send_state(number: str, db_path: str, config: dict[str, Any] | None = None) -> str:

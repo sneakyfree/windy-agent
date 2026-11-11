@@ -50,7 +50,7 @@ _OPT_IN_KEYWORDS = frozenset({"START", "UNSTOP"})
 # Said to the owner ONCE when the fingerprint key is missing while the record has entries (LEGAL DECISION 28 (9)(2)):
 # Windy Legal's sentence, kept with the record in windyfly.sms_optout so every texting path says the same words.
 KEY_MISSING_NOTICE = sms_optout.KEY_MISSING_NOTICE
-_TOLD_FILE = "sms-optout-key-missing.told"
+_TOLD_FILE = sms_optout.TOLD_FILE
 _masked_once: set[str] = set()
 
 
@@ -125,19 +125,9 @@ def _is_opt_in(body: str) -> bool:
 _number_key = sms_optout.number_key
 
 
-def non_owner_allowed() -> bool:
-    """WINDY_SMS_ALLOW_NON_OWNER=1 lets this channel text numbers other than the owner's own. Default OFF (Boss's
-    opt-out order, BOARD 2026-11-09T11:18:02Z (1)(b)): with it off, the only person this channel ever texts is the
-    owner."""
-    return os.environ.get("WINDY_SMS_ALLOW_NON_OWNER", "").strip() == "1"
-
-
+non_owner_allowed = sms_optout.non_owner_allowed
 owner_numbers = sms_optout.owner_numbers   # the owner rule lives with the record
-
-
-def may_text(number: str, config: dict[str, Any] | None = None) -> bool:
-    """Owner-only unless the allow switch is on."""
-    return non_owner_allowed() or _number_key(number) in owner_numbers(config)
+may_text = sms_optout.may_text
 
 
 def optout_state(number: str, db_path: str | None = None, config: dict[str, Any] | None = None) -> str:

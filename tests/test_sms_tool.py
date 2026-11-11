@@ -28,6 +28,7 @@ def _fresh_consent_state(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(sms_mod, "_approved_mem", set())
     monkeypatch.setattr(sms_mod, "_pending", {})
     monkeypatch.setenv("WINDYFLY_AGENT_NAME", "Pip")
+    monkeypatch.setenv("WINDY_SMS_ALLOW_NON_OWNER", "1")   # these tests text contacts, not only the owner
     monkeypatch.setenv("WINDY_OWNER_NAME", "Grant Whitmer")
 
 
