@@ -10,7 +10,6 @@ every failed call were missing.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
 from types import SimpleNamespace
@@ -266,46 +265,6 @@ def test_unknown_cost_is_null_and_readers_cope(tmp_path):
     assert row["cost_usd"] is None
     assert get_daily_spend(db) == pytest.approx(0.25)
     db.close()
-
-
-def test_voice_bridge_turn_logs_every_call(tmp_path):
-    """The voice bridge (`windyfly.bridge.uds_server`) runs the turn
-    loop; each LLM call in its turn must land in the ledger."""
-    from windyfly.bridge.uds_server import UDSBridge
-
-    db = Database(str(tmp_path / "bridge.db"))
-    wq = WriteQueue()
-    wq.start()
-    config = {
-        "agent": {"default_model": "claude-opus-5"},
-        "memory": {"max_episodes_per_context": 20, "max_nodes_per_context": 10},
-        "personality": {},
-        "costs": {"daily_budget_usd": 50.0},
-    }
-    try:
-        with patch("windyfly.agent.loop.is_online", return_value=True), \
-             patch.object(models, "_try_mind_broker", return_value=None), \
-             patch.object(models, "get_provider_for_model", side_effect=_provider), \
-             patch.object(models, "_is_provider_in_cooldown", return_value=False), \
-             patch.object(models, "_call_anthropic", side_effect=_ok) as fake:
-            bridge = UDSBridge(config, db, wq)
-            loop = asyncio.new_event_loop()
-            try:
-                result = loop.run_until_complete(bridge._dispatch("agent.respond", {
-                    "message": "what's the capital of France?",
-                    "session_id": "voice-1",
-                }))
-            finally:
-                loop.close()
-            calls = fake.call_count
-        assert "response" in result
-        rows = _wait_rows(db, calls)
-        assert calls >= 1
-        assert len(rows) == calls  # exactly one row per LLM call
-        assert all(r["status"] == "ok" and r["cost_usd"] > 0 for r in rows)
-    finally:
-        wq.stop()
-        db.close()
 
 
 # ── Haiku 5.5: priced by prompt length (Anthropic pricing page, read 2026-10-22) ─────────────────

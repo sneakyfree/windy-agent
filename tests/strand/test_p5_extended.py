@@ -3,19 +3,14 @@ bridge API (docs/strand/STRAND_V2.md). In-memory DBs, the model is a stub; no ne
 
 from __future__ import annotations
 
-import re
 import uuid
 from pathlib import Path
 from unittest.mock import patch
 
-from tests.test_gap_closure import _make_bridge, _run
 from windyfly.agent import loop
 from windyfly.control_panel import set_slider
 from windyfly.memory.database import Database
-from windyfly.memory.failures import log_failure
-from windyfly.memory.soul import upsert_soul
 from windyfly.memory.write_queue import WriteQueue
-from windyfly.personality.versioning import snapshot_personality
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -80,76 +75,7 @@ def test_p5_93_an_emotional_turn_is_journaled_at_once():
     assert calls == 1 and len(rows) == 1
 
 
-def test_p5_93_journal_entries_are_read_through_the_bridge():
-    bridge, db, _ = _make_bridge()
-    try:
-        _turns(loop._maybe_write_journal_entry, ("I got the job!", "Congrats!", "excited", f"s-{uuid.uuid4()}"),
-               reply="They got the job and were thrilled.", db=db)
-        result = _run(bridge._dispatch("journal.list", {}))
-    finally:
-        db.close()
-    assert [e["entry"] for e in result["journal"]] == ["They got the job and were thrilled."]
-
-
-def test_p5_94_the_report_card_runs_through_the_bridge():
-    bridge, db, _ = _make_bridge()
-    try:
-        result = _run(bridge._dispatch("assessment.run", {}))
-    finally:
-        db.close()
-    report = result["assessment"]
-    assert len(report["scores"]) == 6 and report["grade"]
-
-
 # ── Phase 10: the bridge API ───────────────────────────────────────────────────────────────
-
-def test_p5_101_drift_is_found_through_the_bridge():
-    bridge, db, _ = _make_bridge()
-    try:
-        set_slider(db, "humor", 5)
-        snapshot_personality(db, changed_by="periodic")
-        db.execute("UPDATE soul_history SET created_at = datetime('now', '-40 days')")
-        db.commit()
-        upsert_soul(db, key="slider_humor", value="9", source="agent")     # not the owner
-        result = _run(bridge._dispatch("personality.drift", {}))
-    finally:
-        db.close()
-    assert [(d["name"], d["old"], d["new"]) for d in result["drift"]["drifted_sliders"]] == [("humor", 5, 9)]
-
-
-def test_p5_101_a_confirmed_rollback_through_the_bridge_restores_the_value():
-    bridge, db, _ = _make_bridge()
-    try:
-        set_slider(db, "humor", 5)
-        snapshot_personality(db)
-        set_slider(db, "humor", 9)
-        plan = _run(bridge._dispatch("personality.rollback", {"snapshot_date": "2099-01-01", "dry_run": True}))
-        _run(bridge._dispatch("personality.rollback",
-                              {"snapshot_date": "2099-01-01", "expected": plan["changes"]}))
-        value = db.fetchone("SELECT value FROM soul WHERE key = 'slider_humor'")["value"]
-    finally:
-        db.close()
-    assert value == "5"
-
-
-def test_p5_103_failures_are_listed_through_the_bridge():
-    bridge, db, _ = _make_bridge()
-    try:
-        log_failure(db, "factual_error", "Got the date wrong")
-        result = _run(bridge._dispatch("failures.list", {}))
-    finally:
-        db.close()
-    assert [(f["fault_type"], f["description"]) for f in result["failures"]] == [
-        ("factual_error", "Got the date wrong")]
-
-
-def test_p5_cnt_every_bridge_method_the_gateway_calls_exists():
-    calls = set(re.findall(r'bridge\.call\("([a-z_.]+)"', (ROOT / "gateway/src/server.ts").read_text()))
-    bridge, db, _ = _make_bridge()
-    db.close()
-    assert len(calls) >= 30
-    assert calls <= set(bridge._handler_table()), sorted(calls - set(bridge._handler_table()))
-
 
 def _moment_calls_at(sensitivity: int) -> int:
     """One full emotional turn through agent_respond with the slider at `sensitivity`; how many

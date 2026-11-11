@@ -4,7 +4,6 @@ Plays every time the agent successfully launches.  The brand moment
 that people will screenshot, screen-record, and share.
 
     Terminal:  Rich animated ASCII art + lightning + mad scientist
-    Dashboard: Animated hatching sequence (served via gateway)
     Audio:     Hook for future ``afplay`` / browser Audio() integration
 """
 

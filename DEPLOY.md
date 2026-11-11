@@ -36,14 +36,13 @@ See [docs/DISTRIBUTION.md](docs/DISTRIBUTION.md).
 ## 1. Self-hosted install
 
 The common path. No AWS account, no DNS, no TLS cert — just a machine
-that runs Python and Bun.
+that runs Python.
 
 ### 1.1 Prerequisites
 
 - macOS, Linux, or Windows
 - [`uv`](https://docs.astral.sh/uv/) (auto-installed by `windy go` if
   missing)
-- [`bun`](https://bun.sh) (auto-installed by `windy go` if missing)
 - Optional: a Windy Pro account — if present, `windy go` skips the
   "paste an API key" step and uses managed credentials from Pro's
   broker
@@ -57,7 +56,7 @@ windy go
 
 That's the entire happy path. `windy go` walks the user through:
 
-1. Pre-flight checks (`uv`, `bun`)
+1. Pre-flight checks (`uv`)
 2. Pro-credential detection via `~/.windypro/config.json` — silently
    falls through if absent (`--byok` forces the paste-a-key path even
    when a Pro account is paired)
@@ -65,7 +64,7 @@ That's the entire happy path. `windy go` walks the user through:
    on Windy Chat → phone number → Windy Cloud quota → birth
    certificate
 4. First SMS + welcome email from the newly hatched agent
-5. Stack start (brain + gateway), dashboard at http://localhost:3000
+5. Start: ONE process, no port. The agent answers in Windy Chat
 
 After the first run, `windy start` (or a launchd/systemd unit
 installed via `windy install-service`) keeps the agent running.
@@ -84,7 +83,7 @@ installed via `windy install-service`) keeps the agent running.
 
 ```bash
 pip install --upgrade windyfly
-windy update         # pulls brain/gateway lockfiles, restarts stack
+windy update         # updates the agent and restarts it
 ```
 
 ---
@@ -96,7 +95,7 @@ awake. The agent self-deploys to an EC2 instance the user owns — no
 Anthropic/Windy-operated infra in the loop.
 
 Baseline: **AWS EC2 `t4g.small`** (Graviton, 2 vCPU, 2 GB RAM,
-Amazon Linux 2023). The agent's Python footprint + SQLite + gateway
+Amazon Linux 2023). The agent's Python footprint + SQLite
 sits comfortably under 500 MB; the 2 GB buffer is for the
 prompt-cache + the occasional LLM request burst. Don't go smaller
 than `t4g.small` — `t4g.nano` and `t4g.micro` will OOM the brain on a
@@ -127,7 +126,6 @@ windy cloud vps-deploy \
 
 # 3. Verify:
 windy cloud status          # shows VPS endpoint + health
-curl https://<vps>/api/health
 ```
 
 Under the hood the command:
@@ -137,8 +135,8 @@ Under the hood the command:
 2. Waits for the instance to be reachable on port 22
 3. `rsync` agent state to `/opt/windyfly/` on the VPS
 4. Installs `deploy/systemd/windyfly.service` (below)
-5. `systemctl --system start windyfly` and tails logs until
-   `/api/health` returns `{"status":"ok"}`
+5. `systemctl --system start windyfly` and tails the log until the
+   agent says it is connected to Windy Chat
 
 ### 2.3 systemd unit file
 
@@ -156,7 +154,7 @@ User=windyfly
 Group=windyfly
 WorkingDirectory=/opt/windyfly
 EnvironmentFile=/etc/windyfly/production.env
-ExecStart=/usr/local/bin/uv run python -m windyfly.bridge.uds_server
+ExecStart=/usr/local/bin/uv run python -m windyfly.main --channel matrix
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=15
@@ -177,33 +175,23 @@ StandardError=append:/var/log/windyfly/brain.log
 WantedBy=multi-user.target
 ```
 
-A matching `windyfly-gateway.service` runs the Bun gateway on port
-3000 (fronted by Caddy or nginx for TLS termination; see
-`deploy/aws/FLY_DEPLOYMENT.md` §4 for the log-shipping side).
+There is no second unit: the agent is one process and opens no port. (A unit written before
+November 2026 that still starts `windyfly.bridge.uds_server` keeps working: that module is now a
+stand-in that starts the same one process and says so in the log.)
 
 ### 2.4 Environment file
 
 `/etc/windyfly/production.env` holds every secret the systemd unit
 needs. Copy [`.env.production.example`](.env.production.example) and
 fill in values. The production.env **must** be `chmod 0600
-windyfly:windyfly` — it contains LLM API keys, the broker signing
-secret, and webhook HMAC secrets.
+windyfly:windyfly` — it contains LLM API keys and the broker signing
+secret.
 
-### 2.5 TLS + reverse proxy
+### 2.5 No inbound port
 
-The gateway speaks plain HTTP on port 3000. In production, front it
-with Caddy (simplest) or nginx + certbot. A minimal `Caddyfile`:
-
-```caddyfile
-your-agent.example.com {
-  reverse_proxy localhost:3000
-}
-```
-
-The `/hatch/remote` endpoint accepts remote POSTs from the Pro
-Electron app — make sure the reverse proxy is configured to pass
-through SSE (`proxy_buffering off` on nginx; Caddy handles it by
-default).
+The agent opens no port and takes no inbound request: it reaches OUT to Windy Chat, Windy Mind
+and Eternitas. There is nothing to put behind a reverse proxy and no TLS certificate to manage.
+The old local gateway on port 3000 (dashboard, `/api/health`, `/hatch/remote`) is gone.
 
 ---
 
@@ -277,8 +265,6 @@ rotation is a no-op.
 windy passport               # shows passport + bot-key age
 ```
 
-The dashboard's "Identity" panel also surfaces a warning badge at 7
-days remaining.
 
 ### 4.4 Key-rotation failure mode
 
@@ -287,8 +273,7 @@ keeps using the existing key and retries every 4h until either it
 succeeds or the key fully expires. If the key actually expires
 without a successful rotation, the agent falls back to owner-JWT
 auth for service calls (visible in the audit log as `auth=owner-jwt`
-rather than `auth=wk_`) and surfaces a yellow banner on the
-dashboard until rotation succeeds.
+rather than `auth=wk_`) until rotation succeeds.
 
 ---
 
@@ -308,10 +293,9 @@ the identity + trust layer, not the runtime. What breaks:
 - `windy go` / `windy hatch` — passport issuance fails; hatch
   continues with a blank `passport_id` and saves a recovery file at
   `data/provision_recovery.json`.
-- `/api/webhooks/trust` — Eternitas's `trust.changed` webhook can't
-  deliver; the trust cache goes stale but never inverts (we
-  fail-closed on unknown-band actions in strict mode, fail-open in
-  dev).
+- the trust pull — the agent asks Eternitas for its standing every 5
+  minutes. With no fresh answer for 10 minutes it holds its
+  trust-gated actions and says why; talking goes on.
 - The Windy Mail/Cloud link-back that proves "this bot belongs to
   this passport" is queued locally and retried on the brain's daily
   tick.
@@ -329,8 +313,7 @@ the identity + trust layer, not the runtime. What breaks:
 
 ### 5.2 Matrix federation issue (Windy Chat unreachable)
 
-**Symptom:** Matrix bot login fails; dashboard shows Windy Chat as
-"Offline".
+**Symptom:** Matrix bot login fails; the agent does not answer in Windy Chat.
 
 **Blast radius:** the agent keeps responding on CLI, SMS, and
 Telegram/Slack/Discord if those are configured. Chat is just one of
@@ -352,7 +335,7 @@ many channels; its outage doesn't block the brain.
 ### 5.3 LLM quota exhausted
 
 **Symptom:** Every response returns "Agent is processing…" or the
-dashboard shows provider errors (429, 403-quota).
+log shows provider errors (429, 403-quota).
 
 **Blast radius:** the agent can't answer. Everything else —
 memory writes, channel adapters, trust cache — keeps ticking.
@@ -386,9 +369,7 @@ dumps the full env + config + PID table for paste-into-issue.
 Before cutting a production release:
 
 - [ ] `uv run python -m pytest` — all Python tests green
-- [ ] `cd gateway && bun test` — all gateway tests green
 - [ ] `uv run ruff check src/` — no lint errors
-- [ ] `bash scripts/smoke-test.sh` — full-path smoke against a
-      running agent (see [`scripts/smoke-test.sh`](scripts/smoke-test.sh))
+- [ ] `windy test` — the agent's self-test
 - [ ] `deploy/aws/FLY_DEPLOYMENT.md` bumped if infra touched
 - [ ] `CHANGELOG.md` entry for the release

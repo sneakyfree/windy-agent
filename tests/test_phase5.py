@@ -7,15 +7,8 @@ from __future__ import annotations
 
 import time
 
-from windyfly.control_panel import apply_preset, set_slider
-from windyfly.dashboard.data import get_dashboard_summary
-from windyfly.memory.cost_ledger import log_cost
+from windyfly.control_panel import set_slider
 from windyfly.memory.database import Database
-from windyfly.memory.episodes import save_episode
-from windyfly.memory.failures import log_failure
-from windyfly.memory.intents import create_intent
-from windyfly.memory.nodes import upsert_node
-from windyfly.memory.skills import save_skill
 from windyfly.memory.write_queue import WriteQueue
 from windyfly.observability.events import get_event_counts, get_recent_events, log_event
 from windyfly.personality.versioning import (
@@ -27,80 +20,6 @@ from windyfly.personality.versioning import (
 
 
 # === Dashboard Tests ===
-
-
-class TestDashboard:
-    def test_empty_dashboard(self):
-        db = Database(":memory:")
-        summary = get_dashboard_summary(db)
-        assert summary["memory"]["total_nodes"] == 0
-        assert summary["memory"]["total_episodes"] == 0
-        assert summary["costs"]["today_usd"] == 0.0
-        assert summary["failures"]["total"] == 0
-        assert summary["skills"]["total"] == 0
-        assert summary["intents"]["active"] == 0
-        assert summary["personality"]["preset"] == "custom"
-        db.close()
-
-    def test_populated_dashboard(self):
-        db = Database(":memory:")
-        # Add some data
-        upsert_node(db, "fact", "name", source="test")
-        upsert_node(db, "preference", "coffee", source="test", epistemic_status="verified")
-        save_episode(db, "user", "Hello", session_id="s1")
-        save_episode(db, "assistant", "Hi!", session_id="s1")
-        log_cost(db, "gpt-4o-mini", 100, 50, 0.01)
-        log_failure(db, "factual_error", "Wrong answer")
-        save_skill(db, "greet", "Say hi.", "playbook")
-        create_intent(db, "Learn Python")
-
-        summary = get_dashboard_summary(db)
-        assert summary["memory"]["total_nodes"] == 2
-        assert summary["memory"]["total_episodes"] == 2
-        assert summary["costs"]["today_usd"] == 0.01
-        assert summary["failures"]["total"] == 1
-        assert summary["skills"]["total"] == 1
-        assert summary["intents"]["active"] == 1
-        db.close()
-
-    def test_preset_detection(self):
-        db = Database(":memory:")
-        apply_preset(db, "buddy")
-        summary = get_dashboard_summary(db)
-        assert summary["personality"]["preset"] == "buddy"
-        db.close()
-
-    def test_custom_preset(self):
-        db = Database(":memory:")
-        set_slider(db, "personality", 6)
-        summary = get_dashboard_summary(db)
-        assert summary["personality"]["preset"] == "custom"
-        db.close()
-
-    def test_failure_improvement_rate(self):
-        db = Database(":memory:")
-        log_failure(db, "factual_error", "Error 1")
-        log_failure(db, "factual_error", "Error 2")
-        # Resolve one
-        db.execute("UPDATE failures SET resolved_at = CURRENT_TIMESTAMP WHERE rowid = 1")
-        db.commit()
-        summary = get_dashboard_summary(db)
-        assert summary["failures"]["improvement_rate"] == 0.5
-        db.close()
-
-    def test_unpriced_only_task_type_does_not_crash(self):
-        # Local / Mind rows store cost_usd NULL on purpose; a task type
-        # with only those rows must not break the whole summary.
-        db = Database(":memory:")
-        log_cost(db, "gpt-4o-mini", 100, 50, 0.01, task_type="chat")
-        log_cost(db, "local-model", 10, 10, None, task_type="intent")
-        costs = get_dashboard_summary(db)["costs"]
-        assert costs["by_task_type"] == {"chat": 0.01, "intent": 0.0}
-        assert costs["today_usd"] == 0.01
-        db.close()
-
-
-# === Personality Versioning Tests ===
 
 
 class TestPersonalityVersioning:

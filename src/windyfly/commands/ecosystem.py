@@ -359,11 +359,6 @@ def _register_ecosystem():
         return f"🪪 {passport} (trust score unavailable — Eternitas not reachable)"
     _re("trust", "Show Eternitas trust score and history", "18_permissions", cmd_trust)
 
-    async def cmd_audit_log(ctx):
-        return ("Audit log: recent actions taken by this agent\n"
-                "(Stored in events table — available via gateway dashboard)")
-    _re("audit-log", "Show recent actions taken by the agent", "18_permissions", cmd_audit_log)
-
     # ═══════════════════════════════════════════════════════════════
     # CLOUD & STORAGE — Windy Cloud (136-140)
     # ═══════════════════════════════════════════════════════════════

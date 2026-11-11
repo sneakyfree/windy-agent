@@ -9,10 +9,10 @@ pip install windyfly    # official release (0.7.1+) — the brain + every chat c
 windy go                # opens the hatch ceremony in your browser
 ```
 
-The PyPI wheel is the headless brain (no web dashboard). For the full
-product with the dashboard, run it from a source checkout, either
-`windy go` or `docker compose up -d --build`, which **builds** the image
-locally from the `Dockerfile`. There is no published Docker image yet.
+The agent is ONE Python process and it answers in Windy Chat. There is no
+local web dashboard and no port to open. From a source checkout you can also
+run `docker compose up -d --build`, which **builds** the image locally from
+the `Dockerfile`. There is no published Docker image yet.
 See [docs/DISTRIBUTION.md](docs/DISTRIBUTION.md).
 
 > **0.7.1:** set your Telegram owner explicitly
@@ -39,7 +39,6 @@ Your agent hatches, gets an identity, and starts chatting in under 2 minutes.
 | 🎛️ **Personality** | 10 sliders (humor, warmth, autonomy, etc.) — tune how your agent thinks and speaks |
 | 🛠️ **17+ Tools** | Weather, reminders, to-dos, news, web search, calculator, unit converter, calendar |
 | 💬 **Multi-Channel** | CLI, Matrix (Windy Chat), Telegram, Discord, Slack, WhatsApp, SMS, email |
-| 🌐 **Dashboard** | React web UI at localhost:3000 — manage everything visually, no terminal needed |
 | 🪪 **Identity** | Eternitas passport, birth certificate, trust score — your agent has a real identity |
 | 💰 **Cost Control** | Daily/monthly budgets, per-model breakdown, automatic budget enforcement |
 | 🔄 **Self-Improving** | "Never Wrong Twice" — logs corrections, creates correction skills, learns from mistakes |
@@ -58,18 +57,16 @@ uv sync                    # Install dependencies
 uv run windy go            # Hatch in the browser ceremony (link + code)
 ```
 
-### From PyPI (headless — no dashboard)
+### From PyPI
 
 ```bash
 pip install windyfly        # 0.7.1+ (set AGENT_OWNER_TELEGRAM_ID for Telegram)
 windy go                   # Hatch in the browser ceremony (link + code)
-windy start                # Start the agent (brain + channels only)
+windy start                # Start the agent (it answers in Windy Chat)
 ```
 
-The wheel ships the Python brain and every channel adapter, but NOT
-the gateway/dashboard (that's a Bun/TypeScript app that lives in the
-source checkout). Want the full product? Use a source checkout: `windy go`,
-or `docker compose up -d --build` to build the image yourself. Details:
+The wheel is the whole agent. A source checkout runs the same thing; there
+`docker compose up -d --build` builds the image yourself. Details:
 docs/DISTRIBUTION.md.
 
 ### What Happens
@@ -91,8 +88,8 @@ docs/DISTRIBUTION.md.
 | Command | Description |
 |---------|-------------|
 | `windy chat` | Chat in the terminal |
-| `windy start` | Start agent + gateway, open dashboard |
-| `windy stop` | Stop all processes |
+| `windy start` | Start the agent (it answers in Windy Chat) |
+| `windy stop` | Stop the agent |
 | `windy status` | Check what's running |
 
 ### Tools (via chat or slash commands)
@@ -121,10 +118,6 @@ docs/DISTRIBUTION.md.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  Dashboard (React + Vite + Tailwind)  ← localhost:3000      │
-├─────────────────────────────────────────────────────────────┤
-│  Gateway (Bun/TypeScript)  ← 50+ REST/WS API endpoints     │
-├─────────────────────────────────────────────────────────────┤
 │  Brain (Python 3.12+)  ← LLM orchestration, tools, memory  │
 ├─────────────────────────────────────────────────────────────┤
 │  Memory (SQLite + FTS5 keyword search) ← one file, zero ops │
@@ -133,8 +126,6 @@ docs/DISTRIBUTION.md.
 
 | Layer | Runtime | Role |
 |-------|---------|------|
-| **Dashboard** | React 19 + Vite + Tailwind | 8-page web UI for managing your agent |
-| **Gateway** | Bun / TypeScript | API server, WebSocket chat, static files |
 | **Brain** | Python 3.12+ | Agent loop, LLM calls, tools, personality |
 | **Memory** | SQLite + FTS5 | Episodes, knowledge graph, skills, costs, reminders, todos. Recall is keyword + full-text (FTS5); the optional `[semantic]` extra adds embedding similarity |
 
@@ -295,7 +286,6 @@ uv build
 - **1100+ tests** | 0 failures (includes contract, integration, stress)
 - **22 LLM-callable tools**
 - **101 DNA codons** | 100% implemented
-- **8-page React dashboard**
 - **9 messaging channels** supported
 
 ---

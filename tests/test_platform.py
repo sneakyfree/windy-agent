@@ -8,23 +8,15 @@ from __future__ import annotations
 
 import os
 import sys
-import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
 
 from windyfly.platform import (
-    IPCConfig,
     PlatformReport,
     can_run,
     diagnose,
     get_data_dir,
-    get_ipc_config,
-    get_ipc_mode,
-    get_ipc_path,
-    get_ipc_tcp_host,
-    get_ipc_tcp_port,
     get_log_path,
     get_pid_path,
     get_temp_dir,
@@ -32,95 +24,6 @@ from windyfly.platform import (
     process_alive,
     process_terminate,
 )
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# IPC Mode
-# ═══════════════════════════════════════════════════════════════════════
-
-
-class TestGetIPCMode:
-    def test_returns_uds_on_posix(self):
-        """On Mac/Linux, default IPC mode should be UDS."""
-        with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("WINDYFLY_IPC_MODE", None)
-            if sys.platform != "win32":
-                assert get_ipc_mode() == "uds"
-
-    def test_respects_env_override_tcp(self):
-        """WINDYFLY_IPC_MODE=tcp should override platform default."""
-        with patch.dict(os.environ, {"WINDYFLY_IPC_MODE": "tcp"}):
-            assert get_ipc_mode() == "tcp"
-
-    def test_respects_env_override_uds(self):
-        """WINDYFLY_IPC_MODE=uds should override platform default."""
-        with patch.dict(os.environ, {"WINDYFLY_IPC_MODE": "uds"}):
-            assert get_ipc_mode() == "uds"
-
-    def test_ignores_invalid_override(self):
-        """Invalid WINDYFLY_IPC_MODE should fall back to platform default."""
-        with patch.dict(os.environ, {"WINDYFLY_IPC_MODE": "garbage"}):
-            mode = get_ipc_mode()
-            assert mode in ("uds", "tcp")
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# IPC Path
-# ═══════════════════════════════════════════════════════════════════════
-
-
-class TestGetIPCPath:
-    def test_uses_tempdir_not_hardcoded_tmp(self):
-        """IPC path should use tempfile.gettempdir(), not hardcoded /tmp."""
-        with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("WINDYFLY_IPC_PATH", None)
-            path = get_ipc_path()
-            assert path.startswith(tempfile.gettempdir())
-            assert path.endswith("windyfly.sock")
-
-    def test_respects_env_override(self):
-        """WINDYFLY_IPC_PATH should override the default path."""
-        with patch.dict(os.environ, {"WINDYFLY_IPC_PATH": "/custom/path.sock"}):
-            assert get_ipc_path() == "/custom/path.sock"
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# IPC TCP helpers
-# ═══════════════════════════════════════════════════════════════════════
-
-
-class TestIPCTCPHelpers:
-    def test_default_host(self):
-        with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("WINDYFLY_IPC_HOST", None)
-            assert get_ipc_tcp_host() == "127.0.0.1"
-
-    def test_default_port(self):
-        with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("WINDYFLY_IPC_PORT", None)
-            assert get_ipc_tcp_port() == 4001
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# IPC Config
-# ═══════════════════════════════════════════════════════════════════════
-
-
-class TestGetIPCConfig:
-    def test_returns_ipc_config_dataclass(self):
-        """get_ipc_config() should return an IPCConfig instance."""
-        config = get_ipc_config()
-        assert isinstance(config, IPCConfig)
-        assert config.mode in ("uds", "tcp")
-        assert isinstance(config.socket_path, str)
-        assert isinstance(config.tcp_host, str)
-        assert isinstance(config.tcp_port, int)
-
-    def test_frozen_dataclass(self):
-        """IPCConfig should be immutable (frozen)."""
-        config = get_ipc_config()
-        with pytest.raises(AttributeError):
-            config.mode = "tcp"  # type: ignore[misc]
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -237,7 +140,6 @@ class TestDiagnose:
         assert isinstance(report, PlatformReport)
         assert report.system != ""
         assert report.python_version != ""
-        assert report.ipc_mode in ("uds", "tcp")
         assert isinstance(report.issues, list)
 
     def test_detects_correct_python_version(self):
@@ -250,19 +152,19 @@ class TestDiagnose:
         """When critical tools are missing, diagnose() should add issues."""
         with patch("windyfly.platform.can_run", return_value=False):
             report = diagnose()
-            # Should flag at least uv, bun, git as missing
+            # Should flag uv and git as missing. Never Bun: the gateway that needed it is gone (lean Fly R1).
             issue_text = " ".join(report.issues)
-            assert "uv" in issue_text.lower() or len(report.issues) > 0
+            assert "uv not found" in issue_text and "Git not found" in issue_text
+            assert "bun" not in issue_text.lower()
 
     def test_no_issues_when_all_tools_present(self):
         """When all tools are present and Python >= 3.12, issues should be about platform only."""
         with patch("windyfly.platform.can_run", return_value=True):
             report = diagnose()
             # On POSIX with Python 3.12+, the only issues might be platform-specific
-            # No uv/bun/git issues should be present
+            # No uv/git issues should be present
             for issue in report.issues:
                 assert "uv not found" not in issue
-                assert "Bun not found" not in issue
                 assert "Git not found" not in issue
 
     def test_flags_old_python(self):

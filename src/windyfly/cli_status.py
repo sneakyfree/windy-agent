@@ -168,23 +168,12 @@ def print_status(config: dict[str, Any] | None = None) -> None:
     # Matrix
     matrix_homeserver = _safe_get(config, "matrix", "homeserver", default="not configured")
     matrix_status = "disconnected"
-    room_count = 0
     if matrix_homeserver and matrix_homeserver != "not configured":
         has_token = bool(os.environ.get("MATRIX_BOT_TOKEN"))
         has_password = bool(os.environ.get("MATRIX_BOT_PASSWORD"))
         if has_token or has_password:
             host = matrix_homeserver.replace("https://", "").replace("http://", "")
             matrix_status = f"configured for {host}"
-            try:
-                import httpx
-                r = httpx.get("http://localhost:3000/api/health", timeout=1)
-                if r.status_code == 200:
-                    data = r.json()
-                    if data.get("brain_connected"):
-                        matrix_status = f"connected ({host})"
-                        room_count = data.get("room_count", 0)
-            except Exception as e:
-                logger.debug("Matrix health check failed: %s", e)
         else:
             matrix_status = "credentials not set"
     else:
@@ -270,7 +259,7 @@ def print_status(config: dict[str, Any] | None = None) -> None:
     tree.add(f"[bold]Memory:[/bold] {node_count} nodes, {episode_count} episodes, {active_intents} active intents")
     tree.add(f"[bold]Personality:[/bold] {preset} (personality={personality}, humor={humor})")
     tree.add(f"[bold]Skills:[/bold] {promoted_skills} promoted, {total_skills} total")
-    tree.add(f"[bold]Matrix:[/bold] {matrix_status} ({room_count} rooms)")
+    tree.add(f"[bold]Matrix:[/bold] {matrix_status}")
     tree.add(f"[bold]Mail:[/bold] {email_status}")
     tree.add(f"[bold]Phone:[/bold] {phone_display}")
     tree.add(f"[bold]Eternitas:[/bold] {eternitas_status}")

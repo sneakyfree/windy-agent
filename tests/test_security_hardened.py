@@ -21,7 +21,6 @@ from windyfly.memory.episodes import save_episode
 
 PROJECT_ROOT = Path(__file__).parent.parent
 SRC_DIR = PROJECT_ROOT / "src"
-GATEWAY_DIR = PROJECT_ROOT / "gateway" / "src"
 
 
 # =============================================================================
@@ -48,14 +47,6 @@ class TestNoSecretsInSource:
                 assert not match, (
                     f"Potential API key in {py_file.name}: {match.group()[:20]}..."
                 )
-
-    def test_no_real_api_keys_in_typescript(self):
-        """No real API keys in gateway TypeScript source."""
-        for ts_file in GATEWAY_DIR.rglob("*.ts"):
-            content = ts_file.read_text(errors="ignore")
-            match = re.search(r'["\']sk-[a-zA-Z0-9]{20,}["\']', content)
-            assert not match, f"API key in {ts_file.name}"
-
 
 # =============================================================================
 # H5.3–H5.4: SQL Injection Extended
@@ -141,61 +132,14 @@ class TestXSSPrevention:
 # =============================================================================
 
 
-class TestPathTraversal:
-    def test_gateway_static_file_serving(self):
-        """H5.6: Gateway should only serve from public/ directory."""
-        server_ts = GATEWAY_DIR / "server.ts"
-        content = server_ts.read_text(encoding="utf-8")
-        # Should serve files from a restricted directory (public/)
-        assert "public" in content, "Gateway doesn't reference a public/ directory"
-        # Should not have open file serving from project root
-        assert "resolve('..'," not in content or "../../" not in content
-
-    def test_no_directory_listing(self):
-        """Gateway should not allow directory listing."""
-        server_ts = GATEWAY_DIR / "server.ts"
-        content = server_ts.read_text(encoding="utf-8")
-        assert "readdir" not in content, "Gateway may allow directory listing"
-
-
 # =============================================================================
 # H5.7: Provider Key Masking
 # =============================================================================
 
 
-class TestProviderKeyMasking:
-    def test_provider_key_masking_function(self):
-        """H5.7: the gateway has no provider-key surface to mask any more.
-
-        Wave 3 (2026-10) retired its provider store: no providers.ts, no
-        /api/providers route, so no response can carry a provider key.
-        """
-        assert not (GATEWAY_DIR / "providers.ts").exists()
-        server = (GATEWAY_DIR / "server.ts").read_text(encoding="utf-8")
-        assert "/api/providers" not in server
-
-
 # =============================================================================
 # H5.8–H5.9: Sensitive Files Not Served
 # =============================================================================
-
-
-class TestSensitiveFileProtection:
-    def test_env_not_in_public(self):
-        """H5.8: .env file should not be in gateway/public/."""
-        public_dir = PROJECT_ROOT / "gateway" / "public"
-        assert not (public_dir / ".env").exists(), ".env found in gateway/public/"
-
-    def test_db_not_in_public(self):
-        """H5.9: Database should not be in gateway/public/."""
-        public_dir = PROJECT_ROOT / "gateway" / "public"
-        for ext in (".db", ".sqlite", ".sqlite3"):
-            files = list(public_dir.rglob(f"*{ext}"))
-            assert len(files) == 0, f"Database file found in public/: {files}"
-
-    def test_data_directory_not_in_public(self):
-        """data/ directory should not be under gateway/public/."""
-        assert not (PROJECT_ROOT / "gateway" / "public" / "data").exists()
 
 
 # =============================================================================

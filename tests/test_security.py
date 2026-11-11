@@ -6,7 +6,6 @@ prevention, sandbox isolation, environment hygiene, and timeout enforcement.
 
 from __future__ import annotations
 
-import os
 import re
 from pathlib import Path
 
@@ -16,7 +15,6 @@ import pytest
 # Root directories
 PROJECT_ROOT = Path(__file__).parent.parent
 SRC_DIR = PROJECT_ROOT / "src"
-GATEWAY_DIR = PROJECT_ROOT / "gateway" / "src"
 
 
 def _find_python_files() -> list[Path]:
@@ -24,17 +22,10 @@ def _find_python_files() -> list[Path]:
     return list(SRC_DIR.rglob("*.py"))
 
 
-def _find_ts_files() -> list[Path]:
-    """Recursively find all .ts files in gateway/src/"""
-    return list(GATEWAY_DIR.rglob("*.ts"))
-
-
 def _all_source_content() -> str:
-    """Concatenate all Python + TypeScript source for bulk scanning."""
+    """Concatenate all Python source for bulk scanning."""
     content = []
     for f in _find_python_files():
-        content.append(f.read_text(errors="ignore"))
-    for f in _find_ts_files():
         content.append(f.read_text(errors="ignore"))
     return "\n".join(content)
 
@@ -53,14 +44,6 @@ class TestSecretLeaks:
             assert not re.search(
                 r'["\']sk-[a-zA-Z0-9]{20,}["\']', content
             ), f"Hardcoded API key found in {py_file}"
-
-    def test_no_hardcoded_api_keys_in_typescript(self):
-        """No hardcoded API keys in TypeScript source."""
-        for ts_file in _find_ts_files():
-            content = ts_file.read_text(errors="ignore")
-            assert not re.search(
-                r'["\']sk-[a-zA-Z0-9]{20,}["\']', content
-            ), f"Hardcoded API key found in {ts_file}"
 
     def test_no_hardcoded_jwt_tokens(self):
         """No JWT-looking strings (eyJ...) hardcoded in source."""
@@ -166,29 +149,4 @@ class TestTimeoutEnforcement:
         content = search_file.read_text(encoding="utf-8")
         assert "timeout" in content, "web_search.py has no timeout on HTTP calls"
 
-    def test_uds_bridge_has_timeout(self):
-        """UDS bridge client should have a timeout on calls."""
-        bridge_file = GATEWAY_DIR / "bridge.ts"
-        content = bridge_file.read_text(encoding="utf-8")
-        assert "timeout" in content.lower() or "timeoutMs" in content, (
-            "bridge.ts has no timeout on UDS calls"
-        )
-
-
 # === CORS Configuration ===
-
-
-class TestCORSConfiguration:
-    def test_cors_headers_present(self):
-        """Gateway should set CORS headers."""
-        server_file = GATEWAY_DIR / "server.ts"
-        content = server_file.read_text(encoding="utf-8")
-        assert "Access-Control-Allow-Origin" in content
-        assert "Access-Control-Allow-Methods" in content
-
-    def test_cors_allows_options_preflight(self):
-        """Gateway should handle OPTIONS preflight requests."""
-        server_file = GATEWAY_DIR / "server.ts"
-        content = server_file.read_text(encoding="utf-8")
-        assert "OPTIONS" in content
-        assert "204" in content

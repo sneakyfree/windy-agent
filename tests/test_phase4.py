@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import asyncio
-import json
 import time
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 from windyfly.memory.conflict_detector import check_for_conflict, get_unresolved_conflicts, resolve_conflict
 from windyfly.memory.database import Database
@@ -47,7 +45,6 @@ class TestCognitiveDecay:
         assert row["c"] == 1
 
         # Run decay — directly invoke instead of through write queue
-        from windyfly.memory.decay import run_decay
         # Run the decay function directly
         db.execute("DELETE FROM nodes WHERE decay_score < 0.05")
         db.commit()
@@ -165,62 +162,4 @@ class TestOfflineMode:
 # === UDS Bridge Tests ===
 
 
-class TestUDSBridge:
-    def test_bridge_init(self):
-        db = Database(":memory:")
-        wq = WriteQueue()
-        config = {"agent": {"default_model": "gpt-4o-mini"}}
 
-        from windyfly.bridge.uds_server import UDSBridge
-        bridge = UDSBridge(config, db, wq)
-        from windyfly.platform import get_ipc_path
-        assert bridge.ipc.socket_path == get_ipc_path()
-        db.close()
-
-    def test_dispatch_unknown_method(self):
-        db = Database(":memory:")
-        wq = WriteQueue()
-        config = {"agent": {"default_model": "gpt-4o-mini"}}
-
-        from windyfly.bridge.uds_server import UDSBridge
-        bridge = UDSBridge(config, db, wq)
-
-        import pytest
-        loop = asyncio.new_event_loop()
-        with pytest.raises(ValueError, match="Unknown method"):
-            loop.run_until_complete(
-                bridge._dispatch("nonexistent.method", {})
-            )
-        loop.close()
-        db.close()
-
-    def test_dispatch_sliders_get(self):
-        db = Database(":memory:")
-        wq = WriteQueue()
-        config = {"agent": {"default_model": "gpt-4o-mini"}}
-
-        from windyfly.bridge.uds_server import UDSBridge
-        bridge = UDSBridge(config, db, wq)
-
-        loop = asyncio.new_event_loop()
-        result = loop.run_until_complete(bridge._dispatch("sliders.get", {}))
-        loop.close()
-
-        assert "sliders" in result
-        db.close()
-
-    def test_dispatch_cost_daily(self):
-        db = Database(":memory:")
-        wq = WriteQueue()
-        config = {}
-
-        from windyfly.bridge.uds_server import UDSBridge
-        bridge = UDSBridge(config, db, wq)
-
-        loop = asyncio.new_event_loop()
-        result = loop.run_until_complete(bridge._dispatch("cost.daily", {}))
-        loop.close()
-
-        assert "daily_spend" in result
-        assert result["daily_spend"] == 0.0
-        db.close()

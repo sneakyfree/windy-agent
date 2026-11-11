@@ -25,7 +25,7 @@ def tracked(path: str) -> bool:
 
 def test_p4_11_the_brain_parts_in_the_map_exist():
     parts = [S + f for f in ("agent/loop.py", "memory/database.py", "skills/manager.py",
-                             "control_panel.py", "channels/matrix_bot.py", "bridge/uds_server.py")]
+                             "control_panel.py", "channels/matrix_bot.py")]
     missing = [p for p in parts if not tracked(p)]
     assert not missing, missing
 
@@ -47,10 +47,9 @@ INDEX = {
         "skills/manager.py", "memory/cost_tracker.py", "memory/intents.py",
         "agent/intent_detector.py", "agent/emotion_detector.py")],
     "phase4": [S + f for f in (
-        "bridge/uds_server.py", "memory/decay.py", "memory/conflict_detector.py", "agent/offline.py")]
-              + ["gateway/src/bridge.ts", "gateway/src/server.ts", "gateway/src/websocket.ts"],
+        "memory/decay.py", "memory/conflict_detector.py", "agent/offline.py")],
     "phase5": [S + f for f in (
-        "dashboard/data.py", "personality/versioning.py", "observability/events.py")],
+        "personality/versioning.py", "observability/events.py")],
 }
 
 
@@ -97,24 +96,3 @@ def test_p4_13_the_changelog_explains_the_version_numbers():
     for words in ("`v0.4.0`", "`v0.5.0`", "`v1.0.0`", "phase", "0.0.1", "No package 1.0.0"):
         assert words in head, words
     assert "\n## 1.0.0" not in text
-
-
-def test_p4_11_the_gateway_is_proven_end_to_end_in_ci():
-    """gateway/tests/e2e-bridge.test.ts boots the real gateway against a stand-in brain socket and
-    checks the web UI, health, the WebSocket auth refusal and a chat turn through the bridge; the CI
-    gateway-test job runs every bun test. Nothing in it may be skipped or focused."""
-    import re
-
-    e2e = (ROOT / "gateway" / "tests" / "e2e-bridge.test.ts").read_text(encoding="utf-8")
-    for name in ("GET / serves the web UI", "/api/health says the brain is connected",
-                 "/ws/chat refuses a client without the dashboard password",
-                 "/ws/chat carries a chat turn to the brain and the answer back"):
-        assert f'test("{name}"' in e2e, name
-    assert 'Bun.spawn(["bun", "run", "src/server.ts"]' in e2e
-    assert not re.search(r"\b(?:test|it|describe)\.(?:skip|skipIf|todo|only|if)\b", e2e)
-    server = (ROOT / "gateway" / "src" / "server.ts").read_text(encoding="utf-8")
-    assert "const PORT = Number(process.env.GATEWAY_PORT) || 3000;" in server
-    assert tracked("gateway/tests/e2e-bridge.test.ts")
-    ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
-    job = ci.split("gateway-test:", 1)[1].split("\n  build:", 1)[0]
-    assert re.search(r"(?m)^\s+run: bun test\s*$", job), "the gateway job must run every bun test"

@@ -29,8 +29,8 @@ from windyfly.platform import (
     IS_WINDOWS,
     can_run,
     diagnose,
-    get_ipc_config,
     get_log_path,
+    find_by_name,
     get_pid_path,
     get_project_root,
     process_alive,
@@ -57,17 +57,6 @@ def _doc_row(label: str, value: str, ok: bool, hint: str | None = None) -> None:
     if hint:
         line += f"  [dim]— {hint}[/dim]"
     console.print(line)
-
-
-def _check_port(port: int) -> bool:
-    """Return True if a port is already in use."""
-    import socket
-    try:
-        s = socket.create_connection(("127.0.0.1", port), timeout=1)
-        s.close()
-        return True
-    except (ConnectionRefusedError, OSError, TimeoutError):
-        return False
 
 
 def _format_uptime(started_iso: str) -> str:
@@ -137,19 +126,11 @@ def cmd_doctor(_args: argparse.Namespace) -> None:
              "Need 3.12+" if sys.version_info < (3, 12) else None)
     _doc_row("uv", shutil.which("uv") or "not found", report.has_uv,
              "Install: https://docs.astral.sh/uv/" if not report.has_uv else None)
-    _doc_row("Bun", shutil.which("bun") or "not found", report.has_bun,
-             "Install: https://bun.sh" if not report.has_bun else None)
     _doc_row("Git", shutil.which("git") or "not found", report.has_git,
              "Install: https://git-scm.com" if not report.has_git else None)
 
-    ipc = get_ipc_config()
-    ipc_desc = f"{ipc.mode} — {ipc.socket_path}" if ipc.mode == "uds" else f"{ipc.mode} — {ipc.tcp_host}:{ipc.tcp_port}"
-    _doc_row("IPC mode", ipc_desc, True)
-
     if not report.has_uv:
         issues.append("uv not installed")
-    if not report.has_bun:
-        issues.append("Bun not installed")
     if sys.version_info < (3, 12):
         issues.append(f"Python {report.python_version} — need 3.12+")
 
@@ -208,78 +189,17 @@ def cmd_doctor(_args: argparse.Namespace) -> None:
 
     # ── 3. Process health ────────────────────────────────────────
     console.print("[bold]Process Health[/bold]")
-    pid_file = get_pid_path(PROJECT_ROOT)
-
-    brain_alive = False
-    gateway_alive = False
-    if pid_file.exists():
-        pids = pid_file.read_text(encoding="utf-8").strip().split("\n")
-        if len(pids) >= 1:
-            try:
-                brain_alive = process_alive(int(pids[0].strip()))
-            except ValueError:
-                pass
-        if len(pids) >= 2:
-            try:
-                gateway_alive = process_alive(int(pids[1].strip()))
-            except ValueError:
-                pass
-
-    _doc_row("Brain process", "running" if brain_alive else "not running", brain_alive)
-    _doc_row("Gateway process", "running" if gateway_alive else "not running", gateway_alive)
-
-    # Check IPC socket/port
-    if ipc.mode == "uds":
-        sock_exists = os.path.exists(ipc.socket_path)
-        _doc_row("IPC socket", ipc.socket_path if sock_exists else "not found",
-                 sock_exists)
-        if brain_alive and not sock_exists:
-            warnings.append("Brain running but IPC socket missing")
+    # One process since the lean Windy Fly (step R1): the agent itself. No gateway, no socket, no port to check.
+    info = read_pid_file(PROJECT_ROOT)
+    agent_alive = bool(info and info.brain_alive)
+    if agent_alive:
+        _doc_row("Agent process", "running", True)
     else:
-        # TCP — try connecting
-        import socket
-        tcp_ok = False
-        try:
-            s = socket.create_connection((ipc.tcp_host, ipc.tcp_port), timeout=2)
-            s.close()
-            tcp_ok = True
-        except (ConnectionRefusedError, OSError, TimeoutError):
-            pass
-        _doc_row("IPC TCP", f"{ipc.tcp_host}:{ipc.tcp_port}", tcp_ok)
-
-    # Check gateway HTTP
-    gateway_http = False
-    try:
-        import httpx
-        r = httpx.get("http://localhost:3000/api/health", timeout=2)
-        if r.status_code == 200:
-            gateway_http = True
-            data = r.json()
-            brain_connected = data.get("brain_connected", False)
-            _doc_row("Gateway HTTP", "http://localhost:3000", True)
-            _doc_row("Brain ↔ Gateway", "connected" if brain_connected else "disconnected",
-                     brain_connected,
-                     "Gateway running but brain not connected" if not brain_connected else None)
-            if not brain_connected:
-                warnings.append("Gateway up but brain not connected")
+        elsewhere = find_by_name(["windyfly.main"])
+        if elsewhere:
+            _doc_row("Agent process", "running (not started by `windy start`)", True)
         else:
-            _doc_row("Gateway HTTP", f"status {r.status_code}", False)
-    except Exception:
-        _doc_row("Gateway HTTP", "unreachable", False)
-
-    console.print()
-
-    # ── 4. Port conflicts ────────────────────────────────────────
-    console.print("[bold]Port Availability[/bold]")
-    for port, name in [(3000, "Gateway"), (4001, "IPC TCP fallback")]:
-        if not gateway_http or port != 3000:  # don't flag 3000 if our gateway owns it
-            conflict = _check_port(port)
-            if conflict and not (port == 3000 and gateway_alive):
-                _doc_row(f"Port {port} ({name})", "in use", False,
-                         f"Port {port} occupied — may conflict")
-                warnings.append(f"Port {port} ({name}) already in use")
-            else:
-                _doc_row(f"Port {port} ({name})", "available" if not conflict else "ours", True)
+            _doc_row("Agent process", "not running", False)
 
     console.print()
 
@@ -313,13 +233,6 @@ def cmd_doctor(_args: argparse.Namespace) -> None:
     console.print("[bold]Dependencies[/bold]")
     lock_file = PROJECT_ROOT / "uv.lock"
     _doc_row("uv.lock", "present" if lock_file.exists() else "missing", lock_file.exists())
-
-    gateway_nm = PROJECT_ROOT / "gateway" / "node_modules"
-    _doc_row("gateway/node_modules", "present" if gateway_nm.exists() else "missing",
-             gateway_nm.exists(),
-             "Run `cd gateway && bun install`" if not gateway_nm.exists() else None)
-    if not gateway_nm.exists():
-        issues.append("Gateway dependencies not installed")
 
     console.print()
 
@@ -542,19 +455,16 @@ def cmd_rollback(args: argparse.Namespace) -> None:
 
 
 def cmd_logs(args: argparse.Namespace) -> None:
-    """Tail brain and/or gateway logs."""
+    """Tail the agent's log."""
     component = getattr(args, "component", "all")
     follow = getattr(args, "follow", False)
     lines = getattr(args, "lines", 50)
 
     brain_log = get_log_path(PROJECT_ROOT, "brain")
-    gateway_log = get_log_path(PROJECT_ROOT, "gateway")
 
     targets: list[tuple[str, Path]] = []
     if component in ("all", "brain"):
         targets.append(("Brain", brain_log))
-    if component in ("all", "gateway"):
-        targets.append(("Gateway", gateway_log))
 
     # Check if any logs exist
     existing = [(name, path) for name, path in targets if path.exists()]
@@ -764,7 +674,6 @@ def _config_path() -> None:
     console.print(f"  [bold]Soul:[/bold]    {PROJECT_ROOT / 'SOUL.md'}")
     console.print(f"  [bold]Data:[/bold]    {PROJECT_ROOT / 'data'}")
     console.print(f"  [bold]Logs:[/bold]    {get_log_path(PROJECT_ROOT, 'brain')}")
-    console.print(f"           {get_log_path(PROJECT_ROOT, 'gateway')}")
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -796,16 +705,6 @@ def cmd_version(_args: argparse.Namespace) -> None:
 
     model = _os.environ.get("DEFAULT_MODEL", "not set")
     console.print(f"  Brain: {model} | Budget: ${_gate_daily_budget(getattr(_args, 'config', None)):.2f}/day")
-
-    # Bun version
-    if can_run("bun"):
-        try:
-            bun_ver = subprocess.run(
-                ["bun", "--version"], capture_output=True, text=True,
-            ).stdout.strip()
-            console.print(f"  Gateway: Bun {bun_ver}")
-        except (subprocess.SubprocessError, OSError):
-            pass
 
     # Git info
     if can_run("git"):
@@ -843,7 +742,6 @@ def cmd_version(_args: argparse.Namespace) -> None:
 
 def cmd_kill(_args: argparse.Namespace) -> None:
     """Force-kill all Windy Fly processes."""
-    from windyfly.platform import find_by_name
 
     project_root = PROJECT_ROOT
     info = read_pid_file(project_root)
@@ -861,11 +759,6 @@ def cmd_kill(_args: argparse.Namespace) -> None:
 
     # Clean up files
     remove_pid_file(project_root)
-
-    # Remove stale socket
-    ipc = get_ipc_config()
-    if ipc.mode == "uds" and os.path.exists(ipc.socket_path):
-        os.unlink(ipc.socket_path)
 
     console.print(f"[bold green]Force-killed {killed} process(es) from the PID file.[/bold green]")
     if others:

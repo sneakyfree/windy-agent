@@ -90,7 +90,7 @@ def _register_all():
             except (OSError, ValueError):
                 pid_file.unlink(missing_ok=True)
         return "Run 'windy start' from terminal to start the agent stack."
-    _r("start", "Start the agent (brain + gateway)", "01_process", cmd_start)
+    _r("start", "Start the agent", "01_process", cmd_start)
 
     def _pids_from_pid_file() -> list[int]:
         """The PID file's PIDs that are STILL a Windy Fly process of this user (a stale number is never signalled)."""
@@ -250,8 +250,6 @@ def _register_all():
         lines.append("Environment:")
         lines.append(f"  {'✓' if sys.version_info >= (3, 12) else '✗'} Python {platform.python_version()}")
         lines.append(f"  {'✓' if subprocess.run(['which', 'uv'], capture_output=True).returncode == 0 else '✗'} uv")
-        lines.append(f"  {'✓' if subprocess.run(['which', 'bun'], capture_output=True).returncode == 0 else '○'} Bun (optional — for gateway)")
-        lines.append(f"  {'✓' if subprocess.run(['which', 'node'], capture_output=True).returncode == 0 else '○'} Node.js (fallback for gateway)")
         lines.append("\nConfiguration:")
         lines.append(f"  {'✓' if Path('windyfly.toml').exists() else '✗'} windyfly.toml")
         lines.append(f"  {'✓' if Path('.env').exists() else '✗'} .env")
@@ -2185,8 +2183,6 @@ def _register_budget_through_help():
                         "To keep it, set [costs] daily_budget_usd in windyfly.toml.")
             if args and args[0] == "month":
                 return f"This month's actual spend: ${get_monthly_spend(_db):.2f}"
-            if args and args[0] == "breakdown":
-                return "Cost breakdown by model:\n(Available in the gateway dashboard at localhost:3000)"
             b = check_budget(_db, cfg)
             limit = float(b["daily_budget"]) + float(b.get("extra_today") or 0)
             cost = float(b["daily_spend"])

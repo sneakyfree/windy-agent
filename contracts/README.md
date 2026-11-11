@@ -1,22 +1,10 @@
 # contracts/ — Windy Fly's agent-control manifest
 
-`control.mcp.v1.json` is the **canonical source of truth** for Windy Fly's
-agent-control surface, governed by the Agent Control Doctrine (**ADR-060** in
-`sneakyfree/windy-contracts`).
+> **`control.mcp.v1.json` is RETIRED (2026-11, lean Windy Fly step R1; Boss RULING, BOARD 2026-11-11T05:06:52Z).** The
+> native MCP control server it describes (`src/windyfly/mcp_server/`, the `windy-mcp-server` command) is removed: it was
+> never wired into the agent's start and had no caller. The file stays as a record, marked `"status": "retired"`; nothing
+> serves it.
 
-**Class A = a NATIVE server, not a woven proxy.** Fly's control surface is its
-in-process Capability Plane, projected over MCP by `src/windyfly/mcp_server/`
-(`server: native` in `weave.json`). The Loom validates this manifest and
-generates the conformance driver, but emits **no** JS packet or Python twin —
-a woven proxy would HTTP-hop to an in-process registry, which is backwards.
-
-- `tools/list` = `registry.tool_schemas_for_band(caller_band)`;
-  `tools/call` = `registry.invoke` — band-gating + audit come for free.
-- The manifest declares the **healing baseline** Fly must expose (see
-  `baseline_mapping`), mapped to real capability ids, with gaps marked. The
-  LIVE surface is the full band-filtered registry, not this static list.
-- Registry↔MCP parity is proven in `tests/test_mcp_control_bridge.py`.
-- Run the server (opt-in): `uv sync --extra mcp-server && windy-mcp-server`.
-
-Punch list (native server boot-wiring + the `mcp.*` client for Fly-as-doctor):
-`windy-contracts/docs/handoffs/FLY-LANE-2026-07-13.md`.
+What it described, for the record: a native MCP server that projected the agent's in-process capability registry
+(`tools/list`, `tools/call`, band-gated and audited), governed by the Agent Control Doctrine (ADR-060 in
+`sneakyfree/windy-contracts`). Its history is in git (`src/windyfly/mcp_server/`, `tests/test_mcp_control_bridge.py`).

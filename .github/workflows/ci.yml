@@ -36,24 +36,6 @@ jobs:
       - name: Test
         run: uv run pytest tests/ -v --tb=short
 
-  # The gateway is a Bun app and had no test entry point until 2026-08-12,
-  # so its 137 tests across 9 files had never been executed by any runner.
-  # They pass (135 pass / 2 skip / 0 fail, verified locally on bun 1.3.14).
-  gateway-test:
-    # Fork PRs never reach the self-hosted runner (public repo; Boss ruling 10-01).
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, linux, x64]
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install bun
-        uses: oven-sh/setup-bun@v2
-      - name: Install gateway deps
-        working-directory: gateway
-        run: bun install
-      - name: Test gateway
-        working-directory: gateway
-        run: bun test
-
   build:
     # Fork PRs never reach the self-hosted runner (public repo; Boss ruling 10-01).
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
@@ -91,11 +73,5 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build Docker image
         run: docker build -t windy-agent .
-      - name: Start container
-        run: docker run -d -p 3000:3000 --name test-agent windy-agent || true
-      - name: Wait for startup
-        run: sleep 5
-      - name: Health check
-        run: curl -f http://localhost:3000/api/health || echo "Needs API key for full start"
-      - name: Stop container
-        run: docker stop test-agent || true
+      - name: The image imports the agent and its one entry point
+        run: docker run --rm windy-agent python -c "import windyfly.main, windyfly.cli"

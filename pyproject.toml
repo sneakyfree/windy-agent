@@ -70,16 +70,14 @@ all-channels = [
     "irc>=20.0",
 ]
 mcp-server = [
-    # Opt-in: exposes Fly's Capability Plane as an MCP server so an OUTSIDE
-    # agent can heal Fly (ADR-060 Class A). Not installed by default and NOT
-    # wired into boot — a separate entrypoint (windy-mcp-server). The pure
-    # registry<->MCP bridge (windyfly.mcp_server.bridge) needs none of this.
+    # The `mcp` SDK. The MCP control SERVER it was named for is gone (lean Windy Fly, R1); the MCP CLIENT capability
+    # (agent/capabilities/mcp_client.py) still imports it when installed, so the extra keeps its name until that
+    # capability's own cut.
     "mcp>=1.0",
 ]
 
 [project.scripts]
 windy = "windyfly.cli:main"
-windy-mcp-server = "windyfly.mcp_server.server:main"
 
 [build-system]
 requires = ["hatchling"]

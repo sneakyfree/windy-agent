@@ -40,9 +40,8 @@ except ImportError:
     pass
 
 from windyfly.memory.database import Database
-from windyfly.trust import TrustDenied, check_trust, invalidate_trust_cache, require_trust
-from windyfly.trust.check import _cache_read, get_trust
-from windyfly.trust.webhook import handle_trust_changed
+from windyfly.trust import TrustDenied, require_trust
+from windyfly.trust.check import get_trust
 
 
 def _default_live_url() -> str:
@@ -169,61 +168,6 @@ class TestLiveTrustContract:
 
         with pytest.raises(TrustDenied):
             await require_trust("send_email", db=db, passport=passport)
-
-    async def test_suspended_bot_webhook_flushes_cache(self, db):
-        passport = _pick_passport("WINDYFLY_TEST_PASSPORT_ANY", "ET26-TEST-0001")
-        snap = await get_trust(passport, db=db)
-        if snap is None:
-            pytest.skip(f"{passport} not in live Eternitas")
-
-        assert _cache_read(passport, db=db) is not None
-
-        await handle_trust_changed(
-            {
-                "event_type": "trust.changed",
-                "passport_number": passport,
-                "old_band": snap.band,
-                "new_band": "critical",
-                "reason": "simulated suspension in test",
-            },
-            db=db,
-        )
-
-        assert _cache_read(passport, db=db) is None
-
-    async def test_revoked_bot_webhook_flushes_cache(self, db):
-        passport = _pick_passport("WINDYFLY_TEST_PASSPORT_ANY", "ET26-TEST-0001")
-        snap = await get_trust(passport, db=db)
-        if snap is None:
-            pytest.skip(f"{passport} not in live Eternitas")
-
-        invalidate_trust_cache(passport, db=db)
-        await get_trust(passport, db=db)
-        assert _cache_read(passport, db=db) is not None
-
-        await handle_trust_changed(
-            {
-                "event_type": "trust.changed",
-                "passport_number": passport,
-                "old_band": snap.band,
-                "new_band": "critical",
-                "reason": "simulated revocation in test",
-            },
-            db=db,
-        )
-        assert _cache_read(passport, db=db) is None
-
-    async def test_human_no_passport_skips_trust_call(self, db, monkeypatch):
-        """No passport → gate is skipped entirely. No HTTP, no cache."""
-        monkeypatch.delenv("ETERNITAS_PASSPORT", raising=False)
-
-        decision = await check_trust("send_email", db=db, passport="")
-        assert decision.allowed
-        assert "no passport" in decision.reason
-
-    async def test_unknown_passport_returns_none(self, db):
-        snap = await get_trust("ET26-DOES-NEVR", db=db)
-        assert snap is None  # 404 from live server
 
 
 # Per-band × per-action matrix. Seeded passports are documented in the

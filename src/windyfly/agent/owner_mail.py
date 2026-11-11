@@ -1,6 +1,5 @@
 """One plain-text mail to the agent's owner through Windy Mail (OWNER_EMAIL + WINDYMAIL_API_URL), for alerts
-raised outside any chat channel. The same send path as trust/webhook.py's _notify_owner. Not configured = a log
-line only; never raises."""
+raised outside any chat channel. Not configured = a log line only; never raises."""
 
 from __future__ import annotations
 
