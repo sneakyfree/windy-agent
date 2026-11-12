@@ -428,6 +428,7 @@ def maybe_auto_pause(
       "noop:already_paused"    — already paused; nothing to do
       "noop:below_threshold"   — burn rate fine; nothing to do
       "paused"                 — threshold breached; we paused
+      "error:pause_write_failed" — breached, but the flag could not be written: NOT paused
     """
     if is_paused():
         return {"action": "noop:already_paused"}
@@ -459,8 +460,11 @@ def maybe_auto_pause(
         f"exceeds ${breach['threshold']:.2f}/hr threshold"
     )
     if not pause_first(reason, actor="auto"):
-        # Another process paused in the same moment and tells the owner; this one says nothing (one notice).
-        return {"action": "noop:already_paused"}
+        if is_paused():
+            # Another process paused in the same moment and tells the owner; this one says nothing (one notice).
+            return {"action": "noop:already_paused"}
+        # The flag could not be written at all: nothing is paused, and the log must say so (the Hub on #805).
+        return {"action": "error:pause_write_failed"}
     return {
         "action": "paused",
         "current_hourly": breach["current_hourly"],

@@ -70,7 +70,7 @@ def test_a_flag_that_cannot_be_written_is_no_pause_and_no_notice(_flag, monkeypa
     _flag.parent.mkdir(parents=True, exist_ok=True)
     _flag.parent.chmod(0o500)
     try:
-        assert sm.maybe_auto_pause(db=None) == {"action": "noop:already_paused"}
+        assert sm.maybe_auto_pause(db=None) == {"action": "error:pause_write_failed"}   # not "already paused"
         assert not sm.is_paused()
     finally:
         _flag.parent.chmod(0o700)
