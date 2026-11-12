@@ -100,14 +100,29 @@ class ToolRegistry:
                 return json.dumps({"error": "arguments must be a JSON object"})
             arguments = parsed
 
+        fn = self._tools[name]
+        args = arguments
         try:
-            result = self._tools[name](**arguments)
+            if _bands.TOOL_CLASS.get(name) == "outward":
+                # ONE ledger: an outward tool writes the same agent_actions row a capability does (names only).
+                from windyfly.agent.capabilities.audit import audited_call
+
+                result = audited_call(name, args, lambda: fn(**args), declared=self._declared(name))
+            else:
+                result = fn(**args)
             if isinstance(result, str):
                 return result
             return json.dumps(result, indent=2, default=str)
         except Exception as e:
             logger.error("Tool '%s' failed: %s", name, e)
             return json.dumps({"error": str(e)})
+
+    def _declared(self, name: str) -> set[str]:
+        """The parameter names this tool's own schema declares (the ledger writes only these)."""
+        for s in self._schemas:
+            if s["function"]["name"] == name:
+                return set((s["function"].get("parameters") or {}).get("properties") or {})
+        return set()
 
     @property
     def tool_count(self) -> int:

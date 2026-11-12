@@ -322,7 +322,10 @@ def owner_reply(text: str) -> str | None:
     if word == "no":
         _pending.pop(token, None)
         return "OK, I won't text that number."
-    res = confirm_sms(token)
+    from windyfly.agent.capabilities import Band
+    from windyfly.agent.capabilities.audit import audited_call
+
+    res = audited_call("confirm_sms", {}, lambda: confirm_sms(token), band=Band.OWNER, via="owner_yes")
     if res.get("status") == "sent":
         return f"Texted {res.get('to')}, with your OK."
     return f"Not sent: {res.get('error') or res.get('status')}"
