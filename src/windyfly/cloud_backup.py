@@ -93,7 +93,9 @@ def _get_cloud_url(config: dict | None = None) -> str:
 
 def _get_cloud_token() -> str:
     """Get auth token for Windy Cloud."""
-    return os.environ.get("WINDY_CLOUD_TOKEN", "") or os.environ.get("WINDY_JWT", "")
+    from windyfly.agent import cloud_auth
+
+    return cloud_auth.old_credential()
 
 
 # FROZEN. Part of the passport-derived backup key (material = "<passport>:<name>").
@@ -568,8 +570,9 @@ async def run_backup_if_due(config: dict | None = None) -> dict | None:
     if not should_backup(config):
         return None
 
-    token = _get_cloud_token()
-    if not token:
+    # Skip only when there is no credential at all: neither the old one nor the agent's own token (an agent with a
+    # key and no WINDY_CLOUD_TOKEN has no old one, and backs up with its own; cloud_auth.old_credential).
+    if not _get_cloud_token() and await _no_credential({}, _get_cloud_url(config)):
         logger.debug("Backup skipped: no cloud token")
         return None
 

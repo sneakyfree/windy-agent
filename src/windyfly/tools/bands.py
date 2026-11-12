@@ -137,6 +137,25 @@ def turn_state() -> dict[str, Any] | None:
     return _turn_state.get()
 
 
+# A turn started by words the owner FORWARDED from someone else (the phone's "ai.windy.forwarded" mark,
+# windy-contracts message-actions.v1): the words are a quote, not the owner's instruction. Such a turn starts tainted
+# (the I2 taint model in agent/loop.py): no outward tool runs on it and nothing in it is stored as the owner's fact.
+_forwarded: contextvars.ContextVar[bool] = contextvars.ContextVar("windy_forwarded_turn", default=False)
+
+
+@contextmanager
+def forwarded_words() -> Iterator[None]:
+    token = _forwarded.set(True)
+    try:
+        yield
+    finally:
+        _forwarded.reset(token)
+
+
+def turn_is_forwarded() -> bool:
+    return _forwarded.get()
+
+
 def mark_turn_tainted() -> None:
     """A tool says its result carries text a third party chose: the rest of this turn is tainted (the I2
     taint model in agent/loop.py refuses outward tools from then on). Outside a turn: nothing to mark."""

@@ -301,3 +301,50 @@ def test_a_failed_read_keeps_the_last_label_mind_served(monkeypatch):
 def test_only_plain_text_within_the_contracts_length_is_shown(served, said):
     assert mind_catalog._clean_label(served) == said
 
+
+
+# ── /model default: the phone's "default" model chip (Windy Fly Mobile, need 6, BOARD 2026-11-12T06:40:39Z) ──
+
+@pytest.mark.asyncio
+async def test_default_drops_this_chats_pick_and_names_what_applies(monkeypatch):
+    from windyfly.agent.session_reset import get_model
+    _mind_answers(monkeypatch)
+    monkeypatch.setattr(mind_self, "picked_model", lambda: None)
+    monkeypatch.setenv("DEFAULT_MODEL", "claude-sonnet-5")
+    await _model("opus")
+    assert get_model("telegram", "1") == "claude-opus-5-5"
+    reply = await _model("default")
+    assert get_model("telegram", "1") is None
+    assert reply == "🤖 Back to my default for this chat: claude-sonnet-5. Effective on your next message."
+    assert "doesn't offer" not in reply
+
+
+@pytest.mark.asyncio
+async def test_default_says_mind_picks_when_the_default_is_auto(monkeypatch):
+    _mind_answers(monkeypatch)
+    monkeypatch.setattr(mind_self, "picked_model", lambda: None)
+    monkeypatch.setenv("DEFAULT_MODEL", "auto")
+    reply = await _model(" Default ")
+    assert reply.startswith("🤖 Back to my default for this chat: Windy Mind picks the model.")
+
+
+@pytest.mark.asyncio
+async def test_default_works_when_mind_cannot_be_read(monkeypatch):
+    from windyfly.agent.session_reset import get_model, set_model
+    _mind_answers(monkeypatch, boom=True)
+    monkeypatch.setattr(mind_self, "picked_model", lambda: None)
+    monkeypatch.setenv("DEFAULT_MODEL", "claude-sonnet-5")
+    set_model("telegram", "1", "claude-haiku-4-5")
+    reply = await _model("default")
+    assert get_model("telegram", "1") is None
+    assert "I don't know the model" not in reply and "claude-sonnet-5" in reply
+
+
+@pytest.mark.asyncio
+async def test_default_without_a_chat_saves_nothing(monkeypatch):
+    from windyfly.commands import core
+    from windyfly.commands.registry import registry
+    _mind_answers(monkeypatch)
+    core.init_core()
+    reply = await registry.get("model").handler({"_raw": "default"})
+    assert "wasn't saved" in reply
