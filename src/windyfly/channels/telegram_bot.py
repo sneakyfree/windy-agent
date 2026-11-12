@@ -662,7 +662,7 @@ class TelegramChannel(ChannelAdapter):
         """
         if self._db is None:
             return
-        from windyfly.agent.spend_monitor import maybe_auto_pause
+        from windyfly.agent.spend_monitor import NOTICE_ACTIONS, maybe_auto_pause
         try:
             loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(
@@ -671,7 +671,7 @@ class TelegramChannel(ChannelAdapter):
         except Exception as e:
             logger.warning("auto-pause check failed: %s", e)
             return
-        if result.get("action") != "paused":
+        if result.get("action") not in NOTICE_ACTIONS:
             return
         # Breached — DM the owner so they know.
         if not self._app or not self._allowed_user_ids:

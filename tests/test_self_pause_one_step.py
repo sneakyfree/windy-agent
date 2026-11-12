@@ -15,6 +15,7 @@ from windyfly.agent import spend_monitor as sm
 def _flag(tmp_path, monkeypatch):
     monkeypatch.setenv("WINDY_PAUSE_FLAG", str(tmp_path / "state" / ".paused"))
     monkeypatch.setattr(sm, "is_yolo_active", lambda: False)
+    monkeypatch.setattr(sm, "_memory_pause", None)          # a fresh process each test; restored after
     yield tmp_path / "state" / ".paused"
 
 
@@ -65,15 +66,58 @@ def test_an_existing_pause_by_the_owner_is_never_overwritten(_flag, monkeypatch)
     assert json.loads(_flag.read_text(encoding="utf-8"))["actor"] == "user"
 
 
-def test_a_flag_that_cannot_be_written_is_no_pause_and_no_notice(_flag, monkeypatch):
-    _breach(monkeypatch)
+def _unwritable(_flag):
     _flag.parent.mkdir(parents=True, exist_ok=True)
     _flag.parent.chmod(0o500)
+
+
+def test_a_flag_that_cannot_be_written_stops_this_process_in_memory(_flag, monkeypatch):
+    """Boss's note on #805: a failed write must still stop the spending, and the owner hears one true sentence."""
+    _breach(monkeypatch)
+    _unwritable(_flag)
     try:
-        assert sm.maybe_auto_pause(db=None) == {"action": "error:pause_write_failed"}   # not "already paused"
+        out = sm.maybe_auto_pause(db=None)
+        assert out["action"] == "paused_here" and out["current_hourly"] == 9.0
+        assert not _flag.exists()                     # nothing on disk ...
+        assert sm.is_paused()                         # ... but this process makes no model call
+        assert sm.pause_reason()["held"] == "memory"
+        assert sm.maybe_auto_pause(db=None) == {"action": "noop:already_paused"}   # told once, not every check
+    finally:
+        _flag.parent.chmod(0o700)
+
+
+def test_resume_here_starts_it_again(_flag, monkeypatch):
+    _breach(monkeypatch)
+    _unwritable(_flag)
+    try:
+        sm.maybe_auto_pause(db=None)
+        assert sm.resume() == {"ok": True, "was_paused": True}
         assert not sm.is_paused()
     finally:
         _flag.parent.chmod(0o700)
+
+
+def test_a_restart_forgets_it_and_the_next_check_stops_again(_flag, monkeypatch):
+    _breach(monkeypatch)
+    _unwritable(_flag)
+    try:
+        sm.maybe_auto_pause(db=None)
+        monkeypatch.setattr(sm, "_memory_pause", None)          # what a restart does to a memory pause
+        assert not sm.is_paused()
+        assert sm.maybe_auto_pause(db=None)["action"] == "paused_here"   # still too fast, still unwritable
+        assert sm.is_paused()
+    finally:
+        _flag.parent.chmod(0o700)
+
+
+def test_the_owner_hears_legals_words_for_a_memory_pause_and_the_old_ones_otherwise():
+    words = ("I've stopped here because I was spending faster than your limit allows. I couldn't save the pause "
+             "everywhere, so I may still be running in your other chats. Send /resume here to start me again. If I "
+             "restart, I'll check the spending again and stop if it's still too high.")
+    assert sm.auto_pause_notice({"action": "paused_here", "current_hourly": 9.0, "threshold": 5.0}) == words
+    old = sm.auto_pause_notice({"action": "paused", "current_hourly": 9.0, "threshold": 5.0})
+    assert old.startswith("⚠️ I paused myself because I was spending too fast.") and words not in old
+    assert set(sm.NOTICE_ACTIONS) == {"paused", "paused_here"}
 
 
 def test_resume_then_a_new_breach_pauses_again(monkeypatch):
