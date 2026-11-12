@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+import unicodedata
 from typing import Any
 
 from windyfly.agent import mind_auth, mind_self
@@ -23,12 +24,12 @@ CACHE_S = 60.0
 _TIMEOUT_S = 3.0
 
 _lock = threading.Lock()
-_cache: dict[str, Any] = {"models": None, "at": 0.0}
+_cache: dict[str, Any] = {"models": None, "at": 0.0, "label": None}
 
 
 def _reset_for_tests() -> None:
     with _lock:
-        _cache.update({"models": None, "at": 0.0})
+        _cache.update({"models": None, "at": 0.0, "label": None})
 
 
 def my_catalog() -> list[dict[str, Any]] | None:
@@ -40,16 +41,21 @@ def my_catalog() -> list[dict[str, Any]] | None:
         if _cache["at"] and now - _cache["at"] < CACHE_S:
             return _cache["models"]
     models: list[dict[str, Any]] | None = None
+    label: str | None = None
     try:
         resp = mind_auth.request("GET", f"{mind_self._base()}/v1/catalog/me", mind_self._ept(), None, _TIMEOUT_S, None)
         if resp.status_code == 200:
-            data = (resp.json() or {}).get("data")
+            body = resp.json() or {}
+            data = body.get("data") if isinstance(body, dict) else None
             if isinstance(data, list):
                 models = [m for m in data if isinstance(m, dict) and isinstance(m.get("id"), str) and m["id"]]
+                label = _clean_label(body.get("outside_ai_label"))
     except Exception as exc:  # noqa: BLE001
         logger.debug("mind_catalog: read failed: %s", type(exc).__name__)
     with _lock:
         _cache.update({"models": models, "at": now})  # a failure is cached too: no timeout on every /model
+        if label:
+            _cache["label"] = label                   # the last label Mind really served; a failed read keeps it
     return models
 
 
@@ -84,14 +90,33 @@ def resolve_any(word: str, catalog: list[dict[str, Any]]) -> dict[str, Any] | No
 
 
 # The exact label of Mind's outside-AI switch (windy-mind training_policy.TOGGLE["label"]), so /model names a setting
-# the owner can find. Pinned by tests/contracts/mind/training_toggle.json (Hub #9 on #706).
+# the owner can find. Mind serves it in catalog/me (menu.v1 1.16.0, ``outside_ai_label``: "render it as given; never
+# vendor a copy"), so the label read with the catalog is the one said; this constant is only the fallback for a Mind
+# that could not be read or does not send the field. Pinned by tests/contracts/mind/training_toggle.json (Hub #9 on #706).
 OUTSIDE_AI_LABEL = "Use outside AI companies for more free capacity"
+_LABEL_MAX = 120                                      # menu.v1: outside_ai_label maxLength
+
+
+def _clean_label(value: Any) -> str | None:
+    """Mind's label as it may be shown to the owner: text only, one line, at most the contract's length. Anything
+    else (not a string, empty, only control characters) is no label, and the fallback is said."""
+    if not isinstance(value, str):
+        return None
+    kept = "".join(" " if ch.isspace() else ch for ch in value if ch.isspace() or unicodedata.category(ch)[0] != "C")
+    text = " ".join(kept.split())
+    return text[:_LABEL_MAX].rstrip() or None
+
+
+def outside_ai_label() -> str:
+    """The switch's label as Mind last served it to this agent, else the vendored copy. Never fetches."""
+    with _lock:
+        live = _cache.get("label")
+    return live or OUTSIDE_AI_LABEL
 
 # Plain words for catalog/me's unavailable_reason (menu.v1 1.10.0 / 1.12.0), said to the owner who typed /model
 # (Hub #9 on #706). A code this list doesn't know, unknown, or none: the neutral words (menu.v1: "not available
 # right now").
 _UNAVAILABLE_WORDS = {
-    "outside_ai_switch_off": f"your '{OUTSIDE_AI_LABEL}' setting is off",
     "breaker_open": "it's having trouble right now, so it's paused for a few minutes",
     "not_installed": "it isn't set up yet",
     "provider_unconfigured": "it isn't set up yet",
@@ -102,5 +127,7 @@ _UNAVAILABLE_WORDS = {
 
 
 def unavailable_words(reason: Any) -> str:
+    if reason == "outside_ai_switch_off":
+        return f"your '{outside_ai_label()}' setting is off"
     return _UNAVAILABLE_WORDS.get(reason, "it isn't available right now") if isinstance(reason, str) else \
         "it isn't available right now"

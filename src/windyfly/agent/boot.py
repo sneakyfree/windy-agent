@@ -266,7 +266,9 @@ def _step_start_reminder_checker(ctx: BootContext) -> None:
 
 def _step_install_audit_hooks(ctx: BootContext) -> None:
     from windyfly.agent.capabilities import install_audit_hooks
+    from windyfly.agent.capabilities.audit import install_tool_ledger
     install_audit_hooks(ctx.capability_registry, ctx.db, ctx.write_queue)
+    install_tool_ledger(ctx.db, ctx.write_queue)   # the older registry's outward tools write the same ledger
 
 
 def _step_register_filesystem(ctx: BootContext) -> None:

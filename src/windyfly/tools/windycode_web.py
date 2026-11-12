@@ -554,6 +554,9 @@ def _gated(fly_tool: str, args: dict[str, Any], model_token: str) -> dict[str, A
     return out
 
 
+_HELD_ARG_NAMES = frozenset({"project_id", "fqdn", "bundle_actions"})   # the keys _gated holds, built in code
+
+
 def owner_confirm(text: str) -> str | None:
     """The OWNER's own reply ("yes, publish" etc.), handled in code by channels.base.
     None = not a confirmation for anything held here."""
@@ -571,7 +574,12 @@ def owner_confirm(text: str) -> str | None:
     denied = _publish_gate()
     if denied:
         return f"Not done: {denied['error']}"
-    out = _call(held["fly_tool"], {**held["args"], "confirm_token": held["token"]})
+    from windyfly.agent.capabilities import Band
+    from windyfly.agent.capabilities.audit import audited_call
+
+    out = audited_call(held["fly_tool"], held["args"],
+                       lambda: _call(held["fly_tool"], {**held["args"], "confirm_token": held["token"]}),
+                       declared=_HELD_ARG_NAMES, band=Band.OWNER, via="owner_yes")
     if out.get("status") == "ok":
         return str(out.get("speak") or f"Done: {word}.")
     return f"Not done: {out.get('error') or out.get('status')}"

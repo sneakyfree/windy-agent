@@ -174,10 +174,26 @@ def default_jobs(config: dict[str, Any]) -> list[MaintenanceJob]:
         from windyfly.eternitas.ept_refresh import refresh_ept
         refresh_ept()
 
+    def _renew_short_ept() -> None:
+        from windyfly.eternitas.ept_refresh import renew_short_lived
+        renew_short_lived()
+
     def _agent_keys() -> None:
         from windyfly.eternitas.agent_keys import disabled, ensure_registered
         if not disabled():
             ensure_registered()
+
+    def _trust_pull() -> None:
+        # An idle agent makes no trust check, so nothing would notice that Eternitas lowered its standing. This
+        # pull keeps the verdict current and lets trust/notice.py tell the owner once. No passport = nothing asked.
+        import os
+
+        passport = os.environ.get("ETERNITAS_PASSPORT", "")
+        if not passport:
+            return
+        from windyfly.trust.check import pull_soon
+
+        pull_soon(passport)
 
     jobs = [
         MaintenanceJob(
@@ -192,12 +208,25 @@ def default_jobs(config: dict[str, Any]) -> list[MaintenanceJob]:
             run=_refresh_ept,
             due=daily_due(after_hour=0),
         ),
+        # A key-bound passport token lives 24 hours (Eternitas ept-key-binding.v1): once a calendar day is not once
+        # per 24 hours, so every tick checks, locally, whether it is at half its life; only then does an ask go out.
+        MaintenanceJob(
+            name="eternitas.ept_renew.short_lived",
+            run=_renew_short_ept,
+            due=interval_due(TICK_SECONDS - 60),   # every tick: a tick a second early must not skip to the next
+        ),
         # Agent signing key: registers one once Eternitas supports it, and
         # finishes a rotation whose retire step failed.
         MaintenanceJob(
             name="eternitas.agent_keys.daily",
             run=_agent_keys,
             due=daily_due(after_hour=0),
+        ),
+        # The agent's own standing, pulled every tick (the cache makes it one fetch per 15 minutes at most).
+        MaintenanceJob(
+            name="eternitas.trust_pull",
+            run=_trust_pull,
+            due=interval_due(TICK_SECONDS),
         ),
     ]
 

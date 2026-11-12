@@ -726,13 +726,27 @@ _PROVIDER_NAMES = {
 
 
 def _refused_key_provider(resp: Any) -> str | None:
-    """None unless Mind says the owner's OWN provider key was refused (502 + x-mind-error:
-    connection, the provider in ``x-mind-connection`` per mind-refusal.v1 1.3.0). Then the
-    provider's plain name, or "" when Mind names none."""
-    if getattr(resp, "status_code", 0) != 502:
+    """None unless Mind says the owner's OWN provider key was refused. Then the provider's plain name, or ""
+    when Mind names none.
+
+    Two forms are read, so it does not matter whether the agent or Mind ships first (Boss RULING, BOARD
+    2026-11-11T03:37:10Z; Mind 03:39:03Z):
+      - NEW: a 4xx with the provider in ``x-mind-connection`` (mind-refusal.v1 1.17.0, x-edge-safe-status: ONE
+        status, 424, for the key itself and for its billing; the header is RESERVED for this refusal). The header
+        is the contract, never the number: a 4xx without it is an ordinary refusal, so a 402 on /v1/chat
+        (own_key_required, budget_spent) is not read as a refused key.
+      - OLD: 502 + ``x-mind-error: connection`` / ``x-mind-connection`` (mind-refusal.v1 1.3.0). Through
+        api.windymind.ai the edge replaces a 502's words and headers, so this form only ever arrived on Mind's own
+        network (Mind FINDING A, 2026-11-11T03:17:18Z); that is why Mind is changing it.
+    401, 403 and 429 are never a key refusal: they are the agent's standing, a stop, or a rate limit."""
+    status = getattr(resp, "status_code", 0)
+    new_form = 400 <= status < 500 and status not in (401, 403, 429)
+    if status != 502 and not new_form:
         return None
     headers = getattr(resp, "headers", None) or {}
     named = str(headers.get("x-mind-connection") or "").strip()
+    if new_form and not named:
+        return None
     if not named and str(headers.get("x-mind-error") or "").strip().lower() != "connection":
         return None
     name = named or str(headers.get("x-mind-provider") or "").strip()
@@ -754,7 +768,43 @@ def _refused_key_provider(resp: Any) -> str | None:
     return _PROVIDER_NAMES.get(name.lower(), name[:1].upper() + name[1:]) if name else ""
 
 
+def _parse_retry_after(resp: Any) -> float | None:
+    """Retry-After in seconds, when Mind sent a usable one."""
+    raw = (getattr(resp, "headers", None) or {}).get("retry-after")
+    try:
+        v = float(str(raw)) if raw is not None else 0.0
+    except (TypeError, ValueError):
+        return None
+    return v if v > 0 else None
+
+
+def _log_mind_refusal(resp: Any, where: str) -> None:
+    """One line per non-2xx answer from Mind: the status, whether Retry-After came, the NAMES of the x-mind
+    headers and the body length. Never a header value, never the body. It makes every agent a witness of what
+    actually arrives through the edge (promised to Mind, BOARD 2026-11-11T03:54:37Z)."""
+    try:
+        headers = getattr(resp, "headers", None) or {}
+        names = sorted(str(k).lower() for k in headers if str(k).lower().startswith("x-mind"))
+        raw = getattr(resp, "content", None)
+        if raw is None:
+            raw = getattr(resp, "text", "") or ""
+        logger.info("Mind answered %s on %s: retry-after %s; x-mind headers: %s; body %d bytes",
+                    getattr(resp, "status_code", "?"), where,
+                    "present" if "retry-after" in {str(k).lower() for k in headers} else "absent",
+                    ", ".join(names) or "none", len(raw))
+    except Exception:  # noqa: BLE001
+        pass
+
+
 _MIND_PING_MAX_TOKENS = 16
+_MODEL_NAME_MAX = 80
+
+
+def _clean_model_name(raw: Any) -> str | None:
+    """A model name from a response header, safe to show the owner and to log: no control characters, at most 80
+    characters (the same cap Windy Chat uses for this name; the Hub's note on #778, 2026-11-11T04:50:58Z)."""
+    name = "".join(ch for ch in str(raw or "") if ch.isprintable()).strip()[:_MODEL_NAME_MAX]
+    return name or None
 
 
 def mind_can_answer(model: str | None, timeout: float = 10.0) -> dict[str, Any]:
@@ -765,7 +815,18 @@ def mind_can_answer(model: str | None, timeout: float = 10.0) -> dict[str, Any]:
     (Windy Zero, 2026-11-08 to 11-10: 13 "recovered" lines, each followed in the same second by a 400).
     Only an answer proves the next turn will get one.
 
-    Returns ``{"ok": True, "status": 2xx}`` or ``{"ok": False, "status": int | None, "reason": str}``.
+    A 2xx proves Mind answers; it does not prove the NAMED model answered (Mind can serve another one with 200:
+    its fallback chain, the shared-free swap, the budget swap). So the answer also says what served
+    (``x-mind-model``) and whether MIND says it served another model than the one asked for (``swapped``:
+    ``x-mind-fellback-from`` or ``x-mind-served-reason`` came). ``own_model`` is True only when the model that
+    served is the one that was asked for and Mind reports no swap (Mind, BOARD 2026-11-10T18:51:55Z (1)).
+    A different name alone is not a swap (Mind, BOARD 2026-11-11T04:18:22Z): Mind resolves short and retired
+    names to the full one, serves a declared successor under the old name, and answers with its catalog spelling,
+    each with neither header. Names are compared without regard to case.
+
+    Returns ``{"ok": True, "status": 2xx, "asked_model", "served_model", "fellback_from", "swapped",
+    "own_model"}`` or
+    ``{"ok": False, "status": int | None, "reason": str, "retry_after": float | None}``.
     Never raises, never touches the cool-downs, never logs the request content. A refused call costs nothing;
     a successful one costs at most ``_MIND_PING_MAX_TOKENS`` output tokens, once per recovery.
     """
@@ -778,20 +839,31 @@ def mind_can_answer(model: str | None, timeout: float = 10.0) -> dict[str, Any]:
     body: dict[str, Any] = {
         "messages": [{"role": "user", "content": "Reply with the single word OK."}],
         "max_tokens": _MIND_PING_MAX_TOKENS,
+        "stream": False,  # Mind's ask (b), 2026-11-10T18:51:55Z
     }
     if model:
         body["model"] = model
+    asked: str | None = model or None
     try:
         resp = mind_auth.post(url, ept, body, timeout)
         if resp.status_code == 422 and "model" in body:
             # The same catalog-drift rule as a real turn: Mind does not know the name, so the broker picks.
             resp = mind_auth.post(url, ept, {k: v for k, v in body.items() if k != "model"}, timeout)
+            asked = None                                 # the broker picked: no model of the agent's was asked for
     except Exception as e:  # noqa: BLE001
         return {"ok": False, "status": None, "reason": f"unreachable: {type(e).__name__}"}
     status = int(getattr(resp, "status_code", 0) or 0)
+    headers = getattr(resp, "headers", None) or {}
     if 200 <= status < 300:
-        return {"ok": True, "status": status}
-    return {"ok": False, "status": status, "reason": _mind_error_detail(resp)[:200]}
+        served = _clean_model_name(headers.get("x-mind-model"))
+        fellback = _clean_model_name(headers.get("x-mind-fellback-from"))
+        swapped = bool(fellback or str(headers.get("x-mind-served-reason") or "").strip())
+        return {"ok": True, "status": status, "asked_model": asked, "served_model": served,
+                "fellback_from": fellback, "swapped": swapped,
+                "own_model": bool(asked and served and served.lower() == asked.lower() and not swapped)}
+    _log_mind_refusal(resp, "the recovery check")
+    return {"ok": False, "status": status, "reason": _mind_error_detail(resp)[:200],
+            "retry_after": _parse_retry_after(resp)}
 
 
 def _mind_error_detail(resp: Any) -> str:
@@ -1175,6 +1247,8 @@ def _try_mind_broker(
             resp = mind_auth.post(
                 f"{mind_url}/v1/chat", ept, retry_body, 30.0,
             )
+        if resp.status_code != 200:
+            _log_mind_refusal(resp, "/v1/chat")
         if _pause_unreadable(resp):
             # Mind could not read the owner's pause switch and spent nothing. The contract says
             # wait Retry-After and try once more; still unreadable = stop here: no cool-down
