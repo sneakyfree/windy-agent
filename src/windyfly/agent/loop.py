@@ -1717,7 +1717,10 @@ def _agent_respond_turn(
     # refused and the band is capped for the rest of the turn — so an injected
     # instruction inside that content can't drive the agent to exfiltrate or
     # run privileged tools. Persists across ReAct rounds.
-    turn_tainted = False
+    from windyfly.tools.bands import turn_is_forwarded
+
+    # A turn on words the owner forwarded from someone else starts tainted: they are a quote, not an order.
+    turn_tainted = turn_is_forwarded()
     if tool_calls and (tool_registry or capability_registry.count() > 0):
         tool_executed = True
         max_tool_rounds = loop_sliders.get("tool_reloop_rounds", _DEFAULT_TOOL_ROUNDS)

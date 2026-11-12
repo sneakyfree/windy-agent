@@ -21,7 +21,32 @@ logger = logging.getLogger(__name__)
 
 AUD = "windy-cloud"
 FLAG = "WINDY_CLOUD_EPT_AGENT"
-_warned: set[str] = set()
+# How many Cloud calls went out on the old credential in this process, by reason. Every one is logged with its running
+# count (never the token): once-per-reason logging hid how often a backup used the old credential (BOARD 2026-11-11).
+fallbacks: dict[str, int] = {}
+
+
+def _count(reason: str) -> int:
+    fallbacks[reason] = fallbacks.get(reason, 0) + 1
+    return fallbacks[reason]
+
+
+def old_credential() -> str:
+    """The token for the old Cloud path: WINDY_CLOUD_TOKEN; a person's Windy sign-in (WINDY_JWT) only for an agent that
+    holds no key of its own. An agent with a registered key mints its own token, and the agent never sends its owner's
+    sign-in where its own credential belongs (DNA strand plan §1.5): if its own mint fails, the call waits, it does not
+    borrow the person's."""
+    token = os.environ.get("WINDY_CLOUD_TOKEN", "").strip()
+    if token:
+        return token
+    try:
+        from windyfly.eternitas import agent_keys
+
+        if agent_keys.has_registered_key():
+            return ""
+    except Exception:  # noqa: BLE001 - an unreadable key file is not a reason to send the person's sign-in
+        return ""
+    return os.environ.get("WINDY_JWT", "").strip()
 
 
 def enabled() -> bool:
@@ -42,9 +67,9 @@ def agent_headers(method: str, url: str) -> dict[str, str] | None:
         return service_auth.agent_headers(AUD, method, url.split("?", 1)[0])
     except service_auth.ServiceAuthError as exc:
         reason = str(exc) or "unknown"
-        if reason not in _warned:  # once per reason, never the token
-            _warned.add(reason)
-            logger.info("[cloud-auth] no EPT+agent for windy-cloud (%s); old credential", reason)
+        n = _count(f"no_token:{reason}")
+        logger.info("[cloud-auth] no EPT+agent for windy-cloud (%s); old credential, %d time(s) for this reason",
+                    reason, n)
         return None
 
 
@@ -54,5 +79,6 @@ def refused(status_code: int) -> bool:
 
 
 def fallback_used(where: str, status_code: int) -> None:
-    logger.info("[cloud-auth] %s: Cloud answered %d to the EPT+agent; retried with the old one",
-                where, status_code)
+    n = _count(f"refused:{status_code}")
+    logger.info("[cloud-auth] %s: Cloud answered %d to the EPT+agent; retried with the old one, %d time(s)",
+                where, status_code, n)
