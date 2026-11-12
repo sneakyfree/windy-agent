@@ -1168,6 +1168,22 @@ def _register_all():
             )
             return "\n".join(lines)
 
+        # ── "default": drop this chat's pick (the phone's "default" model chip, Fly Mobile need 6) ──
+        if arg.lower() == "default":
+            if not platform or not channel_id:
+                return (
+                    "🪰 /model received but I couldn't identify your "
+                    "chat session — channel context missing. The change "
+                    "wasn't saved."
+                )
+            from windyfly.agent.session_reset import set_model as _clear_pick
+            _clear_pick(platform, channel_id, None)
+            now = _resolve_active_model(platform, channel_id)
+            if now.strip().lower() == "auto":
+                return ("🤖 Back to my default for this chat: Windy Mind picks the model. "
+                        "Effective on your next message.")
+            return f"🤖 Back to my default for this chat: {now}. Effective on your next message."
+
         # ── With arg: resolve + persist ──────────────────────────
         picked = mind_catalog.resolve(arg, catalog) if catalog else None
         if catalog and picked is None:
