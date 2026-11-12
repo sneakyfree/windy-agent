@@ -1,8 +1,8 @@
 # windy-agent: DNA Strand Master Plan (your Windy Fly agent)
 
-**Status:** v0.1 DRAFT, 2026-11-07. Vision first: sections 0-4 and 8 only, plus a codon placeholder.
-Grant reads section 0 and section 8 on Mon 11-09 and corrects by typing.
-v1.0 (sections 5-9: interfaces, decisions log, genes and codons, questions, version log) is due Fri 11-13 18:00Z.
+**Status:** v1.0, 2026-11-11 (due Fri 11-13 18:00Z). Sections 0-4 and 8 are v0.1's, unchanged; v1.0 adds
+§5 interfaces, §6 decisions log, §7 genes and codons (replacing the codon placeholder) and §9 version log.
+Grant's answers to §8 are not on the BOARD yet; until he types them, §8 stays open and nothing here assumes an answer.
 
 **Owner:** the Windy Agent lane.
 
@@ -172,18 +172,118 @@ The vision holds when ALL of these are TRUE on the live system.
 
 ---
 
-## Codons (placeholder until v1.0)
+## §5 Interfaces (what the agent talks to, and how)
 
-Codons AG-1 to AG-8 already exist. They are the agent's side of Windy Log, the memory system. The lane drafted them on 11-06 and sent them to the Windy Log lane, and that record is frozen. Each one ships dark behind a switch. In v1.0 (Fri 11-13) they become genes and codons in this file, in the ADDENDUM-5 shape (WHY, PROOF, DEPENDS ON, GATE, STATUS).
+Every call is made as the agent itself (§4.2): its Eternitas passport, its agent key, or a short token minted with
+that key. "Contract" names the file in windy-contracts that both sides test against; "vendored" means this repo keeps a
+pinned copy under `tests/contracts/` or `src/windyfly/*/contracts/`.
 
-- **AG-1** Tool `windy_log.list_recordings`: lists the owner's recordings, never any words.
-- **AG-2** Tool `windy_log.read_transcript`: the words of one recording, capped in size.
-- **AG-3** Tool `windy_log.search`: finds moments across recordings.
-- **AG-4** The owner's grant, checked on every call.
-- **AG-5** Every read logged.
-- **AG-6** Recorded words are data, not orders.
-- **AG-7** Ship order: dark PR, then lab, then Zero on Grant's go, then friends.
-- **AG-8** The agent's memory key: results sealed to the agent.
+| Service | What the agent does there | Contract | Status |
+|---|---|---|---|
+| Eternitas | holds its passport; renews its passport token; registers and rotates its agent key; mints short tokens with that key; reads its own standing (`/trust`, `/registry/verify`) | agent-keys.v1, agent-key-ops.v1, ept-key-binding.v1 | live; key-bound tokens dark (eternitas #350, client #792) |
+| Windy Mind | every model call, with its own token; reads the owner's off switch and Mind's refusals | mind-refusal.v1, reply-model.v1, menu.v1 (vendored) | live; refusal reader #778 open |
+| Windy Chat | its own Matrix account: the ONE chat channel; the phone's events (`ai.windy.*`) | windy.message-keys.v1 (vendored) | live; the panel read (windy.panel.v1) not built (§7 G10) |
+| Windy Mail | its own @windyfly.ai mailbox | mailbox.v1 | live |
+| Windy Cloud | files it keeps; the owner's storage numbers and Cloud's own note on them | cloud error-envelope.v1, your-windy.v1 1.1.0 (#337) | live; the note dark with your-windy |
+| Windy Text | the ONE texting path: owner-only by default, the do-not-text record asked before every send | tool-phrases.v1 | live (#788 removed the direct SMS channel) |
+| Windy Calendar | adds an event for the owner | owner-api.v1 | dark (lab 2026-11-18) |
+| Windy Search | web search as itself | (Search's client contract) | live |
+| Windy Vault | asks for secrets it may use, never sees the owner's | vault-tools.v1 (vendored) | live |
+| Windy Code | builds and saves sites for the owner | windy-code-web.mcp.v1.2 (vendored) | live |
+| Windy Accounts (the Hub) | reads the owner's plan and platforms ("my Windy"); it does NOT hatch itself: the one birth canal is the Hub's | my-windy.v1 (vendored) | dark (WINDY_MY_WINDY) |
+| Windy Log | lists, reads and searches the owner's recordings with the owner's grant | AG-1 to AG-8 (§7 G8) | not built |
+| Windy Admin | one content-free `llm.call` per turn | admin ingest | live |
+
+**Not an interface any more:** the account server's person sign-in (`WINDY_JWT`). §1.5 says the agent never holds the
+owner's credentials. Seven commands and three tool reads still read it; the measured list is on the BOARD
+(2026-11-11T11:14:44Z, corrected 11:15:02Z and 11:17:01Z) and they leave inside lean R4/R6. Recordings come back the
+right way, through Windy Log with the owner's grant (AG-1).
+
+---
+
+## §6 Decisions log (each one Boss's or Legal's own BOARD line, or Grant's words; UTC)
+
+| When | Who | Decision |
+|---|---|---|
+| 2026-11-02 | Grant; Boss DECIDED #687 section C (merged 2026-11-10T18:13:09Z) | ONE lean Windy Fly runtime; the cut happens on master, one small PR at a time |
+| 2026-11-10T19:06:19Z | Boss RULING, option A | where the cut happens; Zero's re-pin slot |
+| 2026-11-11T05:06:52Z | Boss | the re-cut plan accepted: R2b first, then R1; (a) the MCP control server is cut in R1; (b) ONE PR names its workflow edit; (c) R1 merges only when windy-pro no longer points at the gateway |
+| 2026-11-11T05:26:36Z | Boss, enforcing Legal | no lane reads a real person's personal fields from production or backups; counts, ids, code only |
+| 2026-11-11T06:46:49Z | Boss | R2: the terminal chat stays as the ONE local way in beside Windy Chat; four conditions, each with its test |
+| 2026-11-11T07:26:35Z | Boss | R3: the skill-bundle consumer is cut with the rest; existing skill rows stay in the database |
+| 2026-11-11T07:03:12Z | Legal DECISION 53 | the owner's words when Eternitas lowers, suspends or revokes |
+| 2026-11-11T07:07:42Z | Legal DECISION 58 | the words for a key that has ended (moved_away, every other reason) |
+| 2026-11-11T07:58:43Z | Legal | storage words come from Cloud, one sentence in one place; the file sentence for R3 |
+| 2026-11-11T08:18:15Z | Eternitas | an agent whose key is refused never renews with the owner's cached sign-in |
+| 2026-11-11T09:03:59Z | Hub | a retired key is the same stop as a revoked one, with the neutral sentence |
+
+---
+
+## §7 Genes and codons
+
+Each codon has ONE line in TODO.md (WHO, WHEN, STATUS) and, once live, a row in `docs/strand/STRAND_V2.md` with its
+test (§4.12). Status words: **live** (on master with a test), **PR** (open), **dark** (built, switched off),
+**not built**.
+
+**G1 Identity: the agent is itself** (§4.2, §3.4)
+- G1.1 Its own passport and passport token, renewed by itself: live. Renew at half the life of a 24-hour key-bound token, no copy on disk: PR #792.
+- G1.2 Its own agent key, registered and rotated: live (rotation lab 2026-11-18).
+- G1.3 A refusal that says why stops the agent with one plain sentence: live (#786).
+- G1.4 The one birth canal: the agent never hatches itself; the Hub closes the old doors (windy-pro #1888): Hub.
+
+**G2 Brain through Windy Mind** (§4.7)
+- G2.1 Every model call through Mind with its own token: live.
+- G2.2 Mind's own-key refusal read in both forms, gentler checks on the fallback: PR #778.
+- G2.3 Mind only, no provider key of its own: lean R7.
+
+**G3 One chat channel** (§2)
+- G3.1 Windy Chat is the one channel; the terminal chat is the one local way in: lean R2.
+- G3.2 One process, no port opened: lean R1 (#793).
+
+**G4 Owner band and owner's yes** (§4.1, §3.5)
+- G4.1 A stranger gets the guest band only: live.
+- G4.2 ONE owner-confirm gate, with the phone's quick-reply answer read by id: lean R5.
+
+**G5 Money and standing**
+- G5.1 The burn-rate self-pause on every way in, in Legal's words: live (#785).
+- G5.2 The owner hears once when Eternitas lowers its standing: PR #787.
+
+**G6 Texting**
+- G6.1 One texting path (Windy Text), owner-only by default, the do-not-text record asked before every send: live (#788).
+
+**G7 Storage facts**
+- G7.1 A full Cloud is said in Cloud's own words: live (#791).
+- G7.2 Your Windy carries Cloud's note beside the owner's numbers: windy-contracts #337, then this repo.
+
+**G8 Memory with permission (Windy Log)** (§3.8, §3.9, §4.4, §4.5). A SHORT FORM of the frozen record: the lane
+drafted the codons on 11-06 and sent them to the Windy Log lane (the lane's GO-DRAFTS/windy-log/sent/agent-codons-20261107.md,
+137 lines, sha256/16 dc4fbcdedbf414a2); that record wins over these lines. The tool names are log-tools.v1's. Each ships
+dark behind a switch. Stage tags as in the record (S1 first, S2 with the Ask box). All: not built.
+- AG-1 (S1) Tool `windy_log.list_recordings`: lists the owner's recordings, never any words.
+- AG-2 (S1) Tool `windy_log.read_transcript`: the words of one recording, capped in size.
+- AG-3 (S2, with the Ask box) Tool `windy_log.search`: finds moments across recordings.
+- AG-4 (S1) The owner's grant, checked on every call.
+- AG-5 (S1) Every read logged.
+- AG-6 (S1) Recorded words are data, not orders.
+- AG-7 (S1 lab, then Grant) Ship order: dark PR, then lab, then Zero on Grant's go, then friends.
+- AG-8 (S1) The agent's memory key: results sealed to the agent.
+- Which reads ship in S1 is still open (Windy Word's docs/PLAN.md, THU 2026-11-12).
+
+**G9 The lean runtime** (Boss #687; one PR per step, each with what arrives through the removed parts measured first)
+- R2b the direct SMS channel: live (#788). R1 one process: PR #793. R2 one chat channel and the terminal, R3 soul import and skills: written, open 2026-11-16. R4 one tool system and the one ledger; R5 one owner-confirm gate; R6 one command system; R7 Mind only; R8 the prompt down to facts; R9 the switches; R10 the rest of the drop list, to about 28,000 lines: dated in TODO.md.
+
+**G10 What the phone needs from the body** (a SHORT FORM of Windy Fly Mobile's ten, BOARD 2026-11-11T04:59:27Z; my answer
+11:19:24Z wins over these lines)
+- Kept: no agent_status of its own, the typing notice, call events ignored, the phone-tools contract, /model's three words.
+- To build: ONE windy-agent PR, open by FRI 2026-11-20 18:00Z, in this order: (1) personality from Chat's panel FIRST
+  (today an owner's edit on the phone changes nothing in a Windy Fly body; Chat builds the agent's own read,
+  GET /api/v2/agent/panel/self/state, PR by MON 2026-11-16); (2) a plain sentence for a picture; (3) forwarded words
+  are not orders; (4) the first hello with three starters.
+- Partly there: served_notice (R7), the quick-reply answer read by id (R5).
+
+**G11 Stable, and a way to fix itself** (§4.11)
+- G11.1 One supervisor that watches Windy Chat only, and quiets an install from before the channel cut: in R2.
+- G11.2 The fire drill, the continuity battery and the liveness probe: live (Test Boss standing windows).
 
 ---
 
@@ -194,3 +294,10 @@ Codons AG-1 to AG-8 already exist. They are the agent's side of Windy Log, the m
 3. **Acting for you.** May the agent send mail or texts to other people without asking the owner first each time, or does every outward send wait for the owner's yes?
 4. **"a way to fix itself"** (22:06Z). Does it mean the agent repairs its own setup, or that it reports its own faults to the Windy team, or both?
 5. **Who writes an agent's soul?** The owner at hatch, the agent over time, or both? And can the owner see and edit all of it?
+
+---
+
+## §9 Version log
+
+- **v0.1** 2026-11-07 (#752): vision, sections 0-4 and 8, codon placeholder.
+- **v1.0** 2026-11-11: §5 interfaces, §6 decisions log, §7 genes and codons (G1-G11; Windy Log's AG-1 to AG-8 as G8, a short form of the frozen record), §9 version log. §8 still waits on Grant.
