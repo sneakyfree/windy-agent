@@ -78,8 +78,8 @@ Line standard (Boss BOARD 2026-11-07T00:02:22Z): - [ ] what · OWNER · ADDED ·
 **Fri 2026-11-13**
 - [ ] ONE AGENT LIST: read the Hub's ONE dark PR (Chat-only agents added, real standing with unknown = null, agent_matrix_id) · OWNER Windy Agent · ADDED 2026-11-07 · DUE 2026-11-13 18:00Z · STATUS waiting on Hub · SOURCE Boss BATCH RULINGS BOARD 2026-11-07T00:19:02Z (8); my 00:21:20Z; Hub 00:22:10Z
 - [ ] The agent-auth view of the same list: build the Fly side DARK (agent/teams.py reads it behind a flag; Chat's my-agents until then, then pairing-only) · OWNER Windy Agent · ADDED 2026-11-07 · DUE none · STATUS blocked by Word's 2026-11-11 plan naming the shape · SOURCE Hub BOARD 2026-11-07T00:22:10Z (4)
-- [ ] windyfly.ai copy PR (after #22): "Windy Fly" = the app (Mobile + Desktop), the agent = "your Windy Fly agent"; own Pages GO · OWNER Windy Agent · ADDED 2026-11-06 · DUE 2026-11-13 · STATUS waiting on #22 · SOURCE Boss BOARD 2026-11-06T19:40:46Z
-- [ ] hifly.ai moves to its OWN Pages project (frozen at #22's merge) before the copy deploys, own GO · OWNER Windy Agent · ADDED 2026-11-06 · DUE 2026-11-13 (plan) · STATUS waiting on #22 · SOURCE Boss BOARD 2026-11-06T19:40:46Z
+- [ ] windyfly.ai copy PR (after #22): "Windy Fly" = the app (Mobile + Desktop), the agent = "your Windy Fly agent"; own Pages GO · OWNER Windy Agent · ADDED 2026-11-06 · DUE 2026-11-13 · STATUS next; windy-fly-site #22 is merged (2026-11-09T14:00:54Z, GitHub) and live, so nothing blocks it; the copy PR opens after the hifly.ai plan below, and deploys only on its own GO · SOURCE Boss BOARD 2026-11-06T19:40:46Z
+- [ ] hifly.ai moves to its OWN Pages project (frozen at #22's merge) before the copy deploys, own GO · OWNER Windy Agent · ADDED 2026-11-06 · DUE 2026-11-13 (plan) · STATUS next; windy-fly-site #22 is merged (2026-11-09T14:00:54Z, GitHub), so the freeze point exists; the plan goes on the BOARD by the due date · SOURCE Boss BOARD 2026-11-06T19:40:46Z
 - [ ] Branch verdicts from the other owners (table below) · OWNER Grant / Kit OC1 (via Boss) · ADDED 2026-11-04 · DUE 2026-11-13 · STATUS waiting on the owners · SOURCE TODO #702
 
 **Staged, each step on its own GO**
