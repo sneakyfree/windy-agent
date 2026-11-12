@@ -121,7 +121,9 @@ async def handle_incoming(text: str, context: dict | None = None) -> tuple[bool,
         word = text.strip().strip(".!").lower()
         if word == "send":
             who = str(ctx.get("sender_id") or "the owner")
-            res = _mail.approve_latest(who)
+            from windyfly.agent.capabilities.audit import audited_call
+
+            res = audited_call("send_email", {}, lambda: _mail.approve_latest(who), band=band, via="owner_send")
             if res.get("status") == "sent":
                 return True, f"Sent to {res.get('to', 'the recipient')}, with your approval."
             return True, f"Not sent: {res.get('error') or res.get('status')}"
