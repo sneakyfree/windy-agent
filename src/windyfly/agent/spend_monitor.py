@@ -183,10 +183,16 @@ def yolo_disable() -> dict[str, Any]:
     return {"ok": True, "was_active": existed}
 
 
+# A pause held in THIS process's memory: set only when a burn-rate breach could not write the flag file (Boss's note
+# on #805). It stops this process's model calls until the owner says /resume in this chat; a restart forgets it, and
+# the first check after the restart stops again if the spending is still too fast (LEGAL WORDS 2026-11-12T11:18:16Z).
+_memory_pause: dict[str, Any] | None = None
+
+
 def is_paused() -> bool:
     """Quick check at the top of agent_respond. File-based so the
-    check is fast (one stat call, no DB)."""
-    return _pause_flag_path().exists()
+    check is fast (one stat call, no DB); a pause held in this process's memory counts too."""
+    return _memory_pause is not None or _pause_flag_path().exists()
 
 
 def pause_reason() -> dict[str, Any]:
@@ -198,7 +204,7 @@ def pause_reason() -> dict[str, Any]:
     """
     path = _pause_flag_path()
     if not path.exists():
-        return {}
+        return dict(_memory_pause) if _memory_pause is not None else {}
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except Exception:
@@ -268,9 +274,11 @@ def pause_first(reason: str, actor: str = "auto") -> bool:
 
 
 def resume() -> dict[str, Any]:
-    """Delete the pause flag. Best-effort — missing flag is a no-op."""
+    """Delete the pause flag and this process's memory pause. Best-effort — missing flag is a no-op."""
+    global _memory_pause
     path = _pause_flag_path()
-    existed = path.exists()
+    existed = path.exists() or _memory_pause is not None
+    _memory_pause = None
     try:
         path.unlink(missing_ok=True)
     except Exception as e:
@@ -428,8 +436,9 @@ def maybe_auto_pause(
       "noop:already_paused"    — already paused; nothing to do
       "noop:below_threshold"   — burn rate fine; nothing to do
       "paused"                 — threshold breached; we paused
-      "error:pause_write_failed" — breached, but the flag could not be written: NOT paused
+      "paused_here"            — breached, the flag could not be written: THIS process stopped in memory
     """
+    global _memory_pause
     if is_paused():
         return {"action": "noop:already_paused"}
 
@@ -463,8 +472,17 @@ def maybe_auto_pause(
         if is_paused():
             # Another process paused in the same moment and tells the owner; this one says nothing (one notice).
             return {"action": "noop:already_paused"}
-        # The flag could not be written at all: nothing is paused, and the log must say so (the Hub on #805).
-        return {"action": "error:pause_write_failed"}
+        # The flag could not be written at all: THIS process stops in memory and tells the owner in its own chat
+        # (Boss's note on #805; the words are Legal's, auto_pause_notice). Other processes do the same in theirs.
+        _memory_pause = {"ts": datetime.now(timezone.utc).isoformat(), "reason": reason, "actor": "auto",
+                         "held": "memory"}
+        logger.error("PAUSED IN MEMORY ONLY (the flag could not be written): reason=%s; until /resume here", reason)
+        return {
+            "action": "paused_here",
+            "current_hourly": breach["current_hourly"],
+            "threshold": breach["threshold"],
+            "by_provider": breach.get("by_provider", {}),
+        }
     return {
         "action": "paused",
         "current_hourly": breach["current_hourly"],
@@ -477,10 +495,24 @@ def maybe_auto_pause(
 AUTO_PAUSE_CHECK_S = 300.0
 
 
+MEMORY_PAUSE_NOTICE = (
+    "I've stopped here because I was spending faster than your limit allows. I couldn't save the pause everywhere, "
+    "so I may still be running in your other chats. Send /resume here to start me again. If I restart, I'll check "
+    "the spending again and stop if it's still too high."
+)
+
+# The actions after which a channel tells the owner (auto_pause_notice picks the words).
+NOTICE_ACTIONS = ("paused", "paused_here")
+
+
 def auto_pause_notice(result: dict[str, Any]) -> str:
     """What the owner is told when the agent paused itself for spending too fast. Plain text, the ONE copy, said
     by every channel. Windy Legal's words, word for word (LEGAL DECISION 55, BOARD 2026-11-11T06:43:52Z): no "LLM
     calls", "burn rate" or "threshold"; "the last few minutes" stays true if the 15-minute window changes."""
+    if result.get("action") == "paused_here":
+        # LEGAL WORDS, word for word (BOARD 2026-11-12T11:18:16Z): the flag could not be saved, so the stop holds only
+        # in the process that says this, in its own chat.
+        return MEMORY_PAUSE_NOTICE
     hourly = float(result.get("current_hourly") or 0)
     threshold = float(result.get("threshold") or 0)
     return (

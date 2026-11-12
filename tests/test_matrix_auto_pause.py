@@ -26,6 +26,7 @@ ROOM = "!owner:chat.windychat.ai"
 def _own_pause_flag(monkeypatch, tmp_path):
     monkeypatch.setenv("WINDY_PAUSE_FLAG", str(tmp_path / ".paused"))
     monkeypatch.delenv("WINDY_BURN_AUTOPAUSE_USD_PER_HOUR", raising=False)
+    monkeypatch.setattr(spend_monitor, "_memory_pause", None)
     yield
 
 
@@ -154,3 +155,18 @@ def test_every_channel_says_the_one_copy():
     src = inspect.getsource(telegram_bot.TelegramChannel._maybe_auto_pause)
     assert "auto_pause_notice(result)" in src and "parse_mode" not in src
     assert "LLM calls" not in src and "protect your wallet" not in src
+
+
+@pytest.mark.asyncio
+async def test_a_pause_that_cannot_be_saved_stops_here_and_says_so_in_the_owners_room(tmp_path, monkeypatch):
+    """The flag cannot be written: this process stops in memory and tells the owner Legal's sentence (11:18:16Z)."""
+    db = _ledger(tmp_path, 50, 0.10)
+    bot = _bot(db)
+    monkeypatch.setattr(spend_monitor, "pause_first", lambda reason, actor="auto": False)
+    try:
+        assert await bot._auto_pause_check() is True
+        assert spend_monitor.is_paused()
+        room, kind, content = bot.client.room_send.await_args.args
+        assert room == ROOM and content["body"] == spend_monitor.MEMORY_PAUSE_NOTICE
+    finally:
+        db.close()

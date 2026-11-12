@@ -2032,7 +2032,7 @@ class WindyFlyMatrixBot(ChannelAdapter):
         except Exception as e:  # noqa: BLE001
             logger.warning("auto-pause check failed: %s", e)
             return False
-        if result.get("action") != "paused":
+        if result.get("action") not in spend_monitor.NOTICE_ACTIONS:
             return False
         room = self._hatch_dm_room_id
         if not room:
