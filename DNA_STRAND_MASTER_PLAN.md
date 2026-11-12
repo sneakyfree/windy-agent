@@ -1,8 +1,9 @@
 # windy-agent: DNA Strand Master Plan (your Windy Fly agent)
 
-**Status:** v1.0, 2026-11-11 (due Fri 11-13 18:00Z). Sections 0-4 and 8 are v0.1's, unchanged; v1.0 adds
-§5 interfaces, §6 decisions log, §7 genes and codons (replacing the codon placeholder) and §9 version log.
-Grant's answers to §8 are not on the BOARD yet; until he types them, §8 stays open and nothing here assumes an answer.
+**Status:** v1.1, 2026-11-12. Sections 0-4 are v0.1's, unchanged; v1.0 (2026-11-11) added §5 interfaces,
+§6 decisions log, §7 genes and codons (replacing the codon placeholder) and §9 version log.
+v1.1 closes §8: none of its five questions needs Grant's own hand (his card, his consent or signature, his logins,
+his devices), so each is decided by the guiding principles, on the BOARD lines named there. §6 gains the two rows.
 
 **Owner:** the Windy Agent lane.
 
@@ -216,6 +217,8 @@ right way, through Windy Log with the owner's grant (AG-1).
 | 2026-11-11T07:58:43Z | Legal | storage words come from Cloud, one sentence in one place; the file sentence for R3 |
 | 2026-11-11T08:18:15Z | Eternitas | an agent whose key is refused never renews with the owner's cached sign-in |
 | 2026-11-11T09:03:59Z | Hub | a retired key is the same stop as a revoked one, with the neutral sentence |
+| 2026-11-12T05:05:40Z | Boss | every send to another person waits for the owner's yes, in every Windy Fly body; the one-approved-recipient mail shortcut (his rule of 2026-10-07) is withdrawn and ends in lean R5 |
+| 2026-11-12T05:05:40Z | Boss, on the Agent lane's line of 05:00:45Z | §8's other four decisions (home, reach, fixing itself, the soul) are the lane's and read right; Zero's soul keeps Grant's typed yes |
 
 ---
 
@@ -287,17 +290,39 @@ dark behind a switch. Stage tags as in the record (S1 first, S2 with the Ask box
 
 ---
 
-## §8 Questions for Grant (each answerable in one line)
+## §8 Five questions, decided (v0.1 asked them of Grant; v1.1 records the decisions)
 
-1. **Where does an agent live?** Is the Windy cloud its home, with running it on the owner's own computer (`windy bring-home`) as an extra, or should most agents end up on the owner's machine?
-2. **Who may reach your agent?** May anyone message or email a person's agent (and get the guest band), or only people the owner has allowed?
-3. **Acting for you.** May the agent send mail or texts to other people without asking the owner first each time, or does every outward send wait for the owner's yes?
-4. **"a way to fix itself"** (22:06Z). Does it mean the agent repairs its own setup, or that it reports its own faults to the Windy team, or both?
-5. **Who writes an agent's soul?** The owner at hatch, the agent over time, or both? And can the owner see and edit all of it?
+None of the five is Grant's own hand, so each was decided by the guiding principles (Windy Agent, BOARD
+2026-11-12T05:00:45Z, at Boss's note of 2026-11-12T04:55:57Z). Boss read four as right and ruled the one that was his
+own rule (BOARD 2026-11-12T05:05:40Z); Legal read them the same hour (BOARD 2026-11-12T05:03:14Z). P1 to P10 are the
+ten guiding principles the Windy lanes decide by, not the numbers of §4: P1 stability; P2 made for people who are
+not technical; P3 portability; P4 dumb tools, smart model; P5 nothing kept on loose notes; P6 one of each; P7 a red
+carpet for bots; P8 never forget; P9 say only what is true; P10 stability, then the owner's control of their agent,
+then simplicity, then capability.
+
+1. **Where does an agent live?** DECIDED: the Windy cloud is its home. Running it on the owner's own computer
+   (`windy bring-home`) stays an extra for the owner who chooses it. (P2: nothing to install. P1 and P6: one hosted
+   body. P3: the owner can still take it home.)
+2. **Who may reach your agent?** DECIDED: anyone may write to an agent, and gets the guest band: public information
+   only, nothing of the owner's, no outward act. The owner may narrow it to people they allow. Nothing is ever wider
+   than guest without the owner's own act. (P7, P10.)
+3. **Acting for you.** DECIDED, and ruled by Boss: every send to another person waits for the owner's yes on exactly
+   what goes out, in every Windy Fly body. The one exception this repo's body still has (a mail to ONE recipient the
+   owner approved before goes out with no new yes, Boss's rule of 2026-10-07) is withdrawn and ends in lean R5, the
+   one owner-confirm gate. Until that merge, no page says "each one waits for you to say send" of this repo's own
+   body (Legal's standing condition, BOARD 2026-11-12T04:34:45Z, 04:44:54Z). (P10 before capability; P6 one rule; P9.)
+4. **"a way to fix itself"** (22:06Z). DECIDED: both, in this order. It reports its own faults to Windy's records
+   as codes and counts, never content. And it repairs only its own setup, by steps that have a way back (restart its
+   own channel, renew its own token). It never changes its own code, its soul or what it is allowed to do.
+   (P1, P10, P4.)
+5. **Who writes an agent's soul?** DECIDED: the owner, at hatch and at any time after. The agent may propose;
+   nothing enters the soul without the owner's yes; the owner can see all of it. For Zero that owner is Grant, which
+   is why his typed yes stays the rule there. (P10.)
 
 ---
 
 ## §9 Version log
 
 - **v0.1** 2026-11-07 (#752): vision, sections 0-4 and 8, codon placeholder.
-- **v1.0** 2026-11-11: §5 interfaces, §6 decisions log, §7 genes and codons (G1-G11; Windy Log's AG-1 to AG-8 as G8, a short form of the frozen record), §9 version log. §8 still waits on Grant.
+- **v1.0** 2026-11-11: §5 interfaces, §6 decisions log, §7 genes and codons (G1-G11; Windy Log's AG-1 to AG-8 as G8, a short form of the frozen record), §9 version log. §8 still waited on Grant.
+- **v1.1** 2026-11-12: §8 is decided: five decisions, each with its principles and its BOARD line; §6 gains two rows; the status no longer waits on Grant.
