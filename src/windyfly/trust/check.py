@@ -34,9 +34,12 @@ A home PULLS this; it has no inbound port for a push. Eternitas's rule for every
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
+import threading
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
@@ -372,8 +375,53 @@ async def get_trust(passport: str | None = None, db=None, force_refresh: bool = 
 
     fresh = await _fetch(passport)
     if fresh:
+        _note_change(passport, fresh, db)
         _cache_write(fresh, db=db)
     return fresh
+
+
+PULL_SPREAD_S = 120
+
+
+def pull_offset(passport: str) -> int:
+    """This passport's fixed delay, 0 to 119 s, before its timed pull. A home that runs many agents restarts them
+    in the same second; the registry's public limit is per address (100 a minute), so each agent starts its pull at
+    its own offset instead of all at once (Eternitas, BOARD 2026-11-11T07:32:35Z)."""
+    import zlib
+
+    return zlib.crc32(passport.encode("utf-8")) % PULL_SPREAD_S
+
+
+def pull_soon(passport: str) -> threading.Thread:
+    """The timed pull (agent/maintenance.py): on a helper thread, after this passport's offset. The caller never
+    waits, and a failure is only logged."""
+    def run() -> None:
+        try:
+            time.sleep(pull_offset(passport))
+            asyncio.run(get_trust(passport=passport))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Trust: the timed pull failed (%s)", type(exc).__name__)
+
+    t = threading.Thread(target=run, name="trust-pull", daemon=True)
+    t.start()
+    return t
+
+
+def _note_change(passport: str, fresh: TrustSnapshot, db=None) -> None:
+    """A fetched verdict worse than the one before: the owner is told once (trust/notice.py). Never raises and never
+    waits for the mail: the verdict itself is what the caller asked for."""
+    try:
+        from windyfly.trust import notice
+
+        db = db or _db()
+        _ensure_table(db)
+        row = db.conn.execute("SELECT status, band FROM trust_cache WHERE passport = ?", (passport,)).fetchone()
+        before = (row["status"], row["band"]) if row else None
+        changed = notice.observe(passport, fresh.status, fresh.band, db, before=before)
+        if changed or notice.has_pending(passport, db):
+            notice.deliver_in_background(passport)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Trust: could not record a change of standing (%s)", type(exc).__name__)
 
 
 def _strict_mode() -> bool:
