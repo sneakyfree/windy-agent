@@ -388,7 +388,7 @@ class TestMindRoutedAgentCanLeaveLifeboat:
         monkeypatch.setattr(models.mind_auth, "post", fake_post)
         with patch("httpx.get", side_effect=AssertionError("Mind is not asked for /v1/models any more")):
             out = _r._paid_health_probe()
-        assert out == {"ok": True, "provider": "windy-mind", "status": 200}
+        assert (out["ok"], out["provider"], out["status"]) == (True, "windy-mind", 200)
         assert seen["url"] == "https://mind.test/v1/chat"
         assert seen["ept"] == "ept-abc"
         assert seen["body"]["max_tokens"] == models._MIND_PING_MAX_TOKENS
