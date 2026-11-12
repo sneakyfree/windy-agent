@@ -1,0 +1,1 @@
+- **One pause, one message.** When your agent pauses itself for spending too fast, it now does so in one step, so you get one message even if two parts of the agent noticed at the same moment.
