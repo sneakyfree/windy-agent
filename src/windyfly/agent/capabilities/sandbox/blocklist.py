@@ -101,3 +101,20 @@ def check_blocklist(command: str) -> None:
     for pattern, reason in BLOCKED_PATTERNS:
         if pattern.search(command):
             raise BlockedCommand(reason)
+    if names_the_lockbox(command):
+        raise BlockedCommand(LOCKBOX_REASON)
+
+
+# The owner's lockbox, by name, at EVERY band and in every sandbox, the owner included (Boss, BOARD
+# 2026-11-13T01:38:19Z: "if Zero has any shell or exec tool, the same matcher goes there"). The same name matcher
+# as the file and github tools (filesystem.is_lockbox_name). Like every pattern here it is belt-and-suspenders, not
+# the wall: the Docker sandbox also masks the lockbox under any mounted root (deny_masks -> deny_match).
+LOCKBOX_REASON = ("command names the owner's credentials store (the lockbox): this agent never opens it, even for "
+                  "the owner; credentials are fetched by name by the people and tools that hold them")
+_WORD_SPLIT = re.compile(r"""[\s/\\'"`=:;|&()<>$,{}\[\]]+""")
+
+
+def names_the_lockbox(command: str) -> bool:
+    from windyfly.agent.capabilities.filesystem import is_lockbox_name
+
+    return any(is_lockbox_name(part) for part in _WORD_SPLIT.split(command or "") if part)

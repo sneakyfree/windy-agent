@@ -1,0 +1,1 @@
+- **The shell tool never opens its owner's credentials vault either.** A shell command that names the vault's repo, any copy of it, or its file is refused before anything runs, at every trust level and in both sandboxes, the owner's own turn included. The Docker sandbox also hides the vault under any mounted folder.
