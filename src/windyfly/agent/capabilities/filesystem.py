@@ -99,6 +99,24 @@ _ALWAYS_DENY = (
 _DENY_CASE_FOLD = sys.platform in ("darwin", "win32")
 
 
+# The owner's lockbox (Hub + Boss, BOARD 2026-11-13): its repo, any worktree or copy named after it, and its file.
+# Refused at EVERY band, the owner's own turn included: secrets are fetched by name by the people and tools that hold
+# them, never into a chat. Matched by name prefix, ignoring case, on every system.
+LOCKBOX_NEEDLE = "the lockbox"
+_LOCKBOX_PREFIXES = ("kit-army-config", "access_lockbox")
+
+
+def is_lockbox_name(name: str) -> bool:
+    """Is this one path component (or a repo name) the lockbox's?"""
+    n = name.strip().lstrip(".").casefold()   # a hidden copy (.kit-army-config) too (Vault 2026-11-13T00:49:07Z)
+    return any(n.startswith(p) for p in _LOCKBOX_PREFIXES)
+
+
+def lockbox_match(path_str: str) -> bool:
+    """Does any component of ``path_str`` name the lockbox?"""
+    return any(is_lockbox_name(part) for part in path_str.replace("\\", "/").split("/") if part)
+
+
 def deny_match(path_str: str) -> str | None:
     """The always-deny entry ``path_str`` (separators already '/') falls under, as a component or a tail; else None."""
     hay = path_str.casefold() if _DENY_CASE_FOLD else path_str
@@ -106,6 +124,8 @@ def deny_match(path_str: str) -> str | None:
         n = needle.casefold() if _DENY_CASE_FOLD else needle
         if f"/{n}/" in hay or hay.endswith(f"/{n}") or hay.endswith(f"/{n}/"):
             return needle
+    if lockbox_match(path_str):
+        return LOCKBOX_NEEDLE
     return None
 
 

@@ -107,6 +107,17 @@ def _check_owner_allowed(
     return None
 
 
+def _lockbox_refusal(repo: str, path: str = "") -> str | None:
+    """The owner's lockbox repo, or a lockbox file in any repo, is refused at EVERY band, the owner included
+    (filesystem.LOCKBOX_NEEDLE; Hub + Boss, BOARD 2026-11-13)."""
+    from windyfly.agent.capabilities.filesystem import is_lockbox_name, lockbox_match
+
+    if is_lockbox_name(repo or "") or lockbox_match(path or ""):
+        return ("That repository or file holds the owner's credentials. This agent never opens it, even for the "
+                "owner: credentials are fetched by name by the people and tools that hold them.")
+    return None
+
+
 def _fetch_file_handler(
     *,
     owner: str,
@@ -118,7 +129,7 @@ def _fetch_file_handler(
     allowed_owners: list[str] | None,
 ) -> dict[str, Any]:
     """Implementation of github.fetch_file. Returns dict for the LLM."""
-    err = _check_owner_allowed(owner, allowed_owners)
+    err = _check_owner_allowed(owner, allowed_owners) or _lockbox_refusal(repo, path)
     if err is not None:
         return {"error": err}
     if not owner or not repo:
@@ -216,7 +227,7 @@ def _list_repo_handler(
     allowed_owners: list[str] | None,
 ) -> dict[str, Any]:
     """Implementation of github.list_repo."""
-    err = _check_owner_allowed(owner, allowed_owners)
+    err = _check_owner_allowed(owner, allowed_owners) or _lockbox_refusal(repo, path)
     if err is not None:
         return {"error": err}
     if not owner or not repo:
@@ -293,7 +304,7 @@ def _put_file_handler(
       - commit_sha, commit_url, content_sha (on success)
       - error (on failure — never raises for operational errors)
     """
-    err = _check_owner_allowed(owner, allowed_owners)
+    err = _check_owner_allowed(owner, allowed_owners) or _lockbox_refusal(repo, path)
     if err is not None:
         return {"ok": False, "error": err}
     if not owner or not repo or not path:
@@ -436,7 +447,7 @@ def _create_issue_handler(
     allowed_owners: list[str] | None,
 ) -> dict[str, Any]:
     """Create a GitHub issue."""
-    err = _check_owner_allowed(owner, allowed_owners)
+    err = _check_owner_allowed(owner, allowed_owners) or _lockbox_refusal(repo)
     if err is not None:
         return {"ok": False, "error": err}
     if not owner or not repo:
