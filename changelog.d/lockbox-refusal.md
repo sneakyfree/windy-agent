@@ -1,0 +1,1 @@
+- **The agent never opens its owner's credentials vault.** The file tools, the GitHub tools and the sandbox's hidden-path list now refuse the vault's repo, any copy or worktree named after it, and its file, at every trust level, the owner's own turn included. Credentials are fetched by name by the people and tools that hold them, never into a chat.
