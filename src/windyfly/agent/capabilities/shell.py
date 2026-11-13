@@ -50,7 +50,7 @@ def _shell_exec_handler(
     _allowed_roots: list[str] | None = None,
     _dispatcher: DockerDispatcher | None = None,
     _band: Band | None = None,
-    _host_rw_enabled: bool = True,
+    _host_rw_enabled: bool = False,
 ) -> dict[str, Any]:
     """Run a shell command in Docker (default) or on the host (OWNER opt-in).
 

@@ -69,6 +69,15 @@ def test_on_a_non_owner_is_still_refused() -> None:
             cap.handler(command="echo x", sandbox="host_rw")
 
 
+def test_the_private_handler_fails_safe_without_the_switch() -> None:
+    """Hub, BOARD 2026-11-13T02:48:30Z (a): a caller that forgets to pass the switch gets it OFF."""
+    from windyfly.agent.capabilities.shell import _shell_exec_handler
+
+    with pytest.raises(PermissionError) as e:
+        _shell_exec_handler(command="echo should-not-run", sandbox="host_rw", _allowed_roots=[], _band=Band.OWNER)
+    assert str(e.value) == HOST_RW_OFF
+
+
 def test_ssh_exec_refuses_a_command_naming_the_lockbox_before_any_ssh(monkeypatch) -> None:
     import windyfly.agent.capabilities.ssh as ssh
 
