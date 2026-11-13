@@ -50,6 +50,7 @@ def _shell_exec_handler(
     _allowed_roots: list[str] | None = None,
     _dispatcher: DockerDispatcher | None = None,
     _band: Band | None = None,
+    _host_rw_enabled: bool = True,
 ) -> dict[str, Any]:
     """Run a shell command in Docker (default) or on the host (OWNER opt-in).
 
@@ -72,6 +73,9 @@ def _shell_exec_handler(
     # constrain a *kwarg*).
     if sandbox == SandboxTier.HOST_RW:
         from windyfly.tools.bands import docker_only_active
+
+        if not _host_rw_enabled:
+            raise PermissionError(HOST_RW_OFF)
 
         if docker_only_active():
             raise PermissionError("sandbox=host_rw is off for this run: Docker only (/benchmark)")
@@ -163,6 +167,19 @@ def _shell_exec_handler(
     }
 
 
+HOST_RW_OFF = ("sandbox=host_rw is off for this agent: it has no whole-host shell. Use the Docker sandbox; the owner "
+               "can turn the host shell on with [capabilities.shell] host_rw = true in the soul's config.")
+
+
+def host_rw_enabled(shell_cfg: dict[str, Any]) -> bool:
+    """The whole-host shell is OFF unless the soul turns it on (Boss, BOARD 2026-11-13T01:57:08Z: P1, and P10: the
+    owner keeps control by turning it on). Only a real true, or the strings true/yes/on/1, turn it on."""
+    v = shell_cfg.get("host_rw", False)
+    if isinstance(v, bool):
+        return v
+    return str(v).strip().lower() in ("1", "true", "yes", "on")
+
+
 def register_shell_capabilities(
     registry: CapabilityRegistry,
     config: dict[str, Any] | None = None,
@@ -181,14 +198,15 @@ def register_shell_capabilities(
     shell_cfg = (config or {}).get("capabilities", {}).get("shell", {})
     image = shell_cfg.get("image")  # None → DockerDispatcher default
     memory = shell_cfg.get("memory", "512m")
+    host_rw = host_rw_enabled(shell_cfg)
 
     dispatcher = DockerDispatcher(
         image=image or "alpine:3.19",
         memory=memory,
     )
     logger.info(
-        "Registering shell.exec — image=%s memory=%s allowed_roots=%s",
-        dispatcher.image, dispatcher.memory, allowed_roots,
+        "Registering shell.exec — image=%s memory=%s allowed_roots=%s host_rw=%s",
+        dispatcher.image, dispatcher.memory, allowed_roots, "on" if host_rw else "off",
     )
 
     def shell_exec(
@@ -209,12 +227,15 @@ def register_shell_capabilities(
             _allowed_roots=allowed_roots,
             _dispatcher=dispatcher,
             _band=current_band(),
+            _host_rw_enabled=host_rw,
         )
 
     registry.register(Capability(
         id="shell.exec",
         description=(
-            "Run a shell command in a sandbox (Docker, no network, read-only mounts, 30s, 64KB output). network=true adds internet; sandbox='host_rw' runs on the host (OWNER band only). Quote real output; do not guess."
+            "Run a shell command in a sandbox (Docker, no network, read-only mounts, 30s, 64KB output). network=true adds internet"
+            + ("; sandbox='host_rw' runs on the host (OWNER band only)" if host_rw else "")
+            + ". Quote real output; do not guess."
         ),
         handler=shell_exec,
         input_schema={
@@ -230,10 +251,11 @@ def register_shell_capabilities(
                 },
                 "sandbox": {
                     "type": "string",
-                    "enum": [SandboxTier.DOCKER, SandboxTier.HOST_RW],
+                    "enum": [SandboxTier.DOCKER, SandboxTier.HOST_RW] if host_rw else [SandboxTier.DOCKER],
                     "description": (
                         "'docker' (default, isolated) or 'host_rw' (OWNER "
                         "band only — bypasses Docker entirely)."
+                        if host_rw else "'docker' (isolated). The host shell is off for this agent."
                     ),
                 },
                 "network": {
