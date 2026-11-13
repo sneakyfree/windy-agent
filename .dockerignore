@@ -16,12 +16,10 @@ build/
 .env
 .env.local
 node_modules
-gateway/dashboard/node_modules
 tests/
 docs/
 *.md
 !README.md
-!gateway/README.md
 # Editor / OS
 .vscode
 .idea

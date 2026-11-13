@@ -93,12 +93,13 @@ class TestDeploy:
         assert loaded is not None and loaded.instance_id == "i-001"
 
     @respx.mock
-    async def test_dashboard_url_synthesized_when_missing(self):
+    async def test_no_dashboard_url_is_made_up(self):
+        """The agent opens no port (lean Fly R1), so there is no address on the VPS to point the owner at."""
         respx.post(f"{CLOUD}/api/v1/servers/deploy-fly").mock(
             return_value=httpx.Response(200, json=_create_response(dashboard_url=""))
         )
         instance = await deploy_vps()
-        assert instance.dashboard_url == "http://203.0.113.10:3000"
+        assert instance.dashboard_url == ""
 
     async def test_no_token_fails_soft(self, monkeypatch):
         monkeypatch.delenv("WINDY_CLOUD_TOKEN", raising=False)

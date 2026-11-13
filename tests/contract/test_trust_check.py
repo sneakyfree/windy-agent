@@ -8,7 +8,6 @@ Validates against the shape in /Users/thewindstorm/eternitas/docs/trust-api.md:
 - 5-minute SQLite cache hit/miss and expiry (TTL honoured from body)
 - Action mapping: agent gate vocabulary → Eternitas vocabulary
 - Humans/no-passport → gate skipped
-- trust.changed webhook invalidates cache (band pair and clearance pair)
 """
 
 from __future__ import annotations
@@ -20,18 +19,16 @@ import pytest
 import respx
 
 from windyfly.memory.database import Database
-from windyfly.trust import TrustDenied, TrustSnapshot, check_trust, invalidate_trust_cache, require_trust
+from windyfly.trust import TrustDenied, TrustSnapshot, check_trust, require_trust
 from windyfly.trust.check import (
     MAX_VERDICT_AGE_SECONDS,
     NO_FRESH_VERDICT,
     NO_LIVE_VERDICT,
-    _cache_read,
     _cache_write,
     get_trust,
     map_gate_action,
 )
 from windyfly.trust.gate import require_trust_sync
-from windyfly.trust.webhook import handle_trust_changed
 
 ETERNITAS_BASE = "https://eternitas.windy.test"
 PASSPORT = "ET26-K7BF-42MN"
@@ -284,105 +281,6 @@ class TestGate:
         decision = await check_trust("send_email", db=db)
         assert not decision.allowed
         assert "strict" in decision.reason
-
-
-class TestWebhookInvalidation:
-    async def test_band_change_invalidates_cache(self, db):
-        _cache_write(
-            TrustSnapshot(
-                passport=PASSPORT, status="active", band="good",
-                clearance_level="cleared", tier_multiplier=1.5,
-                integrity_score=800, allowed_actions=["read", "send"],
-            ),
-            db=db,
-        )
-        assert _cache_read(PASSPORT, db=db) is not None
-
-        await handle_trust_changed(
-            {
-                "event": "trust.changed",
-                "event_type": "trust.changed",
-                "passport_number": PASSPORT,
-                "passport": PASSPORT,
-                "old_band": "good",
-                "new_band": "fair",
-                "old_clearance": None,
-                "new_clearance": None,
-                "reason": "integrity_band: good->fair",
-            },
-            db=db,
-        )
-
-        assert _cache_read(PASSPORT, db=db) is None
-
-    async def test_suspended_webhook_invalidates_cache(self, db):
-        _cache_write(
-            TrustSnapshot(
-                passport=PASSPORT, status="active", band="good",
-                clearance_level="cleared", allowed_actions=["read", "send"],
-            ),
-            db=db,
-        )
-        await handle_trust_changed(
-            {
-                "event_type": "trust.changed",
-                "passport_number": PASSPORT,
-                "old_band": "good", "new_band": "critical",
-                "reason": "suspended for abuse",
-            },
-            db=db,
-        )
-        assert _cache_read(PASSPORT, db=db) is None
-
-    async def test_revoked_webhook_invalidates_cache(self, db):
-        _cache_write(
-            TrustSnapshot(
-                passport=PASSPORT, status="active", band="good", clearance_level="cleared",
-            ),
-            db=db,
-        )
-        await handle_trust_changed(
-            {
-                "event_type": "trust.changed",
-                "passport_number": PASSPORT,
-                "old_band": "good", "new_band": "critical",
-                "reason": "passport revoked",
-            },
-            db=db,
-        )
-        assert _cache_read(PASSPORT, db=db) is None
-
-    async def test_direction_band_change(self, db):
-        result = await handle_trust_changed(
-            {"event_type": "trust.changed", "passport_number": PASSPORT,
-             "old_band": "good", "new_band": "fair"},
-            db=db,
-        )
-        assert result.direction == "dropped"
-
-        invalidate_trust_cache(PASSPORT, db=db)
-
-        result = await handle_trust_changed(
-            {"event_type": "trust.changed", "passport_number": PASSPORT,
-             "old_band": "fair", "new_band": "exceptional"},
-            db=db,
-        )
-        assert result.direction == "improved"
-
-    async def test_direction_clearance_promotion(self, db):
-        result = await handle_trust_changed(
-            {
-                "event_type": "trust.changed",
-                "passport_number": PASSPORT,
-                "old_band": None, "new_band": None,
-                "old_clearance": "verified", "new_clearance": "cleared",
-                "reason": "clearance promoted",
-            },
-            db=db,
-        )
-        assert result.direction == "improved"
-        assert result.old_clearance == "verified"
-        assert result.new_clearance == "cleared"
 
 
 class TestRevocationSurvivesOutage:

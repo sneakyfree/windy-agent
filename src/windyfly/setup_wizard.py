@@ -176,16 +176,8 @@ def _check_prerequisites() -> dict[str, bool]:
         hint = "https://docs.astral.sh/uv/" if IS_WINDOWS else "curl -LsSf https://astral.sh/uv/install.sh | sh"
         console.print(f"  ❌ uv [red](not found — install: {hint})[/red]")
 
-    # Bun
-    checks["bun"] = report.has_bun
-    if report.has_bun:
-        console.print(f"  ✅ Bun [dim]({shutil.which('bun')})[/dim]")
-    else:
-        hint = "https://bun.sh" if IS_WINDOWS else "curl -fsSL https://bun.sh/install | bash"
-        console.print(f"  ❌ Bun [red](not found — install: {hint})[/red]")
-
     # Platform info
-    console.print(f"  ℹ️  Platform: {report.system} — IPC mode: {report.ipc_mode}")
+    console.print(f"  ℹ️  Platform: {report.system}")
 
     console.print()
 
@@ -224,27 +216,6 @@ def _auto_install(checks: dict[str, bool]) -> None:
             console.print("  ✅ uv installed")
         except (subprocess.CalledProcessError, FileNotFoundError):
             console.print("  [red]❌ Failed to install uv. Install manually: https://docs.astral.sh/uv/[/red]")
-            sys.exit(1)
-
-    if not checks.get("bun"):
-        console.print("  [cyan]Installing Bun...[/cyan]")
-        try:
-            if IS_WINDOWS:
-                subprocess.run(
-                    ["powershell", "-ExecutionPolicy", "ByPass", "-c",
-                     "irm https://bun.sh/install.ps1 | iex"],
-                    check=True,
-                    capture_output=True,
-                )
-            else:
-                subprocess.run(
-                    ["bash", "-c", "curl -fsSL https://bun.sh/install | bash"],
-                    check=True,
-                    capture_output=True,
-                )
-            console.print("  ✅ Bun installed")
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            console.print("  [red]❌ Failed to install Bun. Install manually: https://bun.sh[/red]")
             sys.exit(1)
 
     console.print()
@@ -540,21 +511,6 @@ base_url = "http://localhost:8098"
     except (subprocess.CalledProcessError, FileNotFoundError) as e:
         console.print(f"  [yellow]⚠ uv sync failed: {e}[/yellow]")
 
-    # Install gateway deps
-    gateway_dir = PROJECT_ROOT / "gateway"
-    if gateway_dir.exists():
-        console.print("  [cyan]Installing gateway dependencies...[/cyan]")
-        try:
-            subprocess.run(
-                ["bun", "install"],
-                cwd=str(gateway_dir),
-                check=True,
-                capture_output=True,
-            )
-            console.print("  [green]✓[/green] Gateway dependencies installed")
-        except (subprocess.CalledProcessError, FileNotFoundError) as e:
-            console.print(f"  [yellow]⚠ bun install failed: {e}[/yellow]")
-
     console.print()
 
 
@@ -573,16 +529,15 @@ def _show_summary(model: str, preset: str, api_keys: dict[str, str]) -> None:
     ))
     summary.add_row("Config", str(CONFIG_FILE.relative_to(PROJECT_ROOT)))
     summary.add_row("Database", "data/windyfly.db")
-    summary.add_row("Dashboard", "http://localhost:3000")
 
     console.print(Panel(summary, title="[bold cyan]🪰 Setup Complete[/bold cyan]", border_style="green"))
     console.print()
     console.print("  [bold]Start your agent:[/bold]")
-    console.print("    [green]windy start[/green]          — Brain + Gateway + Dashboard")
-    console.print("    [green]windy start --cli[/green]    — Brain + CLI chat (no dashboard)")
+    console.print("    [green]windy start[/green]          — Start your agent (it answers in Windy Chat)")
+    console.print("    [green]windy start --cli[/green]    — Chat with it here in the terminal")
     console.print()
     console.print("  [bold]Other commands:[/bold]")
-    console.print("    [dim]windy stop[/dim]           — Stop all processes")
+    console.print("    [dim]windy stop[/dim]           — Stop the agent")
     console.print("    [dim]windy status[/dim]         — Check what's running")
     console.print("    [dim]windy init[/dim]           — Re-run this wizard")
     console.print()
@@ -594,7 +549,7 @@ def _show_summary(model: str, preset: str, api_keys: dict[str, str]) -> None:
 
 
 def _launch_stack() -> None:
-    """Start both brain and gateway by delegating to the unified CLI."""
+    """Start the agent by delegating to the unified CLI."""
     import argparse
     from windyfly.cli import cmd_start
 

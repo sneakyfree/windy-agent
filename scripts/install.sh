@@ -8,7 +8,7 @@
 #   bash <(curl -fsSL https://raw.githubusercontent.com/sneakyfree/windy-agent/main/scripts/install.sh)
 #
 # What it does:
-#   1. Checks/installs Python 3.12+, uv, and Bun
+#   1. Checks/installs Python 3.12+ and uv
 #   2. Clones the windy-agent repo (or updates if already cloned)
 #   3. Installs all dependencies
 #   4. Runs `windy go`, which opens the Windy hatch ceremony in your browser
@@ -73,15 +73,6 @@ check_uv() {
     fi
 }
 
-check_bun() {
-    if command -v bun &>/dev/null; then
-        ok "Bun $(bun --version 2>/dev/null || echo 'installed')"
-        return 0
-    else
-        return 1
-    fi
-}
-
 check_git() {
     if command -v git &>/dev/null; then
         ok "Git $(git --version | awk '{print $3}')"
@@ -102,18 +93,6 @@ install_uv() {
         ok "uv installed"
     else
         fail "uv installation failed. Install manually: https://docs.astral.sh/uv/"
-    fi
-}
-
-install_bun() {
-    info "Installing Bun (JavaScript runtime)..."
-    curl -fsSL https://bun.sh/install | bash
-    # Source the env so bun is available in this session
-    export PATH="$HOME/.bun/bin:$PATH"
-    if command -v bun &>/dev/null; then
-        ok "Bun installed"
-    else
-        fail "Bun installation failed. Install manually: https://bun.sh"
     fi
 }
 
@@ -145,11 +124,6 @@ main() {
     # Check Python (uv can install it if missing)
     if ! check_python; then
         install_python
-    fi
-
-    # Check Bun
-    if ! check_bun; then
-        install_bun
     fi
 
     echo ""
@@ -186,13 +160,6 @@ main() {
     uv sync --extra telegram --quiet 2>/dev/null || uv sync --extra telegram
     ok "Python dependencies installed"
 
-    # Install gateway dependencies
-    if [ -d "gateway" ]; then
-        info "Installing gateway dependencies..."
-        cd gateway && bun install --silent 2>/dev/null || bun install && cd ..
-        ok "Gateway dependencies installed"
-    fi
-
     echo ""
     echo -e "${GREEN}${BOLD}🪰 Installation complete!${RESET}"
     echo ""
@@ -207,7 +174,7 @@ main() {
     echo -e "  ${BOLD}Quick reference:${RESET}"
     echo -e "    ${CYAN}cd $INSTALL_DIR${RESET}"
     echo -e "    ${CYAN}windy go${RESET}               ${DIM}— Quickstart (one key, done)${RESET}"
-    echo -e "    ${CYAN}windy start${RESET}            ${DIM}— Brain + Gateway + Dashboard${RESET}"
+    echo -e "    ${CYAN}windy start${RESET}            ${DIM}— Start your agent (it answers in Windy Chat)${RESET}"
     echo -e "    ${CYAN}windy stop${RESET}             ${DIM}— Stop everything${RESET}"
     echo -e "    ${CYAN}windy doctor${RESET}           ${DIM}— Diagnose problems${RESET}"
     echo -e "    ${CYAN}windy init${RESET}             ${DIM}— Full setup wizard${RESET}"

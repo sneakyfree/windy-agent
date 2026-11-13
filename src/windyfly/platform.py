@@ -7,13 +7,7 @@ platform-agnostic.  Import from this module instead of calling ``os.kill``,
 Supported platforms:
     - macOS  (darwin)
     - Linux  (linux)
-    - Windows (win32) — via TCP IPC fallback + native process management
-
-Environment overrides:
-    WINDYFLY_IPC_MODE   — force "uds" or "tcp" (auto-detected if unset)
-    WINDYFLY_IPC_PATH   — custom UDS socket path (default: <tempdir>/windyfly.sock)
-    WINDYFLY_IPC_HOST   — TCP host (default: 127.0.0.1)
-    WINDYFLY_IPC_PORT   — TCP port (default: 9119)
+    - Windows (win32) — native process management
 """
 
 from __future__ import annotations
@@ -40,58 +34,6 @@ IS_LINUX: bool = SYSTEM == "linux"
 IS_POSIX: bool = not IS_WINDOWS
 
 
-# ── IPC configuration ────────────────────────────────────────────────
-
-IPCMode = Literal["uds", "tcp"]
-
-# Default TCP settings for Windows (or when forced via env)
-_DEFAULT_TCP_HOST = "127.0.0.1"
-_DEFAULT_TCP_PORT = 4001
-
-
-def get_ipc_mode() -> IPCMode:
-    """Return the IPC mode for this platform.
-
-    UDS on Mac/Linux, TCP on Windows.  Override with WINDYFLY_IPC_MODE.
-    """
-    override = os.environ.get("WINDYFLY_IPC_MODE", "").lower()
-    if override in ("uds", "tcp"):
-        return override  # type: ignore[return-value]
-    return "uds" if IS_POSIX else "tcp"
-
-
-def get_ipc_path() -> str:
-    """Return the UDS socket path.  Only meaningful when ``get_ipc_mode() == "uds"``.
-
-    Default: ``<tempdir>/windyfly.sock``
-    Override: WINDYFLY_IPC_PATH
-    """
-    override = os.environ.get("WINDYFLY_IPC_PATH")
-    if override:
-        return override
-    return os.path.join(tempfile.gettempdir(), "windyfly.sock")
-
-
-def get_ipc_tcp_host() -> str:
-    """Return the TCP host for IPC.  Override with WINDYFLY_IPC_HOST."""
-    return os.environ.get("WINDYFLY_IPC_HOST", _DEFAULT_TCP_HOST)
-
-
-def get_ipc_tcp_port() -> int:
-    """Return the TCP port for IPC.  Override with WINDYFLY_IPC_PORT."""
-    return int(os.environ.get("WINDYFLY_IPC_PORT", str(_DEFAULT_TCP_PORT)))
-
-
-@dataclass(frozen=True)
-class IPCConfig:
-    """Resolved IPC configuration — pass this around instead of raw strings."""
-
-    mode: IPCMode
-    socket_path: str  # only used when mode == "uds"
-    tcp_host: str     # only used when mode == "tcp"
-    tcp_port: int     # only used when mode == "tcp"
-
-
 def windy_state_dir() -> Path:
     """Per-user runtime-state directory for flag files and counters.
 
@@ -101,16 +43,6 @@ def windy_state_dir() -> Path:
     recovery layer works on any machine, not just the dev box.
     """
     return Path(os.environ.get("WINDY_STATE_DIR", str(Path.home() / ".windy")))
-
-
-def get_ipc_config() -> IPCConfig:
-    """Build and return the resolved IPC configuration."""
-    return IPCConfig(
-        mode=get_ipc_mode(),
-        socket_path=get_ipc_path(),
-        tcp_host=get_ipc_tcp_host(),
-        tcp_port=get_ipc_tcp_port(),
-    )
 
 
 # ── Process management ────────────────────────────────────────────────
@@ -515,9 +447,7 @@ class PlatformReport:
 
     system: str = ""
     python_version: str = ""
-    ipc_mode: IPCMode = "uds"
     has_uv: bool = False
-    has_bun: bool = False
     has_git: bool = False
     has_bash: bool = False
     has_powershell: bool = False
@@ -532,9 +462,7 @@ def diagnose() -> PlatformReport:
     report = PlatformReport(
         system=SYSTEM,
         python_version=f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
-        ipc_mode=get_ipc_mode(),
         has_uv=can_run("uv"),
-        has_bun=can_run("bun"),
         has_git=can_run("git"),
         has_bash=can_run("bash"),
         has_powershell=can_run("powershell") or can_run("pwsh"),
@@ -549,18 +477,11 @@ def diagnose() -> PlatformReport:
     # Check required tools
     if not report.has_uv:
         report.issues.append("uv not found — install: https://docs.astral.sh/uv/")
-    if not report.has_bun:
-        report.issues.append("Bun not found — install: https://bun.sh")
     if not report.has_git:
         report.issues.append("Git not found — install: https://git-scm.com")
 
     # Platform-specific checks
     if IS_WINDOWS:
-        if report.ipc_mode == "uds":
-            report.issues.append(
-                "UDS mode forced on Windows — this will fail. "
-                "Set WINDYFLY_IPC_MODE=tcp or remove the override."
-            )
         if not report.has_powershell:
             report.issues.append("PowerShell not found — needed for Windows setup")
     else:
@@ -574,8 +495,8 @@ def is_source_checkout(root: Path | None = None) -> bool:
     """True when running from a windy-agent source checkout (not a pip install).
 
     A checkout has the package sources and pyproject next to each other; a
-    `pip install windyfly` does not, and there `uv`/`bun` are not needed at all
-    (the brain runs under the installed Python; the Bun gateway isn't shipped).
+    `pip install windyfly` does not, and there `uv` is not needed at all
+    (the agent runs under the installed Python).
     """
     root = root or get_project_root()
     return (root / "pyproject.toml").exists() and (root / "src" / "windyfly").is_dir()

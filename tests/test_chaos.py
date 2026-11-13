@@ -9,7 +9,6 @@ sandbox security, and boundary values.
 from __future__ import annotations
 
 import os
-import string
 import threading
 import time
 from unittest.mock import patch
@@ -20,14 +19,11 @@ from windyfly.control_panel import (
     PRESETS,
     VALID_SLIDERS,
     apply_preset,
-    estimate_monthly_cost,
     get_sliders,
     set_slider,
 )
-from windyfly.dashboard.data import get_dashboard_summary
-from windyfly.memory.cost_ledger import log_cost
 from windyfly.memory.database import Database
-from windyfly.memory.episodes import save_episode, search_episodes
+from windyfly.memory.episodes import save_episode
 from windyfly.memory.nodes import search_nodes, upsert_node
 from windyfly.memory.write_queue import Priority, WriteQueue
 
@@ -370,47 +366,6 @@ class TestConfigResilience:
 
 
 # === Dashboard Performance ===
-
-
-class TestDashboardPerformance:
-    def test_dashboard_with_1000_rows(self):
-        """Dashboard aggregation should handle 1000+ rows without timeout."""
-        db = Database(":memory:")
-
-        # Bulk insert 1000 episodes
-        for i in range(1000):
-            db.execute(
-                "INSERT INTO episodes (id, user_id, role, content, session_id) "
-                "VALUES (?, 'default', 'user', ?, ?)",
-                (f"ep-{i}", f"Message number {i}", f"session-{i % 10}"),
-            )
-        # Bulk insert 500 nodes
-        for i in range(500):
-            db.execute(
-                "INSERT INTO nodes (id, user_id, type, name, source) "
-                "VALUES (?, 'default', 'fact', ?, 'bulk')",
-                (f"node-{i}", f"fact_{i}"),
-            )
-        # Bulk insert 200 cost entries
-        for i in range(200):
-            db.execute(
-                "INSERT INTO cost_ledger (id, model, input_tokens, output_tokens, cost_usd) "
-                "VALUES (?, 'gpt-4o-mini', 100, 50, 0.01)",
-                (f"cost-{i}",),
-            )
-        db.commit()
-
-        start = time.time()
-        summary = get_dashboard_summary(db)
-        elapsed = time.time() - start
-
-        assert elapsed < 2.0, f"Dashboard took {elapsed:.2f}s (>2s limit)"
-        assert summary["memory"]["total_nodes"] == 500
-        assert summary["memory"]["total_episodes"] == 1000
-        db.close()
-
-
-# === All Presets Round-Trip ===
 
 
 class TestPresetRoundTrip:

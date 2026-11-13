@@ -7,7 +7,13 @@
 > checkout, and nothing said so. This document makes the tiers
 > explicit instead of accidental.
 
-## Status, 2026-09-23 — read this first
+## Status, 2026-11 — read this first
+
+- **The gateway and the dashboard are gone (lean Windy Fly, step R1).** The agent is ONE Python
+  process on every tier and it answers in Windy Chat. The tiers below now differ only in how the
+  agent is installed, not in what you get. The 2026-07 note above is kept as history.
+
+## Status, 2026-09-23
 
 - **Official release channel: PyPI** (`pip install windyfly`, 0.7.1+).
   That's what gets versioned, tagged and published.
@@ -27,9 +33,8 @@ git clone https://github.com/sneakyfree/windy-agent && cd windy-agent
 docker compose up -d --build
 ```
 
-The `Dockerfile` + `docker-compose.yml` build the complete product
-(brain + gateway + dashboard) with pinned dependencies and no
-Python/Bun/uv on the host. When a published image exists, this section
+The `Dockerfile` + `docker-compose.yml` build the agent with pinned
+dependencies and no Python/uv on the host. When a published image exists, this section
 will switch to `docker compose pull`.
 
 - State lives in mounted volumes (`data/`, `~/.windy`). To upgrade:
@@ -48,7 +53,7 @@ Full product, hot-editable. Since 0.7.3, `windy go` hatches through the one
 hub ceremony (link + code in your browser) and the agent is born in the
 Windy cloud; `windy bring-home` (coming soon) will move it onto this machine.
 (The old terminal hatch was removed in 0.7.5.) `windy start` runs
-brain + gateway from the checkout. This is how the Windy fleet runs today (systemd units
+the agent from the checkout. This is how the Windy fleet runs today (systemd units
 pointing at checkouts) and how contributors work. Not for normies:
 requires git, a toolchain, and reading error messages.
 
@@ -63,11 +68,8 @@ requires git, a toolchain, and reading error messages.
 > no operator key. 0.7.0 ships both fixes. Pin `windyfly>=0.7.0`; treat
 > anything older as a source-checkout-only tier.
 
-The wheel packages `src/windyfly` only. You get: the brain, every
-channel adapter, the CLI, memory, skills, recovery. You do NOT get:
-the dashboard, the browser setup wizard, WebSocket chat, or remote
-hatch — `windy setup`/`windy start`'s gateway step will tell you it
-needs a source checkout.
+The wheel packages `src/windyfly`, which is the whole agent: the brain,
+the channel adapters, the CLI, memory, recovery.
 
 Legitimate uses: embedding the brain in another system, running a
 pure-Telegram/Discord agent on a tiny VPS, CI. If you want the

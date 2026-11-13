@@ -8,18 +8,13 @@ missing files, concurrent state, and process management edge cases.
 from __future__ import annotations
 
 import argparse
-import os
-import subprocess
-import sys
 import tomllib
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
 
 from windyfly.quickstart import detect_provider, write_quick_config
 from windyfly.commands import _config_set
-from windyfly.platform import process_alive, get_ipc_mode
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -220,19 +215,6 @@ class TestUpdateEdgeCases:
         from windyfly.commands import cmd_update
         args = argparse.Namespace()
         cmd_update(args)  # Should not crash
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# IPC Mode Edge Cases
-# ═══════════════════════════════════════════════════════════════════════
-
-
-class TestIPCEdgeCases:
-    def test_tcp_mode_override(self):
-        """WINDYFLY_IPC_MODE=tcp should force TCP mode."""
-        with patch.dict(os.environ, {"WINDYFLY_IPC_MODE": "tcp"}):
-            mode = get_ipc_mode()
-            assert mode == "tcp"
 
 
 # ═══════════════════════════════════════════════════════════════════════

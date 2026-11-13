@@ -55,21 +55,14 @@ def test_p1_1_python_312_or_newer():
     assert re.fullmatch(r">=\s*3\.(1[2-9]|[2-9]\d)", spec), spec
 
 
-def test_p1_1_bun_gateway_is_tested_in_ci():
-    pkg = (ROOT / "gateway" / "package.json").read_text(encoding="utf-8")
-    assert '"test"' in pkg
-    ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
-    assert "gateway-test" in ci and "bun test" in ci
-
-
 def test_p1_1_matrix_nio_is_the_chat_protocol():
     deps = " ".join(PYPROJECT["project"]["dependencies"])
     assert "matrix-nio" in deps
     import nio  # noqa: F401  (importable in the installed env)
 
 
-def test_p1_1_locked_with_uv_and_bun():
-    assert tracked("uv.lock") and tracked("gateway/bun.lock")
+def test_p1_1_locked_with_uv():
+    assert tracked("uv.lock")
 
 
 # ── §3 layout / gene 0.1 ──────────────────────────────────────────────────────────────

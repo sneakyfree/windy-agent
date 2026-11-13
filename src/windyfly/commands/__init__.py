@@ -7,7 +7,6 @@ from windyfly.commands._legacy import *  # noqa: F401,F403
 # Also re-export private helpers used in tests
 from windyfly.commands._legacy import (  # noqa: F401
     VERSION,
-    _check_port,
     _config_path,
     _config_set,
     _config_show,

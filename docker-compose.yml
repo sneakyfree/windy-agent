@@ -4,8 +4,8 @@
 # Quick start:
 #   1. Have ~/.windy/windy-0.env populated (real bot env)
 #   2. docker compose up --build
-#   3. Bot polls Telegram and (if enabled) listens on :3000 for the
-#      gateway dashboard. /version inside Telegram reports the SHA.
+#   3. The agent answers in Windy Chat. One process, no published port.
+#      /version in the chat reports the SHA.
 #
 # Note: the obsolete `version: '3.8'` directive was removed — Compose
 # v2 ignores it with a warning.
@@ -24,8 +24,6 @@ services:
         BUILD_DATE: ${BUILD_DATE:-unknown}
         VERSION: ${VERSION:-dev}
     image: windy-fly:${VERSION:-dev}
-    ports:
-      - "3000:3000"
     # env_file is the cleaner pattern — pulls in ONLY what the bot
     # needs (TELEGRAM_BOT_TOKEN, AGENT_OWNER_TELEGRAM_ID,
     # ANTHROPIC_API_KEY, etc.) without enumerating speculative
@@ -42,12 +40,6 @@ services:
       # image updates. Override WINDY_SOUL_DIR for non-default paths.
       - ${WINDY_SOUL_DIR:-./soul}:/app/soul:ro
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 20s
 
 volumes:
   agent-data:

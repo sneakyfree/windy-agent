@@ -50,9 +50,6 @@ Everything needed for a standalone, fully functional AI agent:
 - Email (SendGrid — dumb pipe, not owned inbox)
 
 ### Infrastructure
-- Gateway (Bun/TypeScript, 50+ API endpoints)
-- Dashboard (React + Vite + Tailwind, 8 pages)
-- IPC bridge (UDS/TCP brain ↔ gateway)
 - Docker deployment
 - PyPI publishing
 - Update system (check + auto-update)
@@ -94,7 +91,6 @@ These are Windy-specific branding + UI that don't make sense outside the Windy e
 - "Born Into the Windy Ecosystem" panel
 - Ecosystem status/health commands referencing Windy services by hardcoded name
 - Default `[ecosystem]` config block pointing at Windy service URLs
-- Dashboard Identity page UI (passport + trust score + QR code visualization)
 
 ### Branding
 - "Windy Fly" name and 🪰 branding

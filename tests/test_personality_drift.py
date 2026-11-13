@@ -14,13 +14,13 @@ owner action. Each test below reproduced a real bug before the fix:
 from __future__ import annotations
 
 from windyfly.control_panel import set_slider
-from windyfly.dashboard.data import get_dashboard_summary
 from windyfly.memory.database import Database
 from windyfly.memory.soul import get_soul, upsert_soul
 from windyfly.memory.write_queue import WriteQueue
 from windyfly.personality.versioning import (
     OWNER_SOURCES,
     detect_drift,
+    get_drift_alert,
     get_personality_history,
     plan_personality_rollback,
     rollback_personality,
@@ -136,9 +136,9 @@ class TestPeriodicCheck:
             wq.stop()
             db.close()
 
-    def test_dashboard_summary_includes_drift(self):
+    def test_the_kept_alert_names_the_drift(self):
         db = Database(":memory:")
-        assert get_dashboard_summary(db)["drift"]["detected"] is False
+        assert get_drift_alert(db)["detected"] is False
 
         set_slider(db, "humor", 5)
         snapshot_personality(db)
@@ -146,7 +146,7 @@ class TestPeriodicCheck:
         _agent_sets(db, "humor", 9)
         run_periodic_drift_check(db)
 
-        drift = get_dashboard_summary(db)["drift"]
+        drift = get_drift_alert(db)
         assert drift["detected"] is True
         assert drift["drifted_sliders"][0]["name"] == "humor"
         assert drift["drifted_sliders"][0]["old"] == 5
@@ -162,10 +162,10 @@ class TestPeriodicCheck:
         _backdate_history(db, 40)
         _agent_sets(db, "humor", 9)
         run_periodic_drift_check(db)
-        assert get_dashboard_summary(db)["drift"]["detected"] is True
+        assert get_drift_alert(db)["detected"] is True
         set_slider(db, "humor", 9)  # owner accepts the new value
         run_periodic_drift_check(db)
-        assert get_dashboard_summary(db)["drift"]["detected"] is False
+        assert get_drift_alert(db)["detected"] is False
         db.close()
 
 
@@ -178,14 +178,14 @@ class TestRollback:
         when = db.fetchone("SELECT created_at FROM soul_history")["created_at"]
         _agent_sets(db, "humor", 9)
         run_periodic_drift_check(db)
-        assert get_dashboard_summary(db)["drift"]["detected"] is True
+        assert get_drift_alert(db)["detected"] is True
 
         restored = rollback_personality(db, when)
         assert restored == 1
         row = get_soul(db, "slider_humor")
         assert row["value"] == "5"
         assert row["source"] == "rollback"
-        assert get_dashboard_summary(db)["drift"]["detected"] is False
+        assert get_drift_alert(db)["detected"] is False
         assert detect_drift(db) is None
         db.close()
 
@@ -243,60 +243,10 @@ class TestRollbackShowsExactlyWhatItRestores:
         assert plan_personality_rollback(db, when) == []
         db.close()
 
-    def test_bridge_dry_run_returns_changes_and_changes_nothing(self):
-        from tests.test_gap_closure import _make_bridge, _run
-
-        bridge, db, _ = _make_bridge()
-        set_slider(db, "humor", 5)
-        snapshot_personality(db)
-        _backdate_history(db, 40)
-        when = db.fetchone("SELECT MAX(created_at) AS t FROM soul_history")["t"]
-        _agent_sets(db, "humor", 9)
-
-        dry = _run(bridge._dispatch("personality.rollback", {"snapshot_date": when, "dry_run": True}))
-        assert dry == {"dry_run": True, "changes": [{"slider": "humor", "current": "9", "restore": "5"}]}
-        assert get_soul(db, "slider_humor")["value"] == "9"
-
-        done = _run(bridge._dispatch("personality.rollback", {"snapshot_date": when}))
-        assert done["restored_count"] == 1
-        assert done["changes"] == dry["changes"]
-        assert get_soul(db, "slider_humor")["value"] == "5"
-        db.close()
-
-
 
 class TestRollbackRefusesAChangedPlan:
     """Hub (#509 note): the restore applies only the list the owner confirmed."""
 
-    def _setup(self):
-        from tests.test_gap_closure import _make_bridge, _run
-
-        bridge, db, _ = _make_bridge()
-        set_slider(db, "humor", 5)
-        snapshot_personality(db)
-        _backdate_history(db, 40)
-        when = db.fetchone("SELECT MAX(created_at) AS t FROM soul_history")["t"]
-        _agent_sets(db, "humor", 9)
-        dry = _run(bridge._dispatch("personality.rollback", {"snapshot_date": when, "dry_run": True}))
-        return bridge, db, when, dry, _run
-
-    def test_confirmed_list_is_applied(self):
-        bridge, db, when, dry, _run = self._setup()
-        done = _run(bridge._dispatch("personality.rollback",
-                                     {"snapshot_date": when, "expected": dry["changes"]}))
-        assert "error" not in done and done["restored_count"] == 1
-        assert get_soul(db, "slider_humor")["value"] == "5"
-        db.close()
-
-    def test_slider_moved_after_preview_restores_nothing(self):
-        bridge, db, when, dry, _run = self._setup()
-        _agent_sets(db, "humor", 7)  # moved after the owner looked
-        done = _run(bridge._dispatch("personality.rollback",
-                                     {"snapshot_date": when, "expected": dry["changes"]}))
-        assert done["error"] == "changed" and done["restored_count"] == 0
-        assert done["changes"] == [{"slider": "humor", "current": "7", "restore": "5"}]
-        assert get_soul(db, "slider_humor")["value"] == "7"
-        db.close()
 
 class TestHistory:
     def test_history_names_the_slider_and_can_filter(self):

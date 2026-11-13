@@ -3,15 +3,9 @@
 
 from __future__ import annotations
 
-import base64
-import json
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
-from tests.test_gap_closure import _make_bridge, _run
 from windyfly.agent import mind_auth, mind_helper, models, teams
-from windyfly.dashboard.data import _get_trust_banner
-from windyfly.memory.database import Database
-from windyfly.trust.check import TrustSnapshot, _cache_write
 
 
 def _resp(status: int, error: str = "") -> MagicMock:
@@ -73,36 +67,6 @@ def test_n1_a_refused_own_key_named_in_x_mind_connection_does_not_cool_mind_down
 
 
 # ── N2 Eternitas ─────────────────────────────────────────────────────────────────────────
-
-def test_n2_the_trust_banner_says_unknown_until_a_verdict_is_cached(monkeypatch):
-    monkeypatch.setenv("ETERNITAS_PASSPORT", "ET26-TEST-0001")
-    db = Database(":memory:")
-    try:
-        before = _get_trust_banner(db)
-        _cache_write(TrustSnapshot(passport="ET26-TEST-0001", band="trusted",
-                                   allowed_actions=["send_email"]), db=db)
-        after = _get_trust_banner(db)
-    finally:
-        db.close()
-    assert (before["band"], before["cache_status"]) == ("unknown", "no_snapshot")
-    assert (after["band"], after["cache_status"], after["passport"]) == ("trusted", "ok", "ET26-TEST-0001")
-
-
-def test_n2_a_trust_webhook_with_a_bad_signature_is_refused_through_the_bridge(monkeypatch):
-    monkeypatch.setenv("ETERNITAS_WEBHOOK_SECRET", "real-secret")
-    handler = AsyncMock()
-    monkeypatch.setattr("windyfly.trust.webhook.handle_trust_changed", handler)
-    body = json.dumps({"passport": "ET26-TEST-0001", "status": "revoked"}).encode()
-    bridge, db, _ = _make_bridge()
-    try:
-        result = _run(bridge._dispatch("trust.webhook", {
-            "body_b64": base64.b64encode(body).decode(),
-            "headers": {"X-Eternitas-Signature": "sha256=" + "0" * 64},
-            "payload": json.loads(body)}))
-    finally:
-        db.close()
-    assert result["ok"] is False
-    handler.assert_not_called()
 
 
 # ── N3 teams ─────────────────────────────────────────────────────────────────────────────

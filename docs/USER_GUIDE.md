@@ -54,12 +54,6 @@ windy chat
 
 Type naturally. Your agent understands questions, requests, and conversation.
 
-### In the Dashboard
-
-Visit `http://localhost:3000` (opens automatically when you run `windy start`).
-
-The Chat tab lets you talk to your agent from any browser — including your phone.
-
 ### Via Windy Chat (Matrix)
 
 If Windy Chat is configured, your agent lives at `@yourfly:chat.windychat.ai`. Message it from Windy Pro desktop or mobile.
@@ -138,30 +132,11 @@ Your agent has 10 personality sliders you can adjust:
 - **Focused** — serious, analytical, precise (great for work)
 - **Neutral** — balanced defaults
 
-Adjust in the dashboard (Personality tab) or via:
+Adjust via:
 ```bash
 windy slider humor 8
 windy preset companion
 ```
-
----
-
-## The Dashboard
-
-Visit `http://localhost:3000` to manage your agent visually.
-
-### Pages
-
-| Page | What It Shows |
-|------|--------------|
-| **Home** | Agent status, costs, ecosystem health |
-| **Chat** | Real-time conversation |
-| **Personality** | Slider controls + presets |
-| **Memory** | Search memories, view knowledge graph |
-| **Skills** | Learned skills, code view |
-| **Identity** | Eternitas passport, contact info |
-| **Costs** | Spending charts, budget progress |
-| **Settings** | Configuration, ecosystem URLs, danger zone |
 
 ---
 
@@ -177,7 +152,7 @@ warn_at_usd = 0.50
 
 When the budget is reached, the agent tells you and stops making LLM calls until the next day.
 
-Check spending: `windy budget` or the Costs tab in the dashboard.
+Check spending: `windy budget`.
 
 ---
 
@@ -218,10 +193,9 @@ windy doctor           # Diagnoses common issues
 - Check budget hasn't been exceeded: `windy budget`
 - Check logs: `windy logs`
 
-### Dashboard won't load
-- Ensure gateway is running: `windy status`
-- Check port 3000 is free
-- Try: `windy restart`
+### There is no dashboard at localhost:3000
+- That is on purpose: the local dashboard was removed. Your agent answers in Windy Chat.
+- Check it is running: `windy status`
 
 ---
 

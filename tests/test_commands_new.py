@@ -1,21 +1,16 @@
 """Tests for windyfly.commands — doctor, update, logs, config, version.
 
-Covers cmd_version, cmd_doctor, _check_port, _config_show, _config_set,
+Covers cmd_version, cmd_doctor, _config_show, _config_set,
 _config_path, and validates .env and windyfly.toml detection.
 """
 
 from __future__ import annotations
 
-import os
-import io
 from pathlib import Path
-from unittest.mock import patch
 
-import pytest
 
 from windyfly.commands import (
     VERSION,
-    _check_port,
     _config_path,
     _config_set,
     _config_show,
@@ -63,27 +58,6 @@ class TestCmdDoctor:
         import argparse
         args = argparse.Namespace()
         cmd_doctor(args)
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# Port Check
-# ═══════════════════════════════════════════════════════════════════════
-
-
-class TestCheckPort:
-    def test_free_port_returns_false(self):
-        """A port nothing listens on returns False. The port is reserved by binding (not listening) for the whole
-        check, so a parallel CI job's ephemeral socket can't take it (39999 was taken on the runner 2026-10-27)."""
-        import socket
-
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as held:
-            held.bind(("127.0.0.1", 0))
-            assert _check_port(held.getsockname()[1]) is False
-
-    def test_returns_bool(self):
-        """_check_port should always return a boolean."""
-        result = _check_port(39998)
-        assert isinstance(result, bool)
 
 
 # ═══════════════════════════════════════════════════════════════════════

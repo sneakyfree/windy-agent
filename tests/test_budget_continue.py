@@ -142,19 +142,6 @@ def test_a_real_small_budget_is_kept_and_each_bad_value_warns_once(caplog, monke
     assert sum("using the default" in r.getMessage() for r in caplog.records) == 3
 
 
-@pytest.mark.parametrize("bad", [0, "abc"])
-def test_every_budget_display_shows_the_gate_s_number(db, monkeypatch, bad):
-    from windyfly.cli_status import print_status
-    from windyfly.dashboard import data as dash
-
-    CFG["costs"] = {"daily_budget_usd": bad}
-    assert "Budget: $5.00/day" in _say("/version")
-    assert "of $5.00 budget" in _say("/status")
-    assert "/ $5.00 (" in _say("/pulse")
-    assert dash.get_dashboard_summary(db, config=CFG)["config"]["daily_budget"] == 5.0
-    print_status(CFG)  # must not raise on text
-
-
 def test_eight_threads_get_one_grant_and_one_row(tmp_path):
     import threading
 

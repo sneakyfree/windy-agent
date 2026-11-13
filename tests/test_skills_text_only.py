@@ -48,13 +48,6 @@ def _skill_rows(db: Database) -> list[dict]:
     return db.fetchall("SELECT id FROM skills")
 
 
-def _bridge(db: Database):
-    from windyfly.bridge.uds_server import UDSBridge
-    from windyfly.memory.write_queue import WriteQueue
-
-    return UDSBridge({}, db, WriteQueue())
-
-
 def _run(coro):
     loop = asyncio.new_event_loop()
     try:
@@ -84,27 +77,9 @@ def test_manager_rejects_code_language(db, language):
     assert _skill_rows(db) == []
 
 
-@pytest.mark.parametrize("language", ["python", "javascript"])
-def test_uds_skills_create_rejects_code_language(db, language):
-    bridge = _bridge(db)
-    with pytest.raises(ValueError, match="text playbooks only"):
-        _run(bridge._dispatch("skills.create", {
-            "name": "evil", "code": HOSTILE, "language": language,
-        }))
-    assert _skill_rows(db) == []
-
-
 def test_skill_language_error_is_a_value_error():
     # The UDS server reports str(exception) as the plain error string.
     assert issubclass(SkillLanguageError, ValueError)
-
-
-def test_uds_skills_create_defaults_to_playbook(db):
-    bridge = _bridge(db)
-    out = _run(bridge._dispatch("skills.create", {
-        "name": "deploy", "code": "1. build\n2. ship\n",
-    }))
-    assert get_skill(db, out["skill_id"])["language"] == "playbook"
 
 
 def test_correction_skills_are_stored_as_playbook_text(db, monkeypatch):
@@ -241,25 +216,6 @@ def test_no_source_references_skill_execution():
 
 
 # ── 3. the UDS surface no longer offers execution ──────────────────────
-
-
-def test_uds_dispatch_has_no_skill_execution_methods(db):
-    table = _bridge(db)._handler_table()
-    skills_methods = sorted(m for m in table if m.startswith("skills."))
-    assert skills_methods == [
-        "skills.create", "skills.list", "skills.promote", "skills.rollback",
-    ]
-    for gone in ("skills.evaluate", "skills.golden_tests", "skills.regression"):
-        assert gone not in table
-    assert not [m for m in table if "golden" in m or "regression" in m or "evaluat" in m]
-
-
-@pytest.mark.parametrize("method", [
-    "skills.evaluate", "skills.golden_tests", "skills.regression",
-])
-def test_uds_retired_methods_are_unknown(db, method):
-    with pytest.raises(ValueError, match="Unknown method"):
-        _run(_bridge(db)._dispatch(method, {"skill_id": "x"}))
 
 
 def test_legacy_code_rows_are_inert_text(db):

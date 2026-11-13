@@ -64,6 +64,6 @@ class TestCLIHelp:
         assert result.returncode == 0
         output = result.stdout
         assert "brain" in output
-        assert "gateway" in output
+        assert "gateway" not in output                 # one process, one log (lean Fly R1)
         assert "-f" in output or "--follow" in output
         assert "-n" in output or "--lines" in output

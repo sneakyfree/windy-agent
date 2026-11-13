@@ -21,7 +21,6 @@ mkdir -p "$OUTPUT"
 rsync -a --exclude='.git' --exclude='.venv' --exclude='data' \
     --exclude='node_modules' --exclude='__pycache__' \
     --exclude='dist' --exclude='.env' \
-    --exclude='gateway/dashboard/node_modules' \
     . "$OUTPUT/"
 
 cd "$OUTPUT"

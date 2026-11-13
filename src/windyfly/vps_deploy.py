@@ -170,9 +170,6 @@ async def deploy_vps(
                 agent_name=agent_name,
             )
 
-            if not instance.dashboard_url and instance.ip_address:
-                instance.dashboard_url = f"http://{instance.ip_address}:3000"
-
             _save_vps_state(instance)
             logger.info("VPS deployed: %s (%s)", instance.instance_id, instance.ip_address)
             return instance
@@ -322,7 +319,6 @@ def format_vps_status(instance: VPSInstance) -> str:
         f"  IP:         {instance.ip_address}",
         f"  Region:     {instance.region}",
         f"  Type:       {instance.instance_type}",
-        f"  Dashboard:  {instance.dashboard_url}",
         f"  SSH:        ssh {instance.ssh_user}@{instance.ip_address}",
         f"  Cost:       ${instance.monthly_cost_usd:.2f}/month",
     ]

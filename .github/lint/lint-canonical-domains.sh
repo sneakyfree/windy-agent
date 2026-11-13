@@ -126,7 +126,6 @@ EXCLUDE_PATHS=(
   "**/public/assets/**"
   "**/public/build/**"
   "**/static/assets/**"
-  "**/gateway/public/**"
   "**/docs/audit/**"
   "**/docs/hardening/artifacts/**"
   "**/wave11-evidence/**"

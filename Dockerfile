@@ -7,8 +7,11 @@
 #
 # Layout:
 #   stage 1 (py-builder) : Python deps via uv → /app/.venv
-#   stage 2 (bun-builder): gateway Node deps → /app/gateway/node_modules
-#   stage 3 (runtime)    : slim base + copies of both stages
+#   stage 2 (runtime)    : slim base + the venv
+#
+# ONE process, no port: the agent answers in Windy Chat. The Bun gateway (port 3000, the local dashboard) left with
+# the lean Windy Fly, so there is no Bun stage, nothing is EXPOSEd and there is no HTTP health check: the agent is
+# PID 1, and the container is up exactly as long as the agent is.
 
 # ── Stage 1: Python builder ────────────────────────────────────────
 FROM python:3.12-slim AS py-builder
@@ -28,16 +31,7 @@ COPY src/ src/
 COPY README.md ./
 RUN uv sync --locked --no-dev --no-editable
 
-# ── Stage 2: Bun builder (gateway) ────────────────────────────────
-FROM oven/bun:1-slim AS bun-builder
-
-WORKDIR /app/gateway
-
-COPY gateway/package.json gateway/bun.lock* ./
-RUN bun install --production --frozen-lockfile 2>/dev/null \
-    || bun install --production
-
-# ── Stage 3: Runtime ──────────────────────────────────────────────
+# ── Stage 2: Runtime ──────────────────────────────────────────────
 FROM python:3.12-slim AS runtime
 
 # Build args propagated as labels so a `docker inspect` reveals
@@ -61,18 +55,14 @@ ENV WINDY_BUILD_VERSION="${VERSION}"
 
 WORKDIR /app
 
-# Runtime deps: curl for healthcheck, Bun runtime to execute the
-# gateway. Don't carry build toolchain into the runtime image.
+# Runtime deps only. Don't carry build toolchain into the runtime image.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        curl ca-certificates \
+        ca-certificates \
     && rm -rf /var/lib/apt/lists/*
-COPY --from=oven/bun:1-slim /usr/local/bin/bun /usr/local/bin/bun
 
-# Pull only what we need from each builder.
+# Pull only what we need from the builder.
 COPY --from=py-builder /app/.venv /app/.venv
-COPY --from=bun-builder /app/gateway/node_modules /app/gateway/node_modules
 COPY src/ src/
-COPY gateway/ gateway/
 COPY pyproject.toml README.md ./
 
 # Make the venv's binaries the default PATH so 'windy' resolves
@@ -82,11 +72,6 @@ ENV PYTHONUNBUFFERED=1
 
 RUN mkdir -p data
 
-EXPOSE 3000
-
-# Conservative health check — the gateway exposes /api/health when
-# running. If gateway disabled, override CMD to skip.
-HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=20s \
-    CMD curl -f http://localhost:3000/api/health || exit 1
-
-CMD ["windy", "start", "--daemon"]
+# The agent in the foreground as PID 1: one process, one channel (Windy Chat). It needs a hatched agent's passport
+# (or a Matrix token) in its env; without one it says so and exits non-zero.
+CMD ["python", "-m", "windyfly.main", "--channel", "matrix"]
