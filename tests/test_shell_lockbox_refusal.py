@@ -38,6 +38,9 @@ NAMING = [
     "ls kit-army-config-wt;echo",
     "python3 -c 'open(\"ACCESS_LOCKBOX.md\").read()'",
     "tar czf /tmp/b.tgz kit-army-config.bak-1112",
+    # the backup's bare mirror (Boss RULED 2026-11-13T01:41:13Z): git can decode its objects, so the shell must refuse it
+    "git --git-dir=$HOME/.local/share/windy-backup/kit-army-config.mirror show HEAD:ACCESS_LOCKBOX.md",
+    "git -C ~/.local/share/windy-backup/kit-army-config.mirror cat-file -p HEAD",
 ]
 
 PLAIN = [
