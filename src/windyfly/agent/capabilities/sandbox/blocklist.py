@@ -107,9 +107,8 @@ def check_blocklist(command: str) -> None:
 
 # The owner's lockbox, by name, at EVERY band and in every sandbox, the owner included (Boss, BOARD
 # 2026-11-13T01:38:19Z: "if Zero has any shell or exec tool, the same matcher goes there"). The same name matcher
-# as the file and github tools (filesystem.is_lockbox_name). A text match is a FLOOR: a glob, a variable or a
-# built-up string gets past it. The Docker sandbox also masks the lockbox (deny_masks -> deny_match); host_rw has
-# only this floor.
+# as the file and github tools (filesystem.is_lockbox_name). Like every pattern here it is belt-and-suspenders, not
+# the wall: the Docker sandbox also masks the lockbox under any mounted root (deny_masks -> deny_match).
 LOCKBOX_REASON = ("command names the owner's credentials store (the lockbox): this agent never opens it, even for "
                   "the owner; credentials are fetched by name by the people and tools that hold them")
 _WORD_SPLIT = re.compile(r"""[\s/\\'"`=:;|&()<>$,{}\[\]]+""")

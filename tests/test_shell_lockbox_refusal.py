@@ -1,8 +1,8 @@
 """shell.exec refuses a command that names the owner's lockbox, at every band and in both sandboxes (Boss, BOARD
 2026-11-13T01:38:19Z), and the Docker sandbox masks the lockbox under a mounted root.
 
-The command check is a FLOOR (a glob or a variable gets past a text match); the Docker mask is the wall for the
-sandbox. Each refusal has a control: the same call with a plain name goes through.
+The command check is belt-and-suspenders; the Docker mask is the wall for the sandbox. Each refusal has a control:
+the same call with a plain name goes through.
 """
 
 from __future__ import annotations
