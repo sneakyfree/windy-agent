@@ -65,7 +65,7 @@ def test_first_text_to_a_contact_uses_the_approved_wording(monkeypatch):
     sms.send_sms(to="+15551230000", body="Dinner moved to 7")
     assert calls["post"][0]["json"]["body"] == (
         "Hi, this is Ava, an AI assistant texting for Grant. Dinner moved to 7. "
-        "Reply STOP to opt out, HELP for help.")
+        "Reply STOP to opt out, HELP for help, or email support@windyword.ai.")
 
 
 def test_later_texts_are_bare(monkeypatch):

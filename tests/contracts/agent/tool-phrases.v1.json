@@ -1,0 +1,2072 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://windyword.ai/contracts/agent/tool-phrases.v1.json",
+  "title": "Tool phrases: the fixed person-facing sentences of BOTH agent runtimes (Windy Fly and Windy Chat's agent roster)",
+  "owner": "windy-agent",
+  "x-version": "1.4.0",
+  "x-status": "DRAFT 2026-11-02. Convergence plan step 1 (windy-agent docs/CONVERGENCE_PLAN.md, Boss 2026-11-02 11:57Z): one shared phrase table, the P136-5 cure (two runtimes said two different things about the same calendar). Windy Agent wrote the structure and Windy Fly's phrases; Windy Chat added the agent roster's 89 phrases (services/agent-roster/lib at windy-chat ebc56254003a5a9f658e087c75aa244b4306411f, each by file:line and checked against that source). None is byte-equal to a Windy Fly say, so each is its own id listing only chat-roster (P3), with windy-fly null (P6). A roster line can join ids: an optional sentence (calendar.outside_open_hours, calendar.overlaps_blocked, calendar.overlaps_busy, calendar.no_one_invited, calendar.do_it_yourself, team.will_tell_you) follows the sentence before it after one space; list rows, preview links and a draft's parts go on their own lines, and a draft's To/Cc/Bcc, Subject and body are data, not phrases. Every Windy Fly text here was PULLED from windy-agent master 393f98110e969188a9a7348eac7b4ffe76ade8d6 source by file:line (never retyped); a phrase already in use is RECORDED as is, not re-decided. 1.2.0 (2026-11-11, Windy Chat; P2): LEGAL DECISION 27 (6) (Legal BOARD 2026-11-09T16:51:16Z, on Windy Code's fact 13:08:39Z: anyone holding a preview link can open it for 15 minutes, no sign-in): builder.private_preview says \"Preview link (anyone with this link can open it for 15 minutes): {url}\". The draft state word in builder.site_row and builder.site_state becomes 'an unpublished draft' (Windy Code's own word). The key name stays (renaming it would break both runtimes' lookups for no reader's gain). 1.1.0 (2026-11-09, Windy Chat; P2): LEGAL DECISION 27 on the 89 roster phrases (BOARD 2026-11-09T11:12:51Z, count fix 11:13:11Z; Boss accepted 11:14:05Z and ruled 11:16:39Z (2)). Four says change to Legal's words: builder.taking_private, builder.unpublish_ready, calendar.time_blocked (only the booking link and other people's agents are refused a blocked time, Windy Calendar BOARD 2026-11-09T11:15:37Z) and calendar.cancelled (\"They've been told.\" cut). calendar.they_were_told (\"They've been told.\") is REMOVED: no runtime says it now (windy-fly was already null), because Calendar answers after it TRIES the booker's notice, even when that failed, and gives no flag; it can return only as a new decision (P2), gated on Calendar's booker_notified === true, after another Legal match check. The roster ships the same text in windy-chat #622 (Legal MATCH CHECK PASS 2026-11-09T11:18:07Z; non-author #9 fact check: the Hub's read of #622, BOARD 2026-11-09T11:20:28Z). builder.private_preview is unchanged until Windy Code posts whether its preview link needs the owner's sign-in. 1.3.0 (2026-11-12): the texting words after Windy Fly's own texting channel left (windy-agent #788). sms.unsubscribed changes to Legal's words (LEGAL DECISION 28 (1)) and its source moves to Windy Text. NEW: sms.help and sms.help_shared (LEGAL DECISION 28 (2), (7)), both said by Windy Text; sms.optout_key_missing (LEGAL DECISION 92) and sms.optout_unreadable (Legal 2026-11-11T04:55:36Z), both said by Windy Fly. A third, optional source, runtimes.windy-text, and rule P7 say why a service's replies are here. cloud.quota_full is REMOVED: no runtime says it now, since Windy Fly relays Windy Cloud's own words for a full storage (windy-agent #791, d301d7b); it can return only as a new decision (P2). 1.3.1 (2026-11-12, folded into 1.4.0): wording only, from Windy Text's fact check of 1.3.0: the description and rule P7 said Windy Text answers STOP, START and HELP; it answers STOP and HELP, and a START gets no reply in the agent's name. The origin of sms.unsubscribed said START deletes Windy's own record; clears is true in every case. No say, id or source changed. 1.4.0 (2026-11-12): sms.first_text_intro ends \"Reply STOP to opt out, HELP for help, or email support@windyword.ai.\" (LEGAL DECISION 119 Q3 (B)); one fixed address, no new slot.",
+  "description": "One id per fixed sentence that a person reads or hears from an agent: a tool result the model relays, a sentence a tool description tells the model to say, a reply code sends straight to the owner, or text code adds to mail and texts for other people. Both runtimes that say the same thing use the same id and the same exact text. Vault tool words are NOT repeated here: schema/agent/vault-tools.v1.json x-refusals.say and its consts are their single source (x-refs). Model-only instructions, log lines and the services' own server words are out of scope. ONE EXCEPTION to the last clause (1.3.0): when the Windy Text service answers a text in an agent's name on an owner's own number (STOP and HELP; a START is recorded with no reply in the agent's name), those sentences are the agent's words to a person and are listed here with a windy-text source (rule P7).",
+  "x-rules": [
+    "P1 ONE ID, ONE TEXT. An id's say is exact. A runtime that uses an id ships that text byte for byte; its conformance test compares its source with this file (vendored and hash-pinned, like vault-tools.v1).",
+    "P2 CHANGES ARE DECISIONS. A new sentence, or a change to one, is a Boss decision plus a non-author #9 fact check recorded in git, plus Windy Legal's LEGAL DECISION line for outbound_text, consent and opt-out phrases, then a version bump here; the runtimes that use it ship the new text together.",
+    "P3 TRUE FOR EACH RUNTIME. A sentence must be true for every runtime listed under its runtimes. When the truth differs (P136-5: one runtime can add an event, the other can't), they are TWO ids, each listing only the runtime it is true for.",
+    "P4 SLOTS. {name} marks a slot; the slots object names each one and what fills it. A slot carries a value (a name, a number, an address), never a sentence the model wrote, except where the slot says so (sms.first_text_intro's message).",
+    "P5 NOTHING SECRET. No phrase holds a token, an id, a key, a URL with a credential, or the content of a message, a file or an email.",
+    "P6 runtimes. A runtime's value is where it says this (file and line, or a const), or null when it doesn't use the id yet. null is not a promise to add it.",
+    "P7 windy-text. The Windy Text service is not an agent runtime, but since Windy Fly's own texting channel left (windy-agent #788) it is the one place that receives STOP, START and HELP on an owner's own number, and it answers STOP and HELP in the agent's name (a START gets no reply in the agent's name). Those replies are listed here with an optional third source, runtimes.windy-text (file and line), and P1 and P3 hold for it as for a runtime. An entry without that key says nothing about Windy Text. Windy Text's other server words stay out of scope."
+  ],
+  "x-channels": {
+    "say": "the tool result's say (the model relays it)",
+    "error": "the tool result's error (the model relays it)",
+    "note": "the tool result's note",
+    "speak": "the tool result's speak",
+    "question": "a question the model relays verbatim to the owner",
+    "notice_to_user": "a notice the model passes on to the person",
+    "description": "a sentence inside a tool description that the model says to the owner",
+    "owner_reply": "sent by CODE straight to the owner (never through the model)",
+    "outbound_text": "added by CODE to mail or texts that go to other people"
+  },
+  "x-refs": {
+    "vault": "schema/agent/vault-tools.v1.json: x-refusals.say (codes) and the say consts in $defs (states, filed answers).",
+    "phone": "schema/chat/phone-tools.v1.json for what the phone tools may claim (e.g. never 'delivered')."
+  },
+  "x-fills": {
+    "cloud.wont_upload": [
+      "it is in a hidden folder of your home folder (settings, keys, browser data)",
+      "it is part of the agent's own data",
+      "its name looks like a key, token, password or env file",
+      "it is part of a browser profile or a keychain"
+    ],
+    "desktop.code_meaning": [
+      "The owner has this turned off on that computer (or the setting is one only the owner may change)",
+      "The computer saw the request too late and did not run it",
+      "The computer was busy with another request; nothing changed",
+      "The request did not fit what the computer accepts; nothing changed",
+      "Too many changes on that computer in the last minute; nothing changed",
+      "This computer's Windy Word app cannot do this yet",
+      "That change is not my latest one on that computer (a newer one exists, or it was undone already); nothing changed",
+      "Windy Word is not open and in use on the owner's computer, or the owner has not let the agent use it",
+      "Two or more computers could do this; ask the owner which one",
+      "That computer is online, but the owner has this kind of action turned off there",
+      "There is no change of mine to undo",
+      "This turn already sent a tool request; ask again in your next turn",
+      "The computer's answer did not match the request; the outcome is unknown",
+      "The computer did not pick it up; it will not run it now",
+      "No answer from the computer; the outcome is unknown (it may have happened)"
+    ],
+    "phone.code_meaning": [
+      "The phone does not allow the Windy app to do this (the owner can change it in the phone's settings)",
+      "The owner said no on the phone",
+      "The phone saw the request too late and did not run it",
+      "This phone cannot do this",
+      "The phone was already doing another request",
+      "Nothing matched",
+      "The request did not fit what the phone accepts",
+      "The phone's answer could not be read",
+      "The Windy app is not open on the owner's phone",
+      "The phone did not pick it up; it will not run it now",
+      "No answer from the phone; the outcome is unknown (it may have happened)",
+      "This turn already sent a tool request; ask again in your next turn"
+    ]
+  },
+  "x-phrases": {
+    "builder.cabinet_empty": {
+      "say": "I haven't filed anything in your cabinet yet.",
+      "area": "builder",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/build-calendar.js:194 (windy-chat ebc56254)"
+      }
+    },
+    "builder.cabinet_failed": {
+      "say": "Sorry — I could not open your cabinet just now.",
+      "area": "builder",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/build-calendar.js:190 (windy-chat ebc56254)"
+      }
+    },
+    "builder.cabinet_header": {
+      "say": "Here is what I have filed in your Windy Code cabinet:",
+      "area": "builder",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/build-calendar.js:193 (windy-chat ebc56254)"
+      }
+    },
+    "builder.cabinet_row": {
+      "say": "• {name} ({kind}){waiting}",
+      "area": "builder",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/build-calendar.js:193 (windy-chat ebc56254)"
+      },
+      "slots": {
+        "name": "the project's name",
+        "kind": "the project's kind",
+        "waiting": "' — waiting for your OK' when it waits for the owner, else empty"
+      }
+    },
+    "builder.did_not_go_through": {
+      "say": "Sorry — that didn't go through. Want to try again?",
+      "area": "builder",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/build-calendar.js:297 (windy-chat ebc56254)"
+      }
+    },
+    "builder.draft_waiting_elsewhere": {
+      "say": "I already have a draft waiting for your OK in another room, so I haven't prepared this. Send or cancel that first, then ask me again.",
+      "area": "builder",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/build-calendar.js:78 (windy-chat ebc56254)"
+      }
+    },
+    "builder.file_failed": {
+      "say": "Sorry — I could not file that just now.",
+      "area": "builder",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/build-calendar.js:169 (windy-chat ebc56254)"
+      }
+    },
+    "builder.filed": {
+      "say": "Filed it in your Windy Code cabinet.",
+      "area": "builder",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/build-calendar.js:170 (windy-chat ebc56254)"
+      }
+    },
+    "builder.going_live": {
+      "say": "Going live now.",
+      "area": "builder",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/build-calendar.js:300, services/agent-roster/lib/windy-code.js:280, services/agent-roster/lib/windy-code.js:282 (windy-chat ebc56254)"
+      }
+    },
+    "builder.greeting_fallback": {
+      "say": "Hi! I can chat, send email from my own address, search the web and build simple websites for you. What would you like to start with?",
+      "area": "builder",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/build-calendar.js:117 (windy-chat ebc56254)"
+      }
+    },
+    "builder.inbox_asked": {
+      "say": "I've asked you to approve it in your Windy Inbox.",
+      "area": "builder",
+      "channel": "speak",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/windycode_web.py:488 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "builder.link_label_secret": {
+      "say": "a link label looks like it contains a secret, so I didn't file it",
+      "area": "builder",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/windycode_web.py:374 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "builder.link_userpass": {
+      "say": "that link has a username or password in it, so I won't file it",
+      "area": "builder",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/windycode_web.py:364 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "builder.live_at": {
+      "say": "It's live ✓ — {url}",
+      "area": "builder",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/build-calendar.js:306 (windy-chat ebc56254)"
+      },
+      "slots": {
+        "url": "the site's public address"
+      }
+    },
+    "builder.log_secret": {
+      "say": "that note looks like it contains a secret; describe the change without it",
+      "area": "builder",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/windycode_web.py:413 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "builder.missing_args": {
+      "say": "I didn't catch what to file. What's the project called, and is it a repo, an app, a database or something else?",
+      "area": "builder",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/helpers.js:35 (windy-chat ebc56254)"
+      }
+    },
+    "builder.no_sites": {
+      "say": "I haven't built any sites for you yet. Tell me what you'd like one for!",
+      "area": "builder",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/build-calendar.js:124 (windy-chat ebc56254)"
+      }
+    },
+    "builder.private_preview": {
+      "say": "Preview link (anyone with this link can open it for 15 minutes): {url}",
+      "area": "builder",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/build-calendar.js:131, services/agent-roster/lib/runner/build-calendar.js:139 (windy-chat chat/ld27-6-preview-words, on #622)"
+      },
+      "origin": "LEGAL DECISION 27 (6) (Legal 2026-11-09T16:51:16Z): the preview link opens for anyone who has it, so it is not private",
+      "slots": {
+        "url": "the builder's preview link: anyone who has it can open the site for 15 minutes, with no sign-in (Windy Code, BOARD 2026-11-09T13:08:39Z)"
+      }
+    },
+    "builder.publish_ready": {
+      "say": "🌐 Ready to put {site} online for everyone. Reply **publish** to confirm — nothing goes live until you do.",
+      "area": "builder",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/build-calendar.js:84 (windy-chat ebc56254)"
+      },
+      "slots": {
+        "site": "the site's name in curly quotes, or 'that site'"
+      }
+    },
+    "builder.request_expired": {
+      "say": "That {word} request expired. Ask me again.",
+      "area": "builder",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/windycode_web.py:509 (windy-agent 393f9811)",
+        "chat-roster": null
+      },
+      "slots": {
+        "word": "publish | unpublish | connect"
+      }
+    },
+    "builder.site_not_found": {
+      "say": "I can't find that site among the ones I've built.",
+      "area": "builder",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/build-calendar.js:74 (windy-chat ebc56254)"
+      }
+    },
+    "builder.site_row": {
+      "say": "• {name} — {state}",
+      "area": "builder",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/build-calendar.js:123 (windy-chat ebc56254)"
+      },
+      "slots": {
+        "name": "the site's name",
+        "state": "'live', 'an unpublished draft' (LEGAL DECISION 27 (6)), or the builder's state word"
+      }
+    },
+    "builder.site_state": {
+      "say": "“{name}” is {state}{at}.",
+      "area": "builder",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/build-calendar.js:130 (windy-chat ebc56254)"
+      },
+      "slots": {
+        "name": "the site's name",
+        "state": "'live', 'an unpublished draft' (LEGAL DECISION 27 (6)), or the builder's state word",
+        "at": "' at <public address>' when it is live, else empty"
+      }
+    },
+    "builder.sites_header": {
+      "say": "Here are the sites I've built for you:",
+      "area": "builder",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/build-calendar.js:123 (windy-chat ebc56254)"
+      }
+    },
+    "builder.snag": {
+      "say": "Sorry — the website builder hit a snag.",
+      "area": "builder",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/build-calendar.js:99 (windy-chat ebc56254)"
+      }
+    },
+    "builder.summary_secret": {
+      "say": "the summary looks like it contains a secret; say it without it",
+      "area": "builder",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/windycode_web.py:390 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "builder.taking_private": {
+      "say": "Taking it off the public web now.",
+      "area": "builder",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/build-calendar.js:300, services/agent-roster/lib/windy-code.js:294, services/agent-roster/lib/windy-code.js:296 (windy-chat #622 at d7c0b316; the FALLBACK: on a live unpublish the owner sees Windy Code's own speak first, and this line shows only when Code sends none)"
+      },
+      "origin": "LEGAL DECISION 27 (Legal 2026-11-09T11:12:51Z, count fix 11:13:11Z); Boss accepted 11:14:05Z"
+    },
+    "builder.trust_unverifiable": {
+      "say": "I couldn't verify my standing right now, so I didn't do it. Try again shortly.",
+      "area": "builder",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/windycode_web.py:444 (windy-agent 393f9811)",
+        "chat-roster": null
+      },
+      "origin": "Hub 2026-10-01 (nothing goes live on an unverifiable agent)"
+    },
+    "builder.unpublish_ready": {
+      "say": "🔒 Ready to take {site} off the public web. Reply **yes** to confirm.",
+      "area": "builder",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/build-calendar.js:85 (windy-chat #622 at d7c0b316)"
+      },
+      "slots": {
+        "site": "the site's name in curly quotes, or 'that site'"
+      },
+      "origin": "LEGAL DECISION 27 (Legal 2026-11-09T11:12:51Z, count fix 11:13:11Z); Boss accepted 11:14:05Z"
+    },
+    "builder.which_site": {
+      "say": "Which site do you mean? I need its project id.",
+      "area": "builder",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/build-calendar.js:71 (windy-chat ebc56254)"
+      }
+    },
+    "builder.words_header": {
+      "say": "Words I can change for you:",
+      "area": "builder",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/build-calendar.js:132 (windy-chat ebc56254)"
+      }
+    },
+    "builder.words_row": {
+      "say": "• {what}: “{current}”",
+      "area": "builder",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/build-calendar.js:128 (windy-chat ebc56254)"
+      },
+      "slots": {
+        "what": "what the words are (from the builder)",
+        "current": "the site's current words there, cut to 60 characters"
+      }
+    },
+    "calendar.agent_blocked": {
+      "say": "My owner has blocked me from their calendar.",
+      "area": "calendar",
+      "channel": "say",
+      "runtimes": {
+        "windy-fly": "src/windyfly/agent/windy_calendar.py:53 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "calendar.already_added": {
+      "say": "That's already on your calendar: {title}, {when}. I didn't add it a second time.",
+      "area": "calendar",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/helpers.js:106 (windy-chat ebc56254)"
+      },
+      "slots": {
+        "title": "the event's title",
+        "when": "the time Calendar gives"
+      }
+    },
+    "calendar.already_pending": {
+      "say": "That is already waiting for my owner's approval.",
+      "area": "calendar",
+      "channel": "say",
+      "runtimes": {
+        "windy-fly": "src/windyfly/agent/windy_calendar.py:65 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "calendar.appointment_row": {
+      "say": "• {when} with {with}",
+      "area": "calendar",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/helpers.js:98 (windy-chat ebc56254)"
+      },
+      "slots": {
+        "when": "the time Calendar gives",
+        "with": "the name Calendar gives"
+      }
+    },
+    "calendar.appointments_header": {
+      "say": "Your appointments:",
+      "area": "calendar",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/helpers.js:98 (windy-chat ebc56254)"
+      }
+    },
+    "calendar.asked_by_email": {
+      "say": "I've asked you to confirm by email: approve it to {action}. Nothing changes until you tap the link (it works once, for 30 minutes).",
+      "area": "calendar",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/helpers.js:120 (windy-chat ebc56254)"
+      },
+      "slots": {
+        "action": "'cancel your appointment' or 'move your appointment', then ' with <name>' and ' on <time>' when Calendar gives them, and for a move ' to <new time>'"
+      }
+    },
+    "calendar.asked_in_inbox": {
+      "say": "I've asked you to approve it in your Windy Inbox (app.windyword.ai/inbox), to {action}. Nothing changes until you approve it; the request expires in 30 minutes.",
+      "area": "calendar",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/helpers.js:118 (windy-chat ebc56254)"
+      },
+      "slots": {
+        "action": "'cancel your appointment' or 'move your appointment', then ' with <name>' and ' on <time>' when Calendar gives them, and for a move ' to <new time>'"
+      }
+    },
+    "calendar.block_span_max": {
+      "say": "I can only block up to seven days at a time.",
+      "area": "calendar",
+      "channel": "say",
+      "runtimes": {
+        "windy-fly": "src/windyfly/agent/windy_calendar.py:70 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "calendar.booked": {
+      "say": "Booked ✓ {with}, {when}.",
+      "area": "calendar",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/helpers.js:102 (windy-chat ebc56254)"
+      },
+      "slots": {
+        "with": "the name Calendar gives for the other person",
+        "when": "the time Calendar gives"
+      }
+    },
+    "calendar.booking_link": {
+      "say": "Your booking link: {url}",
+      "area": "calendar",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/helpers.js:94 (windy-chat ebc56254)"
+      },
+      "slots": {
+        "url": "the owner's public booking link from Calendar"
+      }
+    },
+    "calendar.booking_link_not_ready": {
+      "say": "My owner's booking link isn't ready yet.",
+      "area": "calendar",
+      "channel": "say",
+      "runtimes": {
+        "windy-fly": "src/windyfly/agent/capabilities/windy_calendar.py:100 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "calendar.booking_link_off": {
+      "say": "My owner's booking link is turned off: anyone who opens it sees 'Not taking bookings'.",
+      "area": "calendar",
+      "channel": "say",
+      "runtimes": {
+        "windy-fly": "src/windyfly/agent/capabilities/windy_calendar.py:106 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "calendar.cancelled": {
+      "say": "Cancelled ✓ your appointment{with}{when}.",
+      "area": "calendar",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/helpers.js:128 (windy-chat #622 at d7c0b316)"
+      },
+      "slots": {
+        "with": "' with <name>' when Calendar gives one, else empty",
+        "when": "' on <time>' when Calendar gives one, else empty"
+      },
+      "origin": "LEGAL DECISION 27 (Legal 2026-11-09T11:12:51Z, count fix 11:13:11Z); Boss accepted 11:14:05Z + 11:16:39Z (2); the fact: Windy Calendar 2026-11-09T11:15:37Z"
+    },
+    "calendar.cannot_do_yet": {
+      "say": "Windy Calendar can't do that yet.",
+      "area": "calendar",
+      "channel": "say",
+      "runtimes": {
+        "windy-fly": "src/windyfly/agent/windy_calendar.py:75 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "calendar.cannot_see": {
+      "say": "I can't see my owner's calendar yet.",
+      "area": "calendar",
+      "channel": "say",
+      "runtimes": {
+        "windy-fly": "src/windyfly/agent/windy_calendar.py:59 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "calendar.daily_limit": {
+      "say": "I've reached my daily limit for changing my owner's calendar.",
+      "area": "calendar",
+      "channel": "say",
+      "runtimes": {
+        "windy-fly": "src/windyfly/agent/windy_calendar.py:62 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "calendar.do_it_yourself": {
+      "say": "If you don't see the email, you can do it yourself at windycalendar.com.",
+      "area": "calendar",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/helpers.js:121 (windy-chat ebc56254)"
+      }
+    },
+    "calendar.event_added": {
+      "say": "Added ✓ to your calendar: {title}, {when}.",
+      "area": "calendar",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/helpers.js:107 (windy-chat ebc56254)"
+      },
+      "slots": {
+        "title": "the event's title",
+        "when": "the time Calendar gives"
+      }
+    },
+    "calendar.first_batch": {
+      "say": "(That is the first batch; ask for more if you want them.)",
+      "area": "calendar",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/helpers.js:91 (windy-chat ebc56254)"
+      }
+    },
+    "calendar.impossible_time": {
+      "say": "That time doesn't work. Pick a real time in the future.",
+      "area": "calendar",
+      "channel": "say",
+      "runtimes": {
+        "windy-fly": "src/windyfly/agent/windy_calendar.py:68 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "calendar.moved": {
+      "say": "Moved ✓ your appointment{with} to {to}.",
+      "area": "calendar",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/helpers.js:123 (windy-chat ebc56254)"
+      },
+      "slots": {
+        "with": "' with <name>' when Calendar gives one, else empty",
+        "to": "the new time"
+      }
+    },
+    "calendar.needs_owner_ok": {
+      "say": "That needs my owner's OK. It is waiting in the Windy Inbox.",
+      "area": "calendar",
+      "channel": "say",
+      "runtimes": {
+        "windy-fly": "src/windyfly/agent/windy_calendar.py:50 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "calendar.no_appointments": {
+      "say": "You have no appointments booked in that stretch.",
+      "area": "calendar",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/helpers.js:97 (windy-chat ebc56254)"
+      }
+    },
+    "calendar.no_calendar": {
+      "say": "There isn't a Windy Calendar set up for my owner yet.",
+      "area": "calendar",
+      "channel": "say",
+      "runtimes": {
+        "windy-fly": "src/windyfly/agent/windy_calendar.py:55 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "calendar.no_one_invited": {
+      "say": "No one else was invited or emailed.",
+      "area": "calendar",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/helpers.js:107 (windy-chat ebc56254)"
+      }
+    },
+    "calendar.no_open_times": {
+      "say": "You don't have any open times in that stretch.",
+      "area": "calendar",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/helpers.js:88 (windy-chat ebc56254)"
+      }
+    },
+    "calendar.not_trusted_write": {
+      "say": "I'm not trusted enough yet to change my owner's calendar.",
+      "area": "calendar",
+      "channel": "say",
+      "runtimes": {
+        "windy-fly": "src/windyfly/agent/windy_calendar.py:57 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "calendar.not_turned_on": {
+      "say": "Windy Calendar isn't turned on for me yet.",
+      "area": "calendar",
+      "channel": "say",
+      "runtimes": {
+        "windy-fly": "src/windyfly/agent/windy_calendar.py:82 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "calendar.not_understood": {
+      "say": "Windy Calendar didn't understand that request.",
+      "area": "calendar",
+      "channel": "say",
+      "runtimes": {
+        "windy-fly": "src/windyfly/agent/windy_calendar.py:71 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "calendar.open_times_header": {
+      "say": "Your open times{zone}:",
+      "area": "calendar",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/helpers.js:89 (windy-chat ebc56254)"
+      },
+      "slots": {
+        "zone": "' (<time zone, _ shown as spaces>)' when Calendar gives one, else empty"
+      }
+    },
+    "calendar.open_times_row": {
+      "say": "• {day}: {times}{more}",
+      "area": "calendar",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/helpers.js:90 (windy-chat ebc56254)"
+      },
+      "slots": {
+        "day": "the day label",
+        "times": "up to 12 times, comma-separated",
+        "more": "' (+N more)' when there are more than 12, else empty"
+      }
+    },
+    "calendar.outside_open_hours": {
+      "say": "That's outside your usual open hours.",
+      "area": "calendar",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/helpers.js:79 (windy-chat ebc56254)"
+      }
+    },
+    "calendar.overlaps_blocked": {
+      "say": "It overlaps time you blocked off.",
+      "area": "calendar",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/helpers.js:79 (windy-chat ebc56254)"
+      }
+    },
+    "calendar.overlaps_busy": {
+      "say": "It overlaps something else on your calendar.",
+      "area": "calendar",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/helpers.js:80 (windy-chat ebc56254)"
+      }
+    },
+    "calendar.own_event_cannot_add": {
+      "say": "I can't add an event just for you yet. I can set up a meeting with the people you name for you to approve in your Windy Inbox, or hold that time so it can't be booked on your booking page.",
+      "area": "calendar",
+      "channel": "description",
+      "runtimes": {
+        "windy-fly": "src/windyfly/agent/capabilities/windy_calendar.py:182 (windy-agent 393f9811)",
+        "chat-roster": null
+      },
+      "origin": "Boss 2026-10-28 17:26-17:49Z (P136-5, Grant's Build-131 note 9), then Hub #9; windy-agent #638"
+    },
+    "calendar.sign_in_failed": {
+      "say": "I couldn't sign in to Windy Calendar just now.",
+      "area": "calendar",
+      "channel": "say",
+      "runtimes": {
+        "windy-fly": "src/windyfly/agent/windy_calendar.py:73 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "calendar.snag": {
+      "say": "Sorry, your calendar hit a snag.",
+      "area": "calendar",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/helpers.js:86 (windy-chat ebc56254)"
+      }
+    },
+    "calendar.time_blocked": {
+      "say": "Blocked ✓ {date}, {from} to {to}. No one can book that time through your booking link.",
+      "area": "calendar",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/helpers.js:111 (windy-chat #622 at d7c0b316)"
+      },
+      "slots": {
+        "date": "the day",
+        "from": "the start time",
+        "to": "the end time"
+      },
+      "origin": "LEGAL DECISION 27 (Legal 2026-11-09T11:12:51Z, count fix 11:13:11Z); Boss accepted 11:14:05Z; the fact: Windy Calendar 2026-11-09T11:15:37Z"
+    },
+    "calendar.unreachable": {
+      "say": "I couldn't reach Windy Calendar just now. Try again in a moment.",
+      "area": "calendar",
+      "channel": "say",
+      "runtimes": {
+        "windy-fly": "src/windyfly/agent/windy_calendar.py:33 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "call.recent_call": {
+      "say": "A call may already have been placed; ask your owner before calling again.",
+      "area": "call",
+      "channel": "note",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/voice.py:41 (windy-agent 393f9811)",
+        "chat-roster": null
+      },
+      "origin": "Boss 2026-11-01 (#675: words to the model are not a control; the guard is in code)"
+    },
+    "call.replayed": {
+      "say": "replayed: true means this is the same call as before: nothing new was dialed.",
+      "area": "call",
+      "channel": "description",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/voice.py make_call description (windy-agent #682, merging)",
+        "chat-roster": null
+      },
+      "origin": "Boss 2026-11-02T12:10:17Z, approved with US spelling; Hub #9 TRUE at windy-agent 5dafa5e9"
+    },
+    "call.unknown_tell_owner": {
+      "say": "If the status is unknown, do not call again: tell your owner a call may have been placed.",
+      "area": "call",
+      "channel": "description",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/voice.py:138 (windy-agent 393f9811)",
+        "chat-roster": null
+      },
+      "origin": "Hub 2026-11-01 read of #609; Boss words on #675"
+    },
+    "cloud.archive_reads_used_up": {
+      "say": "This month's Windy Cloud archive-read allowance is used up.",
+      "area": "cloud",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/cloud.py:74 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "cloud.frozen": {
+      "say": "Windy Cloud refused: the account is frozen or suspended.",
+      "area": "cloud",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/cloud.py:69 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "cloud.in_trash": {
+      "say": "That file is in the Windy Cloud trash (restorable there for 30 days).",
+      "area": "cloud",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/cloud.py:71 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "cloud.no_room": {
+      "say": "There is no room for downloads: the downloads folder is full or the disk is nearly full.",
+      "area": "cloud",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/cloud.py:413 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "cloud.no_such_file": {
+      "say": "There is no such file.",
+      "area": "cloud",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/cloud.py:247 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "cloud.no_such_file_or_not_yours": {
+      "say": "There is no such file in your Windy Cloud (or it is not yours).",
+      "area": "cloud",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/cloud.py:70 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "cloud.not_plain_file": {
+      "say": "That is not a plain file.",
+      "area": "cloud",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/cloud.py:249 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "cloud.not_saved": {
+      "say": "The file could not be saved.",
+      "area": "cloud",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/cloud.py:446 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "cloud.only_in_turn": {
+      "say": "I upload files only while answering a message.",
+      "area": "cloud",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/cloud.py:265 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "cloud.outside_folders": {
+      "say": "That file is outside the folders I may use. Name the file's path in your message if you want it uploaded.",
+      "area": "cloud",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/cloud.py:255 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "cloud.over_limit": {
+      "say": "That file is over Windy Cloud's 100 MB limit.",
+      "area": "cloud",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/cloud.py:72 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "cloud.refused_credentials": {
+      "say": "Windy Cloud refused this agent's credentials.",
+      "area": "cloud",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/cloud.py:68 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "cloud.storage_error": {
+      "say": "Windy Cloud's storage had an error. Try again in a moment.",
+      "area": "cloud",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/cloud.py:75 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "cloud.storage_locked": {
+      "say": "Windy Cloud has locked this agent's storage.",
+      "area": "cloud",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/cloud.py:73 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "cloud.too_big": {
+      "say": "That file is too big to download here.",
+      "area": "cloud",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/cloud.py:429 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "cloud.too_big_declared": {
+      "say": "That file is too big to download here (over 100 MB, or not enough room).",
+      "area": "cloud",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/cloud.py:423 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "cloud.trust_unchecked": {
+      "say": "Windy Cloud could not check trust just now, so it refused. Try again in a moment.",
+      "area": "cloud",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/cloud.py:76 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "cloud.wont_upload": {
+      "say": "I won't upload that: {why}.",
+      "area": "cloud",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/cloud.py:252 (windy-agent 393f9811)",
+        "chat-roster": null
+      },
+      "slots": {
+        "why": "one of x-fills.cloud.wont_upload"
+      }
+    },
+    "desktop.away": {
+      "say": "You didn't seem to be at your computer, so I didn't do that. Try again when you're there.",
+      "area": "desktop",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/desktop-tools.js:604 (windy-chat ebc56254)"
+      }
+    },
+    "desktop.code_meaning": {
+      "say": "Your computer: {meaning}.",
+      "area": "desktop",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/desktop-tools.js:625 (windy-chat ebc56254)"
+      },
+      "slots": {
+        "meaning": "one of x-fills['desktop.code_meaning'] (desktop-tools.js MEANING, first letter capitalised); a code with no meaning shows the code itself"
+      }
+    },
+    "desktop.dictating": {
+      "say": "You were dictating, so I didn't move your windows. Ask me again when you're done.",
+      "area": "desktop",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/desktop-tools.js:606 (windy-chat ebc56254)"
+      }
+    },
+    "desktop.failed": {
+      "say": "I tried that on your computer but it didn't work, so nothing changed.",
+      "area": "desktop",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/desktop-tools.js:603 (windy-chat ebc56254)"
+      }
+    },
+    "desktop.mixed_round": {
+      "say": "Your computer: I didn't change anything there, because this request also used your phone or email. Ask me again for your computer on its own.",
+      "area": "desktop",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/desktop-tools.js:595 (windy-chat ebc56254)"
+      }
+    },
+    "desktop.settings_changed": {
+      "say": "Changed {n} setting{s} in Windy Word.",
+      "area": "desktop",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/desktop-tools.js:614 (windy-chat ebc56254)"
+      },
+      "slots": {
+        "n": "how many settings",
+        "s": "'s' unless n is 1"
+      }
+    },
+    "desktop.settings_read": {
+      "say": "Read {n} Windy Word setting{s} on your computer.",
+      "area": "desktop",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/desktop-tools.js:613 (windy-chat ebc56254)"
+      },
+      "slots": {
+        "n": "how many settings",
+        "s": "'s' unless n is 1"
+      }
+    },
+    "desktop.settings_undone": {
+      "say": "Undid my last change: {n} setting{s} put back{kept}.",
+      "area": "desktop",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/desktop-tools.js:616 (windy-chat ebc56254)"
+      },
+      "slots": {
+        "n": "how many settings were put back",
+        "s": "'s' unless n is 1",
+        "kept": "', K left as you changed it' (or 'them' when K is not 1) when the owner had changed some since, else empty"
+      }
+    },
+    "desktop.view_shown": {
+      "say": "Windy Word now shows {view}.",
+      "area": "desktop",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/desktop-tools.js:618 (windy-chat ebc56254)"
+      },
+      "slots": {
+        "view": "'the widget', 'the main window' or 'that view'"
+      }
+    },
+    "desktop.which_computer": {
+      "say": "Which computer should I use: {computers}?",
+      "area": "desktop",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/desktop-tools.js:621 (windy-chat ebc56254)"
+      },
+      "slots": {
+        "computers": "the computers' labels, comma-separated"
+      }
+    },
+    "fetch.robots_notice": {
+      "say": "This website asks automated readers not to read this page, so I didn't open it.",
+      "area": "fetch",
+      "channel": "notice_to_user",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/windy_search_client.py:318 (windy-agent 393f9811)",
+        "chat-roster": null
+      },
+      "origin": "windy-search #109"
+    },
+    "fetch.robots_refused": {
+      "say": "This website's robots.txt asks automated readers not to read this page, so I won't fetch it.",
+      "area": "fetch",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/windy_search_client.py:316 (windy-agent 393f9811)",
+        "chat-roster": null
+      },
+      "origin": "windy-search #109"
+    },
+    "mail.bad_address": {
+      "say": "'{address}' doesn't look like an email address, so nothing was sent.",
+      "area": "mail",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/mail.py:87 (windy-agent 393f9811)",
+        "chat-roster": null
+      },
+      "slots": {
+        "address": "the text the model gave, cut to 60 characters"
+      }
+    },
+    "mail.cannot_reach": {
+      "say": "Could not reach Windy Mail.",
+      "area": "mail",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/mail.py:353 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "mail.draft_ask": {
+      "say": "Reply send to send it, or cancel to drop it. Nothing goes out until you do.",
+      "area": "mail",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/mail.js:19 (windy-chat ebc56254)"
+      }
+    },
+    "mail.draft_dropped": {
+      "say": "Draft to {to} not sent (cancelled).",
+      "area": "mail",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/mail.js:65 (windy-chat ebc56254)"
+      },
+      "slots": {
+        "to": "the first recipient, then ' and N more' when there are more"
+      }
+    },
+    "mail.draft_ready": {
+      "say": "📧 Ready to send from {from}:",
+      "area": "mail",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/mail.js:55 (windy-chat ebc56254)"
+      },
+      "slots": {
+        "from": "the agent's own mail address, or 'my mailbox'"
+      }
+    },
+    "mail.draft_still_held": {
+      "say": "Okay. The draft stays held until you say send or cancel.",
+      "area": "mail",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": "src/windyfly/channels/base.py:117 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "mail.drafts_cancelled": {
+      "say": "Cancelled {n} draft{s}. Nothing was sent.",
+      "area": "mail",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": "src/windyfly/channels/base.py:120 (windy-agent 393f9811)",
+        "chat-roster": null
+      },
+      "slots": {
+        "n": "how many drafts",
+        "s": "'s' unless n is 1"
+      }
+    },
+    "mail.footer_approved": {
+      "say": "(Sent with the owner's approval.)",
+      "area": "mail",
+      "channel": "outbound_text",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/mail.py:146 (windy-agent 393f9811)",
+        "chat-roster": null
+      },
+      "origin": "Hub 2026-10-12 (the approver is never named)"
+    },
+    "mail.missing_args": {
+      "say": "I didn't get that email right. Who should it go to, and what should it say?",
+      "area": "mail",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/helpers.js:34 (windy-chat ebc56254)"
+      }
+    },
+    "mail.no_email_here": {
+      "say": "I don't see an email in our conversation to work with. When one arrives in my mailbox I'll post it here.",
+      "area": "mail",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/mail.js:149 (windy-chat ebc56254)"
+      }
+    },
+    "mail.no_mailbox": {
+      "say": "This agent's own Windy Mail mailbox isn't ready to send, so nothing was sent. Tell the owner.",
+      "area": "mail",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/mail.py:113 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "mail.no_mailbox_at_mail": {
+      "say": "Windy Mail has no mailbox for this agent.",
+      "area": "mail",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/mail.py:362 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "mail.not_configured": {
+      "say": "Email is not configured for this agent.",
+      "area": "mail",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/mail.py:323 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "mail.not_signed_in": {
+      "say": "I couldn't sign in to Windy Mail.",
+      "area": "mail",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/mail.py my_mailbox (windy-agent #681, merging)",
+        "chat-roster": null
+      },
+      "origin": "Boss 2026-11-02T11:59:20Z, approved as written; Hub #9 TRUE at windy-agent a4a4213f"
+    },
+    "mail.not_signed_in_send": {
+      "say": "I couldn't sign in to Windy Mail, so nothing was sent.",
+      "area": "mail",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/channels/email.py send_email (windy-agent #681, merging)",
+        "chat-roster": null
+      },
+      "origin": "Boss 2026-11-02T11:59:20Z, approved as written; Hub #9 TRUE at windy-agent a4a4213f"
+    },
+    "mail.replied": {
+      "say": "Sent ✓ — replied to {to} from {from}.",
+      "area": "mail",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/mail.js:207 (windy-chat ebc56254)"
+      },
+      "slots": {
+        "to": "the address replied to",
+        "from": "the agent's own mail address, or 'my mailbox'"
+      }
+    },
+    "mail.reply_draft": {
+      "say": "📧 Reply to {to}",
+      "area": "mail",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/mail.js:187 (windy-chat ebc56254)"
+      },
+      "slots": {
+        "to": "the address the reply goes to"
+      }
+    },
+    "mail.reply_draft_waiting_elsewhere": {
+      "say": "I already have a draft waiting for your OK in another room, so I haven't prepared this reply. Send or cancel that first, then ask me again.",
+      "area": "mail",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/mail.js:181 (windy-chat ebc56254)"
+      }
+    },
+    "mail.reply_failed": {
+      "say": "Sorry — the reply failed. Want to try again?",
+      "area": "mail",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/mail.js:208 (windy-chat ebc56254)"
+      }
+    },
+    "mail.reply_not_built": {
+      "say": "I couldn't put that reply together. Tell me what you'd like to say.",
+      "area": "mail",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/mail.js:177 (windy-chat ebc56254)"
+      }
+    },
+    "mail.send_failed": {
+      "say": "Sorry — the send failed. Want to try again?",
+      "area": "mail",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/mail.js:225 (windy-chat ebc56254)"
+      }
+    },
+    "mail.sent_from_to": {
+      "say": "Sent ✓ — from {from} to {to}{copies}.",
+      "area": "mail",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/mail.js:223, services/agent-roster/lib/agent-runner.js:1263 (windy-chat ebc56254)"
+      },
+      "slots": {
+        "from": "the agent's own mail address",
+        "to": "the To addresses",
+        "copies": "', cc <addresses>' and ', bcc <addresses>' when the email has them (mail.js:223), else empty (always empty at agent-runner.js:1263)"
+      }
+    },
+    "mail.sent_with_approval": {
+      "say": "Sent to {to}, with your approval.",
+      "area": "mail",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": "src/windyfly/channels/base.py:114 (windy-agent 393f9811)",
+        "chat-roster": null
+      },
+      "slots": {
+        "to": "the recipient address, or 'the recipient'"
+      }
+    },
+    "mail.server_refused": {
+      "say": "The mail server refused it.",
+      "area": "mail",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/channels/email.py:53 (windy-agent 393f9811)",
+        "chat-roster": null
+      },
+      "origin": "Windy Mail 2026-10-12 (refusal shapes)"
+    },
+    "mail.server_unsure": {
+      "say": "The mail server had trouble, so I can't be sure it went. Check the Sent folder before sending again.",
+      "area": "mail",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/channels/email.py:52 (windy-agent 393f9811)",
+        "chat-roster": null
+      },
+      "origin": "Windy Mail 2026-10-12 (refusal shapes)"
+    },
+    "mail.too_many_recipients": {
+      "say": "That is more than {max} recipients on one email, so nothing was sent.",
+      "area": "mail",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/mail.py:96 (windy-agent 393f9811)",
+        "chat-roster": null
+      },
+      "slots": {
+        "max": "the per-message cap (50)"
+      }
+    },
+    "outbound.email_footer": {
+      "say": "Sent by {agent}, an AI agent {acting}.",
+      "area": "outbound",
+      "channel": "outbound_text",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/outbound_identity.py:56 (windy-agent 393f9811)",
+        "chat-roster": null
+      },
+      "slots": {
+        "agent": "the agent's name",
+        "acting": "'acting for <owner>' or 'acting for its owner'"
+      },
+      "origin": "legal review 2026-09-23"
+    },
+    "outbound.sms_signoff": {
+      "say": "— {agent}, {who}. Reply STOP to opt out.",
+      "area": "outbound",
+      "channel": "outbound_text",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/outbound_identity.py:62 (windy-agent 393f9811)",
+        "chat-roster": null
+      },
+      "slots": {
+        "agent": "the agent's name",
+        "who": "'AI assistant for <first name>'"
+      },
+      "origin": "legal review 2026-09-23"
+    },
+    "phone.answer_arrives_later": {
+      "say": "The phone's answer arrives later as a new message in this chat.",
+      "area": "phone",
+      "channel": "note",
+      "runtimes": {
+        "windy-fly": "src/windyfly/channels/phone_tools.py:256 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "phone.code_meaning": {
+      "say": "Your phone: {meaning}.",
+      "area": "phone",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/phone-tools.js:224 (windy-chat ebc56254)"
+      },
+      "slots": {
+        "meaning": "one of x-fills['phone.code_meaning'] (phone-tools.js MEANING, first letter capitalised); a code with no meaning shows the code itself"
+      }
+    },
+    "phone.contacts_found": {
+      "say": "Found {n} contact{s} on your phone.",
+      "area": "phone",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/phone-tools.js:217 (windy-chat ebc56254)"
+      },
+      "slots": {
+        "n": "how many contacts matched",
+        "s": "'s' unless n is 1"
+      }
+    },
+    "phone.no_contacts": {
+      "say": "No contacts on your phone matched.",
+      "area": "phone",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/phone-tools.js:217 (windy-chat ebc56254)"
+      }
+    },
+    "phone.texts_handed": {
+      "say": "Texts: {sent} handed to your phone to send, {cancelled} cancelled{failed}.",
+      "area": "phone",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/phone-tools.js:221 (windy-chat ebc56254)"
+      },
+      "slots": {
+        "sent": "how many",
+        "cancelled": "how many",
+        "failed": "', N failed' when any failed, else empty"
+      }
+    },
+    "search.daily_free_used": {
+      "say": "Today's free searches are used up. They reset at midnight UTC.",
+      "area": "search",
+      "channel": "notice_to_user",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/windy_search_client.py:119 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "sms.approval_unreachable": {
+      "say": "I need your OK before texting this number, and I couldn't ask Windy just now.",
+      "area": "sms",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/sms.py:340 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "sms.asked_owner": {
+      "say": "I asked for your OK in Windy before texting this number. I'll wait for it.",
+      "area": "sms",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/sms.py:358 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "sms.asked_owner_inbox": {
+      "say": "I've asked {owner} in the Windy Inbox before texting this number. I'll wait for the OK.",
+      "area": "sms",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/sms.py:356 (windy-agent 393f9811)",
+        "chat-roster": null
+      },
+      "slots": {
+        "owner": "the owner's first name, or 'its owner'"
+      }
+    },
+    "sms.briefly_down": {
+      "say": "Texting is briefly unavailable on Windy's side, so I didn't send it. Try again shortly.",
+      "area": "sms",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/sms.py:156 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "sms.carrier_pending": {
+      "say": "I can receive texts, but the phone carriers haven't approved sending from this number yet. That usually takes a few days.",
+      "area": "sms",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/sms.py:148 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "sms.consent_check_failed": {
+      "say": "I couldn't check whether I'm allowed to text that number, so I didn't send it.",
+      "area": "sms",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/sms.py:390 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "sms.first_text_intro": {
+      "say": "Hi, this is {agent}, an AI assistant texting for {owner}. {message} Reply STOP to opt out, HELP for help, or email support@windyword.ai.",
+      "area": "sms",
+      "channel": "outbound_text",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/sms.py:342 (windy-agent 804d355c)",
+        "chat-roster": null
+      },
+      "slots": {
+        "agent": "the agent's name",
+        "owner": "the owner's name",
+        "message": "the text itself"
+      },
+      "origin": "Grant approved 2026-10-01; legal review 2026-09-23. 1.4.0: the help address added, LEGAL DECISION 119 Q3 (B) (Boss RULING 2026-11-12T06:48:57Z; Legal's words 2026-11-12T06:54:21Z): ONE FIXED ADDRESS, NOT A SLOT, since the help desk is Windy's and an owner's own email must never go to a stranger by default. Windy Text refuses a first text without it (first_text_needs_help_address) only after the windy-fly words are LIVE"
+    },
+    "sms.first_text_question": {
+      "say": "Text {to} for the first time? Reply yes to allow.",
+      "area": "sms",
+      "channel": "question",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/sms.py:229 (windy-agent 393f9811)",
+        "chat-roster": null
+      },
+      "slots": {
+        "to": "the number"
+      }
+    },
+    "sms.help": {
+      "say": "This is {agent}, an AI assistant texting for {owner} through Windy. For help, email support@windyword.ai. Reply STOP to opt out.",
+      "area": "sms",
+      "channel": "outbound_text",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": null,
+        "windy-text": "service/app/byo/keywords.py:86 (windy-text 5f4703ed)"
+      },
+      "slots": {
+        "agent": "the name of the agent that is texting this person: the agent this sender last talked to, else the number's only agent; never a guess (LEGAL DECISION 28 (7) Q2), else sms.help_shared",
+        "owner": "the owner's name where a runtime holds it; Windy Text holds none and always fills 'its owner' (LEGAL DECISION 28 (7) Q1: add no name source)"
+      },
+      "origin": "LEGAL DECISION 28 (2) (Legal 2026-11-09T11:14:19Z): sms.first_text_intro promises 'HELP for help', so HELP must be answered"
+    },
+    "sms.help_shared": {
+      "say": "This number is used by AI assistants texting for their owner through Windy. For help, email support@windyword.ai. Reply STOP to opt out.",
+      "area": "sms",
+      "channel": "outbound_text",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": null,
+        "windy-text": "service/app/byo/keywords.py:91 (windy-text 5f4703ed)"
+      },
+      "origin": "LEGAL DECISION 28 (7) Q2 (c) (Legal 2026-11-09T12:53:02Z): several agents on the number and no history with this sender, so no agent is named"
+    },
+    "sms.http_refused": {
+      "say": "Windy Text couldn't take that text (it answered {status}), so I didn't send it.",
+      "area": "sms",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/sms.py:180 (windy-agent 393f9811)",
+        "chat-roster": null
+      },
+      "slots": {
+        "status": "Windy Text's HTTP status"
+      }
+    },
+    "sms.just_approved": {
+      "say": "That number was just approved. Ask me once more and I'll send it.",
+      "area": "sms",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/sms.py:348 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "sms.no_sign_in": {
+      "say": "I couldn't sign in to Windy Text just now, so I didn't send it.",
+      "area": "sms",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/sms.py:163 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "sms.not_born": {
+      "say": "I'm not fully set up yet (my Eternitas birth isn't finished), so I didn't send it.",
+      "area": "sms",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/sms.py:320 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "sms.not_set_up": {
+      "say": "Texting isn't set up for your account yet, so I didn't send it.",
+      "area": "sms",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/sms.py:157 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "sms.opted_out_wont": {
+      "say": "That number has opted out of texts (they replied STOP). I won't text it.",
+      "area": "sms",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/sms.py:362 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "sms.optout_key_missing": {
+      "say": "Right now I can only text you. The key that protects my do-not-text list is missing from this computer, so I can't tell who asked me to stop texting them. Restoring my latest backup brings the key back, if that backup has it. Until then I won't text anyone else.",
+      "area": "sms",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/sms_optout.py:63, said at src/windyfly/tools/sms.py:153 (windy-agent fb6277d4)",
+        "chat-roster": null
+      },
+      "origin": "LEGAL DECISION 92 (Legal 2026-11-11T12:34:46Z), the words of Legal 2026-11-11T03:24:49Z (a). Code also mails it to the owner once, under the subject 'Your agent can only text you for now' (src/windyfly/sms_optout.py:521)"
+    },
+    "sms.optout_unreadable": {
+      "say": "I didn't text that number. I couldn't read my do-not-text list just now, so I can't tell whether they asked me to stop texting them.",
+      "area": "sms",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/sms_optout.py:69, said at src/windyfly/tools/sms.py:148 (windy-agent fb6277d4)",
+        "chat-roster": null
+      },
+      "origin": "Windy Legal's words (Legal 2026-11-11T04:55:36Z): when the record cannot be read, the owner is not told the person replied STOP"
+    },
+    "sms.owner_opted_out": {
+      "say": "You've turned off texts from me, so I didn't send it.",
+      "area": "sms",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/sms.py:152 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "sms.owner_phone_not_set_up": {
+      "say": "Your phone isn't set up for texting yet, so I didn't send it.",
+      "area": "sms",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/sms.py:397 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "sms.owner_phone_not_verified": {
+      "say": "Your phone number isn't verified for texting yet, so I didn't send it.",
+      "area": "sms",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/sms.py:158 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "sms.quiet_hours": {
+      "say": "It's quiet hours for that person, so I didn't send it. I can try in the morning.",
+      "area": "sms",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/sms.py:154 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "sms.recipient_not_consented": {
+      "say": "That person hasn't agreed to get texts from me yet, so I didn't send it.",
+      "area": "sms",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/sms.py:151 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "sms.recipient_opted_out": {
+      "say": "That number has opted out of texts (they replied STOP), so I didn't send it.",
+      "area": "sms",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/sms.py:153 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "sms.sent_without_label": {
+      "say": "That text went out WITHOUT the usual '[name · Windy]' label. Please tell Windy support.",
+      "area": "sms",
+      "channel": "notice_to_user",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/sms.py:422 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "sms.spend_cap": {
+      "say": "Your texting spending limit has been reached, so I didn't send it.",
+      "area": "sms",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/sms.py:155 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "sms.standing": {
+      "say": "My Eternitas standing doesn't allow sending texts right now, so I didn't send it.",
+      "area": "sms",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/sms.py:164 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "sms.texted_with_ok": {
+      "say": "Texted {to}, with your OK.",
+      "area": "sms",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/sms.py:267 (windy-agent 393f9811)",
+        "chat-roster": null
+      },
+      "slots": {
+        "to": "the number"
+      }
+    },
+    "sms.too_many_requests": {
+      "say": "There are already a lot of texting requests waiting for your OK in Windy. Please review them first.",
+      "area": "sms",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/sms.py:365 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "sms.twilio_key_invalid": {
+      "say": "Your Twilio key isn't working, so I didn't send it. Please reconnect Twilio.",
+      "area": "sms",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/sms.py:159 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "sms.unavailable": {
+      "say": "Texting isn't available yet; I can reach them by email or you can message them in Windy Chat.",
+      "area": "sms",
+      "channel": "error",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/sms.py:73 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "sms.unsubscribed": {
+      "say": "You're unsubscribed and won't get more texts from this number. Reply START to get them again.",
+      "area": "sms",
+      "channel": "outbound_text",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": null,
+        "windy-text": "service/app/byo/keywords.py:81 (windy-text 5f4703ed)"
+      },
+      "origin": "LEGAL DECISION 28 (1) (Legal 2026-11-09T11:14:19Z): an opt-out confirmation says what stops. Its fact gate is met: START clears Windy's own record (windy-text service/app/byo/messaging.py). Windy Fly no longer says it: its own texting channel left in windy-agent #788 (8824dc47)"
+    },
+    "sms.wont_text_number": {
+      "say": "OK, I won't text that number.",
+      "area": "sms",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/sms.py:264 (windy-agent 393f9811)",
+        "chat-roster": null
+      }
+    },
+    "team.agent_not_found": {
+      "say": "I couldn't find that agent among your agents.",
+      "area": "team",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/team-tools.js:14 (windy-chat ebc56254)"
+      }
+    },
+    "team.agent_row": {
+      "say": "• {name}{me}",
+      "area": "team",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/team-tools.js:19 (windy-chat ebc56254)"
+      },
+      "slots": {
+        "name": "the agent's name (or its passport number when it has none)",
+        "me": "' (me)' for this agent, else empty"
+      }
+    },
+    "team.agents_header": {
+      "say": "Your agents:",
+      "area": "team",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/team-tools.js:20 (windy-chat ebc56254)"
+      }
+    },
+    "team.ambiguous": {
+      "say": "More than one of your agents has that name; tell me which.",
+      "area": "team",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/team-tools.js:15 (windy-chat ebc56254)"
+      }
+    },
+    "team.asked": {
+      "say": "Asked {to}.",
+      "area": "team",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/teamwork.js:190 (windy-chat ebc56254)"
+      },
+      "slots": {
+        "to": "the agent's name"
+      }
+    },
+    "team.could_not_ask": {
+      "say": "I couldn't ask that agent: {reason}.",
+      "area": "team",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/teamwork.js:191 (windy-chat ebc56254)"
+      },
+      "slots": {
+        "reason": "the detail in the tool's result, or 'it is not available here'"
+      }
+    },
+    "team.no_agents": {
+      "say": "I don't see any agents for you.",
+      "area": "team",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/team-tools.js:20 (windy-chat ebc56254)"
+      }
+    },
+    "team.self": {
+      "say": "That's me, so I haven't sent anything.",
+      "area": "team",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/team-tools.js:16 (windy-chat ebc56254)"
+      }
+    },
+    "team.sent_to": {
+      "say": "Sent to {to}.{note}",
+      "area": "team",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/team-tools.js:22 (windy-chat ebc56254)"
+      },
+      "slots": {
+        "to": "the agent's name",
+        "note": "' ' + the note in the tool's result, first letter capitalised, + '.' when there is one, else empty"
+      }
+    },
+    "team.unreachable": {
+      "say": "I couldn't reach that agent just now.",
+      "area": "team",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/team-tools.js:17 (windy-chat ebc56254)"
+      }
+    },
+    "team.will_tell_you": {
+      "say": "I'll tell you what they say.",
+      "area": "team",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/team-tools.js:104 (windy-chat ebc56254)"
+      }
+    },
+    "tools.done": {
+      "say": "Done.",
+      "area": "tools",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/runner/helpers.js:124, services/agent-roster/lib/runner/build-calendar.js:139, services/agent-roster/lib/runner/build-calendar.js:143 (windy-chat ebc56254)"
+      }
+    },
+    "tools.guard_fallback": {
+      "say": "Let me check that properly: could you tell me once more what you'd like me to do?",
+      "area": "tools",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/outcome-phrases.js:60 (windy-chat ebc56254)"
+      }
+    },
+    "tools.owner_only": {
+      "say": "Only my owner can ask me to do that.",
+      "area": "tools",
+      "channel": "speak",
+      "runtimes": {
+        "windy-fly": "src/windyfly/tools/registry.py:91 (windy-agent 393f9811)",
+        "chat-roster": null
+      },
+      "origin": "Hub ruling 2026-10-17"
+    },
+    "tools.tool_failed": {
+      "say": "Sorry — the {tool} tool failed.",
+      "area": "tools",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/agent-runner.js:1268 (windy-chat ebc56254)"
+      },
+      "slots": {
+        "tool": "the tool's name"
+      }
+    },
+    "tools.tool_succeeded": {
+      "say": "Done — {tool} succeeded.",
+      "area": "tools",
+      "channel": "owner_reply",
+      "runtimes": {
+        "windy-fly": null,
+        "chat-roster": "services/agent-roster/lib/agent-runner.js:1265 (windy-chat ebc56254)"
+      },
+      "slots": {
+        "tool": "the tool's name"
+      }
+    }
+  },
+  "type": "object",
+  "$defs": {
+    "Phrase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "say",
+        "area",
+        "channel",
+        "runtimes"
+      ],
+      "properties": {
+        "say": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 400
+        },
+        "area": {
+          "enum": [
+            "builder",
+            "calendar",
+            "call",
+            "cloud",
+            "desktop",
+            "fetch",
+            "mail",
+            "outbound",
+            "phone",
+            "search",
+            "sms",
+            "team",
+            "tools"
+          ]
+        },
+        "channel": {
+          "enum": [
+            "description",
+            "error",
+            "note",
+            "notice_to_user",
+            "outbound_text",
+            "owner_reply",
+            "question",
+            "say",
+            "speak"
+          ]
+        },
+        "slots": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "propertyNames": {
+            "pattern": "^[a-z_]+$"
+          }
+        },
+        "runtimes": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "windy-fly",
+            "chat-roster"
+          ],
+          "properties": {
+            "windy-fly": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "chat-roster": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "windy-text": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "origin": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

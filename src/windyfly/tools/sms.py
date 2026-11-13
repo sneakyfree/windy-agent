@@ -334,11 +334,13 @@ def owner_reply(text: str) -> str | None:
 # ── BYO texting via Windy Text (WINDY_TEXT_BYO=1) ────────────────────
 # Windy Text decides consent (owner-approved recipients, STOP) and adds the
 # "[Name · Windy] " label to every text; the agent asks it, never keeps its own
-# list, and adds no footer. The first text to a contact uses the wording Grant
-# approved (10-01). A send whose 200 lacks prefix_applied=true is reported to the
-# owner as sent WITHOUT the label.
+# list, and adds no footer. The first text to a contact says the words of
+# tool-phrases.v1 sms.first_text_intro: Grant's approved wording (10-01) plus Windy's
+# one help address (LEGAL DECISION 119 Q3 (B), 2026-11-12; a fixed address, never a
+# slot). Windy Text refuses a first text without that address once its check is live.
+# A send whose 200 lacks prefix_applied=true is reported to the owner as sent WITHOUT the label.
 _FIRST_TEXT = ("Hi, this is {agent}, an AI assistant texting for {owner}. {message} "
-               "Reply STOP to opt out, HELP for help.")
+               "Reply STOP to opt out, HELP for help, or email support@windyword.ai.")
 
 
 def _names() -> tuple[str, str]:
