@@ -85,7 +85,7 @@ def test_the_refusal_says_why_and_what_to_do() -> None:
 def test_host_rw_still_runs_a_plain_command_for_the_owner() -> None:
     """The control for host_rw: the same handler, band and sandbox run a command that names nothing."""
     out = _shell_exec_handler(command="echo plain-ok", sandbox="host_rw", _allowed_roots=[], _dispatcher=None,
-                              _band=Band.OWNER)
+                              _band=Band.OWNER, _host_rw_enabled=True)
     assert out["exit_code"] == 0 and "plain-ok" in str(out["stdout"])
 
 

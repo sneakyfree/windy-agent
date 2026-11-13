@@ -111,7 +111,8 @@ def test_host_rw_uses_the_turn_band_and_refuses_an_unknown_one():
     from windyfly.agent.capabilities.descriptor import Band
     for band in (None, Band.TRUSTED):
         with pytest.raises(PermissionError, match="host_rw requires OWNER"):
-            _shell_exec_handler(command="true", sandbox="host_rw", _allowed_roots=[], _dispatcher=None, _band=band)
+            _shell_exec_handler(command="true", sandbox="host_rw", _allowed_roots=[], _dispatcher=None, _band=band,
+                                _host_rw_enabled=True)
 
 
 def test_the_registered_shell_passes_the_real_band():

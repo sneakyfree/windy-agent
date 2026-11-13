@@ -373,6 +373,7 @@ def test_shell_exec_handler_refuses_host_rw_below_owner_band():
             sandbox="host_rw",
             _dispatcher=_make_mock_dispatcher(),
             _band=Band.TRUSTED,
+            _host_rw_enabled=True,
         )
 
 

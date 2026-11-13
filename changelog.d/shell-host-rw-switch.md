@@ -1,0 +1,1 @@
+- **The whole-host shell is off unless the agent's soul turns it on.** shell.exec's host mode (sandbox host_rw) now needs [capabilities.shell] host_rw = true in the soul's config. Off, the tool does not offer it and refuses it even on the owner's turn, and says how to turn it on; on, it works as before (owner only). The Docker sandbox is unchanged.

@@ -133,7 +133,8 @@ def test_shell_host_rw_in_a_goal_turn_is_recorded() -> None:
 
     with bands.goal_turn():
         with pytest.raises(PermissionError):
-            _shell_exec_handler(command="ls", sandbox="host_rw", _dispatcher=MagicMock(), _band=Band.TRUSTED)
+            _shell_exec_handler(command="ls", sandbox="host_rw", _dispatcher=MagicMock(), _band=Band.TRUSTED,
+                                _host_rw_enabled=True)
         assert bands.needs_owner() == "shell.exec (host_rw)"
 
 
@@ -300,7 +301,8 @@ def test_docker_only_refuses_host_rw_even_at_owner() -> None:
     from windyfly.agent.capabilities.shell import _shell_exec_handler
 
     with bands.docker_only(), pytest.raises(PermissionError, match="Docker only"):
-        _shell_exec_handler(command="ls", sandbox="host_rw", _dispatcher=MagicMock(), _band=Band.OWNER)
+        _shell_exec_handler(command="ls", sandbox="host_rw", _dispatcher=MagicMock(), _band=Band.OWNER,
+                            _host_rw_enabled=True)
 
 
 # ── Destructive steps pause a goal too (Boss BOARD 2026-11-07T19:39:14Z) ─────────────────────────────────────────────
